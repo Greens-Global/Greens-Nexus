@@ -82,6 +82,15 @@ describe('composeMyDay', () => {
     const out = M.composeMyDay(s, { tasks: live, taskById: Object.fromEntries(live.map((t) => [t.id, t])), me: ME });
     expect(out.rows.map((t) => t.id)).toEqual(['joins']);
   });
+  it('sorts by orderIds without making anything a pick, and a reordered due-today task still leaves', () => {
+    const a = task('a'); const auto = task('auto', { dueOn: day }); const other = task('other', { dueOn: day });
+    const s = { ...base, addedIds: ['a'], orderIds: ['other', 'auto', 'a'], serverOrder: ['a', 'auto', 'other'],
+      serverTasks: { a, auto, other } };
+    expect(M.composeMyDay(s, { me: ME }).rows.map((t) => t.id)).toEqual(['other', 'auto', 'a']);
+    const reassigned = { ...auto, assigneeIds: ['x@x.com'] };
+    const out = M.composeMyDay(s, { tasks: [reassigned, other, a], taskById: { auto: reassigned, other, a }, me: ME });
+    expect(out.rows.map((t) => t.id)).toEqual(['other', 'a']);
+  });
   it('moveId clamps at the ends', () => {
     expect(M.moveId(['a', 'b', 'c'], 'c', -1)).toEqual(['a', 'c', 'b']);
     const same = ['a', 'b'];
@@ -131,7 +140,7 @@ describe('My Day tab', () => {
     // Optimistic: on the list before the server answers, gone from Suggestions.
     expect(screen.getAllByRole('listitem').map((r) => r.getAttribute('aria-label'))).toEqual(['Late one']);
     expect(screen.queryByRole('button', { name: 'Add Late one to My Day' })).toBeNull();
-    await waitFor(() => expect(apiOverride.addToMyDay).toHaveBeenCalledWith(day, 'late'));
+    await waitFor(() => expect(apiOverride.addToMyDay).toHaveBeenCalledWith(day, 'late', true));
     await act(async () => { refuse(Object.assign(new Error('nope'), { status: 500 })); });
     await screen.findByText('Nothing planned for today yet.');
     expect(screen.getByRole('button', { name: 'Add Late one to My Day' })).toBeTruthy();
@@ -151,9 +160,43 @@ describe('My Day tab', () => {
     expect(state.createTask).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Buy toner', assigneeIds: [ME], projectId: '', dueOn: day,
     }));
-    expect(apiOverride.addToMyDay).toHaveBeenCalledWith(day, 'new');
+    expect(apiOverride.addToMyDay).toHaveBeenCalledWith(day, 'new', true);
     await screen.findByText('Buy toner');
     expect(box.value).toBe('');
+  });
+
+  it('a reorder changes the order only, never the picks', async () => {
+    const day = lib.todayISO();
+    const rows = [task('a', { title: 'Pick' }), task('auto', { title: 'Due today', dueOn: day })];
+    state = makeStore(rows);
+    apiOverride.getMyDay = vi.fn(() => Promise.resolve(payload(day, { tasks: rows, addedIds: ['a'] })));
+    apiOverride.reorderMyDay = vi.fn(() => new Promise(() => {}));
+    render(<MyDayView onOpen={() => {}} />);
+    const first = (await screen.findByText('Pick')).closest('[data-myday-row]');
+    fireEvent.keyDown(first, { key: 'ArrowDown', altKey: true });
+    expect(M.myDaySnapshot().addedIds).toEqual(['a']);
+    expect(M.myDaySnapshot().orderIds).toEqual(['auto', 'a']);
+    expect(screen.getAllByRole('listitem').map((r) => r.getAttribute('aria-label'))).toEqual(['Due today', 'Pick']);
+  });
+
+  it('Undo of a removal puts it back as what it was, where it was', async () => {
+    const day = lib.todayISO();
+    const rows = [task('a', { title: 'Pick' }), task('auto', { title: 'Due today', dueOn: day })];
+    state = makeStore(rows);
+    apiOverride.getMyDay = vi.fn(() => Promise.resolve(payload(day, { tasks: rows, addedIds: ['a'] })));
+    apiOverride.removeFromMyDay = vi.fn(() => Promise.resolve(payload(day, { tasks: [rows[0]], addedIds: ['a'], dismissedIds: ['auto'] })));
+    apiOverride.addToMyDay = vi.fn(() => Promise.resolve(payload(day, { tasks: rows, addedIds: ['a'] })));
+    apiOverride.reorderMyDay = vi.fn(() => Promise.resolve(payload(day, { tasks: rows, addedIds: ['a'] })));
+    render(<MyDayView onOpen={() => {}} />);
+    await screen.findByText('Due today');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Remove Due today from My Day' })); });
+    const undo = state.offerUndo.mock.calls.at(-1)[1];
+    await act(async () => { undo(); });
+    expect(apiOverride.addToMyDay).toHaveBeenCalledWith(day, 'auto', false);   // a due-today task, not a pick
+    await waitFor(() => expect(apiOverride.reorderMyDay).toHaveBeenCalledWith(day, ['a', 'auto']));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Remove Pick from My Day' })); });
+    await act(async () => { state.offerUndo.mock.calls.at(-1)[1](); });
+    expect(apiOverride.addToMyDay).toHaveBeenLastCalledWith(day, 'a', true);
   });
 
   it('Alt+Down moves a row and saves the new order', async () => {
@@ -230,13 +273,27 @@ describe('the drawer sun', () => {
     const sun = await screen.findByRole('button', { name: 'Add To My Day' });
     expect(sun.getAttribute('aria-pressed')).toBe('false');
     await act(async () => { fireEvent.click(sun); });
-    expect(apiOverride.addToMyDay).toHaveBeenCalledWith(day, 't1');
+    expect(apiOverride.addToMyDay).toHaveBeenCalledWith(day, 't1', true);
     const on = screen.getByRole('button', { name: 'Remove From My Day' });
     expect(on.getAttribute('aria-pressed')).toBe('true');
     await act(async () => { fireEvent.click(on); });
     expect(apiOverride.removeFromMyDay).toHaveBeenCalledWith(day, 't1');
     expect(screen.getByRole('button', { name: 'Add To My Day' })).toBeTruthy();
     expect(state.offerUndo).toHaveBeenCalledWith(expect.stringMatching(/Removed "Drawer task" from My Day/), expect.any(Function));
+  });
+
+  it('follows the new day when the tab is looked at again after midnight', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 9, 22, 23, 50, 0));
+    const t = task('t1', { title: 'Late night' });
+    state = makeStore([t]);
+    apiOverride.getMyDay = vi.fn((day) => Promise.resolve(day === '2026-10-22'
+      ? payload(day, { tasks: [t], addedIds: ['t1'] }) : payload(day)));
+    render(<MyDayToggle task={t} />);
+    await screen.findByRole('button', { name: 'Remove From My Day' });
+    await act(async () => { vi.setSystemTime(new Date(2026, 9, 23, 7, 0, 0)); window.dispatchEvent(new Event('focus')); });
+    expect(apiOverride.getMyDay).toHaveBeenLastCalledWith('2026-10-23');
+    await screen.findByRole('button', { name: 'Add To My Day' });
   });
 
   it('sits in the task drawer header', async () => {
@@ -249,5 +306,16 @@ describe('the drawer sun', () => {
     const { default: TaskDetailDrawer } = await import('./TaskDetailDrawer');
     render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
     await waitFor(() => expect(screen.getByTestId('myday-toggle').getAttribute('aria-label')).toBe('Remove From My Day'));
+  });
+});
+
+describe('phone bar on My Day', () => {
+  it('has no filter button when the screen has nothing to filter', async () => {
+    const { default: MobileTaskBar } = await import('./MobileTaskBar');
+    const views = [{ key: 'myday', label: 'My Day', icon: () => null }];
+    const { rerender } = render(<MobileTaskBar views={views} view="myday" setView={() => {}} onCreate={() => {}} filterSheet={null} />);
+    expect(screen.queryByLabelText('Filters & sort')).toBeNull();
+    rerender(<MobileTaskBar views={views} view="myday" setView={() => {}} onCreate={() => {}} filterSheet={() => null} />);
+    expect(screen.getByLabelText('Filters & sort')).toBeTruthy();
   });
 });

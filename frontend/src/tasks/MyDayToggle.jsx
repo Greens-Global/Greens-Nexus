@@ -2,8 +2,9 @@
 // the sun in the task drawer's header, and the item in a list row's menu.
 // Both read and change the one My Day copy (tasks/myDay.js), so the tab
 // shows the change at once.
+import { useEffect } from 'react';
 import { Sun } from 'lucide-react';
-import { useMyDay } from './myDay';
+import { useMyDay, checkMyDayClock } from './myDay';
 import { NX, btn } from './theme';
 
 const labelFor = (on) => (on ? 'Remove From My Day' : 'Add To My Day');
@@ -11,7 +12,17 @@ const labelFor = (on) => (on ? 'Remove From My Day' : 'Add To My Day');
 /** The drawer header's sun: filled amber while the task is on today's list. */
 export default function MyDayToggle({ task }) {
   const myDay = useMyDay();
-  if (!task?.id || !myDay.me) return null;
+  const { me } = myDay;
+  // A drawer left open past midnight: the sun follows the new day once the
+  // tab is looked at again (the shared copy's own day check).
+  useEffect(() => {
+    if (!me) return undefined;
+    const back = () => { if (document.visibilityState !== 'hidden') checkMyDayClock(me); };
+    window.addEventListener('focus', back);
+    document.addEventListener('visibilitychange', back);
+    return () => { window.removeEventListener('focus', back); document.removeEventListener('visibilitychange', back); };
+  }, [me]);
+  if (!task?.id || !me) return null;
   const on = myDay.has(task.id);
   const label = labelFor(on);
   return (

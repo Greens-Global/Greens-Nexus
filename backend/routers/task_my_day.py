@@ -7,10 +7,18 @@ the tasks themselves are never changed by any of this. Nobody else sees it.
 
 Storage: one JSON document on the person's own task_table_prefs row
 (models.TaskTablePref.my_day), never a table of its own -
-    {"day": "YYYY-MM-DD", "added": [task id, ...], "dismissed": [task id, ...]}
-`added` is the person's picks in their order; `dismissed` holds due-today
-tasks they took off today, so auto-inclusion does not bring them straight
-back. The day is the person's local date, sent by the browser (tasks/lib.js
+    {"day": "YYYY-MM-DD", "added": [task id, ...], "dismissed": [task id, ...],
+     "order": [task id, ...]}
+Membership and order are kept apart:
+- `added` is the person's PICKS - only what they put on the list themselves.
+- The list's other members are worked out on every read: the person's tasks
+  due that day ("due-today tasks"), less `dismissed` (the ones they took off
+  today). A due-today task is never stored as a pick, so it leaves the list
+  by itself when it is reassigned or its date moves.
+- `order` is only for sorting. A reorder writes it and nothing else; the ids
+  it names come first, in that order, and everything it does not name follows
+  (picks newest first, then due-today tasks by priority).
+The day is the person's local date, sent by the browser (tasks/lib.js
 todayISO) and accepted only within a day of the server's UTC date. A stored
 day that is not the requested one reads as an empty list: the reset is lazy,
 no job runs at midnight.
@@ -37,8 +45,8 @@ import models
 from auth import company_scope, get_current_user, module_owner_acts_as, require_any_module_grant
 from database import get_db
 from routers.task_util import (
-    gen_id, is_manager, now_iso, task_assignees, task_is_visible, task_visible_to,
-    visible_project_ids, wall_tasks,
+    _emp_company_map, gen_id, is_manager, now_iso, task_assignees, task_company, task_is_visible,
+    task_visible_to, visible_project_ids,
 )
 
 # The Tasks router's own gate: the same three dependencies, so My Day is
@@ -86,9 +94,10 @@ def _state(row, day: str) -> dict:
     """Today's list from the row. Another day's document is an empty list."""
     raw = row.my_day if row is not None and isinstance(row.my_day, dict) else {}
     if raw.get("day") != day:
-        return {"day": day, "added": [], "dismissed": []}
+        return {"day": day, "added": [], "dismissed": [], "order": []}
     return {"day": day, "added": _ids(raw.get("added"), MAX_ADDED),
-            "dismissed": _ids(raw.get("dismissed"), MAX_DISMISSED)}
+            "dismissed": _ids(raw.get("dismissed"), MAX_DISMISSED),
+            "order": _ids(raw.get("order"), MAX_ORDER)}
 
 
 def _row(db: Session, email: str, lock: bool = False):
@@ -120,8 +129,11 @@ def _locked_row(db: Session, email: str):
 
 
 def _save(db: Session, row, state: dict) -> None:
+    # Callers build their answer BEFORE this: the commit expires every row the
+    # session holds, and reading them afterwards would reload them one by one.
     row.my_day = {"day": state["day"], "added": state["added"][:MAX_ADDED],
-                  "dismissed": state["dismissed"][-MAX_DISMISSED:]}   # reassigned, never mutated
+                  "dismissed": state["dismissed"][-MAX_DISMISSED:],
+                  "order": state["order"][:MAX_ORDER]}   # reassigned, never mutated
     row.updated_at = now_iso()
     db.commit()
 
@@ -147,16 +159,29 @@ def _mine_filter(me: str):
 
 
 class _Sight:
-    """Who-can-see-this for one request, worked out at most once: managers and
-    the cheap checks (org task, owner / creator / assignee / follower) answer
-    most rows; the caller's visible projects are built only for a row they do
-    not settle."""
+    """Who-can-see-what for ONE request, each part worked out at most once
+    and shared by every check the request makes: the company scope and the
+    employee -> company map (the wall, as wall_tasks applies it), and the
+    caller's visible projects (task_visible_to) - built only for a row the
+    cheap checks (manager, org task, owner / creator / assignee / follower)
+    do not settle."""
     def __init__(self, db: Session, user: dict):
         self.db, self.user = db, user
+        self.scope = company_scope(user, db)
         self.manager = is_manager(user)
+        self._emp = None
         self._visible = None
 
+    def walled_in(self, t) -> bool:
+        if self.scope is None:
+            return True
+        if self._emp is None:
+            self._emp = _emp_company_map(self.db)
+        return task_company(t, self._emp) in self.scope
+
     def __call__(self, t) -> bool:
+        if t is None or t.deleted_at or not self.walled_in(t):
+            return False
         if self.manager or task_is_visible(t, self.user, set()):
             return True
         if self._visible is None:
@@ -164,47 +189,52 @@ class _Sight:
         return task_visible_to(self.db, self.user, t, self._visible)
 
 
-def _can_see(db: Session, user: dict, t, scope) -> bool:
-    return bool(t is not None and not t.deleted_at and wall_tasks(db, user, [t], scope) and _Sight(db, user)(t))
-
-
-def _payload(db: Session, user: dict, state: dict, scope) -> dict:
-    """Today's list and the suggestions, in a constant number of queries."""
-    from routers.tasks import task_to_dict   # the list views' own shape
-    me = (user.get("email") or "").lower()
-    day = state["day"]
-    tomorrow = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
-    added = state["added"]
-    dismissed = set(state["dismissed"])
-
-    # 1. My work: open, or due today (a finished due-today task stays for the day).
+def _gather(db: Session, sight: _Sight, me: str, day: str, added: list) -> dict:
+    """Every row today's list and its suggestions can draw on, in a constant
+    number of queries: my work (open, or due today - a finished due-today task
+    stays for the day) and the picks; `seen` = the ones the caller may see."""
     mine = [t for t in (db.query(models.Task)
                         .filter(_mine_filter(me),
                                 or_(models.Task.completed == False,  # noqa: E712
                                     models.Task.due_on.like(f"{day}%")))
                         .all())
             if me in task_assignees(t)]
-    # 2. The picks (live rows only - the default query leaves the bin out).
     by_id = {t.id: t for t in mine}
     want = [i for i in added if i not in by_id]
     if want:
+        # Live rows only - the default query leaves the bin out.
         for t in db.query(models.Task).filter(models.Task.id.in_(want)).all():
             by_id[t.id] = t
-    # 3. Company wall over everything at once, then sight per row.
-    sight = _Sight(db, user)
-    seen = {t.id for t in wall_tasks(db, user, list(by_id.values()), scope)
-            if not t.deleted_at and sight(t)}
+    return {"mine": mine, "by_id": by_id, "seen": {i for i, t in by_id.items() if sight(t)}}
 
-    shown = [i for i in added if i in seen]
-    in_list = set(shown)
-    auto = sorted((t for t in mine
-                   if t.id in seen and _due(t) == day and t.id not in dismissed and t.id not in in_list),
+
+def _list_ids(state: dict, g: dict) -> list[str]:
+    """Today's list, in display order (see the module docstring)."""
+    day, seen = state["day"], g["seen"]
+    dismissed = set(state["dismissed"])
+    picks = [i for i in state["added"] if i in seen]
+    pick_set = set(picks)
+    auto = sorted((t for t in g["mine"]
+                   if t.id in seen and _due(t) == day and t.id not in dismissed and t.id not in pick_set),
                   key=lambda t: (_PRIORITY_RANK.get(t.priority or "medium", 2), (t.title or "").lower()))
-    shown += [t.id for t in auto]
-    in_list.update(t.id for t in auto)
+    base = picks + [t.id for t in auto]
+    on = set(base)
+    first = [i for i in state["order"] if i in on]
+    first_set = set(first)
+    return first + [i for i in base if i not in first_set]
+
+
+def _payload(db: Session, me: str, state: dict, g: dict) -> dict:
+    """Today's list and the suggestions, from what _gather read."""
+    from routers.tasks import task_to_dict   # the list views' own shape
+    day = state["day"]
+    tomorrow = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+    shown = _list_ids(state, g)
+    in_list = set(shown)
+    seen = g["seen"]
 
     # Suggestions: my open work outside today's list, each task in one group.
-    open_mine = [t for t in mine if not t.completed and t.id in seen and t.id not in in_list]
+    open_mine = [t for t in g["mine"] if not t.completed and t.id in seen and t.id not in in_list]
     recent = _recently_assigned(db, me, open_mine)
     pools = {
         "overdue": sorted((t for t in open_mine if _due(t) and _due(t) < day),
@@ -231,24 +261,35 @@ def _payload(db: Session, user: dict, state: dict, scope) -> dict:
 
     return {
         "day": day,
-        "tasks": [task_to_dict(by_id[i]) for i in shown],
-        "addedIds": [i for i in added if i in seen],
-        "dismissedIds": sorted(dismissed),
+        "tasks": [task_to_dict(g["by_id"][i]) for i in shown],
+        "addedIds": [i for i in state["added"] if i in seen],
+        "dismissedIds": sorted(state["dismissed"]),
+        "orderIds": [i for i in state["order"] if i in in_list],
         "suggestions": suggestions,
     }
 
 
+def _is_occurrence(t) -> bool:
+    """A recurring task's occurrence: made by the schedule, not handed to me."""
+    rec = t.recurrence if isinstance(t.recurrence, dict) else None
+    return bool(rec) or (t.status or "") == "recurring"
+
+
 def _recently_assigned(db: Session, me: str, rows: list) -> dict:
     """{task id: when} for my open tasks somebody else put me on in the last
-    RECENT_DAYS: created for me by someone else, or an assignee change that
-    added me (field history's "assignee_changed" rows; a row written before
-    field history carried its change counts when someone else made it)."""
+    RECENT_DAYS:
+    - created for me by someone else - not a recurring task's next occurrence,
+      which the schedule makes and nobody hands over;
+    - or an assignee change by someone else whose recorded change (field
+      history) shows me ADDED. A row with no recorded change cannot say who
+      was added, so it does not count."""
     if not rows:
         return {}
     cutoff = (datetime.now(timezone.utc) - timedelta(days=RECENT_DAYS)).isoformat()
     out: dict = {}
     for t in rows:
-        if (t.created_at or "") >= cutoff and (t.created_by or "").lower() != me:
+        if ((t.created_at or "") >= cutoff and (t.created_by or "").lower() != me
+                and not _is_occurrence(t)):
             out[t.id] = t.created_at
     ids = [t.id for t in rows]
     for i in range(0, len(ids), 500):
@@ -261,11 +302,12 @@ def _recently_assigned(db: Session, me: str, rows: list) -> dict:
             if (a.actor_email or "").lower() == me:
                 continue
             ch = a.field_change if isinstance(a.field_change, dict) else None
-            if ch is not None:
-                to = {str(e).lower() for e in (ch.get("to") or [])}
-                frm = {str(e).lower() for e in (ch.get("from") or [])}
-                if me not in to or me in frm:
-                    continue
+            if ch is None:
+                continue
+            to = {str(e).lower() for e in (ch.get("to") or [])}
+            frm = {str(e).lower() for e in (ch.get("from") or [])}
+            if me not in to or me in frm:
+                continue
             if (a.at or "") > (out.get(a.entity_id) or ""):
                 out[a.entity_id] = a.at
     return out
@@ -275,6 +317,9 @@ def _recently_assigned(db: Session, me: str, rows: list) -> dict:
 class MyDayTask(BaseModel):
     day: str
     task_id: str
+    # False: only take the task off `dismissed` - a due-today task put back
+    # (Undo) returns as a due-today task, not as a pick.
+    pick: bool = True
 
 
 class MyDayOrder(BaseModel):
@@ -288,7 +333,9 @@ def get_my_day(day: str = Query(...), user: dict = Depends(get_current_user), db
     Tomorrow, In Progress, Recently Assigned; ten each)."""
     day = _check_day(day)
     me = user["email"].lower()
-    return _payload(db, user, _state(_row(db, me), day), company_scope(user, db))
+    state = _state(_row(db, me), day)
+    sight = _Sight(db, user)
+    return _payload(db, me, state, _gather(db, sight, me, day, state["added"]))
 
 
 @router.post("/add")
@@ -298,19 +345,25 @@ def add_to_my_day(body: MyDayTask, user: dict = Depends(get_current_user), db: S
     for one they cannot, like every per-task route."""
     day = _check_day(body.day)
     me = user["email"].lower()
-    scope = company_scope(user, db)
+    sight = _Sight(db, user)
     tid = (body.task_id or "").strip()
     t = db.query(models.Task).filter(models.Task.id == tid).first() if tid else None
-    if not _can_see(db, user, t, scope):
+    if not sight(t):
         raise HTTPException(404, "Task not found")
     row = _locked_row(db, me)
     state = _today_state_for_write(row, day)
-    added = [tid] + [i for i in state["added"] if i != tid]
-    if len(added) > MAX_ADDED:
-        raise HTTPException(400, f"My Day holds up to {MAX_ADDED} tasks")
-    state = {**state, "added": added, "dismissed": [i for i in state["dismissed"] if i != tid]}
+    dismissed = [i for i in state["dismissed"] if i != tid]
+    if body.pick:
+        added = [tid] + [i for i in state["added"] if i != tid]
+        if len(added) > MAX_ADDED:
+            raise HTTPException(400, f"My Day holds up to {MAX_ADDED} tasks")
+        state = {**state, "added": added, "dismissed": dismissed,
+                 "order": [tid] + [i for i in state["order"] if i != tid]}
+    else:
+        state = {**state, "dismissed": dismissed}
+    out = _payload(db, me, state, _gather(db, sight, me, day, state["added"]))
     _save(db, row, state)
-    return _payload(db, user, state, scope)
+    return out
 
 
 @router.post("/remove")
@@ -325,30 +378,31 @@ def remove_from_my_day(body: MyDayTask, user: dict = Depends(get_current_user), 
     row = _locked_row(db, me)
     state = _today_state_for_write(row, day)
     state = {**state, "added": [i for i in state["added"] if i != tid],
-             "dismissed": [i for i in state["dismissed"] if i != tid] + [tid]}
+             "dismissed": [i for i in state["dismissed"] if i != tid] + [tid],
+             "order": [i for i in state["order"] if i != tid]}
+    out = _payload(db, me, state, _gather(db, _Sight(db, user), me, day, state["added"]))
     _save(db, row, state)
-    return _payload(db, user, state, company_scope(user, db))
+    return out
 
 
 @router.put("/order")
 def reorder_my_day(body: MyDayOrder, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Put today's list in the order given. Only ids on the list right now
-    count (one removed in another tab is not brought back); picks the order
-    does not name keep their place after it, so a stale tab never drops one.
-    A due-today task that is moved becomes a pick."""
+    """Put today's list in the order given. Only the ORDER changes: nothing
+    becomes a pick, nothing leaves. Ids not on the list right now are ignored
+    (one removed in another tab is not brought back); ids the order does not
+    name keep their place after it, so a stale tab never drops one."""
     day = _check_day(body.day)
     me = user["email"].lower()
     if len(body.task_ids or []) > MAX_ORDER:
         raise HTTPException(400, "That is too many tasks to order")
-    scope = company_scope(user, db)
+    sight = _Sight(db, user)
     row = _locked_row(db, me)
     state = _today_state_for_write(row, day)
-    on_list = {t["id"] for t in _payload(db, user, state, scope)["tasks"]}
-    named = [i for i in _ids(body.task_ids, MAX_ORDER) if i in on_list or i in state["added"]]
-    rest = [i for i in state["added"] if i not in set(named)]
-    added = named + rest
-    if len(added) > MAX_ADDED:
-        raise HTTPException(400, f"My Day holds up to {MAX_ADDED} tasks")
-    state = {**state, "added": added}
+    g = _gather(db, sight, me, day, state["added"])
+    on_list = set(_list_ids(state, g))
+    named = [i for i in _ids(body.task_ids, MAX_ORDER) if i in on_list]
+    named_set = set(named)
+    state = {**state, "order": named + [i for i in state["order"] if i not in named_set]}
+    out = _payload(db, me, state, g)
     _save(db, row, state)
-    return _payload(db, user, state, scope)
+    return out

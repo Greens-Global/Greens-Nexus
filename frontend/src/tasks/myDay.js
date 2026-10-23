@@ -10,11 +10,17 @@
 // shows on the tab without a refetch. Changes are optimistic and go back,
 // with a notice, if the server refuses them.
 //
+// Membership and order are separate, as on the server:
+// - Picks (`addedIds`) are only what the person put on the list themselves.
+// - Due-today tasks are the person's tasks due today, less the ones they
+//   took off (`dismissedIds`). They are never stored as picks, so one leaves
+//   the list by itself when it is reassigned or its date moves.
+// - `orderIds` is only for sorting: a reorder writes it and nothing else.
+//   Named ids come first in that order; the rest follow (picks newest first,
+//   then due-today tasks).
 // The list on screen is composed from the server's answer AND the live task
-// store: a task the server put on today's list because it is mine and due
-// today leaves it the moment the store says it no longer is (due date moved,
-// reassigned), and one that becomes due today joins it, without waiting for
-// a refetch. Picks (`addedIds`) are only ever changed by the person.
+// store: a due-today task leaves the moment the store says it is no longer
+// mine and due today, and one that becomes so joins, without a refetch.
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
@@ -35,7 +41,7 @@ export const STALE_MS = 5 * 60 * 1000;
 
 const EMPTY = Object.freeze({
   email: '', day: '', status: 'idle', error: '',
-  addedIds: [], dismissedIds: [], serverOrder: [], serverTasks: {}, suggestions: [],
+  addedIds: [], dismissedIds: [], orderIds: [], serverOrder: [], serverTasks: {}, suggestions: [],
   loadedAt: 0,
 });
 
@@ -78,6 +84,7 @@ function fromPayload(p) {
     status: 'ready', error: '', loadedAt: Date.now(),
     addedIds: Array.isArray(body.addedIds) ? body.addedIds : [],
     dismissedIds: Array.isArray(body.dismissedIds) ? body.dismissedIds : [],
+    orderIds: Array.isArray(body.orderIds) ? body.orderIds : [],
     serverOrder: tasks.map((t) => t.id),
     serverTasks, suggestions,
   };
@@ -146,7 +153,7 @@ function mutate(email, change, send) {
         loadMyDay(email, { force: true });
       } else if (mine === seq && before.status === 'ready') {
         setState({
-          addedIds: before.addedIds, dismissedIds: before.dismissedIds, serverOrder: before.serverOrder,
+          addedIds: before.addedIds, dismissedIds: before.dismissedIds, orderIds: before.orderIds, serverOrder: before.serverOrder,
           serverTasks: before.serverTasks, suggestions: before.suggestions,
         });
       } else {
@@ -161,16 +168,23 @@ function mutate(email, change, send) {
 const without = (ids, id) => ids.filter((x) => x !== id);
 const dropFromSuggestions = (groups, id) => groups.map((g) => ({ ...g, ids: without(g.ids, id) }));
 
-export function addToMyDay(email, task) {
+/** Put a task on top as a pick. `pick: false` only takes it off
+ *  `dismissedIds` - a due-today task put back (Undo) comes back as one. */
+export function addToMyDay(email, task, { pick = true } = {}) {
   const id = task?.id;
   if (!email || !id) return Promise.resolve();
-  return mutate(email, (s) => ({
+  return mutate(email, (s) => (pick ? {
     addedIds: [id, ...without(s.addedIds, id)],
     dismissedIds: without(s.dismissedIds, id),
+    orderIds: [id, ...without(s.orderIds, id)],
     serverOrder: [id, ...without(s.serverOrder, id)],
     serverTasks: { ...s.serverTasks, [id]: s.serverTasks[id] || task },
     suggestions: dropFromSuggestions(s.suggestions, id),
-  }), (day) => api.addToMyDay(day, id));
+  } : {
+    dismissedIds: without(s.dismissedIds, id),
+    serverOrder: [...without(s.serverOrder, id), id],
+    serverTasks: { ...s.serverTasks, [id]: s.serverTasks[id] || task },
+  }), (day) => api.addToMyDay(day, id, pick));
 }
 
 export function removeFromMyDay(email, id) {
@@ -178,17 +192,19 @@ export function removeFromMyDay(email, id) {
   return mutate(email, (s) => ({
     addedIds: without(s.addedIds, id),
     dismissedIds: [...without(s.dismissedIds, id), id],
+    orderIds: without(s.orderIds, id),
     serverOrder: without(s.serverOrder, id),
   }), (day) => api.removeFromMyDay(day, id));
 }
 
-/** `ids` = the whole list in its new order. Everything named becomes a pick. */
+/** `ids` = the list in its new order. Only the order changes: nothing
+ *  becomes a pick and nothing leaves. */
 export function reorderMyDay(email, ids) {
   if (!email) return Promise.resolve();
   return mutate(email, (s) => {
     const named = [...new Set(ids)];
     const set = new Set(named);
-    return { addedIds: [...named, ...s.addedIds.filter((x) => !set.has(x))], serverOrder: named };
+    return { orderIds: [...named, ...s.orderIds.filter((x) => !set.has(x))] };
   }, (day) => api.reorderMyDay(day, ids));
 }
 
@@ -201,10 +217,10 @@ export function dueTodayForMe(t, me, day) {
 }
 
 /**
- * The list on screen: picks in my order, then my due-today tasks (the
- * server's, then any the store has since made due today), with live task
- * rows from the store where it has them. Open tasks first, finished ones
- * after them, each in list order.
+ * The list on screen: picks (newest first), then my due-today tasks (the
+ * server's, then any the store has since made due today), sorted by
+ * `orderIds` where it names them, with live task rows from the store where
+ * it has them. Open tasks first, finished ones after them, each in list order.
  */
 export function composeMyDay(s, { tasks = [], taskById = {}, me = '' } = {}) {
   const day = s.day;
@@ -223,7 +239,11 @@ export function composeMyDay(s, { tasks = [], taskById = {}, me = '' } = {}) {
     if (fresh ? dueTodayForMe(fresh, me, day) : !!s.serverTasks[id]) take(id);
   }
   if (s.status === 'ready' && day) for (const t of tasks) if (dueTodayForMe(t, me, day)) take(t.id);
-  const rows = [...picks, ...auto].map(live).filter(Boolean);
+  const base = [...picks, ...auto];
+  const on = new Set(base);
+  const first = s.orderIds.filter((id) => on.has(id));
+  const firstSet = new Set(first);
+  const rows = [...first, ...base.filter((id) => !firstSet.has(id))].map(live).filter(Boolean);
   const open = rows.filter((t) => !t.completed);
   const done = rows.filter((t) => t.completed);
   return { rows: [...open, ...done], open, done, ids: new Set(rows.map((t) => t.id)) };
@@ -287,17 +307,20 @@ export function useMyDay() {
 
   const fail = useCallback((what) => () => notify?.(`Could not ${what}. Please try again.`), [notify]);
   const add = useCallback((task) => addToMyDay(me, task).catch(fail('add that to My Day')), [me, fail]);
+  // Undo puts it back as what it was - a pick, or a due-today task - and
+  // where it was.
   const remove = useCallback((task, { undo = true } = {}) => {
     const id = task?.id;
     const order = list.rows.map((t) => t.id);
+    const wasPick = mineNow && s.addedIds.includes(id);
     return removeFromMyDay(me, id).then(() => {
       if (undo && offerUndo) {
         offerUndo(`Removed "${String(task?.title || '').slice(0, 40)}" from My Day`, () => {
-          addToMyDay(me, task).then(() => reorderMyDay(me, order)).catch(fail('put that back'));
+          addToMyDay(me, task, { pick: wasPick }).then(() => reorderMyDay(me, order)).catch(fail('put that back'));
         });
       }
     }, fail('remove that from My Day'));
-  }, [me, list, offerUndo, fail]);
+  }, [me, list, s, mineNow, offerUndo, fail]);
   const reorder = useCallback((ids) => reorderMyDay(me, ids).catch(fail('reorder My Day')), [me, fail]);
   const reload = useCallback(() => loadMyDay(me, { force: true }), [me]);
   const has = useCallback((id) => list.ids.has(id), [list]);

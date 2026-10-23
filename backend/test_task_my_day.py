@@ -16,6 +16,7 @@ Throwaway SQLite, no network.  python -m pytest test_task_my_day.py
 import os
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -73,7 +74,7 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         for m in (models.Task, models.TaskProject, models.TaskActivity, models.TaskTablePref,
-                  models.NexusEmployee, models.NexusSetting, models.TaskTeam):
+                  models.NexusEmployee, models.NexusSetting, models.TaskTeam, models.NexusRole):
             self.db.query(m).execution_options(include_deleted=True).delete()
         for u, co in ((ME, COA), (OTHER, COA), (BOSS, COA), (BEMP, COB)):
             self.db.add(models.NexusEmployee(id=gen_id(), work_email=u["email"], status="active",
@@ -105,9 +106,9 @@ class Base(unittest.TestCase):
     def get(self, user=ME, day=TODAY):
         return M.get_my_day(day=day, user=user, db=self.db)
 
-    def add(self, t, user=ME, day=TODAY, db=None):
+    def add(self, t, user=ME, day=TODAY, db=None, pick=True):
         tid = t if isinstance(t, str) else t.id
-        return M.add_to_my_day(M.MyDayTask(day=day, task_id=tid), user=user, db=db or self.db)
+        return M.add_to_my_day(M.MyDayTask(day=day, task_id=tid, pick=pick), user=user, db=db or self.db)
 
     def remove(self, t, user=ME, day=TODAY):
         tid = t if isinstance(t, str) else t.id
@@ -294,14 +295,27 @@ class SuggestionTests(Base):
         handed = self.task(title="Handed over", assignee=ME, created_at=_days_ago(40))
         took = self.task(title="I took it", assignee=ME, created_at=_days_ago(40))
         stale = self.task(title="Long ago", assignee=ME, created_at=_days_ago(40))
+        legacy = self.task(title="No recorded change", assignee=ME, created_at=_days_ago(40))
+        kept = self.task(title="Already mine", assignee=ME, created_at=_days_ago(40))
         for t, actor, at, change in (
             (handed, OTHER, _days_ago(1), {"field": "assigneeIds", "from": [OTHER["email"]], "to": [ME["email"]]}),
             (took, ME, _days_ago(1), {"field": "assigneeIds", "from": [], "to": [ME["email"]]}),
             (stale, OTHER, _days_ago(9), {"field": "assigneeIds", "from": [], "to": [ME["email"]]}),
+            # Written before field history: it cannot say who was added.
+            (legacy, OTHER, _days_ago(1), None),
+            # Somebody else was added beside me: not news to me.
+            (kept, OTHER, _days_ago(1), {"field": "assigneeIds", "from": [ME["email"]], "to": [ME["email"], OTHER["email"]]}),
         ):
             self.db.add(models.TaskActivity(id=gen_id(), entity_kind="task", entity_id=t.id, type="assignee_changed",
                                             actor_email=actor["email"], at=at, field_change=change))
         self.db.commit()
+        self.assertEqual(self.group(self.get(), "recentlyAssigned"), [handed.id])
+
+    def test_a_recurring_occurrence_is_not_recently_assigned(self):
+        self.task(title="Weekly report", assignee=ME, created_at=_days_ago(1),
+                  recurrence={"freq": "weekly", "interval": 1})
+        self.task(title="Recurring status", assignee=ME, created_at=_days_ago(1), status="recurring")
+        handed = self.task(title="Handed", assignee=ME, created_at=_days_ago(1))
         self.assertEqual(self.group(self.get(), "recentlyAssigned"), [handed.id])
 
     def test_each_group_caps_at_ten_and_overdue_is_oldest_first(self):
@@ -336,7 +350,46 @@ class OrderAndConcurrencyTests(Base):
         self.add(b)                                      # [b, a, auto]
         got = self.order([auto.id, a.id, b.id])
         self.assertEqual(self.ids(got), [auto.id, a.id, b.id])
-        self.assertEqual(got["addedIds"], [auto.id, a.id, b.id])   # a moved due-today task is a pick
+        self.assertEqual(got["orderIds"], [auto.id, a.id, b.id])
+        self.assertEqual(got["addedIds"], [b.id, a.id])          # ordering never makes a pick
+
+    def test_a_reordered_due_today_task_still_leaves_when_reassigned_or_moved(self):
+        auto = self.task(title="Auto", assignee=ME, due_on=TODAY)
+        moved = self.task(title="Moved", assignee=ME, due_on=TODAY)
+        a = self.task(title="A", access_level="org")
+        self.add(a)
+        self.order([auto.id, moved.id, a.id])
+        self.assertEqual(self.ids(self.get()), [auto.id, moved.id, a.id])
+        auto.assignee_email, auto.assignee_emails = OTHER["email"], [OTHER["email"]]
+        moved.due_on = TOMORROW
+        self.db.commit()
+        got = self.get()
+        self.assertEqual(self.ids(got), [a.id])
+        # ...and comes back in its place if it is due today and mine again.
+        moved.due_on = TODAY
+        self.db.commit()
+        self.assertEqual(self.ids(self.get()), [moved.id, a.id])
+
+    def test_new_picks_go_on_top_of_a_saved_order(self):
+        auto = self.task(title="Auto", assignee=ME, due_on=TODAY)
+        a = self.task(title="A", access_level="org")
+        self.add(a)
+        self.order([auto.id, a.id])
+        b = self.task(title="B", access_level="org")
+        self.assertEqual(self.ids(self.add(b)), [b.id, auto.id, a.id])
+
+    def test_undo_puts_a_due_today_task_back_as_one_not_as_a_pick(self):
+        auto = self.task(title="Auto", assignee=ME, due_on=TODAY)
+        a = self.task(title="A", access_level="org")
+        self.add(a)
+        self.order([auto.id, a.id])
+        self.remove(auto)
+        got = self.add(auto, pick=False)
+        self.order([auto.id, a.id])
+        got = self.get()
+        self.assertEqual(self.ids(got), [auto.id, a.id])
+        self.assertEqual(got["addedIds"], [a.id])
+        self.assertEqual(got["dismissedIds"], [])
 
     def test_reorder_ignores_what_is_not_on_the_list(self):
         a = self.task(access_level="org")
@@ -348,6 +401,7 @@ class OrderAndConcurrencyTests(Base):
         got = self.order([secret.id, removed.id, "made-up", a.id])
         self.assertEqual(self.ids(got), [a.id])
         self.assertEqual(got["addedIds"], [a.id])
+        self.assertEqual(got["orderIds"], [a.id])
 
     def test_two_tabs_never_lose_each_others_change(self):
         a = self.task(title="A", access_level="org")
@@ -378,6 +432,91 @@ class OrderAndConcurrencyTests(Base):
         P.set_table_prefs("mytasks", P.TablePrefIn(order=["dueOn"]), user=ME, db=self.db)
         self.assertEqual(self.ids(self.get()), [a.id])
         self.assertEqual(P.get_prefs(user=ME, db=self.db)["prefs"], {"mytasks": {"order": ["dueOn"]}})
+
+    def test_a_first_write_that_loses_the_insert_race_takes_the_winners_row(self):
+        a = self.task(title="A", access_level="org")
+        b = self.task(title="B", access_level="org")
+        self.store([a.id])                   # the other tab's first write stood...
+        real = M._row
+        calls = {"n": 0}
+
+        def late(db, email, lock=False):     # ...after this request looked and saw no row
+            calls["n"] += 1
+            return None if calls["n"] == 1 else real(db, email, lock)
+        with mock.patch.object(M, "_row", late):
+            got = self.add(b)
+        self.assertEqual(self.ids(got), [b.id, a.id])
+        self.assertEqual(self.db.query(models.TaskTablePref).filter(
+            models.TaskTablePref.owner_email == ME["email"]).count(), 1)
+
+    def test_a_request_costs_the_same_queries_however_long_the_list(self):
+        from sqlalchemy import event
+
+        def count(call):
+            n = {"q": 0}
+
+            def on(*_a, **_k):
+                n["q"] += 1
+            event.listen(database.engine, "before_cursor_execute", on)
+            try:
+                call()
+            finally:
+                event.remove(database.engine, "before_cursor_execute", on)
+            return n["q"]
+
+        p = models.TaskProject(id=gen_id(), name="Mine", access_level="restricted", member_emails=[ME["email"]],
+                               created_at=now_iso(), company_id=COA)
+        self.db.add(p)
+        self.db.commit()
+
+        def fill(k):
+            for i in range(k):
+                # Seen only through my project: the one check that needs the project scan.
+                self.add(self.task(title=f"In project {i}", access_level="restricted", project_id=p.id, assignee=OTHER))
+                self.task(title=f"Due {i}", assignee=ME, due_on=TODAY, project_id="p-x", access_level="restricted")
+                self.add(self.task(title=f"Org {i}", access_level="org"))
+                self.task(title=f"Late {i}", assignee=ME, due_on=YESTERDAY)
+        self.arm_walls()
+        fill(2)
+        small = (count(lambda: self.get()), count(lambda: self.order([])), count(lambda: self.add(self.task(access_level="org"))))
+        fill(20)
+        self.assertEqual((count(lambda: self.get()), count(lambda: self.order([])),
+                          count(lambda: self.add(self.task(access_level="org")))), small)
+
+
+class GuestAndRouteTests(Base):
+    def test_an_external_guest_cannot_add_an_org_task(self):
+        guest = {"email": "guest@partner.com", "level": 1, "external": True}
+        org = self.task(title="Org-wide", access_level="org", assignee=OTHER)
+        self.assertEqual(self.code(lambda: self.add(org, user=guest)), 404)
+        theirs = self.task(title="Theirs", access_level="org", assignee=guest)
+        self.assertEqual(self.ids(self.add(theirs, user=guest)), [theirs.id])
+
+    def test_the_routes_resolve_ahead_of_the_per_task_routes(self):
+        import auth
+        import main
+        from fastapi.testclient import TestClient
+        self.db.query(models.NexusRole).filter(models.NexusRole.email == ME["email"]).delete()
+        self.db.add(models.NexusRole(email=ME["email"], role="administrator"))
+        self.db.commit()
+        auth.invalidate_role_cache()
+        t = self.task(title="Org", access_level="org")
+        with mock.patch.object(auth, "SKIP_AUTH", True), mock.patch.dict(os.environ, {"NEXUS_DEV_EMAIL": ME["email"]}):
+            client = TestClient(main.app)
+            r = client.get(f"/tasks/my-day?day={TODAY}")
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertIn("suggestions", r.json())
+            r = client.post("/tasks/my-day/add", json={"day": TODAY, "task_id": t.id})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual([x["id"] for x in r.json()["tasks"]], [t.id])
+            r = client.put("/tasks/my-day/order", json={"day": TODAY, "task_ids": [t.id]})
+            self.assertEqual(r.status_code, 200, r.text)
+            r = client.post("/tasks/my-day/remove", json={"day": TODAY, "task_id": t.id})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["tasks"], [])
+            # A bad day is My Day's own 400, not a task route's 404 / 405.
+            self.assertEqual(client.get("/tasks/my-day?day=nope").status_code, 400)
+        auth.invalidate_role_cache()
 
 
 if __name__ == "__main__":

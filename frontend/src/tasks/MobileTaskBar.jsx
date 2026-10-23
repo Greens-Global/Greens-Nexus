@@ -112,8 +112,9 @@ export default function MobileTaskBar({ views, view, setView, onCreate, filterSh
         background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 16,
         boxShadow: '0 10px 30px rgba(0,0,0,0.22)', display: 'flex', alignItems: 'stretch', zIndex: 2500, overflow: 'hidden',
       }}>
-        <button onClick={() => setSheet('filter')} title="Filters & sort" aria-label="Filters & sort" style={{ ...seg, width: 54, color: NX.blue }}><SlidersHorizontal size={20} /></button>
-        <span style={{ width: 1, background: NX.border, alignSelf: 'stretch' }} />
+        {/* No `filterSheet` (My Day): no filter button. */}
+        {filterSheet && <button onClick={() => setSheet('filter')} title="Filters & sort" aria-label="Filters & sort" style={{ ...seg, width: 54, color: NX.blue }}><SlidersHorizontal size={20} /></button>}
+        {filterSheet && <span style={{ width: 1, background: NX.border, alignSelf: 'stretch' }} />}
         <button onClick={() => setSheet('view')} style={{ ...seg, flex: 1, gap: 6, fontSize: 15, fontWeight: 600 }}>{current?.label} <ChevronsUpDown size={16} style={{ color: NX.faint }} /></button>
         <span style={{ width: 1, background: NX.border, alignSelf: 'stretch' }} />
         <button onClick={onCreate} title={createLabel} aria-label={createLabel} style={{ ...seg, width: 58, background: NX.primary, color: '#fff' }}><Plus size={22} /></button>
@@ -136,7 +137,7 @@ export default function MobileTaskBar({ views, view, setView, onCreate, filterSh
         </BottomSheet>
       )}
 
-      {sheet === 'filter' && filterSheet(() => setSheet(null))}
+      {sheet === 'filter' && filterSheet?.(() => setSheet(null))}
     </>
   );
 }

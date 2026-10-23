@@ -55,7 +55,7 @@ function QuickAdd({ onAdd }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: `1px solid ${NX.border}` }}>
       <Plus size={16} style={{ color: NX.blue, flexShrink: 0 }} aria-hidden="true" />
-      <input ref={ref} value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy}
+      <input ref={ref} type="text" value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy}
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
         placeholder="Add a task for today" aria-label="Add a task for today" maxLength={500}
         style={{ ...inputStyle, border: 'none', padding: '6px 2px', background: 'transparent', fontSize: 14 }} />

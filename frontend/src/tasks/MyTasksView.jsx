@@ -464,7 +464,7 @@ export default function MyTasksView({ onNavigate }) {
             being exported are the same whichever view is on screen, and the
             project workspace's Export is not gated to List either - so looking
             for it on Board and not finding it would be the odd one out. */}
-        {!isMobile && (
+        {!isMobile && view !== 'myday' && (
           <ExportMenu
             title="Tasks" subtitle={`${exportRows.length} task${exportRows.length === 1 ? '' : 's'} including subtasks, as filtered`}
             filenameBase="my-tasks" rows={exportRows} compact
@@ -616,7 +616,8 @@ export default function MyTasksView({ onNavigate }) {
         <MobileTaskBar
           views={VIEW_TABS} view={view} setView={switchView}
           onCreate={() => openCreate({ assigneeId: myEmail })}
-          filterSheet={(onClose) => (
+          // My Day has nothing to filter: no filter button there.
+          filterSheet={view === 'myday' ? null : (onClose) => (
             <MobileFilters
               filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
               group={group} setGroup={setGroup} groupOptions={MY_GROUP_OPTIONS} hideAssignee
