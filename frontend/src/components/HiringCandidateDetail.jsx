@@ -169,7 +169,8 @@ const rejectBtn = { background: 'hsl(var(--color-red))', border: '1px solid hsl(
 const goGreen = { background: 'hsl(var(--color-green))', borderColor: 'hsl(var(--color-green))', color: '#fff' };
 
 // The stages as a bar: done, here, still to come. Rejected shows on its own.
-function StageBar({ stage }) {
+// A skipped interview reads Skipped, never a plain tick (Oct 22 walkthrough).
+function StageBar({ stage, interviewSkipped = false }) {
   if (stage === 'rejected') {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0 4px', fontSize: 13, fontWeight: 700, color: `hsl(${STAGE_META.rejected.hue})` }}>
@@ -182,6 +183,7 @@ function StageBar({ stage }) {
     <div role="list" aria-label="Hiring stages" style={{ display: 'flex', alignItems: 'center', padding: '14px 10px 6px 4px', overflow: 'visible' }}>
       {STAGES.map((s, i) => {
         const done = i < at, here = i === at;
+        const skipped = done && s === 'interview' && interviewSkipped;
         const hue = STAGE_META[s].hue;
         return (
           <div key={s} role="listitem" aria-current={here ? 'step' : undefined} style={{ display: 'flex', alignItems: 'center', flex: i < STAGES.length - 1 ? 1 : 'none', minWidth: 0 }}>
@@ -195,7 +197,9 @@ function StageBar({ stage }) {
                 color: here ? '#fff' : done ? 'hsl(var(--color-green))' : 'var(--muted)', border: here ? 'none' : '1px solid var(--line)' }}>
                 {done ? <Check size={11} /> : i + 1}
               </span>
-              <span style={{ fontSize: here ? 14 : 12.5, fontWeight: here ? 800 : 600, color: here ? `hsl(${hue})` : done ? 'var(--ink)' : 'var(--muted)' }}>{STAGE_META[s].label}</span>
+              <span style={{ fontSize: here ? 14 : 12.5, fontWeight: here ? 800 : 600, color: here ? `hsl(${hue})` : skipped ? 'var(--muted)' : done ? 'var(--ink)' : 'var(--muted)' }}>
+                {STAGE_META[s].label}{skipped ? ' (Skipped)' : ''}
+              </span>
             </div>
             {i < STAGES.length - 1 && <span style={{ flex: 1, height: 2, margin: '0 10px', background: done ? 'hsla(var(--color-green),0.4)' : 'var(--line)', minWidth: 14 }} />}
           </div>
@@ -481,7 +485,7 @@ export default function CandidateDetailModal({
             {onEdit && canEdit && <button className="secondary-btn" onClick={() => onEdit(c)} style={{ fontSize: 12.5, padding: '5px 12px', flexShrink: 0 }}>Edit</button>}
             <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
           </div>
-          <StageBar stage={c.stage} />
+          <StageBar stage={c.stage} interviewSkipped={!!c.interviewSkippedBy} />
           <div style={{ background: `hsla(${sm.hue},0.08)`, borderRadius: 12, padding: '11px 14px', fontSize: 13.5, display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 10, lineHeight: 1.5 }}>
             <ChevronRight size={16} style={{ color: `hsl(${sm.hue})`, flexShrink: 0, marginTop: 2 }} />
             <span><b>Next:</b> {NEXT_STEP[c.stage]}</span>
