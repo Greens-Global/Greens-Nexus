@@ -59,7 +59,7 @@ export function scheduleProblems(v) {
 // show their role next to their name so it can be selected quickly").
 // Department names are matched however they are capitalized.
 export const leadsFor = (map, dept) => Object.entries(map || {})
-  .find(([k]) => k.toLowerCase() === (dept || '').trim().toLowerCase())?.[1] || [];
+  .find(([k]) => k.trim().toLowerCase() === (dept || '').trim().toLowerCase())?.[1] || [];
 
 export function interviewerGroups(people, department, leads = []) {
   const dept = (department || '').trim().toLowerCase();

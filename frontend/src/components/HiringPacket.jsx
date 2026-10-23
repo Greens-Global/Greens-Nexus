@@ -14,7 +14,7 @@
 // folder My HR > My Documents already shows them.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Send, FileSignature, RefreshCw, Ban, FolderOpen, CheckCircle, Clock, AlertTriangle, Plus, Trash2, Copy } from 'lucide-react';
+import { X, Send, FileSignature, RefreshCw, Ban, FolderOpen, CheckCircle, Clock, AlertTriangle, Plus, Trash2, Copy, Info } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDateTime } from '../lib/datetime';
@@ -22,6 +22,8 @@ import { currencyOptions } from '../asset/lib/currency';
 import { usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
+import { leadsFor } from './HiringSchedule';
+import { REPORTS_TO } from './OfferModal';
 import { SignModal } from './ESign';
 import DetailsFormFields from './DetailsFormFields';
 import { PacketEditor, describeRoles } from './PacketTemplates';
@@ -388,7 +390,8 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
     offer_expires: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
     manager_email: '', employment_type: 'full_time', salary_text: '', packet_id: '',
   });
-  const [opts, setOpts] = useState({ roles: [], departments: [] });
+  const [opts, setOpts] = useState({ roles: [], departments: [], leads: {} });
+  const autoMgr = useRef('');                          // the supervisor Nexus filled in, not HR
   // The packet Nexus picks for the company and role, and the others HR may
   // send instead. Re-picked when the role or employment type changes until
   // HR chooses one by hand.
@@ -426,17 +429,25 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
   useEffect(() => {
     if (!c.company) return;
     api.hiringOptions(c.company).then(o => {
-      setOpts({ roles: o.roles || [], departments: o.departments || [] });
+      setOpts({ roles: o.roles || [], departments: o.departments || [], leads: o.departmentLeads || {} });
       const r = (o.roles || []).find(x => x.id === c.roleId);
-      if (r?.defaultManagerEmail) setF(p => (p.manager_email ? p : { ...p, manager_email: r.defaultManagerEmail }));
+      const d = r ? r.defaultManagerEmail : leadsFor(o.departmentLeads, c.roleId ? '' : c.department)[0];
+      autoMgr.current = d || '';
+      if (d) setF(p => (p.manager_email ? p : { ...p, manager_email: d }));
     }).catch(() => {});
   }, [c.roleId, c.company]);
   const isOther = f.role_id === OTHER_ROLE;
   const role = opts.roles.find(r => r.id === f.role_id);
+  // Same rule as the offer: one Nexus filled in follows the role or department; HR's own pick is kept.
+  const withMgr = (next, email) => {
+    const keep = f.manager_email && f.manager_email !== autoMgr.current;
+    autoMgr.current = email || '';
+    return keep ? next : { ...next, manager_email: email || '' };
+  };
   const pickRole = (id) => {
     const r = opts.roles.find(x => x.id === id);
-    setF(p => ({ ...p, role_id: id, department: r ? (r.department || p.department) : p.department,
-                 manager_email: p.manager_email || r?.defaultManagerEmail || '' }));
+    const department = r ? (r.department || f.department) : f.department;
+    setF(withMgr({ ...f, role_id: id, department }, r ? r.defaultManagerEmail : id === OTHER_ROLE ? leadsFor(opts.leads, department)[0] : ''));
     setPreview(null);
   };
   const setP = (k, v) => { setPay(p => ({ ...p, [k]: v })); setPreview(null); };
@@ -504,7 +515,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             <>
               {input('New Role Name *', 'new_role_name', { placeholder: 'e.g. Leasing Coordinator' })}
               <div><label style={lbl}>Department *</label>
-                <select className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => set('department', e.target.value)}>
+                <select className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => { setF(withMgr({ ...f, department: e.target.value }, leadsFor(opts.leads, e.target.value)[0])); setPreview(null); }}>
                   <option value="">- pick a department -</option>
                   {opts.departments.map(d => <option key={d} value={d}>{d}</option>)}
                 </select></div>
@@ -544,7 +555,10 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
               <Problem>"{f.new_role_name.trim() || 'The new role'}" is not one of this company's roles yet. Sending adds it to the company's roles with NO access - you and the administrators get a reminder to set its access in Settings &gt; Access.</Problem>
             </div>
           )}
-          <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Supervisor</label>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={{ ...lbl, display: 'flex', alignItems: 'center', gap: 6 }} title={REPORTS_TO}>
+              Supervisor <Info size={13} aria-label={REPORTS_TO} style={{ color: 'var(--muted)', cursor: 'help' }} />
+            </label>
             {manager ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{manager.name || manager.email}</span>
@@ -553,6 +567,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             ) : (
               <PersonSearchSelect placeholder="Type a name or email" groups={[{ label: 'Nexus People', people }]} onPick={v => set('manager_email', v)} />
             )}
+            <div style={hint}>{REPORTS_TO}</div>
           </div>
         </div>
         {canSeePay ? (

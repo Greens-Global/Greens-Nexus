@@ -15,7 +15,7 @@
 //     Send emails it; the candidate signs with no Nexus login. Both signed =
 //     hired, and the hiring packet starts by itself.
 // Problems show only when Continue is pressed, on the step they belong to.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check, Info } from 'lucide-react';
 import { api } from '../api';
 import { currencyOptions } from '../asset/lib/currency';
@@ -24,6 +24,7 @@ import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { DateField } from '../tasks/components';
 import { US_STATE_NAMES } from '../lib/usStates';
+import { leadsFor } from './HiringSchedule';
 
 const OTHER_ROLE = '__other__';
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
@@ -38,7 +39,7 @@ const h2 = { fontSize: 17, fontWeight: 800, margin: '22px 0 4px', color: 'var(--
 const lead = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, margin: 0 };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 18px' };
 const card = { border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' };
-const REPORTS_TO = 'Reports To - the person this hire reports to day to day. They become the manager on the profile.';
+export const REPORTS_TO = 'Reports To - the person this hire reports to day to day. They become the manager on the profile.';
 const smallBtn = { fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 };
 
 function Warn({ children }) {
@@ -86,18 +87,21 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const [answers, setAnswers] = useState({});          // the documents' own HR Answers questions
   const [jdId, setJdId] = useState('');
   const [jds, setJds] = useState([]);
-  const [roles, setRoles] = useState({ roles: [], departments: [] });
+  const [roles, setRoles] = useState({ roles: [], departments: [], leads: {} });
   const [opts, setOpts] = useState(null);              // which letter + packet, and what they ask
   const [chosenId, setChosenId] = useState('');         // HR picked another offer letter by hand
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const autoMgr = useRef('');                          // the supervisor Nexus filled in, not HR
 
   useEffect(() => {
     if (!c.company) return;
     api.hiringOptions(c.company).then(o => {
-      setRoles({ roles: o.roles || [], departments: o.departments || [] });
+      setRoles({ roles: o.roles || [], departments: o.departments || [], leads: o.departmentLeads || {} });
       const r = (o.roles || []).find(x => x.id === c.roleId);
-      if (r?.defaultManagerEmail) setF(p => (p.manager_email ? p : { ...p, manager_email: r.defaultManagerEmail }));
+      const d = r ? r.defaultManagerEmail : leadsFor(o.departmentLeads, c.roleId ? '' : c.department)[0];
+      autoMgr.current = d || '';
+      if (d) setF(p => (p.manager_email ? p : { ...p, manager_email: d }));
     }).catch(() => {});
     // One Job Description document serves every role (Oct 22): picked for HR when it is the only one.
     api.getDocTemplates({ category: 'job_description', status: 'active' }).then(r => {
@@ -140,11 +144,19 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const contractor = who.worker_type === 'contractor';
   const countries = useMemo(() => [...new Set([opts?.companyCountry, 'US', 'IN', who.country].filter(Boolean))], [opts, who.country]);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  // Supervisor = the role's default, else the department head (Neil, Oct 22). One Nexus
+  // filled in follows a role or department change; one HR picked by hand is kept.
+  const withMgr = (next, email) => {
+    const keep = f.manager_email && f.manager_email !== autoMgr.current;
+    autoMgr.current = email || '';
+    return keep ? next : { ...next, manager_email: email || '' };
+  };
   const pickRole = (id) => {
     const r = roles.roles.find(x => x.id === id);
-    setF(p => ({ ...p, role_id: id, department: r ? (r.department || p.department) : p.department,
-                 manager_email: p.manager_email || r?.defaultManagerEmail || '' }));
+    const department = r ? (r.department || f.department) : f.department;
+    setF(withMgr({ ...f, role_id: id, department }, r ? r.defaultManagerEmail : id === OTHER_ROLE ? leadsFor(roles.leads, department)[0] : ''));
   };
+  const pickDept = (d) => setF(withMgr({ ...f, department: d }, leadsFor(roles.leads, d)[0]));
 
   // What each step still needs - shown only once Continue is pressed there.
   const problemsFor = {
@@ -233,7 +245,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
             <div><label style={lbl} htmlFor="of-newrole">New Role Name</label>
               <input id="of-newrole" className="form-input" style={{ width: '100%' }} value={f.new_role_name} onChange={e => set('new_role_name', e.target.value)} /></div>
             <div><label style={lbl} htmlFor="of-dept">Department</label>
-              <select id="of-dept" className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => set('department', e.target.value)}>
+              <select id="of-dept" className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => pickDept(e.target.value)}>
                 <option value="">- pick a department -</option>
                 {roles.departments.map(d => <option key={d} value={d}>{d}</option>)}
               </select></div>

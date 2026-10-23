@@ -122,6 +122,15 @@ class IntakeTests(PipelineCase):
         self.assertIn("Accounting", out["departments"])
         self.assertIn("LinkedIn", out["sources"])
 
+    def test_role_supervisor_defaults_to_the_department_head_however_it_is_spelled(self):
+        # Neil, Oct 22 (34:45): "Supervisor should be the department head" - the role says
+        # "Accounting", the department list says "accounting ".
+        self.db.add(models.HrDepartment(id="d-acct", company_id=ENT, name="accounting ", lead_email="Head@greensglobal.com"))
+        self.db.commit()
+        out = hr.hiring_options(company_id=ENT, user=HR_USER, db=self.db)
+        mgr = {r["name"]: r["defaultManagerEmail"] for r in out["roles"]}
+        self.assertEqual(mgr, {"Senior Analyst": "head@greensglobal.com", "IT Support Associate": ""})
+
     def test_all_roles_for_questionnaire_links(self):
         out = hr.hiring_options(all_roles=True, user=HR_USER, db=self.db)
         self.assertEqual(len(out["roles"]), 3)
