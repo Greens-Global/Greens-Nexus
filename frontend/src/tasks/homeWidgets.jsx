@@ -13,9 +13,9 @@ import { NX, FONT, btn, card, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { Avatar } from './components';
 import ProjectIcon from './ProjectIcon';
 import { projectLook } from './projectLook';
-import { myTasksFootnote } from '../dashboard/myTasksCount';
+import { myTasksFootnote, MY_TASKS_RULE } from '../dashboard/myTasksCount';
 import { ago } from './updatesText';
-import { dayTitle, twoLetterDay, versusLastWeek } from './homeRules';
+import { dayTitle, twoLetterDay, versusLastWeek, needsYouNow } from './homeRules';
 
 const tint = (hex, a = '1f') => `${hex}${a}`;
 
@@ -26,7 +26,6 @@ export function WidgetCard({ isMobile, style, children }) {
 
 /** The one header: chip, title, count, and the card's way out. */
 export function WidgetHeader({ Icon, tone = NX.blue, title, count, sub, action, onTitle, style }) {
-  const Title = onTitle ? 'button' : 'h2';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, minWidth: 0, ...style }}>
       {Icon && (
@@ -34,10 +33,11 @@ export function WidgetHeader({ Icon, tone = NX.blue, title, count, sub, action, 
           <Icon size={15} />
         </span>
       )}
-      <Title {...(onTitle ? { type: 'button', onClick: onTitle } : {})}
-        style={{ margin: 0, padding: 0, border: 'none', background: 'transparent', cursor: onTitle ? 'pointer' : 'default', fontFamily: FONT, fontSize: 16, fontWeight: 700, color: NX.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
-        {title}
-      </Title>
+      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: NX.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+        {onTitle ? (
+          <button type="button" onClick={onTitle} style={{ margin: 0, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, font: 'inherit', color: 'inherit' }}>{title}</button>
+        ) : title}
+      </h2>
       {count != null && <span style={{ fontSize: 12.5, color: NX.faint, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{count}</span>}
       {sub && <span style={{ fontSize: 12, color: NX.faint, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{sub}</span>}
       <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -96,8 +96,8 @@ export function FocusTiles({ counts, focus, onPick, active }) {
       </div>
       {/* The dashboard's number and its two footnotes - the same rule
           (homeRules.focusBucket = backend my_work.task_focus_bucket). */}
-      <div style={{ marginTop: 10, fontSize: 12.5, color: NX.faint }} title="In progress, overdue, or due in the next 30 days">
-        <strong style={{ color: NX.dim, fontWeight: 600 }}>{focus.focus} need you now</strong>
+      <div style={{ marginTop: 10, fontSize: 12.5, color: NX.faint }} title={`${MY_TASKS_RULE}, or repeating and due`}>
+        <strong style={{ color: NX.dim, fontWeight: 600 }}>{needsYouNow(focus.focus)}</strong>
         {note ? ` · ${note}` : ''}
       </div>
     </div>
@@ -108,7 +108,8 @@ export function FocusTiles({ counts, focus, onPick, active }) {
 export function TaskLine({ t, due, dueTone, projectName, project, parentTitle, recurring, compact, onOpen, onToggle }) {
   const prio = t.priority === 'urgent' || t.priority === 'high' ? PRIORITY_META[t.priority] : null;
   return (
-    <div data-task-row onClick={() => onOpen(t.id)} className="nx-row-hover"
+    <div data-task-row onClick={() => onOpen(t.id)} className="nx-row-hover" role="button" tabIndex={0} aria-label={`Open ${t.title}`}
+      onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpen(t.id); } }}
       style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border2}`, padding: '8px 6px', margin: '0 -6px', borderRadius: 6, fontSize: 13, cursor: 'pointer', minWidth: 0 }}>
       {onToggle && (
         <button type="button" onClick={(e) => { e.stopPropagation(); onToggle(t); }} aria-label={t.completed ? 'Mark Incomplete' : 'Mark Complete'} title={t.completed ? 'Mark Incomplete' : 'Mark Complete'}
@@ -274,12 +275,14 @@ export function TeamWorkloadWidget({ rows, nameOf, me, onOpenPerson, isMobile })
   const max = Math.max(1, ...rows.map((r) => r.open));
   return (
     <WidgetCard isMobile={isMobile}>
-      <WidgetHeader Icon={Users} tone={NX.teal} title="Team Workload" count={rows.length || null} />
+      {/* Counted from the tasks the viewer can open - a teammate's private
+          work is not in it, so the hint says so. */}
+      <WidgetHeader Icon={Users} tone={NX.teal} title="Team Workload" count={rows.length || null} sub="Counts the tasks you can see" />
       {rows.length === 0 ? empty('No teammates yet. Join a team under Teams to see its workload here.') : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {shown.map((r) => (
             <button key={r.email} type="button" onClick={() => onOpenPerson(r.email)} className="nx-menu-row"
-              title={`${r.open} open, ${r.overdue} overdue, ${r.week} due this week - open their tasks`}
+              title={`${r.open} open, ${r.overdue} overdue, ${r.week} due this week (of the tasks you can see) - open their tasks`}
               style={{ ...btn('ghost'), display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '6px', margin: '0 -6px', borderRadius: 8, textAlign: 'left', boxSizing: 'content-box' }}>
               <Avatar email={r.email} name={nameOf(r.email)} size={28} />
               <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>

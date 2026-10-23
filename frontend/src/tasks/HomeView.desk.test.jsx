@@ -125,7 +125,7 @@ describe('the Tasks card', () => {
     render(<HomeView onNavigate={onNavigate} />);
     await flush();
     expect(tasksCard().querySelectorAll('[data-task-row]')).toHaveLength(12);
-    fireEvent.click(within(tasksCard()).getByRole('button', { name: /View All \(15\)/ }));
+    fireEvent.click(within(tasksCard()).getByRole('button', { name: /3 More in My Tasks/ }));
     expect(mineView).toHaveBeenCalledWith('list');
     expect(onNavigate).toHaveBeenCalledWith('mine');
   });
@@ -237,9 +237,9 @@ describe('Customize', () => {
   it('moves a widget without dragging', async () => {
     savedHome = { widgets: ['my_tasks', 'updates', 'projects', 'week', 'priorities'] };
     const done = await enter();
-    fireEvent.click(screen.getByRole('button', { name: 'Move By Priority Up' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move By Priority Earlier' }));
     expect(setHome.mock.calls.at(-1)[0].widgets).toEqual(['my_tasks', 'updates', 'projects', 'priorities', 'week']);
-    expect(screen.getByRole('button', { name: 'Move Week Ahead Up' }).disabled).toBe(false);
+    expect(screen.getByRole('button', { name: 'Move Week Ahead Earlier' }).disabled).toBe(false);
     done();
   });
 
@@ -250,5 +250,50 @@ describe('Customize', () => {
     expect(screen.getByText('Open and overdue work for each teammate.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Notifications/ })).toBeNull();
     done();
+  });
+});
+
+describe('quick add', () => {
+  it('Enter saves once, and the title is cleared before the save returns', async () => {
+    let resolve;
+    store.createTask = vi.fn(() => new Promise((r) => { resolve = r; }));
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: /Create Task/ }));
+    const box = screen.getByRole('textbox', { name: 'Task Name' });
+    fireEvent.change(box, { target: { value: 'Call the inspector' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    fireEvent.pointerDown(document.body);           // a click-away right after
+    expect(store.createTask).toHaveBeenCalledTimes(1);
+    expect(store.createTask.mock.calls[0][0]).toMatchObject({ title: 'Call the inspector', dueOn: '' });
+    expect(box.value).toBe('');
+    await act(async () => { resolve({ id: 'new' }); });
+  });
+
+  it('a click outside the row saves; a click inside it does not', async () => {
+    store.createTask = vi.fn(() => Promise.resolve({ id: 'new' }));
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: /Create Task/ }));
+    const box = screen.getByRole('textbox', { name: 'Task Name' });
+    fireEvent.change(box, { target: { value: 'Order parts' } });
+    fireEvent.pointerDown(screen.getByTitle('Set Due Date'));   // the date button, inside the row
+    expect(store.createTask).not.toHaveBeenCalled();
+    fireEvent.pointerDown(document.body);
+    expect(store.createTask).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('keyboard', () => {
+  it('arrow keys move between the Tasks tabs, and a row opens with Enter', async () => {
+    store.tasks = [task({ title: 'Open me', dueOn: TODAY })];
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    const upcoming = screen.getByRole('tab', { name: 'Upcoming' });
+    fireEvent.keyDown(upcoming, { key: 'ArrowRight' });
+    expect(screen.getByRole('tab', { name: 'Overdue' }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Overdue' }), { key: 'ArrowLeft' });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Open Open me' }), { key: 'Enter' });
+    expect(screen.getByTestId('drawer').textContent).toBe(store.tasks[0].id);
   });
 });

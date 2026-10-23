@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ChevronDown, ChevronRight, SlidersHorizontal, Plus, Circle, X, GripVertical, Check, ArrowUp, ArrowDown,
+  ChevronDown, ChevronRight, SlidersHorizontal, Plus, Circle, X, GripVertical, Check, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
   CheckSquare, Star, Sun, CalendarDays, Flag, AlertCircle, CheckCircle2, Users, Bell, Trash2, Activity,
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
@@ -80,7 +80,12 @@ const TABS = ['Upcoming', 'Overdue', 'In Progress', 'Completed'];
 const ROW_CAP = 12;
 // Today / This Week / This Month (Neil, Oct 23 2026 - called My Day / My Week /
 // My Month until Tasks got its own My Day list; the keys are unchanged).
-const RANGES = [{ key: 'day', label: 'Today', days: 0 }, { key: 'week', label: 'This Week', days: 7 }, { key: 'month', label: 'This Month', days: 30 }];
+// `days` past today: This Week is the next 7 days, today included (homeRules.WEEK_LAST).
+const RANGES = [
+  { key: 'day', label: 'Today', days: 0, ahead: 'today', back: 'today' },
+  { key: 'week', label: 'This Week', days: 6, ahead: 'in the next 7 days', back: 'in the last 7 days' },
+  { key: 'month', label: 'This Month', days: 30, ahead: 'in the next 30 days', back: 'in the last 30 days' },
+];
 
 // Row-order masonry cell: measures its content and spans that many 8px grid
 // rows, so widgets keep left-to-right order while short ones pull UP to fill
@@ -142,9 +147,12 @@ export default function HomeView({ onNavigate }) {
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDue, setNewDue] = useState(null);
-  // While the quick-add's calendar is open the title box loses focus; that
-  // blur must not save the task before the date is picked.
-  const pickingDate = useRef(false);
+  // The quick-add row saves when you leave it - Enter, Tab away, or a click
+  // anywhere outside the row and its calendar - and never while its date is
+  // being picked (the calendar takes focus; a picked date hands it back).
+  const createRowRef = useRef(null);
+  const titleRef = useRef(null);
+  const creatingTask = useRef(false);
   const [openId, setOpenId] = useState(taskIdFromUrl);
   // An update opens its task at the comment it is about ({ id, threadId, taskId }).
   const [openComment, setOpenComment] = useState(null);
@@ -218,6 +226,8 @@ export default function HomeView({ onNavigate }) {
   };
   const availableWidgets = WIDGET_META.filter((w) => !widgets.includes(w.key) && !CORE.includes(w.key) && w.offer !== false);
   // Keyboard and touch can't drag: Move Up / Move Down in customize mode.
+  // Earlier / Later in reading order (left to right, then down); focus stays
+  // on the button that moved, or its twin once the card reaches an end.
   const move = (key, by) => {
     const i = widgets.indexOf(key);
     const extras = widgets.filter((k) => !CORE.includes(k));
@@ -228,6 +238,10 @@ export default function HomeView({ onNavigate }) {
     const at = next.indexOf(anchor) + (by > 0 ? 1 : 0);
     next.splice(at, 0, key);
     persist(next);
+    setTimeout(() => {
+      const el = document.querySelector(`[data-move="${key}:${by}"]`);
+      (el && !el.disabled ? el : document.querySelector(`[data-move="${key}:${-by}"]`))?.focus();
+    }, 0);
   };
   // The customizable grid: everything the person put on Home but the core.
   const extraWidgets = widgets.filter((k) => !CORE.includes(k));
@@ -340,12 +354,10 @@ export default function HomeView({ onNavigate }) {
     }
     return m;
   }, [tasks]);
-  const atRisk = useMemo(() => projectsAtRisk(projects, tasks, { me: myEmail, bookmarks, today }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [projects, tasks, myEmail, bookmarks]);
-  const workload = useMemo(() => teamWorkload(teamMembers, tasks, today),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [teamMembers, tasks]);
+  const teamProjectIds = useMemo(() => myTeams.map((d) => d.projectId).filter(Boolean), [myTeams]);
+  const atRisk = useMemo(() => projectsAtRisk(projects, tasks, { me: myEmail, bookmarks, today, teamProjectIds }),
+    [projects, tasks, myEmail, bookmarks, today, teamProjectIds]);
+  const workload = useMemo(() => teamWorkload(teamMembers, tasks, today), [teamMembers, tasks, today]);
 
   // Chart widgets - all derived from real task rows, nothing sampled.
   const dayCharts = useMemo(() => {
@@ -357,8 +369,7 @@ export default function HomeView({ onNavigate }) {
     const prio = {};
     for (const t of myTasks) if (!t.completed) prio[t.priority || 'medium'] = (prio[t.priority || 'medium'] || 0) + 1;
     return { dueByDay, prio, weeks: completedWeeks(myTasks, today) };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myTasks]);
+  }, [myTasks, today]);
 
   // A row's context: its project (a subtask's is its parent's) and its parent.
   const rowProps = (t) => {
@@ -381,10 +392,29 @@ export default function HomeView({ onNavigate }) {
   const commitCreate = async (openDetails) => {
     const title = newTitle.trim();
     if (!title) { if (!openDetails) cancelCreate(); return; }
-    const t = await createTask({ title, assigneeIds: myEmail ? [myEmail] : [], dueOn: newDue || '', status: 'not_started', priority: 'medium', type: 'task' }).catch(() => null);
+    // One save per title: cleared before the request, so Enter then a
+    // click-away cannot make it twice.
+    if (creatingTask.current) return;
+    creatingTask.current = true;
+    const dueOn = newDue || '';
     setNewTitle(''); setNewDue(null);
+    const t = await createTask({ title, assigneeIds: myEmail ? [myEmail] : [], dueOn, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => null);
+    creatingTask.current = false;
     if (openDetails && t) { setCreating(false); setOpenId(t.id); }
   };
+  // The click-away listener always calls the latest commitCreate.
+  const commitRef = useRef(commitCreate);
+  useEffect(() => { commitRef.current = commitCreate; });
+  useEffect(() => {
+    if (!creating) return undefined;
+    const away = (e) => {
+      const el = e.target;
+      if (createRowRef.current?.contains(el) || el?.closest?.('[data-nx-calendar]')) return;
+      commitRef.current(false);
+    };
+    document.addEventListener('pointerdown', away, true);
+    return () => document.removeEventListener('pointerdown', away, true);
+  }, [creating]);
 
   // Phones: slimmer card padding - the cards run edge to edge there (see the
   // phone block in style.css) and 20px a side cost a quarter of a task title.
@@ -439,8 +469,8 @@ export default function HomeView({ onNavigate }) {
         ))}
       </div>
     );
-    const windowWords = rangeDef.key === 'day' ? 'today' : `in the next ${rangeDef.days} days`;
-    const lookback = rangeDef.key === 'day' ? 'today' : `in the last ${rangeDef.days} days`;
+    const windowWords = rangeDef.ahead;
+    const lookback = rangeDef.back;
     let flat = null;
     let emptyText = 'Nothing here.';
     if (picked) { flat = picked; emptyText = pick.kind === 'day' ? 'Nothing due that day.' : 'No open tasks at that priority.'; }
@@ -449,7 +479,7 @@ export default function HomeView({ onNavigate }) {
     else if (tab === 'Completed') { flat = completed; emptyText = `Nothing completed ${lookback}.`; }
     const total = flat ? flat.length : upcomingByDay.reduce((n, g) => n + g.rows.length, 0);
     const viewAll = (n) => (
-      <div style={{ paddingTop: 8 }}><ViewAll label={`View All (${n})`} onClick={() => { setMineView('list'); onNavigate('mine'); }} /></div>
+      <div style={{ paddingTop: 8 }}><ViewAll label={`${n - ROW_CAP} More in My Tasks`} onClick={() => { setMineView('list'); onNavigate('mine'); }} /></div>
     );
     if (flat) {
       if (flat.length === 0) return <p style={{ padding: '24px 0', textAlign: 'center', fontSize: 13, color: NX.faint, margin: 0 }}>{emptyText}</p>;
@@ -487,12 +517,22 @@ export default function HomeView({ onNavigate }) {
       <div ref={tasksCardRef} data-home-tasks style={{ scrollMarginTop: 12 }}>
         <WidgetHeader Icon={CheckSquare} tone={NX.blue} title="Tasks" onTitle={() => onNavigate('mine')}
           action={(tab === 'Upcoming' || tab === 'Completed') && !pick ? rangePicker : null} />
-        <div role="tablist" aria-label="Tasks" style={{ display: 'flex', alignItems: 'center', gap: 16, borderBottom: `1px solid ${NX.border}`, marginBottom: 10, fontSize: 13, fontWeight: 600, flexWrap: 'wrap' }}>
+        <div role="tablist" aria-label="Tasks"
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+            e.preventDefault();
+            const i = TABS.indexOf(pick ? '' : tab);
+            const next = TABS[(Math.max(0, i) + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length];
+            setPick(null); setTab(next);
+            setTimeout(() => e.currentTarget?.querySelector?.(`[data-tab="${next}"]`)?.focus(), 0);
+          }}
+          style={{ display: 'flex', alignItems: 'center', gap: 16, borderBottom: `1px solid ${NX.border}`, marginBottom: 10, fontSize: 13, fontWeight: 600, flexWrap: 'wrap' }}>
           {TABS.map((t) => {
             const on = tab === t && !pick;
             const n = t === 'Overdue' ? overdue.length : t === 'In Progress' ? inProgress.length : 0;
             return (
-              <button key={t} type="button" role="tab" aria-selected={on} onClick={() => { setPick(null); setTab(t); }}
+              <button key={t} type="button" role="tab" aria-selected={on} aria-controls="home-tasks-panel" tabIndex={on || (pick && t === tab) ? 0 : -1} data-tab={t}
+                onClick={() => { setPick(null); setTab(t); }}
                 style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '0 0 8px', borderBottom: `2px solid ${on ? NX.blue : 'transparent'}`, color: on ? NX.blue : NX.dim, fontFamily: FONT, fontWeight: 600 }}>
                 {t}{n > 0 ? ` (${n})` : ''}
               </button>
@@ -509,26 +549,26 @@ export default function HomeView({ onNavigate }) {
           </div>
         )}
         {creating ? (
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, borderBottom: `2px solid ${NX.blue}`, padding: '6px 0', marginBottom: 4 }}>
+          <div ref={createRowRef} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, borderBottom: `2px solid ${NX.blue}`, padding: '6px 0', marginBottom: 4 }}>
             <Circle size={16} style={{ color: NX.faint, flexShrink: 0 }} />
-            <input autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} aria-label="Task Name"
-              onFocus={() => { pickingDate.current = false; }}
+            <input ref={titleRef} autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} aria-label="Task Name"
               onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(false); if (e.key === 'Escape') cancelCreate(); }}
-              onBlur={() => { if (!pickingDate.current) commitCreate(false); }}
+              // Keyboard focus leaving the row saves; a pointer leaving it is the
+              // document listener above (a click inside the calendar moves
+              // focus too, and must not save).
+              onBlur={(e) => { const to = e.relatedTarget; if (to && !createRowRef.current?.contains(to) && !to.closest?.('[data-nx-calendar]')) commitCreate(false); }}
               placeholder="Write a task name" className="nx-inline-edit" style={{ flex: 1, minWidth: 0, border: 'none', fontFamily: FONT, fontSize: 13, color: NX.ink }} />
             {/* DateField, never a native date box (it follows the computer's
-                region). Opening it would blur the title box, so the blur
-                waits while the calendar is up. */}
-            <span onMouseDownCapture={() => { pickingDate.current = true; }} style={{ display: 'inline-flex' }}>
-              <DateField compact noPast value={newDue || ''} title="Set Due Date" color={newDue ? dueColor(newDue, false) : undefined}
-                onChange={(v) => { setNewDue(notPast(v) || null); pickingDate.current = false; }} />
-            </span>
+                region). A picked date puts the cursor back in the title, so
+                Enter saves. */}
+            <DateField compact noPast value={newDue || ''} title="Set Due Date" color={newDue ? dueColor(newDue, false) : undefined}
+              onChange={(v) => { setNewDue(notPast(v) || null); setTimeout(() => titleRef.current?.focus(), 0); }} />
             <button onMouseDown={(e) => { e.preventDefault(); commitCreate(true); }} style={{ ...btn('ghost'), padding: 4, color: NX.faint }} title="Details" aria-label="Details"><ChevronRight size={16} /></button>
           </div>
         ) : (
           <button onClick={() => setCreating(true)} style={{ ...btn('ghost'), padding: '6px 0', color: NX.dim, fontSize: 13, fontWeight: 500 }}><Plus size={15} /> Create Task</button>
         )}
-        {tasksList()}
+        <div id="home-tasks-panel" role="tabpanel" aria-label={pick ? pickLabel : tab}>{tasksList()}</div>
       </div>
     );
     if (key === 'updates') return (
@@ -610,6 +650,7 @@ export default function HomeView({ onNavigate }) {
   };
 
   const metaOf = (key) => WIDGET_META.find((w) => w.key === key);
+  const overlayOff = { opacity: 0.4, cursor: 'default', boxShadow: 'none' };
   const overlayBtn = { width: 26, height: 26, borderRadius: '50%', border: `1px solid ${NX.border}`, background: NX.surface, color: NX.dim, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.12)', cursor: 'pointer', padding: 0 };
 
   return (
@@ -721,10 +762,12 @@ export default function HomeView({ onNavigate }) {
               <div style={{ position: 'absolute', top: -12, right: 6, zIndex: 5, display: 'flex', gap: 4 }}>
                 {!isMobile && <span title="Drag to rearrange" style={{ ...overlayBtn, color: NX.faint, cursor: 'grab' }}><GripVertical size={14} /></span>}
                 {/* Dragging needs a mouse; these work by keyboard and touch. */}
-                <button type="button" onClick={() => move(key, -1)} disabled={extraWidgets.indexOf(key) === 0}
-                  title="Move Up" aria-label={`Move ${metaOf(key)?.label || key} Up`} style={overlayBtn}><ArrowUp size={14} /></button>
-                <button type="button" onClick={() => move(key, 1)} disabled={extraWidgets.indexOf(key) === extraWidgets.length - 1}
-                  title="Move Down" aria-label={`Move ${metaOf(key)?.label || key} Down`} style={overlayBtn}><ArrowDown size={14} /></button>
+                <button type="button" data-move={`${key}:-1`} onClick={() => move(key, -1)} disabled={extraWidgets.indexOf(key) === 0}
+                  title="Move Earlier" aria-label={`Move ${metaOf(key)?.label || key} Earlier`} style={{ ...overlayBtn, ...(extraWidgets.indexOf(key) === 0 ? overlayOff : {}) }}>
+                  {isMobile ? <ArrowUp size={14} /> : <ArrowLeft size={14} />}</button>
+                <button type="button" data-move={`${key}:1`} onClick={() => move(key, 1)} disabled={extraWidgets.indexOf(key) === extraWidgets.length - 1}
+                  title="Move Later" aria-label={`Move ${metaOf(key)?.label || key} Later`} style={{ ...overlayBtn, ...(extraWidgets.indexOf(key) === extraWidgets.length - 1 ? overlayOff : {}) }}>
+                  {isMobile ? <ArrowDown size={14} /> : <ArrowRight size={14} />}</button>
                 <button type="button" onClick={() => persist(widgets.filter((k) => k !== key))} title="Remove Widget"
                   aria-label={`Remove ${metaOf(key)?.label || key}`} style={overlayBtn}><X size={14} /></button>
               </div>

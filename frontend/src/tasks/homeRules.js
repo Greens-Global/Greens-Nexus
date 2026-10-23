@@ -8,6 +8,11 @@ import { taskAssignees } from './lib';
 export const localISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 export const addDays = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return localISO(d); };
 const day = (iso) => (typeof iso === 'string' ? iso.slice(0, 10) : '');
+// "This week" is the next 7 days, today included (today .. today+6) -
+// the tile, the Tasks card's group, Week Ahead's seven cells, Projects at
+// Risk and Team Workload all mean the same span.
+export const WEEK_LAST = 6;
+export const weekEnd = (today) => addDays(today, WEEK_LAST);
 const isOpen = (t) => !t.completed && t.status !== 'missed';
 
 // ── The live-work rule ──────────────────────────────────────────────────────
@@ -41,7 +46,7 @@ export function focusCounts(tasks, today) {
 // every task you ever had said nothing (the old tiles divided by the lot,
 // finished ones included).
 export function tileCounts(tasks, today) {
-  const week = addDays(today, 7);
+  const week = weekEnd(today);
   const open = tasks.filter(isOpen);
   return {
     overdue: open.filter((t) => day(t.dueOn) && day(t.dueOn) < today).length,
@@ -57,7 +62,7 @@ export function dueGroup(iso, today) {
   const d = day(iso);
   if (d === today) return 'today';
   if (d === addDays(today, 1)) return 'tomorrow';
-  if (d <= addDays(today, 7)) return 'week';
+  if (d <= weekEnd(today)) return 'week';
   return 'later';
 }
 export const GROUP_LABEL = { today: 'Today', tomorrow: 'Tomorrow', week: 'This Week', later: 'Later', undated: 'No Due Date' };
@@ -113,6 +118,9 @@ export function completedWeeks(tasks, today) {
   const lastWeek = tasks.filter((t) => t.completed && completedOn(t) >= from && completedOn(t) <= to).length;
   return { days, total: days.reduce((s, d) => s + d.n, 0), lastWeek };
 }
+/** "1 needs you now" / "4 need you now". */
+export const needsYouNow = (n) => `${n} need${n === 1 ? 's' : ''} you now`;
+
 export function versusLastWeek(total, lastWeek) {
   if (total === lastWeek) return 'Same as last week';
   const diff = Math.abs(total - lastWeek);
@@ -120,17 +128,22 @@ export function versusLastWeek(total, lastWeek) {
 }
 
 // ── Projects at Risk ────────────────────────────────────────────────────────
-/** Projects I am part of (own, member, follow, bookmarked, or have a task
- *  in) with overdue or due-this-week work, worst first. Counts are the
- *  project's top-level tasks the person can see - what its list shows. */
-export function projectsAtRisk(projects, tasks, { me, bookmarks, today, limit = 5 }) {
-  const week = addDays(today, 7);
-  const mineIn = new Set();
+/** Projects I am part of (own, member, follow, bookmarked, on one of my
+ *  teams, or have a task or subtask in) with overdue or due-this-week work,
+ *  worst first. Counts are the project's top-level tasks the person can see
+ *  - what its list shows. */
+export function projectsAtRisk(projects, tasks, { me, bookmarks, today, teamProjectIds, limit = 5 }) {
+  const week = weekEnd(today);
+  const mineIn = new Set(teamProjectIds || []);
   const stats = {};
+  // A subtask's projectId is blank by convention - it is in its parent's.
+  const projectOfId = new Map(tasks.map((t) => [t.id, t.projectId || '']));
   for (const t of tasks) {
-    if (!t.projectId || t.type === 'section') continue;
-    if (taskAssignees(t).includes(me)) mineIn.add(t.projectId);
-    if (t.parentTaskId) continue;
+    if (t.type === 'section') continue;
+    const pid = t.projectId || (t.parentTaskId ? projectOfId.get(t.parentTaskId) : '') || '';
+    if (!pid) continue;
+    if (taskAssignees(t).includes(me)) mineIn.add(pid);
+    if (t.parentTaskId || !t.projectId) continue;
     const s = stats[t.projectId] || (stats[t.projectId] = { total: 0, done: 0, overdue: 0, dueWeek: 0 });
     s.total += 1;
     if (t.completed) { s.done += 1; continue; }
@@ -154,7 +167,7 @@ export function projectsAtRisk(projects, tasks, { me, bookmarks, today, limit = 
  *  viewer can already see (the store holds nothing else). Shown to everyone
  *  (Neil, Oct 23 2026). Most overdue first, then most open. */
 export function teamWorkload(memberEmails, tasks, today) {
-  const week = addDays(today, 7);
+  const week = weekEnd(today);
   const rows = new Map(memberEmails.map((e) => [e, { email: e, open: 0, overdue: 0, week: 0 }]));
   for (const t of tasks) {
     if (!isOpen(t) || t.type === 'section') continue;

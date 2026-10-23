@@ -45,7 +45,7 @@ describe('focusBucket - the dashboard rule', () => {
 describe('tileCounts', () => {
   it('overdue, due today, the next 7 days and in progress - open tasks only, no fractions', () => {
     const c = tileCounts([
-      t({ dueOn: '2026-10-20' }), t({ dueOn: TODAY }), t({ dueOn: '2026-10-30' }), t({ dueOn: '2026-10-31' }),
+      t({ dueOn: '2026-10-20' }), t({ dueOn: TODAY }), t({ dueOn: '2026-10-29' }), t({ dueOn: '2026-10-30' }),
       t({ status: 'in_progress' }), t({ dueOn: TODAY, completed: true }), t({ dueOn: '2026-10-20', status: 'missed' }),
     ], TODAY);
     expect(c).toEqual({ overdue: 1, today: 1, week: 2, inProgress: 1 });

@@ -170,8 +170,8 @@ describe('the Updates card', () => {
     savedHome = { widgets: ['week'], introduced: ['updates'] };   // all three were taken off
     render(<HomeView onNavigate={() => {}} />);
     await flush();
-    // The Tasks card's title is a button, so the headings start at Updates.
-    expect([...document.querySelectorAll('h2')].map((h) => h.textContent)).toEqual(['Updates', 'Bookmarks', 'Week Ahead']);
+    // Every card has a heading (the Tasks title is a link inside its h2).
+    expect([...document.querySelectorAll('h2')].map((h) => h.textContent)).toEqual(['Tasks', 'Updates', 'Bookmarks', 'Week Ahead']);
     expect(activity).toHaveBeenCalledTimes(1);
     const tasksCard = screen.getByText('Create Task');
     expect(tasksCard.compareDocumentPosition(screen.getByText('Updates')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
