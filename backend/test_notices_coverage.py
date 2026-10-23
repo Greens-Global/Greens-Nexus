@@ -82,6 +82,20 @@ class CoverageTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             rn.coverage(user={"email": "amy@x.com"}, db=self.db)
 
+    def test_unplaced_person_is_not_complete(self):
+        out = rn.coverage(user=HR, db=self.db)
+        self.assertEqual(out["totals"]["allDone"], 0)                 # old: California emergency question still open
+        self.db.add(models.WorkplaceNoticePerson(email="old@x.com", sb294={"answeredAt": "2026-10-01T15:30:00+00:00"}))
+        self.db.commit()
+        out = rn.coverage(user=HR, db=self.db)
+        self.assertEqual(out["totals"]["allDone"], 1)                 # placed, nothing owed
+        old = self.db.query(models.NexusEmployee).filter_by(work_email="old@x.com").one()
+        old.work_site_id = None
+        self.db.commit()
+        out = rn.coverage(user=HR, db=self.db)
+        self.assertEqual(out["totals"]["unplaced"], 1)
+        self.assertEqual(out["totals"]["allDone"], 0)                 # federal notices only is not complete
+
     def test_person_record(self):
         resp = rn.export_person("old@x.com", user=HR, db=self.db)
         rows = list(csv.reader(io.StringIO(resp.body.decode())))

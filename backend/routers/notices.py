@@ -1202,10 +1202,15 @@ def coverage(user: dict = Depends(get_current_user), db: Session = Depends(get_d
                           else ("answered" if (sb_row and (sb_row.sb294 or {}).get("answeredAt")) else "open")),
         })
     people.sort(key=lambda p: (-len([o for o in p["owed"] if o["overdue"]]), -len(p["owed"]), p["name"].lower()))
+
+    def unplaced(p):
+        return p["country"] == "US" and p["workerType"] == "employee" and not p["state"]
+    # Complete = placed and nothing owed: someone with no state only got the federal notices (e2e, Oct 23).
     return {"people": people, "totals": {
-        "people": len(people), "allDone": sum(1 for p in people if not p["owed"] and not p["notGiven"]),
+        "people": len(people),
+        "allDone": sum(1 for p in people if not (p["owed"] or p["notGiven"] or p["emergency"] == "open" or unplaced(p))),
         "owing": sum(1 for p in people if p["owed"]), "overdue": sum(1 for p in people if any(o["overdue"] for o in p["owed"])),
-        "notGiven": sum(1 for p in people if p["notGiven"]), "unplaced": sum(1 for p in people if p["country"] == "US" and p["workerType"] == "employee" and not p["state"]),
+        "notGiven": sum(1 for p in people if p["notGiven"]), "unplaced": sum(1 for p in people if unplaced(p)),
         "emergencyOpen": sum(1 for p in people if p["emergency"] == "open")}}
 
 

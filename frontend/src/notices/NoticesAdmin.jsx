@@ -70,7 +70,7 @@ export default function NoticesAdmin({ toastOk, toastErr }) {
       {section === 'sites' && <Sites toastOk={toastOk} toastErr={toastErr} />}
       {section === 'calendar' && <CalendarView onOpen={setOpenId} />}
       {section === 'review' && <AnnualReview onOpen={setOpenId} toastOk={toastOk} toastErr={toastErr} />}
-      {openId && <NoticeDetail id={openId} canApprove={data.canApprove} onClose={() => { setOpenId(''); load(); }}
+      {openId && <NoticeDetail id={openId} canApprove={data.canApprove} onClose={() => { setOpenId(''); load(); }} onChanged={load}
         toastOk={toastOk} toastErr={toastErr} />}
     </div>
   );
@@ -240,16 +240,17 @@ function AddNotice({ onClose, onCreated, toastErr }) {
 
 // ── One notice ──────────────────────────────────────────────────────────────
 
-function NoticeDetail({ id, canApprove, onClose, toastOk, toastErr }) {
+function NoticeDetail({ id, canApprove, onClose, onChanged, toastOk, toastErr }) {
   const [n, setN] = useState(null);
   const [editing, setEditing] = useState(null);
   const [newVer, setNewVer] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState(false);
-  const load = useCallback(() => { api.noticeDetail(id).then(setN).catch(e => { toastErr?.(e?.message || 'Could not open it.'); onClose(); }); }, [id]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const load = useCallback(() => api.noticeDetail(id).then(setN).catch(e => { toastErr?.(e?.message || 'Could not open it.'); onClose(); }), [id]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
-  const run = (p, ok) => { setBusy(true); return p.then(() => { if (ok) toastOk?.(ok); load(); }).catch(e => toastErr?.(e?.message || 'That did not work.')).finally(() => setBusy(false)); };
+  // Busy until the notice is re-read (a stale Approve could be clicked again), and the queue and counts behind refresh too.
+  const run = (p, ok) => { setBusy(true); return p.then(() => { if (ok) toastOk?.(ok); onChanged?.(); return load(); }).catch(e => toastErr?.(e?.message || 'That did not work.')).finally(() => setBusy(false)); };
 
   if (!n) return <Modal title="Notice" onClose={onClose}><SkeletonBlocks count={2} height={80} /></Modal>;
   const ackKind = ['manual', 'addendum', 'policy', 'contractor_code'].includes(n.kind);

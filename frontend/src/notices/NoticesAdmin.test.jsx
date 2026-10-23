@@ -61,6 +61,19 @@ describe('NoticesAdmin', () => {
     expect(ok).toHaveBeenCalledWith('Approved.');
   });
 
+  it('after Approve, re-reads the notice and the queue before Approve can be clicked again', async () => {
+    let finish;
+    detail.mockResolvedValueOnce({ ...notice(), versions: [ver()], events: [] })
+      .mockReturnValueOnce(new Promise(r => { finish = r; }));
+    render(<NoticesAdmin toastOk={vi.fn()} toastErr={vi.fn()} />);
+    fireEvent.click(await screen.findByText('California Minimum Wage'));
+    fireEvent.click(await screen.findByRole('button', { name: /Approve/ }));
+    await waitFor(() => expect(library).toHaveBeenCalledTimes(2));     // queue and counts behind the popup
+    expect(screen.getByRole('button', { name: /Approve/ })).toBeDisabled();
+    finish({ ...notice({ state: 'scheduled', pending: [] }), versions: [ver({ status: 'approved' })], events: [] });
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Approve/ })).toBeNull());
+  });
+
   it('shows the review queue', async () => {
     render(<NoticesAdmin toastOk={vi.fn()} toastErr={vi.fn()} />);
     fireEvent.click(await screen.findByRole('tab', { name: /Review Queue/ }));
