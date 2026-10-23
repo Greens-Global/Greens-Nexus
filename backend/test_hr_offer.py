@@ -114,7 +114,7 @@ class OptionsTests(OfferCase):
         self.assertEqual(emp["hiringPacket"]["personQuestions"], ["PAN Number"])
         us_contractor = self.client.get(base, params={"worker_type": "contractor"}).json()
         self.assertIsNone(us_contractor["offerLetter"])
-        self.assertIn("No offer letter is set up for a Contractor in US", us_contractor["missing"])
+        self.assertIn("No offer letter is set up for a Contractor in United States", us_contractor["missing"])
         india = self.client.get(base, params={"worker_type": "contractor", "country": "IN"}).json()
         self.assertEqual(india["offerLetter"]["name"], "India Contractor Offer")
 
