@@ -14,7 +14,7 @@ import json
 import re
 import time
 from datetime import date, datetime, timedelta, timezone
-from urllib.parse import quote, unquote, urlparse, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, unquote, urlparse, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
@@ -973,6 +973,15 @@ def _check_move_section(db: Session, section_id: str, project_id: str) -> None:
         raise HTTPException(422, "That section is not in this task's project.")
 
 
+def _narrow_to_parent(level, parent) -> str:
+    """A subtask is never more visible than its parent (Oct 22 2026): an
+    org-wide (or unset) level under a private parent becomes the parent's
+    level; anything else stays as it is. Used by _create_task and moves."""
+    mine = level or "org"
+    theirs = (getattr(parent, "access_level", None) or "org") if parent is not None else "org"
+    return theirs if (mine == "org" and theirs != "org") else mine
+
+
 def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
                 section_id=None, keep_team: bool = False, place: bool = True,
                 history_self: bool = False) -> str:
@@ -990,7 +999,10 @@ def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
         through its parent), and leaves the old project's section and team;
       * a "skip this occurrence" rule only means something under a repeating
         parent, so a task made top-level drops it.
-    Nobody's access_level changes: a moved task keeps its own. Each row it
+    A move never leaves a row more visible than the task it now sits under
+    (Oct 22 2026): under a private parent, `t` and every row of its subtree
+    that was org-wide take the parent's level (_narrow_to_parent); a row
+    already private keeps its own, and nothing is ever widened. Each row it
     touches is stamped modified, so GET /tasks/delta hands it to every other
     open client. Each subtree row's project / section move goes into its
     field history (Oct 22 2026) - `t`'s own is recorded by the edit that moved
@@ -1036,6 +1048,14 @@ def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
             task_history.record(db, row, sub_before.get(row.id), user["email"], only=tracked)
     if self_before is not None:
         task_history.record(db, t, self_before, user["email"], only=tracked)
+    narrowed = False
+    if parent is not None:
+        for row in [t, *plan["subtree"]]:
+            level = _narrow_to_parent(row.access_level, parent)
+            if level != (row.access_level or "org"):
+                row.access_level, narrowed = level, True
+                if row is not t and not row.deleted_at:
+                    row.modified_at = now
     # The parent is named only when everybody who sees this task's history
     # may see it: a private parent's code is not this task's to give away.
     if parent is None:
@@ -1044,6 +1064,8 @@ def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
         detail = f"moved this task under {parent.code}"
     else:
         detail = "moved this task under another task"
+    if narrowed:
+        detail += " - now private, like the task it is under"
     return log_activity(db, type="moved", actor_email=user["email"], entity_id=t.id,
                         entity_code=t.code, entity_title=t.title, detail=detail)
 
@@ -2684,6 +2706,10 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
             where = f" in {project.name}" if project and project.name else " in this project"
             raise HTTPException(422, f"{names} {'is' if len(missing) == 1 else 'are'} required for tasks{where}.")
     access_level = body.access_level or (project.access_level if project else None) or "org"
+    # Under a private parent the subtask is private too (Oct 22 2026): an
+    # unset level takes the parent's ahead of the project's, and an explicit
+    # "org" is narrowed to it - a subtask is never wider than its parent.
+    access_level = _narrow_to_parent(access_level, parent)
     t = _new_task_row(db, body, tid=tid, code=_next_code(db), company_id=company_id,
                       access_level=access_level, user=user, now=now)
     set_task_assignees(t, _assignees_from(body.__dict__, []) or [])
@@ -4702,6 +4728,33 @@ def _checklist_item(db: Session, item_id: str) -> tuple:
     return i, t
 
 
+def _lock_checklist(db: Session, t: models.Task) -> None:
+    """Every checklist write takes the TASK row first (Oct 22 2026), after
+    its access checks and before it touches a line: then the task's
+    counters, and only then any line (_relock_line). One order for every
+    writer - add, tick / rename, remove, reorder, Convert to Subtask - so
+    two of them on one task wait for each other instead of deadlocking (a
+    tick used to take the line first and the task second, a convert the
+    reverse). The task is re-read after the wait, so counters and activity
+    lists are rebuilt from what the other request committed. A no-op lock
+    on SQLite (its database-wide write lock serializes writers)."""
+    _lock_task_rows(db, [t.id])
+    try:
+        db.refresh(t)
+    except InvalidRequestError:        # purged while we waited
+        raise HTTPException(404, "Task not found")
+    if t.deleted_at:
+        raise HTTPException(409, "This task is in the Trash. Restore it to change its checklist.")
+
+
+def _relock_line(db: Session, t: models.Task, item_id: str):
+    """The line as it is now, locked (FOR UPDATE) - after _lock_checklist.
+    None when it went while we waited (removed, or converted)."""
+    return (db.query(models.TaskChecklistItem)
+            .filter(models.TaskChecklistItem.id == item_id, models.TaskChecklistItem.task_id == t.id)
+            .populate_existing().with_for_update().first())
+
+
 @router.get("/{task_id}/checklist")
 def list_checklist(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _wall_task(db, user, task_id)
@@ -4722,6 +4775,7 @@ def add_checklist_items(task_id: str, body: ChecklistItemCreate, user: dict = De
         raise HTTPException(422, "A checklist item needs a title")
     if len(titles) > 100:
         raise HTTPException(422, "At most 100 items at a time")
+    _lock_checklist(db, t)
     last = (db.query(func.max(models.TaskChecklistItem.position))
             .filter(models.TaskChecklistItem.task_id == task_id).scalar()) or 0.0
     who = assert_person_on_task(db, t, body.assignee_email or "")
@@ -4755,10 +4809,20 @@ def update_checklist_item(item_id: str, upd: ChecklistItemUpdate, user: dict = D
     data = upd.model_dump(exclude_unset=True)
     me = (user["email"] or "").lower()
     only_ticking = set(data) <= {"done"}
-    if only_ticking and (i.assignee_email or "").lower() == me:
-        require_task_role(db, user, t, "viewer")   # the line names them: ticking it is theirs to do
-    else:
-        require_task_role(db, user, t, "editor")
+
+    def check(line):
+        if only_ticking and (line.assignee_email or "").lower() == me:
+            require_task_role(db, user, t, "viewer")   # the line names them: ticking it is theirs to do
+        else:
+            require_task_role(db, user, t, "editor")
+    check(i)
+    # The task first, then the line (_lock_checklist); the line as it is now,
+    # checked again - it may have been handed to someone else meanwhile.
+    _lock_checklist(db, t)
+    i = _relock_line(db, t, item_id)
+    if i is None:
+        raise HTTPException(404, "Checklist item not found")
+    check(i)
     if "title" in data:
         title = (data["title"] or "").strip()
         if not title:
@@ -4794,6 +4858,10 @@ def delete_checklist_item(item_id: str, user: dict = Depends(get_current_user), 
     i, t = _checklist_item(db, item_id)
     assert_task_wall(db, user, t)
     require_task_role(db, user, t, "editor")
+    _lock_checklist(db, t)             # the task first, then the line
+    i = _relock_line(db, t, item_id)
+    if i is None:
+        raise HTTPException(404, "Checklist item not found")
     db.delete(i)
     _recount_checklist(db, t)
     db.commit()
@@ -4809,7 +4877,9 @@ def reorder_checklist(task_id: str, body: ChecklistOrder, user: dict = Depends(g
     place after the listed ones; ids of other tasks are ignored."""
     t = _wall_task(db, user, task_id)
     require_task_role(db, user, t, "editor")
-    rows = {i.id: i for i in db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == task_id).all()}
+    _lock_checklist(db, t)             # the task first, then the lines
+    rows = {i.id: i for i in db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == task_id)
+            .order_by(models.TaskChecklistItem.id).populate_existing().with_for_update().all()}
     n = 0
     for n, iid in enumerate([x for x in body.ids if x in rows], start=1):
         rows[iid].position = float(n)
@@ -4833,8 +4903,8 @@ def reorder_checklist(task_id: str, body: ChecklistOrder, user: dict = Depends(g
 # parent's assignees when the line names nobody, as Add Subtask defaults.
 # A person who may no longer hold work is left off and said so
 # (droppedPeople), never refused. A line already ticked becomes a completed
-# subtask. It is never more visible than the parent: under a private task
-# the subtask is private too. HR checklist tasks are refused: their
+# subtask, quietly (no bell, no email). It is never more visible than the
+# parent: under a private task the subtask is private too. HR checklist tasks are refused: their
 # subtasks ARE the HR checklist's steps (hr_checklists.sync_tasks), which
 # nothing else goes under (_plan_move's rule).
 _ITEM_GONE = "That checklist item is no longer there - someone removed it or already made it a subtask."
@@ -4856,21 +4926,15 @@ def convert_checklist_item(item_id: str, background_tasks: BackgroundTasks,
     if _is_hr_checklist_task(db, t):
         raise HTTPException(422, "This is an HR checklist task. Its subtasks come from the HR checklist, "
                                  "so this item stays on the checklist.")
-    # The line, then the task: the order the other checklist writes take
-    # them in (the line's row, then the task's counters), so a tick or a
-    # removal landing at the same moment waits rather than deadlocks. On
-    # Postgres a line removed or converted while we waited is gone here.
-    i = (db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.id == item_id)
-         .populate_existing().with_for_update().first())
-    if i is None or i.task_id != t.id:
+    # The task, then the line - the order every checklist write takes them
+    # in (_lock_checklist), so a tick or a removal landing at the same moment
+    # waits rather than deadlocks. The line is re-read under its lock: one
+    # removed or converted while we waited is gone here (409). _create_task
+    # locks the task again below (already held) and then the code counter.
+    _lock_checklist(db, t)
+    i = _relock_line(db, t, item_id)
+    if i is None:
         raise HTTPException(409, _ITEM_GONE)
-    _lock_task_rows(db, [t.id])
-    try:
-        db.refresh(t)
-    except InvalidRequestError:        # purged while we waited
-        raise HTTPException(404, "Task not found")
-    if t.deleted_at:
-        raise HTTPException(409, "This task is in the Trash. Restore it to change its checklist.")
     who = (i.assignee_email or "").strip().lower()
     title = (i.title or "").strip()[:500] or "Subtask"
     body = TaskCreate(
@@ -4880,9 +4944,8 @@ def convert_checklist_item(item_id: str, background_tasks: BackgroundTasks,
         follower_emails=list(t.follower_emails or []),
         custom_field_values=dict(t.custom_field_values or {}),
         assignee_emails=[who] if who else task_assignees(t),
-        # Never wider than the parent: an unset level follows the project, as
-        # for any subtask - but under a private task the subtask is private.
-        access_level=None if (t.access_level or "org") == "org" else t.access_level,
+        # No level of its own: the project's, as for any subtask - and under a
+        # private task a private one (_create_task, _narrow_to_parent).
     )
     line_id, line_title = i.id, i.title or title
 
@@ -4898,7 +4961,10 @@ def convert_checklist_item(item_id: str, background_tasks: BackgroundTasks,
             entity_code=t.code, entity_title=t.title,
             detail=f'made checklist item "{line_title}" a subtask')]
 
-    out = _create_task(body, background_tasks, user, db, before_commit=finish, check_people=True)
+    # A line already ticked is born completed: nothing to do, so nobody is
+    # told (no assignment bell, no "created" email) - `quiet`.
+    out = _create_task(body, background_tasks, user, db, before_commit=finish, check_people=True,
+                       quiet=bool(i.done))
     db.refresh(t)
     fire_task_event(t.id, "updated")
     return {"subtask": out, "task": task_to_dict(t)}
@@ -5379,13 +5445,19 @@ def add_egnyte_link(task_id: str, body: EgnyteLinkCreate, user: dict = Depends(g
 # new file, a link notifies nobody; adding it logs "attached".
 
 _LINK_MAX = 2000
+# How an added link's "attached" activity row starts - the Updates card reads
+# it to say "added a link" rather than "attached a file".
+_LINK_ADDED = "added link "
 # What stays as typed in the path / query / fragment: the reserved and
 # unreserved characters and "%" (an escape already in the link). Spaces and
 # anything outside ASCII are percent-encoded, the way a browser sends them.
 _LINK_SAFE = "!#$&'()*+,/:;=?@[]~-._%"
 _LINK_SCHEME_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*):")
-_LINK_HOST_RE = re.compile(r"^[a-z0-9_.-]+$")
-_LINK_IPV6_RE = re.compile(r"^[0-9a-f:.]+$")
+# One DNS label: 1-63 letters, digits and hyphens, no hyphen at either end.
+_LINK_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+# The authenticated file viewer, wherever it sits in a link (path, a query
+# value, a fragment): ".../files/view?u=..." - lib/storageView.js VIEW_PREFIX.
+_VIEWER_RE = re.compile(r"/files/view/?\?(?:[^#]*&)?u=", re.I)
 
 
 def _hidden_char(c: str) -> bool:
@@ -5397,20 +5469,69 @@ def _hidden_char(c: str) -> bool:
     return cat[0] == "C" or cat in ("Zl", "Zp")
 
 
+def _unquoted(text: str) -> str:
+    """`text` with percent-escapes undone, lower-cased - repeatedly (at most
+    three rounds), so %2F and a double-encoded %252F read as "/" too."""
+    out = text or ""
+    for _ in range(3):
+        nxt = unquote(out)
+        if nxt == out:
+            break
+        out = nxt
+    return out.lower()
+
+
 def _own_file_url(u: str) -> bool:
     """A link into Nexus's own file storage or its /files/view viewer: a file
     stored in Nexus is attached as a file (its access rules apply), never
     linked - and a stored link must never look like a storage URL, which
-    api.js would rewrite and the viewer would serve."""
+    api.js would rewrite and the viewer would serve. Read from the parsed
+    link, not the raw text: the host compared as a host (http or https, a
+    trailing dot, any port) with the storage path read unquoted, and the
+    query and the fragment searched for a storage or viewer address carried
+    inside them (?next=..., #...). frontend/src/tasks/webLinks.js says the
+    same before sending."""
     import os
-    base = os.getenv("SUPABASE_URL", "").rstrip("/").lower()
-    low = u.lower()
-    if base and f"{base}/storage/v1/" in low:
-        return True
-    from urllib.parse import parse_qsl
     p = urlsplit(u)
-    return (p.path.rstrip("/").lower().endswith("/files/view")
-            and any(k.lower() == "u" for k, _ in parse_qsl(p.query or "", keep_blank_values=True)))
+    base = (urlsplit(os.getenv("SUPABASE_URL", "").strip()).hostname or "").rstrip(".").lower()
+    if base:
+        host = (p.hostname or "").rstrip(".").lower()
+        if host == base and "/storage/v1/" in _unquoted(p.path):
+            return True
+        carried = re.compile(re.escape(base) + r"\.?(?::\d+)?/storage/v1/")
+        if any(carried.search(_unquoted(part)) for part in (p.query, p.fragment)):
+            return True
+    if p.path.rstrip("/").lower().endswith("/files/view") and any(
+            k.lower() == "u" for k, _ in parse_qsl(p.query or "", keep_blank_values=True)):
+        return True
+    return any(_VIEWER_RE.search(_unquoted(part)) for part in (p.query, p.fragment))
+
+
+def _check_host(host: str) -> str:
+    """The link's host as stored, or 400. A name: labels of 1-63 letters,
+    digits and hyphens, no hyphen at either end, no empty label (so no
+    leading, trailing or doubled dot), 253 characters at most. A name whose
+    last label is all digits is read as an IPv4 address, as a browser reads
+    it, and must then be a plain dotted quad (no 0x7f.1, no 2130706433). An
+    IPv6 address must parse (no zone id) and is stored compressed."""
+    import ipaddress
+    bad = HTTPException(400, "That link's website name is not valid.")
+    if ":" in host:
+        if "%" in host:
+            raise bad
+        try:
+            return f"[{ipaddress.IPv6Address(host).compressed}]"
+        except ValueError:
+            raise bad
+    labels = host.split(".")
+    if len(host) > 253 or not all(_LINK_LABEL_RE.match(x) for x in labels):
+        raise bad
+    if labels[-1].isdigit():
+        try:
+            return str(ipaddress.IPv4Address(host))
+        except ValueError:
+            raise bad
+    return host
 
 
 def _check_web_link(url) -> str:
@@ -5460,14 +5581,7 @@ def _check_web_link(url) -> str:
             host = host.encode("idna").decode("ascii").lower()
         except UnicodeError:
             raise HTTPException(400, "That link's website name is not valid.")
-    if ":" in host:
-        if not _LINK_IPV6_RE.match(host):
-            raise HTTPException(400, "That link's website name is not valid.")
-        netloc = f"[{host}]"
-    else:
-        if not _LINK_HOST_RE.match(host) or host.strip(".") == "":
-            raise HTTPException(400, "That link's website name is not valid.")
-        netloc = host
+    netloc = _check_host(host.lower())
     if port is not None and port != (443 if scheme == "https" else 80):
         netloc += f":{port}"
     out = urlunsplit((scheme, netloc, quote(p.path, safe=_LINK_SAFE), quote(p.query, safe=_LINK_SAFE),
@@ -5525,7 +5639,7 @@ def add_web_link(task_id: str, body: WebLinkCreate, user: dict = Depends(get_cur
     db.add(a)
     t.attachment_ids = list(t.attachment_ids or []) + [a.id]
     act = log_activity(db, type="attached", actor_email=user["email"], entity_id=t.id,
-                       entity_code=t.code, entity_title=t.title, detail=f'added link "{_link_label(a)}"')
+                       entity_code=t.code, entity_title=t.title, detail=f'{_LINK_ADDED}"{_link_label(a)}"')
     t.activity_ids = list(t.activity_ids or []) + [act]
     t.modified_at = now_iso()
     db.commit()
@@ -5542,14 +5656,16 @@ def update_web_link(attachment_id: str, body: WebLinkUpdate, user: dict = Depend
     attachment right (commenter) too. A name left out is kept; sent blank,
     the link shows its address again."""
     a, t = _attachment_and_task(db, attachment_id)
+    # Sight of the task first: somebody who cannot see it learns nothing
+    # about the row - not even whether it is a link (404 before 422).
     assert_task_wall(db, user, t)
+    if not task_visible_to(db, user, t):
+        raise HTTPException(404, "Task not found")
     if (a.kind or "") != "link":
         raise HTTPException(422, "Only a web link can be edited here.")
     require_task_role(db, user, t, "commenter")
     if (a.added_by or "").lower() != (user["email"] or "").lower():
         require_project_role(db, user, project_for_task(db, t), "editor")
-    if not task_visible_to(db, user, t):
-        raise HTTPException(404, "Task not found")
     url = _check_web_link(body.url) if body.url is not None else None
     _lock_task_files(db, t)
     row = (db.query(models.TaskAttachment).filter(models.TaskAttachment.id == attachment_id)
@@ -6076,7 +6192,8 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
             elif t == "comment_resolved":
                 add("resolved")
             elif t == "attached":
-                add("attached")
+                # A web link is told as a link, not a file (Oct 22 2026).
+                add("linked" if (a.detail or "").startswith(_LINK_ADDED) else "attached")
             elif t == "checklist_done":
                 add("checklist", a.detail or "")
             elif t == "restored":
@@ -6185,11 +6302,11 @@ def mark_updates_seen(user: dict = Depends(get_current_user), db: Session = Depe
 # What an update says first: what is asked of me, then what happened.
 _PART_ORDER = ["unblocked", "assigned_you", "extension_ask", "date_ask", "mentioned_you", "comment_for_you",
                "completed", "restored", "status", "due", "date_request", "assignees", "commented",
-               "resolved", "attached", "checklist"]
+               "resolved", "attached", "linked", "checklist"]
 # The bells that say something was put to ME (assigned, a date ask).
 _ASK_BELLS = ("task_assigned", "task_due_extension_requested", "task_due_proposed")
 # Progress, not news: an update made only of these drops.
-_PROGRESS_ONLY = {"attached", "checklist"}
+_PROGRESS_ONLY = {"attached", "linked", "checklist"}
 
 
 # ── Sections & custom statuses (board columns) ───────────────────────────────

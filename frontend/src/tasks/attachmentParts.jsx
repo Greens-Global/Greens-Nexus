@@ -1,5 +1,5 @@
 // Task attachments: the Versions panel, Egnyte link rows and the Add From
-// Egnyte picker, web link rows and Add Link (Neil, Oct 22 2026). Used by the
+// Egnyte picker, web link rows and Add Web Link (Neil, Oct 22 2026). Used by the
 // drawer's AttachmentsTab. The rules live in egnyteLinks.js / webLinks.js and
 // on the server (routers/tasks.py): a version is a new file in the same
 // group; an Egnyte link is a link, never a copy, and opens in Egnyte under
@@ -322,13 +322,13 @@ export function WebLinkRow({ a, onEdit, onRemove }) {
           <ExternalLink size={12} style={{ color: NX.blue, flexShrink: 0 }} />
         </a>
       ) : text}
-      {onEdit && <button type="button" onClick={onEdit} title="Edit Link" aria-label={`Edit link ${label}`} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Pencil size={12} /></button>}
+      {onEdit && <button type="button" onClick={onEdit} title="Edit Web Link" aria-label={`Edit link ${label}`} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Pencil size={12} /></button>}
       {onRemove && <button type="button" onClick={onRemove} title="Remove" aria-label={`Remove ${label}`} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>}
     </div>
   );
 }
 
-// ── Add Link / Edit Link ─────────────────────────────────────────────────────
+// ── Add Web Link / Edit Web Link ─────────────────────────────────────────────────────
 // The address and an optional display name. `link` = the row being edited
 // (absent = a new link on `taskId`). What is wrong with the address is said
 // as it is typed (webLinkProblem); the server has the last word and its
@@ -362,12 +362,12 @@ export function WebLinkModal({ taskId, link = null, onClose, onSaved }) {
       <button type="button" onClick={onClose} style={btn('outline')}>Cancel</button>
       <button type="submit" form="nx-web-link-form" disabled={!canSave}
         style={{ ...btn('primary'), opacity: canSave ? 1 : 0.6 }}>
-        <Link2 size={13} /> {editing ? 'Save Link' : 'Add Link'}
+        <Link2 size={13} /> {editing ? 'Save Link' : 'Add Web Link'}
       </button>
     </>
   );
   return (
-    <Modal title={editing ? 'Edit Link' : 'Add Link'} onClose={onClose} footer={footer} isDirty={changed && !!url.trim()} onSave={save}>
+    <Modal title={editing ? 'Edit Web Link' : 'Add Web Link'} onClose={onClose} footer={footer} isDirty={changed && !!url.trim()} onSave={save}>
       <form id="nx-web-link-form" onSubmit={save} className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ fontSize: 12.5, color: NX.dim }}>
           Links a web page to this task - a SharePoint or OneDrive file, a vendor portal, a listing. It opens in a new tab; nothing is copied into Nexus.

@@ -223,12 +223,10 @@ describe('Add From Egnyte', () => {
     const box = screen.getByLabelText('Egnyte link');
     fireEvent.change(box, { target: { value: 'https://greens.egnyte.com.evil.com/fl/x' } });
     expect(screen.getByTestId('paste-problem').textContent).toContain('greens.egnyte.com');
-    // Scoped to the dialog: the drawer behind it has its own Add Link (web links).
-    const dlg = within(screen.getByRole('dialog'));
-    expect(dlg.getByText('Add Link').closest('button').disabled).toBe(true);
+    expect(screen.getByText('Add Link').closest('button').disabled).toBe(true);
     fireEvent.change(box, { target: { value: EGNYTE.url } });
     expect(screen.queryByTestId('paste-problem')).toBeNull();
-    await act(async () => { fireEvent.click(dlg.getByText('Add Link')); });
+    await act(async () => { fireEvent.click(screen.getByText('Add Link')); });
     expect(api.addTaskEgnyteLink).toHaveBeenCalledWith('t1', { url: EGNYTE.url, path: '/Shared/Leases/Temecula Lease', name: 'Temecula Lease', is_folder: true });
   });
 

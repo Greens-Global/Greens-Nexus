@@ -154,6 +154,9 @@ class LinkValidationTests(Base):
         ("https://b\u00fccher.example/x", "https://xn--bcher-kva.example/x"),
         ("https://[2001:db8::1]:8080/x", "https://[2001:db8::1]:8080/x"),
         ("https://site.example/files/view?menu=1", "https://site.example/files/view?menu=1"),
+        ("http://192.168.1.10/x", "http://192.168.1.10/x"),
+        ("https://[2001:0db8:0000::0001]/", "https://[2001:db8::1]/"),
+        ("https://a-b.c0.example/", "https://a-b.c0.example/"),
         ("https://greens.sharepoint.com/:w:/r/sites/Ops/Doc.docx?d=w1&csf=1",
          "https://greens.sharepoint.com/:w:/r/sites/Ops/Doc.docx?d=w1&csf=1"),
     ]
@@ -169,6 +172,20 @@ class LinkValidationTests(Base):
         "https://proj.supabase.co/storage/v1/object/public/task-files/a.png",
         "https://example.com/?next=https://proj.supabase.co/storage/v1/object/sign/task-files/a.png",
         "https://api.nexus.example/files/view?u=https%3A%2F%2Fproj.supabase.co%2Fx",
+        # Host labels (L3).
+        "https://exa_mple.com/", "https://-bad.com/", "https://bad-.com/", "https://a..b.com/",
+        "https://.example.com/", "https://example.com./x", "https://" + "a" * 64 + ".com/",
+        "http://0x7f.0.0.1/", "http://2130706433/", "http://256.1.1.1/", "http://1.2.3/",
+        "https://[fe80::1%25eth0]/", "https://[::zz]/",
+        # Our storage, however it is spelled (L1), or carried along (L2).
+        "http://proj.supabase.co/storage/v1/object/public/task-files/a.png",
+        "https://PROJ.supabase.co:443/storage%2Fv1%2Fobject/public/task-files/a.png",
+        "https://proj.supabase.co/x/storage%252Fv1%252Fobject",
+        "https://proj.supabase.co./storage/v1/object/public/task-files/a.png",
+        "https://example.com/#https://proj.supabase.co/storage/v1/object/public/x",
+        "https://example.com/?next=https%3A%2F%2Fproj.supabase.co%2Fstorage%2Fv1%2Fx",
+        "https://example.com/#/api/files/view?u=x",
+        "https://example.com/?r=%2Ffiles%2Fview%3Fu%3Dx",
     ]
 
     def test_good_links_are_normalized(self):
@@ -183,6 +200,16 @@ class LinkValidationTests(Base):
                     T._check_web_link(raw)
                 self.assertEqual(e.exception.status_code, 400, repr(raw))
                 self.assertNotIn("\u2014", e.exception.detail)
+
+    def test_own_storage_is_read_from_the_parsed_link(self):
+        with mock.patch.dict(os.environ, SUPA):
+            for u in ("https://proj.supabase.co./storage/v1/x", "http://proj.supabase.co:8443/storage/v1/x",
+                      "https://proj.supabase.co/storage%2Fv1%2Fx", "https://e.com/files/view?a=1&u=2",
+                      "https://e.com/p#https://proj.supabase.co./storage/v1/x"):
+                self.assertTrue(T._own_file_url(u), u)
+            self.assertFalse(T._own_file_url("https://proj.supabase.co.evil.example/storage/v1/x"))
+            self.assertFalse(T._own_file_url("https://example.com/storage/v1/x"))
+            self.assertFalse(T._own_file_url("https://example.com/files/view?menu=1"))
 
     def test_the_stored_link_is_never_a_storage_url(self):
         # The viewer and api.js rewrite only canonical storage URLs; no
@@ -282,6 +309,10 @@ class LinkTests(Base):
     def test_only_a_link_is_edited_here(self):
         f = T.add_attachment(self.t.id, T.AttachmentCreate(name="plan.pdf", url="data:x"), user=OWNER, db=self.db)
         self.assertEqual(self.code(lambda: self.edit(f["id"], name="x")), 422)
+        # Somebody who cannot see the task learns nothing - not even the kind.
+        secret = self.task(project_id="", access_level="restricted", owner_email=OWNER["email"])
+        g = T.add_attachment(secret.id, T.AttachmentCreate(name="plan.pdf", url="data:x"), user=OWNER, db=self.db)
+        self.assertEqual(self.code(lambda: self.edit(g["id"], user=OUTSIDER, name="x")), 404)
 
     def test_removed_like_any_file(self):
         r = self.add(user=COMMENTER, name="Spec")
@@ -506,11 +537,137 @@ class ConvertTests(Base):
         item = self.line(t=step)
         self.assertEqual(self.code(lambda: self.convert(item["id"])), 422)
 
+    def test_a_ticked_line_becomes_a_subtask_quietly(self):
+        item = self.line(assignee_email=COMMENTER["email"])
+        T.update_checklist_item(item["id"], T.ChecklistItemUpdate(done=True), user=OWNER, db=self.db)
+        bells = self.db.query(models.NexusNotification).count()   # the line's own hand-off bell
+        out = self.convert(item["id"])
+        self.assertTrue(out["subtask"]["completed"])
+        self.assertEqual(self.db.query(models.TaskNotification).filter_by(task_id=out["subtask"]["id"]).count(), 0)
+        self.assertEqual(self.db.query(models.NexusNotification).count(), bells)
+        self.assertNotIn(T.notify_task_event, [job.func for job in self.bg.tasks])
+
+    def test_every_checklist_write_locks_the_task_before_the_line(self):
+        a = self.line("A")
+        b = self.line("B")
+        c = self.line("C")
+        order = []
+        real_task, real_line = T._lock_task_rows, T._relock_line
+
+        def lock_task(db, ids, **kw):
+            order.append("task")
+            return real_task(db, ids, **kw)
+
+        def lock_line(db, t, item_id):
+            order.append("line")
+            return real_line(db, t, item_id)
+        writes = (
+            lambda: T.add_checklist_items(self.parent.id, T.ChecklistItemCreate(title="D"), user=OWNER, db=self.db),
+            lambda: T.update_checklist_item(a["id"], T.ChecklistItemUpdate(done=True), user=OWNER, db=self.db),
+            lambda: T.delete_checklist_item(b["id"], user=OWNER, db=self.db),
+            lambda: T.reorder_checklist(self.parent.id, T.ChecklistOrder(ids=[c["id"], a["id"]]), user=OWNER, db=self.db),
+            lambda: self.convert(c["id"]),
+        )
+        with mock.patch.object(T, "_lock_task_rows", lock_task), mock.patch.object(T, "_relock_line", lock_line):
+            for w in writes:
+                order.clear()
+                w()
+                self.assertEqual(order[0], "task", order)
+                if "line" in order:
+                    self.assertLess(order.index("task"), order.index("line"))
+
+    def test_a_line_removed_while_waiting_on_the_task(self):
+        # SQLite has no row locks: the other request's removal runs inside
+        # the task lock call, and the line re-read after it finds it gone.
+        def removing(item_id):
+            real = T._lock_task_rows
+            state = {"done": False}
+
+            def fake(db, ids, **kw):
+                if not state["done"]:
+                    state["done"] = True
+                    db2 = database.SessionLocal()
+                    try:
+                        db2.query(models.TaskChecklistItem).filter_by(id=item_id).delete()
+                        db2.commit()
+                    finally:
+                        db2.close()
+                return real(db, ids, **kw)
+            return mock.patch.object(T, "_lock_task_rows", fake)
+        a = self.line("A")
+        with removing(a["id"]):
+            self.assertEqual(self.code(lambda: self.convert(a["id"])), 409)
+        b = self.line("B")
+        with removing(b["id"]):
+            self.assertEqual(self.code(lambda: T.update_checklist_item(
+                b["id"], T.ChecklistItemUpdate(done=True), user=OWNER, db=self.db)), 404)
+        c = self.line("C")
+        with removing(c["id"]):
+            self.assertEqual(self.code(lambda: T.delete_checklist_item(c["id"], user=OWNER, db=self.db)), 404)
+        self.assertEqual(self.db.query(models.Task).filter_by(parent_task_id=self.parent.id).count(), 0)
+
     def test_a_trashed_parent_is_not_found(self):
         item = self.line()
         self.parent.deleted_at = now_iso()
         self.db.commit()
         self.assertEqual(self.code(lambda: self.convert(item["id"])), 404)
+
+
+# ── A subtask is never wider than its parent ─────────────────────────────────
+class SubtaskPrivacyTests(Base):
+    """Pre-existing gap fixed Oct 22 2026: Add Subtask under a private task
+    with no project made an org-wide subtask (the level came from the
+    project only); a move kept the moved rows' own level."""
+
+    def setUp(self):
+        super().setUp()
+        self.bg = BackgroundTasks()
+        self.secret = self.task(project_id="", access_level="restricted", owner_email=OWNER["email"])
+
+    def create(self, **kw):
+        return T.create_task(T.TaskCreate(**kw), self.bg, user=OWNER, db=self.db)
+
+    def level(self, tid):
+        return self.task_row(tid).access_level
+
+    def test_add_subtask_under_a_private_task(self):
+        sub = self.create(title="Sub", parent_task_id=self.secret.id)
+        self.assertEqual(sub["accessLevel"], "restricted")
+        # An explicit org-wide level is narrowed, never wider than the parent.
+        sub = self.create(title="Sub 2", parent_task_id=self.secret.id, access_level="org")
+        self.assertEqual(sub["accessLevel"], "restricted")
+        self.assertEqual(self.code(lambda: T.list_checklist(sub["id"], user=OUTSIDER, db=self.db)), 404)
+        # Under an org-wide task with no project nothing changes.
+        open_parent = self.task(project_id="", access_level="org")
+        self.assertEqual(self.create(title="Sub 3", parent_task_id=open_parent.id)["accessLevel"], "org")
+
+    def test_duplicate_with_subtasks(self):
+        # The drawer's Duplicate: the copy carries the private level
+        # (duplicateTaskData), then each subtask is made under the copy.
+        copy = self.create(title="Pump (copy)", access_level="restricted")
+        sub = self.create(title="Step (copy)", parent_task_id=copy["id"])
+        self.assertEqual(sub["accessLevel"], "restricted")
+        sub = self.create(title="Step 2 (copy)", parent_task_id=copy["id"], access_level="org")
+        self.assertEqual(sub["accessLevel"], "restricted")
+
+    def test_move_under_a_private_task_narrows_the_subtree(self):
+        top = self.task(project_id="", access_level="org")
+        kid = self.task(project_id="", access_level="org", parent_task_id=top.id)
+        top.subtask_ids = [kid.id]
+        self.db.commit()
+        T.update_task(top.id, T.TaskUpdate(parent_task_id=self.secret.id), self.bg, user=OWNER, db=self.db)
+        self.assertEqual((self.level(top.id), self.level(kid.id)), ("restricted", "restricted"))
+        moved = self.db.query(models.TaskActivity).filter_by(entity_id=top.id, type="moved").one()
+        self.assertIn("now private", moved.detail)
+        self.assertEqual(self.code(lambda: T.list_checklist(kid.id, user=OUTSIDER, db=self.db)), 404)
+
+    def test_a_move_never_widens(self):
+        private = self.task(project_id="", access_level="restricted", owner_email=OWNER["email"])
+        open_parent = self.task(project_id="", access_level="org")
+        T.update_task(private.id, T.TaskUpdate(parent_task_id=open_parent.id), self.bg, user=OWNER, db=self.db)
+        self.assertEqual(self.level(private.id), "restricted")
+        moved = self.db.query(models.TaskActivity).filter_by(entity_id=private.id, type="moved").one()
+        self.assertNotIn("now private", moved.detail)
 
 
 if __name__ == "__main__":

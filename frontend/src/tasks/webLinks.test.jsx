@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 
-// Web links (Neil, Oct 22 2026 - Planner parity): Add Link attaches any web
+// Web links (Neil, Oct 22 2026 - Planner parity): Add Web Link attaches any web
 // page as a link. The row shows a link icon, the name (or the address) and
 // the website; it opens in a new tab, never the in-app viewer; it takes no
 // versions; the person who added it or an editor edits or removes it, and a
@@ -51,7 +51,8 @@ describe('link helpers', () => {
   it('takes http(s) links and a bare website, like the server', () => {
     for (const ok of ['https://example.com/page', 'http://example.com', 'example.com/page', 'www.example.com:8080/x',
       'https://example.com/my file.pdf', 'https://[2001:db8::1]:8080/x', 'HTTPS://Example.com/x',
-      'https://greens.sharepoint.com/:w:/r/sites/Ops/Doc.docx?d=w1', 'https://site.example/files/view?menu=1']) {
+      'https://greens.sharepoint.com/:w:/r/sites/Ops/Doc.docx?d=w1', 'https://site.example/files/view?menu=1',
+      'http://192.168.1.10/x', 'https://a-b.c0.example/', 'https://example.supabase.co/rest/v1/x']) {
       expect(webLinkProblem(ok), ok).toBe('');
     }
   });
@@ -78,6 +79,24 @@ describe('link helpers', () => {
       'https://example.supabase.co/storage/v1/object/public/task-files/a.png': 'stored in Nexus',
       '/api/files/view?u=https%3A%2F%2Fexample.supabase.co%2Fx': 'full link',
       'https://nexus.example.com/api/files/view?u=abc': 'stored in Nexus',
+      // Host labels, as the server reads them.
+      'https://exa_mple.com/': 'website name',
+      'https://-bad.com/': 'website name',
+      'https://bad-.com/': 'website name',
+      'https://a..b.com/': 'website name',
+      'https://example.com./x': 'website name',
+      [`https://${'a'.repeat(64)}.com/`]: 'website name',
+      'http://0x7f.0.0.1/': 'website name',
+      'http://2130706433/': 'website name',
+      'http://256.1.1.1/': 'website name',
+      // Our storage however it is spelled, or carried in the query / fragment.
+      'http://example.supabase.co/storage/v1/object/public/task-files/a.png': 'stored in Nexus',
+      'https://EXAMPLE.supabase.co:443/storage%2Fv1%2Fobject/public/x': 'stored in Nexus',
+      'https://example.supabase.co/x/storage%252Fv1%252Fobject': 'stored in Nexus',
+      'https://example.com/#https://example.supabase.co/storage/v1/object/x': 'stored in Nexus',
+      'https://example.com/?next=https%3A%2F%2Fexample.supabase.co%2Fstorage%2Fv1%2Fx': 'stored in Nexus',
+      'https://example.com/#/api/files/view?u=x': 'stored in Nexus',
+      'https://example.com/?r=%2Ffiles%2Fview%3Fu%3Dx': 'stored in Nexus',
     };
     for (const [value, says] of Object.entries(bad)) {
       expect(webLinkProblem(value), JSON.stringify(value)).toContain(says);
@@ -134,7 +153,7 @@ describe('a link row', () => {
   });
 });
 
-describe('Add Link and Edit Link', () => {
+describe('Add Web Link and Edit Web Link', () => {
   it('explains a bad address, then adds a good one with its name', async () => {
     api.addTaskLink = vi.fn(() => Promise.resolve({ ...LINK }));
     const onSaved = vi.fn();
@@ -143,7 +162,7 @@ describe('Add Link and Edit Link', () => {
     const box = screen.getByLabelText('Web address');
     fireEvent.change(box, { target: { value: 'javascript:alert(1)' } });
     expect(screen.getByTestId('link-problem').textContent).toContain('Only web links');
-    const add = within(screen.getByRole('dialog')).getByRole('button', { name: /Add Link/ });
+    const add = within(screen.getByRole('dialog')).getByRole('button', { name: /Add Web Link/ });
     expect(add.disabled).toBe(true);
     fireEvent.change(box, { target: { value: 'vendor.example/portal' } });
     expect(screen.queryByTestId('link-problem')).toBeNull();
@@ -160,7 +179,7 @@ describe('Add Link and Edit Link', () => {
     const onClose = vi.fn();
     render(<WebLinkModal taskId="t1" onClose={onClose} />);
     fireEvent.change(screen.getByLabelText('Web address'), { target: { value: 'https://example.com/spec' } });
-    await act(async () => { fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Add Link/ })); });
+    await act(async () => { fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Add Web Link/ })); });
     expect((await screen.findByRole('alert')).textContent).toContain('already on this task');
     expect(onClose).not.toHaveBeenCalled();
   });
@@ -179,7 +198,7 @@ describe('Add Link and Edit Link', () => {
 });
 
 describe('links in the task drawer', () => {
-  it('Add Link opens the form; a link row is a link, never a file row, and takes no versions', async () => {
+  it('Add Web Link opens the form; a link row is a link, never a file row, and takes no versions', async () => {
     api.getTaskAttachments = vi.fn(() => Promise.resolve([LINK, BARE]));
     api.updateTaskLink = vi.fn(() => Promise.resolve(LINK));
     api.deleteTaskAttachment = vi.fn(() => Promise.resolve());
@@ -192,7 +211,7 @@ describe('links in the task drawer', () => {
     expect(screen.getByLabelText('Edit link Vendor Portal')).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByLabelText('Remove Vendor Portal')); });
     expect(api.deleteTaskAttachment).toHaveBeenCalledWith('l1');
-    await act(async () => { fireEvent.click(screen.getByText('Add Link')); });
+    await act(async () => { fireEvent.click(screen.getByText('Add Web Link')); });
     expect(within(screen.getByRole('dialog')).getByLabelText('Web address')).toBeTruthy();
   });
 
@@ -203,7 +222,7 @@ describe('links in the task drawer', () => {
     state = { ...state, tasks: [t], taskById: { t1: t }, projects: project('commenter') };
     const { unmount } = render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
     await screen.findAllByTestId('web-link');
-    expect(screen.getByText('Add Link')).toBeTruthy();
+    expect(screen.getByText('Add Web Link')).toBeTruthy();
     expect(screen.getByLabelText('Edit link Vendor Portal')).toBeTruthy();       // mine
     expect(screen.queryByLabelText(`Edit link ${BARE.url}`)).toBeNull();          // someone else's
     expect(screen.queryByLabelText(`Remove ${BARE.url}`)).toBeNull();
@@ -214,7 +233,7 @@ describe('links in the task drawer', () => {
     const rows = await screen.findAllByTestId('web-link');
     expect(rows).toHaveLength(2);
     expect(rows[0].querySelector('a').getAttribute('href')).toBe(LINK.url);
-    expect(screen.queryByText('Add Link')).toBeNull();
+    expect(screen.queryByText('Add Web Link')).toBeNull();
     expect(screen.queryByLabelText(/Edit link/)).toBeNull();
   });
 });
@@ -230,5 +249,21 @@ describe('the Files view', () => {
     expect(a.textContent).toContain('Vendor Portal');
     expect(screen.getByText(/vendor\.example/)).toBeTruthy();
     expect(screen.queryByTitle('Download')).toBeNull();
+  });
+});
+
+describe('the Updates card and copies', () => {
+  it('says "added a link" for a link, "attached a file" for a file', async () => {
+    const { updatePhrases } = await import('./updatesText');
+    expect(updatePhrases({ parts: [{ kind: 'linked', count: 1 }] })[0].text).toBe('added a link');
+    expect(updatePhrases({ parts: [{ kind: 'linked', count: 3 }] })[0].text).toBe('added 3 links');
+    expect(updatePhrases({ parts: [{ kind: 'attached', count: 1 }] })[0].text).toBe('attached a file');
+  });
+
+  it('a copy of a private task is private; an org-wide one leaves it to the server', async () => {
+    const { duplicateTaskData } = await import('./lib');
+    expect(duplicateTaskData({ ...task, accessLevel: 'restricted' }).accessLevel).toBe('restricted');
+    expect('accessLevel' in duplicateTaskData({ ...task, accessLevel: 'org' })).toBe(false);
+    expect('accessLevel' in duplicateTaskData(task)).toBe(false);
   });
 });

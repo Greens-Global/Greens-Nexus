@@ -43,13 +43,63 @@ export function webLinkProblem(value) {
   if (authority.includes('@')) return 'Links with a user name or password in them cannot be added.';
   const host = authority.startsWith('[') ? authority.slice(1, authority.indexOf(']')) : authority.replace(/:\d*$/, '');
   if (!host) return 'That link has no website in it.';
-  if (/\s/.test(host)) return "That link's website name is not valid.";
-  const low = s.toLowerCase();
-  if ((SUPABASE_URL && low.includes(`${SUPABASE_URL}/storage/v1/`)) || s.startsWith(VIEW_PREFIX)
-    || /\/files\/view\/?\?(?:[^#]*&)?u=/i.test(s)) {
-    return 'That is a file stored in Nexus. Attach the file instead of linking to it.';
+  if (hostProblem(host)) return "That link's website name is not valid.";
+  if (ownFileLink(s, host)) return 'That is a file stored in Nexus. Attach the file instead of linking to it.';
+  return '';
+}
+
+// The server's host rule (tasks._check_host): labels of 1-63 letters, digits
+// and hyphens, no hyphen at either end, no empty label; an all-digit last
+// label means an IPv4 address and must be a plain dotted quad; an IPv6
+// address must look like one (the server parses it). An international name
+// is checked in its ASCII (punycode) form, as the server stores it.
+const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+function hostProblem(raw) {
+  let host = raw;
+  if (host.includes(':')) return /^[0-9a-f:.]+$/i.test(host) && (host.match(/:/g) || []).length >= 2 ? '' : 'bad';
+  if (/[^\x21-\x7e]/.test(host)) {
+    try { host = new URL(`https://${host}/`).hostname; } catch { return 'bad'; }
+  }
+  const labels = host.split('.');
+  if (host.length > 253 || !labels.every((x) => LABEL.test(x))) return 'bad';
+  if (/^\d+$/.test(labels[labels.length - 1])) {
+    return labels.length === 4 && labels.every((x) => /^(?:0|[1-9]\d{0,2})$/.test(x) && Number(x) <= 255) ? '' : 'bad';
   }
   return '';
+}
+
+// %2F and a double-encoded %252F read as "/" (the server's _unquoted).
+function unquoted(text) {
+  let out = String(text || '');
+  for (let i = 0; i < 3; i += 1) {
+    let next;
+    try { next = decodeURIComponent(out); } catch { break; }
+    if (next === out) break;
+    out = next;
+  }
+  return out.toLowerCase();
+}
+
+const SUPABASE_HOST = (() => {
+  try { return SUPABASE_URL ? new URL(SUPABASE_URL).hostname.replace(/\.$/, '').toLowerCase() : ''; } catch { return ''; }
+})();
+const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** A link into our own storage or the /files/view viewer - its host (http
+ *  or https, a trailing dot, any port) with the storage path, or one carried
+ *  in the query or fragment - is a file, not a link (tasks._own_file_url). */
+function ownFileLink(s, host) {
+  if (s.startsWith(VIEW_PREFIX)) return true;
+  const after = s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  const cut = after.search(/[/?#]/);
+  const tail = cut < 0 ? '' : after.slice(cut);
+  const path = tail.split(/[?#]/, 1)[0];
+  const extra = tail.slice(path.length);
+  if (SUPABASE_HOST) {
+    if (host.replace(/\.$/, '').toLowerCase() === SUPABASE_HOST && unquoted(path).includes('/storage/v1/')) return true;
+    if (new RegExp(`${escRe(SUPABASE_HOST)}\\.?(?::\\d+)?/storage/v1/`).test(unquoted(extra))) return true;
+  }
+  return /\/files\/view\/?\?(?:[^#]*&)?u=/i.test(unquoted(tail));
 }
 
 /** The address a row may open: http(s) only, whatever the row says. */

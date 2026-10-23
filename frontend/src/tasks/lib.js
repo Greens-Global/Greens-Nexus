@@ -561,6 +561,10 @@ export function duplicateTaskData(t, overrides = {}) {
     followerIds: [...(t.followerIds || [])], dueOn: t.dueOn || '', startOn: t.startOn || '',
     tags: [...(t.tags || [])], estimateHours: t.estimateHours ?? null, isMilestone: !!t.isMilestone,
     customFieldValues: { ...(t.customFieldValues || {}) },
+    // A private task's copy is private too (Oct 22 2026) - never wider than
+    // what it was copied from. An org-wide one leaves it to the server (the
+    // project's level, or the parent's when that is private).
+    ...(t.accessLevel && t.accessLevel !== 'org' ? { accessLevel: t.accessLevel } : {}),
     ...overrides,
   };
 }

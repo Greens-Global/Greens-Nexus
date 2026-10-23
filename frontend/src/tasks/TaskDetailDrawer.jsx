@@ -1872,7 +1872,7 @@ export function ActivityTab({ taskId, nameOf }) {
 // version (a soft "V3" when it has more), with Upload New Version (or drop a
 // file onto it) and a Versions panel; Add From Egnyte links a file or folder
 // in Egnyte instead of uploading a copy. See attachmentParts.jsx.
-// Web links (Oct 22 2026): Add Link attaches any web page as a link (a new
+// Web links (Oct 22 2026): Add Web Link attaches any web page as a link (a new
 // tab, never the in-app viewer, never versioned); the person who added it
 // or an editor edits or removes it.
 function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }) {
@@ -1880,7 +1880,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
   const [rows, setRows] = useState(null);
   const [versionsOf, setVersionsOf] = useState(null);     // the file whose Versions panel is open
   const [egnyteOpen, setEgnyteOpen] = useState(false);
-  // Add Link: {} for a new link, the row for Edit Link, null when closed.
+  // Add Web Link: {} for a new link, the row for Edit Web Link, null when closed.
   const [linkEdit, setLinkEdit] = useState(null);
   // New versions in flight, by the attachment they replace: {pct, error}.
   const [verUploads, setVerUploads] = useState({});
@@ -1989,7 +1989,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
           <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
           <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach File</button>
           <button type="button" onClick={() => setEgnyteOpen(true)} style={{ ...btn('outline'), fontSize: 12, marginBottom: 12, marginLeft: 8 }}><HardDrive size={13} /> Add From Egnyte</button>
-          <button type="button" onClick={() => setLinkEdit({})} style={{ ...btn('outline'), fontSize: 12, marginBottom: 12, marginLeft: 8 }}><Link2 size={13} /> Add Link</button>
+          <button type="button" onClick={() => setLinkEdit({})} style={{ ...btn('outline'), fontSize: 12, marginBottom: 12, marginLeft: 8 }}><Link2 size={13} /> Add Web Link</button>
           <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or drag a file in, or press Ctrl+V to paste a screenshot. Drop a file onto a file to upload a new version.</span>
           <input ref={versionRef} type="file" data-testid="version-input" style={{ display: 'none' }} onChange={onVersionFile} />
         </>
