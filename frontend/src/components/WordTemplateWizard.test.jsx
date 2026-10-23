@@ -215,3 +215,60 @@ describe('WordTemplateWizard - Hiring Setup review fixes', () => {
     expect(body.fieldDefs.find(f => f.token === 'notice_period')).toMatchObject({ source: 'hr' });
   });
 });
+
+// Round 2 (P6/P7): a promotion letter and a separation document, with the event's words.
+describe('WordTemplateWizard - promotion and separation uploads', () => {
+  const CTX = { companyLegal: 'Greens Global, LLC', companyName: 'Greens Global', signatoryName: 'Raj Patel', roleNames: ['Accountant', 'Senior Accountant'] };
+  const bold = (text) => ({ type: 'paragraph', content: [{ type: 'text', text, marks: [{ type: 'bold' }] }] });
+  const go = async (purpose, doc) => {
+    imported.current = doc;
+    createDocTemplate.mockClear();
+    const onCreated = vi.fn();
+    render(<WordTemplateWizard purpose={purpose} context={CTX} onClose={() => {}} onCreated={onCreated} />);
+    fireEvent.change(screen.getByLabelText('Word file'), { target: { files: [new File(['x'], 'Letter.docx')] } });
+    fireEvent.click(screen.getByText('Read The File'));
+    await waitFor(() => expect(screen.getByText('Check What Nexus Found')).toBeTruthy());
+    return async () => {
+      fireEvent.click(screen.getByText('Use This'));
+      await waitFor(() => expect(onCreated).toHaveBeenCalled());
+      return { body: createDocTemplate.mock.calls[0][0], created: onCreated.mock.calls[0][0] };
+    };
+  };
+
+  it('a promotion letter asks where the new role\'s duties go and is countersigned by their manager', async () => {
+    const done = await go('promotion', { type: 'doc', content: [
+      p('Dear Jane Smith,'),
+      p('Your promotion is effective November 2, 2026, from the position of Accountant to Senior Accountant, at $95,000 per year.'),
+      bold('Responsibilities'), p('Lead the monthly close.'), p('Employee Signature:')] });
+    expect(screen.getByText(/looks like a job description. Where should the new role's duties go\?/)).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'Not In This Letter' })).toBeTruthy();
+    expect(screen.getByText(/A promotion letter is countersigned - pick who signs after the employee/)).toBeTruthy();
+    expect(screen.getByText('The employee, then their manager.')).toBeTruthy();
+    const became = (found) => within(screen.getByText(found).closest('[id^="ur-"]')).getByText(/./, { selector: 'b' }).textContent;
+    expect(became('Senior Accountant')).toBe('New Title');
+    const { body, created } = await done();
+    const json = JSON.stringify(body.content.pages);
+    expect(json).toContain('"token":"effective_date"');
+    expect(json).toContain('"token":"role_description"');
+    expect(json).toContain('"role":"manager"');
+    expect(body.signerRoles.map(r => r.key)).toEqual(['employee', 'manager']);
+    expect(created).toMatchObject({ jdPlacement: 'inside', signerKeys: ['employee', 'manager'] });
+  });
+
+  it('a separation document uses the offboarding words and never places duties', async () => {
+    const done = await go('separation', { type: 'doc', content: [
+      p('Dear Jane Smith,'),
+      p('This confirms your Voluntary Resignation. Your last day will be 11/15/2026.'),
+      p('Your final paycheck will be issued on 11/20/2026.'),
+      p('Please forward any mail to 45 Oak Avenue, Clovis, CA 93611.'),
+      bold('Duties And Responsibilities'), p('Return your laptop.'), p('Employee Signature:')] });
+    expect(screen.queryByText(/looks like a job description/)).toBeNull();
+    expect(screen.getByText(/^The Employee Fills It/, { selector: 'div' })).toBeTruthy();
+    expect(screen.getByText(/^You Answer When Offboarding/, { selector: 'div' })).toBeTruthy();
+    expect(screen.getByText(/before the package is made, and it is saved to their record/)).toBeTruthy();
+    expect(screen.getByLabelText('Who fills Last Day').value).toBe('nexus');
+    const { body, created } = await done();
+    expect(body.fieldDefs.map(f => [f.token, f.source]).sort()).toEqual([['final_pay_date', 'hr'], ['forwarding_address', 'person']]);
+    expect(created).toMatchObject({ jdPlacement: '', signerKeys: ['employee'] });
+  });
+});

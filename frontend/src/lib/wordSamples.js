@@ -11,7 +11,10 @@
 // Deterministic rules only - no AI, no network. Every variable also says WHO
 // fills it (decision 12): Nexus, You (HR on the offer), the New Hire (on their
 // Nexus Sign Details Form, saved to their record), Same Every Time, or Paper.
-import { NEXUS_FIELDS, clean, escapeRe, findSection, guessFill, hireLabel, isPersonal } from './wordBlanks';
+// A promotion letter or separation document (round 2, P6/P7) has its own
+// rules and words: the person is The Employee, who answers through their
+// details link, and Nexus fills the new hire's built-ins from the record.
+import { NEXUS_FIELDS, clean, escapeRe, findSection, guessFill, hireLabel, isEvent, isPersonal } from './wordBlanks';
 import { extractVariables, tokensInDoc } from './extractVariables';
 
 export { HIRE_LABELS } from './wordBlanks';
@@ -21,29 +24,43 @@ export { HIRE_LABELS } from './wordBlanks';
 export const HIRE_TOKENS = new Set(['address', 'permanent_address', 'phone', 'preferred_name',
   'emergency_name', 'emergency_relationship', 'emergency_phone']);
 
-export const WHO = [
-  ['nexus', 'Nexus Fills It'], ['you', 'You Answer On The Offer'], ['hire', 'The New Hire Fills It'],
+// When HR answers, per event (the purpose of the upload).
+const WHEN = { promotion: 'On The Promotion', separation: 'When Offboarding' };
+/** The person a document is about: The New Hire, or The Employee on a promotion or separation. */
+export const personOf = (purpose = 'hire') => (isEvent(purpose) ? 'The Employee' : 'The New Hire');
+/** The five who-fills-it choices, in the event's words. */
+export const whoLabels = (purpose = 'hire') => [
+  ['nexus', 'Nexus Fills It'], ['you', `You Answer ${WHEN[purpose] || 'On The Offer'}`], ['hire', `${personOf(purpose)} Fills It`],
   ['same', 'Same Every Time'], ['paper', 'Leave Blank For Paper'],
 ];
+/** HR's own answer, in the unsure question: "I Answer On The Promotion". */
+export const youAnswer = (purpose = 'hire') => `I Answer ${WHEN[purpose] || 'On The Offer'}`;
+export const WHO = whoLabels('hire');
+// A promotion letter is countersigned (config_problems): with no company line chosen, their manager's goes at the end.
+export const countersignFor = (purpose) => (purpose === 'promotion' ? 'manager' : '');
+// What each exit reads as (hr_checklist_seed.EXIT_TYPE_LABELS; Charmi, Oct 20 2026).
+export const EXIT_TYPE_LABELS = { resignation: 'Voluntary Resignation', resignation_no_notice: 'Job Abandonment',
+  termination: 'Termination', end_of_contract: 'End Of Contract', retirement: 'Retirement', death: 'Death' };
 export const WHO_COLOR = { nexus: '#dcfce7', you: '#dbeafe', hire: '#f3e8ff', same: '#e2e8f0', paper: '#f1f5f9' };
 const NEXUS_LABEL = Object.fromEntries(NEXUS_FIELDS);
 
-/** Who fills a blank: nexus | you | hire | same | paper. */
-export function whoOf(b) {
-  if (b.fill === 'nexus') return HIRE_TOKENS.has(b.token) ? 'hire' : 'nexus';
+/** Who fills a blank: nexus | you | hire | same | paper. On a promotion or
+ *  separation Nexus fills the new hire's built-ins from the record. */
+export function whoOf(b, purpose = 'hire') {
+  if (b.fill === 'nexus') return HIRE_TOKENS.has(b.token) && !isEvent(purpose) ? 'hire' : 'nexus';
   return { hr: 'you', ask: 'hire', same: 'same', leave: 'paper' }[b.fill] || 'paper';
 }
 
 /** The blank after HR picks who fills it (and, for Nexus, which field). */
-export function setWho(b, who, token) {
+export function setWho(b, who, token, purpose = 'hire') {
   if (who === 'nexus') {
-    const guess = guessFill(b.label);
+    const guess = guessFill(b.label, { purpose });
     // a new hire's built-in (phone, address) keeps its token: Nexus prints what they typed
     const t = token || (b.fill === 'nexus' ? b.token : '') || (guess.fill === 'nexus' ? guess.token : '') || NEXUS_FIELDS[0][0];
     return { ...b, fill: 'nexus', token: t, ...(b.rule && t !== b.token ? { label: NEXUS_LABEL[t] || b.label } : {}) };
   }
   if (who === 'hire') {
-    const t = token || (HIRE_TOKENS.has(b.token) ? b.token : '');
+    const t = token || (HIRE_TOKENS.has(b.token) && !isEvent(purpose) ? b.token : '');
     return t ? { ...b, fill: 'nexus', token: t } : { ...b, fill: 'ask', token: b.kind === 'existing' ? b.token : undefined };
   }
   const fill = { you: 'hr', same: 'same', paper: 'leave' }[who] || 'leave';
@@ -107,6 +124,25 @@ const contextAt = (text, start, end) => {
   return clean(`${from ? '...' : ''}${text.slice(from, end + 50)}`.split('\u0001').join(' '));
 };
 
+// The keyword closest before a value wins: "last day ... 11/15. Your final paycheck ... 11/20".
+function nearest(lead, rules) {
+  let best = null;
+  let at = -1;
+  rules.forEach(([re, def]) => {
+    for (const m of lead.matchAll(re)) if (m.index > at) { at = m.index; best = def; }
+  });
+  return best;
+}
+const SEP_DATES = [
+  [/last (?:working )?day|final (?:working )?day|(?:separation|termination|resignation) date|date of (?:separation|termination|resignation)/g, { fill: 'nexus', token: 'last_day', label: 'Last Day' }],
+  [/final pay|final paycheck|last paycheck/g, { fill: 'hr', label: 'Final Pay Date', pay: false }],
+];
+const CAPS = /[A-Z][\w&/-]*(?:\s+[A-Z][\w&/-]*){0,4}/.source;
+const POSITION = /(?:the\s+)?(?:(?:position|role|title)\s+of\s+)?/.source;
+const FROM_TO_TITLE = new RegExp(String.raw`\bfrom\s+${POSITION}(${CAPS})\s+to\s+${POSITION}(${CAPS})`, 'g');
+const PROMOTED_TO = new RegExp(String.raw`\bpromoted\s+to\s+${POSITION}(${CAPS})`, 'g');
+const FROM_TO_MONEY = new RegExp(String.raw`\bfrom\s+(${MONEY.source})\s+to\s+(${MONEY.source})`, 'g');
+
 // A label from the words just before a value: "a signing bonus of $5,000" -> "Signing Bonus".
 const STOP = new Set('a an the of is are was be will on at to for by in and or your you our we with from as per its their this that'.split(' '));
 function leadLabel(text, at, fallback, suffix = '') {
@@ -126,13 +162,18 @@ function leadLabel(text, at, fallback, suffix = '') {
  * token, who, found, became, rule}), plus a duties section
  * ({kind:'section'}) when there is one. `ctx` is the Hiring Setup
  * uploadContext (company legal name, address, phone, signatory, role names).
+ * `purpose` (offer | hire | jd | promotion | separation) picks the event's
+ * rules: a promotion's effective date, old and new title and current pay; a
+ * separation's last day, final pay date, reason, forwarding address and email.
  *
  * The first rule that claims a text span wins: a value is dropped only when
  * the spot it was found at overlaps a span an earlier rule matched, or sits
  * inside a longer value. A longer value found later takes back the places
  * of a shorter one inside it ("Fresno, CA" inside the company address).
  */
-export function findSamples(doc, ctx = {}) {
+export function findSamples(doc, ctx = {}, purpose = 'hire') {
+  const promo = purpose === 'promotion';
+  const sep = purpose === 'separation';
   const pars = paragraphs(doc);
   const claims = [];                                // {pi, start, end, len, primary, owner}
   const out = [];
@@ -175,6 +216,9 @@ export function findSamples(doc, ctx = {}) {
   const nexus = (token, label) => ({ fill: 'nexus', token, label });
   const company = [ctx.companyLegal, ctx.companyName].map(clean).filter(Boolean);
   const companyPhone = digits(ctx.companyPhone);
+  const companyKey = clean(ctx.companyName || ctx.companyLegal).toLowerCase()
+    .replace(/\b(?:l\.l\.c\.|llc|inc|corp|corporation|ltd|limited|pvt|private|llp)\b/g, '').replace(/[^a-z0-9]/g, '');
+  const companyMail = (em) => !!companyKey && em.split('@')[1].toLowerCase().replace(/[^a-z0-9]/g, '').includes(companyKey);
 
   // 1 "Label: Value" lines with a real value
   pars.forEach(({ text }, pi) => {
@@ -188,7 +232,7 @@ export function findSamples(doc, ctx = {}) {
     if (companyPhone && digits(value) === companyPhone) return;
     const canon = hireLabel(label);
     if (canon) return here({ fill: 'ask', label: canon.label });
-    const g = guessFill(label);
+    const g = guessFill(label, { purpose });
     if (g.fill === 'leave' || (g.fill === 'ask' && !isPersonal(label))) return;   // "Re: Offer Of Employment" stays text
     here({ ...g, label: g.fill === 'nexus' ? (NEXUS_LABEL[g.token] || clean(label)) : clean(label), ...(g.fill === 'same' ? { value } : {}) });
   });
@@ -203,6 +247,11 @@ export function findSamples(doc, ctx = {}) {
   if (ctx.companyAddress) take(ctx.companyAddress, 'address', nexus('company_address', 'Company Address'));
   pars.forEach(({ text }, i) => {
     for (const m of text.matchAll(STREET)) {
+      // a separation's "forward ... to" address is where the employee wants their mail
+      if (sep && /forward|mail(?:ed)? to|send\b.*\bto\b/.test(text.slice(Math.max(0, m.index - 60), m.index).toLowerCase())) {
+        take(m[0], 'address', { fill: 'ask', label: 'Forwarding Address' }, i);
+        continue;
+      }
       const near = i < 3 || (legalAt >= 0 && i > legalAt && i <= legalAt + 3);
       take(m[0], 'address', near && !out.some(b => b.token === 'company_address')
         ? nexus('company_address', 'Company Address') : nexus('address', 'Home Address'), i);
@@ -223,9 +272,11 @@ export function findSamples(doc, ctx = {}) {
   pars.forEach(({ text }, i) => {
     for (const m of text.matchAll(DATE)) {
       const lead = text.slice(Math.max(0, m.index - 60), m.index).toLowerCase();
-      const def = /start|commenc|join|effective/.test(lead) ? nexus('start_date', 'Start Date')
-        : /expire|accept by|respond by|valid until/.test(lead) ? nexus('offer_expires', 'Offer Expires')
-          : i < 3 && clean(text.split('\u0001').join(' ')).length <= m[0].length + 12 ? nexus('today', "Today's Date")
+      const event = sep ? nearest(lead, SEP_DATES)
+        : promo ? (/start|commenc|effective/.test(lead) ? nexus('effective_date', 'Effective Date') : null)
+          : /start|commenc|join|effective/.test(lead) ? nexus('start_date', 'Start Date')
+            : /expire|accept by|respond by|valid until/.test(lead) ? nexus('offer_expires', 'Offer Expires') : null;
+      const def = event ? { ...event } : i < 3 && clean(text.split('\u0001').join(' ')).length <= m[0].length + 12 ? nexus('today', "Today's Date")
             : { fill: 'hr', label: leadLabel(text, m.index, 'Date', 'Date') };
       take(m[0], 'date', def, i);
     }
@@ -237,9 +288,35 @@ export function findSamples(doc, ctx = {}) {
   const payish = ({ m, text }) => /(?:per|\/)\s*(?:year|annum|month|week|hour)$/i.test(m[0])
     || /salary|wage|\bpay\b|compensation|\bctc\b|stipend|\bfees?\b|remuneration/i.test(text.slice(Math.max(0, m.index - 60), m.index));
   const amount = (s) => digits(s.replace(/(?:per|\/).*$/i, ''));
-  const pay = money.find(payish) || money[0];
-  money.forEach(({ m, pi, text }) => take(m[0], 'pay', amount(m[0]) === amount(pay.m[0]) ? nexus('salary', 'Pay')
+  let payAmount = money.length ? amount((money.find(payish) || money[0]).m[0]) : '';
+  // a promotion's "from A to B": A is their current pay (HR's), B the new pay
+  if (promo) pars.forEach(({ text }, pi) => {
+    for (const m of text.matchAll(FROM_TO_MONEY)) {
+      take(m[1], 'pay', { fill: 'hr', label: 'Current Pay', pay: true }, pi);
+      take(m[2], 'pay', nexus('salary', 'Pay'), pi);
+      payAmount = amount(m[2]);
+    }
+  });
+  money.forEach(({ m, pi, text }) => take(m[0], 'pay', amount(m[0]) === payAmount ? nexus('salary', 'Pay')
     : { fill: 'hr', label: leadLabel(text, m.index, 'Amount'), pay: true }, pi));
+
+  // a separation's reason, as the exit types read (one word only when it is the whole value)
+  if (sep) pars.forEach(({ text }, pi) => {
+    const whole = clean(text.split('\u0001').join(' ')).replace(/^[^:]{1,40}:\s*/, '').replace(/[.;,]$/, '').toLowerCase();
+    Object.values(EXIT_TYPE_LABELS).forEach(l => {
+      if (!l.includes(' ') && whole !== l.toLowerCase()) return;
+      for (const m of text.matchAll(new RegExp(wordRe(l), 'gi'))) take(m[0], 'exit', nexus('separation_type', 'Why They Are Leaving'), pi);
+    });
+  });
+
+  // a promotion's "from (the position of) X to Y" and "promoted to Y"
+  if (promo) pars.forEach(({ text }, pi) => {
+    for (const m of text.matchAll(FROM_TO_TITLE)) {
+      take(m[1], 'title', nexus('old_title', 'Old Title'), pi);
+      take(m[2], 'title', nexus('new_title', 'New Title'), pi);
+    }
+    for (const m of text.matchAll(PROMOTED_TO)) take(m[1], 'title', nexus('new_title', 'New Title'), pi);
+  });
 
   // 7 the job title, right after "position of" / "as a" ... (a known role name when it starts there)
   const roles = [...(ctx.roleNames || [])].filter(Boolean).sort((a, b) => b.length - a.length);
@@ -253,10 +330,14 @@ export function findSamples(doc, ctx = {}) {
   // 8 phone numbers (not the company's), 9 email
   pars.forEach(({ text }, pi) => {
     for (const m of text.matchAll(PHONE)) if (!companyPhone || digits(m[0]) !== companyPhone) take(m[0], 'phone', nexus('phone', 'Phone'), pi);
-    for (const m of text.matchAll(EMAIL)) take(m[0], 'email', nexus('email', 'Personal Email'), pi);
+    for (const m of text.matchAll(EMAIL)) {
+      // on a separation a personal email is where the employee wants their mail; the company's stays text
+      if (!sep) take(m[0], 'email', nexus('email', 'Personal Email'), pi);
+      else if (!companyMail(m[0])) take(m[0], 'email', { fill: 'ask', label: 'Forwarding Email' }, pi);
+    }
   });
 
-  const section = findSection(doc);
-  const samples = out.filter(b => b.places.length).map(b => ({ ...b, context: b.places[0].context, who: whoOf(b), became: becameOf(b) }));
+  const section = sep ? null : findSection(doc);
+  const samples = out.filter(b => b.places.length).map(b => ({ ...b, context: b.places[0].context, who: whoOf(b, purpose), became: becameOf(b) }));
   return [...samples, ...(section ? [section] : [])];
 }

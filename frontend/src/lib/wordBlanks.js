@@ -39,8 +39,19 @@ export const NEXUS_FIELDS = [
   ['offer_expires', 'Offer Expires'],
   // Hiring Setup (Oct 23): the role's duties and who signs for the company.
   ['role_description', "The Role's Duties"], ['signatory', 'Signs For The Company - Name And Title'],
+  // Promotion and offboarding (Hiring Setup round 2): what the event fills.
+  ['effective_date', 'Effective Date'], ['old_title', 'Old Title'], ['new_title', 'New Title'],
+  ['old_role', 'Old Role'], ['new_role', 'New Role'], ['change_type', 'Promotion Or Role Change'],
+  ['responsibilities', 'New Responsibilities'], ['last_day', 'Last Day'], ['separation_type', 'Why They Are Leaving'],
 ];
 const NEXUS_KEYS = new Set(NEXUS_FIELDS.map(([k]) => k));
+// Fields only one event fills - a hiring upload is never offered "Last Day".
+const EVENT_ONLY = { effective_date: 'promotion', old_title: 'promotion', new_title: 'promotion', old_role: 'promotion',
+  new_role: 'promotion', change_type: 'promotion', responsibilities: 'promotion', last_day: 'separation', separation_type: 'separation' };
+/** The Nexus Fills It choices for an upload's purpose (all of them without one). */
+export const nexusFieldsFor = (purpose = '') => (purpose ? NEXUS_FIELDS.filter(([k]) => !EVENT_ONLY[k] || EVENT_ONLY[k] === purpose) : NEXUS_FIELDS);
+/** Promotion and offboarding: the person is the employee, never a new hire. */
+export const isEvent = (purpose) => purpose === 'promotion' || purpose === 'separation';
 
 // Filled by hand on the printed copy (a notary page), never by Nexus.
 const PAPER = /notar|witness|\bseal\b|stamp|franking|e-stamp|registration number|place of|purchased by|date of issue|state of issue|value\b|work e-?mail/;
@@ -71,10 +82,16 @@ export const HIRE_LABELS = [
   [/account (number|no)/, 'Bank Account Number', 'bank_account_number'],
   [/business name|doing business as|\bdba\b|trade name/, 'Business Name', 'business_name'],
 ];
-/** The canonical {label, token} for a new hire's own detail, or null. */
+// What a leaving employee types on their details link - saved to their record
+// (hle._apply_employee_answers: personal email, current address).
+export const EMPLOYEE_LABELS = [
+  [/forwarding (mailing )?address/, 'Forwarding Address', 'forwarding_address'],
+  [/forwarding e-?mail/, 'Forwarding Email', 'forwarding_email'],
+];
+/** The canonical {label, token} for a new hire's (or employee's) own detail, or null. */
 export function hireLabel(label) {
   const l = clean(label).toLowerCase();
-  const hit = HIRE_LABELS.find(([re]) => re.test(l));
+  const hit = [...HIRE_LABELS, ...EMPLOYEE_LABELS].find(([re]) => re.test(l));
   return hit ? { label: hit[1], token: hit[2] } : null;
 }
 
@@ -94,6 +111,21 @@ export function guessFill(label, ctx = {}) {
   const l = clean(label).toLowerCase();
   if (!l) return { fill: 'ask' };
   if (PAPER.test(l)) return { fill: 'leave' };
+  if (ctx.purpose === 'promotion') {
+    if (/effective|date of promotion/.test(l)) return { fill: 'nexus', token: 'effective_date' };
+    if (/(current|old|previous|present|former) (job )?(title|designation|position)/.test(l)) return { fill: 'nexus', token: 'old_title' };
+    if (/(current|old|previous|present|former) role/.test(l)) return { fill: 'nexus', token: 'old_role' };
+    if (/(current|old|previous|present|former) (salary|pay|compensation|ctc)/.test(l)) return { fill: 'hr' };
+    if (/new (job )?(title|designation|position)|promoted to/.test(l)) return { fill: 'nexus', token: 'new_title' };
+    if (/new role/.test(l)) return { fill: 'nexus', token: 'new_role' };
+    if (/responsibilit|duties/.test(l)) return { fill: 'nexus', token: 'responsibilities' };
+  }
+  if (ctx.purpose === 'separation') {
+    if (/forwarding/.test(l)) return { fill: 'ask' };
+    if (/final pay|final paycheck|last paycheck/.test(l)) return { fill: 'hr', pay: false };   // a date, not pay
+    if (/last (working )?day|final (working )?day|(separation|termination|resignation|relieving|effective) date|date of (separation|termination|resignation|relieving)/.test(l)) return { fill: 'nexus', token: 'last_day' };
+    if (/reason for (leaving|separation)|(separation|exit) type|type of (separation|exit)/.test(l)) return { fill: 'nexus', token: 'separation_type' };
+  }
   if (ctx.emergency) {
     if (/e-?mail/.test(l)) return { fill: 'ask' };
     if (/relationship/.test(l)) return { fill: 'nexus', token: 'emergency_relationship' };
@@ -159,7 +191,8 @@ function whoSigns(label, blocks, i) {
 
 /** Every blank and signature line in an imported document, in order, each
  *  with a guess. `doc` is the converter's {type:'doc', content}. */
-export function findBlanks(doc) {
+export function findBlanks(doc, opts = {}) {
+  const purpose = opts.purpose || '';
   const blocks = doc?.content || [];
   const out = [];
   const skip = new Set();
@@ -190,7 +223,7 @@ export function findBlanks(doc) {
           if (isBlankText(nt) === false && !options.length) return;
           if (!isBlankText(label) && BOXES.test(textOf(cell))) return;
           out.push({ kind: 'cell', at: [i, r, c + 1], label, options, context: label,
-            ...(options.length ? { fill: 'ask' } : guessFill(label, { emergency })) });
+            ...(options.length ? { fill: 'ask' } : guessFill(label, { emergency, purpose })) });
         });
       });
       continue;
@@ -238,7 +271,7 @@ export function findBlanks(doc) {
     if (line && !leadIn && !heading && !hasField(b)) {
       const label = cleanLabel(line[1]);
       out.push({ kind: 'line', at: [i], label, context: t,
-        ...guessFill(label, { companySigner: lastSigner === 'company' }) });
+        ...guessFill(label, { companySigner: lastSigner === 'company', purpose }) });
       continue;
     }
     let k = 0;
@@ -247,8 +280,8 @@ export function findBlanks(doc) {
       const label = before || 'Blank Line';
       const bare = !clean(text.replace(BRACKET, ''));
       out.push({ kind: 'bracket', at: [i], occurrence: k, label, context: t.slice(0, 140),
-        fill: bare ? 'leave' : /:\s*$/.test(before) ? guessFill(before).fill : 'same',
-        ...(/:\s*$/.test(before) && guessFill(before).token ? { token: guessFill(before).token } : {}) });
+        fill: bare ? 'leave' : /:\s*$/.test(before) ? guessFill(before, { purpose }).fill : 'same',
+        ...(/:\s*$/.test(before) && guessFill(before, { purpose }).token ? { token: guessFill(before, { purpose }).token } : {}) });
       k += 1;
     }
     k = 0;
@@ -256,7 +289,7 @@ export function findBlanks(doc) {
       const before = prevWords(text, m.index);
       const label = m[1] ? `${before} ${m[1]}`.trim() : before || 'Blank';
       out.push({ kind: 'gap', at: [i], occurrence: k, label, context: t.slice(0, 140),
-        ...(m[1] ? { fill: 'nexus', token: 'salary' } : guessFill(label)) });
+        ...(m[1] ? { fill: 'nexus', token: 'salary' } : guessFill(label, { purpose })) });
       k += 1;
     }
   }
@@ -316,8 +349,10 @@ export function tokensFor(blanks) {
   });
 }
 
-/** The template content after HR's choices: {doc, fieldDefs, signers}. */
-export function applyBlanks(doc, blanks) {
+/** The template content after HR's choices: {doc, fieldDefs, signers}.
+ *  `opts.countersign` (a promotion letter: 'manager') adds a signature line
+ *  for that role at the end when no company signer was chosen. */
+export function applyBlanks(doc, blanks, opts = {}) {
   const out = JSON.parse(JSON.stringify(doc));
   const blocks = out.content || [];
   const tokens = tokensFor(blanks);
@@ -411,6 +446,10 @@ export function applyBlanks(doc, blanks) {
     });
   });
   out.content = blocks.filter((_, i) => !remove.has(i));
+  if (opts.countersign && ![...signers].some(k => k !== 'employee')) {
+    out.content.push({ type: 'signatureBlock', attrs: { role: opts.countersign, label: '', withName: true, withDate: true } });
+    signers.add(opts.countersign);
+  }
   return { doc: out, fieldDefs: [...defs.values()], signers: [...signers] };
 }
 

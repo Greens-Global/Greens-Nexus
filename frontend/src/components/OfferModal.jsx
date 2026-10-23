@@ -18,7 +18,7 @@
 // The verifier still checks the filled-in letter (PacketReview) before it
 // goes; the candidate signs with no Nexus login.
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
-import { X, FileSignature, AlertTriangle, Info } from 'lucide-react';
+import { X, FileSignature, AlertTriangle, Info, Eye } from 'lucide-react';
 import { api } from '../api';
 import { currencyOptions } from '../asset/lib/currency';
 import { usePeopleDirectory } from '../lib/queries';
@@ -57,6 +57,72 @@ function Warn({ children }) {
 
 const isoDay = (d) => d.toISOString().slice(0, 10);
 
+/** The What They Get lines (offer, promotion and offboarding options): a
+ *  blocking line is amber, a fix opens the Hiring Setup on it. */
+export function WhatTheyGetCard({ lines, blocked = '', onFix }) {
+  return (
+    <>
+      {(lines || []).map(g => {
+        const bad = !!g.blocks;
+        const soft = !bad && g.tone === 'missing';
+        return (
+          <div key={g.key} data-line={g.key} style={{ background: bad ? '#fffbeb' : 'var(--card)', border: `1px solid ${bad ? '#f59e0b' : 'var(--line)'}`, borderRadius: 10, padding: '10px 12px' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{g.label}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginTop: 3, color: bad ? '#92400e' : 'var(--ink)' }}>{g.name}</div>
+            {g.sourceLabel && <div style={{ fontSize: 12, marginTop: 2, fontWeight: g.tone === 'same' ? 400 : 700, color: bad ? '#b45309' : soft ? 'var(--muted)' : g.tone === 'own' ? '#1d4ed8' : 'var(--muted)' }}>{g.sourceLabel}</div>}
+            {g.fix && FIX_LABEL[g.fix.action] && onFix && (
+              <button type="button" onClick={() => onFix(g)}
+                style={{ display: 'inline-flex', alignItems: 'center', minHeight: 34, marginTop: 8, padding: '0 12px', borderRadius: 8, background: '#fff', border: '1px solid #d97706', color: '#92400e', font: '700 12.5px Inter,sans-serif', cursor: 'pointer' }}>
+                {FIX_LABEL[g.fix.action]}
+              </button>
+            )}
+          </div>
+        );
+      })}
+      {blocked && (lines || []).some(g => g.blocks) && <div role="alert" style={{ fontSize: 12.5, color: '#b45309', fontWeight: 600 }}>{blocked}</div>}
+    </>
+  );
+}
+
+/** The documents' own HR Answers questions, as form fields - pay ones are
+ *  locked for anyone without Pay & Benefits. */
+export function HrQuestionFields({ questions, answers, setAnswers, canSeePay, idPrefix = 'of-q' }) {
+  return (questions || []).map(q => {
+    const locked = q.pay && !canSeePay;
+    const id = `${idPrefix}-${q.token}`;
+    return (
+      <div key={q.token}>
+        <label style={lbl} htmlFor={id}>{q.label}{q.required ? ' *' : ''}</label>
+        {q.type === 'choice' && q.options?.length ? (
+          <select id={id} className="form-input" style={{ width: '100%' }} disabled={locked} value={answers[q.token] || ''} onChange={e => setAnswers(a => ({ ...a, [q.token]: e.target.value }))}>
+            <option value="">-</option>{q.options.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        ) : q.type === 'date' ? (
+          <div className="form-input" style={{ width: '100%', display: 'flex', alignItems: 'center' }}>
+            <DateField value={answers[q.token] || ''} onChange={x => setAnswers(a => ({ ...a, [q.token]: x || '' }))} placeholder="MM/DD/YYYY" title={q.label} style={{ width: '100%' }} />
+          </div>
+        ) : (
+          <input id={id} className="form-input" style={{ width: '100%' }} disabled={locked}
+            value={answers[q.token] || ''} placeholder={locked ? 'Pay & Benefits enters it at review' : q.default || ''}
+            onChange={e => setAnswers(a => ({ ...a, [q.token]: e.target.value }))} />
+        )}
+        {(q.help || q.pay) && <div style={hint}>{q.help}{q.pay ? `${q.help ? ' ' : ''}Pay - Pay & Benefits only.` : ''}</div>}
+      </div>
+    );
+  });
+}
+
+/** Typed answers split into the merge (everyone) and pay_values (Pay & Benefits only). */
+export function splitAnswers(questions, answers, canSeePay) {
+  const pick = (qs) => Object.fromEntries(qs.map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v));
+  const pay = canSeePay ? pick((questions || []).filter(q => q.pay)) : {};
+  return { merge: pick((questions || []).filter(q => !q.pay)), payValues: Object.keys(pay).length ? pay : null };
+}
+
+/** The questions still to answer before the letter can be made. */
+export const unanswered = (questions, answers, canSeePay) =>
+  (questions || []).filter(q => q.required && !(q.pay && !canSeePay) && !String(answers[q.token] || '').trim());
+
 export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted, onMoveWithout, toastErr, toastOk }) {
   const { data: people = [] } = usePeopleDirectory();
   const getsTitle = c.firstName ? `What ${c.firstName} Gets` : 'What They Get';
@@ -88,6 +154,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const [busy, setBusy] = useState(false);
   const [fix, setFix] = useState(null);                 // the Hiring Setup opened over the offer
   const [reload, setReload] = useState(0);
+  const [previewing, setPreviewing] = useState(false);
   const autoMgr = useRef('');                          // the supervisor Nexus filled in, not HR
 
   useEffect(() => {
@@ -163,26 +230,38 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
     !f.start_date && 'Pick the start date.',
     !f.offer_expires && 'Pick when the offer expires.',
     f.offer_expires && f.start_date && f.offer_expires > f.start_date && 'The offer has to expire on or before the start date.',
-    ...questions.filter(q => q.required && !(q.pay && !canSeePay) && !String(answers[q.token] || '').trim()).map(q => `Answer ${q.label}.`),
+    ...unanswered(questions, answers, canSeePay).map(q => `Answer ${q.label}.`),
   ].filter(Boolean);
 
   async function send() {
     if (problems.length) { setTried(true); return; }
     setBusy(true);
     try {
-      const plain = Object.fromEntries(questions.filter(q => !q.pay).map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v));
-      const payQs = canSeePay ? Object.fromEntries(questions.filter(q => q.pay).map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v)) : {};
+      const { merge: plain, payValues } = splitAnswers(questions, answers, canSeePay);
       const ev = await api.startOffer(c.id, {
         inputs: { ...f, hired_as: who.hired_as, worker_type: workerType, employment_type: contractor ? 'contractor' : who.hired_as,
                   country: who.country, region: who.region, role_id: roleId, new_role_name: isOther ? f.new_role_name.trim() : '',
                   ...(SCHEDULE.some(k => prints.has(k)) ? timing : {}),
                   packet_id: chosenId, merge: plain },
         pay: canSeePay && String(pay.base).trim() ? { ...pay, base: Number(pay.base) } : null,
-        pay_values: Object.keys(payQs).length ? payQs : null,
+        pay_values: payValues,
         details: { first_name: person.first_name.trim(), last_name: person.last_name.trim(), ...(prints.has('address') ? { address: person.address.trim() } : {}) },
       });
       onStarted(ev);
     } catch (e) { toastErr?.(e?.message || 'Could not make the offer.'); setBusy(false); }
+  }
+
+  // Preview Offer Letter (mockup screen 4): the letter's document as it prints, with a sample person.
+  async function previewLetter() {
+    setPreviewing(true);
+    try {
+      const { settings = [] } = await api.getPackets();
+      const tid = (settings.find(x => x.id === letter.id)?.docTemplateIds || []).find(t => !String(t).startsWith('@'));
+      if (!tid) throw new Error('This offer letter has no document to preview.');
+      const { blob } = await api.renderPacketPreview({ template_id: tid, entity_id: c.company || '', setting_id: letter.id });
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+    } catch (e) { toastErr?.(e?.message || 'Could not render the preview.'); }
+    setPreviewing(false);
   }
 
   const name = [c.firstName, c.lastName].filter(Boolean).join(' ');
@@ -298,29 +377,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
               <div style={{ gridColumn: '1 / -1' }}><label style={lbl} htmlFor="of-loc">Primary Work Location</label>
                 <input id="of-loc" className="form-input" style={{ width: '100%' }} value={f.work_location} onChange={e => set('work_location', e.target.value)} placeholder="e.g. Irvine, CA - or Remote" /></div>
             )}
-            {questions.map(q => {
-              const locked = q.pay && !canSeePay;
-              const id = `of-q-${q.token}`;
-              return (
-                <div key={q.token}>
-                  <label style={lbl} htmlFor={id}>{q.label}{q.required ? ' *' : ''}</label>
-                  {q.type === 'choice' && q.options?.length ? (
-                    <select id={id} className="form-input" style={{ width: '100%' }} disabled={locked} value={answers[q.token] || ''} onChange={e => setAnswers(a => ({ ...a, [q.token]: e.target.value }))}>
-                      <option value="">-</option>{q.options.map(o => <option key={o} value={o}>{o}</option>)}
-                    </select>
-                  ) : q.type === 'date' ? (
-                    <div className="form-input" style={{ width: '100%', display: 'flex', alignItems: 'center' }}>
-                      <DateField value={answers[q.token] || ''} onChange={x => setAnswers(a => ({ ...a, [q.token]: x || '' }))} placeholder="MM/DD/YYYY" title={q.label} style={{ width: '100%' }} />
-                    </div>
-                  ) : (
-                    <input id={id} className="form-input" style={{ width: '100%' }} disabled={locked}
-                      value={answers[q.token] || ''} placeholder={locked ? 'Pay & Benefits enters it at review' : q.default || ''}
-                      onChange={e => setAnswers(a => ({ ...a, [q.token]: e.target.value }))} />
-                  )}
-                  {(q.help || q.pay) && <div style={hint}>{q.help}{q.pay ? `${q.help ? ' ' : ''}Pay - Pay & Benefits only.` : ''}</div>}
-                </div>
-              );
-            })}
+            <HrQuestionFields questions={questions} answers={answers} setAnswers={setAnswers} canSeePay={canSeePay} />
           </div>
           {SCHEDULE.some(k => prints.has(k)) && (
             <div style={{ marginTop: 12 }}>
@@ -376,23 +433,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
       {!who.hired_as ? <div style={{ ...hint, marginTop: 0 }}>Pick how they are hired to see the offer letter, the hiring packet and the job description they get.</div>
         : loading && !gets.length ? <Spinner size={16} />
           : !opts && optsErr ? <div role="alert" style={{ fontSize: 13, color: '#b45309', fontWeight: 600 }}>{optsErr}</div>
-          : gets.map(g => {
-            const bad = !!g.blocks;
-            const soft = !bad && g.tone === 'missing';
-            return (
-              <div key={g.key} data-line={g.key} style={{ background: bad ? '#fffbeb' : 'var(--card)', border: `1px solid ${bad ? '#f59e0b' : 'var(--line)'}`, borderRadius: 10, padding: '10px 12px' }}>
-                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{g.label}</div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 3, color: bad ? '#92400e' : 'var(--ink)' }}>{g.name}</div>
-                {g.sourceLabel && <div style={{ fontSize: 12, marginTop: 2, fontWeight: g.tone === 'same' ? 400 : 700, color: bad ? '#b45309' : soft ? 'var(--muted)' : g.tone === 'own' ? '#1d4ed8' : 'var(--muted)' }}>{g.sourceLabel}</div>}
-                {g.fix && FIX_LABEL[g.fix.action] && (
-                  <button type="button" onClick={() => setFix({ entityId: g.fix.target?.entityId || c.company, ...(g.fix.target || {}) })}
-                    style={{ display: 'inline-flex', alignItems: 'center', minHeight: 34, marginTop: 8, padding: '0 12px', borderRadius: 8, background: '#fff', border: '1px solid #d97706', color: '#92400e', font: '700 12.5px Inter,sans-serif', cursor: 'pointer' }}>
-                    {FIX_LABEL[g.fix.action]}
-                  </button>
-                )}
-              </div>
-            );
-          })}
+          : <WhatTheyGetCard lines={gets} onFix={g => setFix({ entityId: g.fix.target?.entityId || c.company, ...(g.fix.target || {}) })} />}
       {who.hired_as && !loading && !letter && onMoveWithout && opts && (
         <div style={{ ...hint, marginTop: 0 }}>
           Or <button type="button" onClick={() => onMoveWithout(c)} style={{ ...linkBtn, fontWeight: 400 }}>move them to Offer without one</button>.
@@ -422,6 +463,10 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
           <span style={{ flex: 1, fontSize: 12.5, color: '#b45309', fontWeight: 600 }}>{blocked ? (opts?.blocked || 'Fix the amber item before sending.') : ''}</span>
           <button type="button" className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="button" className="secondary-btn" onClick={previewLetter} disabled={busy || previewing || !letter} title="The letter as it prints, filled in with a sample person"
+            style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {previewing ? <Spinner size={14} /> : <Eye size={14} />} Preview Offer Letter
+          </button>
           <button type="button" className="primary-btn" onClick={send} disabled={busy || blocked || (loading && !!who.hired_as)} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {busy ? <Spinner size={14} /> : <FileSignature size={14} />} Send Offer Letter
           </button>

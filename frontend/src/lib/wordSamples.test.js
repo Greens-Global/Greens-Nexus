@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findSamples, existingTokens, existingBlank, whoOf, setWho, HIRE_TOKENS } from './wordSamples';
+import { findSamples, existingTokens, existingBlank, whoOf, whoLabels, setWho, HIRE_TOKENS } from './wordSamples';
 import { applyBlanks, tokensFor, findBlanks } from './wordBlanks';
 
 // Automatic variables on upload (Oct 23): a filled-in sample letter becomes a
@@ -186,5 +186,100 @@ describe('review choices on a sample', () => {
   it('Same Every Time starts from the found text; Nexus keeps a new hire built-in', () => {
     expect(setWho(name, 'same')).toMatchObject({ fill: 'same', value: 'Jane Smith' });
     expect(setWho(byToken(found, 'phone'), 'nexus')).toMatchObject({ fill: 'nexus', token: 'phone', label: 'Phone' });
+  });
+});
+
+// Round 2 (P6/P7): promotion letters and separation documents have their own rules and words.
+describe('findSamples on a promotion letter', () => {
+  const PROMO = { type: 'doc', content: [
+    p('Dear Jane Smith,'),                                                                                    // 0
+    p('We are pleased to confirm your promotion, effective November 2, 2026, from the position of Accountant to Senior Accountant.'),   // 1
+    p('Your new salary will be $95,000 per year.'),                                                          // 2
+    bold('Responsibilities'),                                                                                 // 3
+    p('Lead the monthly close.'),                                                                             // 4
+    p('Employee Signature:'),                                                                                 // 5
+  ] };
+  const found = findSamples(PROMO, CTX, 'promotion');
+
+  it('finds the name, effective date, old and new title, pay and the duties section', () => {
+    expect(byToken(found, 'full_name')).toMatchObject({ match: 'Jane Smith' });
+    expect(byToken(found, 'effective_date')).toMatchObject({ match: 'November 2, 2026', who: 'nexus' });
+    expect(byToken(found, 'old_title')).toMatchObject({ match: 'Accountant' });
+    expect(byToken(found, 'new_title')).toMatchObject({ match: 'Senior Accountant' });
+    expect(byToken(found, 'salary')).toMatchObject({ match: '$95,000 per year' });
+    expect(byToken(found, 'start_date')).toBeUndefined();
+    expect(byToken(found, 'job_title')).toBeUndefined();
+    expect(found.find(b => b.kind === 'section')).toMatchObject({ at: [3, 4], label: 'Responsibilities' });
+    const text = applyBlanks(PROMO, found).doc.content[1].content.map(r => (r.type === 'text' ? r.text : `{{${r.attrs.token}}}`)).join('');
+    expect(text).toBe('We are pleased to confirm your promotion, effective {{effective_date}}, from the position of {{old_title}} to {{new_title}}.');
+  });
+
+  it('"from A to B" pay: A is HR\'s current pay, B the new pay', () => {
+    const doc = { type: 'doc', content: [p('Your pay changes from $80,000 per year to $95,000 per year.')] };
+    const f = findSamples(doc, CTX, 'promotion');
+    expect(f.find(b => b.match === '$80,000 per year')).toMatchObject({ fill: 'hr', label: 'Current Pay', pay: true, who: 'you' });
+    expect(byToken(f, 'salary')).toMatchObject({ match: '$95,000 per year' });
+  });
+
+  it('the new hire built-ins are Nexus\'s on a promotion, and the words are the employee\'s', () => {
+    expect(whoOf({ fill: 'nexus', token: 'phone' }, 'promotion')).toBe('nexus');
+    expect(whoOf({ fill: 'nexus', token: 'phone' })).toBe('hire');
+    expect(whoLabels('promotion').map(([, l]) => l)).toEqual(['Nexus Fills It', 'You Answer On The Promotion', 'The Employee Fills It', 'Same Every Time', 'Leave Blank For Paper']);
+    expect(whoLabels('separation')[1][1]).toBe('You Answer When Offboarding');
+    expect(whoLabels('hire')[2][1]).toBe('The New Hire Fills It');
+  });
+
+  it('with a single signature line a manager countersigns', () => {
+    const blanks = findBlanks(PROMO, { purpose: 'promotion' });
+    const out = applyBlanks(PROMO, blanks, { countersign: 'manager' });
+    expect(out.doc.content[out.doc.content.length - 1]).toMatchObject({ type: 'signatureBlock', attrs: { role: 'manager' } });
+    expect(['employee', ...out.signers.filter(k => k !== 'employee')]).toEqual(['employee', 'manager']);
+    // a company line already chosen: nothing added
+    const two = { type: 'doc', content: [p('Employee Signature:'), p('COMPANY'), p('By: ________')] };
+    const withCo = applyBlanks(two, findBlanks(two).map(b => (b.who === 'company' ? { ...b, who: 'signatory' } : b)), { countersign: 'manager' });
+    expect(withCo.signers).toEqual(['employee', 'signatory']);
+  });
+});
+
+describe('findSamples on a separation letter', () => {
+  const SEP = { type: 'doc', content: [
+    p('Dear Jane Smith,'),                                                                                    // 0
+    p('This confirms your Voluntary Resignation. Your last day of work will be 11/15/2026.'),                // 1
+    p('Your final paycheck will be issued on 11/20/2026.'),                                                  // 2
+    p('Please forward any mail to 45 Oak Avenue, Clovis, CA 93611, or write to jane.smith@gmail.com.'),     // 3
+    p('Questions? Email hr@greensglobal.com.'),                                                               // 4
+    bold('Duties And Responsibilities'),                                                                      // 5
+    p('Return your laptop.'),                                                                                 // 6
+    p('Employee Signature:'),                                                                                 // 7
+  ] };
+  const found = findSamples(SEP, CTX, 'separation');
+
+  it('finds the last day, the reason and HR\'s final pay date', () => {
+    expect(byToken(found, 'last_day')).toMatchObject({ match: '11/15/2026', who: 'nexus' });
+    expect(byToken(found, 'separation_type')).toMatchObject({ match: 'Voluntary Resignation', became: 'Why They Are Leaving' });
+    const fp = found.find(b => b.match === '11/20/2026');
+    expect(fp).toMatchObject({ fill: 'hr', label: 'Final Pay Date', who: 'you' });
+    expect(tokensFor([fp])).toEqual(['final_pay_date']);
+    expect(byToken(found, 'start_date')).toBeUndefined();
+  });
+
+  it('the forwarding address and personal email are the employee\'s, filed to their record', () => {
+    const addr = found.find(b => b.label === 'Forwarding Address');
+    const mail = found.find(b => b.label === 'Forwarding Email');
+    expect(addr).toMatchObject({ fill: 'ask', who: 'hire', match: '45 Oak Avenue, Clovis, CA 93611' });
+    expect(mail).toMatchObject({ fill: 'ask', who: 'hire', match: 'jane.smith@gmail.com' });
+    expect(found.some(b => b.match === 'hr@greensglobal.com')).toBe(false);     // the company's own email stays text
+    const { fieldDefs } = applyBlanks(SEP, found);
+    expect(fieldDefs.filter(f => f.source === 'person').map(f => f.token)).toEqual(['forwarding_address', 'forwarding_email']);
+    expect(fieldDefs.find(f => f.token === 'final_pay_date')).toMatchObject({ source: 'hr', pay: false });
+  });
+
+  it('has no duties section', () => {
+    expect(found.some(b => b.kind === 'section')).toBe(false);
+  });
+
+  it('a single-word reason counts only as the whole value', () => {
+    const f = findSamples({ type: 'doc', content: [p('Upon termination of employment, return all keys.'), p('Reason: Termination')] }, CTX, 'separation');
+    expect(byToken(f, 'separation_type').places).toHaveLength(1);
   });
 });

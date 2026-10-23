@@ -11,7 +11,7 @@ import { importDocumentFile } from '../lib/docBuilderImport';
 import { repairDocJson } from '../lib/docBuilderSchema';
 import { uploadToSupabase } from '../lib/docBuilderUpload';
 import { NEXUS_FIELDS, applyBlanks, findBlanks, findSection, findText, guessPay, guessPrivate, splitPages, tokensFor } from '../lib/wordBlanks';
-import { existingBlank, existingTokens, findSamples } from '../lib/wordSamples';
+import { countersignFor, existingBlank, existingTokens, findSamples } from '../lib/wordSamples';
 import { Spinner } from './AsyncState';
 import UploadReview from './hiring/UploadReview';
 
@@ -92,7 +92,8 @@ function MissedOne({ doc, onAdd }) {
 
 const SIGNER_LABEL = { employee: 'Employee', company: 'Company', hr: 'HR', signatory: 'Signatory', manager: 'Manager' };
 
-// With `purpose` (Hiring Setup, Oct 23: "offer" | "hire" | "jd") there is no
+// With `purpose` (Hiring Setup, Oct 23: "offer" | "hire" | "jd", and in round 2
+// "promotion" | "separation" with the event's own rules and words) there is no
 // name or category step, Nexus makes the variables from the sample text
 // itself (lib/wordSamples.js), the review is UploadReview, and Use This hands
 // the published template to onCreated({templateId, name, jdPlacement,
@@ -138,17 +139,18 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
       const { doc: withVars, tokens } = existingTokens(json);
       const vars = tokens.length ? await api.getDocVariables().catch(() => []) : [];
       // A duties heading ("Duties And Responsibilities:") is the section question, never a blank of its own.
+      const duties = purpose === 'hire' || purpose === 'promotion';
       const section = findSection(withVars);
-      const found = findBlanks(withVars)
+      const found = findBlanks(withVars, { purpose })
         .filter(b => !(section && b.kind === 'line' && b.at[0] === section.at[0]))
         .map(b => (b.kind === 'signature' && b.who === 'company' ? { ...b, who: 'signatory' } : b));
       const extra = tokens.length
-        ? [...tokens.map(t => existingBlank(t, vars)), ...(tokens.includes('role_description') || !section ? [] : [section])]
-        : findSamples(withVars, context || {});
+        ? [...tokens.map(t => existingBlank(t, vars)), ...(tokens.includes('role_description') || (purpose === 'promotion' && tokens.includes('responsibilities')) || !section ? [] : [section])]
+        : findSamples(withVars, context || {}, purpose);
       // An offer has no new hire form - what they would fill is HR's answer on the offer.
       const forOffer = (b) => (purpose === 'offer' && b.fill === 'ask' ? { ...b, fill: 'hr' } : b);
       setDoc({ json: withVars, pageSetup: out.pageSetup || null });
-      setBlanks([...found, ...extra.filter(b => b.kind !== 'section' || purpose === 'hire').map((b, n) => ({ ...b, id: `s${n + 1}` }))].map(forOffer));
+      setBlanks([...found, ...extra.filter(b => b.kind !== 'section' || duties).map((b, n) => ({ ...b, id: `s${n + 1}` }))].map(forOffer));
       setStep('review');
     } catch (e) { setError(e?.message || 'Could not read the file.'); }
     setBusy('');
@@ -168,7 +170,8 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
   async function create() {
     setBusy('create'); setError('');
     try {
-      const { doc: built, fieldDefs, signers } = applyBlanks(doc.json, blanks.map(b => (b.kind === 'section' ? { ...b, answer: jdChoice } : b)));
+      const { doc: built, fieldDefs, signers } = applyBlanks(doc.json, blanks.map(b => (b.kind === 'section' ? { ...b, answer: jdChoice } : b)),
+        { countersign: countersignFor(purpose) });
       // Company and Employee are always this template's signers - adding a
       // signature block later never means typing a new signer first. In
       // Hiring Setup the signers are the ones HR picked for each line.
@@ -184,7 +187,10 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
       if (purpose) {
         const section = blanks.find(b => b.kind === 'section');
         // HR's answer to the duties question; 'inside' without one only when the file itself prints the duties
-        const jdPlacement = section ? jdChoice : JSON.stringify(built).includes('"token":"role_description"') ? 'inside' : '';
+        // (a promotion letter's {{responsibilities}} too); a separation package never carries them
+        const json = JSON.stringify(built);
+        const printsDuties = json.includes('"token":"role_description"') || (purpose === 'promotion' && json.includes('"token":"responsibilities"'));
+        const jdPlacement = purpose === 'separation' ? '' : section ? jdChoice : printsDuties ? 'inside' : '';
         onCreated?.({ templateId: row.id, name: name.trim(), jdPlacement, signerKeys });
         setBusy('');
         return;
