@@ -1770,19 +1770,25 @@ export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartme
 
 // Company Settings > Checklists: is every role's checklist built? One row per
 // role the company offers (its own and the shared ones), a cell per checklist
-// - its steps, or Missing - and Build opens that role's steps right here.
+// - its steps, Baseline Only (none of its own, the baseline covers it) or
+// Missing - and Build opens that role's steps right here.
 function RoleAudit({ entityId, companyName, kinds, toastOk, toastErr }) {
   const [roles, setRoles] = useState(null);
+  const [baseline, setBaseline] = useState({});        // kind -> the company's baseline step count
   const [gapsOnly, setGapsOnly] = useState(false);
   const [building, setBuilding] = useState(null);      // { role, kind }
   useEffect(() => {
     api.getRoleChecklistRoles()
-      .then(r => setRoles((r.roles || []).filter(x => !x.companyId || x.companyId === entityId)))
+      .then(r => {
+        setBaseline(r.baselines?.[entityId] || r.baselines?.[''] || {});
+        setRoles((r.roles || []).filter(x => !x.companyId || x.companyId === entityId));
+      })
       .catch(() => setRoles(false));
   }, [entityId]);
   if (roles === null) return <SkeletonBlocks count={3} height={48} />;
   if (roles === false) return <div style={{ ...card, padding: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load the roles.</div>;
-  const missing = r => kinds.filter(k => !(r.counts?.[k.value] > 0));
+  // A role with no steps of its own still has the baseline - nothing is missing (Neil, Oct 22, 7:31).
+  const missing = r => kinds.filter(k => !(r.counts?.[k.value] > 0) && !(baseline[k.value] > 0));
   const done = roles.filter(r => !missing(r).length).length;
   const shown = (gapsOnly ? roles.filter(r => missing(r).length) : roles)
     .slice().sort((a, b) => missing(b).length - missing(a).length || a.roleName.localeCompare(b.roleName));
@@ -1826,13 +1832,14 @@ function RoleAudit({ entityId, companyName, kinds, toastOk, toastErr }) {
                     </td>
                     {kinds.map(k => {
                       const n = r.counts?.[k.value] || 0;
+                      const b = baseline[k.value] || 0;
                       return (
                         <td key={k.value} style={cell}>
                           {n > 0
                             ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--wk-green)', fontWeight: 600 }}><CheckCircle2 size={14} /> {n} {n === 1 ? 'step' : 'steps'}</span>
                             : <button onClick={() => setBuilding({ role: r, kind: k.value })} title={`Build the ${k.label.toLowerCase()} steps for ${r.roleName}`}
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-orange)', fontWeight: 600, fontFamily: FONT, fontSize: 13 }}>
-                                <AlertTriangle size={14} /> Missing
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: b ? 'var(--wk-dim)' : 'var(--wk-orange)', fontWeight: 600, fontFamily: FONT, fontSize: 13 }}>
+                                {b ? <>Baseline Only ({b} {b === 1 ? 'step' : 'steps'})</> : <><AlertTriangle size={14} /> Missing</>}
                               </button>}
                         </td>
                       );

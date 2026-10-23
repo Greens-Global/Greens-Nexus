@@ -903,7 +903,11 @@ def role_templates(user: dict = Depends(get_current_user), db: Session = Depends
                         "companyId": r.company_id or "", "companyName": names.get(r.company_id or "", ""),
                         "counts": {k: counts.get(r.id, {}).get(k, 0) for k in hc.KINDS}})
     out.sort(key=lambda x: (x["companyName"] or "~", x["department"].lower(), x["roleName"].lower()))
-    return {"roles": out, "isHr": hr}
+    # The baseline steps a hire at each company ('' = the library) gets first,
+    # so a role with no steps of its own reads Baseline Only, not Missing.
+    baselines = {e: {k: len(hc.get_template(db, k, e).items or []) for k in hc.KINDS} for e in ["", *names]}
+    db.commit()   # seeding the library on first read
+    return {"roles": out, "isHr": hr, "baselines": baselines}
 
 
 @router.get("/role-templates/{role_id}")

@@ -3576,6 +3576,21 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] department head adoption skipped: {e}")
+    # Checklist evidence (Oct 22 2026, the Colin case): onboarding templates
+    # seeded earlier get the ID / right-to-work conditions and the Picture ID
+    # step, once (hr_checklists.backfill_id_evidence).
+    try:
+        from database import SessionLocal
+        import hr_checklists
+        db = SessionLocal()
+        try:
+            n = hr_checklists.backfill_id_evidence(db)
+            if n:
+                print(f"[startup] checklist ID evidence added to {n} onboarding template(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] checklist ID evidence backfill skipped: {e}")
 
 
 @asynccontextmanager

@@ -77,6 +77,11 @@ ONBOARDING = [
          signal="contract_end", hint="Nexus reminds HR from this date."),
     _row("ON-08", P1, "Emergency Contact, Address And Date Of Birth On The Profile", "hr", "S", -7,
          signal="personal_details"),
+    # Everyone, contractors and India too (Neil, Oct 22 - the Colin case: a
+    # full packet and no picture ID on file). hr_checklists.backfill_id_evidence
+    # adds it to templates seeded before it.
+    _row("ON-34", P1, "Picture ID On File", "hr", "S", -7, signal="id_on_file",
+         hint="A driver's license, passport or other photo ID on the Documents tab, with its expiry date."),
     _row("ON-09", P1, "Equipment Picked And Set Aside", "manager", "S", -7,
          hint="Write the asset tags down. Item Management needs the work email, so the assignment is made after provisioning."),
     _row("ON-10", P1, "System Access List Agreed", "manager", "S", -7,
