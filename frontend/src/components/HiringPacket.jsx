@@ -197,10 +197,12 @@ function PacketRow({ row, onEdit, onRemoved, toastErr, companyName }) {
   );
 }
 
-export function PacketsModal({ onClose, toastOk, toastErr }) {
+// `companyId` + `lockCompany` (Settings' scope picker, Oct 23): opened for
+// one company, with no company select of its own.
+export function PacketsModal({ onClose, toastOk, toastErr, companyId: initialCompany = '', lockCompany = false }) {
   const [data, setData] = useState(null);
   const [entities, setEntities] = useState([]);
-  const [companyId, setCompanyId] = useState('');
+  const [companyId, setCompanyId] = useState(initialCompany);
   const [tab, setTab] = useState('hire');
   const [editing, setEditing] = useState(null);     // { event, row | null }
   const load = () => api.getPackets().then(setData).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
@@ -237,10 +239,14 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
           <div style={{ fontWeight: 800, fontSize: 15.5 }}>Hiring Documents</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>What goes out through Nexus Sign when someone is hired, promoted or leaves</div>
         </div>
-        <select className="form-input" style={{ width: 240 }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
-          <option value="">All Companies</option>
-          {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-        </select>
+        {lockCompany ? (
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{company}</span>
+        ) : (
+          <select className="form-input" style={{ width: 240 }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
+            <option value="">All Companies</option>
+            {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        )}
         <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
       </div>
       <div style={{ overflowY: 'auto', flex: 1, padding: '14px 22px 22px' }}>

@@ -402,7 +402,7 @@ export const DOCS = [
       {
         title: 'Set Up a Shift Type and a Group',
         steps: [
-          'Administrators: open Settings > Shifts & Scheduling. If you look after more than one company, pick the Company first - a shift type or group is either Shared With Every Company or belongs to one.',
+          'Administrators: open Settings > Shifts & Scheduling. If you look after more than one company, pick it in the Scope box at the top first - a shift type or group is either Shared With Every Company or belongs to one.',
           'Under Shift Types, click New Shift Type: name, a short code for the grid, color, start and end time, unpaid break, grace minutes, time zone and days. Click Save.',
           'Under Groups, click New Group: name it, pick its members from the People list and any Schedulers, then click Save. For an outdoor crew, also pick its Work Site and Weather Deciders.',
           'To send the group\'s BOD, EOD and break messages to Microsoft Teams, choose Group Chat or Channel under Microsoft Teams. Click Bind A Chat (or Bind A Channel, then pick the team\'s channel) and Save. Members must be in that chat, or in that team and channel, for their messages to post; in a channel each message is a new post. Every message Nexus posts to Teams (BOD, EOD, break and ticket updates) goes out as the person and ends with a small gray "Sent by Nexus" line, so it is easy to tell apart from something typed by hand.',
@@ -477,7 +477,7 @@ export const DOCS = [
       { name: 'Export and Print', desc: 'Download the schedule as a spreadsheet or print it.' },
       { name: 'Day Note', desc: 'A note on a day for everyone, e.g. "Inventory day - all hands".' },
       { name: 'Add Time Off', desc: 'Add time off for a person straight from the grid, approved now or left for Requests.' },
-      { name: 'Shift Types and Groups', desc: 'Settings > Shifts & Scheduling: shift types (time, unpaid break, grace, days, color, code, time zone), groups of people in the order they appear on the grid, a Work Site and Weather Deciders per group, and the shift settings: what staff may request and see, the team time zone, week start, Default Grace, attendance alerts, rules, sharing and time-off reasons. A company can have its own shift settings: pick the Company, and Use the Defaults drops them.' },
+      { name: 'Shift Types and Groups', desc: 'Settings > Shifts & Scheduling: shift types (time, unpaid break, grace, days, color, code, time zone), groups of people in the order they appear on the grid, a Work Site and Weather Deciders per group, and the shift settings: what staff may request and see, the team time zone, week start, Default Grace, attendance alerts, rules, sharing and time-off reasons. A company can have its own shift settings: pick it in the Scope box, and Use the Defaults drops them.' },
     ],
     manager: {
       title: 'Who Can Do What',

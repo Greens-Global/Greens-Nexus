@@ -8,7 +8,10 @@ import { render, screen, fireEvent, cleanup, within } from '@testing-library/rea
 // Every api call resolves empty, except the companies the scope picker lists.
 const COMPANIES = [{ id: 'c1', name: 'Greens Global' }, { id: 'c2', name: 'Greens India' }];
 vi.mock('../api', () => ({
-  api: new Proxy({}, { get: (_, k) => (k === 'getEntities' ? () => Promise.resolve(COMPANIES) : vi.fn(() => Promise.resolve([]))) }),
+  api: new Proxy({}, { get: (_, k) => (
+    k === 'getEntities' ? () => Promise.resolve(COMPANIES)
+      : k === 'getEntitySignatureTemplates' ? () => Promise.resolve({ templates: [], template: 'classic' })
+        : vi.fn(() => Promise.resolve([]))) }),
 }));
 const roleState = { admin: true };
 vi.mock('../contexts/RoleContext', () => ({
@@ -29,7 +32,7 @@ vi.mock('./HR', () => ({
   ),
   WorkSiteLibrary: () => <div>Site list</div>,
 }));
-vi.mock('../tickets/TicketDeskSettings', () => ({ default: () => <div>Desk panel</div> }));
+vi.mock('../tickets/TicketDeskSettings', () => ({ default: ({ company }) => <div>Desk panel{company ? ` ${company}` : ''}</div> }));
 vi.mock('../tickets/TicketNotifySettings', () => ({ default: () => <div>Notify panel</div> }));
 vi.mock('../tickets/TicketTaxonomySettings', () => ({ default: () => <div>SLA panel</div> }));
 vi.mock('./RolesAccess', () => ({ default: () => <div>Access panel</div> }));
@@ -40,11 +43,13 @@ vi.mock('./BrandingPoliciesSettings', () => ({
   SignInPolicyPanel: () => <div>Sign-in policy panel</div>,
 }));
 vi.mock('../components/shifts/ShiftSettingsSections', () => ({
-  ShiftSettingsPanel: () => <div>Shift settings panel</div>,
+  ShiftSettingsPanel: ({ company }) => <div>Shift settings panel{company ? ` ${company}` : ''}</div>,
   ShiftTypesPanel: () => <div>Shift types panel</div>,
   ShiftGroupsPanel: () => <div>Groups panel</div>,
 }));
-vi.mock('../components/shifts/WeatherSettings', () => ({ default: () => <div>Weather panel</div> }));
+vi.mock('../components/shifts/WeatherSettings', () => ({ default: ({ company }) => <div>Weather panel{company ? ` ${company}` : ''}</div> }));
+vi.mock('../components/PayrollExportCodes', () => ({ default: ({ company }) => <div>Export codes panel{company ? ` ${company}` : ''}</div> }));
+vi.mock('../components/PayPremiums', () => ({ default: ({ company }) => <div>Premiums panel{company ? ` ${company}` : ''}</div> }));
 vi.mock('../components/DailyBriefingSettings', () => ({ default: () => <div>Briefing panel</div> }));
 vi.mock('../components/WeeklyDigestSettings', () => ({ default: () => <div>Digest panel</div> }));
 vi.mock('../components/WorkforceScorecardSettings', () => ({ default: () => <div>Scorecard panel</div> }));
@@ -196,6 +201,35 @@ describe('AdminConsole', () => {
     expect(await find('Company page c1: roles')).toBeInTheDocument();
     rerender(<AdminConsole activeSub="analytics@c1" onSubChange={onSubChange} />);
     expect(await find('Company page c1: monitoring')).toBeInTheDocument();
+  });
+
+  it('hands the picked company to the per-company panels: shifts, pay, tickets, signature (phase 2)', async () => {
+    const { rerender } = render(<AdminConsole activeSub="shifts@c1" onSubChange={() => {}} />);
+    expect(await find('Shift settings panel c1')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Shifts & Scheduling · Greens Global/ }, { timeout: 5000 })).toBeInTheDocument();
+    expect(await find('Weather panel c1')).toBeInTheDocument();
+
+    rerender(<AdminConsole activeSub="pay@c1" onSubChange={() => {}} />);
+    expect(screen.queryByRole('heading', { name: 'Pay Rules' })).not.toBeInTheDocument();
+    expect(await find('Export codes panel c1')).toBeInTheDocument();
+    expect(await find('Premiums panel c1')).toBeInTheDocument();
+    // Pay Rules are for every company: a link line, not a group.
+    expect(screen.getByRole('button', { name: 'Pay Rules' })).toBeInTheDocument();
+
+    rerender(<AdminConsole activeSub="pay" onSubChange={() => {}} />);
+    expect(screen.getByText('Pay Rules')).toBeInTheDocument();
+    expect(await find('Export codes panel')).toBeInTheDocument();
+
+    rerender(<AdminConsole activeSub="tickets@c1" onSubChange={() => {}} />);
+    expect(screen.getAllByRole('tab')).toHaveLength(1);
+    expect(screen.getByRole('tab', { name: /Routing & Escalation/ })).toBeInTheDocument();
+    expect(screen.getByText('Desk panel c1')).toBeInTheDocument();
+
+    rerender(<AdminConsole activeSub="branding@c1" onSubChange={() => {}} />);
+    // The signature is the lone group with a company picked, so it renders bare under the subject heading.
+    expect(await screen.findByRole('heading', { name: /Branding & Email · Greens Global/ }, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Brand Color' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Brand Color' })).toBeInTheDocument();
   });
 
   it('opens a company from the list, and offers the companies for a per-company subject', async () => {

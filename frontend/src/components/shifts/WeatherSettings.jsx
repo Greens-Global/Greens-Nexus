@@ -24,7 +24,9 @@ const FIELDS = [
   ['headsUpInches', 'Heads-up: rain over the shift (in)', ''],
 ];
 
-export default function WeatherSettingsPanel({ toastOk, toastErr }) {
+// `company` (Settings' scope picker, Oct 23): only that company's switch and
+// readiness; the thresholds, quiet hours and Teams line are for every company.
+export default function WeatherSettingsPanel({ toastOk, toastErr, company = '' }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [form, setForm] = useState(null);
@@ -89,7 +91,7 @@ export default function WeatherSettingsPanel({ toastOk, toastErr }) {
           <div>
             <div style={{ ...LBL, display: 'flex', alignItems: 'center', gap: 5 }}><Building2 size={12} /> Companies - the watch runs only for the companies switched on</div>
             <div style={{ display: 'grid', gap: 6 }}>
-              {(data.companies || []).map((c) => (
+              {(data.companies || []).filter((c) => !company || c.id === company).map((c) => (
                 <label key={c.id} style={ROW}>
                   <input type="checkbox" checked={!!form.companies[c.id]} onChange={(e) => set('companies', { ...form.companies, [c.id]: e.target.checked })} aria-label={`Watch the weather for ${c.name}`} />
                   <span style={{ fontSize: 13, fontWeight: 700, minWidth: 140 }}>{c.name}</span>
@@ -100,7 +102,8 @@ export default function WeatherSettingsPanel({ toastOk, toastErr }) {
                 </label>
               ))}
               {!(data.companies || []).length && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No companies set up yet.</div>}
-              {data.untaggedGroups?.length > 0 && (
+              {!!company && !(data.companies || []).some((c) => c.id === company) && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>This company has no groups to watch yet.</div>}
+              {!company && data.untaggedGroups?.length > 0 && (
                 <div style={{ fontSize: 11.5, color: 'hsl(var(--color-orange))' }}>
                   Groups whose members have no company, so no switch covers them: {data.untaggedGroups.join(', ')}.
                 </div>
@@ -108,6 +111,9 @@ export default function WeatherSettingsPanel({ toastOk, toastErr }) {
             </div>
           </div>
 
+          {company ? (
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>What counts as major rain, the quiet hours and the Teams line are set for every company.</div>
+          ) : (<>
           <div>
             <div style={LBL}>Thresholds - measured over the hours the group is scheduled, not the whole day</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
@@ -140,6 +146,7 @@ export default function WeatherSettingsPanel({ toastOk, toastErr }) {
               Text the crew by default when a weather call is made (each person can turn their own texts off)
             </label>
           </div>
+          </>)}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" onClick={checkNow} disabled={checking || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>

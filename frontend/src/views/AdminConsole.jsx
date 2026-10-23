@@ -183,18 +183,18 @@ const SUBJECTS = [
     desc: 'Who can open which module: each person\'s access, access groups, the roles shared by every company and the full access matrix. Each company\'s own job roles are set with that company picked.' },
   { key: 'security',   label: 'Security',            Icon: ShieldCheck, adminOnly: true, faces: 'org',
     desc: 'How people sign in, how long sessions last, and the policy everyone accepts at sign-in.' },
-  { key: 'branding',   label: 'Branding & Email',    Icon: Palette, adminOnly: true, faces: 'org',
+  { key: 'branding',   label: 'Branding & Email',    Icon: Palette, adminOnly: true, faces: 'both',
     desc: 'The Nexus brand color, how every Nexus email looks, and each company\'s email signature template.' },
   { key: 'emails',     label: 'Emails & Reminders',  Icon: Mail, faces: 'org',
     desc: 'Every scheduled email Nexus sends - task emails, the daily briefing, the weekly digest, the workforce scorecard - and how early HR and asset managers are reminded.' },
-  { key: 'tickets',    label: 'Tickets',             Icon: Headset, faces: 'org',
+  { key: 'tickets',    label: 'Tickets',             Icon: Headset, faces: 'both',
     desc: 'Where tickets go and who works them: routing and escalation, ticket email, response targets and ticket types, help topics, desk access, saved replies and AI features.' },
   // Time Clock pay rules (Charmi, Sep 30): moved off the timecard's Options popover.
-  { key: 'pay',        label: 'Time & Pay',          Icon: Clock, adminOnly: true, faces: 'org',
+  { key: 'pay',        label: 'Time & Pay',          Icon: Clock, adminOnly: true, faces: 'both',
     desc: 'The rules every time sheet is computed with: punch rounding, the auto-lunch deduction, California paid rest breaks, payroll export codes and pay premiums.' },
   { key: 'analytics',  label: 'Workforce Analytics', Icon: MonitorDot, faces: 'company',
     desc: 'What each company captures about work on company computers, and how often. Every company has its own policy.' },
-  { key: 'shifts',     label: 'Shifts & Scheduling', Icon: CalendarClock, faces: 'org',
+  { key: 'shifts',     label: 'Shifts & Scheduling', Icon: CalendarClock, faces: 'both',
     desc: 'What staff may request and see on the schedule, the team time zone and week start, time-off reasons, the shift types managers place, the groups people are scheduled in, and the weather alerts for their work sites.' },
   { key: 'hiring',     label: 'Hiring & Onboarding', Icon: UserPlus, faces: 'both',
     desc: 'What goes out when someone is hired, promoted or leaves, the interview questionnaires for each role, and the checklists every onboarding, promotion, offboarding and leave starts from. The Hiring board itself is only for moving candidates along.' },
@@ -216,8 +216,9 @@ const LEGACY_SUBJECTS = {
 // scope: 'org' = one value for all of Nexus; 'company' = one per company;
 // 'layered' = an organization default a company may override.
 // face: which scope the group shows under ('org' = Every company, 'company'
-// = with a company picked). A company-only group asked for at "Every
-// company" renders as a company picker.
+// = with a company picked, 'both' = either - the panel takes the company
+// from the scope). A company-only group asked for at "Every company"
+// renders as a company picker.
 const GROUPS = [
   // Companies
   { id: 'company-list', subject: 'companies', face: 'org', scope: 'org', icon: Building2, title: 'Companies',
@@ -255,7 +256,7 @@ const GROUPS = [
   { id: 'email-appearance', subject: 'branding', face: 'org', scope: 'org', icon: Mail, title: 'Email Appearance',
     sub: 'One logo, accent color and footer for every email Nexus sends: tasks, tickets, Nexus Sign, invitations and welcome emails.',
     keywords: 'email template logo header footer accent color address preview notifications' },
-  { id: 'email-signature', subject: 'branding', face: 'org', scope: 'company', icon: Signature, title: 'Email Signature',
+  { id: 'email-signature', subject: 'branding', face: 'both', scope: 'company', icon: Signature, title: 'Email Signature',
     sub: 'Choose each company\'s signature template and set custom signatures for specific addresses. Names, titles and contact details come from each employee\'s directory record, and employees choose their own sign-off in Profile.',
     keywords: 'template sign-off logo sender override shared inbox branding' },
   // Emails & Reminders
@@ -279,32 +280,38 @@ const GROUPS = [
     keywords: 'items inventory checkout overdue return late borrower asset property vehicle equipment warranty inspection registration insurance service manager reminder days before alerts timing bell' },
   // Tickets - one group, seven tabs (Pranshu, Sep 26: routing, ticket email
   // and SLAs are one subject to an admin).
-  { id: 'service-desk', subject: 'tickets', face: 'org', scope: 'org', icon: Headset, title: 'Ticket Manager',
+  { id: 'service-desk', subject: 'tickets', face: 'both', scope: 'org', icon: Headset, title: 'Ticket Manager',
     sub: 'Everything about tickets: who receives and escalates them, which events send email, and the response targets and ticket types requesters choose from.',
     keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields help topics what do you need help with saved replies canned responses default assignee auto assign ai summary suggested help topic' },
   // Time & Pay
   { id: 'timeclock-policy', subject: 'pay', face: 'org', scope: 'org', icon: CalendarClock, title: 'Pay Rules',
-    sub: 'Punch rounding (off by default), the auto-lunch deduction, California paid rest breaks, each company\'s payroll export codes, and shift differentials and call-back pay (off by default). Applies to every time sheet.',
-    keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california time sheet payroll export codes earnings codes payroll items quickbooks iif intacct shift differential night weekend premium call-back callback minimum' },
+    sub: 'Punch rounding (off by default), the auto-lunch deduction and California paid rest breaks. Applies to every time sheet.',
+    keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california time sheet' },
+  { id: 'payroll-export-codes', subject: 'pay', face: 'both', scope: 'company', icon: FileText, title: 'Payroll Export Codes',
+    sub: 'The payroll item name each pay class carries in the QuickBooks IIF and the Intacct payroll memo, and the QuickBooks company name, per company.',
+    keywords: 'payroll export codes earnings codes payroll items quickbooks iif intacct memo company name pay class' },
+  { id: 'pay-premiums', subject: 'pay', face: 'both', scope: 'company', icon: Clock, title: 'Shift Differentials & Call-Back Pay',
+    sub: 'Extra pay per hour at night, on weekends or at certain sites, and a minimum paid time when someone is called back - per company, off by default.',
+    keywords: 'shift differential night weekend site premium call-back callback minimum paid hours hourly' },
   // Workforce Analytics - per company, nothing to set for every company yet.
   { id: 'company-policy', subject: 'analytics', face: 'company', scope: 'company', icon: MonitorDot, title: 'Workforce Analytics Policy',
     sub: 'Whether work on company computers is captured for this company, how often, and what is tracked.',
     keywords: 'workforce analytics monitoring policy capture screenshots interval tracking employee tracking' },
   // Shifts & Scheduling
-  { id: 'shift-settings', subject: 'shifts', face: 'org', scope: 'layered', icon: CalendarClock, title: 'Shift Settings',
+  { id: 'shift-settings', subject: 'shifts', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Shift Settings',
     sub: 'What staff may request (open shifts, swaps, offers, time off) and see of their teammates, the team time zone, which day the week starts on, and the time-off reasons.',
     keywords: 'shifts schedule requests swap offer open shift time off reasons time zone week start sunday monday visibility' },
-  { id: 'shift-types', subject: 'shifts', face: 'org', scope: 'layered', icon: Clock, title: 'Shift Types',
+  { id: 'shift-types', subject: 'shifts', face: 'both', scope: 'layered', icon: Clock, title: 'Shift Types',
     sub: 'The reusable shifts managers place with one click - name, code, color, times, time zone and days. A person\'s usual hours are one of these.',
     keywords: 'shifts presets shift type code color times usual hours grace break time zone days' },
-  { id: 'shift-groups', subject: 'shifts', face: 'org', scope: 'layered', icon: Users, title: 'Groups',
+  { id: 'shift-groups', subject: 'shifts', face: 'both', scope: 'layered', icon: Users, title: 'Groups',
     sub: 'Who is scheduled together, the order they appear in, who may build each group\'s schedule, and the Teams chat its BOD / EOD messages go to.',
     keywords: 'shifts groups teams members schedulers order teams chat bod eod' },
-  { id: 'shift-weather', subject: 'shifts', face: 'org', scope: 'company', icon: CloudRain, title: 'Weather Alerts',
+  { id: 'shift-weather', subject: 'shifts', face: 'both', scope: 'company', icon: CloudRain, title: 'Weather Alerts',
     sub: 'Which companies the weather watch runs for, what counts as major rain, quiet hours, and the heads-up line in Teams. Nexus advises; a manager makes the weather call.',
     keywords: 'weather rain forecast alerts advisory storm thunderstorm warning nws quiet hours deciders weather call' },
   // Hiring & Onboarding
-  { id: 'hiring-documents', subject: 'hiring', face: 'org', scope: 'company', icon: FileText, title: 'Hiring Documents',
+  { id: 'hiring-documents', subject: 'hiring', face: 'both', scope: 'company', icon: FileText, title: 'Hiring Documents',
     sub: 'Offer letters, hiring packets, promotion letters and separation packages: which documents each company sends, for which roles and kind of hire, who signs, and Ready To Send.',
     keywords: 'packets offer letter hiring packet promotion separation nda confidentiality agreement documents signers' },
   { id: 'interview-questionnaires', subject: 'hiring', face: 'org', scope: 'org', icon: ClipboardList, title: 'Interview Questionnaires',
@@ -475,15 +482,19 @@ const SERVICE_DESK_TABS = [
   { key: 'ai',            label: 'AI Features',          Icon: Sparkles, Panel: TicketAiSettings },
 ];
 
-function ServiceDeskSection({ chrome }) {
+// With a company picked (Oct 23) only Routing & Escalation applies - that
+// company's agents, departments, heads and default assignees - and it opens
+// on that company.
+function ServiceDeskSection({ chrome, company = '' }) {
   const [tab, setTab] = useState('routing');
   const [seen, setSeen] = useState(() => new Set(['routing']));
   const pick = (key) => { setTab(key); setSeen(prev => (prev.has(key) ? prev : new Set(prev).add(key))); };
+  const tabs = company ? SERVICE_DESK_TABS.filter(t => t.key === 'routing') : SERVICE_DESK_TABS;
   return (
     <Group {...GROUP_META['service-desk']} {...chrome}>
       <div role="tablist" aria-label="Ticket Manager" className="scroll-tabs"
         style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', marginBottom: 16 }}>
-        {SERVICE_DESK_TABS.map(({ key, label, Icon }) => {
+        {tabs.map(({ key, label, Icon }) => {
           const active = key === tab;
           return (
             <button key={key} type="button" role="tab" aria-selected={active} onClick={() => pick(key)}
@@ -498,8 +509,8 @@ function ServiceDeskSection({ chrome }) {
           );
         })}
       </div>
-      {SERVICE_DESK_TABS.filter(t => seen.has(t.key)).map(({ key, Panel }) => (
-        <div key={key} role="tabpanel" hidden={key !== tab}><Panel /></div>
+      {tabs.filter(t => seen.has(t.key)).map(({ key, Panel }) => (
+        <div key={key} role="tabpanel" hidden={key !== tab}><Panel company={company || undefined} /></div>
       ))}
     </Group>
   );
@@ -561,14 +572,14 @@ function HrRemindersSection({ chrome }) {
 
 // ── Hiring setup (Oct 14) - the editors the Hiring board used to open,
 // reached from Settings now; they open full size, as before.
-function HiringSetupSection({ id, Modal, label, chrome, toastOk, toastErr }) {
+function HiringSetupSection({ id, Modal, label, chrome, toastOk, toastErr, modalProps }) {
   const [open, setOpen] = useState(false);
   return (
     <Group {...GROUP_META[id]} {...chrome}>
       <button type="button" className="primary-btn" onClick={() => setOpen(true)} style={{ fontSize: 12.5 }}>{label}</button>
       {open && (
         <Suspense fallback={<ModalFallback />}>
-          <Modal onClose={() => setOpen(false)} toastOk={toastOk} toastErr={toastErr} />
+          <Modal onClose={() => setOpen(false)} toastOk={toastOk} toastErr={toastErr} {...modalProps} />
         </Suspense>
       )}
     </Group>
@@ -636,10 +647,12 @@ function SignatureZoomModal({ title, html, onClose }) {
   );
 }
 
-function EmailSignatureSection({ toastOk, toastErr, chrome }) {
+// `company` (the scope picker, Oct 23): that company's template only; the
+// sender overrides are for every company and show at "Every company".
+function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   const [entities, setEntities] = useState([]);
   const [loaded, setLoaded] = useState(false);   // entities answered (even empty)
-  const [companyId, setCompanyId] = useState('');
+  const [companyId, setCompanyId] = useState(company);
   const [data, setData] = useState(null);       // { templates (with html), template }
   const [selectedTemplate, setSelectedTemplate] = useState('classic');
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -669,12 +682,15 @@ function EmailSignatureSection({ toastOk, toastErr, chrome }) {
   useEffect(() => {
     api.getEntities().then(rows => {
       setEntities(rows || []);
-      if (rows?.length) { setCompanyId(rows[0].id); loadPreview(rows[0].id); }
+      const first = (company && rows?.some(r => r.id === company)) ? company : rows?.[0]?.id;
+      if (first) { setCompanyId(first); loadPreview(first); }
     }).catch(() => {}).finally(() => setLoaded(true));
-    api.getSignatureSenderOverrides()
-      .then(d => { setOverrideTemplates(d.templates || []); setOverrides(d.senderOverrides || []); })
-      .catch(() => {});
-  }, [loadPreview]);
+    if (!company) {
+      api.getSignatureSenderOverrides()
+        .then(d => { setOverrideTemplates(d.templates || []); setOverrides(d.senderOverrides || []); })
+        .catch(() => {});
+    }
+  }, [loadPreview, company]);
 
   function pickCompany(id) {
     setCompanyId(id);
@@ -714,12 +730,14 @@ function EmailSignatureSection({ toastOk, toastErr, chrome }) {
         <div style={{ fontSize: 13, color: 'var(--muted)' }}>{loaded ? 'No companies yet. Add one under Company Settings first.' : 'Loading…'}</div>
       ) : (
         <>
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Company</label>
-            <select className="form-input" style={{ width: '100%', maxWidth: 320 }} value={companyId} onChange={e => pickCompany(e.target.value)}>
-              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-            </select>
-          </div>
+          {!company && (
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Company</label>
+              <select className="form-input" style={{ width: '100%', maxWidth: 320 }} value={companyId} onChange={e => pickCompany(e.target.value)}>
+                {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+              </select>
+            </div>
+          )}
           {previewBusy && !data ? (
             <Spinner size="inline" />
           ) : data && (
@@ -763,7 +781,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome }) {
         </>
       )}
 
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--line)' }}>
+      {!company && <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--line)' }}>
         <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
           Sender Template Overrides
         </label>
@@ -809,7 +827,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome }) {
           style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: overridesSaveBusy ? 0.6 : 1 }}>
           {overridesSaveBusy ? <Spinner size={14} /> : <Check size={14} />} Save
         </button>
-      </div>
+      </div>}
 
       {zoomTemplate && (
         <SignatureZoomModal title={zoomTemplate.label} html={zoomTemplate.html} onClose={() => setZoomTemplate(null)} />
@@ -1167,11 +1185,11 @@ function SettingsBody({ subject, group, company, onNavigate, entities, refreshEn
   // subject such as Workforce Analytics) its company groups as pickers.
   const groupsFor = useCallback((s) => {
     const own = groups.filter(g => g.subject === s.key);
-    if (company) return own.filter(g => g.face === 'company');
-    const org = own.filter(g => g.face === 'org');
+    if (company) return own.filter(g => g.face !== 'org');
+    const org = own.filter(g => g.face !== 'company');
     return org.length ? org : own.filter(g => g.face === 'company');
   }, [groups, company]);
-  const searchable = useMemo(() => (company ? groups.filter(g => g.face === 'company') : groups), [groups, company]);
+  const searchable = useMemo(() => (company ? groups.filter(g => g.face !== 'org') : groups), [groups, company]);
   const matches = useMemo(() => (needle ? searchable.filter(g => groupMatches(g, needle)) : null), [needle, searchable]);
   const counts = useMemo(() => {
     if (!matches) return null;
@@ -1223,9 +1241,9 @@ function SettingsBody({ subject, group, company, onNavigate, entities, refreshEn
               onDirtyChange={setDirty} toastOk={toastOk} toastErr={toastErr} />
           </Group>
         );
-      case 'email-signature':      return <EmailSignatureSection key={key} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'email-signature':      return <EmailSignatureSection key={key} chrome={chrome} company={company} toastOk={toastOk} toastErr={toastErr} />;
       case 'work-sites':           return <WorkSiteLibrarySection key={key} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
-      case 'service-desk':         return <ServiceDeskSection key={key} chrome={chrome} />;
+      case 'service-desk':         return <ServiceDeskSection key={key} chrome={chrome} company={company} />;
       case 'task-notifications':   return <TaskNotificationsSection key={key} chrome={chrome} />;
       case 'daily-briefing':       return <DailyBriefingSection key={key} chrome={chrome} />;
       case 'weekly-digest':        return <WeeklyDigestSection key={key} chrome={chrome} />;
@@ -1251,13 +1269,15 @@ function SettingsBody({ subject, group, company, onNavigate, entities, refreshEn
             <TimeClockPolicyPanel toastOk={toastOk} toastErr={toastErr} />
           </Group>
         );
-      case 'hiring-documents':     return <HiringSetupSection key={key} id={id} Modal={PacketsModal} label="Open Hiring Documents" chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'hiring-documents':     return <HiringSetupSection key={key} id={id} Modal={PacketsModal} label="Open Hiring Documents" chrome={chrome} toastOk={toastOk} toastErr={toastErr} modalProps={company ? { companyId: company, lockCompany: true } : undefined} />;
+      case 'payroll-export-codes': return <LazyPanelSection key={key} id={id} Panel={PayrollExportCodes} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'pay-premiums':         return <LazyPanelSection key={key} id={id} Panel={PayPremiums} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'interview-questionnaires': return <HiringSetupSection key={key} id={id} Modal={QuestionnairesModal} label="Open Questionnaires" chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'checklist-library':    return <LazyPanelSection key={key} id={id} Panel={ChecklistLibrary} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
-      case 'shift-settings':       return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
-      case 'shift-types':          return <LazyPanelSection key={key} id={id} Panel={ShiftTypesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
-      case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
-      case 'shift-weather':        return <LazyPanelSection key={key} id={id} Panel={WeatherSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'shift-settings':       return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'shift-types':          return <LazyPanelSection key={key} id={id} Panel={ShiftTypesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'shift-weather':        return <LazyPanelSection key={key} id={id} Panel={WeatherSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ops-cubby-push':       return <LazyPanelSection key={key} id={id} Panel={OpsSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       default:                     return null;
     }
@@ -1567,7 +1587,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr }) {
   return (
     <div>
       <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
-        These rules shape every time sheet the moment they are saved. They apply to the whole tenant today; a rule per company is planned.
+        These rules shape every time sheet the moment they are saved. They apply to every company today; a rule per company is planned.
       </div>
       <PolicyCard title="Punch Rounding" busy={busy === 'rounding'} enabled={rounding.enabled}
         desc={`Round every clock-in and clock-out to the nearest ${rounding.nearestMin || 5} minutes before computing hours (SwipeClock's model; the raw times stay on record and can be shown on the time sheet). Off by default - turn it on only if the company has a rounding policy.`}
@@ -1599,8 +1619,6 @@ function TimeClockPolicyPanel({ toastOk, toastErr }) {
         <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={busy === 'breakPolicy'}
           onClick={() => save('breakPolicy', { enabled: true, paidBreakMin: num(breakPolicy.paidBreakMin, 10), restMaxMin: num(breakPolicy.restMaxMin, 20), longBreakMin: num(breakPolicy.longBreakMin, 75) }, 'CA paid breaks')}>Save</button>
       </PolicyCard>
-      <PayrollExportCodes toastOk={toastOk} toastErr={toastErr} />
-      <PayPremiums toastOk={toastOk} toastErr={toastErr} />
     </div>
   );
 }

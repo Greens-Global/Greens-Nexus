@@ -223,7 +223,9 @@ function rowStatus(value, defaultAgents, isDefault) {
 
 const DEFAULT_KEY = '__default';
 
-export default function TicketDeskSettings() {
+// `company` (Settings' scope picker, Oct 23): opened on that company's desk,
+// with no list of the others.
+export default function TicketDeskSettings({ company: scoped = '' }) {
   const { myLevel } = useRole();
   const people = usePeople();
   const [agents, setAgents] = useState(null);            // default/fallback roster (agentEmails)
@@ -235,7 +237,7 @@ export default function TicketDeskSettings() {
   const [err, setErr] = useState('');
   // List on the left, one desk at a time on the right (Pranshu, Sep 26: a card
   // per company, each with its departments, made one very long page).
-  const [selected, setSelected] = useState(DEFAULT_KEY);
+  const [selected, setSelected] = useState(scoped || DEFAULT_KEY);
   const [baseline, setBaseline] = useState('');   // last saved rosters, to flag unsaved edits
   const narrow = useIsMobile('(max-width: 900px)');
   // Default Assignee pickers offer only this company's desk agents.
@@ -380,8 +382,8 @@ export default function TicketDeskSettings() {
         Default Agents, and if that is empty too, every administrator is notified.
       </div>
 
-      <div style={narrow ? undefined : { display: 'grid', gridTemplateColumns: '250px minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
-        {list}
+      <div style={narrow || scoped ? undefined : { display: 'grid', gridTemplateColumns: '250px minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
+        {!scoped && list}
         <div style={{ minWidth: 0 }}>
           {detail}
           {companies.length === 0 && (
