@@ -186,4 +186,55 @@ describe('PromoteModal - What They Get', () => {
     expect(body.pay_values).toEqual({ retention_bonus: '$5,000' });
     expect(body.inputs.responsibilities).toBe('Duties of jr-2');
   });
+
+  it('a blank left after one review never drops the HR answer typed since', async () => {
+    promotionOptions.mockImplementation((eid, roleId) => ready(eid, roleId).then(o => ({ ...o, letter: { ...o.letter, engine: 'documents' },
+      hrQuestions: [{ token: 'relocation_note', label: 'Relocation Note', type: 'text', required: false, pay: false, options: [] }] })));
+    previewPromotion.mockImplementation(() => Promise.resolve({ ...preview, engine: 'documents', documents: ['Promotion Letter'], recipients: [], problems: [], unresolved: ['relocation_note'] }));
+    const calls = previewPromotion.mock.calls.length;
+    render(<PromoteModal employee={erin} canSeePay onClose={() => {}} onSent={() => {}} toastErr={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/IT Dev Associate II - IT/)).toBeTruthy());
+    fireEvent.change(screen.getByDisplayValue('- pick a role -'), { target: { value: 'jr-2' } });
+    fireEvent.change(screen.getByPlaceholderText(/Annual review/), { target: { value: 'Exceeded targets' } });
+    fireEvent.click(await screen.findByText('Review Letter'));
+    await screen.findByText('Generate Letter');
+    fireEvent.change(screen.getByLabelText(/Relocation Note/), { target: { value: 'Moves to Fresno' } });
+    fireEvent.click(await screen.findByText('Review Letter'));
+    await waitFor(() => expect(previewPromotion).toHaveBeenCalledTimes(calls + 2));
+    expect(previewPromotion.mock.lastCall[1].inputs.merge).toEqual({ relocation_note: 'Moves to Fresno' });
+  });
+
+  it('the setup over the form reports its errors through the modal toast', async () => {
+    const toastErr = vi.fn();
+    const fix = { action: 'setUp', target: { entityId: 'c1', section: 'promotion', rowKey: 'employee:US:CA', column: 'letter' } };
+    promotionOptions.mockImplementation(() => Promise.resolve({ rowKey: 'employee:US:CA', kind: 'Employees In California', letter: null,
+      whatTheyGet: [line('letter', 'Promotion Letter', 'Nothing Yet For Employees In California', { tone: 'missing', blocks: true, fix })],
+      blocked: 'Set up a promotion letter first, or use Change Role Now.', duties: null, hrQuestions: [] }));
+    render(<PromoteModal employee={erin} canSeePay onClose={() => {}} onSent={() => {}} toastErr={toastErr} />);
+    fireEvent.click(await screen.findByText('Set It Up'));
+    expect(packetsProps.mock.lastCall[0].toastErr).toBe(toastErr);
+  });
+
+  it('new duties from the setup clear the shown letter; no duties shows no "From" hint', async () => {
+    let text = 'Old duties';
+    promotionOptions.mockImplementation((eid, roleId) => ready(eid, roleId).then(o => ({ ...o,
+      whatTheyGet: [...o.whatTheyGet, line('jd', "New Role's Job Description", 'IT Dev Associate II - no duties written', { tone: 'missing',
+        fix: { action: 'addDuties', target: { entityId: 'c1', section: 'promotion', roleId: 'jr-2' } } })],
+      duties: roleId ? { ...o.duties, text } : null })));
+    render(<PromoteModal employee={erin} canSeePay onClose={() => {}} onSent={() => {}} toastErr={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/IT Dev Associate II - IT/)).toBeTruthy());
+    text = '';
+    fireEvent.change(screen.getByDisplayValue('- pick a role -'), { target: { value: 'jr-2' } });
+    await waitFor(() => expect(promotionOptions).toHaveBeenLastCalledWith('e1', 'jr-2'));
+    await new Promise(r => setTimeout(r, 20));
+    expect(screen.queryByText(/From .* - change them for this letter only/)).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText(/Annual review/), { target: { value: 'Exceeded targets' } });
+    fireEvent.click(screen.getByText('Review Letter'));
+    await screen.findByText('Promotion Letter - Erin Lee');
+    text = 'Duties added in the setup';
+    fireEvent.click(screen.getByText('Add Duties'));
+    fireEvent.click(screen.getByText('Close Setup'));
+    await waitFor(() => expect(screen.getByLabelText("New Role's Duties").value).toBe('Duties added in the setup'));
+    expect(screen.queryByText('Promotion Letter - Erin Lee')).toBeNull();
+  });
 });

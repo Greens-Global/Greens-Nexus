@@ -41,11 +41,13 @@ const card = { marginTop: 14, background: 'var(--mist)', border: '1px solid var(
 const cardTitle = { fontSize: 13.5, fontWeight: 800 };
 
 // The Hiring Setup over Promote / Offboard, opened on the thing to fix.
-function SetupOver({ fix, companyId, onClose }) {
+function SetupOver({ fix, companyId, onClose, toastErr }) {
   if (!fix) return null;
-  return <PacketsModal initialCompanyId={companyId} focus={fix} toastOk={() => {}} toastErr={() => {}} onClose={onClose} />;
+  return <PacketsModal initialCompanyId={companyId} focus={fix} toastOk={() => {}} toastErr={toastErr || (() => {})} onClose={onClose} />;
 }
 const fixOf = (g, companyId) => ({ entityId: g.fix.target?.entityId || companyId, ...(g.fix.target || {}) });
+// The preview's typed-in blanks: an empty one never overrides an HR answer typed since.
+const filled = o => Object.fromEntries(Object.entries(o).filter(([, v]) => String(v || '').trim()));
 
 function Warn({ children }) {
   return (
@@ -153,13 +155,19 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
   const [fix, setFix] = useState(null);
   const [reload, setReload] = useState(0);
   const typed = useRef(false);                     // HR edited the duties: a later prefill never overwrites them
+  const prefilled = useRef('');
   useEffect(() => { api.hiringOptions(e.company || '').then(o => setRoles(o.roles || [])).catch(() => setRoles([])); }, [e.company]);
   useEffect(() => {
     let alive = true;
     api.promotionOptions(e.id, f.role_id).then(o => {
       if (!alive) return;
       setOpts(o); setOptsErr('');
-      if (o?.duties && !typed.current) setF(p => ({ ...p, responsibilities: o.duties.text || '' }));
+      const text = o?.duties?.text || '';
+      if (o?.duties && !typed.current && text !== prefilled.current) {
+        prefilled.current = text;                                // untyped, so the box still holds the last prefill
+        setF(p => ({ ...p, responsibilities: text }));
+        setPreview(null);                                        // the shown letter had the old duties
+      }
     }).catch(err => { if (alive) { setOpts(null); setOptsErr(err?.message || 'Could not find the promotion letter.'); } });
     return () => { alive = false; };
   }, [e.id, f.role_id, reload]);
@@ -175,7 +183,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
   const body = () => {
     const { merge, payValues } = splitAnswers(questions, answers, canSeePay);
     return {
-      inputs: { ...f, change_type: changeType, merge: { ...merge, ...extra } },
+      inputs: { ...f, change_type: changeType, merge: { ...filled(extra), ...merge } },
       pay: canSeePay && String(pay.base).trim() ? { ...pay, base: Number(pay.base) } : null,
       pay_values: payValues,
       excluded_ack: ack,
@@ -234,7 +242,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: '0 14px' }}>
             <div><label style={lbl}>New Role *</label>
               <select className="form-input" style={{ width: '100%' }} value={f.role_id}
-                onChange={ev => { const r = (roles || []).find(x => x.id === ev.target.value); setF(p => ({ ...p, role_id: ev.target.value, job_title: r ? r.name : p.job_title })); setPreview(null); }}>
+                onChange={ev => { const r = (roles || []).find(x => x.id === ev.target.value); setF(p => ({ ...p, role_id: ev.target.value, job_title: r ? r.name : p.job_title })); setPreview(null); setOpts(null); }}>
                 <option value="">{roles === null ? 'Loading roles...' : '- pick a role -'}</option>
                 {(roles || []).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
               </select>
@@ -253,7 +261,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
           <textarea className="form-input" rows={5} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} aria-label="New Role's Duties"
             placeholder="What changes in their day-to-day - printed in the letter" value={f.responsibilities}
             onChange={ev => { typed.current = true; set('responsibilities', ev.target.value); }} />
-          {opts?.duties && (
+          {opts?.duties?.text && (
             <div style={hint}>From {opts.duties.versionId && opts.duties.versionLabel ? opts.duties.versionLabel : "the role's Standard"} - change them for this letter only. The role is not changed.</div>
           )}
           {questions.length > 0 && (
@@ -368,7 +376,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
           )}
         </div>
       </div>
-      <SetupOver fix={fix} companyId={e.company} onClose={() => { setFix(null); setReload(n => n + 1); }} />
+      <SetupOver fix={fix} companyId={e.company} toastErr={toastErr} onClose={() => { setFix(null); setReload(n => n + 1); }} />
     </div>
   );
 }
@@ -398,13 +406,14 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
   const [answers, setAnswers] = useState({});
   const [fix, setFix] = useState(null);
   const [reload, setReload] = useState(0);
+  const packTouched = useRef(false);               // HR set Send The Separation Package: options never undo it
   useEffect(() => {
     let alive = true;
     // starts at what can be sent; an older API (no options) keeps today's default
     api.offboardOptions(e.id).then(o => {
       if (!alive) return;
       setOpts(o);
-      setF(p => ({ ...p, send_package: !!o.canSendPackage }));
+      if (!packTouched.current) setF(p => ({ ...p, send_package: !!o.canSendPackage }));
     }).catch(() => {});
     return () => { alive = false; };
   }, [e.id, reload]);
@@ -417,11 +426,13 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
   const questions = opts?.hrQuestions || [];
   const toAnswer = unanswered(questions, answers, false);
   const body = () => ({
-    inputs: { ...f, merge: { ...splitAnswers(questions, answers, false).merge, ...extra }, offboarding: { mailboxAction: mailbox, delegateTo: mailbox === 'share' ? trustees : [],
+    inputs: { ...f, merge: { ...filled(extra), ...splitAnswers(questions, answers, false).merge }, offboarding: { mailboxAction: mailbox, delegateTo: mailbox === 'share' ? trustees : [],
       exportRequested, handoverTo } },
     excluded_ack: ack,
   });
-  const missing = (preview?.unresolved || []).filter(k => !(extra[k] || '').trim());
+  // Documents engine: PacketReview names any blank, and the employee fills their own - only a PDF asks here.
+  const typedBlanks = preview?.engine === 'documents' ? [] : (preview?.unresolved || []);
+  const missing = typedBlanks.filter(k => !(extra[k] || '').trim());
 
   async function review() {
     setBusy('preview');
@@ -506,7 +517,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
               <input type="checkbox" checked={f.start_checklist} onChange={ev => set('start_checklist', ev.target.checked)} style={{ accentColor: 'var(--pine)' }} /> Start the offboarding checklist
             </label>
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: noPackage ? 'not-allowed' : 'pointer', opacity: noPackage ? 0.6 : 1 }}>
-              <input type="checkbox" checked={f.send_package && !noPackage} disabled={noPackage} onChange={ev => set('send_package', ev.target.checked)} style={{ accentColor: 'var(--pine)' }} /> Send the separation package through Nexus Sign
+              <input type="checkbox" checked={f.send_package && !noPackage} disabled={noPackage} onChange={ev => { packTouched.current = true; set('send_package', ev.target.checked); }} style={{ accentColor: 'var(--pine)' }} /> Send the separation package through Nexus Sign
             </label>
             {noPackage && (
               <div style={{ ...hint, marginTop: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -567,9 +578,9 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
                   </div>
                 </div>
               ) : <div style={{ fontSize: 12.5, marginTop: 6 }}>No paperwork - only the offboarding itself.</div>}
-              {(preview.unresolved || []).length > 0 && (
+              {typedBlanks.length > 0 && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 14px' }}>
-                  {preview.unresolved.map(k => (
+                  {typedBlanks.map(k => (
                     <div key={k}><label style={lbl}>{k.replace(/_/g, ' ')}</label>
                       <input className="form-input" style={{ width: '100%' }} value={extra[k] || ''} onChange={ev => setExtra(p => ({ ...p, [k]: ev.target.value }))} /></div>
                   ))}
@@ -602,7 +613,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
           )}
         </div>
       </div>
-      <SetupOver fix={fix} companyId={e.company} onClose={() => { setFix(null); setReload(n => n + 1); }} />
+      <SetupOver fix={fix} companyId={e.company} toastErr={toastErr} onClose={() => { setFix(null); setReload(n => n + 1); }} />
     </div>
   );
 }

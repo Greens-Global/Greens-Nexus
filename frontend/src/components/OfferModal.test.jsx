@@ -232,17 +232,24 @@ describe('OfferModal - the supervisor follows the role', () => {
 
 // Round 1 leftover (mockup screen 4): Preview Offer Letter prints the letter's document with a sample person.
 describe('OfferModal - Preview Offer Letter', () => {
-  it('renders the offer letter\'s document through the packet preview', async () => {
-    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+  it('renders the offer letter\'s document with a sample person, in the app', async () => {
     URL.createObjectURL = URL.createObjectURL || (() => 'blob:x');
+    URL.revokeObjectURL = URL.revokeObjectURL || (() => {});
     render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
     const btn = () => screen.getByText('Preview Offer Letter').closest('button');
     expect(btn()).toBeDisabled();                                   // no letter until Hired As is picked
     hire('Full-Time Employee');
     await waitFor(() => expect(btn()).not.toBeDisabled());
     fireEvent.click(btn());
-    await waitFor(() => expect(renderPacketPreview).toHaveBeenCalledWith({ template_id: 't-offer', entity_id: 'e-gg', setting_id: 's-offer' }));
-    await waitFor(() => expect(open).toHaveBeenCalled());
-    open.mockRestore();
+    await waitFor(() => expect(renderPacketPreview).toHaveBeenCalledWith(expect.objectContaining({ template_id: 't-offer', entity_id: 'e-gg', setting_id: 's-offer' })));
+    expect(await screen.findByText(/Preview With Sample Person/)).toBeTruthy();
+  });
+
+  it('a letter with no document (the PDF engine) cannot be previewed', async () => {
+    offerOptions.mockImplementation((cid, p) => standard(cid, p).then(o => ({ ...o, offerLetter: o.offerLetter && { ...o.offerLetter, documents: [] } })));
+    render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    hire('Full-Time Employee');
+    await ready();
+    expect(screen.getByText('Preview Offer Letter').closest('button')).toBeDisabled();
   });
 });

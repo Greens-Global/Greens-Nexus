@@ -12,16 +12,18 @@ const localToday = () => { const d = new Date(); return `${d.getFullYear()}-${St
 const offboard = vi.fn(() => Promise.resolve({ id: 'ev1', applyStatus: 'scheduled', effectiveDate: '2099-01-31' }));
 vi.mock('../api', () => ({
   api: {
-    previewOffboard: (eid, body) => Promise.resolve({
-      immediate: body.inputs.last_day <= localToday(), lastDay: body.inputs.last_day,
-      package: body.inputs.send_package !== false, documents: ['Separation Package'], sendTo: 'erin@x.com', why: 'they still have their work email until their last day',
-      recipients: [{ order: 1, role: 'company', name: 'Hana', email: 'hana@x.com' }, { order: 2, role: 'employee', name: 'Erin Lee', email: 'erin@x.com', isSubject: true }],
-      unresolved: [], egnyteSubfolder: 'Separation Documents',
-    }),
+    previewOffboard: (...a) => previewOffboard(...a),
     offboard: (...a) => offboard(...a),
     offboardOptions: (...a) => offboardOptions(...a),
   },
 }));
+const pdfPreview = (eid, body) => Promise.resolve({
+  immediate: body.inputs.last_day <= localToday(), lastDay: body.inputs.last_day,
+  package: body.inputs.send_package !== false, documents: ['Separation Package'], sendTo: 'erin@x.com', why: 'they still have their work email until their last day',
+  recipients: [{ order: 1, role: 'company', name: 'Hana', email: 'hana@x.com' }, { order: 2, role: 'employee', name: 'Erin Lee', email: 'erin@x.com', isSubject: true }],
+  unresolved: [], egnyteSubfolder: 'Separation Documents',
+});
+const previewOffboard = vi.fn(pdfPreview);
 const withPackage = () => Promise.resolve({ rowKey: 'employee:US:CA', kind: 'Employees In California',
   package: { settingId: 's-ca-sep', name: 'California Separation Package', engine: 'pdf' }, canSendPackage: true, noPackageText: '',
   whatTheyGet: [{ key: 'package', label: 'Separation Package', name: 'California Separation Package', sourceLabel: 'Same As All Companies - California', tone: 'same', blocks: false, fix: null }],
@@ -33,7 +35,7 @@ vi.mock('./ESign', () => ({ SignModal: () => null, AttachmentPlacer: () => null,
 const { OffboardModal } = await import('./HrPersonActions');
 const erin = { id: 'e1', firstName: 'Erin', lastName: 'Lee', jobTitle: 'Analyst', workEmail: 'erin@x.com', personalEmail: 'erin@gmail.com', managerEmail: 'max@x.com' };
 
-beforeEach(() => { offboardOptions.mockImplementation(withPackage); offboard.mockClear(); });
+beforeEach(() => { offboardOptions.mockImplementation(withPackage); previewOffboard.mockImplementation(pdfPreview); offboard.mockClear(); });
 
 describe('OffboardModal', () => {
   it('today: says their access ends now and the paperwork goes to the personal email', () => {
@@ -84,5 +86,35 @@ describe('OffboardModal - no separation package', () => {
     render(<OffboardModal employee={erin} companyName="Greens" onClose={() => {}} onSent={() => {}} toastErr={() => {}} />);
     expect(await screen.findByText('California Separation Package')).toBeTruthy();
     expect(screen.getByLabelText('Send the separation package through Nexus Sign').checked).toBe(true);
+  });
+});
+
+describe('OffboardModal - round 2 review fixes', () => {
+  it('a documents package never asks HR for the blanks the employee fills', async () => {
+    previewOffboard.mockImplementation((eid, body) => pdfPreview(eid, body).then(p => ({ ...p, engine: 'documents', problems: [],
+      unresolved: ['forwarding_address', 'forwarding_email'] })));
+    const onSent = vi.fn();
+    render(<OffboardModal employee={erin} companyName="Greens" onClose={() => {}} onSent={onSent} toastErr={() => {}} />);
+    await screen.findByText('California Separation Package');
+    fireEvent.change(screen.getByDisplayValue('- pick one -'), { target: { value: 'resignation' } });
+    fireEvent.click(screen.getByText('Review'));
+    const go = (await screen.findByText(/Offboard Now|Schedule Offboarding/)).closest('button');
+    expect(screen.queryByText('forwarding address')).toBeNull();
+    expect(go).not.toBeDisabled();
+    fireEvent.click(go);
+    await waitFor(() => expect(onSent).toHaveBeenCalled());
+    expect(offboard.mock.calls[0][1].inputs.merge).toEqual({});
+  });
+
+  it('HR unchecking the package before the options arrive is kept', async () => {
+    let answer;
+    offboardOptions.mockImplementation(() => new Promise(r => { answer = r; }));
+    render(<OffboardModal employee={erin} companyName="Greens" onClose={() => {}} onSent={() => {}} toastErr={() => {}} />);
+    const box = () => screen.getByLabelText('Send the separation package through Nexus Sign');
+    fireEvent.click(box());
+    expect(box().checked).toBe(false);
+    answer(await withPackage());
+    await screen.findByText('California Separation Package');
+    expect(box().checked).toBe(false);
   });
 });

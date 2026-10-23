@@ -283,3 +283,27 @@ describe('findSamples on a separation letter', () => {
     expect(byToken(f, 'separation_type').places).toHaveLength(1);
   });
 });
+
+describe('findSamples - round 2 review fixes', () => {
+  it('a separation keeps the company email as text even when its name is longer than the domain', () => {
+    const doc = { type: 'doc', content: [p('Questions? Email hr@greensglobal.com.'), p('Please forward mail to jane@gmail.com.')] };
+    const f = findSamples(doc, { ...CTX, companyLegal: 'Greens Global Construction LLC', companyName: 'Greens Global Construction' }, 'separation');
+    expect(f.some(b => b.match === 'hr@greensglobal.com')).toBe(false);
+    expect(f.find(b => b.label === 'Forwarding Email')).toMatchObject({ match: 'jane@gmail.com' });
+  });
+
+  it('with no company name only an email after a forwarding lead-in is the employee one', () => {
+    const doc = { type: 'doc', content: [p('Questions? Email hr@acme.com.'), p('Your personal email on file is jane@gmail.com.')] };
+    const f = findSamples(doc, { roleNames: [] }, 'separation');
+    expect(f.some(b => b.match === 'hr@acme.com')).toBe(false);
+    expect(f.find(b => b.label === 'Forwarding Email')).toMatchObject({ match: 'jane@gmail.com' });
+  });
+
+  it('"from Monday to Friday" is not a title change, and a return address is not a forwarding address', () => {
+    const promo = findSamples({ type: 'doc', content: [p('Your schedule remains from Monday to Friday.')] }, CTX, 'promotion');
+    expect(byToken(promo, 'old_title')).toBeUndefined();
+    expect(byToken(promo, 'new_title')).toBeUndefined();
+    const sep = findSamples({ type: 'doc', content: [p('Dear Jane,'), p('Hello.'), p('Thanks.'), p('Please send all company property to 100 Pine Ave, Fresno, CA 93721.')] }, CTX, 'separation');
+    expect(sep.some(b => b.label === 'Forwarding Address')).toBe(false);
+  });
+});

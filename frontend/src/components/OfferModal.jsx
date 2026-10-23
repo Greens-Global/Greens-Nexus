@@ -30,6 +30,7 @@ import { leadsFor } from './HiringSchedule';
 
 // Lazy: HiringPacket imports REPORTS_TO from here, and the setup is only opened to fix something.
 const PacketsModal = lazy(() => import('./HiringPacket').then(m => ({ default: m.PacketsModal })));
+const SamplePreview = lazy(() => import('./DocumentsPacketEditor').then(m => ({ default: m.PreviewModal })));
 
 const OTHER_ROLE = '__other__';
 const HIRED_AS = [['full_time', 'Full-Time Employee'], ['part_time', 'Part-Time Employee'], ['contractor', 'Contractor'], ['intern', 'Intern']];
@@ -155,6 +156,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const [fix, setFix] = useState(null);                 // the Hiring Setup opened over the offer
   const [reload, setReload] = useState(0);
   const [previewing, setPreviewing] = useState(false);
+  const [sample, setSample] = useState(null);           // the letter's document shown in-app (a popup can be blocked after awaits)
   const autoMgr = useRef('');                          // the supervisor Nexus filled in, not HR
 
   useEffect(() => {
@@ -251,15 +253,17 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
     } catch (e) { toastErr?.(e?.message || 'Could not make the offer.'); setBusy(false); }
   }
 
-  // Preview Offer Letter (mockup screen 4): the letter's document as it prints, with a sample person.
+  // Preview Offer Letter (mockup screen 4): the letter's document as it prints, with a SAMPLE person -
+  // not this candidate's letter (no endpoint renders that before the offer starts). A PDF-engine letter
+  // has no document, so the button is off.
+  const canPreview = (letter?.documents || []).length > 0;
   async function previewLetter() {
     setPreviewing(true);
     try {
       const { settings = [] } = await api.getPackets();
       const tid = (settings.find(x => x.id === letter.id)?.docTemplateIds || []).find(t => !String(t).startsWith('@'));
       if (!tid) throw new Error('This offer letter has no document to preview.');
-      const { blob } = await api.renderPacketPreview({ template_id: tid, entity_id: c.company || '', setting_id: letter.id });
-      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+      setSample({ templateId: tid, name: letter.name || 'Offer Letter', settingId: letter.id });
     } catch (e) { toastErr?.(e?.message || 'Could not render the preview.'); }
     setPreviewing(false);
   }
@@ -463,7 +467,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
           <span style={{ flex: 1, fontSize: 12.5, color: '#b45309', fontWeight: 600 }}>{blocked ? (opts?.blocked || 'Fix the amber item before sending.') : ''}</span>
           <button type="button" className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button type="button" className="secondary-btn" onClick={previewLetter} disabled={busy || previewing || !letter} title="The letter as it prints, filled in with a sample person"
+          <button type="button" className="secondary-btn" onClick={previewLetter} disabled={busy || previewing || !canPreview} title="The letter as it prints, filled in with a sample person"
             style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {previewing ? <Spinner size={14} /> : <Eye size={14} />} Preview Offer Letter
           </button>
@@ -472,6 +476,11 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           </button>
         </div>
       </div>
+      {sample && (
+        <Suspense fallback={null}>
+          <SamplePreview {...sample} companyId={c.company || ''} toastErr={toastErr || (() => {})} onClose={() => setSample(null)} />
+        </Suspense>
+      )}
       {fix && (
         <Suspense fallback={null}>
           <PacketsModal initialCompanyId={c.company} focus={fix} toastOk={toastOk || (() => {})} toastErr={toastErr || (() => {})}

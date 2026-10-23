@@ -140,6 +140,10 @@ const SEP_DATES = [
 const CAPS = /[A-Z][\w&/-]*(?:\s+[A-Z][\w&/-]*){0,4}/.source;
 const POSITION = /(?:the\s+)?(?:(?:position|role|title)\s+of\s+)?/.source;
 const FROM_TO_TITLE = new RegExp(String.raw`\bfrom\s+${POSITION}(${CAPS})\s+to\s+${POSITION}(${CAPS})`, 'g');
+// "from Monday to Friday" / "from January to March" is a calendar, never a title change
+const CALENDAR = new RegExp(String.raw`^(?:${MONTHS}|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b`);
+// where a separation asks for the employee's own mail: "forward ... to", "mail to", "your personal email"
+const FORWARD_LEAD = /forward|personal|mail(?:ed)? to|your\b[^.]{0,30}\baddress/;
 const PROMOTED_TO = new RegExp(String.raw`\bpromoted\s+to\s+${POSITION}(${CAPS})`, 'g');
 const FROM_TO_MONEY = new RegExp(String.raw`\bfrom\s+(${MONEY.source})\s+to\s+(${MONEY.source})`, 'g');
 
@@ -218,7 +222,12 @@ export function findSamples(doc, ctx = {}, purpose = 'hire') {
   const companyPhone = digits(ctx.companyPhone);
   const companyKey = clean(ctx.companyName || ctx.companyLegal).toLowerCase()
     .replace(/\b(?:l\.l\.c\.|llc|inc|corp|corporation|ltd|limited|pvt|private|llp)\b/g, '').replace(/[^a-z0-9]/g, '');
-  const companyMail = (em) => !!companyKey && em.split('@')[1].toLowerCase().replace(/[^a-z0-9]/g, '').includes(companyKey);
+  // "hr@greensglobal.com" is Greens Global Construction LLC's too: the domain stem and the name overlap either way
+  const companyMail = (em) => {
+    const stem = em.split('@')[1].toLowerCase().split('.').slice(0, -1).join('').replace(/[^a-z0-9]/g, '');
+    return !!companyKey && !!stem && (stem.includes(companyKey) || (stem.length >= 4 && companyKey.includes(stem)));
+  };
+  const leadIn = (text, at) => FORWARD_LEAD.test(text.slice(Math.max(0, at - 60), at).toLowerCase());
 
   // 1 "Label: Value" lines with a real value
   pars.forEach(({ text }, pi) => {
@@ -248,7 +257,7 @@ export function findSamples(doc, ctx = {}, purpose = 'hire') {
   pars.forEach(({ text }, i) => {
     for (const m of text.matchAll(STREET)) {
       // a separation's "forward ... to" address is where the employee wants their mail
-      if (sep && /forward|mail(?:ed)? to|send\b.*\bto\b/.test(text.slice(Math.max(0, m.index - 60), m.index).toLowerCase())) {
+      if (sep && leadIn(text, m.index)) {
         take(m[0], 'address', { fill: 'ask', label: 'Forwarding Address' }, i);
         continue;
       }
@@ -312,6 +321,7 @@ export function findSamples(doc, ctx = {}, purpose = 'hire') {
   // a promotion's "from (the position of) X to Y" and "promoted to Y"
   if (promo) pars.forEach(({ text }, pi) => {
     for (const m of text.matchAll(FROM_TO_TITLE)) {
+      if (CALENDAR.test(m[1]) || CALENDAR.test(m[2])) continue;
       take(m[1], 'title', nexus('old_title', 'Old Title'), pi);
       take(m[2], 'title', nexus('new_title', 'New Title'), pi);
     }
@@ -333,7 +343,8 @@ export function findSamples(doc, ctx = {}, purpose = 'hire') {
     for (const m of text.matchAll(EMAIL)) {
       // on a separation a personal email is where the employee wants their mail; the company's stays text
       if (!sep) take(m[0], 'email', nexus('email', 'Personal Email'), pi);
-      else if (!companyMail(m[0])) take(m[0], 'email', { fill: 'ask', label: 'Forwarding Email' }, pi);
+      // with no company name to compare, only an email after a forwarding lead-in is theirs
+      else if (companyKey ? !companyMail(m[0]) : leadIn(text, m.index)) take(m[0], 'email', { fill: 'ask', label: 'Forwarding Email' }, pi);
     }
   });
 
