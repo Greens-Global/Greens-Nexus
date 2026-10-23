@@ -390,7 +390,7 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
         raise HTTPException(400, "title is required")
     _assert_folder_ok(db, body.folderId or "", user)
     now = _now_iso()
-    content = body.content if body.content is not None else {}
+    content = as_pages(body.content) if body.content is not None else {}
     letterhead_id = ""
     merge_overrides = {}
     tpl = None
@@ -857,7 +857,7 @@ def create_template(body: TemplateIn, user: dict = Depends(get_current_user), db
     if category not in _TEMPLATE_CATEGORIES:
         raise HTTPException(400, f"category must be one of {_TEMPLATE_CATEGORIES}")
     now = _now_iso()
-    content = body.content if body.content is not None else {}
+    content = as_pages(body.content) if body.content is not None else {}
     row = DocTemplate(id=str(uuid.uuid4()), name=body.name.strip(), category=category,
                        tags=body.tags or [], content=content,
                        requires_letterhead=bool(body.requiresLetterhead), letterhead_id=body.letterheadId or "",
@@ -913,6 +913,16 @@ def _ul(*items) -> dict:
 # plain TipTap JSON dicts directly (no HTML/generateJSON - that's a frontend
 # @tiptap/core helper, not available server-side); the frontend's schema
 # normalizes any attrs left implicit, same as any hand-crafted TipTap doc.
+def as_pages(content):
+    """Documents and templates are stored as {pages: [{id, json}], header,
+    footer} - what the editor saves and the renderer reads. A bare TipTap doc
+    (an API caller, an import script) is wrapped instead of saved as-is: the
+    renderer skips it and the PDF comes out blank (Oct 23 walkthrough)."""
+    if isinstance(content, dict) and content.get("type") == "doc":
+        return {"pages": [{"id": str(uuid.uuid4()), "json": content}], "header": None, "footer": None}
+    return content
+
+
 def _offer_letter_content() -> dict:
     return {"type": "doc", "content": [
         _h("Offer of Employment"),
@@ -1322,7 +1332,7 @@ def update_template(tid: str, body: TemplateUpdate, user: dict = Depends(get_cur
             raise HTTPException(400, f"docType must be one of {', '.join(_TEMPLATE_TYPES)}")
         row.doc_type = body.docType
     if body.content is not None:
-        row.content = body.content
+        row.content = as_pages(body.content)
         row.version += 1
         db.add(DocTemplateVersion(id=str(uuid.uuid4()), template_id=row.id, version_no=row.version,
                                   content=body.content, edited_by=user["email"], edited_at=_now_iso(),
@@ -1864,7 +1874,7 @@ def update_document(did: str, body: DocumentUpdate, user: dict = Depends(get_cur
     if body.signRequestId is not None:
         row.sign_request_id = body.signRequestId
     if body.content is not None:
-        row.content = body.content
+        row.content = as_pages(body.content)
         row.current_version += 1
         db.add(DocumentVersion(id=str(uuid.uuid4()), document_id=row.id, version_no=row.current_version,
                                 content=body.content, edited_by=user["email"], edited_at=_now_iso(),
