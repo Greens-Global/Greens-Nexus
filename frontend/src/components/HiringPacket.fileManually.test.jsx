@@ -78,6 +78,12 @@ describe('File Manually', () => {
     expect(screen.queryByText('File Manually')).toBeNull();
   });
 
+  it('a failed try reads as one sentence, never two periods', () => {
+    const { container } = render(<LifeEventCard compact ev={{ ...unfiled, filingError: 'Egnyte is not connected.', filingAttempts: 1 }} />);
+    expect(container.textContent).toContain('did not work: Egnyte is not connected. Nexus tries again by itself');
+    expect(container.textContent).not.toContain('..');
+  });
+
   it('the paperwork line leaves the header once signed; Compliance keeps it', async () => {
     const { container, unmount } = render(<PaperworkStatus employeeId="e1" pendingOnly />);
     await waitFor(() => expect(container.innerHTML).toBe(''));
