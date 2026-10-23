@@ -273,7 +273,7 @@ describe('columns', () => {
     const row = (title) => r.rows.find((x) => x.title === title || x.label === title).values;
     // The closed years' profit sits on Retained Earnings, this year's on its own line.
     expect(row('Retained Earnings')).toEqual([1100, 0, 1100]);
-    expect(row('Current year earnings (2026)')).toEqual([400, 200, 600]);
+    expect(row('Current Year Earnings (2026)')).toEqual([400, 200, 600]);
     expect(row('Assets')).toEqual([1500, 300, 1800]);
     expect(row('Total Liabilities and Equity')).toEqual([1500, 300, 1800]);
     expect(r.rows.some((x) => x.kind === 'warn')).toBe(false);
@@ -299,12 +299,12 @@ describe('columns', () => {
     // 12/31/2025: the year's profit (1,000 - 100) is this year's earnings; nothing from before.
     expect(at('2025-12-31')).toEqual({
       asset: [['11000', 5000]], liability: [],
-      equity: [['31000', 4000], ['39000', 100], ['Current year earnings (2025)', 900]],
+      equity: [['31000', 4000], ['39000', 100], ['Current Year Earnings (2025)', 900]],
     });
     // 03/31/2026: 2025's profit has moved onto Retained Earnings; 2026 earned 500 and spent 250.
     expect(at('2026-03-31')).toEqual({
       asset: [['11000', 5100], ['12000', 400]], liability: [['21000', 250]],
-      equity: [['31000', 4000], ['39000', 1000], ['Current year earnings (2026)', 250]],
+      equity: [['31000', 4000], ['39000', 1000], ['Current Year Earnings (2026)', 250]],
     });
     // 06/30/2026: the deposit is back to nothing and leaves the statement.
     expect(at('2026-06-30').asset).toEqual([['11000', 5500]]);
@@ -317,7 +317,7 @@ describe('columns', () => {
   it('a ledger with no Retained Earnings account gets a line for the earlier years', () => {
     const rows = history.filter((r) => r.account_no !== '39000');
     expect(balanceAsOf(rows, '2026-03-31').find((s) => s.key === 'equity').accounts.map((a) => [a.title, a.amount]))
-      .toEqual([['Members Capital', 4000], ['Retained earnings (prior years)', 900], ['Current year earnings (2026)', 250]]);
+      .toEqual([['Members Capital', 4000], ['Retained Earnings (Prior Years)', 900], ['Current Year Earnings (2026)', 250]]);
   });
 
   // The accounting service, answering from the same history: everything up to
@@ -351,8 +351,8 @@ describe('columns', () => {
     expect(row('11000')).toEqual([5300, 5500, 5100, 5000]);
     expect(row('12000')).toEqual([0, 0, 400, 0]);
     expect(row('39000')).toEqual([1000, 1000, 1000, 100]);
-    expect(row('Current year earnings (2026)')).toEqual([50, 250, 250, 0]);
-    expect(row('Current year earnings (2025)')).toEqual([0, 0, 0, 900]);
+    expect(row('Current Year Earnings (2026)')).toEqual([50, 250, 250, 0]);
+    expect(row('Current Year Earnings (2025)')).toEqual([0, 0, 0, 900]);
     expect(row('Assets')).toEqual(row('Total Liabilities and Equity'));
     expect(r.rows.some((x) => x.kind === 'warn')).toBe(false);
   });
@@ -367,7 +367,7 @@ describe('columns', () => {
     const row = (code) => r.rows.find((x) => x.code === code || x.title === code || x.label === code).values;
     // 2026 closed with 50 earned; in 2027 that sits on Retained Earnings with the 900 of 2025.
     expect(row('39000').slice(0, 4)).toEqual([1050, 1050, 1050, 1000]);
-    expect(row('Current year earnings (2026)').slice(2, 5)).toEqual([0, 50, 50]);
+    expect(row('Current Year Earnings (2026)').slice(2, 5)).toEqual([0, 50, 50]);
     expect(row('11000').at(-1)).toBe(5100);      // 04/30/2026
     expect(row('Assets')).toEqual(row('Total Liabilities and Equity'));
   });

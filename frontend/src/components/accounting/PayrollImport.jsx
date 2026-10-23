@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Plus, RotateCcw
 import { api } from '../../api';
 import { ensureStepUp, isStepUpRequired } from '../../stepup/StepUp';
 import { formatDate } from '../../lib/datetime';
+import { DateField } from '../../tasks/components';
 import { EntityPicker, control } from './reportControls';
 import { downloadBlob } from './reportModel';
 import { readSheetFile, toCsv } from './statementImport';
@@ -123,8 +124,10 @@ function IntacctFields({ settings, set, entities, payroll = false }) {
   );
 }
 
-function DateField({ k, t, settings, set }) {
-  return <label style={label}>{t}<input type="date" value={settings[k] || ''} onChange={(e) => set({ [k]: e.target.value })} aria-label={t} style={{ ...control, width: '100%' }} /></label>;
+// UI test 10/23: the shared DateField, never a native date box (that one follows
+// the computer's region and showed dd-mm-yyyy). The value stays YYYY-MM-DD.
+function PayDate({ k, t, settings, set }) {
+  return <label style={label}>{t}<DateField value={settings[k] || ''} onChange={(v) => set({ [k]: v || '' })} placeholder="MM/DD/YYYY" title={t} style={{ ...control, width: '100%', boxSizing: 'border-box' }} /></label>;
 }
 
 /** Employee ID / Vendor ID / Department per person, remembered in this browser. */
@@ -278,8 +281,8 @@ export function PayrollHoursToQb() {
         <div>
           <h3 style={h3}>Pay Period</h3>
           <div style={grid}>
-            <DateField k="periodStart" t="Period Start" settings={s} set={setSettings} />
-            <DateField k="periodEnd" t="Period End" settings={s} set={setSettings} />
+            <PayDate k="periodStart" t="Period Start" settings={s} set={setSettings} />
+            <PayDate k="periodEnd" t="Period End" settings={s} set={setSettings} />
             {source === 'nexus' && (
               <label style={label}>
                 Company
@@ -338,7 +341,7 @@ export function PayrollHoursToQb() {
           <summary style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700 }}>Intacct Hours Import Settings</summary>
           <div style={{ ...grid, marginTop: 10 }}>
             <IntacctFields settings={s} set={setSettings} entities={entities} />
-            <DateField k="payDate" t="Entry Date" settings={s} set={setSettings} />
+            <PayDate k="payDate" t="Entry Date" settings={s} set={setSettings} />
           </div>
           <p style={{ ...small, margin: '8px 0' }}>One statistical entry for the period: a line per person per bucket - P.REG (regular), P.OHR (overtime and double time), P.SHR (sick), P.VHR (vacation and personal). The entry date defaults to the period end.</p>
           <EmployeeTable people={people} employeeMap={prefs.employees} setEmployee={setEmployee} />
@@ -456,9 +459,9 @@ export function QbPayrollToIntacct() {
           <div>
             <h3 style={h3}>Journal Entry</h3>
             <div style={grid}>
-              <DateField k="payDate" t="Pay Date" settings={s} set={setSettings} />
-              <DateField k="periodStart" t="Period Start" settings={s} set={setSettings} />
-              <DateField k="periodEnd" t="Period End" settings={s} set={setSettings} />
+              <PayDate k="payDate" t="Pay Date" settings={s} set={setSettings} />
+              <PayDate k="periodStart" t="Period Start" settings={s} set={setSettings} />
+              <PayDate k="periodEnd" t="Period End" settings={s} set={setSettings} />
               <IntacctFields settings={s} set={setSettings} entities={entities} payroll />
             </div>
             <p style={{ ...small, margin: '8px 0 0' }}>

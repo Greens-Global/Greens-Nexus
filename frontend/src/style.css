@@ -2778,6 +2778,13 @@ html { overflow-x: hidden; }
 .acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td.acct-label { background: linear-gradient(color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%), color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%)), var(--bg-card); }
 .acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label,
 .acct-report.mre-grid tbody tr.acct-grand td.acct-label { background: linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card); }
+/* The same on every statement (UI test 10/23): the pinned first column keeps
+   the hover and Total tints painted over the card color, so the figures
+   scrolling sideways under it never show through. Flagged rows keep their
+   own (already solid) amber. */
+.acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):not(.acct-flag):hover td.acct-label,
+.acct-report.acct-gl tbody tr.acct-line-link:not(.acct-flag):hover td.acct-label,
+.acct-report tbody tr.acct-grand td.acct-label { background: linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card); }
 /* Oct 23 (Viral, Charmi, item 10: "Header should not be hide when we scroll
    down"): the header is the column headings. The whole heading block - the
    names and the filter boxes under them - pins to the top of the table's box
@@ -2794,8 +2801,11 @@ html { overflow-x: hidden; }
    on a short window (the top bar, the report controls and the title take
    about 340px; 1366 x 768 leaves a 428px box). The statements' own box
    takes the same height. */
-.acct-lines-wrap.acct-scroll-box,
 .acct-report-wrap.acct-scroll-box { max-height: max(300px, calc(100vh - 340px)); }
+/* The ledger lines have more above them (the drill's title, filters and
+   totals), so LedgerSearch measures where the box starts and sets
+   --acct-lines-h (UI test 10/23); the fixed offset is only the first paint. */
+.acct-lines-wrap.acct-scroll-box { max-height: var(--acct-lines-h, max(300px, calc(100vh - 340px))); }
 
 /* Phone: wide data tables (.req-table - PropertyAsset sections, requisition
    logs) scroll sideways inside their card instead of being cut off. */

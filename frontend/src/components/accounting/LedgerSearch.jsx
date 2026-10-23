@@ -242,6 +242,21 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
     ro.observe(wrap);
     return () => ro.disconnect();
   }, [wrap]);
+  // UI test 10/23 (item 18): what sits above the lines (the drill's title, the
+  // filters, the totals) wraps to a different height on each screen, so the
+  // box is sized from where it actually starts: it ends 24px above the bottom
+  // of the window, never under it (no second page scrollbar), 300px at least.
+  const [boxH, setBoxH] = useState(0);
+  useEffect(() => {
+    if (!wrap || full) return undefined;
+    const fit = () => {
+      const top = wrap.getBoundingClientRect().top + (window.scrollY || 0);
+      setBoxH(Math.max(300, Math.floor(window.innerHeight - top - 24)));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [wrap, full]);
   const natural = shownColumns.reduce((s, c) => s + widthOf(c), 0);
   const fillers = shownColumns.filter((c) => !c.num && !layout.widths?.[c.key] && !['date', 'entry', 'journal'].includes(c.key));
   const spare = fillers.length ? Math.max(0, room - natural - ASK_WIDTH - 2) : 0;
@@ -487,7 +502,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           // Oct 23 (Viral, item 18): the lines scroll inside their own box, sized
           // to the window (a tall monitor still shows more), with the headings
           // pinned at its top - the page above them stays put.
-          <div className={`acct-lines-wrap${full ? '' : ' acct-scroll-box'}`} ref={setWrap} data-testid="ledger-lines-box" style={{ opacity: loading ? 0.6 : 1 }}>
+          <div className={`acct-lines-wrap${full ? '' : ' acct-scroll-box'}`} ref={setWrap} data-testid="ledger-lines-box" style={{ opacity: loading ? 0.6 : 1, ...(boxH ? { '--acct-lines-h': `${boxH}px` } : {}) }}>
             <table className="acct-lines acct-sticky-head" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
               <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}<col style={{ width: ASK_WIDTH }} /></colgroup>
               <thead>

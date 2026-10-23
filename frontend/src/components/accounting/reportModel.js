@@ -616,8 +616,8 @@ export function balanceAsOf(rows, asof) {
   const retained = [...accounts.values()].find((a) => a.section === 'equity' && /retained\s+earnings/i.test(a.title));
   let equity = list('equity').map((a) => (retained && a.account_no === retained.account_no ? { ...a, amount: round2(a.amount + was) } : a));
   equity = equity.filter((a) => a.amount !== 0 || (retained && a.account_no === retained.account_no && round2(retained.amount) !== 0));
-  if (!retained) equity.push({ account_no: '', title: 'Retained earnings (prior years)', amount: was });
-  equity.push({ account_no: '', title: `Current year earnings (${asof.slice(0, 4)})`, amount: round2(round2(all) - was) });
+  if (!retained) equity.push({ account_no: '', title: 'Retained Earnings (Prior Years)', amount: was });
+  equity.push({ account_no: '', title: `Current Year Earnings (${asof.slice(0, 4)})`, amount: round2(round2(all) - was) });
   const nonZero = (a) => a.amount !== 0;
   return [
     { key: 'asset', label: 'Assets', accounts: list('asset').filter(nonZero) },
@@ -774,9 +774,9 @@ async function readColumns(api, config, entities = []) {
         if (at >= 0) equity[at] = { ...equity[at], amount: round2(equity[at].amount + was) };
         else if (was) equity.push({ account_no: retained.account_no, title: retained.title, amount: was });
       } else {
-        equity.push({ account_no: '', title: 'Retained earnings (prior years)', amount: was });
+        equity.push({ account_no: '', title: 'Retained Earnings (Prior Years)', amount: was });
       }
-      equity.push({ account_no: '', title: `Current year earnings (${fyStart.slice(0, 4)})`, amount: round2((total.get(k) || 0) - was) });
+      equity.push({ account_no: '', title: `Current Year Earnings (${fyStart.slice(0, 4)})`, amount: round2((total.get(k) || 0) - was) });
       st.set('equity', equity);
       statements.set(k, st);
     });
@@ -988,7 +988,7 @@ export function trialBalanceLines(through, before, asof) {
   const retained = (through || []).find((r) => r.section === 'equity' && /retained\s+earnings/i.test(r.title));
   const at = retained ? list.find((l) => l.code === (retained.account_no || '')) : null;
   if (at) at.balance = round2(at.balance + was);
-  else if (was) list.push({ code: '', title: 'Retained earnings (prior years)', pl: false, balance: was });
+  else if (was) list.push({ code: '', title: 'Retained Earnings (Prior Years)', pl: false, balance: was });
   return list;
 }
 

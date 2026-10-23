@@ -821,6 +821,17 @@ describe('ReportsTab pinned headings (items 10 and 18)', () => {
     expect(css).toMatch(/\.acct-sticky-head\.acct-sticky-head thead \{ position: sticky; top: 0; z-index: 3; \}/);
     expect(css).toMatch(/\.acct-sticky-head\.acct-sticky-head thead td \{ position: relative; top: auto; \}/);
     expect(css).toMatch(/\.acct-report-wrap\.acct-scroll-box \{ max-height: max\(300px, calc\(100vh - 340px\)\); \}/);
+    // The ledger lines box takes the height LedgerSearch measures (UI test 10/23).
+    expect(css).toMatch(/\.acct-lines-wrap\.acct-scroll-box \{ max-height: var\(--acct-lines-h, /);
+  });
+
+  it('keeps the pinned first column solid on hover and on the Total row (UI test 10/23)', () => {
+    const css = fs.readFileSync(path.join(__dirname, '..', '..', 'style.css'), 'utf8').replace(/\r\n/g, '\n');
+    const at = css.indexOf('.acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):not(.acct-flag):hover td.acct-label,');
+    expect(at).toBeGreaterThan(-1);
+    const rule = css.slice(at, css.indexOf('}', at));
+    expect(rule).toContain('.acct-report tbody tr.acct-grand td.acct-label');
+    expect(rule).toContain('linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card)');
   });
 });
 

@@ -17,6 +17,9 @@ vi.mock('../../api', () => ({
 vi.mock('../../stepup/StepUp', () => ({ ensureStepUp: vi.fn(async () => ({ ok: true })), isStepUpRequired: () => false }));
 const saved = vi.hoisted(() => []);
 vi.mock('./reportModel', () => ({ downloadBlob: (name) => saved.push(name) }));
+// DateField as a plain box (no native type="date" - UI test 10/23), so a test can type a date.
+vi.mock('../../tasks/components', async (importOriginal) => ({ ...(await importOriginal()),
+  DateField: ({ value, onChange, title }) => <input aria-label={title} data-datefield="1" value={value || ''} onChange={(e) => onChange(e.target.value)} /> }));
 
 import { api } from '../../api';
 import ImportHub from './ImportHub';
@@ -80,6 +83,9 @@ describe('Import Hub', () => {
     const download = screen.getByRole('button', { name: /Download Intacct Payroll Import/ });
     expect(download.disabled).toBe(true);
     expect(screen.getByText('Pick the pay date.')).toBeTruthy();
+    // The pay period boxes are the shared DateField, never a native date box.
+    for (const l of ['Pay Date', 'Period Start', 'Period End']) expect(screen.getByLabelText(l).getAttribute('data-datefield')).toBe('1');
+    expect(document.querySelector('input[type="date"]')).toBeNull();
     fireEvent.change(screen.getByLabelText('Pay Date'), { target: { value: '2026-10-09' } });
     await waitFor(() => expect(download.disabled).toBe(false));
     fireEvent.click(download);

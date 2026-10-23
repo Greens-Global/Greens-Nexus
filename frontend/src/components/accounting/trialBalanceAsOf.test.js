@@ -50,7 +50,7 @@ describe('Trial Balance as of a date', () => {
 
   it('adds a Retained earnings line when the chart has no such account', () => {
     const lines = trialBalanceLines(THROUGH.filter((r) => r.account_no !== '32000'), BEFORE, '2026-09-30');
-    expect(lines.at(-1)).toEqual({ code: '', title: 'Retained earnings (prior years)', pl: false, balance: -700 });
+    expect(lines.at(-1)).toEqual({ code: '', title: 'Retained Earnings (Prior Years)', pl: false, balance: -700 });
   });
 
   it('lists Debit, Credit and Balance per account, with the Balance Sheet entity and book filters', async () => {

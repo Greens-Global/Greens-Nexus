@@ -124,6 +124,16 @@ describe('LedgerSearch grid', () => {
     // The box sized to the window (style.css acct-scroll-box), never "no limit".
     expect(box.className).toContain('acct-scroll-box');
     expect(box.style.maxHeight).toBe('');
+    // UI test 10/23: the box ends inside the window, measured from where it starts.
+    const tall = window.innerHeight;
+    expect(box.style.getPropertyValue('--acct-lines-h')).toBe(`${Math.max(300, tall - 24)}px`);
+    window.innerHeight = 500;
+    fireEvent(window, new Event('resize'));
+    expect(box.style.getPropertyValue('--acct-lines-h')).toBe('476px');
+    window.innerHeight = 200;
+    fireEvent(window, new Event('resize'));
+    expect(box.style.getPropertyValue('--acct-lines-h')).toBe('300px');
+    window.innerHeight = tall;
     // The headings and the filter boxes pin as one block at the top of the box.
     expect(box.querySelector('table').className).toContain('acct-sticky-head');
     expect(box.querySelector('thead .acct-filter-row')).toBeTruthy();
