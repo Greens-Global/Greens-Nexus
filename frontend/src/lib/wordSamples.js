@@ -38,6 +38,8 @@ export const youAnswer = (purpose = 'hire') => `I Answer ${WHEN[purpose] || 'On 
 export const WHO = whoLabels('hire');
 // A promotion letter is countersigned (config_problems): with no company line chosen, their manager's goes at the end.
 export const countersignFor = (purpose) => (purpose === 'promotion' ? 'manager' : '');
+// The person signs every letter and packet document (a job description is never signed): with no line of theirs, Nexus adds one.
+export const personLineFor = (purpose) => !!purpose && purpose !== 'jd';
 // What each exit reads as (hr_checklist_seed.EXIT_TYPE_LABELS; Charmi, Oct 20 2026).
 export const EXIT_TYPE_LABELS = { resignation: 'Voluntary Resignation', resignation_no_notice: 'Job Abandonment',
   termination: 'Termination', end_of_contract: 'End Of Contract', retirement: 'Retirement', death: 'Death' };
@@ -92,7 +94,8 @@ const MONTHS = 'January|February|March|April|May|June|July|August|September|Octo
 const DATE = new RegExp(`\\b(?:\\d{1,2}/\\d{1,2}/\\d{4}|(?:${MONTHS})\\.? \\d{1,2},? \\d{4}|\\d{1,2} (?:${MONTHS}),? \\d{4}|\\d{4}-\\d{2}-\\d{2})\\b`, 'g');
 const MONEY = /(?:[$₹]\s?\d[\d,]*(?:\.\d+)?|\b(?:Rs\.?|INR|USD)\s?\d[\d,]*(?:\.\d+)?)(?:\s*(?:per|\/)\s*(?:year|annum|month|week|hour))?/g;
 const LEGAL = /\b(?:[A-Z][\w&'.-]*\s){0,4}[A-Z][\w&'.-]*,?\s(?:L\.L\.C\.|LLC|Inc\.?|Corp\.?|Corporation|Pvt\.? Ltd\.?|Private Limited|Ltd\.?|Limited|LLP)(?![A-Za-z])/g;
-const STREET = /\b\d{1,6}\s+(?:[A-Z0-9][\w.'-]*\s+){0,6}(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Dr|Drive|Lane|Ln|Way|Suite)\b\.?.{0,80}?\b\d{5,6}(?:-\d{4})?\b/g;
+const LEGAL_SUFFIX = String.raw`(?:,?\s(?:L\.L\.C\.|LLC|Inc\.?|Corp\.?|Corporation|Pvt\.? Ltd\.?|Private Limited|Ltd\.?|Limited|LLP)(?![A-Za-z]))?`;
+const STREET =/\b\d{1,6}\s+(?:[A-Z0-9][\w.'-]*\s+){0,6}(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Dr|Drive|Lane|Ln|Way|Suite)\b\.?.{0,80}?\b\d{5,6}(?:-\d{4})?\b/g;
 const NAME = "(?:(?:Mr|Ms|Mrs|Dr)\\.?\\s+)?([A-Z][a-z'-]+(?:\\s+[A-Z][a-z'-]+){1,2})";
 const NAMES = [new RegExp(`\\bDear\\s+${NAME}`, 'g'), new RegExp(`\\bTo:\\s*${NAME}`, 'g'), new RegExp(`\\bbetween\\b[^\\u0001]{0,120}?\\band\\s+${NAME}`, 'g')];
 const TITLE = /\b(?:position of|role of|as an?|as our|Title:|Designation:)\s+([A-Z][\w&/-]*(?:\s+[A-Z][\w&/-]*){0,4})/g;
@@ -137,7 +140,16 @@ const SEP_DATES = [
   [/last (?:working )?day|final (?:working )?day|(?:separation|termination|resignation) date|date of (?:separation|termination|resignation)/g, { fill: 'nexus', token: 'last_day', label: 'Last Day' }],
   [/final pay|final paycheck|last paycheck/g, { fill: 'hr', label: 'Final Pay Date', pay: false }],
 ];
+// "your employment ... ends on 11/15/2026" / "... effective 11/15/2026": the last day, in a sentence about leaving
+const EMPLOYMENT = /employment|separation|resignation|termination|engagement|last day/;
+const SEP_ENDS = [/\b(?:ends?|ending|will end|terminates?)\s+(?:on|effective)\b|\beffective\b/g, { fill: 'nexus', token: 'last_day', label: 'Last Day' }];
+// "(Resignation)" / "due to retirement": the exit type, printed as it reads
+const EXIT_WORDS = /\((voluntary resignation|resignation|termination|retirement|end of contract|job abandonment)\)|\bdue to (?:your |the )?(resignation|termination|retirement|end of (?:your |the )?contract)\b/gi;
+const REPORTS_TO = new RegExp(String.raw`\breport(?:s|ing)?\s+(?:directly\s+)?to\s+${NAME}`, 'g');
 const CAPS = /[A-Z][\w&/-]*(?:\s+[A-Z][\w&/-]*){0,4}/.source;
+// "as Accountant ends on ..." - a title when a known role or followed by these
+const AS_TITLE = new RegExp(String.raw`\b[Aa]s\s+(${CAPS})`, 'g');
+const AFTER_TITLE = /^\s+(?:ends?|until|effective|at|with|from)\b/;
 const POSITION = /(?:the\s+)?(?:(?:position|role|title)\s+of\s+)?/.source;
 const FROM_TO_TITLE = new RegExp(String.raw`\bfrom\s+${POSITION}(${CAPS})\s+to\s+${POSITION}(${CAPS})`, 'g');
 // "from Monday to Friday" / "from January to March" is a calendar, never a title change
@@ -188,8 +200,9 @@ export function findSamples(doc, ctx = {}, purpose = 'hire') {
     labels.add(l.toLowerCase());
     return l;
   };
-  // `pi`: the paragraph the rule found it in (undefined: anywhere - a ctx value)
-  const take = (match, rule, def, pi) => {
+  // `pi`: the paragraph the rule found it in (undefined: anywhere - a ctx value);
+  // `at`: only the place it starts at there, not the same text elsewhere
+  const take = (match, rule, def, pi, at) => {
     let m = clean(match).replace(/[,;:]+$/, '');
     if (/\.$/.test(m) && !/\b(Inc|Corp|Ltd|Co|L\.L\.C)\.$/.test(m)) m = m.slice(0, -1);
     if (m.length < 2) return;
@@ -198,7 +211,7 @@ export function findSamples(doc, ctx = {}, purpose = 'hire') {
     pars.forEach(({ text }, i) => { for (const x of text.matchAll(re)) hits.push({ pi: i, start: x.index, end: x.index + x[0].length }); });
     const over = (h, c) => h.pi === c.pi && h.start < c.end && c.start < h.end;
     const blocked = (h) => claims.some(c => over(h, c) && (c.primary || c.len >= m.length));
-    const free = hits.filter(h => !blocked(h));
+    const free = hits.filter(h => !blocked(h) && (at === undefined || (h.pi === pi && h.start === at)));
     const primary = free.find(h => pi === undefined || h.pi === pi);
     if (!primary) return;
     // a longer value takes back a shorter one's other places inside it
@@ -247,7 +260,10 @@ export function findSamples(doc, ctx = {}, purpose = 'hire') {
   });
 
   // 2 the company's legal name
-  company.forEach(c => take(c, 'company', nexus('company_legal', 'Company Legal Name')));
+  // with the ", LLC" after it: "Greens Global" must not leave "[Company Legal Name], LLC"
+  company.forEach(c => pars.forEach(({ text }, pi) => {
+    for (const m of text.matchAll(new RegExp(wordRe(c).replace(/ /g, '\\s+') + LEGAL_SUFFIX, 'g'))) take(m[0], 'company', nexus('company_legal', 'Company Legal Name'), pi);
+  }));
   pars.forEach(({ text }, pi) => { for (const m of text.matchAll(LEGAL)) take(m[0], 'company', nexus('company_legal', 'Company Legal Name'), pi); });
   const legal = out.filter(b => b.token === 'company_legal').map(b => b.match.toLowerCase());
   const legalAt = pars.findIndex(({ text }) => legal.some(l => text.toLowerCase().includes(l)));
@@ -276,17 +292,30 @@ export function findSamples(doc, ctx = {}, purpose = 'hire') {
       if (out.length > before) take(m[1].split(/\s+/)[0], 'name', nexus('first_name', 'First Name'));
     }
   }));
+  // their manager ("report to Kim Lee"; "Manager: Kim Lee" is a label above) - every letter names the person's own
+  pars.forEach(({ text }, pi) => {
+    for (const m of text.matchAll(REPORTS_TO)) if (!company.some(c => c.toLowerCase().includes(m[1].toLowerCase()))) take(m[1], 'name', nexus('manager', 'Manager'), pi);
+  });
 
-  // 5 dates, by what is said just before them; any other date is HR's, named by the words before it
+  // 5 dates, by what is said just before them; any other date is HR's, named by the words before it.
+  // Each place by its own words: "ends on 11/15" and "final paycheck ... on 11/15" are two variables.
   pars.forEach(({ text }, i) => {
     for (const m of text.matchAll(DATE)) {
       const lead = text.slice(Math.max(0, m.index - 60), m.index).toLowerCase();
-      const event = sep ? nearest(lead, SEP_DATES)
+      const sentence = text.slice(Math.max(0, m.index - 160), m.index).split(/[.!?]\s/).pop().toLowerCase();
+      const event = sep ? nearest(lead, EMPLOYMENT.test(sentence) ? [...SEP_DATES, SEP_ENDS] : SEP_DATES)
         : promo ? (/start|commenc|effective/.test(lead) ? nexus('effective_date', 'Effective Date') : null)
           : /start|commenc|join|effective/.test(lead) ? nexus('start_date', 'Start Date')
             : /expire|accept by|respond by|valid until/.test(lead) ? nexus('offer_expires', 'Offer Expires') : null;
       const def = event ? { ...event } : i < 3 && clean(text.split('\u0001').join(' ')).length <= m[0].length + 12 ? nexus('today', "Today's Date")
             : { fill: 'hr', label: leadLabel(text, m.index, 'Date', 'Date') };
+      const held = event && claims.find(c => c.pi === i && c.start === m.index && c.owner.rule === 'date');
+      if (held && !(held.owner.token === event.token && held.owner.label.startsWith(event.label))) {
+        held.owner.places = held.owner.places.filter(pl => pl !== held.place);
+        claims.splice(claims.indexOf(held), 1);
+        take(m[0], 'date', def, i, m.index);
+        continue;
+      }
       take(m[0], 'date', def, i);
     }
   });
@@ -316,6 +345,10 @@ export function findSamples(doc, ctx = {}, purpose = 'hire') {
       if (!l.includes(' ') && whole !== l.toLowerCase()) return;
       for (const m of text.matchAll(new RegExp(wordRe(l), 'gi'))) take(m[0], 'exit', nexus('separation_type', 'Why They Are Leaving'), pi);
     });
+    for (const m of text.matchAll(EXIT_WORDS)) {
+      const w = m[1] || m[2];
+      take(w, 'exit', nexus('separation_type', 'Why They Are Leaving'), pi, m.index + m[0].indexOf(w));
+    }
   });
 
   // a promotion's "from (the position of) X to Y" and "promoted to Y"
@@ -330,6 +363,16 @@ export function findSamples(doc, ctx = {}, purpose = 'hire') {
 
   // 7 the job title, right after "position of" / "as a" ... (a known role name when it starts there)
   const roles = [...(ctx.roleNames || [])].filter(Boolean).sort((a, b) => b.length - a.length);
+  const roleAt = (s) => roles.find(r => s.toLowerCase().startsWith(r.toLowerCase()) && !/\w/.test(s[r.length] || ''));
+  // "as Accountant" on a separation (their title) or a promotion (the old one, unless found already)
+  if (sep || (promo && !out.some(b => b.token === 'old_title' && b.places.length))) pars.forEach(({ text }, pi) => {
+    for (const m of text.matchAll(AS_TITLE)) {
+      const role = roleAt(m[1]);
+      if (role || AFTER_TITLE.test(text.slice(m.index + m[0].length))) {
+        take(role || m[1], 'title', sep ? nexus('job_title', 'Job Title') : nexus('old_title', 'Old Title'), pi, m.index + m[0].length - m[1].length);
+      }
+    }
+  });
   pars.forEach(({ text }, pi) => {
     for (const m of text.matchAll(TITLE)) {
       const role = roles.find(r => m[1].toLowerCase().startsWith(r.toLowerCase()) && !/\w/.test(m[1][r.length] || ''));

@@ -271,4 +271,22 @@ describe('WordTemplateWizard - promotion and separation uploads', () => {
     expect(body.fieldDefs.map(f => [f.token, f.source]).sort()).toEqual([['final_pay_date', 'hr'], ['forwarding_address', 'person']]);
     expect(created).toMatchObject({ jdPlacement: '', signerKeys: ['employee'] });
   });
+
+  // e2e findings (Oct 23): a company line defaults from its words, and the person always has a line.
+  it('"Manager Signature" defaults to their manager on a promotion', async () => {
+    const done = await go('promotion', { type: 'doc', content: [p('Dear Jane Smith,'), p('Employee Signature:'), p('Manager Signature:')] });
+    expect(screen.getByRole('radio', { name: 'Their Manager' }).getAttribute('aria-checked')).toBe('true');
+    const { created } = await done();
+    expect(created.signerKeys).toEqual(['employee', 'manager']);
+  });
+
+  it('"HR Signature" defaults to HR, and with no employee line Nexus adds one and says so', async () => {
+    const done = await go('separation', { type: 'doc', content: [p('Dear Jane Smith,'), p('Your last day will be 11/15/2026.'), p('HR Signature:')] });
+    expect(screen.getByRole('radio', { name: 'HR' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByText('No signature line for the employee was found, so Nexus adds one at the end.')).toBeTruthy();
+    expect(screen.getByText('The employee, then HR.')).toBeTruthy();
+    const { body, created } = await done();
+    expect(created.signerKeys).toEqual(['employee', 'hr']);
+    expect(JSON.stringify(body.content.pages)).toContain('"role":"employee"');
+  });
 });

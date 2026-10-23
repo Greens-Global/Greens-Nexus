@@ -10,8 +10,8 @@ import { api } from '../api';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import { repairDocJson } from '../lib/docBuilderSchema';
 import { uploadToSupabase } from '../lib/docBuilderUpload';
-import { NEXUS_FIELDS, applyBlanks, findBlanks, findSection, findText, guessPay, guessPrivate, splitPages, tokensFor } from '../lib/wordBlanks';
-import { countersignFor, existingBlank, existingTokens, findSamples } from '../lib/wordSamples';
+import { NEXUS_FIELDS, applyBlanks, companySignerOf, findBlanks, findSection, findText, guessPay, guessPrivate, splitPages, tokensFor } from '../lib/wordBlanks';
+import { countersignFor, existingBlank, existingTokens, findSamples, personLineFor } from '../lib/wordSamples';
 import { Spinner } from './AsyncState';
 import UploadReview from './hiring/UploadReview';
 
@@ -143,7 +143,7 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
       const section = findSection(withVars);
       const found = findBlanks(withVars, { purpose })
         .filter(b => !(section && b.kind === 'line' && b.at[0] === section.at[0]))
-        .map(b => (b.kind === 'signature' && b.who === 'company' ? { ...b, who: 'signatory' } : b));
+        .map(b => (b.kind === 'signature' && b.who === 'company' ? { ...b, who: companySignerOf(b.label) } : b));
       const extra = tokens.length
         ? [...tokens.map(t => existingBlank(t, vars)), ...(tokens.includes('role_description') || (purpose === 'promotion' && tokens.includes('responsibilities')) || !section ? [] : [section])]
         : findSamples(withVars, context || {}, purpose);
@@ -171,7 +171,7 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
     setBusy('create'); setError('');
     try {
       const { doc: built, fieldDefs, signers } = applyBlanks(doc.json, blanks.map(b => (b.kind === 'section' ? { ...b, answer: jdChoice } : b)),
-        { countersign: countersignFor(purpose) });
+        { countersign: countersignFor(purpose), person: personLineFor(purpose) });
       // Company and Employee are always this template's signers - adding a
       // signature block later never means typing a new signer first. In
       // Hiring Setup the signers are the ones HR picked for each line.

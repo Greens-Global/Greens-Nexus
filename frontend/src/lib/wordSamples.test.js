@@ -307,3 +307,61 @@ describe('findSamples - round 2 review fixes', () => {
     expect(sep.some(b => b.label === 'Forwarding Address')).toBe(false);
   });
 });
+
+// End-to-end test findings (Oct 23): the sample promotion and separation letters HR uploaded.
+describe('findSamples - the e2e sample letters', () => {
+  const h = (text, level = 1) => ({ type: 'heading', attrs: { level }, content: [t(text)] });
+  const E2E = { companyLegal: 'Greens Global LLC', companyName: 'Greens Global', roleNames: ['Accountant', 'Senior Accountant'] };
+  const textOf = (n) => (n.content || []).map(r => (r.type === 'text' ? r.text : `{{${r.attrs.token}}}`)).join('');
+  const PROMO = { type: 'doc', content: [h('Promotion Letter'), p('October 23, 2026'), p('Dear Jane Smith,'),
+    p('We are pleased to confirm your promotion from Accountant to Senior Accountant at Greens Global, LLC, effective 11/01/2026.'),
+    p('Your new salary will be $95,000 per year. You will continue to report to Kim Lee.'), h('Responsibilities', 2),
+    p('Lead the monthly close, review journal entries prepared by the team, and own the audit schedules.'),
+    p('Please sign below to accept.'), p('Employee: ______________________   Date: __________'), p('By: ______________________ (Manager)   Date: __________')] };
+  const SEP = { type: 'doc', content: [h('Separation Letter'), p('October 23, 2026'), p('Dear Jane Smith,'),
+    p('This letter confirms that your employment with Greens Global, LLC as Accountant ends on 11/15/2026 (Resignation).'),
+    p('Your final paycheck will be issued on 11/15/2026 and mailed to the forwarding address below.'),
+    p('Forwarding Address: ______________________________'),
+    p('Please return all company property by your last day.'), p('Employee: ______________________   Date: __________'), p('By: ______________________ (HR)   Date: __________')] };
+  const build = (doc, purpose) => {
+    const found = [...findBlanks(doc, { purpose }), ...findSamples(doc, E2E, purpose).map((b, n) => ({ ...b, id: `s${n}`, ...(b.kind === 'section' ? { answer: 'inside' } : {}) }))];
+    return { found, out: applyBlanks(doc, found, { person: true, countersign: purpose === 'promotion' ? 'manager' : '' }) };
+  };
+
+  it('a promotion: the company keeps its ", LLC", the manager is Nexus\'s, and the closing line stays', () => {
+    const { found, out } = build(PROMO, 'promotion');
+    expect(byToken(found, 'company_legal')).toMatchObject({ match: 'Greens Global, LLC' });
+    expect(byToken(found, 'manager')).toMatchObject({ match: 'Kim Lee', who: 'nexus' });
+    expect(found.filter(b => b.kind === 'signature').map(b => [b.label, b.who])).toEqual([['Employee', 'employee'], ['Manager', 'company']]);
+    const lines = out.doc.content.map(textOf);
+    expect(lines[3]).toBe('We are pleased to confirm your promotion from {{old_title}} to {{new_title}} at {{company_legal}}, effective {{effective_date}}.');
+    expect(lines[4]).toBe('Your new salary will be {{salary}}. You will continue to report to {{manager}}.');
+    expect(lines).toContain('Please sign below to accept.');
+    expect(out.doc.content.filter(n => n.type === 'signatureBlock')).toHaveLength(2);
+  });
+
+  it('"Supervisor: Kim Lee" and "Reports To: Kim Lee" are the manager too', () => {
+    for (const line of ['Supervisor: Kim Lee', 'Manager: Kim Lee', 'Reports To: Kim Lee', 'She reports directly to Kim Lee.']) {
+      expect(byToken(findSamples({ type: 'doc', content: [p(line)] }, E2E, 'promotion'), 'manager')).toMatchObject({ match: 'Kim Lee' });
+    }
+  });
+
+  it('a separation: the last day and the final pay date are two variables, the title and the exit type are Nexus\'s', () => {
+    const { found, out } = build(SEP, 'separation');
+    expect(byToken(found, 'last_day')).toMatchObject({ match: '11/15/2026' });
+    expect(byToken(found, 'last_day').places).toHaveLength(1);
+    expect(found.find(b => b.label === 'Final Pay Date')).toMatchObject({ match: '11/15/2026', fill: 'hr' });
+    expect(byToken(found, 'job_title')).toMatchObject({ match: 'Accountant' });
+    expect(byToken(found, 'separation_type')).toMatchObject({ match: 'Resignation' });
+    const lines = out.doc.content.map(textOf);
+    expect(lines[3]).toBe('This letter confirms that your employment with {{company_legal}} as {{job_title}} ends on {{last_day}} ({{separation_type}}).');
+    expect(lines[4]).toBe('Your final paycheck will be issued on {{final_pay_date}} and mailed to the forwarding address below.');
+    expect(found.some(b => /Ends Date/.test(b.label || ''))).toBe(false);
+  });
+
+  it('"due to retirement" is the exit type; "as Accountant" on a promotion is the old title; an unknown "as Friends" stays text', () => {
+    expect(byToken(findSamples({ type: 'doc', content: [p('Your employment ends due to retirement.')] }, E2E, 'separation'), 'separation_type')).toMatchObject({ match: 'retirement' });
+    expect(byToken(findSamples({ type: 'doc', content: [p('You served as Accountant with the team.')] }, E2E, 'promotion'), 'old_title')).toMatchObject({ match: 'Accountant' });
+    expect(findSamples({ type: 'doc', content: [p('We part as Friends.')] }, E2E, 'separation').some(b => b.token === 'job_title')).toBe(false);
+  });
+});

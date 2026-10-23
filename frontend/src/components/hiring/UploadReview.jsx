@@ -11,7 +11,7 @@
 // Offboarding, and a promotion letter is always countersigned.
 import { useMemo, useState } from 'react';
 import { NEXUS_FIELDS, applyBlanks, isEvent, isPersonal, nexusFieldsFor, tokensFor } from '../../lib/wordBlanks';
-import { HIRE_TOKENS, WHO_COLOR, becameOf, countersignFor, personOf, setWho, whoLabels, whoOf, youAnswer } from '../../lib/wordSamples';
+import { HIRE_TOKENS, WHO_COLOR, becameOf, countersignFor, personLineFor, personOf, setWho, whoLabels, whoOf, youAnswer } from '../../lib/wordSamples';
 import { formatDate } from '../../lib/datetime';
 
 const box = { background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' };
@@ -51,7 +51,7 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
     const byToken = {};
     withAnswer.forEach((b, i) => { if (tokens[i] && !byToken[tokens[i]]) byToken[tokens[i]] = b; });
     if (section && jdChoice === 'inside') byToken.role_description = byToken.role_description || section;
-    return { doc: applyBlanks(doc, withAnswer, { countersign: countersignFor(purpose) }).doc, byToken };
+    return { doc: applyBlanks(doc, withAnswer, { countersign: countersignFor(purpose), person: personLineFor(purpose) }).doc, byToken };
   }, [doc, blanks, jdChoice, section, purpose]);
 
   const sample = {
@@ -64,7 +64,10 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
     change_type: 'promotion', responsibilities: "[The new role's duties]", last_day: '11/15/2026', separation_type: 'Voluntary Resignation',
   };
   const company = sigs.filter(s => s.fill === 'sign' && s.who !== 'employee');
-  const signers = [...new Set([...sigs.filter(s => s.fill === 'sign').map(s => s.who), ...(countersignFor(purpose) && !company.length ? ['employee', countersignFor(purpose)] : [])])]
+  // no line of the person's: Nexus adds one at the end (applyBlanks), so Use This never stops on it
+  const addsPerson = personLineFor(purpose) && !sigs.some(s => s.fill === 'sign' && s.who === 'employee');
+  const signers = [...new Set([...sigs.filter(s => s.fill === 'sign').map(s => s.who), ...(addsPerson ? ['employee'] : []),
+    ...(countersignFor(purpose) && !company.length ? ['employee', countersignFor(purpose)] : [])])]
     .sort((a, b) => (b === 'employee') - (a === 'employee'));
   const asks = purpose === 'offer' ? [] : company.concat(sigs.filter(s => s.fill !== 'sign'));
   // An offer has no new hire form: The New Hire only for built-ins Nexus already holds (phone, address).
@@ -180,6 +183,9 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
                 : !signers.length ? 'No signature lines were found in this file.'
                   : `${signers.map(w => signerWords(w, context, purpose)).join(', then ').replace(/^./, c => c.toUpperCase())}.`}
             </div>
+            {addsPerson && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>No signature line for {personOf(purpose).toLowerCase()} was found, so Nexus adds one at the end.</div>
+            )}
             {purpose === 'promotion' && (
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>A promotion letter is countersigned - pick who signs after the employee. With none, Nexus adds a line for Their Manager at the end.</div>
             )}

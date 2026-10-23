@@ -167,6 +167,14 @@ function boxChoices(t) {
 
 const SIGNATURE = /signature\s*:?[\s_]*(?:date\s*:?[\s_]*)?$/i;
 const BY_LINE = /^\s*by\s*:?\s*[_\s]*$/i;
+// "Employee: ______   Date: ____" / "By: ______ (Manager)   Date: ____": a party word over a line is a
+// signature when it says By, Authorized Signatory or has a Date beside it - a lone "Employee: ____" stays a blank.
+const PARTY = /^(employee|contractor|consultant|candidate|employer|company|manager|supervisor|hr|human resources|by|accepted by|agreed by|acknowledged by|authori[sz]ed signatory)\s*:?\s*_{3,}\s*(?:\(([^)]{1,40})\))?\s*(date\s*:?\s*_*)?$/i;
+const partyLine = (t) => { const m = clean(t).match(PARTY); return m && (/(?:\bby|signatory)$/i.test(m[1]) || m[3]) ? m : null; };
+/** A signature line: "... Signature:", "By: ____" or a party line. */
+export const isSignatureLine = (t) => (SIGNATURE.test(t) && t.length < 80) || BY_LINE.test(t) || !!partyLine(t);
+/** Hiring Setup: who signs a company line, from its words - their manager, HR, else the authorized signatory. */
+export const companySignerOf = (label) => (/manager|supervisor/i.test(label) ? 'manager' : /\bhr\b|human resources/i.test(label) ? 'hr' : 'signatory');
 const ABSORB = /^(date|name|printed name|signature date)\s*:?\s*[[\]\s_]*$/i;
 const LINE_LABEL = /^([^:]{2,80}?):\s*(?:\[[\s\u00a0]*\]|[_\s\u00a0]*)$/;
 const BRACKET = /\[[\s\u00a0]*\]/g;
@@ -176,17 +184,18 @@ const prevWords = (text, at, n = 6) => clean(text.slice(0, at)).split(' ').slice
 
 function whoSigns(label, blocks, i) {
   const l = clean(label).toLowerCase();
-  if (/company|employer|representative|authori[sz]ed|director|manager|hr\b/.test(l)) return 'company';
+  if (/company|employer|representative|authori[sz]ed|director|manager|supervisor|hr\b|human resources/.test(l)) return 'company';
   if (/contractor|employee|candidate|consultant|intern|associate/.test(l)) return 'employee';
   // "COMPANY" / "CONTRACTOR:" a few lines above decides
   for (let j = i - 1, seen = 0; j >= 0 && seen < 5; j--) {
     const t = clean(textOf(blocks[j])).toLowerCase();
     if (!t) continue;
+    if (isSignatureLine(t)) break;               // someone else's signature line: a bare "By:" under it is the company's
     seen += 1;
     if (/^(company|employer)\b/.test(t) || /^by\s*:?$/.test(t)) return 'company';
     if (/^(contractor|employee|candidate)\b/.test(t)) return 'employee';
   }
-  return BY_LINE.test(label) ? 'company' : 'employee';
+  return /^\s*by\b/i.test(label) ? 'company' : 'employee';    // "By: ____" (with a Date or not)
 }
 
 /** Every blank and signature line in an imported document, in order, each
@@ -232,8 +241,9 @@ export function findBlanks(doc, opts = {}) {
     const text = textOf(b);
     const t = clean(text);
     if (!t) continue;
-    if ((SIGNATURE.test(t) && t.length < 80) || BY_LINE.test(t)) {
-      const caption = cleanLabel(t.split(/signature/i)[0]).replace(/^by$/i, '');
+    if (isSignatureLine(t)) {
+      const party = partyLine(t);
+      const caption = cleanLabel(party ? party[2] || party[1] : t.split(/signature/i)[0]).replace(/^by$/i, '');
       if (PAPER.test(caption.toLowerCase())) {          // a witness / notary line - filled on paper
         out.push({ kind: 'line', at: [i], label: cleanLabel(t), context: t, fill: 'leave' });
         continue;
@@ -351,7 +361,8 @@ export function tokensFor(blanks) {
 
 /** The template content after HR's choices: {doc, fieldDefs, signers}.
  *  `opts.countersign` (a promotion letter: 'manager') adds a signature line
- *  for that role at the end when no company signer was chosen. */
+ *  for that role at the end when no company signer was chosen; `opts.person`
+ *  adds the person's own line at the end when no line is theirs. */
 export function applyBlanks(doc, blanks, opts = {}) {
   const out = JSON.parse(JSON.stringify(doc));
   const blocks = out.content || [];
@@ -446,6 +457,11 @@ export function applyBlanks(doc, blanks, opts = {}) {
     });
   });
   out.content = blocks.filter((_, i) => !remove.has(i));
+  // The person always signs (hpd config_problems): with no line of theirs, one goes at the end.
+  if (opts.person && !signers.has('employee')) {
+    out.content.push({ type: 'signatureBlock', attrs: { role: 'employee', label: '', withName: true, withDate: true } });
+    signers.add('employee');
+  }
   if (opts.countersign && ![...signers].some(k => k !== 'employee')) {
     out.content.push({ type: 'signatureBlock', attrs: { role: opts.countersign, label: '', withName: true, withDate: true } });
     signers.add(opts.countersign);
@@ -495,6 +511,8 @@ export function findText(doc, query) {
 // responsibilities, job description or scope of work, through the block
 // before the next heading. {kind:'section', at:[start, end], label} or null.
 const DUTIES = /duties|responsibilit|job description|scope of work/i;
+// "Please sign below to accept." / "Sincerely," / "If you have questions..." closes the letter - never the duties
+const CLOSING = /^(?:please|kindly|sincerely|regards|best regards|kind regards|warm regards|congratulat|welcome|if you have|questions|contact|feel free|do not hesitate|by signing)|\bsign (?:below|and return|this)\b|\bto accept\b/i;
 const NUMBERED = /^(\d+(\.\d+)*[.)]?|[IVX]+\.|[A-Z][.)])\s+\S/;
 const allBold = (b) => {
   const runs = (b.content || []).filter(r => r.type === 'text' && r.text?.trim());
@@ -515,7 +533,7 @@ export function findSection(doc) {
     for (let j = i + 1; j < blocks.length; j++) {
       const b = blocks[j];
       const bt = clean(textOf(b));
-      if (b.type === 'pageBreak' || headingLike(b) || SIGNATURE.test(bt) || BY_LINE.test(bt)) break;
+      if (b.type === 'pageBreak' || headingLike(b) || isSignatureLine(bt) || CLOSING.test(bt)) break;
       end = j;
     }
     while (end > i && !clean(textOf(blocks[end]))) end -= 1;   // trailing empty lines stay
