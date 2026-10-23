@@ -72,8 +72,18 @@ export function diffPartner(before, after) {
   return out;
 }
 
-export default function PartnersTab({ canApprove = false }) {
-  const [kind, setKind] = useState('vendor');
+// Oct 22 (Neil): Records > Vendors / Customers open this screen on that list (`initialKind`).
+export default function PartnersTab({ canApprove = false, initialKind = 'vendor' }) {
+  const startKind = KINDS.some((k) => k.key === initialKind) ? initialKind : 'vendor';
+  const [kind, setKind] = useState(startKind);
+  // Picked again from the Records menu while open: that list.
+  const shownKind = useRef(startKind);
+  useEffect(() => {
+    if (shownKind.current === startKind) return;
+    shownKind.current = startKind;
+    setKind(startKind);
+    setEditing(null);
+  }, [startKind]);
   const [section, setSection] = useState('records');
   const [q, setQ] = useState('');
   const [records, setRecords] = useState(null);

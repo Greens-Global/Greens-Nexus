@@ -8,6 +8,7 @@ import { useNameResolver } from '../../lib/useNameResolver';
 import { control } from './reportControls';
 import { bookLabel, downloadBlob, entityText, periodText, reportDef, resolveConfig, runReport, withAdjustments } from './reportModel';
 import { SkeletonBlocks as Blocks } from '../AsyncState';
+import { isBuilderConfig } from './builderModel';
 
 // Accounting -> Packages (Neil, Sep 25). A lender asks for the same set of
 // statements every quarter, for every property with a loan. A package is that
@@ -42,7 +43,8 @@ export default function PackagesTab() {
   const [adjusting, setAdjusting] = useState(null);   // index of the statement whose adjustments are open
 
   const load = useCallback(() => Promise.all([api.getAccountingPackages(), api.getAccountingSavedReports()])
-    .then(([p, r]) => { setPackages(p || []); setReports(r || []); setError(''); return p || []; })
+    // A package is built from statements; Report Builder reports stay out of it (Oct 23).
+    .then(([p, r]) => { setPackages(p || []); setReports((r || []).filter((x) => !isBuilderConfig(x.config))); setError(''); return p || []; })
     .catch((e) => { setPackages((cur) => cur || []); setError(e?.message || 'Could not load the packages.'); return []; }), []);
   useEffect(() => {
     load().then((p) => setDraft((d) => d || (p[0] ? { ...p[0] } : null)));

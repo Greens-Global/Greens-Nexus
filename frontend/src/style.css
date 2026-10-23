@@ -2768,6 +2768,16 @@ html { overflow-x: hidden; }
 /* The statement takes the same banding and whole-row hover. */
 .acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td { background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%); }
 .acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td { background: var(--wk-brand-tint, #e8ecfd); }
+/* MRE (Viral, Charmi 10/22): the headings and their filter boxes are one
+   sticky block, so no row shows between them, and the pinned Vendor cell is
+   solid - the hover and banding tints are see-through, so they paint over the
+   card color instead of over the months scrolling under it. */
+.acct-report.mre-grid thead { position: sticky; top: 0; z-index: 3; }
+.acct-report.mre-grid thead th, .acct-report.mre-grid .acct-filter-row td { top: auto; }
+.acct-report.mre-grid tbody tr td.acct-label { background: var(--bg-card); }
+.acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td.acct-label { background: linear-gradient(color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%), color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%)), var(--bg-card); }
+.acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label,
+.acct-report.mre-grid tbody tr.acct-grand td.acct-label { background: linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card); }
 
 /* Phone: wide data tables (.req-table - PropertyAsset sections, requisition
    logs) scroll sideways inside their card instead of being cut off. */
@@ -4115,6 +4125,17 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .hdr-tab svg { display: none; }
 }
 @media (max-width: 900px) { .hdr-search { display: none; } }
+/* Accounting's bar (compactGroups, Oct 23): five dropdown tabs must fit the
+   header center with the sidebar open - 498px at 1366 wide, 572px at 1440.
+   The labels are 275px together at 14.5px, so each tab gets 36px around its
+   label (9px padding a side, 2px border, 4px gap, 12px caret): 463px with the
+   gaps. The icons come back from 1600px wide, where the center has ~730px for
+   the 563px they make. Other modules' tabs are untouched. */
+.hdr-tabs--compact .hdr-tab { padding: 9px 9px; gap: 4px; }
+.hdr-tabs--compact .hdr-tab .tab-group-caret { width: 12px; height: 12px; }
+@media (max-width: 1599px) {
+  .hdr-tabs--compact .hdr-tab svg:not(.tab-group-caret) { display: none; }
+}
 
 /* In-page fallback strip: phones only - the header center is hidden ≤900px,
    so <ModuleTabs> renders the classic swipeable strip in the page body. */

@@ -295,10 +295,10 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
 
       <div className={`header-center${headerTabs ? ' has-tabs' : ''}`}>
         {headerTabs && (
-          <nav className="hdr-tabs" aria-label="Module sections" data-tour="module-tabs">
+          <nav className={`hdr-tabs${headerTabs.compactGroups ? ' hdr-tabs--compact' : ''}`} aria-label="Module sections" data-tour="module-tabs">
             <TabInk key={headerTabs.tabs.map((t) => t.key).join('|')} active={headerTabs.active} />
-            {headerTabs.tabs.map(({ key, label, Icon, badge, items }) => (items ? (
-              <TabGroupButton key={key} tab={{ key, label, Icon, items }} active={headerTabs.active} className="hdr-tab"
+            {headerTabs.tabs.map(({ key, label, Icon, badge, items, landing }) => (items ? (
+              <TabGroupButton key={key} tab={{ key, label, Icon, items, landing }} active={headerTabs.active} className="hdr-tab" compact={!!headerTabs.compactGroups}
                 onSelect={(k) => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(k); }} />
             ) : (
               <button key={key}

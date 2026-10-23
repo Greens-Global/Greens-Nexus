@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 
-// Oct 15 (Charmi + Neil): Reporting > Profitability for everyone with
-// Accounting (a limited person too - it is per entity), and Reporting >
-// Employee Compensation only at the Full level and never for a person
-// limited to certain entities.
+// Oct 15 (Charmi + Neil): Profitability for everyone with Accounting (a
+// limited person too - it is per entity), and Employee Compensation only at
+// the Full level and never for a person limited to certain entities.
+// Oct 22: they sit under Reports > Audit & Insights and Reports > Payroll &
+// People, and Employee Compensation is now just "Compensation".
 
 const role = vi.hoisted(() => ({ full: true, limited: false }));
 vi.mock('../api', () => ({
@@ -41,14 +42,16 @@ function Harness({ start }) {
 
 beforeEach(() => { role.full = true; role.limited = false; resetAccountingPrefs(); });
 
-describe('Reporting > Profitability and Employee Compensation', () => {
-  it('opens both from the Reporting menu at the Full level', async () => {
+describe('Reports > Profitability and Compensation', () => {
+  it('opens both from the Reports menu at the Full level', async () => {
     render(<Harness start="overview" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Reporting/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Reports/ }));
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Audit & Insights' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Profitability' }));
     expect(await screen.findByTestId('tab-profitability')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Reporting/ }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Employee Compensation' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Payroll & People' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Compensation' }));
     expect(await screen.findByTestId('tab-compensation')).toBeTruthy();
   });
 
@@ -56,9 +59,12 @@ describe('Reporting > Profitability and Employee Compensation', () => {
     role.full = false;
     render(<Harness start="compensation" />);
     await waitFor(() => expect(screen.getByTestId('sub').textContent).not.toBe('compensation'));
-    fireEvent.click(screen.getByRole('button', { name: /Reporting/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
+    // Compensation was the only Payroll & People item, so the group is gone.
+    expect(screen.queryByRole('menuitem', { name: 'Payroll & People' })).toBeNull();
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Audit & Insights' }));
     expect(screen.getByRole('menuitem', { name: 'Profitability' })).toBeTruthy();
-    expect(screen.queryByRole('menuitem', { name: 'Employee Compensation' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Compensation' })).toBeNull();
     expect(screen.queryByTestId('tab-compensation')).toBeNull();
   });
 
@@ -66,7 +72,8 @@ describe('Reporting > Profitability and Employee Compensation', () => {
     role.limited = true;
     render(<Harness start="profitability" />);
     expect(await screen.findByTestId('tab-profitability')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Reporting/ }));
-    expect(screen.queryByRole('menuitem', { name: 'Employee Compensation' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
+    expect(screen.queryByRole('menuitem', { name: 'Payroll & People' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Compensation' })).toBeNull();
   });
 });

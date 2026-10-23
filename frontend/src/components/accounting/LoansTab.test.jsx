@@ -580,7 +580,7 @@ describe('LoansTab shared controls', () => {
       render(<LoansTab canEdit />);
       await rowOf('F&M Bank');
       fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind the balance of F&M Bank' }));
-      expect(seen[0]).toEqual(['nav', { view: 'accounting', sub: 'reports' }]);
+      expect(seen[0]).toEqual(['nav', { view: 'accounting', sub: 'rpt-pnl' }]);
       expect(seen[1][1]).toMatchObject({ account: '27100', entity: '15000', from: '' });
       fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind the principal paid on F&M Bank' }));
       expect(seen[3][1]).toMatchObject({ account: '27100', entity: '15000', from: expect.stringMatching(/^\d{4}-\d{2}-01$/) });

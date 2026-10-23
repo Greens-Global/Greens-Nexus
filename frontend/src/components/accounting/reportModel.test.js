@@ -39,7 +39,8 @@ describe('periods', () => {
     expect(r('this-year')).toEqual(['2026-01-01', '2026-12-31']);
     expect(r('ytd')).toEqual(['2026-01-01', '2026-09-28']);
     expect(r('last-year')).toEqual(['2025-01-01', '2025-12-31']);
-    expect(r('t12m')).toEqual(['2025-09-29', '2026-09-28']);
+    // CR-06 (Neil, 23 Oct): the last 12 FULL months, the month in progress left out.
+    expect(r('t12m')).toEqual(['2025-09-01', '2026-08-31']);
   });
 
   it('steps a month, a quarter or a year at a time', () => {
@@ -141,7 +142,8 @@ describe('what is asked of the ledger', () => {
   it('adds the cash closing balance to a trial balance when both books are asked for', async () => {
     const row = (closing) => ({ account_no: '10100', title: 'Operating', type: 'cash_bank', opening: 1, debit: 2, credit: 3, closing });
     const api = fakeApi({ tb: ({ book }) => ({ rows: [row(book === 'cash' ? 9 : 0)], totals: { opening: 1, debit: 2, credit: 3, closing: book === 'cash' ? 9 : 0 } }) });
-    const r = await runReport(api, resolveConfig({ ...defaultConfig(NOW), report: 'trial-balance', book: 'both' }, NOW));
+    // The range trial balance (memorized before 10/22); as of a date is trialBalanceAsOf.test.js.
+    const r = await runReport(api, resolveConfig({ ...defaultConfig(NOW), report: 'trial-balance', tbPeriod: 'range', book: 'both' }, NOW));
     expect(r.columns.map((c) => c.label)).toEqual(['Opening', 'Debit', 'Credit', 'Closing (Accrual)', 'Closing (Cash)']);
     expect(r.rows[0].values).toEqual([1, 2, 3, 0, 9]);
   });
