@@ -48,7 +48,13 @@ vi.mock('../components/shifts/ShiftSettingsSections', () => ({
   ShiftGroupsPanel: () => <div>Groups panel</div>,
   TimeOffReasons: () => <div>Time-off reasons panel</div>,
 }));
-vi.mock('../components/shifts/WeatherSettings', () => ({ default: ({ company }) => <div>Weather panel{company ? ` ${company}` : ''}</div> }));
+// The weather panel can stand in for any form with unsaved changes: it
+// reports `dirtyState.weather` through the shared hook (lib/groupDirty.js).
+const dirtyState = { weather: false };
+vi.mock('../components/shifts/WeatherSettings', async () => {
+  const { useGroupDirty } = await import('../lib/groupDirty');
+  return { default: ({ company }) => { useGroupDirty(dirtyState.weather); return <div>Weather panel{company ? ` ${company}` : ''}</div>; } };
+});
 vi.mock('../components/PayrollExportCodes', () => ({ default: ({ company }) => <div>Export codes panel{company ? ` ${company}` : ''}</div> }));
 vi.mock('../components/PayPremiums', () => ({ default: ({ company }) => <div>Premiums panel{company ? ` ${company}` : ''}</div> }));
 vi.mock('../components/DailyBriefingSettings', () => ({ default: () => <div>Briefing panel</div> }));
@@ -74,7 +80,7 @@ vi.mock('./SettingsPanels', () => ({
 
 const AdminConsole = (await import('./AdminConsole')).default;
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); roleState.admin = true; });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); roleState.admin = true; dirtyState.weather = false; });
 
 const rail = () => screen.getByRole('navigation', { name: 'Settings subjects' });
 // Lazy panels on a slow machine: give a find a little longer than the default second.
@@ -169,6 +175,31 @@ describe('AdminConsole', () => {
     }
     // Falls back to the first subject it can show.
     expect(screen.getByRole('heading', { name: 'Companies' })).toBeInTheDocument();
+  });
+
+  it('asks before leaving a group with unsaved changes - another subject, scope or top tab (one save pattern, Oct 23)', async () => {
+    const { hasUnsavedWork } = await import('../lib/dialogGuard');
+    dirtyState.weather = true;
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
+    expect(await find('Weather panel')).toBeInTheDocument();
+    expect(hasUnsavedWork()).toBe(true);   // the sidebar and the browser tab ask too
+    fireEvent.click(within(rail()).getByRole('button', { name: 'Companies' }));
+    expect(onSubChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Editing' }));
+    expect(onSubChange).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Scope'), { target: { value: 'c1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
+    expect(onSubChange).toHaveBeenCalledWith('shifts@c1');
+    cleanup();
+    render(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
+    expect(await find('Weather panel')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Tools$/ }));
+    expect(onSubChange).not.toHaveBeenCalledWith('tools');
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
+    expect(onSubChange).toHaveBeenCalledWith('tools');
+    cleanup();
+    expect(hasUnsavedWork()).toBe(false);   // unmounted: nothing left to guard
   });
 
   it('has Shifts & Scheduling with the settings, shift types, groups and weather, all open (Charmi, 09/30)', async () => {

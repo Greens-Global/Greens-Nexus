@@ -34,7 +34,7 @@ import { BFF_MODE } from "./bffAuth";
 import LoginPage from "./views/LoginPage";
 import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
-import { hasDirtyDialog, confirmDiscard } from "./lib/dialogGuard";
+import { hasUnsavedWork, confirmDiscard } from "./lib/dialogGuard";
 
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
@@ -679,9 +679,10 @@ function MainApp() {
   }, [sidebarPinned]);
 
   function navigate(view, sub = null) {
-    // A popup with unsaved work is open: ask before leaving (Neil, Sep 22 -
-    // see lib/dialogGuard.js). The move goes ahead only on Discard.
-    if (hasDirtyDialog()) {
+    // A popup, or a Settings form, with unsaved work is open: ask before
+    // leaving (Neil, Sep 22 - see lib/dialogGuard.js). The move goes ahead
+    // only on Discard.
+    if (hasUnsavedWork()) {
       confirmDiscard().then(ok => { if (ok) applyNavigate(view, sub); });
       return;
     }

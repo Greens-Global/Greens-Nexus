@@ -153,6 +153,16 @@ keep the diff minimal.
   half.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
+- **Settings saves one way (Oct 23 2026):** a switch, a select, a chip list
+  or a reorder saves on change, with a toast; a form with typed fields keeps
+  a draft beside the saved value (`lib/useDraft.js`) and has ONE Save row at
+  the group's foot (`components/SaveRow.jsx`: Save disabled until something
+  changed, Discard Changes beside it, "Use the Default" on the left for a
+  company's own copy of a layered setting) - never a Save per card or per
+  field, never a save on blur. Every form says `useGroupDirty(dirty)`
+  (`lib/groupDirty.js`), so the Settings shell asks before the subject, the
+  scope, the top tab, the module or the browser tab changes; the hook is a
+  no-op wherever else the panel renders.
 
 ## Domain rules
 

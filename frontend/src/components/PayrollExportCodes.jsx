@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useGroupDirty } from '../lib/groupDirty';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner } from './AsyncState';
 
@@ -77,6 +78,7 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
   const anyCustom = (data?.classes || []).some((c) => c.custom) || !!data?.quickbooksCompanyName;
   const dirty = (data?.classes || []).some((c) => (draft[c.key] || '').trim() !== (c.custom ? c.code : ''))
     || qbDraft.trim() !== (data?.quickbooksCompanyName || '');
+  useGroupDirty(dirty);
 
   return (
     <div data-testid="payroll-export-codes" style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: '14px 16px', marginBottom: 12 }}>

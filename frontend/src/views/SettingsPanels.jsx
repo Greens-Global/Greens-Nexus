@@ -6,6 +6,7 @@
 // Workforce Analytics dashboard rates from). Everything else Settings shows
 // is the component its module owns, borrowed by AdminConsole.jsx.
 import { useCallback, useEffect, useState } from 'react';
+import { useGroupDirty } from '../lib/groupDirty';
 import { Check } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -38,6 +39,7 @@ export function TicketPropertyRulesPanel({ toastOk, toastErr }) {
   const toggle = (key) => setAreas((a) => (a.includes(key) ? a.filter((k) => k !== key) : [...a, key]));
   const dirty = !!rules && (JSON.stringify([...areas].sort()) !== JSON.stringify([...(rules.requiredServiceAreas || [])].sort())
     || topics.split(',').map((t) => t.trim()).filter(Boolean).join(', ') !== (rules.requiredTopics || []).join(', '));
+  useGroupDirty(dirty);
 
   async function save() {
     setBusy(true);
