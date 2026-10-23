@@ -293,6 +293,16 @@ def scan(db: Session, now_utc: datetime | None = None) -> dict:
 def _tick() -> dict:
     db = SessionLocal()
     try:
+        # Reviews nobody can decide any more leave the reviewer's list (Oct 22).
+        import timesheet_review as tr
+        retired = tr.retire_stale(db)
+        db.commit()
+        if retired:
+            print(f"[period-close] retired {retired} stale time sheet review(s)")
+    except Exception as e:   # noqa: BLE001 - the notices below still run
+        db.rollback()
+        print(f"[period-close] stale review sweep failed: {e}")
+    try:
         return scan(db)
     except Exception as e:   # noqa: BLE001 - a bad row must not kill the loop
         db.rollback()
