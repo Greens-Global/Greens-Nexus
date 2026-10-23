@@ -95,7 +95,12 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
       const r = (o.roles || []).find(x => x.id === c.roleId);
       if (r?.defaultManagerEmail) setF(p => (p.manager_email ? p : { ...p, manager_email: r.defaultManagerEmail }));
     }).catch(() => {});
-    api.getDocTemplates({ category: 'job_description', status: 'active' }).then(r => setJds(r || [])).catch(() => setJds([]));
+    // One Job Description document serves every role (Oct 22): picked for HR when it is the only one.
+    api.getDocTemplates({ category: 'job_description', status: 'active' }).then(r => {
+      const list = Array.isArray(r) ? r : [];
+      setJds(list);
+      if (list.length === 1) setJdId(id => id || list[0].id);
+    }).catch(() => setJds([]));
   }, [c.company, c.roleId]);
 
   const isOther = f.role_id === OTHER_ROLE;
@@ -221,7 +226,12 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
             <>
               <div><CheckCircle size={14} style={{ verticalAlign: 'middle', color: 'hsl(var(--color-green))', marginRight: 6 }} /><b>Offer letter:</b> {letter.name}</div>
               <div style={{ marginTop: 4 }}>
-                {packet ? <><b>Then:</b> {packet.name}, sent to {first} by itself once they sign the offer.</>
+                {packet ? <>
+                  <b>Then:</b> {packet.name}, sent to {first} by itself once they sign the offer.
+                  {(packet.documents || []).length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>It holds: {packet.documents.join(', ')}{jdId ? ', and the job description' : ''}.</div>
+                  )}
+                </>
                   : <span style={{ color: 'hsl(var(--color-orange))' }}>No hiring packet is set up for this hire yet - they are still hired when they sign; the packet can be started from their card later.</span>}
               </div>
               {(letter.problems || []).map(p => <Warn key={p}>{p}</Warn>)}
