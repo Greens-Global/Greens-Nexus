@@ -266,7 +266,13 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // 13828 KB. My Day and Manage > Labels already load with their tab (their
 // own chunks); this sums every shipped file regardless. App code only, no
 // new dependency. Deliberate (Neil).
-const TOTAL_KB     = 14250;
+// Oct 23 2026: 14250 -> 14600. dev already read 14241 KB on CI after the
+// dashboard count (#776) and Keep Private (#778); the Tasks Home pass (four
+// tiles, a grouped Tasks card, Projects at Risk, Team Workload, a My Day card,
+// one widget header) adds about 12 KB (14049 KB on a clean local build). App
+// code only, no new dependency. Deliberate (Neil, who approved the plan
+// knowing the cap would move).
+const TOTAL_KB     = 14600;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

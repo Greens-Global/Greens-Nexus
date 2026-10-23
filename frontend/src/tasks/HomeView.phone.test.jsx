@@ -80,10 +80,10 @@ describe('Tasks Home on a phone', () => {
   it('drops the summary tiles and keeps the range picker in the Tasks card', async () => {
     render(<HomeView onNavigate={() => {}} />);
     await flush();
-    expect(screen.queryByTitle('Open my tasks')).toBeNull();          // the Priority tile
+    expect(screen.queryByTitle('Show overdue tasks')).toBeNull();     // the Overdue tile
     expect(screen.queryByText('Priority')).toBeNull();
     const picker = screen.getByText('This Week');
-    expect(picker.closest('div').parentElement.textContent).toContain('Tasks');
+    expect(picker.closest('[data-home-tasks]')).toBeTruthy();          // in the Tasks card
     fireEvent.click(picker);
     // "Today" is also a day label elsewhere on the screen - take the menu's button.
     const todayButtons = () => screen.getAllByText('Today').filter((el) => el.tagName === 'BUTTON');
@@ -98,7 +98,7 @@ describe('Tasks Home on a phone', () => {
     mobile = false;
     render(<HomeView onNavigate={() => {}} />);
     await flush();
-    expect(screen.getByTitle('Open my tasks')).toBeTruthy();
+    expect(screen.getByTitle('Show overdue tasks')).toBeTruthy();
   });
 });
 
