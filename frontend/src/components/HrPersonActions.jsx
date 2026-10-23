@@ -61,9 +61,11 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, onClose, onPro
       onChanged(await api.changeRoleNow(e.id || e.workEmail, { role_id: roleId, reason }));
     } catch (err) { toastErr(err?.message || 'Could not change the role.'); setBusy(false); }
   }
-  const choice = (on, Icon, color, title, sub, onClick) => (
-    <button type="button" onClick={onClick}
-      style={{ display: 'flex', gap: 12, alignItems: 'flex-start', width: '100%', textAlign: 'left', padding: '12px 14px', marginTop: 10, borderRadius: 12, cursor: 'pointer', fontFamily: 'Inter,sans-serif', color: 'var(--ink)',
+  // The role is their Nexus access: no work email, no role (the API's 409, said up front).
+  const noEmail = !e.workEmail;
+  const choice = (on, Icon, color, title, sub, onClick, off = false) => (
+    <button type="button" onClick={onClick} disabled={off}
+      style={{ display: 'flex', gap: 12, alignItems: 'flex-start', width: '100%', textAlign: 'left', padding: '12px 14px', marginTop: 10, borderRadius: 12, cursor: off ? 'not-allowed' : 'pointer', opacity: off ? 0.55 : 1, fontFamily: 'Inter,sans-serif', color: 'var(--ink)',
         border: `1.5px solid ${on ? 'var(--pine)' : 'var(--line)'}`, background: on ? 'hsla(var(--color-green),0.06)' : 'var(--card)' }}>
       <Icon size={18} style={{ color, flexShrink: 0, marginTop: 1 }} />
       <div><div style={{ fontWeight: 700, fontSize: 13.5 }}>{title}</div>
@@ -82,7 +84,8 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, onClose, onPro
         </div>
         <div className="nx-fill" style={{ overflowY: 'auto', padding: '6px 22px 18px' }}>
           {onPromote && choice(plain, Shield, 'var(--pine)', 'Role Change Without Promotion',
-            'Their access and title follow the new role right away - no letter to sign.', () => setPlain(true))}
+            noEmail ? 'They need a work email first.' : 'Their access and title follow the new role right away - no letter to sign.',
+            () => setPlain(true), noEmail)}
           {onPromote && choice(false, TrendingUp, 'hsl(var(--color-green))', 'Promotion',
             'A promotion letter with the new responsibilities, pay and effective date, signed through Nexus Sign.', onPromote)}
           {plain && (

@@ -67,7 +67,7 @@ describe('PromoteModal', () => {
 describe('RoleChangeModal', () => {
   it('in People changes the role directly, the reason required', async () => {
     const onChanged = vi.fn();
-    render(<RoleChangeModal employee={erin} onClose={() => {}} onPromote={() => {}} onChanged={onChanged} toastErr={() => {}} />);
+    render(<RoleChangeModal employee={{ ...erin, workEmail: 'erin@x.com' }} onClose={() => {}} onPromote={() => {}} onChanged={onChanged} toastErr={() => {}} />);
     fireEvent.click(screen.getByText('Role Change Without Promotion'));
     await waitFor(() => expect(screen.getByText(/IT Dev Associate II - IT/)).toBeTruthy());
     fireEvent.change(screen.getByDisplayValue('- pick a role -'), { target: { value: 'jr-2' } });
@@ -77,6 +77,15 @@ describe('RoleChangeModal', () => {
     fireEvent.click(btn);
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
     expect(changeRoleNow).toHaveBeenCalledWith('e1', { role_id: 'jr-2', reason: 'Team move' });
+  });
+
+  it('with no work email the plain change is off up front, promotion still open', () => {
+    render(<RoleChangeModal employee={erin} onClose={() => {}} onPromote={() => {}} onChanged={() => {}} toastErr={() => {}} />);
+    expect(screen.getByText('They need a work email first.')).toBeTruthy();
+    expect(screen.getByText('Role Change Without Promotion').closest('button')).toBeDisabled();
+    fireEvent.click(screen.getByText('Role Change Without Promotion'));
+    expect(screen.queryByText('New Role *')).toBeNull();
+    expect(screen.getByText('Promotion').closest('button')).not.toBeDisabled();
   });
 
   it('from Settings changes it directly by work email and offers no promotion', async () => {
