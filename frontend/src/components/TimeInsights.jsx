@@ -157,7 +157,9 @@ function ItemRow({ name, seconds, pct, max, rating, isSite }) {
 // ── Rate apps & URLs ──────────────────────────────────────────────────────────
 // Managers tag apps/domains productive / neutral / unproductive; the ratings drive
 // the ring, the composition bar and the pills across the dashboard.
-function RatingsModal({ seed, onClose, onChanged }) {
+// The rated list (Settings > Workforce Analytics > App & Website Ratings since
+// Oct 23); the modal below wraps it for the Activity tab.
+export function RatingsList({ seed, onChanged }) {
   const [ratings, setRatings] = useState({});   // key -> rating
   const [items, setItems] = useState(seed);
   const [loading, setLoading] = useState(true);
@@ -204,6 +206,12 @@ function RatingsModal({ seed, onClose, onChanged }) {
     </div>
   );
 
+  if (loading) return <div style={{ padding: 24, textAlign: 'center' }}><Spinner size="inline" /></div>;
+  if (apps.length + sites.length === 0) return <div style={{ fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: 20 }}>No apps or websites tracked yet - they'll appear here once activity comes in.</div>;
+  return <><Group title="Applications" icon={Monitor} list={apps} /><Group title="Websites" icon={Globe} list={sites} /></>;
+}
+
+function RatingsModal({ seed, onClose, onChanged }) {
   return (
     <div onClick={e => e.target === e.currentTarget && onClose()}
       style={{ position: 'fixed', inset: 0, zIndex: 1500, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18, fontFamily: 'var(--wk-font)' }}>
@@ -212,15 +220,12 @@ function RatingsModal({ seed, onClose, onChanged }) {
           <span className="wkc-chip"><SlidersHorizontal size={14} /></span>
           <div style={{ flex: 1 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Rate apps &amp; websites</h3>
-            <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>Sets the productive / neutral / unproductive split across the dashboard.</p>
+            <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>Sets the productive / neutral / unproductive split across the dashboard. Also under Settings &gt; Workforce Analytics.</p>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '16px 22px', overflowY: 'auto' }}>
-          {loading ? <div style={{ padding: 24, textAlign: 'center' }}><Spinner size="inline" /></div>
-            : (apps.length + sites.length === 0)
-              ? <div style={{ fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: 20 }}>No apps or websites tracked yet - they'll appear here once activity comes in.</div>
-              : <><Group title="Applications" icon={Monitor} list={apps} /><Group title="Websites" icon={Globe} list={sites} /></>}
+          <RatingsList seed={seed} onChanged={onChanged} />
         </div>
       </div>
     </div>

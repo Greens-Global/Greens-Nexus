@@ -2655,6 +2655,9 @@ export const api = {
   },
   // Tickets <-> properties (Neil, Ops review 10/20) - routers/ticket_property.py.
   getTicketPropertyRules:   () => cachedGet('/ticket-property/rules', 300_000),
+  // Settings > Tickets > Property Rules (Oct 23): the editor reads fresh and saves.
+  getTicketPropertyRulesFresh: () => req('/ticket-property/rules'),
+  saveTicketPropertyRules:  (data) => req('/ticket-property/rules', { method: 'PUT', body: JSON.stringify(data) }),
   suggestTicketProperty:    (text) => req(`/ticket-property/suggest?text=${encodeURIComponent(String(text || '').slice(0, 1500))}`),
   getTicketPropertyUnits:   (id) => cachedGet(`/ticket-property/units/${encodeURIComponent(id)}`, 300_000),
   getPropertyLinkSuggestions: () => req('/ticket-property/link-suggestions'),

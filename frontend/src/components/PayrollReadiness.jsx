@@ -161,7 +161,11 @@ export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr }) 
   );
 }
 
-function ReadinessSettings({ onClose, onSaved, toastOk, toastErr }) {
+// The thresholds themselves (Settings > Time & Pay > Payroll Readiness since
+// Oct 23). `company` fixes the company - Settings' scope picker - and hides
+// the select; on its own it offers the default (to whoever may edit it) and
+// every company. The dialog below wraps it for the payroll screen.
+export function ReadinessThresholds({ company: scoped, onSaved, toastOk, toastErr }) {
   const [company, setCompany] = useState(null);       // null = not loaded yet
   const [meta, setMeta] = useState(null);
   const [vals, setVals] = useState({});
@@ -175,16 +179,17 @@ function ReadinessSettings({ onClose, onSaved, toastOk, toastErr }) {
       setMeta(m); setVals(m.settings || {}); setCompany(m.company || '');
     } catch (e) { setLoadErr(e?.message || 'Could not load the thresholds.'); }
   }, []);
-  // First open: the default when this person may edit it, else their first company.
+  // First load: the scoped company; else the default when this person may
+  // edit it, else their first company.
   useEffect(() => {
     let live = true;
-    api.payrollReadinessSettings('').then(m => {
+    api.payrollReadinessSettings(scoped || '').then(m => {
       if (!live) return;
-      if (!m.canEditDefault && (m.companies || []).length) { load(m.companies[0].id); return; }
-      setMeta(m); setVals(m.settings || {}); setCompany('');
+      if (!scoped && !m.canEditDefault && (m.companies || []).length) { load(m.companies[0].id); return; }
+      setMeta(m); setVals(m.settings || {}); setCompany(scoped || m.company || '');
     }).catch(e => { if (live) setLoadErr(e?.message || 'Could not load the thresholds.'); });
     return () => { live = false; };
-  }, [load]);
+  }, [load, scoped]);
 
   async function save(reset = false) {
     setBusy(true);
@@ -199,51 +204,62 @@ function ReadinessSettings({ onClose, onSaved, toastOk, toastErr }) {
   }
 
   const canEdit = !!meta?.canEdit;
-  const footer = (
-    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-      {company && meta?.override && canEdit && (
-        <button type="button" className="secondary-btn" disabled={busy} onClick={() => save(true)}>Use the Default</button>
+  if (loadErr) return <ErrorBanner message={loadErr} onRetry={() => load(company || '')} />;
+  if (!meta) return <div style={{ padding: 24, textAlign: 'center' }}><Spinner size="section" /></div>;
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+        A change is flagged when it is over the percent OR the hours. Each company can keep its own; a company with none uses the default.
+      </p>
+      {!scoped && (meta.companies || []).length > 0 && (
+        <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
+          Company
+          <select className="form-input" value={company ?? ''} aria-label="Company" onChange={e => load(e.target.value)} style={{ fontSize: 13 }}>
+            {meta.canEditDefault && <option value="">All Companies (Default)</option>}
+            {meta.companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          {company && <span style={{ fontWeight: 400 }}>{meta.override ? 'This company has its own thresholds.' : 'This company uses the default.'}</span>}
+        </label>
       )}
-      <button type="button" className="secondary-btn" onClick={onClose}>{canEdit ? 'Cancel' : 'Close'}</button>
-      {canEdit && <button type="button" className="primary-btn" disabled={busy} onClick={() => save(false)}>{busy ? 'Saving…' : 'Save'}</button>}
+      {scoped && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{meta.override ? 'This company has its own thresholds.' : 'This company uses the default.'}</span>}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+        {SETTING_FIELDS.map(([k, label, hint]) => {
+          const [lo, hi] = meta.limits?.[k] || [1, 500];
+          return (
+            <label key={k} style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
+              {label}
+              <input className="form-input" type="number" min={lo} max={hi} step={1} aria-label={label} disabled={!canEdit || busy}
+                value={vals[k] ?? ''} onChange={e => setVals(v => ({ ...v, [k]: e.target.value === '' ? '' : Number(e.target.value) }))}
+                style={{ fontSize: 13 }} />
+              <span style={{ fontSize: 11.5, fontWeight: 400, color: 'var(--muted)' }}>{hint}</span>
+            </label>
+          );
+        })}
+      </div>
+      {!canEdit ? (
+        <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Only HR can change these.</p>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="primary-btn" disabled={busy} onClick={() => save(false)}>{busy ? 'Saving…' : 'Save'}</button>
+          {company && meta.override && (
+            <button type="button" className="secondary-btn" disabled={busy} onClick={() => save(true)}>Use the Default</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReadinessSettings({ onClose, onSaved, toastOk, toastErr }) {
+  const footer = (
+    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+      <button type="button" className="secondary-btn" onClick={onClose}>Close</button>
     </div>
   );
   return (
     <Modal title="Payroll Readiness Thresholds" onClose={onClose} footer={footer}>
-      {loadErr && <ErrorBanner message={loadErr} onRetry={() => load(company || '')} />}
-      {!meta && !loadErr && <div style={{ padding: 24, textAlign: 'center' }}><Spinner size="section" /></div>}
-      {meta && (
-        <div style={{ display: 'grid', gap: 14 }}>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-            A change is flagged when it is over the percent OR the hours. Each company can keep its own; a company with none uses the default.
-          </p>
-          {(meta.companies || []).length > 0 && (
-            <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
-              Company
-              <select className="form-input" value={company ?? ''} aria-label="Company" onChange={e => load(e.target.value)} style={{ fontSize: 13 }}>
-                {meta.canEditDefault && <option value="">All Companies (Default)</option>}
-                {meta.companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-              {company && <span style={{ fontWeight: 400 }}>{meta.override ? 'This company has its own thresholds.' : 'This company uses the default.'}</span>}
-            </label>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
-            {SETTING_FIELDS.map(([k, label, hint]) => {
-              const [lo, hi] = meta.limits?.[k] || [1, 500];
-              return (
-                <label key={k} style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
-                  {label}
-                  <input className="form-input" type="number" min={lo} max={hi} step={1} aria-label={label} disabled={!canEdit || busy}
-                    value={vals[k] ?? ''} onChange={e => setVals(v => ({ ...v, [k]: e.target.value === '' ? '' : Number(e.target.value) }))}
-                    style={{ fontSize: 13 }} />
-                  <span style={{ fontSize: 11.5, fontWeight: 400, color: 'var(--muted)' }}>{hint}</span>
-                </label>
-              );
-            })}
-          </div>
-          {!canEdit && <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Only HR can change these.</p>}
-        </div>
-      )}
+      <ReadinessThresholds onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} />
+      <p style={{ margin: '14px 0 0', fontSize: 12, color: 'var(--muted)' }}>Also under Settings &gt; Time &amp; Pay &gt; Payroll Readiness.</p>
     </Modal>
   );
 }

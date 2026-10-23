@@ -219,9 +219,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
         </Section>
       )}
       {data.canSetup && (
-        <Section title="Policies" open={open === 'policies'} onToggle={() => setOpen(open === 'policies' ? '' : 'policies')}>
-          <PoliciesEditor policies={pols} builtIn={data.defaults || []} onSaved={load} toastOk={toastOk} toastErr={toastErr} />
-        </Section>
+        <div style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 10px' }}>The policies themselves are under Settings &gt; Time &amp; Pay &gt; Leave Policies.</div>
       )}
 
       {data.cutover && (
@@ -496,6 +494,33 @@ function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
         <span style={{ flex: 1 }} />
         <button className="primary-btn" onClick={save} disabled={busy} style={{ fontSize: 12.5 }}>{busy ? <Spinner size={12} /> : 'Save Policies'}</button>
       </div>
+    </div>
+  );
+}
+
+// Settings > Time & Pay > Leave Policies (Oct 23): the policy library HR >
+// Leave used to hold in an accordion. The start date stays with the import on
+// HR > Leave; this shows it.
+export function LeaveSetup({ toastOk, toastErr }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  const load = useCallback(() => {
+    setErr('');
+    return api.leaveAdmin().then(setData)
+      .catch(e => { setErr(e?.status === 403 ? '' : (e?.message || 'Could not load the leave policies.')); setData(e?.status === 403 ? false : null); });
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  if (data === false) return <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Only HR can see the leave policies.</div>;
+  if (err) return <div style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{err} <button className="secondary-btn" onClick={load} style={{ marginLeft: 8, fontSize: 12 }}>Retry</button></div>;
+  if (data === null) return <SkeletonBlocks count={3} height={18} />;
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
+        {data.cutover ? `Balances count from ${day(data.cutover)}.` : 'No start date yet - nothing shows to employees until one is set.'} The start date and the opening balances are on People &gt; Leave.
+      </div>
+      {data.canSetup
+        ? <PoliciesEditor policies={data.policies || []} builtIn={data.defaults || []} onSaved={load} toastOk={toastOk} toastErr={toastErr} />
+        : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Only an administrator can change the policies.</div>}
     </div>
   );
 }

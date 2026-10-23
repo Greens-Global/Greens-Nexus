@@ -326,7 +326,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped }) {
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>A share then asks each person to confirm in My Shifts; the schedule shows who has, and a manager can nudge the rest.</div>
               <CalendarSyncStatus />
             </div>
-            {!company && <TimeOffReasons toastOk={toastOk} toastErr={toastErr} />}
+            {!company && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Time-off reasons are under Time &amp; Pay &gt; Time-Off Reasons.</div>}
           </div>
         )}
       </AsyncSection>
@@ -406,7 +406,9 @@ function MinutesField({ label, aria, value, fallback, max = 240, unit = 'minutes
 }
 
 // Custom time-off reasons (e.g. "Jury Duty") next to the built-in ones.
-function TimeOffReasons({ toastOk, toastErr }) {
+// Settings > Time & Pay > Time-Off Reasons (Oct 23; it used to sit inside
+// Shift Settings, where a company pick hid it).
+export function TimeOffReasons({ toastOk, toastErr }) {
   const [list, setList] = useState(null);
   const [draft, setDraft] = useState('');
   useEffect(() => {

@@ -370,6 +370,7 @@ export function Units({ data, many, focus, go, unitClasses, canEditClasses, onCl
       </div>
 
       <UnitClasses rules={unitClasses} canEdit={canEditClasses} onSaved={onClassesSaved} />
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>Also under Settings &gt; Operations &gt; Unit Rules.</div>
     </>
   );
 }

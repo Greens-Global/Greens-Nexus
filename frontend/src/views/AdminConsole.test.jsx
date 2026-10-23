@@ -46,6 +46,7 @@ vi.mock('../components/shifts/ShiftSettingsSections', () => ({
   ShiftSettingsPanel: ({ company }) => <div>Shift settings panel{company ? ` ${company}` : ''}</div>,
   ShiftTypesPanel: () => <div>Shift types panel</div>,
   ShiftGroupsPanel: () => <div>Groups panel</div>,
+  TimeOffReasons: () => <div>Time-off reasons panel</div>,
 }));
 vi.mock('../components/shifts/WeatherSettings', () => ({ default: ({ company }) => <div>Weather panel{company ? ` ${company}` : ''}</div> }));
 vi.mock('../components/PayrollExportCodes', () => ({ default: ({ company }) => <div>Export codes panel{company ? ` ${company}` : ''}</div> }));
@@ -59,6 +60,17 @@ vi.mock('../tasks/TaskNotifySettings', () => ({ default: () => <div>Task notify 
 vi.mock('../tasks/TasksContext', () => ({ TasksProvider: ({ children }) => <div>{children}</div> }));
 vi.mock('./SettingsTools', () => ({ default: () => <div>Tools panel</div> }));
 vi.mock('../components/HrChecklists', () => ({ ChecklistLibrary: () => <div>Checklist library panel</div> }));
+// Phase 3: the strays, borrowed from their home modules.
+vi.mock('../components/PayrollReadiness', () => ({ ReadinessThresholds: ({ company }) => <div>Readiness panel{company ? ` ${company}` : ''}</div> }));
+vi.mock('../components/CaReview', () => ({ MinWageForm: () => <div>Minimum wage panel</div> }));
+vi.mock('../components/LeaveBalances', () => ({ LeaveSetup: () => <div>Leave policies panel</div> }));
+vi.mock('../components/IntacctEmployeeCodes', () => ({ IntacctNightlySync: ({ company }) => <div>Intacct panel{company ? ` ${company}` : ''}</div> }));
+vi.mock('../components/DocumentTemplates', () => ({ LetterheadsPanel: () => <div>Letterheads panel</div> }));
+vi.mock('./SettingsPanels', () => ({
+  TicketPropertyRulesPanel: () => <div>Property rules panel</div>,
+  UnitRulesPanel: () => <div>Unit rules panel</div>,
+  AppRatingsPanel: () => <div>App ratings panel</div>,
+}));
 
 const AdminConsole = (await import('./AdminConsole')).default;
 
@@ -232,6 +244,33 @@ describe('AdminConsole', () => {
     expect(screen.getByRole('button', { name: 'Brand Color' })).toBeInTheDocument();
   });
 
+  it('brings the strays home: readiness, minimum wage, leave, time-off reasons, Intacct, letterheads, property rules, unit rules, ratings (phase 3)', async () => {
+    const { rerender } = render(<AdminConsole activeSub="pay" onSubChange={() => {}} />);
+    for (const t of ['Pay Rules', 'Payroll Readiness', 'California Minimum Wage', 'Leave Policies', 'Time-Off Reasons', 'Intacct Nightly Sync']) {
+      expect(screen.getByRole('heading', { name: t })).toBeInTheDocument();
+    }
+    expect(await find('Readiness panel')).toBeInTheDocument();
+    expect(await find('Time-off reasons panel')).toBeInTheDocument();
+
+    rerender(<AdminConsole activeSub="pay@c1" onSubChange={() => {}} />);
+    expect(await find('Readiness panel c1')).toBeInTheDocument();
+    expect(await find('Intacct panel c1')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'California Minimum Wage' })).not.toBeInTheDocument();
+
+    rerender(<AdminConsole activeSub="branding:letterheads" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Letterheads' })).toHaveAttribute('data-highlight', 'true');
+    expect(await find('Letterheads panel')).toBeInTheDocument();
+
+    rerender(<AdminConsole activeSub="tickets" onSubChange={() => {}} />);
+    expect(await find('Property rules panel')).toBeInTheDocument();
+    rerender(<AdminConsole activeSub="operations" onSubChange={() => {}} />);
+    expect(await find('Unit rules panel')).toBeInTheDocument();
+    rerender(<AdminConsole activeSub="analytics" onSubChange={() => {}} />);
+    expect(await find('App ratings panel')).toBeInTheDocument();
+    // The per-company policy is reached through the scope box, not a picker here.
+    expect(screen.queryByText(/is set per company/)).not.toBeInTheDocument();
+  });
+
   it('opens a company from the list, and offers the companies for a per-company subject', async () => {
     const onSubChange = vi.fn();
     render(<AdminConsole activeSub="companies" onSubChange={onSubChange} />);
@@ -239,10 +278,8 @@ describe('AdminConsole', () => {
     expect(onSubChange).toHaveBeenLastCalledWith('companies@c2');
     cleanup();
 
-    render(<AdminConsole activeSub="analytics" onSubChange={onSubChange} />);
-    expect(screen.getByText(/Workforce Analytics Policy is set per company/)).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole('button', { name: 'Greens Global' }, { timeout: 5000 }));
-    expect(onSubChange).toHaveBeenLastCalledWith('analytics:company-policy@c1');
+    render(<AdminConsole activeSub="analytics@c1" onSubChange={onSubChange} />);
+    expect(await find('Company page c1: monitoring')).toBeInTheDocument();
   });
 
   it('filters groups across every subject', () => {

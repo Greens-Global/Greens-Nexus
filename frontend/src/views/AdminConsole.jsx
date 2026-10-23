@@ -140,6 +140,19 @@ const fromShifts = lazyFrom(() => import('../components/shifts/ShiftSettingsSect
 const ShiftSettingsPanel = fromShifts('ShiftSettingsPanel');
 const ShiftTypesPanel = fromShifts('ShiftTypesPanel');
 const ShiftGroupsPanel = fromShifts('ShiftGroupsPanel');
+const TimeOffReasons = fromShifts('TimeOffReasons');
+// Phase 3 (Oct 23): settings that lived inside their module's working screens
+// - the same components, borrowed from where they are owned.
+const ReadinessThresholds = lazy(() => import('../components/PayrollReadiness').then(m => ({ default: m.ReadinessThresholds })));
+const MinWageForm = lazy(() => import('../components/CaReview').then(m => ({ default: m.MinWageForm })));
+const LeaveSetup = lazy(() => import('../components/LeaveBalances').then(m => ({ default: m.LeaveSetup })));
+const IntacctNightlySync = lazy(() => import('../components/IntacctEmployeeCodes').then(m => ({ default: m.IntacctNightlySync })));
+const LetterheadsPanel = lazy(() => import('../components/DocumentTemplates').then(m => ({ default: m.LetterheadsPanel })));
+// ...and the three that had no screen of their own (views/SettingsPanels.jsx).
+const fromPanels = lazyFrom(() => import('./SettingsPanels'));
+const TicketPropertyRulesPanel = fromPanels('TicketPropertyRulesPanel');
+const UnitRulesPanel = fromPanels('UnitRulesPanel');
+const AppRatingsPanel = fromPanels('AppRatingsPanel');
 // Weather Alerts (Weather Call, Oct 2026): the per-company switch and the rain thresholds.
 const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSettings'));
 // Operations (Oct 21 2026): the Push to Cubby switch, OFF by default.
@@ -184,16 +197,16 @@ const SUBJECTS = [
   { key: 'security',   label: 'Security',            Icon: ShieldCheck, adminOnly: true, faces: 'org',
     desc: 'How people sign in, how long sessions last, and the policy everyone accepts at sign-in.' },
   { key: 'branding',   label: 'Branding & Email',    Icon: Palette, adminOnly: true, faces: 'both',
-    desc: 'The Nexus brand color, how every Nexus email looks, and each company\'s email signature template.' },
+    desc: 'The Nexus brand color, how every Nexus email looks, each company\'s email signature template, and the letterheads documents print on.' },
   { key: 'emails',     label: 'Emails & Reminders',  Icon: Mail, faces: 'org',
     desc: 'Every scheduled email Nexus sends - task emails, the daily briefing, the weekly digest, the workforce scorecard - and how early HR and asset managers are reminded.' },
   { key: 'tickets',    label: 'Tickets',             Icon: Headset, faces: 'both',
-    desc: 'Where tickets go and who works them: routing and escalation, ticket email, response targets and ticket types, help topics, desk access, saved replies and AI features.' },
+    desc: 'Where tickets go and who works them: routing and escalation, ticket email, response targets and ticket types, help topics, desk access, saved replies, AI features, and which tickets must name a property.' },
   // Time Clock pay rules (Charmi, Sep 30): moved off the timecard's Options popover.
   { key: 'pay',        label: 'Time & Pay',          Icon: Clock, adminOnly: true, faces: 'both',
-    desc: 'The rules every time sheet is computed with: punch rounding, the auto-lunch deduction, California paid rest breaks, payroll export codes and pay premiums.' },
-  { key: 'analytics',  label: 'Workforce Analytics', Icon: MonitorDot, faces: 'company',
-    desc: 'What each company captures about work on company computers, and how often. Every company has its own policy.' },
+    desc: 'The rules every time sheet and payroll run follow: punch rounding, the auto-lunch deduction, California paid rest breaks and minimum wage, payroll readiness, export codes, pay premiums, leave policies, time-off reasons and the Intacct nightly sync.' },
+  { key: 'analytics',  label: 'Workforce Analytics', Icon: MonitorDot, faces: 'both',
+    desc: 'How apps and websites are rated, and what each company captures about work on company computers. Every company has its own policy - pick it in the Scope box.' },
   { key: 'shifts',     label: 'Shifts & Scheduling', Icon: CalendarClock, faces: 'both',
     desc: 'What staff may request and see on the schedule, the team time zone and week start, time-off reasons, the shift types managers place, the groups people are scheduled in, and the weather alerts for their work sites.' },
   { key: 'hiring',     label: 'Hiring & Onboarding', Icon: UserPlus, faces: 'both',
@@ -201,7 +214,7 @@ const SUBJECTS = [
   { key: 'items',      label: 'Items & Equipment',   Icon: Package, faces: 'org',
     desc: 'The catalog options used when adding items in Item Management.' },
   { key: 'operations', label: 'Operations',          Icon: Warehouse, faces: 'org',
-    desc: 'How the storage facilities screens work with Cubby.' },
+    desc: 'How the storage facilities screens work with Cubby, and which unit types are mailboxes or not units at all.' },
 ];
 const SUBJECT_KEYS = new Set(SUBJECTS.map(s => s.key));
 // The Global Settings categories (Sep 26 - Oct 22) and what each became, so
@@ -256,6 +269,9 @@ const GROUPS = [
   { id: 'email-appearance', subject: 'branding', face: 'org', scope: 'org', icon: Mail, title: 'Email Appearance',
     sub: 'One logo, accent color and footer for every email Nexus sends: tasks, tickets, Nexus Sign, invitations and welcome emails.',
     keywords: 'email template logo header footer accent color address preview notifications' },
+  { id: 'letterheads', subject: 'branding', face: 'org', scope: 'org', icon: FileText, title: 'Letterheads',
+    sub: 'The letterheads documents and letters print on, and which one is the default.',
+    keywords: 'letterhead logo address default documents templates print' },
   { id: 'email-signature', subject: 'branding', face: 'both', scope: 'company', icon: Signature, title: 'Email Signature',
     sub: 'Choose each company\'s signature template and set custom signatures for specific addresses. Names, titles and contact details come from each employee\'s directory record, and employees choose their own sign-off in Profile.',
     keywords: 'template sign-off logo sender override shared inbox branding' },
@@ -283,6 +299,9 @@ const GROUPS = [
   { id: 'service-desk', subject: 'tickets', face: 'both', scope: 'org', icon: Headset, title: 'Ticket Manager',
     sub: 'Everything about tickets: who receives and escalates them, which events send email, and the response targets and ticket types requesters choose from.',
     keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields help topics what do you need help with saved replies canned responses default assignee auto assign ai summary suggested help topic' },
+  { id: 'ticket-property-rules', subject: 'tickets', face: 'org', scope: 'org', icon: MapPinned, title: 'Property Rules',
+    sub: 'Which tickets must name the property they are about, by service area and by help topic.',
+    keywords: 'property tickets required service area help topic facility unit link suggest' },
   // Time & Pay
   { id: 'timeclock-policy', subject: 'pay', face: 'org', scope: 'org', icon: CalendarClock, title: 'Pay Rules',
     sub: 'Punch rounding (off by default), the auto-lunch deduction and California paid rest breaks. Applies to every time sheet.',
@@ -293,7 +312,25 @@ const GROUPS = [
   { id: 'pay-premiums', subject: 'pay', face: 'both', scope: 'company', icon: Clock, title: 'Shift Differentials & Call-Back Pay',
     sub: 'Extra pay per hour at night, on weekends or at certain sites, and a minimum paid time when someone is called back - per company, off by default.',
     keywords: 'shift differential night weekend site premium call-back callback minimum paid hours hourly' },
-  // Workforce Analytics - per company, nothing to set for every company yet.
+  { id: 'payroll-readiness', subject: 'pay', face: 'both', scope: 'layered', icon: ClipboardList, title: 'Payroll Readiness',
+    sub: 'What counts as a big change or an unusual week when checking who is ready for payroll - a default, and each company\'s own.',
+    keywords: 'payroll readiness thresholds percent hours big change unusual week export check flags' },
+  { id: 'ca-min-wage', subject: 'pay', face: 'org', scope: 'org', icon: Clock, title: 'California Minimum Wage',
+    sub: 'The state minimum wage the California review checks pay rates against; it also prices the split-shift premium.',
+    keywords: 'california minimum wage ca review split shift premium pay rate' },
+  { id: 'leave-policies', subject: 'pay', face: 'org', scope: 'org', icon: CalendarClock, title: 'Leave Policies',
+    sub: 'The vacation and sick policies people are assigned - hours earned per hour worked, caps and carry-over.',
+    keywords: 'leave policies vacation sick accrual balance hours earned per hour start date cutover pto carry over' },
+  { id: 'time-off-reasons', subject: 'pay', face: 'org', scope: 'org', icon: CalendarClock, title: 'Time-Off Reasons',
+    sub: 'The reasons staff can pick when requesting time off, beyond the built-in Vacation, Sick, Personal, Unpaid, 1/2 Day and Other.',
+    keywords: 'time off reasons request jury duty bereavement custom' },
+  { id: 'intacct-nightly', subject: 'pay', face: 'both', scope: 'company', icon: FileText, title: 'Intacct Nightly Sync',
+    sub: 'Which companies have their employee codes filled in from Intacct once a night, and how the last run went.',
+    keywords: 'intacct employee codes nightly sync automatic payroll' },
+  // Workforce Analytics
+  { id: 'app-ratings', subject: 'analytics', face: 'org', scope: 'org', icon: MonitorDot, title: 'App & Website Ratings',
+    sub: 'Every application and website seen on company computers, rated productive, neutral or unproductive - the split the Workforce Analytics dashboard shows.',
+    keywords: 'apps websites ratings productive neutral unproductive workforce analytics activity' },
   { id: 'company-policy', subject: 'analytics', face: 'company', scope: 'company', icon: MonitorDot, title: 'Workforce Analytics Policy',
     sub: 'Whether work on company computers is captured for this company, how often, and what is tracked.',
     keywords: 'workforce analytics monitoring policy capture screenshots interval tracking employee tracking' },
@@ -332,6 +369,9 @@ const GROUPS = [
   { id: 'ops-cubby-push', subject: 'operations', face: 'org', scope: 'org', icon: Warehouse, title: 'Push to Cubby',
     sub: 'Off by default: Nexus only reads from Cubby and staff mark changes Entered in Cubby. On: approved rate and rent changes can be pushed to Cubby from Nexus.',
     keywords: 'cubby push sync write rates rent ecri rate management revenue management storage facilities operations locked switch' },
+  { id: 'ops-unit-rules', subject: 'operations', face: 'org', scope: 'org', icon: Warehouse, title: 'Unit Rules',
+    sub: 'Which Cubby unit types are mailboxes, and which records are not units at all, by the words in the unit type name.',
+    keywords: 'unit types mailbox excluded words cubby facility operations units' },
 ];
 const GROUP_META = Object.fromEntries(GROUPS.map(g => [g.id, g]));
 
@@ -1279,6 +1319,16 @@ function SettingsBody({ subject, group, company, onNavigate, entities, refreshEn
       case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'shift-weather':        return <LazyPanelSection key={key} id={id} Panel={WeatherSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ops-cubby-push':       return <LazyPanelSection key={key} id={id} Panel={OpsSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      // Phase 3: the strays, each the component its module owns.
+      case 'payroll-readiness':    return <LazyPanelSection key={key} id={id} Panel={ReadinessThresholds} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company || undefined} />;
+      case 'ca-min-wage':          return <LazyPanelSection key={key} id={id} Panel={MinWageForm} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'leave-policies':       return <LazyPanelSection key={key} id={id} Panel={LeaveSetup} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'time-off-reasons':     return <LazyPanelSection key={key} id={id} Panel={TimeOffReasons} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'intacct-nightly':      return <LazyPanelSection key={key} id={id} Panel={IntacctNightlySync} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'letterheads':          return <LazyPanelSection key={key} id={id} Panel={LetterheadsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'ticket-property-rules': return <LazyPanelSection key={key} id={id} Panel={TicketPropertyRulesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'ops-unit-rules':       return <LazyPanelSection key={key} id={id} Panel={UnitRulesPanel} chrome={chrome} />;
+      case 'app-ratings':          return <LazyPanelSection key={key} id={id} Panel={AppRatingsPanel} chrome={chrome} />;
       default:                     return null;
     }
   }
