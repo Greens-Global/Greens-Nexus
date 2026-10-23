@@ -49,7 +49,7 @@ export default function WorkforceScorecardSettings() {
   useEffect(() => { api.getWorkforceScorecardConfig().then(adopt).catch((e) => setErr(e.message || String(e))); }, []);
 
   if (!can('administrator')) {
-    return <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>Global-Admin access is required to view Workforce Scorecard settings.</div>;
+    return <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>Administrator access is required to view Workforce Scorecard settings.</div>;
   }
   if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
