@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 
 // Make An Offer on one screen (Hiring Setup, Oct 23): HR picks how they are
 // hired (one pick - never guessed), and What They Get shows, live from the
@@ -251,5 +251,31 @@ describe('OfferModal - Preview Offer Letter', () => {
     hire('Full-Time Employee');
     await ready();
     expect(screen.getByText('Preview Offer Letter').closest('button')).toBeDisabled();
+  });
+});
+
+// e2e findings (Oct 23): the role they applied for is picked, and a missing letter reads properly.
+describe('OfferModal - e2e findings', () => {
+  it('the Role starts on the role the candidate applied for, even when the role list is slow or fails', async () => {
+    render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    await screen.findByText('Accountant - Accounting');
+    expect(screen.getByLabelText('Role').value).toBe('jr-an');
+    cleanup();
+    hiringOptions.mockImplementationOnce(() => Promise.reject(new Error('busy')));
+    render(<OfferModal candidate={{ ...cand, roleTitle: 'Accountant' }} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    await waitFor(() => expect(hiringOptions).toHaveBeenCalled());
+    const role = screen.getByLabelText('Role');
+    expect(role.value).toBe('jr-an');
+    expect(role.options[role.selectedIndex].text).toBe('Accountant');
+  });
+
+  it('no offer letter: Signs says nothing to sign yet, and the way on without one sits under the letter line', async () => {
+    offerOptions.mockImplementation((cid, p) => standard(cid, p).then(o => ({ ...o, offerLetter: null, hiringPacket: null,
+      whatTheyGet: [line('offer', 'Offer Letter', 'Nothing Yet For Employees In India', 'Set it up first', 'missing'), line('signs', 'Signs', '', '')] })));
+    render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} onMoveWithout={() => {}} toastErr={() => {}} />);
+    hire('Full-Time Employee');
+    expect(await screen.findByText('Nothing to sign yet')).toBeTruthy();
+    const move = await screen.findByText('move them to Offer without one');
+    expect(move.closest('[data-line]').getAttribute('data-line')).toBe('offer');
   });
 });

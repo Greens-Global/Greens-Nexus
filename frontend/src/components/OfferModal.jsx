@@ -60,7 +60,7 @@ const isoDay = (d) => d.toISOString().slice(0, 10);
 
 /** The What They Get lines (offer, promotion and offboarding options): a
  *  blocking line is amber, a fix opens the Hiring Setup on it. */
-export function WhatTheyGetCard({ lines, blocked = '', onFix }) {
+export function WhatTheyGetCard({ lines, blocked = '', onFix, notes = {} }) {
   return (
     <>
       {(lines || []).map(g => {
@@ -77,6 +77,7 @@ export function WhatTheyGetCard({ lines, blocked = '', onFix }) {
                 {FIX_LABEL[g.fix.action]}
               </button>
             )}
+            {notes[g.key]}
           </div>
         );
       })}
@@ -289,6 +290,8 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           <select id="of-role" className="form-input" style={{ width: '100%' }} value={f.role_id} onChange={e => pickRole(e.target.value)}>
             <option value="">- pick the role -</option>
             {roles.roles.map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+            {/* the role they applied for shows even before (or without) the role list */}
+            {roleId && !roles.roles.some(r => r.id === roleId) && <option value={roleId}>{c.roleTitle || 'The role they applied for'}</option>}
             <option value={OTHER_ROLE}>Other (a new role)</option>
           </select></div>
         {isOther && (
@@ -431,18 +434,21 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
     </div>
   );
 
+  // No offer letter: the way on without one sits under the Offer Letter line, not after Signs.
+  const moveWithout = who.hired_as && !loading && !letter && onMoveWithout && opts ? (
+    <div style={{ ...hint, marginTop: 6 }}>
+      Or <button type="button" onClick={() => onMoveWithout(c)} style={{ ...linkBtn, fontWeight: 400 }}>move them to Offer without one</button>.
+    </div>
+  ) : null;
   const panel = (
     <div aria-label={getsTitle} style={{ flex: '1 1 320px', minWidth: 0, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12, alignSelf: 'flex-start' }}>
       <div style={{ fontSize: 15, fontWeight: 800 }}>{getsTitle}</div>
       {!who.hired_as ? <div style={{ ...hint, marginTop: 0 }}>Pick how they are hired to see the offer letter, the hiring packet and the job description they get.</div>
         : loading && !gets.length ? <Spinner size={16} />
           : !opts && optsErr ? <div role="alert" style={{ fontSize: 13, color: '#b45309', fontWeight: 600 }}>{optsErr}</div>
-          : <WhatTheyGetCard lines={gets} onFix={g => setFix({ entityId: g.fix.target?.entityId || c.company, ...(g.fix.target || {}) })} />}
-      {who.hired_as && !loading && !letter && onMoveWithout && opts && (
-        <div style={{ ...hint, marginTop: 0 }}>
-          Or <button type="button" onClick={() => onMoveWithout(c)} style={{ ...linkBtn, fontWeight: 400 }}>move them to Offer without one</button>.
-        </div>
-      )}
+          : <WhatTheyGetCard lines={gets.map(g => (g.key === 'signs' && !g.name ? { ...g, name: 'Nothing to sign yet' } : g))}
+            notes={moveWithout ? { offer: moveWithout } : {}} onFix={g => setFix({ entityId: g.fix.target?.entityId || c.company, ...(g.fix.target || {}) })} />}
+      {moveWithout && !gets.some(g => g.key === 'offer') && moveWithout}
     </div>
   );
 
