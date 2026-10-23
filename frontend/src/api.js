@@ -2540,6 +2540,8 @@ export const api = {
   // sent to the verifier; after-offer: start the packet when it could not start itself.
   offerOptions:        (cid, params = {}) => req(`/hr/candidates/${cid}/offer/options?${new URLSearchParams(params)}`),
   startOffer:          (cid, data) => req(`/hr/candidates/${cid}/offer/start`, { method: 'POST', body: JSON.stringify(data) }),
+  promotionOptions:    (eid, roleId = '') => req(`/hr/employees/${eid}/promotion/options?role_id=${encodeURIComponent(roleId || '')}`),
+  offboardOptions:     (eid)              => req(`/hr/employees/${eid}/offboard/options`),
   startPacketAfterOffer: (cid) => req(`/hr/candidates/${cid}/hiring-packet/after-offer`, { method: 'POST' }),
   // File Manually (Oct 15 2026): automatic Egnyte filing failed - HR names the folder.
   fileLifeEventManually: (eid, folder) => req(`/hr/life-events/${eid}/file-manually`, { method: 'POST', body: JSON.stringify({ folder }) }),

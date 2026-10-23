@@ -75,11 +75,12 @@ const FIELD_TYPES = [['text', 'Text'], ['longtext', 'Long Text'], ['number', 'Nu
   ['phone', 'Phone'], ['yesno', 'Yes / No'], ['choice', 'Dropdown']];
 const COUNTRY_NAMES = { US: 'United States', IN: 'India', CA: 'Canada', GB: 'United Kingdom', AE: 'United Arab Emirates', PH: 'Philippines', MX: 'Mexico', AU: 'Australia' };
 
-function PreviewModal({ templateId, name, companyId, flow, letterheadId, onClose, toastErr }) {
+// Also the offer form's Preview Offer Letter, which names the letter's setting (its letterhead and signers).
+export function PreviewModal({ templateId, name, companyId, flow, letterheadId, settingId, onClose, toastErr }) {
   const [url, setUrl] = useState('');
   useEffect(() => {
     let made = '';
-    api.renderPacketPreview({ template_id: templateId, entity_id: companyId || '', flow, letterhead_id: letterheadId || '' })
+    api.renderPacketPreview({ template_id: templateId, entity_id: companyId || '', flow, letterhead_id: letterheadId || '', ...(settingId ? { setting_id: settingId } : {}) })
       .then(({ blob }) => { made = URL.createObjectURL(blob); setUrl(made); })
       .catch(e => { toastErr(e?.message || 'Could not render the preview.'); onClose(); });
     return () => { if (made) URL.revokeObjectURL(made); };
