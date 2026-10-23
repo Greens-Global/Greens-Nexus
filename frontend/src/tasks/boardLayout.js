@@ -11,6 +11,7 @@
 // never toISOString(), which is the UTC day and already tomorrow on a US
 // evening. Weeks run Sunday to Saturday, like the Calendar.
 import { addDays, cfFieldId, cfKey } from './lib';
+import { labelKey, mergeLabels } from './labels';
 
 export const COLUMN_KINDS = ['status', 'section', 'priority', 'due'];
 const COLUMN_LABELS = { status: 'Status', section: 'Section', priority: 'Priority', due: 'Due Date' };
@@ -133,15 +134,15 @@ export function dueColumnOf(dueOn, today) {
 /** The labels after a card is dragged from lane `from` to lane `to` ('__none'
  *  is No Label): the label it came from is swapped for the one it landed in,
  *  and no other label is touched. Dropped on No Label it loses only the label
- *  it came from. Null when nothing changes. */
+ *  it came from. Labels compare by labels.js labelKey, as the lanes do, so
+ *  the task's "urgent" leaves the "Urgent" lane. Null when nothing changes. */
 export function labelLaneTags(tags, from, to) {
-  const cur = [...(tags || [])];
   const src = from && from !== '__none' ? from : null;
   const dst = to && to !== '__none' ? to : null;
-  if (src === dst) return null;
-  let next = src ? cur.filter((x) => x !== src) : cur;
-  if (dst && !next.includes(dst)) next = [...next, dst];
-  return next.length === cur.length && next.every((x, i) => x === cur[i]) ? null : next;
+  if (labelKey(src || '') === labelKey(dst || '')) return null;
+  const next = mergeLabels(tags, dst ? [dst] : [], src ? [src] : []);
+  const was = mergeLabels(tags);
+  return next.length === was.length && next.every((x, i) => labelKey(x) === labelKey(was[i])) ? null : next;
 }
 
 /** The assignees after a card is dragged between assignee lanes: the person
@@ -182,10 +183,11 @@ export const IMAGE_MODE = 'image:';
 
 const IMAGE_NAME = /\.(png|jpe?g|gif|webp|avif|bmp)$/i;
 /** An attachment that can be a card's cover: an image file uploaded to Nexus
- *  (not an Egnyte link, not a failed upload). The server checks it again
- *  (backend task_card_preview.is_cover_file). */
+ *  (not an Egnyte row or a web link - kind 'egnyte' / 'link', whatever the
+ *  address looks like - and not a failed upload). The server checks it
+ *  again (backend task_card_preview.is_cover_file, LINK_KINDS). */
 export function isCoverCandidate(a) {
-  if (!a || a.kind === 'egnyte') return false;
+  if (!a || a.kind === 'egnyte' || a.kind === 'link') return false;
   const url = a.url || a.dataUrl || '';
   if (!url || /^data:/i.test(url)) return false;
   return a.kind === 'image' || IMAGE_NAME.test(String(a.name || '').split('?')[0]);

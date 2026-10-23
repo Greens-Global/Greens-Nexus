@@ -493,14 +493,17 @@ def validate_task_payload(db: Session, data: dict, task_id: str = "") -> dict:
     # something worth failing a save over. Blank tags rendered as empty pills and
     # duplicates appeared twice in the filter list; duplicate collaborators drew
     # the same avatar repeatedly.
+    # Labels (Oct 22 2026) are merged by their key, as every label screen
+    # and route reads them (task_labels.label_key: "Q4  launch" is "Q4
+    # launch"), and a label NEW to the task keeps the label rules (length,
+    # how many) - one rule with Manage > Labels and the batch bar.
     if "tags" in data and isinstance(data["tags"], list):
-        seen, out = set(), []
-        for tag in data["tags"]:
-            v = str(tag or "").strip()
-            if v and v.lower() not in seen:
-                seen.add(v.lower())
-                out.append(v)
-        data["tags"] = out
+        import task_labels
+        current = ()
+        if task_id:
+            row = db.query(models.Task.tags).filter(models.Task.id == task_id).first()
+            current = (row[0] or []) if row else ()
+        data["tags"] = task_labels.check_new_tags(data["tags"], current)
 
     # assignee_emails rides the same normaliser as the collaborator lists: an
     # assignee is a person too, and a non-address there is worse than a bad
@@ -685,6 +688,15 @@ def _check_update_access(db: Session, user: dict, t, data: dict) -> None:
             and not _may_open_up(db, user, t)):
         raise HTTPException(403, "Only the task's owner, its creator, a project editor or a manager can make "
                                  "this task visible to everyone.")
+    # A subtask is never more visible than its parent (Oct 22 2026,
+    # _narrow_to_parent): under a private task it cannot be opened up to
+    # everyone - open the parent instead. The parent named in this same edit
+    # (a move) is the one that counts.
+    if data.get("access_level") == "org" and (t.access_level or "org") != "org":
+        pid = data["parent_task_id"] if "parent_task_id" in data else t.parent_task_id
+        parent = db.query(models.Task).filter(models.Task.id == pid).first() if pid else None
+        if _narrow_to_parent("org", parent) != "org":
+            raise HTTPException(422, "This subtask stays private while the task it is under is private.")
     prev = set(task_assignees(t))
     wanted = _assignees_from(data, list(prev))
     added = [w for w in (wanted or []) if (w or "").strip().lower() not in prev]
@@ -1490,7 +1502,8 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
         owner_email=t.owner_email or "",
         follower_emails=list(t.follower_emails or []),
         liked_by_emails=[],
-        access_level=t.access_level or "org",
+        # Never wider than the parent occurrence it goes under (_narrow_to_parent).
+        access_level=_narrow_to_parent(t.access_level, parent),
         project_id=t.project_id or "",
         # The "also in" projects too - without them the next occurrence
         # silently dropped out of every project but the primary one.
@@ -1718,7 +1731,7 @@ def _carry_subtasks(db: Session, t: models.Task, nxt: models.Task, user: dict, c
             status="not_started", priority=s.priority or "medium",
             assignee_email=s.assignee_email or "", assignee_emails=list(task_assignees(s)),
             owner_email=s.owner_email or "", follower_emails=list(s.follower_emails or []),
-            liked_by_emails=[], access_level=s.access_level or "org",
+            liked_by_emails=[], access_level=_narrow_to_parent(s.access_level, nxt),
             project_id=s.project_id or "", project_ids=list(s.project_ids or []),
             section_id=s.section_id or "", team_id=s.team_id or "",
             parent_task_id=nxt.id, position=s.position or 0.0,
@@ -2875,6 +2888,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         for cid, plan in child_moves.items():
             _check_move_shape(db, db.query(models.Task).filter(models.Task.id == cid).first(), plan)
     _check_update_access(db, user, t, data)
+    prev_level = t.access_level or "org"
     prev_assignees = set(task_assignees(t))
     prev_status = t.status
     prev_completed = bool(t.completed)
@@ -2967,6 +2981,16 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         if child is not None:
             child.activity_ids = list(child.activity_ids or []) + [
                 _apply_move(db, user, child, plan, now_iso(), place=False, history_self=True)]
+    # Made private (Oct 22 2026): its org-wide subtasks go private with it -
+    # a subtask is never more visible than its parent (_narrow_to_parent). A
+    # subtask already private keeps its own level; nothing is ever widened.
+    if prev_level == "org" and (t.access_level or "org") != "org":
+        stamp = now_iso()
+        for row in _subtree_rows(db, t.id)[0]:
+            if (row.access_level or "org") == "org":
+                row.access_level = t.access_level
+                if not row.deleted_at:
+                    row.modified_at = stamp
 
     # APPROVAL BEFORE AUTOMATION (Oct 22 2026, automation gaps review). The
     # person's own due-date move is decided HERE, before the rules run: the
@@ -3812,17 +3836,19 @@ def _bulk_label_change(body: "BulkUpdate", patch: dict) -> tuple[list, list]:
         # One kind of change per batch, the rule the Dates action keeps.
         raise HTTPException(422, "Add or remove labels on their own, not together with other fields.")
 
-    def _clean(names) -> list:
+    def _clean(names, new: bool) -> list:
         out, seen = [], set()
         for n in names or []:
             v = task_labels.clean_name(n)
             if v and task_labels.label_key(v) not in seen:
-                if len(v) > task_labels.MAX_NAME:
+                # Only a label being ADDED keeps the length rule; one being
+                # removed already exists and must stay removable.
+                if new and len(v) > task_labels.MAX_NAME:
                     raise HTTPException(422, f"A label can be at most {task_labels.MAX_NAME} characters.")
                 seen.add(task_labels.label_key(v))
                 out.append(v)
         return out
-    add, remove = _clean(body.tags_add), _clean(body.tags_remove)
+    add, remove = _clean(body.tags_add, True), _clean(body.tags_remove, False)
     if not add and not remove:
         raise HTTPException(422, "Pick a label to add or remove.")
     return add, remove
@@ -5046,7 +5072,9 @@ def convert_checklist_item(item_id: str, background_tasks: BackgroundTasks,
                        quiet=bool(i.done))
     db.refresh(t)
     fire_task_event(t.id, "updated")
-    return {"subtask": out, "task": task_to_dict(t)}
+    # With its card preview, as a PATCH answers (_with_previews): the line
+    # just converted leaves a Checklist / Automatic board card at once.
+    return {"subtask": out, "task": _with_previews(db, [t], user)[0]}
 
 
 def _version_key(a: models.TaskAttachment) -> tuple:

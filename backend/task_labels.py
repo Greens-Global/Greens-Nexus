@@ -96,6 +96,33 @@ def check_name(name) -> str:
     return v
 
 
+def existing_name(name) -> str:
+    """A label that already exists (on tasks, in the map), named to recolor,
+    rename, delete or remove it: cleaned, never refused for its length - a
+    label stored before the MAX_NAME cap (or by an old import) must still be
+    manageable. check_name is for a NEW name only."""
+    v = clean_name(name)
+    if not v:
+        raise HTTPException(422, "A label needs a name.")
+    return v
+
+
+def check_new_tags(tags, current=()) -> list:
+    """A task's labels as a save stores them (create, PATCH, bulk replace,
+    import): merged by key (merge_tags - spacing and case variants are one
+    label), each label NEW to the task at most MAX_NAME characters, and no
+    more than MAX_PER_TASK labels unless the task already had more. Labels
+    the task already carries are kept as they are, whatever their length."""
+    out = merge_tags(tags)
+    have = {label_key(x) for x in current or ()}
+    for tag in out:
+        if label_key(tag) not in have and len(tag) > MAX_NAME:
+            raise HTTPException(422, f"A label can be at most {MAX_NAME} characters.")
+    if len(out) > MAX_PER_TASK and len(out) > len(have):
+        raise HTTPException(422, f"A task can carry at most {MAX_PER_TASK} labels.")
+    return out
+
+
 def merge_tags(current, add: Iterable = (), remove: Iterable = ()) -> list:
     """`current` with `remove` taken off and `add` put on, by key: a label the
     task already carries in any spelling is not added twice, and removing

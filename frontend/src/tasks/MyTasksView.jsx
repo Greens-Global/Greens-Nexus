@@ -3,7 +3,7 @@
 // A dedicated personal view: "Tasks" header, List/Board/Calendar/
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
-import { Fragment, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, XCircle, CornerDownRight, Check, Minus, Clock, Palette, Sun } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate, todayISO, fieldsForProject } from './lib';
@@ -35,7 +35,10 @@ import { RowColorsProvider, useRowColorScope, useRuleContext, useMyColorRules, u
 import { RowColorLegend } from './RowColors';
 import ColorRulesEditor from './ColorRulesEditor';
 import { LabelStrip } from './labels';
-import MyDayView from './MyDayView';
+import { LoadingState } from '../components/AsyncState';
+// My Day is a tab of its own, opened by choice - its screen loads with it
+// (a ring while it arrives, never a blank body).
+const MyDayView = lazy(() => import('./MyDayView'));
 
 const VIEW_TABS = [
   // My Day (Oct 22 2026, MyDayView.jsx): the person's list for today, first
@@ -517,7 +520,9 @@ export default function MyTasksView({ onNavigate }) {
       <RowColorsProvider map={rowScope.map}>
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: view === 'list' ? 16 : 0, paddingBottom: isMobile ? 88 : 76 }}>
         {view === 'myday' ? (
-          <MyDayView onOpen={setOpenId} />
+          <Suspense fallback={<LoadingState label="Loading My Day" />}>
+            <MyDayView onOpen={setOpenId} />
+          </Suspense>
         ) : view === 'list' ? (
           <div className={isMobile ? 'nx-edge-card' : undefined} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface }}>
             {/* Fixed-width columns (Due date/Collaborators/Project) don't shrink

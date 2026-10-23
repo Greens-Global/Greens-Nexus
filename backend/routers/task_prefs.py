@@ -45,6 +45,8 @@ MAX_TOTAL_SCOPES = 200
 TOTAL_AGGS = ("sum", "avg", "min", "max", "count", "filled")
 # The Board's layout off a project (Oct 22 2026; frontend/src/tasks/
 # boardLayout.js): its swimlanes, its columns and the Card Previews switch.
+# BOARD_COLUMNS is the ONE list of a Board's columns - a saved view's
+# (task_config) and a project's default Board (task_projects) read it here.
 BOARD_LANES = ("none", "assignee", "priority", "project", "label")
 BOARD_COLUMNS = ("status", "section", "priority", "due")
 CUSTOM_FIELD_PREFIX = "cf:"

@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useCanEditTask } from '../canEditTask';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META } from '../theme';
-import { cfFieldId, taskFieldValue, fieldsForProject, taskAssignees, requiredFieldsFor, effectiveProjectId, withTaskFields } from '../lib';
+import { cfFieldId, taskFieldValue, fieldsForProject, taskAssignees, requiredFieldsFor, effectiveProjectId, withTaskFields, groupTasks } from '../lib';
 import { useFlip } from '../../lib/motion';
 import ChangeFlash from '../../components/ChangeFlash';
 import { changedRecently } from '../recentChanges';
@@ -37,6 +37,7 @@ import {
 } from '../boardLayout';
 import { awaitingFirstDate, clearingStopsSeries, moveTaskToDay } from '../calendarMove';
 import CardPreview from '../CardPreview';
+import { LabelPill, LabelStrip, labelKey, useLabelColors } from '../labels';
 
 const SECTION_PALETTE = ['#4573fa', '#8b6bf0', '#14a76c', '#e8a33d', '#e0844e', '#e8384f', '#29a8ab', '#db2777'];
 const PRIORITY_LANE_ORDER = ['urgent', 'high', 'medium', 'low'];
@@ -72,14 +73,6 @@ function MoreCards({ n }) {
   );
 }
 
-/** A label lane's header - the plain label pill the task drawer uses. */
-export function LabelPill({ label }) {
-  return (
-    <span data-testid="label-pill" style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: NX.dim, background: NX.border2 }}>
-      {label}
-    </span>
-  );
-}
 
 // showSubtasks / onToggleSubtasks (Oct 22 2026): the workspace's "Show
 // Subtasks" switch - when it is on, `visible` already holds the subtasks and
@@ -102,6 +95,9 @@ export default function BoardView({
   // Conditional row colors (Oct 22 2026): a card wears its rule's color as an
   // inset accent on its left edge - no tint on a card.
   const rowColors = useRowColorMap();
+  // The company's label names and colors (labels.js) - label lanes and the
+  // labels on each card.
+  const { map: labelMap } = useLabelColors();
   const [dragId, setDragId] = useState(null);
   // Which lane the card was picked up FROM. With a task able to sit in
   // several assignee (or label) lanes at once, the destination alone no
@@ -247,15 +243,19 @@ export default function BoardView({
     }
     if (swimlane === 'label') {
       // Like assignee lanes: a task with several labels is in each label's
-      // lane, so the lane counts add up to more than the board holds.
-      const seen = new Set();
-      for (const t of visible) for (const tag of t.tags || []) if (tag) seen.add(tag);
-      const out = [...seen].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
-        .map((tag) => ({ key: tag, label: tag, pill: true, match: (t) => (t.tags || []).includes(tag) }));
-      if (visible.some((t) => !(t.tags || []).filter(Boolean).length)) {
-        out.push({ key: '__none', label: 'No Label', match: (t) => !(t.tags || []).filter(Boolean).length });
-      }
-      return out;
+      // lane, so the lane counts add up to more than the board holds. The
+      // lanes are the List's label groups (lib.groupTasks 'label' - one rule):
+      // one per label KEY ("Urgent" and "urgent" are one label), read from
+      // the cards on the board (never the server's in-use list, which only a
+      // label manager gets), named by the company's display name else the
+      // most common spelling, A-Z, No Label last. A lane's key is that name -
+      // a card added in it takes the label so spelled (laneAddDefaults).
+      const hasLabel = (t) => (t.tags || []).some((x) => labelKey(x));
+      return groupTasks(visible, 'label', { labelMap }).map((g) => {
+        if (!g.labelName) return { key: '__none', label: 'No Label', match: (t) => !hasLabel(t) };
+        const k = g.key.slice('label:'.length);
+        return { key: g.labelName, label: g.labelName, pill: true, match: (t) => (t.tags || []).some((x) => labelKey(x) === k) };
+      });
     }
     if (swimlane === 'assignee') {
       const seen = new Map();
@@ -286,7 +286,7 @@ export default function BoardView({
     const out = [...seen.entries()].map(([id, label]) => ({ key: id, label, match: (t) => pid(t) === id }));
     if (visible.some((t) => !pid(t))) out.push({ key: '__none', label: 'No Project', match: (t) => !pid(t) });
     return out;
-  }, [swimlane, visible, ctx, store, boardFields]);
+  }, [swimlane, visible, ctx, store, boardFields, labelMap]);
 
   const taskOf = (id) => (store.tasks || []).find((x) => x.id === id) || visible.find((x) => x.id === id);
 
@@ -466,6 +466,8 @@ export default function BoardView({
             ) : <span style={{ fontWeight: 600 }}>Private Task</span>}
           </div>
         )}
+        {/* Labels (Planner's colored labels on the card): the shared strip. */}
+        <LabelStrip tags={t.tags} max={3} style={{ display: 'flex', flexWrap: 'wrap', marginTop: 6, maxWidth: '100%' }} />
         {showPreviews && <CardPreview task={t} store={store} canEdit={editable} />}
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <PriorityChip priority={t.priority} />
@@ -627,7 +629,7 @@ export default function BoardView({
             {lanes.map((lane) => (
               <div key={lane.key} data-board-lane={lane.key} style={{ borderBottom: `1px solid ${NX.border}` }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', fontSize: 12, fontWeight: 700, color: NX.ink }}>
-                  <Rows3 size={13} style={{ color: NX.faint }} />{lane.pill ? <LabelPill label={lane.label} /> : lane.label}
+                  <Rows3 size={13} style={{ color: NX.faint }} />{lane.pill ? <LabelPill name={lane.label} /> : lane.label}
                   <span style={{ fontSize: 11, fontWeight: 400, color: NX.faint }}>{visible.filter(lane.match).length}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, paddingBottom: 12 }}>

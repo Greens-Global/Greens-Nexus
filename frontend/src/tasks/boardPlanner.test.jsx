@@ -22,6 +22,8 @@ const ATTACHMENTS = [
   { id: 'f1', name: 'site.jpg', kind: 'image', url: 'http://localhost:8000/files/view?u=a', versionGroup: 'f0', version: 2 },
   { id: 'f2', name: 'spec.pdf', kind: 'doc', url: 'http://localhost:8000/files/view?u=b' },
   { id: 'f3', name: 'Drawings', kind: 'egnyte', url: 'https://greens.egnyte.com/x' },
+  // A web link whose name and address look like an image - still a link.
+  { id: 'f4', name: 'photo.png', kind: 'link', url: 'https://example.com/photo.png' },
 ];
 const base = { status: 'not_started', priority: 'medium', assigneeIds: [], followerIds: [], subtaskIds: [], commentIds: [], attachmentIds: [], tags: [], completed: false, customFieldValues: {}, projectId: 'p1', startOn: '', dueOn: '' };
 const statusMeta = { not_started: { label: 'Not Started', color: '#888' }, in_progress: { label: 'In Progress', color: '#48f' }, completed: { label: 'Completed', color: '#4a4' } };
@@ -46,6 +48,7 @@ const { default: TasksWorkspace } = await import('./TasksWorkspace');
 const { default: BoardView } = await import('./views/board');
 const { __setTablePrefsCache } = await import('./tableCols');
 const { ShowOnCardSelect } = await import('./CardPreview');
+const { __setLabelColors } = await import('./labels');
 
 beforeEach(() => {
   serverPrefs = {};
@@ -123,7 +126,10 @@ describe('the toolbar Group menu drives the board (it did nothing before)', () =
     store = makeStore(tasks, { defaultView: { view: 'board', group: 'status', lanes: 'label', columns: 'priority' } });
     render(<TasksWorkspace lockedProjectId="p1" />);
     expect(lanesShown()).toEqual(['Field', '__none']);
-    expect(within(document.querySelector('[data-board-lane="Field"]')).getByTestId('label-pill').textContent).toBe('Field');
+    // The lane header is the shared label pill (labels.js), in the label's color.
+    const pill = document.querySelector('[data-board-lane="Field"] .nx-tag');
+    expect(pill.textContent).toBe('Field');
+    expect(pill.getAttribute('data-tone')).toBeTruthy();
   });
 });
 
@@ -172,6 +178,34 @@ describe('label lanes', () => {
     expect(store.updateTask).toHaveBeenLastCalledWith('t3', { tags: ['Keep'] });
     await dragFromLane('Two labels', 'Keep', '__none');
     expect(store.updateTask).toHaveBeenLastCalledWith('t1', { tags: ['Alpha', 'Beta'] });
+  });
+});
+
+describe('labels on the board (labels.js)', () => {
+  afterEach(() => { __setLabelColors(null); });
+  it('one lane per label however it is spelled, named and colored as the company map says', () => {
+    __setLabelColors({ map: { urgent: { name: 'URGENT', color: 'red' } } });
+    const tasks = [
+      { ...base, id: 'u1', title: 'Lower', tags: ['urgent'] },
+      { ...base, id: 'u2', title: 'Upper', tags: ['Urgent ', 'Field'] },
+    ];
+    store = boardStore(tasks);
+    render(<BoardView visible={tasks} ctx={ctx} store={store} onOpen={() => {}} lockedProjectId="p1" group="label" columns="status" />);
+    expect(lanesShown()).toEqual(['Field', 'URGENT']);
+    const lane = document.querySelector('[data-board-lane="URGENT"]');
+    expect(within(lane).getByText('Lower')).toBeInTheDocument();
+    expect(within(lane).getByText('Upper')).toBeInTheDocument();
+    expect(lane.querySelector('.nx-tag').getAttribute('data-tone')).toBe('red');
+  });
+
+  it('a card shows its labels as the shared strip', () => {
+    const tasks = [{ ...base, id: 'c1', title: 'Labeled', tags: ['Alpha', 'Beta', 'Gamma', 'Delta'] }];
+    store = boardStore(tasks);
+    render(<BoardView visible={tasks} ctx={ctx} store={store} onOpen={() => {}} lockedProjectId="p1" group="none" columns="status" />);
+    const card = screen.getByText('Labeled').closest('[data-task-row]');
+    const strip = card.querySelector('[data-labels]');
+    expect([...strip.querySelectorAll('.nx-tag')].map((el) => el.textContent)).toEqual(['Alpha', 'Beta', 'Gamma']);
+    expect(strip.textContent).toContain('+1');
   });
 });
 
@@ -355,7 +389,7 @@ describe('Show On Card in the drawer', () => {
   it('offers Automatic / Checklist / Description / None and the task\'s image files only', async () => {
     const onChange = vi.fn();
     await act(async () => {
-      render(<ShowOnCardSelect task={{ id: 't1', attachmentIds: ['f1', 'f2', 'f3'], cardPreviewMode: '' }} onChange={onChange} />);
+      render(<ShowOnCardSelect task={{ id: 't1', attachmentIds: ['f1', 'f2', 'f3', 'f4'], cardPreviewMode: '' }} onChange={onChange} />);
     });
     const select = screen.getByRole('combobox', { name: 'Show On Card' });
     expect([...select.options].map((o) => o.textContent)).toEqual(['Automatic', 'Checklist', 'Description', 'None', 'site.jpg']);

@@ -61,7 +61,7 @@ export default function LabelsEditor({ tags = [], onChange, readOnly = false, kn
   return (
     <span ref={boxRef} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
       {list.map((t) => <LabelPill key={labelKey(t)} name={t} onRemove={remove} />)}
-      <input ref={inputRef} className="nx-inline-edit" value={input} aria-label="Add label"
+      <input ref={inputRef} className="nx-inline-edit" value={input} aria-label="Add label" maxLength={60}
         role="combobox" aria-expanded={open && suggestions.length > 0} aria-autocomplete="list"
         onChange={(e) => { setInput(e.target.value.replace(/,/g, '')); setOpen(true); setActive(-1); }}
         onFocus={() => setOpen(true)}

@@ -53,7 +53,7 @@ def saved_view_to_dict(s: models.TaskSavedView) -> dict:
             "boardColumns": getattr(s, "board_columns", "") or ""}
 
 
-_BOARD_COLUMNS = ("status", "section", "priority", "due")
+from routers.task_prefs import BOARD_COLUMNS as _BOARD_COLUMNS   # noqa: E402 - the one list
 
 
 class SavedViewBody(BaseModel):

@@ -83,7 +83,7 @@ def label_impact(name: str, company: str = "", user: dict = Depends(get_current_
     `tasks` counts the Recycle Bin too; the rest is task_labels.carry_through
     (for a rename; `deleteRules` is what a delete would do to rules)."""
     cid = L.company_for(db, user, company)
-    key = L.label_key(L.check_name(name))
+    key = L.label_key(L.existing_name(name))
     renamed = L.carry_through(db, cid, key, "-", dry_run=True)
     deleted = L.carry_through(db, cid, key, None, dry_run=True)
     return {**renamed, "tasks": L.task_count(db, cid, key), "companyId": cid,
@@ -94,7 +94,7 @@ def label_impact(name: str, company: str = "", user: dict = Depends(get_current_
 def set_color(body: ColorBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     cid = L.company_for(db, user, body.company or "")
     L.require_company(db, cid)
-    name = L.check_name(body.name)
+    name = L.existing_name(body.name)
     color = (body.color or "").strip()
     if color and color not in L.TONES:
         raise HTTPException(422, "That color is not one of the label colors.")
@@ -117,7 +117,7 @@ def rename_label(body: RenameBody, user: dict = Depends(get_current_user), db: S
     Locks the map row first and computes from it (task_labels lock order)."""
     cid = L.company_for(db, user, body.company or "")
     L.require_company(db, cid)
-    old = L.check_name(body.name)
+    old = L.existing_name(body.name)
     new = L.check_name(body.to)
     old_key, new_key = L.label_key(old), L.label_key(new)
     row, labels = L.lock_map(db, cid)
@@ -154,7 +154,7 @@ def delete_label(body: DeleteBody, user: dict = Depends(get_current_user), db: S
     and counted (`also.rulesStillNaming`)."""
     cid = L.company_for(db, user, body.company or "")
     L.require_company(db, cid)
-    key = L.label_key(L.check_name(body.name))
+    key = L.label_key(L.existing_name(body.name))
     row, labels = L.lock_map(db, cid)
     changed = L.rewrite(db, cid, key, None, user["email"])
     also = L.carry_through(db, cid, key, None)

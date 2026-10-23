@@ -423,6 +423,9 @@ class ConvertTests(Base):
         self.assertFalse(sub["completed"])
         self.assertIn(sub["id"], parent["subtaskIds"])
         self.assertEqual((parent["checklistTotal"], parent["checklistDone"]), (1, 0))
+        # The parent comes back with its board card's preview (the client swaps
+        # it in): the converted line is already off the card.
+        self.assertEqual([x["title"] for x in parent["cardPreview"]["items"]], ["Keep me"])
         left = T.list_checklist(self.parent.id, user=OWNER, db=self.db)
         self.assertEqual([x["id"] for x in left], [keep["id"]])
         acts = self.db.query(models.TaskActivity).filter_by(entity_id=self.parent.id,
@@ -668,6 +671,52 @@ class SubtaskPrivacyTests(Base):
         self.assertEqual(self.level(private.id), "restricted")
         moved = self.db.query(models.TaskActivity).filter_by(entity_id=private.id, type="moved").one()
         self.assertNotIn("now private", moved.detail)
+
+    # Integration (Oct 22 2026): the rule holds on every path, not only on
+    # create and move - an edit, the parent going private, a repeat.
+    def test_a_subtask_under_a_private_task_cannot_be_opened_up(self):
+        sub = self.create(title="Sub", parent_task_id=self.secret.id)
+        self.assertEqual(self.code(lambda: T.update_task(sub["id"], T.TaskUpdate(access_level="org"), self.bg,
+                                                         user=OWNER, db=self.db)), 422)
+        self.assertEqual(self.level(sub["id"]), "restricted")
+        # Opening the parent first opens the way.
+        T.update_task(self.secret.id, T.TaskUpdate(access_level="org"), self.bg, user=OWNER, db=self.db)
+        T.update_task(sub["id"], T.TaskUpdate(access_level="org"), self.bg, user=OWNER, db=self.db)
+        self.assertEqual(self.level(sub["id"]), "org")
+
+    def test_making_a_task_private_takes_its_open_subtasks_with_it(self):
+        top = self.task(project_id="", access_level="org", owner_email=OWNER["email"])
+        kid = self.task(project_id="", access_level="org", parent_task_id=top.id)
+        grandkid = self.task(project_id="", access_level="org", parent_task_id=kid.id)
+        top.subtask_ids, kid.subtask_ids = [kid.id], [grandkid.id]
+        self.db.commit()
+        T.update_task(top.id, T.TaskUpdate(access_level="restricted"), self.bg, user=OWNER, db=self.db)
+        self.assertEqual([self.level(x.id) for x in (top, kid, grandkid)], ["restricted"] * 3)
+        self.assertEqual(self.code(lambda: T.list_checklist(grandkid.id, user=OUTSIDER, db=self.db)), 404)
+
+    def test_a_repeat_never_makes_a_wider_copy(self):
+        # An org-wide subtask left under a private task from before the rule:
+        # its next occurrence, and the copy a repeating private task carries,
+        # are private.
+        rule = {"freq": "weekly", "interval": 1, "daysOfWeek": [1]}
+        own = self.task(project_id="", access_level="org", parent_task_id=self.secret.id,
+                        due_on="2026-10-19", recurrence=dict(rule))
+        nxt = T._spawn_next_occurrence(self.db, own, OWNER, notify=False)
+        self.db.commit()
+        self.assertEqual(nxt.access_level, "restricted")
+        main = self.task(project_id="", access_level="restricted", owner_email=OWNER["email"],
+                         due_on="2026-10-19", recurrence=dict(rule))
+        legacy = self.task(project_id="", access_level="org", parent_task_id=main.id)
+        main.subtask_ids = [legacy.id]
+        self.db.commit()
+        T.update_task(main.id, T.TaskUpdate(completed=True), self.bg, user=OWNER, db=self.db)
+        self.db.expire_all()
+        nxt_main = self.db.query(models.Task).filter(models.Task.title == main.title, models.Task.id != main.id,
+                                                     models.Task.recurrence.isnot(None),
+                                                     models.Task.parent_task_id == "").all()
+        copies = self.db.query(models.Task).filter(models.Task.parent_task_id.in_([m.id for m in nxt_main])).all()
+        self.assertTrue(copies)
+        self.assertTrue(all(c.access_level == "restricted" for c in copies))
 
 
 if __name__ == "__main__":

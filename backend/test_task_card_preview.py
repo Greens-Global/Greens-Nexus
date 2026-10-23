@@ -195,6 +195,31 @@ class PayloadTests(Base):
         self.assertEqual(p["name"], "site-v2.jpg")
         self.assertTrue(p["url"].startswith(STORE))
 
+    def test_a_web_link_or_an_egnyte_row_is_never_a_cover(self):
+        # Kind decides, not the address: a web link (kind "link", POST
+        # /{id}/links) or an Egnyte row whose url and name look exactly like
+        # a stored image is still a link - never a cover, automatic or picked.
+        t = self.task(access_level="org")
+        web = self.file(t, name="photo.png", kind="link", url=f"{STORE}/elsewhere/photo.png", at="2026-10-01T00:00:00")
+        eg = self.file(t, name="plan.jpg", kind="egnyte", url=f"{STORE}/elsewhere/plan.jpg", at="2026-10-01T00:00:01")
+        self.lines(t, 2)
+        p = self.listed(MANAGER)[t.id]["cardPreview"]
+        self.assertEqual(p["kind"], "checklist")
+        for a in (web, eg):
+            self.assertFalse(CP.is_cover_file(a))
+            self.assertEqual(self.code(lambda: self.patch(t, MANAGER, card_preview=f"image:{a.id}")), 422)
+        # A real file added after them is the cover.
+        real = self.file(t, name="site.png", at="2026-10-02T00:00:00")
+        self.assertEqual(self.listed(MANAGER)[t.id]["cardPreview"]["id"], real.id)
+
+    def test_a_web_link_added_through_its_route_is_never_a_cover(self):
+        t = self.task(access_level="org")
+        T.add_web_link(t.id, T.WebLinkCreate(url="https://example.com/cover.png"), user=MANAGER, db=self.db)
+        self.db.expire_all()
+        rows = self.db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == t.id).all()
+        self.assertEqual([r.kind for r in rows], ["link"])
+        self.assertIsNone(self.listed(MANAGER)[t.id]["cardPreview"])
+
     def test_automatic_falls_back_to_the_open_checklist_then_nothing(self):
         t = self.task(access_level="org")
         self.file(t, name="spec.pdf", kind="doc")

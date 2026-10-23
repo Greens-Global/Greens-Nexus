@@ -261,8 +261,9 @@ class ProjectBody(BaseModel):
 
 VIEW_KINDS = ("list", "board", "calendar", "timeline", "dashboard", "workload", "files")
 GROUP_KINDS = ("status", "priority", "assignee", "project", "none", "due", "label")
-# A Board's columns (Oct 22 2026) - frontend/src/tasks/boardLayout.js.
-BOARD_COLUMNS = ("status", "section", "priority", "due")
+# A Board's columns (Oct 22 2026) - frontend/src/tasks/boardLayout.js; the
+# one list lives in task_prefs.
+from routers.task_prefs import BOARD_COLUMNS   # noqa: E402
 MAX_SHARED_CHARTS = 24
 MAX_CHART_BYTES = 4 * 1024
 

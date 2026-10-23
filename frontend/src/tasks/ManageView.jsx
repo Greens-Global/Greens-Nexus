@@ -2,7 +2,7 @@
 // strip (Automation rules · Custom fields · Custom statuses · Templates · Intake
 // forms · Activity log · Reporting), ported from the export's manage/ + reporting/
 // screens onto the Nexus inline-style idiom + FastAPI-backed store.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState } from '../components/AsyncState';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
@@ -30,7 +30,8 @@ import { checkFormula, normalizeFormat, formulaContext, previewRows, fieldNamePr
 import { groupFieldChanges, foldBulkChanges } from './fieldHistory';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { TeamModal, deptIcon } from './TeamsView';
-import LabelsManageTab from './LabelsManageTab';
+// Manage > Labels, rarely opened: loaded with the tab (a ring meanwhile).
+const LabelsManageTab = lazy(() => import('./LabelsManageTab'));
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -157,7 +158,7 @@ export default function ManageView({ onExit }) {
             {tab === 'rules' && <RulesTab store={store} />}
             {tab === 'fields' && <FieldsTab store={store} />}
             {tab === 'statuses' && <StatusesTab store={store} />}
-            {tab === 'labels' && <LabelsManageTab />}
+            {tab === 'labels' && <Suspense fallback={<LoadingState label="Loading labels" />}><LabelsManageTab /></Suspense>}
             {tab === 'templates' && <TemplatesTab store={store} />}
             {/* {tab === 'intake' && <IntakeTab store={store} />}  - see the tab list */}
             {tab === 'trash' && <DeletedTasksTab store={store} />}

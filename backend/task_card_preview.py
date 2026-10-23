@@ -19,7 +19,8 @@ to read a checklist needs them; the checklist lines) - never a query per
 task. Tasks that cannot show anything cost no query at all.
 
 A cover is the CURRENT version of a file (a newer version takes its place),
-only a file stored in Nexus's own storage (never an Egnyte or outside link),
+only a file stored in Nexus's own storage (never an Egnyte row or a web
+link - kind "egnyte" / "link", whatever its address looks like),
 and only ever a file of the task it is shown on: the files are read by the
 listed tasks' ids, and a picked image is looked up among that task's own.
 """
@@ -47,6 +48,10 @@ _SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 # counts; a deployed API accepts only its own project's storage.
 _STORAGE_PREFIX = f"{_SUPABASE_URL}/storage/v1/object/public/" if _SUPABASE_URL else ""
 _STORAGE_SHAPE = re.compile(r"^https?://[^/]+/storage/v1/object/public/[^?#]+", re.I)
+# Attachment rows that are LINKS, not files: an Egnyte item (POST
+# /{id}/egnyte-links) and a web page (POST /{id}/links). Never a cover, by
+# their kind - not by whether the address happens to look like storage.
+LINK_KINDS = ("egnyte", "link")
 
 
 # ── What counts as a cover ──────────────────────────────────────────────────
@@ -61,15 +66,20 @@ def stored_file(url: str) -> bool:
     return bool(_STORAGE_SHAPE.match(u))
 
 
+def image_file(kind, name) -> bool:
+    """An image FILE by its kind and name: never a link row (LINK_KINDS); an
+    "image" kind or an image file name. The one test is_cover_file and the
+    bulk build (_covers) both use - storage is checked beside it."""
+    k = kind or ""
+    if k in LINK_KINDS:
+        return False
+    return k == "image" or bool(_IMAGE_EXT.search((name or "").split("?", 1)[0]))
+
+
 def is_cover_file(a) -> bool:
     """An image file in our storage. `a` is a TaskAttachment row or a row of
     its columns (kind, name, url)."""
-    if (a.kind or "") == "egnyte":
-        return False
-    name = (a.name or "").split("?", 1)[0]
-    if (a.kind or "") != "image" and not _IMAGE_EXT.search(name):
-        return False
-    return stored_file(a.url)
+    return image_file(a.kind, a.name) and stored_file(a.url)
 
 
 def copyable(mode) -> str:
@@ -158,7 +168,7 @@ def _open_lines(t: models.Task) -> int:
 
 
 def _stored_clause(A):
-    """SQL for "a file in Nexus's own storage, not an Egnyte link": the
+    """SQL for "a file in Nexus's own storage, not an Egnyte or web link": the
     storage-URL rule of stored_file, evaluated in the database so no URL -
     a legacy inline data: file can be megabytes - is read to decide."""
     from sqlalchemy import and_
@@ -166,7 +176,7 @@ def _stored_clause(A):
         in_store = A.url.startswith(_STORAGE_PREFIX, autoescape=True)
     else:
         in_store = and_(A.url.like("http%://%/storage/v1/object/public/%"), ~A.url.like("data:%"))
-    return and_(func.coalesce(A.kind, "") != "egnyte", in_store)
+    return and_(func.coalesce(A.kind, "").notin_(LINK_KINDS), in_store)
 
 
 def _covers(db: Session, tasks: list) -> dict:
@@ -196,8 +206,7 @@ def _covers(db: Session, tasks: list) -> dict:
         return (r.version or 1, r.added_at or "", r.id)
 
     def usable(r):
-        return bool(r.stored) and (r.kind or "") != "egnyte" and (
-            (r.kind or "") == "image" or bool(_IMAGE_EXT.search((r.name or "").split("?", 1)[0])))
+        return bool(r.stored) and image_file(r.kind, r.name)
 
     picked = {}
     for t in tasks:

@@ -138,6 +138,10 @@ describe('lane drops', () => {
     expect(labelLaneTags([], '__none', 'B')).toEqual(['B']);                  // from No Label
     expect(labelLaneTags(['A', 'X'], 'A', '__none')).toEqual(['X']);          // onto No Label: only A goes
     expect(labelLaneTags(['A'], 'A', 'A')).toBeNull();                        // same lane
+    // One label, however it is spelled: the task's "urgent" leaves the "Urgent" lane.
+    expect(labelLaneTags(['urgent', 'X'], 'Urgent', 'Field')).toEqual(['X', 'Field']);
+    expect(labelLaneTags(['urgent'], '__none', 'Urgent')).toBeNull();          // already has it
+    expect(labelLaneTags(['A'], 'A', 'a')).toBeNull();
   });
 
   it('assignee lanes hand the card over from the lane it came from', () => {
@@ -161,6 +165,9 @@ describe('cover candidates', () => {
     expect(isCoverCandidate({ kind: 'image', name: 'a.png', url: 'https://x/files/view?u=1' })).toBe(true);
     expect(isCoverCandidate({ kind: 'other', name: 'site.JPG', url: 'https://x/y' })).toBe(true);
     expect(isCoverCandidate({ kind: 'egnyte', name: 'a.png', url: 'https://greens.egnyte.com/x' })).toBe(false);
+    // A web link is a link, never a cover - even one whose name and address look like an image.
+    expect(isCoverCandidate({ kind: 'link', name: 'photo.png', url: 'https://example.com/photo.png' })).toBe(false);
+    expect(isCoverCandidate({ kind: 'link', name: 'https://x/storage/v1/object/public/a.png', url: 'https://x/storage/v1/object/public/a.png' })).toBe(false);
     expect(isCoverCandidate({ kind: 'image', name: 'a.png', url: '' })).toBe(false);
     expect(isCoverCandidate({ kind: 'image', name: 'a.png', url: 'data:image/png;base64,AA' })).toBe(false);
     expect(isCoverCandidate({ kind: 'doc', name: 'spec.pdf', url: 'https://x/y' })).toBe(false);

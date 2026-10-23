@@ -80,6 +80,7 @@ import auth
 import models
 import task_automation
 import task_due
+import task_labels
 from database import SessionLocal
 from routers.task_config import (
     _parse_applies_to, coerce_custom_field_values, field_applies_to, missing_required_fields,
@@ -436,11 +437,13 @@ def _parse_row(ctx: _Context, raw: dict, index: int) -> _Row:
             r.dropped.append({"email": who.lower() if "@" in who else who, "reason": why})
             r.warnings.append(f"Assignee \"{who}\" {why} - left off.")
 
+    # Labels by their key (task_labels: "Q4  launch" is "Q4 launch"), each
+    # cut to the label length the save then holds them to.
     tags, tag_seen = [], set()
     for tag in _split(_cell(raw.get("tags"))):
-        tag = tag[:100]
-        if tag.lower() not in tag_seen:
-            tag_seen.add(tag.lower())
+        tag = task_labels.clean_name(tag)[:task_labels.MAX_NAME].rstrip()
+        if tag and task_labels.label_key(tag) not in tag_seen:
+            tag_seen.add(task_labels.label_key(tag))
             tags.append(tag)
     if len(tags) > MAX_TAGS:
         r.warnings.append(f"Only the first {MAX_TAGS} tags were kept.")

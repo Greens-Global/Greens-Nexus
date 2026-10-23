@@ -6,7 +6,7 @@ import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
 import { toViewUrl, isOwnImageUrl } from '../lib/storageView';
 import { dialog } from '../ui/dialog';
-import { labelKey, labelName, labelTone } from './labels';
+import { labelKey, labelName, labelTone, labelsInUse } from './labels';
 
 export const EMPTY_FILTER = {
   // collaboratorIds = people in a task's follower list (Asana "collaborators").
@@ -924,19 +924,22 @@ export function groupTasks(list, group, ctx = {}) {
   // group counts add up to more than the rows. Groups run A-Z by the name
   // shown (the company's display name, ctx.labelMap); "No Label" comes last.
   // Keys are prefixed so a label never shares a collapsed-group key with a
-  // status or priority group.
+  // status or priority group. A group is named as the Board's label lanes
+  // name theirs: the company's display name, else the spelling most of these
+  // tasks use (labels.labelsInUse).
   if (group === 'label') {
     const map = ctx.labelMap || null;
+    const spelled = new Map(labelsInUse(list).map((r) => [r.key, r.name]));
     const byKey = new Map();
     const none = { key: '-', label: 'No Label', tasks: [] };
     for (const t of list) {
-      const keys = new Map();
-      for (const tag of t.tags || []) { const k = labelKey(tag); if (k && !keys.has(k)) keys.set(k, tag); }
+      const keys = new Set();
+      for (const tag of t.tags || []) { const k = labelKey(tag); if (k) keys.add(k); }
       if (!keys.size) { none.tasks.push(t); continue; }
-      for (const [k, tag] of keys) {
+      for (const k of keys) {
         if (!byKey.has(k)) {
-          const name = labelName(tag, map);
-          byKey.set(k, { key: `label:${k}`, label: name, labelName: name, color: labelTone(tag, map).dot, tasks: [] });
+          const name = labelName(spelled.get(k), map);
+          byKey.set(k, { key: `label:${k}`, label: name, labelName: name, color: labelTone(name, map).dot, tasks: [] });
         }
         byKey.get(k).tasks.push(t);
       }

@@ -453,6 +453,51 @@ class BulkTests(Base):
         self.assertEqual((self.tags(a), self.tags(b)), ([], []))
 
 
+class WritePathTests(Base):
+    """Integration (Oct 22 2026): the drawer / create / import save path and
+    Manage > Labels apply ONE label rule - merged by key, a NEW label at most
+    MAX_NAME characters, at most MAX_PER_TASK - and a label stored before the
+    cap (or by an old import) can still be recolored, renamed, deleted and
+    removed in bulk."""
+    LONG = "A very long label that somebody typed before the cap existed, seventy"
+
+    def patch(self, t, tags):
+        from fastapi import BackgroundTasks
+        return T.update_task(t.id, T.TaskUpdate(tags=tags), BackgroundTasks(), user=AMGR, db=self.db)
+
+    def test_a_save_merges_spacing_and_case_variants(self):
+        t = self.task(tags=[])
+        self.assertEqual(self.patch(t, ["Q4 launch", "Q4  launch", " q4 LAUNCH ", "Ops"])["tags"], ["Q4 launch", "Ops"])
+
+    def test_a_new_label_keeps_the_length_and_count_rules(self):
+        t = self.task(tags=["x"])
+        self.assertEqual(self.code(lambda: self.patch(t, ["x", "y" * 61])), 422)
+        self.assertEqual(self.code(lambda: self.patch(t, [f"l{i}" for i in range(31)])), 422)
+        self.assertEqual(self.tags(t), ["x"])
+        self.assertEqual(len(self.patch(t, [f"l{i}" for i in range(30)])["tags"]), 30)
+
+    def test_a_label_already_on_the_task_is_kept_whatever_its_length(self):
+        self.assertGreater(len(self.LONG), L.MAX_NAME)
+        t = self.task(tags=[self.LONG, "Old"])
+        self.assertEqual(self.patch(t, [self.LONG, "New"])["tags"], [self.LONG, "New"])
+
+    def test_a_long_legacy_label_can_still_be_managed(self):
+        a, b = self.task(tags=[self.LONG, "Keep"]), self.task(tags=[self.LONG])
+        R.set_color(R.ColorBody(name=self.LONG, color="red"), user=AMGR, db=self.db)
+        self.assertEqual(L.get_map(self.db, "")[L.label_key(self.LONG)]["color"], "red")
+        self.assertEqual(R.label_impact(name=self.LONG, user=AMGR, db=self.db)["tasks"], 2)
+        T.bulk_update(T.BulkUpdate(ids=[a.id], tags_remove=[self.LONG]), user=AMGR, db=self.db)
+        self.assertEqual(self.tags(a), ["Keep"])
+        R.rename_label(R.RenameBody(name=self.LONG, to="Short"), user=AMGR, db=self.db)
+        self.assertEqual(self.tags(b), ["Short"])
+        # A NEW name still keeps the cap.
+        self.assertEqual(self.code(lambda: R.rename_label(R.RenameBody(name="Short", to="z" * 61),
+                                                          user=AMGR, db=self.db)), 422)
+        c = self.task(tags=[self.LONG])
+        R.delete_label(R.DeleteBody(name=self.LONG), user=AMGR, db=self.db)
+        self.assertEqual(self.tags(c), [])
+
+
 class ViewTests(Base):
     def test_a_saved_view_keeps_the_labels_filter_and_the_label_grouping(self):
         C.create_saved_view(C.SavedViewBody(name="Hot", view="list", group="label",
