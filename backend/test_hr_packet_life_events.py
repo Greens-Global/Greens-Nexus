@@ -166,7 +166,8 @@ class LifeEventDocsCase(unittest.TestCase):
 
 class PromotionDocsTests(LifeEventDocsCase):
     def test_letter_generated_verified_signed_and_applied(self):
-        body = {"inputs": {"change_type": "promotion", "role_id": "jr-2", "effective_date": "2030-01-01"},
+        body = {"inputs": {"change_type": "promotion", "role_id": "jr-2", "effective_date": "2030-01-01",
+                           "reason": "Exceeded targets"},
                 "pay": {"base": 40, "payBasis": "hourly", "currency": "USD"}}
         preview = self.client.post("/hr/employees/e-erin/promotion/preview", json=body).json()
         self.assertEqual(preview["engine"], "documents")

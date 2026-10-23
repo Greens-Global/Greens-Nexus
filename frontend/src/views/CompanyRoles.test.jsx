@@ -29,12 +29,15 @@ vi.mock('../api', () => ({
       { kind: 'onboarding', kindLabel: 'Onboarding', entityId: '', inherited: false, updatedAt: 'x',
         items: [{ key: 'SL-1', phase: 'Site Lead Steps', title: 'Site Safety Walkthrough', owner: 'manager', anchor: 'S', offset: 5, bd: false, applies: {}, signal: '', hint: '' }] },
     ] })),
+    unassignJobRole: vi.fn(() => Promise.resolve({})),
   },
 }));
+vi.mock('../ui/dialog', () => ({ dialog: { prompt: vi.fn(() => Promise.resolve('Left the field team')), confirm: vi.fn() } }));
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: DIRECTORY }), useEntities: () => ({ data: [] }) }));
 vi.mock('../lib/useNameResolver', () => ({ useNameResolver: () => email => email }));
 
 const CompanyRoles = (await import('./CompanyRoles')).default;
+const { api } = await import('../api');
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -77,6 +80,14 @@ describe('CompanyRoles', () => {
     expect(screen.getByRole('tab', { name: 'Access & People' })).toHaveAttribute('aria-selected', 'true');
     fireEvent.click(screen.getByRole('tab', { name: /Checklists/ }));
     expect(await screen.findByText('Site Safety Walkthrough')).toBeInTheDocument();
+  });
+
+  // Taking a role away asks why - kept in their role history (Neil, Oct 22).
+  it('asks for the reason before removing someone from a role', async () => {
+    renderTab();
+    fireEvent.click(await screen.findByRole('button', { name: /Site Lead/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove amy@greensglobal.com' }));
+    await vi.waitFor(() => expect(api.unassignJobRole).toHaveBeenCalledWith('r-lead', 'amy@greensglobal.com', 'Left the field team'));
   });
 
   it("opens a shared role's steps from its Checklists button", async () => {

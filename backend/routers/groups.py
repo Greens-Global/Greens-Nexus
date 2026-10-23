@@ -1,11 +1,10 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
-from models import NexusGroup, NexusGroupMember, NexusRole, NexusEmployee
+from models import NexusGroup, NexusGroupMember, NexusRole
 from auth import get_current_user, require_administrator, invalidate_role_cache, _MODULE_LEVEL_RANK
 from routers.roles import VALID_ROLES, ROLE_LEVEL, _get_role
 
@@ -229,22 +228,20 @@ def delete_group(group_id: str, user: dict = Depends(require_administrator), db:
     return {"deleted": group_id}
 
 
+def _refuse_job_role(group: NexusGroup):
+    """A job role's members change only through Assign / Change Role, which
+    check the company wall and tier and log the reason (Neil, Oct 22: no
+    "changing role up and changing role down without some sort of a log")."""
+    if group.is_job_role:
+        raise HTTPException(status_code=400, detail="This is a job role - use Assign or Change Role, which keeps the reason in their role history.")
+
+
 @router.post("/{group_id}/members")
 def add_members(group_id: str, body: MembersUpdate, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     group = db.query(NexusGroup).filter(NexusGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-
-    # Same rule as POST /jobroles/{id}/assign: a company job role never goes to
-    # someone who works for a different company (it would open that company's
-    # wall to them). People with no company on record are allowed.
-    role_company = (group.company_id or "").strip() if group.is_job_role else ""
-    if role_company:
-        for email in body.emails or []:
-            emp = (db.query(NexusEmployee.company)
-                   .filter(func.lower(NexusEmployee.work_email) == email.lower().strip()).first())
-            if emp and (emp.company or "").strip() not in ("", role_company):
-                raise HTTPException(status_code=400, detail=f"{email} works for another company, so they can't hold this company's role")
+    _refuse_job_role(group)
 
     now = _ts()
     existing = {m.email for m in db.query(NexusGroupMember).filter(NexusGroupMember.group_id == group_id).all()}
@@ -266,6 +263,7 @@ def remove_member(group_id: str, email: str, user: dict = Depends(require_admini
     group = db.query(NexusGroup).filter(NexusGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+    _refuse_job_role(group)
 
     target = email.lower().strip()
     row = db.query(NexusGroupMember).filter(NexusGroupMember.group_id == group_id, NexusGroupMember.email == target).first()
