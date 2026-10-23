@@ -282,6 +282,22 @@ class VerifierTests(ReviewCase):
 
 
 class DynamicTests(ReviewCase):
+    def test_a_printed_detail_left_empty_names_the_person_and_the_field(self):
+        # Neil, 10/22 56:42: the emergency contact never goes out blank - and HR is told why it stops.
+        db = database.SessionLocal()
+        content = _doc(_p("Emergency: ", "{{emergency_name}}", " ", "{{emergency_phone}}", " ", "{{probation}}"),
+                       _sig("employee"))
+        db.query(models.DocTemplate).filter_by(id="t-nda").update({"content": content})
+        db.query(models.DocTemplateVersion).filter_by(id="v-t-nda").update({"content": content})
+        db.commit()
+        db.close()
+        ev = self._start(details={"first_name": "Jane", "last_name": "Doe", "phone": "555-0100", "address": "12 Pine St"})
+        review = self._review(ev["id"])
+        self.assertIn('Jane left Emergency Contact Name, Emergency Contact Phone empty, and "NDA - Jane Doe" prints '
+                      'them - click Edit to fill them in.', review["problems"])
+        self.assertIn('"NDA - Jane Doe" still has unfilled details: probation.', review["problems"])
+        self.assertFalse(review["canVerify"])
+
     def test_a_publish_regenerates_and_a_stale_verify_is_refused(self):
         eid = self._start()["id"]
         stale = self._review(eid)

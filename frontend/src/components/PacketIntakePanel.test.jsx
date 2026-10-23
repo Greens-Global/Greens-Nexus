@@ -57,6 +57,21 @@ describe('PacketIntakePanel', () => {
     expect(screen.getByText(/Preview Only - Nothing Is Sent/)).toBeTruthy();
   });
 
+  it('lists what each role’s own documents add, and says so when no role has any', async () => {
+    preview.mockResolvedValue({ ...RESULT, roles: [{ id: 'r1', name: 'Construction Associate', documents: ['Construction NDA'], replaces: ['NDA'], asks: ['Safety Card Number'] }] });
+    const { unmount } = render(<PacketIntakePanel docIds={['t1']} extraDocs={[]} detailsForm={[]} companyId="co-ca" roleIds={[]} companyName="Oversite" />);
+    await waitFor(() => expect(screen.getByTestId('role-r1')).toBeTruthy());
+    expect(preview.mock.calls[0][0]).toMatchObject({ entity_id: 'co-ca', role_ids: [] });
+    const r = screen.getByTestId('role-r1').textContent;
+    expect(r).toContain('Construction NDA');
+    expect(r).toContain('Replaces NDA');
+    expect(r).toContain('Also asks: Safety Card Number');
+    unmount();
+    preview.mockResolvedValue({ ...RESULT, roles: [] });
+    render(<PacketIntakePanel docIds={['t1']} extraDocs={[]} detailsForm={[]} companyId="co-ca" companyName="Oversite" />);
+    await waitFor(() => expect(screen.getByText(/None of Oversite's roles has hiring documents/)).toBeTruthy());
+  });
+
   it('a field that would not save says why', async () => {
     preview.mockRejectedValue(new Error('"Phone" would be {{phone}}, which Nexus already fills'));
     render(<PacketIntakePanel docIds={[]} extraDocs={[]} detailsForm={[{ label: 'Phone' }]} />);

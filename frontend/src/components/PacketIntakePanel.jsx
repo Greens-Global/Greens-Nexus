@@ -19,8 +19,10 @@ const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', f
 const chip = { padding: '2px 8px', borderRadius: 10, fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', background: 'var(--mist)', color: 'var(--muted)' };
 const docNote = (docs) => <span style={{ fontSize: 12, color: 'var(--muted)' }}><FileText size={11} style={{ verticalAlign: -1 }} /> {docs.join(', ')}</span>;
 
-const payload = (docIds, extraDocs, detailsForm) => ({
+const payload = (docIds, extraDocs, detailsForm, companyId, roleIds) => ({
   doc_template_ids: docIds,
+  entity_id: companyId || '',
+  role_ids: roleIds || [],
   extra_docs: (extraDocs || []).map(r => ({ templateIds: r.templateIds || [] })),
   // A field still being typed (no label yet) is left out rather than refused.
   details_form: (detailsForm || []).filter(f => String(f.label || '').trim())
@@ -28,11 +30,11 @@ const payload = (docIds, extraDocs, detailsForm) => ({
       key: key || '', label, type, required: !!required, sensitive: !!sensitive, last4: !!last4, options: options || [], help: help || '' })),
 });
 
-export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, companyName, children }) {
+export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, companyId, roleIds, companyName, children }) {
   const [data, setData] = useState(null);
   const [problem, setProblem] = useState('');
   const [previewOpen, setPreviewOpen] = useState(false);
-  const key = JSON.stringify(payload(docIds, extraDocs, detailsForm));
+  const key = JSON.stringify(payload(docIds, extraDocs, detailsForm, companyId, roleIds));
 
   useEffect(() => {
     let live = true;
@@ -97,6 +99,24 @@ export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, comp
             {docNote(f.documents)}
           </div>
         ))}
+
+        <div style={sub}>Each Role&apos;s Own Documents</div>
+        {(data.roles || []).length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+            {roleIds?.length ? 'This role has no hiring documents of its own.'
+              : `None of ${companyName || 'this company'}'s roles has hiring documents of its own yet. When one does, its documents and their questions are added here for hires in that role.`}
+          </div>
+        ) : (<>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Added to this packet for a hire in that role - their questions are asked too.</div>
+          {data.roles.map(r => (
+            <div key={r.id} style={row} data-testid={`role-${r.id}`}>
+              <b style={{ minWidth: 140 }}>{r.name}</b>
+              {docNote(r.documents)}
+              {r.replaces?.length > 0 && <span style={chip}>Replaces {r.replaces.join(', ')}</span>}
+              <span style={{ color: 'var(--muted)' }}>{r.asks?.length ? `Also asks: ${r.asks.join(', ')}` : 'No extra questions'}</span>
+            </div>
+          ))}
+        </>)}
       </>)}
 
       <div style={sub}>Also Ask (Saved To Their Record, Not Printed In A Document)</div>
