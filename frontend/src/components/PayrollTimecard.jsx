@@ -1907,7 +1907,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         </p>
       )}
 
-      {T && <TimecardBonuses card={data} periodStart={perStart} self={self} locked={noEdit} fmtM={fmtM} showPay={showPay}
+      {T && <TimecardBonuses card={data} periodStart={perStart} self={self} locked={ownCard || (!!fin && !data.review?.isHr)} fmtM={fmtM} showPay={showPay}
         onChanged={load} toastOk={toastOk} toastErr={toastErr} />}
 
       {/* Review + Nexus Sign (Sep 2026): the employee submits, the manager sends
@@ -2380,7 +2380,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         </div>
       </div>
 
-      <TimecardBonuses card={data} periodStart={data.periodStart} self={self} locked={noEdit} fmtM={fmtM} showPay={showPay}
+      <TimecardBonuses card={data} periodStart={data.periodStart} self={self} locked={ownCard || (!!fin && !data.review?.isHr)} fmtM={fmtM} showPay={showPay}
         onChanged={load} toastOk={toastOk} toastErr={toastErr} />
 
       {/* Review + Nexus Sign (same as hourly) - at the top on the employee's own sheet */}
