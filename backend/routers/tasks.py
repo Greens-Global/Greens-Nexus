@@ -1140,9 +1140,11 @@ def _pin_private(db: Session, user: dict, rows: list) -> list:
     would no longer see a row by its own grants (task_is_visible - the rule
     the lists apply, never the project hop a single read allows) is added to
     its collaborators, so nobody locks themselves out of what they just
-    protected. A manager sees everything and is never added. Returns the
-    rows they were added to."""
-    if is_manager(user):
+    protected. A manager sees everything and is never added; nor is an
+    external, who never saw a row through the task above it (task_is_visible)
+    and so loses nothing - adding one would hand a guest rows they never
+    had. Returns the rows they were added to."""
+    if is_manager(user) or user.get("external"):
         return []
     me = (user.get("email") or "").strip().lower()
     if not me:

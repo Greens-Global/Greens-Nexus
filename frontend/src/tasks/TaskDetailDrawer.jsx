@@ -1018,7 +1018,7 @@ export function ShareModal({ task, people, nameOf, patch, onClose }) {
                   {reopenBelow === 1 ? 'Its 1 subtask made private with it:' : `Its ${reopenBelow} subtasks made private with it:`}
                 </div>
                 <div style={{ fontSize: 12, color: NX.dim, marginTop: 4 }}>
-                  Open Subtasks Too shares them with everyone as well. Keep Them Private leaves them private: only the people on each subtask will see it; people who can see this task won't.
+                  Open Subtasks Too shares them with everyone as well. Keep Them Private leaves them private: only the people on each subtask will see it; people who can see this task won't. You stay on them.
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
                   <button type="button" autoFocus onClick={() => reopenWith(false)} style={btn('primary')}>Open Subtasks Too</button>

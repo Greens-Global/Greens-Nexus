@@ -189,6 +189,16 @@ class KeepPrivateTests(Base):
         self.keep(kid, user=mgr)
         self.assertEqual(self.row(kid.id).follower_emails or [], [])
 
+    def test_a_guest_reopener_is_never_added_to_rows_they_never_saw(self):
+        parent, kid = self.tree(top_level="restricted", kid_level="restricted", inherited=True,
+                                follower_emails=[EXT["email"]])
+        self.assertFalse(self.sees(EXT, kid.id))
+        k = self.row(kid.id)
+        k.narrowed_by = ""
+        self.assertEqual(T._pin_private(self.db, EXT, [k]), [])
+        self.assertEqual(k.follower_emails or [], [])
+        self.db.rollback()
+
     def test_an_outsider_and_a_guest_on_the_parent_are_refused(self):
         _parent, kid = self.tree(top_level="restricted", kid_level="restricted", inherited=True,
                                  follower_emails=[EXT["email"]])
