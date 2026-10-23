@@ -602,6 +602,36 @@ class LeasingApiTests(unittest.TestCase):
         self.assertEqual(round(sum(a for v in ledger.values() for a in v), 2), 201060.0)
         self.assertEqual(round(201060.0 - jan["received"], 2), 184860.0)
 
+    def test_oct23_a_lease_with_an_entity_never_falls_back_to_the_customers_total(self):
+        """Item 24 retest (Backend Tester, 10/23): the same customer also has a
+        lease with no entity, so the consolidated (customer, month) total is
+        read too. A month the lease's own location posted nothing used to fall
+        back to that total (62004 April showed 173,000). It reads 0; the lease
+        with no entity still reads the customer's total."""
+        yr = date.today().year
+        at_62004 = {f"{yr}-01": [16200.0]}
+        everywhere = {f"{yr}-01": [16200.0, 184860.0], f"{yr}-04": [173000.0]}
+        inner = accounting._acct_get
+
+        async def fake_get(path, params):
+            if path.endswith("/reports/buckets") and params.get("customer") == "C00132":
+                rows = at_62004 if params["location"] == "62004" else {}
+                return {"ok": True, "rows": [{"bucket": m, "account_no": "41101", "debit": 0, "credit": a} for m, v in rows.items() for a in v]}
+            if path.endswith("/reports/by-customer") and "C00132" in params["customers"]:
+                return {"ok": True, "rows": [{"customer": "C00132", "account_no": "41101", "month": m, "debit": 0, "credit": a} for m, v in everywhere.items() for a in v]}
+            return await inner(path, params)
+        _as(EDITOR)
+        rates = [{"startDate": f"{yr}-01-01", "rent": 16200, "cam": 0}]
+        placed = self.client.post("/leasing/leases", json=self._body(entityCode="62004", customerId="C00132", tenantName="Greens Global, Inc.", lateFee=0, rates=rates)).json()
+        loose = self.client.post("/leasing/leases", json=self._body(entityCode="", customerId="C00132", tenantName="Greens Global, Inc.", propertyName="No entity", lateFee=0, rates=rates)).json()
+        accounting._acct_get = fake_get
+        _as(VIEWER)
+        rows = {r["lease"]["id"]: r for r in self.client.get("/leasing/rent-roll").json()["rows"] if r["lease"]["region"] == TAG}
+        mine = rows[placed["id"]]["months"]
+        self.assertEqual(mine[0]["received"], 16200.0)
+        self.assertEqual(mine[3]["received"], 0.0)                     # April: nothing at 62004, not 173,000
+        self.assertEqual(rows[loose["id"]]["months"][3]["received"], 173000.0)
+
     def test_a_limited_person_never_reads_the_consolidated_report(self):
         """Entity-limited: one month read per entity in reach, never the
         consolidated by-customer report (it carries every entity's postings)."""

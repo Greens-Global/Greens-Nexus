@@ -668,7 +668,11 @@ def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today
             extra = months.get(f"{lease['id']}:{key}") or {"adjustment": 0, "note": ""}
             base = expected_for_month(lease, year, m)
             cid = lease["customerId"]
-            posted = (receipts.get((lease.get("entityCode", ""), cid, key)) or receipts.get((cid, key), {})) if cid else {}
+            # A lease with an entity reads ITS location only, never the customer's
+            # consolidated total - that key is there whenever the same customer
+            # also has a lease with no entity (item 24 retest, 10/23).
+            ec = lease.get("entityCode", "")
+            posted = (receipts.get((ec, cid, key), {}) if ec else receipts.get((cid, key), {})) if cid else {}
             by_account = {code: _r2(v) for code, v in posted.items() if code in lease["incomeAccounts"]}
             received = _r2(sum(by_account.values()))
             if base is None and abs(received) <= _PAID_WITHIN and not extra["note"]:
