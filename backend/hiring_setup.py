@@ -206,6 +206,12 @@ def role_jd_doc(role) -> str:
                  if isinstance(r, dict) and r.get("replaces") == hpd.JD_MARKER and r.get("templateId")), "")
 
 
+def _any_duties(role) -> bool:
+    """The role has duties written for some hire (its Standard or a version)."""
+    return bool((getattr(role, "job_description", "") or "").strip()
+                or any((v.get("text") or "").strip() for v in live_versions(role)))
+
+
 def duty_ctx(entity_id: str, worker_type: str, country: str, region: str, employment_type: str = "") -> dict:
     et = employment_type or ("contractor" if worker_type == "contractor" else "full_time")
     return {"entity_id": entity_id or "", "worker_type": worker_type, "employment_type": et,
@@ -477,7 +483,7 @@ class View:
         first = next((s for s in (self.snap(t) for t in own) if s is not None and hpd.prints_duties([s], event)), None)
         if first is not None:
             return ("inside", f"Printed Inside {first.name}")
-        if event == "hire" and self.role is not None and role_jd_doc(self.role):
+        if event == "hire" and (self.role is None or role_jd_doc(self.role) or _any_duties(self.role)):
             return ("end", "Its Own Page, At The End")      # a promotion prints a role's JD only at the marker
         return none
 
@@ -1334,14 +1340,15 @@ def what_they_get(db: Session, cand, wt: str, et: str, country: str, region: str
     if role is not None:
         text, v = resolve_duties(role, duty_ctx(eid, wt, country, region, et))
         jd = role_jd_doc(role) if placement != "inside" else ""     # inside: template_ids_for leaves it out
-        if placement == "none" and not jd:
+        end = " - Its Own Page, At The End" if placement == "end" else ""   # the built-in page (template_ids_for)
+        if not jd and (placement == "none" or (end and not text.strip())):
             line = ("Not In This Packet", "This Hiring Packet Does Not Print Them", "same", False, None)
         elif jd:
             line = (f"{role.name} - {view.name(jd)}", "Its Own Page", "own", False, None)
         elif v is not None and text.strip():
-            line = (f"{role.name} - {_version_short(db, v)} Version", f"Only For {_version_for(db, v)}", "own", False, None)
+            line = (f"{role.name} - {_version_short(db, v)} Version", f"Only For {_version_for(db, v)}{end}", "own", False, None)
         elif text.strip():
-            line = (f"{role.name} - Standard", "Same For Everyone", "same", False, None)
+            line = (f"{role.name} - Standard", f"Same For Everyone{end}", "same", False, None)
         else:
             line = (f"{role.name} - no duties written", "Add them before sending", "missing", True,
                     {"action": "addDuties", "target": {"entityId": eid, "roleId": role.id}})

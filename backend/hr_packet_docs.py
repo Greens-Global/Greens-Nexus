@@ -1569,7 +1569,8 @@ def template_ids_for(setting: Optional[HrPacketSetting], inputs: dict, kind: str
     ones for their team and role, then (not on an offer) their job
     description - where the packet's JD_MARKER puts it (the role's formatted
     one, else the built-in page when there are duties), else at the end as
-    before (a legacy jd_template_id)."""
+    before (a legacy jd_template_id, the role's formatted one, else the
+    built-in page - unless a document prints the duties inside)."""
     d = inputs or {}
     ids = list((setting.doc_template_ids or []) if setting is not None else [])
     ids += [t for t in block_ids(setting, d.get("department", ""), d.get("role_id", "")) if t not in ids]
@@ -1589,6 +1590,9 @@ def template_ids_for(setting: Optional[HrPacketSetting], inputs: dict, kind: str
         ids = [fill if t == JD_MARKER else t for t in ids if t != JD_MARKER or fill]
     elif legacy and legacy not in ids:
         ids.append(legacy)                             # today's behavior, untouched
+    elif (not legacy and kind == "hire" and setting is not None and not any(is_jd) and BUILTIN_JD_ID not in ids
+          and (d.get("role_description") or "").strip() and not _prints_inside(setting, ids)):
+        ids.append(BUILTIN_JD_ID)                      # no marker, nothing inside: its own page at the end, as before
     return ids
 
 

@@ -560,11 +560,49 @@ class ReviewFixTests(SetupCase):
         self.assertEqual(r.status_code, 400)
         self.assertIn("old uploaded PDF", r.json()["detail"])
 
-    def test_the_offer_jd_line_when_the_packet_prints_no_duties(self):
+    def _jd_line(self, role, country="IN"):
         got = self.client.get("/hr/candidates/cand-1/offer/options",
-                              params={"hired_as": "full_time", "role_id": "jr-acct", "country": "IN"}).json()
-        jd = {x["key"]: x for x in got["whatTheyGet"]}["jd"]
+                              params={"hired_as": "full_time", "role_id": role, "country": country}).json()
+        return {x["key"]: x for x in got["whatTheyGet"]}["jd"]
+
+    def test_a_packet_with_no_marker_gets_the_job_description_at_the_end(self):
+        # The India packet has no "@jd" and prints no {{role_description}}: as before
+        # the Make An Offer dropdown went away, the duties get their own page at the end.
+        s = self.setting("s-in-hire")
+        self.assertEqual(hpd.template_ids_for(s, {"role_description": "Keep the books."}, "hire"),
+                         ["t-i9", hpd.BUILTIN_JD_ID])
+        jd = self._jd_line("jr-acct")
+        self.assertEqual((jd["name"], jd["sourceLabel"], jd["tone"], jd["blocks"]),
+                         ("Accountant - Standard", "Same For Everyone - Its Own Page, At The End", "same", False))
+        pk = self.row(self.view(GGC, role="jr-acct"), "employee:IN:")["packet"]
+        self.assertEqual((pk["placement"], pk["placementLabel"]), ("end", "Its Own Page, At The End"))
+        self.assertEqual(pk["documents"][-1]["name"], "Job Description - Accountant")
+        p = hpd.plan(self.db, s, ctx={"subject_email": CAND, "subject_name": "Jen Doe", "entity": None, "owners": {}},
+                     overrides={"role_description": "Keep the books."}, pay=None, can_see_pay=False,
+                     extra_template_ids=hpd.template_ids_for(s, {"role_description": "Keep the books."}, "hire"))
+        self.assertEqual([d["name"] for d in p["documents"]], ["I-9 Acknowledgment", "Job Description"])
+        self.assertFalse([i for i in self.view(GGC, role="jr-acct")["items"] if i["action"] == "addDuties"])
+        # No duties at all: nothing is added, and the line says so without blocking.
+        self.assertEqual(hpd.template_ids_for(s, {"role_description": " "}, "hire"), ["t-i9"])
+        jd = self._jd_line("jr-admin")
         self.assertEqual((jd["name"], jd["tone"], jd["blocks"]), ("Not In This Packet", "same", False))
+
+    def test_a_formatted_role_jd_goes_at_the_end_instead(self):
+        s = self.setting("s-in-hire")
+        role_docs = [{"templateId": "t-jd-acct", "replaces": "@jd"}]
+        self.assertEqual(hpd.template_ids_for(s, {"role_description": "x", "role_docs": role_docs}, "hire"),
+                         ["t-i9", "t-jd-acct"])
+        # A legacy pick still wins; an offer never carries a job description.
+        self.assertEqual(hpd.template_ids_for(s, {"role_description": "x", "jd_template_id": "t-jd-acct"}, "hire"),
+                         ["t-i9", "t-jd-acct"])
+        self.assertEqual(hpd.template_ids_for(s, {"role_description": "x", "role_docs": role_docs}, "offer"), ["t-i9"])
+        self.assertEqual(hpd.template_ids_for(s, {"role_description": "x"}, "promotion"), ["t-i9"])
+
+    def test_a_packet_printing_the_duties_inside_gets_no_second_copy(self):
+        s = self.setting("s-tx-hire")
+        for d in ({"role_description": "x"}, {"role_description": "x", "role_docs": [{"templateId": "t-jd-acct",
+                                                                                     "replaces": "@jd"}]}):
+            self.assertEqual(hpd.template_ids_for(s, d, "hire"), ["t-duty"])
 
     def test_company_signers_follow_document_order(self):
         from types import SimpleNamespace
