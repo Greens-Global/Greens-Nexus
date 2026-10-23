@@ -1,5 +1,5 @@
-// Popup A of Set Up Hiring (Oct 23): one box of the grid - the offer letter or
-// hiring packet one kind of hire gets. Use The Same (this level's own row is
+// Popup A of Set Up Hiring (Oct 23): one box of the grid - the offer letter,
+// hiring packet, promotion letter or separation package one kind of person gets. Use The Same (this level's own row is
 // archived, so the level above applies - never deleted) or Make A Different
 // One (a copy, a Word file, or a template already in Documents). An own
 // packet's documents are ordered here, with the Job Description page placed
@@ -14,7 +14,17 @@ import { Spinner } from '../AsyncState';
 import WordTemplateWizard from '../WordTemplateWizard';
 
 const JD = '@jd';
-const NOUN = { offer: ['Offer Letter', 'offer letter'], packet: ['Hiring Packet', 'hiring packet'] };
+const NOUN = { offer: ['Offer Letter', 'offer letter'], packet: ['Hiring Packet', 'hiring packet'],
+  letter: ['Promotion Letter', 'promotion letter'], package: ['Separation Package', 'separation package'] };
+const EVENT = { offer: 'offer', packet: 'hire', letter: 'promotion', package: 'separation' };
+// Per event: who is "in progress", who the box is for, and what Nothing Yet means.
+const WORDS = {
+  offer: ['Hires', 'hires', 'a hire here would be blocked'],
+  hire: ['Hires', 'hires', 'a hire here would be blocked'],
+  promotion: ['Promotions', 'employees', 'Promote is off there - Change Role Now still works'],
+  separation: ['Offboardings', 'employees', 'offboarding there runs without documents'],
+};
+const carriesJd = (event) => event === 'hire' || event === 'promotion';
 
 const box = (on) => ({ textAlign: 'left', cursor: 'pointer', width: '100%', borderRadius: 12, padding: '14px 16px', fontFamily: 'Inter,sans-serif', color: 'var(--ink)',
   border: on ? '2px solid var(--ink)' : '1px solid var(--line)', background: on ? 'var(--mist)' : 'var(--card)' });
@@ -62,8 +72,9 @@ function PickTemplate({ column, exclude, onPick, onCancel }) {
 
 export default function ChooseWhatTheyGet({ view, row, column, onClose, onChanged, toastErr, toastOk }) {
   const cell = row[column];
-  const event = column === 'offer' ? 'offer' : 'hire';
+  const event = EVENT[column];
   const [Noun, noun] = NOUN[column];
+  const [Busy, people, blockedText] = WORDS[event];
   const shared = !!view.entity.shared;
   const company = view.entity.name;
   // Show For Role and a screen this HR cannot change are read-only: a role's
@@ -85,7 +96,7 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
   const others = view.rows.filter(r => r.key !== row.key && !r.notHired);
   const docs = cell.documents || [];
   const ids = docs.map(d => d.id);
-  const affected = view.rows.flatMap(r => ['offer', 'packet']
+  const affected = view.rows.flatMap(r => Object.keys(NOUN)
     .filter(c => r[c]?.settingId && r[c].settingId === cell.settingId && !(r.key === row.key && c === column))
     .map(c => `${r.kind} - ${NOUN[c][0]}`));
 
@@ -103,7 +114,7 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
 
   // A new document (uploaded or picked): into this packet, or the start of an own one.
   function addDoc(templateId, jdPlacement = '') {
-    const add = [templateId, ...(event === 'hire' && jdPlacement === 'page' ? [JD] : [])];
+    const add = [templateId, ...(carriesJd(event) && jdPlacement === 'page' ? [JD] : [])];
     const replace = adding?.replace || '';
     setAdding(null);
     if (!editable) return makeOwn('templates', add);
@@ -111,7 +122,7 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
     return setDocs(replace ? base.flatMap(t => (t === replace ? add : [t])) : [...base, ...add]);
   }
   async function applySame() {
-    const blocked = cell.fallback ? '' : ` Nothing is shared for ${row.kind} - a hire here would be blocked.`;
+    const blocked = cell.fallback ? '' : ` Nothing is shared for ${row.kind} - ${blockedText}.`;
     if (own && !await dialog.confirm(`${shared ? 'This place' : company}'s own ${noun} will stop being used. It stays in Documents, and you can switch back.${blocked}`,
       { title: 'Use The Same', confirmText: 'Use The Same' })) return;
     if (await run(() => api.hiringSetupUseSame(cell.settingId))) onClose();
@@ -119,7 +130,8 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
   async function editWording(d) {
     setErr('');
     try {
-      const r = await api.hiringSetupOwnCopy(cell.settingId, d.id);
+      // The screen's company goes along: a shared row seen from a company is refused with "Make A Different One first".
+      const r = await api.hiringSetupOwnCopy(cell.settingId, d.id, view.entity.id);
       if (r.copied) await onChanged?.();
       toastOk?.(r.copied ? `"${r.name}" is ${company}'s own copy - opening it in Documents.` : `Opening "${r.name || d.name}" in Documents.`);
       setPendingOpen('doc-template', r.templateId);
@@ -195,10 +207,10 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Documents In This {Noun}</div>
       {docs.map(docRow)}
-      {event === 'hire' && cell.placement === 'inside' && (
+      {carriesJd(event) && cell.placement === 'inside' && (
         <div style={{ fontSize: 13, padding: '8px 10px', borderRadius: 10, border: '1px solid var(--line)', color: 'var(--muted)' }}>Job Description - {cell.placementLabel}</div>
       )}
-      {editable && event === 'hire' && cell.placement !== 'inside' && !ids.includes(JD) && (
+      {editable && carriesJd(event) && cell.placement !== 'inside' && !ids.includes(JD) && (
         <div><button type="button" className="secondary-btn" onClick={() => setDocs([...ids, JD])} style={{ fontSize: 12.5 }}>+ Add The Job Description Page</button></div>
       )}
       {editable && (adding ? (adding.how === 'pick' ? null : (
@@ -230,11 +242,11 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
   return (
     <Modal title={`${Noun} - ${row.kind}`} onClose={onClose}
       footer={<>
-        <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>{saved || 'Hires already in progress keep the documents they started with.'}</span>
+        <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>{saved || `${Busy} already in progress keep the documents they started with.`}</span>
         <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
         <button type="button" className="primary-btn" disabled={busy} onClick={() => (choice === 'same' && own ? applySame() : onClose())}>Use This</button>
       </>}>
-      <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)' }}>Pick one. You can switch back any time; hires already in progress keep what they started with.</p>
+      <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)' }}>Pick one. You can switch back any time; {Busy.toLowerCase()} already in progress keep what they started with.</p>
       {err && <div role="alert" style={{ marginBottom: 12, fontSize: 13, color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.1)', borderRadius: 10, padding: '8px 12px' }}>{err}</div>}
       <div className="nx-fill" style={{ gap: 12 }}>
         <button type="button" onClick={() => setChoice('same')} style={box(choice === 'same')} aria-pressed={choice === 'same'}>
@@ -260,12 +272,12 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
             <span style={dot(choice === 'different')} />Make A Different One For {shared ? row.kind : `${company} - ${row.kind}`}
           </span>
           <span style={{ display: 'block', fontSize: 13, color: 'var(--muted)', margin: '6px 0 0 26px' }}>
-            {own ? `In use: ${cell.name} (${cell.sourceLabel}).` : 'Only these hires get it. Everyone else keeps the shared one.'}
+            {own ? `In use: ${cell.name} (${cell.sourceLabel}).` : `Only these ${people} get it. Everyone else keeps the shared one.`}
           </span>
         </button>
         {choice === 'different' && (
           <div style={{ marginLeft: 26, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {cell.engine === 'pdf' && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))' }}>This one is an old uploaded PDF and can&apos;t start by itself - upload a Word file to rebuild it.</div>}
+            {cell.engine === 'pdf' && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))' }}>{event === 'promotion' || event === 'separation' ? 'This one is an old uploaded PDF - it still goes out; upload a Word file to rebuild it.' : "This one is an old uploaded PDF and can't start by itself - upload a Word file to rebuild it."}</div>}
             {!editable && (
               <>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>

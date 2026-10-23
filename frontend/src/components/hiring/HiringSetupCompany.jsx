@@ -1,7 +1,9 @@
 // Screen 2 of Set Up Hiring (Oct 23): one company (or All Companies, the
-// shared rows). Things To Finish, About This Company, the What Each Hire Gets
-// grid (Offer Letter / Hiring Packet / Job Description per kind of hire and
-// place), Job Descriptions per role, and Advanced. Everything comes from
+// shared rows), in three sections - Hiring, Promotion, Offboarding (round 2).
+// Things To Finish, About This Company, the grid (the section's columns per
+// kind of person and place: Offer Letter / Hiring Packet / Job Description,
+// Promotion Letter / New Role's Job Description, or Separation Package),
+// Job Descriptions per role, and Advanced. Everything comes from
 // GET /hr/hiring-setup/company - the same resolver a real hire uses, so the
 // grid never says something the send would not do.
 import { useEffect, useRef, useState } from 'react';
@@ -31,6 +33,18 @@ const cap = { fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransfo
 const linkBtn = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter,sans-serif', textDecoration: 'underline' };
 const go = (detail) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail }));
 
+// Per-section wording (round 2 contract, 4.3). A focus without a section takes it from its column.
+const SECTION = {
+  hiring: { heading: 'Set Up Hiring', grid: 'What Each Hire Gets', kind: 'Kind Of Hire', main: 'offer', done: 'Everything is set. You can make an offer.',
+    blocked: 'a hire here would be blocked', who: 'that kind of hire', another: 'Hiring in another state or country?' },
+  promotion: { heading: 'Set Up Promotions', grid: 'What Each Promotion Gets', kind: 'Kind Of Employee', main: 'letter', done: 'Everything is set. You can promote with a letter.',
+    blocked: 'Promote is off there - Change Role Now still works', who: 'those employees', another: 'People in another state or country?' },
+  offboarding: { heading: 'Set Up Offboarding', grid: 'What Each Offboarding Gets', kind: 'Kind Of Employee', main: 'package', done: 'Everything is set. Offboarding sends the separation package.',
+    blocked: 'offboarding there runs without documents', who: 'those employees', another: 'People in another state or country?' },
+};
+const HIRING_COLUMNS = [{ key: 'offer', label: 'Offer Letter' }, { key: 'packet', label: 'Hiring Packet' }, { key: 'jd', label: 'Job Description' }];
+const sectionOf = (f) => f?.section || (f?.column === 'letter' ? 'promotion' : f?.column === 'package' ? 'offboarding' : 'hiring');
+
 function Cell({ c, onClick, extra }) {
   const t = tone(c?.tone);
   return (
@@ -47,10 +61,10 @@ function Cell({ c, onClick, extra }) {
 function AboutEdit({ item, entityId, onSaved, onCancel, toastErr }) {
   const { data: people = [] } = usePeopleDirectory();
   const [f, setF] = useState(() => ({ country: item.country || '', region: item.region || '', email: item.email || '',
-    signatory: item.key === 'signsForCompany' ? item.value || '' : '', legal: '', address: '' }));
+    signatory: item.key === 'signsForCompany' ? item.value || '' : '', legal: item.legalName || '', address: item.address || '' }));
   const [busy, setBusy] = useState(false);
   const person = people.find(p => p.email === f.email);
-  // shortcut: the view sends legal name and address as one line, so the boxes start empty; Save waits for one of them.
+  // Save waits for one of them; a box left empty keeps what is on file.
   const nothing = item.key === 'legalAndAddress' && !f.legal.trim() && !f.address.trim();
   async function save() {
     const body = item.key === 'worksIn' ? { country: f.country, region: f.region }
@@ -120,6 +134,7 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
   const [view, setView] = useState(null);
   const [err, setErr] = useState('');
   const [roleId, setRoleId] = useState('');
+  const [section, setSection] = useState(() => sectionOf(focus));
   const [popup, setPopup] = useState(null);           // { a: {rowKey, column} } | { b: {roleId, rowKey} }
   const [editing, setEditing] = useState('');         // About key being edited
   const [placing, setPlacing] = useState(null);       // { country, region } while adding a place
@@ -127,16 +142,16 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
   const jdRef = useRef(null);
   const aboutRef = useRef(null);
 
-  const load = () => api.getHiringSetupCompany(entityId, roleId)
+  const load = () => api.getHiringSetupCompany(entityId, roleId, section)
     .then(v => { setView(v); setErr(''); return v; })
     .catch(e => setErr(e?.message || 'Could not load the hiring setup.'));
-  useEffect(() => { load(); }, [entityId, roleId, refreshKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [entityId, roleId, section, refreshKey]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!view || focusDone.current || !focus) return;
     focusDone.current = true;
     onFocusUsed?.();
     if (focus.roleId) setPopup({ b: { roleId: focus.roleId, rowKey: '' } });
-    else if (focus.rowKey) setPopup({ a: { rowKey: focus.rowKey, column: focus.column || 'offer' } });
+    else if (focus.rowKey) setPopup({ a: { rowKey: focus.rowKey, column: focus.column || SECTION[sectionOf(focus)].main } });
   }, [view, focus]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (err && !view) return <ErrorBanner message={err} onRetry={load} />;
@@ -145,10 +160,15 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
   const canEdit = view.entity.canEdit !== false;
   const notStarted = view.status === 'notStarted';
   const title = shared ? 'All Companies (Shared)' : view.entity.name;
+  // Render from what the server answered, so a refetch in flight never mixes two sections.
+  const sec = SECTION[view.section] ? view.section : 'hiring';
+  const S = SECTION[sec];
+  const columns = view.columns || HIRING_COLUMNS;
+  const pick = (key) => { if (key !== section) { setPopup(null); setSection(key); } };
 
   function act(it) {
     const t = it.target || {};
-    if (it.action === 'setUp') setPopup({ a: { rowKey: t.rowKey, column: t.column || 'offer' } });
+    if (it.action === 'setUp') setPopup({ a: { rowKey: t.rowKey, column: t.column || S.main } });
     else if (it.action === 'addDuties') setPopup({ b: { roleId: t.roleId, rowKey: '' } });
     else if (it.action === 'editAbout') { setEditing(t.field); aboutRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }); }
     else if (it.action === 'navigate') go(t);
@@ -173,11 +193,23 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
       <button type="button" onClick={onBack} style={{ ...linkBtn, alignSelf: 'flex-start', textDecoration: 'none', color: 'var(--muted)', fontSize: 12.5 }}>&lt; Hiring Setup</button>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Set Up Hiring - {title}</h1>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{S.heading} - {title}</h1>
           <StatusChip status={view.status} chip={view.chip} />
         </div>
-        {!shared && !notStarted && <button type="button" className="primary-btn" onClick={() => go({ view: 'hr', sub: 'hr-hiring' })}>Make An Offer</button>}
+        {!shared && !notStarted && sec === 'hiring' && <button type="button" className="primary-btn" onClick={() => go({ view: 'hr', sub: 'hr-hiring' })}>Make An Offer</button>}
       </div>
+      {view.sections?.length > 0 && (
+        <div role="tablist" aria-label="Section" className="scroll-tabs" style={{ display: 'flex', gap: 2, padding: 3, borderRadius: 10, background: 'var(--mist)', alignSelf: 'flex-start', maxWidth: '100%' }}>
+          {view.sections.map(x => (
+            <button key={x.key} type="button" role="tab" aria-selected={section === x.key} onClick={() => pick(x.key)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 12px', minHeight: 36, borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--ink)', background: section === x.key ? 'var(--card)' : 'transparent',
+                boxShadow: section === x.key ? '0 1px 3px rgba(29,33,57,.12)' : 'none' }}>
+              {x.label} <StatusChip status={x.status} chip={x.chip} />
+            </button>
+          ))}
+        </div>
+      )}
       {shared && (
         <div role="status" style={{ borderRadius: 12, padding: '10px 14px', fontSize: 13, background: 'hsla(var(--color-blue),0.08)', border: '1px solid hsla(var(--color-blue),0.3)' }}>
           {canEdit ? 'You are changing what every company uses unless it has its own.'
@@ -205,7 +237,7 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
           ))}
         </section>
       ) : !notStarted && (
-        <div role="status" style={{ fontSize: 13.5, color: 'hsl(var(--color-green))', fontWeight: 600 }}>Everything is set. You can make an offer.</div>
+        <div role="status" style={{ fontSize: 13.5, color: 'hsl(var(--color-green))', fontWeight: 600 }}>{S.done}</div>
       )}
 
       {!shared && view.about.length > 0 && (
@@ -232,8 +264,8 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
       {!(notStarted && view.rows.length === 0) && <section style={{ ...card, gap: 14 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
           <div>
-            <h2 style={h2}>What Each Hire Gets</h2>
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>Every box starts as the shared version. Click one to keep it or make a different one just for {shared ? 'that kind of hire' : 'this company'}.</p>
+            <h2 style={h2}>{S.grid}</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>Every box starts as the shared version. Click one to keep it or make a different one just for {shared ? S.who : 'this company'}.</p>
           </div>
           {view.roles.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
@@ -247,8 +279,9 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
           )}
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <div role="table" aria-label="What Each Hire Gets" style={{ minWidth: 760, display: 'grid', gridTemplateColumns: '210px repeat(3, minmax(0, 1fr))', gap: 10 }}>
-            <div style={cap}>Kind Of Hire</div><div style={cap}>Offer Letter</div><div style={cap}>Hiring Packet</div><div style={cap}>Job Description</div>
+          <div role="table" aria-label={S.grid} style={{ minWidth: 210 + 190 * columns.length, display: 'grid', gridTemplateColumns: `210px repeat(${columns.length}, minmax(0, 1fr))`, gap: 10 }}>
+            <div style={cap}>{S.kind}</div>
+            {columns.map(c => <div key={c.key} style={cap}>{c.label}</div>)}
             {view.rows.map(r => [
               <div key={`${r.key}-k`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 4px', opacity: r.notHired ? 0.6 : 1 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -258,22 +291,34 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
                 <RowMenu row={r} view={view} onHired={setHired} onRemove={removePlace} />
               </div>,
               ...(r.notHired ? [
-                <div key={`${r.key}-n`} style={{ gridColumn: 'span 3', display: 'flex', alignItems: 'center', fontSize: 13, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px' }}>
+                <div key={`${r.key}-n`} style={{ gridColumn: `span ${columns.length}`, display: 'flex', alignItems: 'center', fontSize: 13, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px' }}>
                   {view.entity.name} does not hire {r.workerType === 'contractor' ? 'contractors' : 'employees'} - nothing to set up.
                 </div>,
-              ] : [
-                <Cell key={`${r.key}-o`} c={r.offer} onClick={() => setPopup({ a: { rowKey: r.key, column: 'offer' } })} />,
-                <Cell key={`${r.key}-p`} c={r.packet} onClick={() => setPopup({ a: { rowKey: r.key, column: 'packet' } })}
-                  extra={roleId ? (r.packet?.documents || []).filter(d => d.roleDoc).map(d => (
-                    <span key={d.id} style={{ display: 'block', fontSize: 12, marginTop: 4 }}>+ {d.name}{d.replacesName ? ` (Replaces ${d.replacesName})` : ''}</span>
-                  )) : null} />,
-                <Cell key={`${r.key}-j`} c={r.jd}
-                  onClick={() => (roleId ? setPopup({ b: { roleId, rowKey: r.key } }) : jdRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }))}
-                  extra={r.jd?.placementLabel ? <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{r.jd.placementLabel}</span> : null} />,
-              ]),
+              ] : columns.map(col => {
+                const c = r[col.key];
+                if (col.key === 'jd') {
+                  return (
+                    <Cell key={`${r.key}-jd`} c={c}
+                      onClick={() => (roleId ? setPopup({ b: { roleId, rowKey: r.key } }) : jdRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }))}
+                      extra={c?.placementLabel ? <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{c.placementLabel}</span> : null} />
+                  );
+                }
+                return (
+                  <Cell key={`${r.key}-${col.key}`} c={c} onClick={() => setPopup({ a: { rowKey: r.key, column: col.key } })}
+                    extra={<>
+                      {roleId && (c?.documents || []).filter(d => d.roleDoc).map(d => (
+                        <span key={d.id} style={{ display: 'block', fontSize: 12, marginTop: 4 }}>+ {d.name}{d.replacesName ? ` (Replaces ${d.replacesName})` : ''}</span>
+                      ))}
+                      {col.key === 'letter' && c?.settingId && (c.countersign
+                        ? <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Countersigned By {c.countersign}</span>
+                        : <span style={{ display: 'block', fontSize: 12, color: '#b45309', fontWeight: 700, marginTop: 4 }}>Nobody countersigns yet</span>)}
+                    </>} />
+                );
+              })),
             ])}
           </div>
         </div>
+        {sec === 'offboarding' && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>One separation package per row - the same for every reason they leave.</div>}
         {!canEdit ? null : placing ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
             <div style={{ flex: '0 1 280px' }}><PlaceSelect label="New Place" country={placing.country} region={placing.region} onChange={(c, rg) => setPlacing({ country: c, region: rg })} /></div>
@@ -283,17 +328,17 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
             <button type="button" className="secondary-btn" onClick={() => setPlacing({ country: '', region: '' })} style={{ borderStyle: 'dashed', fontWeight: 700 }}>+ Add A Place</button>
-            <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Hiring in another state or country? Add it and it starts with the same documents.</span>
+            <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{S.another} Add it and it starts with the same documents.</span>
           </div>
         )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 12, color: 'var(--muted)' }}>
           <span><b style={{ color: 'var(--ink)' }}>Same As ...</b> uses the shared one</span>
           <span><b style={{ color: 'hsl(var(--color-blue))' }}>Only Here</b> {shared ? "this place's own" : "this company's own"}</span>
-          <span><b style={{ color: '#b45309' }}>Nothing Yet</b> a hire here would be blocked</span>
+          <span><b style={{ color: '#b45309' }}>Nothing Yet</b> {S.blocked}</span>
         </div>
       </section>}
 
-      <section ref={jdRef} style={card}>
+      {view.jobDescriptions && <section ref={jdRef} style={card}>
         <div>
           <h2 style={h2}>Job Descriptions</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>Write each role&apos;s duties once. Give contractors, part-time staff or another place a different version only if they need one.</p>
@@ -321,13 +366,12 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
             </div>
           </div>
         )}
-      </section>
+      </section>}
 
       <details style={{ ...card, display: 'block', padding: '14px 20px' }}>
         <summary style={{ cursor: 'pointer', fontSize: 14, fontWeight: 700 }}>Advanced</summary>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8, marginTop: 12, fontSize: 13, color: 'var(--muted)' }}>
           {(view.advanced || []).map(a => <div key={a.label}>{a.label} - <i>{a.value}</i></div>)}
-          <div>Promotion And Separation Letters</div>
         </div>
         <button type="button" style={{ ...linkBtn, marginTop: 12, color: 'var(--muted)' }} onClick={() => onAdvanced?.()}>Advanced: All Packets And Signing Orders</button>
       </details>

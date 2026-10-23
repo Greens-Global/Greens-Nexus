@@ -65,8 +65,11 @@ const m = {
   getHiringSetup: vi.fn(() => Promise.resolve({
     shared: { summary: 'What every company uses unless it has its own: 2 offer letters, 3 hiring packets, duties for 8 roles.', canEdit: true },
     companies: [
-      { id: 'e-gg', name: 'Greens Global', place: 'California', status: 'left', chip: '2 Things Left', summary: 'Uses the shared offer letter and hiring packet - no contractor documents yet' },
-      { id: 'e-new', name: 'New Company LLC', place: 'No place set', status: 'notStarted', chip: 'Not Started', summary: 'Pick where its people work and it starts with the shared documents' },
+      { id: 'e-gg', name: 'Greens Global', place: 'California', status: 'left', chip: '2 Things Left', summary: 'Uses the shared offer letter and hiring packet - no contractor documents yet',
+        sections: [{ key: 'hiring', label: 'Hiring', status: 'left', chip: '2 Things Left' }, { key: 'promotion', label: 'Promotion', status: 'ready', chip: 'Ready To Promote' },
+          { key: 'offboarding', label: 'Offboarding', status: 'left', chip: '1 Thing Left' }] },
+      { id: 'e-new', name: 'New Company LLC', place: 'No place set', status: 'notStarted', chip: 'Not Started', summary: 'Pick where its people work and it starts with the shared documents',
+        sections: ['hiring', 'promotion', 'offboarding'].map(k => ({ key: k, label: k[0].toUpperCase() + k.slice(1), status: 'notStarted', chip: 'Not Started' })) },
     ] })),
   getHiringSetupCompany: vi.fn(() => Promise.resolve(companyView)),
   hiringSetupUseSame: vi.fn(() => Promise.resolve({ ok: true })),
@@ -101,7 +104,10 @@ const { default: RoleDutiesModal } = await import('./RoleDutiesModal');
 const noop = () => {};
 const company = (props = {}) => render(<HiringSetupCompany entityId="e-gg" onBack={noop} onAdvanced={noop} toastOk={noop} toastErr={noop} {...props} />);
 
-beforeEach(() => { Object.values(m).forEach(f => f.mockClear()); confirm.mockClear(); companyView = ggView(); });
+beforeEach(() => {
+  Object.values(m).forEach(f => f.mockClear()); confirm.mockClear(); companyView = ggView();
+  m.getHiringSetupCompany.mockImplementation(() => Promise.resolve(companyView));
+});
 
 describe('Screen 1: Hiring Setup', () => {
   it('lists All Companies and each company, opens one, and links to Advanced', async () => {
@@ -110,12 +116,14 @@ describe('Screen 1: Hiring Setup', () => {
     expect(await screen.findByText('All Companies (Shared)')).toBeTruthy();
     expect(screen.getByText(/2 offer letters, 3 hiring packets/)).toBeTruthy();
     expect(screen.getByText('2 Things Left')).toBeTruthy();
-    expect(screen.getByText('Not Started')).toBeTruthy();
+    expect(screen.getByText('Ready To Promote')).toBeTruthy();
+    expect(screen.getByText('1 Thing Left')).toBeTruthy();
+    expect(screen.getAllByText('Not Started')).toHaveLength(3);               // a chip per section
     fireEvent.click(screen.getByText('Advanced: All Packets And Signing Orders'));
     expect(onAdvanced).toHaveBeenCalled();
     fireEvent.click(screen.getByLabelText('Set Up Hiring - Greens Global'));
     expect(await screen.findByText('Set Up Hiring - Greens Global')).toBeTruthy();
-    expect(m.getHiringSetupCompany).toHaveBeenCalledWith('e-gg', '');
+    expect(m.getHiringSetupCompany).toHaveBeenCalledWith('e-gg', '', 'hiring');
     fireEvent.click(screen.getByText('< Hiring Setup'));
     expect(await screen.findByText('All Companies (Shared)')).toBeTruthy();
   });
@@ -186,6 +194,17 @@ describe('Screen 2: Set Up Hiring', () => {
     await waitFor(() => expect(m.updateEntity).toHaveBeenCalledWith('e-gg', { physical_address: '123 Main St' }));
   });
 
+  it('Legal Name And Address starts from what is on file', async () => {
+    companyView = ggView({ about: [{ key: 'legalAndAddress', label: 'Legal Name And Address', value: 'Greens Global, LLC', hint: 'Printed in the documents.', empty: true,
+      legalName: 'Greens Global, LLC', address: '' }] });
+    company();
+    fireEvent.click(await screen.findByLabelText('Edit Legal Name And Address'));
+    expect(screen.getByLabelText('Legal Name').value).toBe('Greens Global, LLC');
+    fireEvent.change(screen.getByLabelText('Address'), { target: { value: '1 Market St, San Francisco, CA 94105' } });
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(m.updateEntity).toHaveBeenCalledWith('e-gg', { legal_name: 'Greens Global, LLC', physical_address: '1 Market St, San Francisco, CA 94105' }));
+  });
+
   it('All Companies for HR without every company is read-only', async () => {
     companyView = ggView({ entity: { id: '', name: 'All Companies', shared: true, canEdit: false, country: '', region: '' }, about: [],
       rows: [row('employee', 'US', 'CA', 'Employees In California', { removable: true })] });
@@ -210,7 +229,7 @@ describe('Screen 2: Set Up Hiring', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Accountant' }));
     expect(await screen.findByText('Accountant - Contractors Version')).toBeTruthy();
     expect(screen.getByText('Accountant - Standard')).toBeTruthy();
-    expect(m.getHiringSetupCompany).toHaveBeenLastCalledWith('e-gg', 'jr-acct');
+    expect(m.getHiringSetupCompany).toHaveBeenLastCalledWith('e-gg', 'jr-acct', 'hiring');
   });
 
   it('GGCon India: two independent rows; making the contractor one own sends only its key', async () => {
@@ -347,8 +366,123 @@ describe('Packet documents', () => {
     expect(screen.queryByText('Job Description - Goes Here')).toBeNull();
     expect(screen.queryByText('+ Add The Job Description Page')).toBeNull();
     fireEvent.click(screen.getByText('Edit Wording'));
-    await waitFor(() => expect(m.hiringSetupOwnCopy).toHaveBeenCalledWith('s-gg-hire', 'A'));
+    await waitFor(() => expect(m.hiringSetupOwnCopy).toHaveBeenCalledWith('s-gg-hire', 'A', 'e-gg'));
     await waitFor(() => expect(toastOk.mock.calls[0][0]).toMatch(/Employment Agreement - Greens Global/));
+  });
+});
+
+// Round 2: the Promotion and Offboarding sections of the same screen.
+const SECTIONS = [{ key: 'hiring', label: 'Hiring', status: 'left', chip: '2 Things Left' }, { key: 'promotion', label: 'Promotion', status: 'left', chip: '1 Thing Left' },
+  { key: 'offboarding', label: 'Offboarding', status: 'ready', chip: 'Ready To Offboard' }];
+const letter = (o) => cell({ name: 'California Promotion Letter', sourceLabel: 'Same As All Companies - California', settingId: 's-ca-promo', placement: 'page',
+  placementLabel: 'Its Own Page, After Promotion Letter', countersign: 'Their Manager',
+  documents: [{ id: 't-promo', name: 'Promotion Letter', marker: false, signedBy: 'The Employee, then Their Manager' }, { id: '@jd', name: 'Job Description - Goes Here', marker: true, signedBy: '' }], ...o });
+const pkg = (o) => cell({ name: 'California Separation Package', sourceLabel: 'Same As All Companies - California', settingId: 's-ca-sep',
+  documents: [{ id: 't-sep', name: 'Separation Agreement', marker: false, signedBy: 'The Employee' }], ...o });
+const promoRow = (wt, country, region, kind, o = {}) => {
+  const { offer, packet, ...r } = row(wt, country, region, kind);   // eslint-disable-line no-unused-vars
+  return { ...r, letter: letter(), jd: jd({ placementLabel: 'Its Own Page, After Promotion Letter' }), ...o };
+};
+const offRow = (wt, country, region, kind, o = {}) => {
+  const { offer, packet, jd: _j, ...r } = row(wt, country, region, kind);   // eslint-disable-line no-unused-vars
+  return { ...r, package: pkg(), ...o };
+};
+const promotionView = (over = {}) => ggView({
+  section: 'promotion', sections: SECTIONS, status: 'left', chip: '1 Thing Left',
+  columns: [{ key: 'letter', event: 'promotion', label: 'Promotion Letter' }, { key: 'jd', event: '', label: "New Role's Job Description" }],
+  items: [{ key: 'missing:contractor:US:CA', text: 'No promotion letter for Contractors In California yet - Promote is off there, Change Role Now still works.',
+    button: 'Set It Up', action: 'setUp', target: { section: 'promotion', rowKey: 'contractor:US:CA', column: 'letter' } }],
+  rows: [promoRow('employee', 'US', 'CA', 'Employees In California'), promoRow('contractor', 'US', 'CA', 'Contractors In California', { letter: missing })],
+  ...over,
+});
+const offboardingView = (over = {}) => ggView({
+  section: 'offboarding', sections: SECTIONS, status: 'ready', chip: 'Ready To Offboard', items: [], jobDescriptions: null,
+  columns: [{ key: 'package', event: 'separation', label: 'Separation Package' }],
+  rows: [offRow('employee', 'US', 'CA', 'Employees In California'), offRow('contractor', 'US', 'CA', 'Contractors In California')],
+  ...over,
+});
+const bySection = (s) => (s === 'promotion' ? promotionView() : s === 'offboarding' ? offboardingView() : ggView({ section: 'hiring', sections: SECTIONS }));
+
+describe('Promotion and Offboarding sections', () => {
+  it('the section control refetches with the section and swaps the grid', async () => {
+    m.getHiringSetupCompany.mockImplementation((e, r, s) => Promise.resolve(bySection(s)));
+    company();
+    expect(await screen.findByText('Set Up Hiring - Greens Global')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: /Promotion/ }));
+    expect(await screen.findByText('Set Up Promotions - Greens Global')).toBeTruthy();
+    expect(m.getHiringSetupCompany).toHaveBeenLastCalledWith('e-gg', '', 'promotion');
+    expect(screen.getByText('What Each Promotion Gets')).toBeTruthy();
+    expect(screen.getByText("New Role's Job Description")).toBeTruthy();
+    expect(screen.queryByText('Make An Offer')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: /Offboarding/ }));
+    expect(await screen.findByText('Set Up Offboarding - Greens Global')).toBeTruthy();
+    expect(m.getHiringSetupCompany).toHaveBeenLastCalledWith('e-gg', '', 'offboarding');
+    expect(screen.getByText('Everything is set. Offboarding sends the separation package.')).toBeTruthy();
+  });
+
+  it('a promotion focus opens that section and Popup A on the letter', async () => {
+    companyView = promotionView();
+    render(<HiringSetup toastOk={noop} toastErr={noop} onAdvanced={noop} focus={{ entityId: 'e-gg', rowKey: 'employee:US:CA', column: 'letter' }} />);
+    expect(await screen.findByText('Promotion Letter - Employees In California')).toBeTruthy();
+    expect(m.getHiringSetupCompany).toHaveBeenCalledWith('e-gg', '', 'promotion');     // section inferred from the column
+    expect(screen.getByText('Promotions already in progress keep the documents they started with.')).toBeTruthy();
+  });
+
+  it('the promotion grid shows who countersigns, amber when nobody does', async () => {
+    companyView = promotionView({ rows: [promoRow('employee', 'US', 'CA', 'Employees In California'),
+      promoRow('contractor', 'US', 'CA', 'Contractors In California', { letter: letter({ name: 'Contractor Promotion', countersign: '' }) })] });
+    company({ focus: { entityId: 'e-gg', section: 'promotion' } });
+    expect(await screen.findByText('Countersigned By Their Manager')).toBeTruthy();
+    expect(screen.getByText('Nobody countersigns yet')).toBeTruthy();
+    expect(screen.getByText('Job Descriptions')).toBeTruthy();                        // the duties table stays for promotion
+    fireEvent.click(screen.getByText('Set It Up'));
+    expect(await screen.findByText('Promotion Letter - Contractors In California')).toBeTruthy();
+  });
+
+  it('offboarding: one column, the per-row note, no Job Descriptions table', async () => {
+    companyView = offboardingView();
+    company({ focus: { entityId: 'e-gg', section: 'offboarding' } });
+    expect(await screen.findByText('What Each Offboarding Gets')).toBeTruthy();
+    expect(screen.getAllByText('California Separation Package')).toHaveLength(2);
+    expect(screen.getByText('One separation package per row - the same for every reason they leave.')).toBeTruthy();
+    expect(screen.queryByText('Job Descriptions')).toBeNull();
+    expect(screen.queryByText('Promotion And Separation Letters')).toBeNull();
+    fireEvent.click(screen.getAllByText('California Separation Package')[0]);
+    expect(await screen.findByText('Separation Package - Employees In California')).toBeTruthy();
+    expect(screen.queryByText('+ Add The Job Description Page')).toBeNull();
+  });
+
+  it('an upload from the letter column makes a promotion row with the job description page after it', async () => {
+    companyView = promotionView();
+    company({ focus: { entityId: 'e-gg', section: 'promotion' } });
+    fireEvent.click(await screen.findByText('Nothing Yet - Choose One'));
+    expect(await screen.findByText('Promotion Letter - Contractors In California')).toBeTruthy();
+    fireEvent.click(screen.getByText('Upload A Word File'));
+    fireEvent.click(await screen.findByText('Mock Wizard promotion'));
+    await waitFor(() => expect(m.hiringSetupMakeOwn).toHaveBeenCalledWith({ entity_id: 'e-gg', event: 'promotion', worker_type: 'contractor', country: 'US', region: 'CA',
+      start: 'templates', doc_template_ids: ['t-new', '@jd'], also: [] }));
+  });
+
+  it('GGCon India: making the contractor promotion letter own sends only its key', async () => {
+    companyView = promotionView({ entity: { id: 'e-in', name: 'GGCon India', shared: false, canEdit: true, country: 'IN', region: '' }, items: [], about: [],
+      rows: [promoRow('employee', 'IN', '', 'Employees In India', { letter: letter({ name: 'India Employee Promotion', settingId: 's-in-promo', sourceLabel: 'Same As All Companies' }) }),
+        promoRow('contractor', 'IN', '', 'Contractors In India', { letter: letter({ name: 'India Contractor Promotion', settingId: 's-in-promo', sourceLabel: 'Same As All Companies' }) })] });
+    company({ entityId: 'e-in', focus: { entityId: 'e-in', section: 'promotion' } });
+    fireEvent.click(await screen.findByText('India Contractor Promotion'));
+    fireEvent.click(await screen.findByText(/Make A Different One For GGCon India/));
+    fireEvent.click(screen.getByText('Start From A Copy'));
+    await waitFor(() => expect(m.hiringSetupMakeOwn).toHaveBeenCalledWith({ entity_id: 'e-in', event: 'promotion', worker_type: 'contractor', country: 'IN', region: '', start: 'copy', doc_template_ids: [], also: [] }));
+    expect(screen.getByText('India Employee Promotion')).toBeTruthy();
+  });
+
+  it('Edit Wording of a shared row shows the server asking for Make A Different One first', async () => {
+    companyView = promotionView({ rows: [promoRow('employee', 'US', 'CA', 'Employees In California', { letter: letter({ tone: 'own', sourceLabel: 'Only Here', settingId: 's-gg-promo' }) })] });
+    m.hiringSetupOwnCopy.mockImplementationOnce(() => Promise.reject(new Error("Every company uses this one - click Make A Different One first, then change the wording in this company's own copy.")));
+    company({ focus: { entityId: 'e-gg', section: 'promotion' } });
+    fireEvent.click(await screen.findByText('California Promotion Letter'));
+    fireEvent.click(await screen.findByText('Edit Wording'));
+    expect(await screen.findByText(/click Make A Different One first/)).toBeTruthy();
+    expect(m.hiringSetupOwnCopy).toHaveBeenCalledWith('s-gg-promo', 't-promo', 'e-gg');
   });
 });
 

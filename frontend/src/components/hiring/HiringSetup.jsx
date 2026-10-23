@@ -1,6 +1,6 @@
 // Set Up Hiring (Oct 23): the way into Settings > Hiring > Hiring Documents.
 // Screen 1 lists All Companies (Shared) and every company with what is left to
-// do; picking one opens Screen 2 (HiringSetupCompany) in place. The chips come
+// do (a chip per section: Hiring, Promotion, Offboarding); picking one opens Screen 2 (HiringSetupCompany) in place. The chips come
 // from the same server view as Screen 2, so the two never disagree.
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
@@ -48,8 +48,18 @@ export default function HiringSetup({ toastOk, toastErr, initialCompanyId = null
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 15, fontWeight: 700 }}>{c.name}</span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}>{c.place}</span>
-                <StatusChip status={c.status} chip={c.chip} />
+                {!c.sections && <StatusChip status={c.status} chip={c.chip} />}
               </div>
+              {c.sections && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                  {c.sections.map(x => (
+                    <span key={x.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>{x.label}</span>
+                      <StatusChip status={x.status} chip={x.chip} />
+                    </span>
+                  ))}
+                </div>
+              )}
               <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>{c.summary}</div>
             </div>
             <button type="button" className="primary-btn" style={btn} onClick={() => setOpen(c.id)} aria-label={`Set Up Hiring - ${c.name}`}>Set Up Hiring</button>
