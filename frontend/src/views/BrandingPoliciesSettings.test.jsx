@@ -65,7 +65,9 @@ describe('Branding & Email subject', () => {
     roleState.admin = false;
     render(<AdminConsole activeSub="global-branding" onSubChange={() => {}} />);
     expect(screen.queryByRole('button', { name: /Branding & Email/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Companies' })).toBeInTheDocument();
+    // Falls back to the first subject this person may open (the registry
+    // gates, Oct 23): a manager with no People grant starts at the emails.
+    expect(screen.getByRole('heading', { name: 'Emails & Reminders' })).toBeInTheDocument();
   });
 
   it('loads its panels without a click', async () => {
