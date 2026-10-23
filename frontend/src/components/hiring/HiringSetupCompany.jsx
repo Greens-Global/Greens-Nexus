@@ -245,7 +245,7 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
             <div key={it.key} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
               <span style={{ flex: '1 1 360px', fontSize: 13.5 }}>{it.text}</span>
               {it.action !== 'none' && it.button && (
-                <button type="button" className="secondary-btn" onClick={() => act(it)} style={{ borderColor: '#d97706', color: '#92400e', fontWeight: 700 }}>{it.button}</button>
+                <button type="button" className="secondary-btn" onClick={() => act(it)} style={{ borderColor: '#d97706', color: '#92400e', fontWeight: 700 }}>{it.action === 'editAbout' && it.target?.field === 'handlesHiring' && S.handles ? `Pick Who ${S.handles}` : it.button}</button>
               )}
             </div>
           ))}

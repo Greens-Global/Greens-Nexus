@@ -405,15 +405,20 @@ const offboardingView = (over = {}) => ggView({
 const bySection = (s) => (s === 'promotion' ? promotionView() : s === 'offboarding' ? offboardingView() : ggView({ section: 'hiring', sections: SECTIONS }));
 
 describe('Promotion and Offboarding sections', () => {
-  it('the About line names the section: Handles Promotions / Handles Offboarding, Hiring unchanged', async () => {
-    m.getHiringSetupCompany.mockImplementation((e, r, s) => Promise.resolve(bySection(s)));
+  it('the About line and its Things To Finish button name the section, Hiring unchanged', async () => {
+    const hr = ggView().items.find(i => i.key === 'check:s1:hr');
+    m.getHiringSetupCompany.mockImplementation((e, r, s) => { const v = bySection(s); return Promise.resolve({ ...v, items: [...v.items.filter(i => i.key !== hr.key), hr] }); });
     company();
     expect(await screen.findByText('Handles Hiring')).toBeTruthy();
+    expect(screen.getByText('Pick Who Handles Hiring')).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: /Promotion/ }));
     expect(await screen.findByText('Handles Promotions')).toBeTruthy();
     expect(screen.getByLabelText('Edit Handles Promotions')).toBeTruthy();
+    expect(screen.queryByText('Pick Who Handles Hiring')).toBeNull();
+    expect(screen.getByText('Pick Who Handles Promotions')).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: /Offboarding/ }));
     expect(await screen.findByText('Handles Offboarding')).toBeTruthy();
+    expect(screen.getByText('Pick Who Handles Offboarding')).toBeTruthy();
     expect(screen.queryByText('Handles Hiring')).toBeNull();
   });
 
