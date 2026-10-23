@@ -83,6 +83,8 @@ const CAMEL_TO_SNAKE = {
   slaDueAt: 'sla_due_at',
   // The ticket's Unit at its property (Ops review, Oct 20).
   propertyUnit: 'property_unit',
+  // Board card previews + a saved Board view's columns (Oct 22 2026).
+  cardPreviewMode: 'card_preview', boardColumns: 'board_columns',
 };
 function toBody(patch) {
   const out = {};
@@ -454,11 +456,12 @@ export function TasksProvider({ children }) {
 
   // Undo toast - one at a time; label + a run() that reverses the action.
   // A null run() is a plain notice (no Undo button) in the same spot.
+  // `actionLabel` names the button when it is not an undo ("Open").
   const [undo, setUndo] = useState(null);
   const undoTimer = useRef(null);
-  const offerUndo = useCallback((label, run) => {
+  const offerUndo = useCallback((label, run, actionLabel = 'Undo') => {
     clearTimeout(undoTimer.current);
-    setUndo({ label, run });
+    setUndo({ label, run, actionLabel });
     undoTimer.current = setTimeout(() => setUndo(null), 6000);
   }, []);
   useEffect(() => { offerRef.current = offerUndo; }, [offerUndo]);
@@ -638,6 +641,20 @@ export function TasksProvider({ children }) {
       return r;
     } catch (e) {
       if (e?.status && e.status !== 401) alert(e.message || 'Could not change the dates.');
+      throw e;
+    }
+  }, []);
+
+  // The batch bar's Add Label / Remove Label (Oct 22 2026): merged into each
+  // task's own labels on the server, under its row locks - the answer lands.
+  const bulkLabels = useCallback(async (ids, change) => {
+    try {
+      const rows = await api.bulkTaskLabels(ids, change);
+      const map = Object.fromEntries((rows || []).map((r) => [r.id, r]));
+      setTasks((prev) => prev.map((t) => map[t.id] || t));
+      return rows;
+    } catch (e) {
+      if (e?.status && e.status !== 401) alert(e.message || 'Could not change the labels.');
       throw e;
     }
   }, []);
@@ -943,10 +960,22 @@ export function TasksProvider({ children }) {
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, deleteTasks, restoreTasks, bulkUpdate, toggleComplete, setStatus,
     moveTask,
-    bulkDates, undoDueChange,
+    bulkDates, undoDueChange, bulkLabels,
     // Puts a task the server just returned into the store as-is (the due-date
     // confirm/propose/respond calls answer with the updated task).
     applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },
+    // Convert to Subtask (Oct 22 2026): the server makes the subtask from a
+    // checklist line and removes the line in one commit; the new subtask
+    // joins the store (so the drawer's Subtasks list shows it) and the
+    // parent takes its fresh counters. People who could not be put on it
+    // are said, as for any create. Answers {subtask, task}.
+    convertChecklistItem: async (itemId) => {
+      const r = await api.convertTaskChecklistItem(itemId);
+      const sub = takeDropped(r?.subtask);
+      if (sub?.id) setTasks((prev) => [sub, ...prev.filter((x) => x.id !== sub.id)]);
+      if (r?.task?.id) patchLocalTask(r.task.id, r.task);
+      return { subtask: sub, task: r?.task };
+    },
     // Import from CSV / Excel (Oct 22 2026, ImportTasksModal). A dry run only
     // reports. A real one can mint hundreds of tasks plus sections and select
     // options, so the workspace is re-read rather than patched row by row.
@@ -1014,7 +1043,7 @@ export function TasksProvider({ children }) {
           fontFamily: "'Inter', sans-serif", fontSize: 13, maxWidth: 'min(92vw, 520px)',
         }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{undo.label}</span>
-          {undo.run && <button onClick={runUndo} style={{ border: 'none', background: 'none', color: '#6ea8ff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Undo</button>}
+          {undo.run && <button onClick={runUndo} style={{ border: 'none', background: 'none', color: '#6ea8ff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>{undo.actionLabel || 'Undo'}</button>}
         </div>
       )}
     </Ctx.Provider>

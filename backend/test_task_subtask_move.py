@@ -350,18 +350,21 @@ class CrossProjectTests(Base):
         self.assertFalse(self.row(leaf.id).deleted_at)
         self.assertEqual(self.row(leaf.id).parent_task_id, kid.id)
 
-    def test_a_move_never_changes_anyones_access_level(self):
-        # Under a restricted parent and back out again (the Undo): every row
-        # keeps the level it had - nothing sticks restricted, nothing opens.
+    def test_a_move_never_widens_and_narrows_under_a_private_parent(self):
+        # Oct 22 2026 (privacy fix): under a restricted parent the moved task
+        # and its subtree become at least as private as the parent - a subtask
+        # is never wider than the task it sits under. Moving back out (the
+        # Undo) never widens anything: opening a task to everyone is its own
+        # act, with its own right (_may_open_up).
         a = self.task("A", created_by=EDITOR["email"], access_level="org")
         c = self.task("C", parent=a, created_by=OWNER["email"], access_level="org")
         r = self.task("Private parent", created_by=EDITOR["email"], access_level="restricted")
         self.move(a, user=EDITOR, parent_task_id=r.id)
-        self.assertEqual((self.row(a.id).access_level, self.row(c.id).access_level), ("org", "org"))
-        self.assertEqual(self.activity(a.id), ["moved this task under another task"],
+        self.assertEqual((self.row(a.id).access_level, self.row(c.id).access_level), ("restricted", "restricted"))
+        self.assertEqual(self.activity(a.id), ["moved this task under another task - now private, like the task it is under"],
                          "a private parent's code stays out of the history")
         self.move(self.row(a.id), user=EDITOR, parent_task_id="")
-        self.assertEqual((self.row(a.id).access_level, self.row(c.id).access_level), ("org", "org"))
+        self.assertEqual((self.row(a.id).access_level, self.row(c.id).access_level), ("restricted", "restricted"))
 
     def test_private_tasks_do_not_move_into_a_wider_project(self):
         # Assigned a restricted standalone task (editor on THAT task), but not

@@ -84,6 +84,7 @@ from routers.task_util import (
 )
 import task_due
 import task_history
+from task_labels import label_key as _label_key
 
 # The "person" automated changes are attributed to - activity rows and the
 # author of an `add_comment`. Not a mailbox: the frontend's name resolver
@@ -321,7 +322,9 @@ def snapshot(t: models.Task) -> dict:
         "project_id": t.project_id or "",
         "project_ids": tuple(t.project_ids or []),
         "team_id": t.team_id or "",
-        "tags": tuple(str(x).strip().lower() for x in (t.tags or [])),
+        # By label key (task_labels.label_key): spacing and case variants of
+        # one label are one label, here as on every screen.
+        "tags": tuple(_label_key(x) for x in (t.tags or [])),
         "due_on": (t.due_on or "")[:10],
         "completed": bool(t.completed),
         # Copied, lists included: the JSON column's dict can be edited in
@@ -460,7 +463,7 @@ def conditions_ok(conditions: list | None, snap: dict) -> bool:
         elif f == "priority":
             hit = snap["priority"] == v
         elif f == "tag":
-            hit = v in snap["tags"]
+            hit = _label_key(c.get("value")) in snap["tags"]
         elif f == "assignee":
             hit = v in snap["assignees"]
         elif f == "team":
@@ -674,9 +677,9 @@ def _apply_action(db: Session, t: models.Task, action: dict, res: Result, *, tod
         res.changed["priority"] = value
         return f"set priority to {str(value).capitalize()}"
     if kind == "add_tag":
-        tag = str(value or "").strip()
+        tag = " ".join(str(value or "").split())
         tags = list(t.tags or [])
-        if not tag or tag.lower() in [str(x).lower() for x in tags]:
+        if not tag or _label_key(tag) in [_label_key(x) for x in tags]:
             return ""
         t.tags = tags + [tag]
         res.changed["tags"] = t.tags
@@ -984,6 +987,12 @@ def _move_to_project(db: Session, t: models.Task, spec: dict, res: Result, run: 
         # Same reason create_task refuses a copy: the other project's people
         # would see a task that was hidden from them. A person can move it.
         return f"could not move to {project.name}: the task is restricted, so a rule does not move it to another project"
+    if old != pid and any((d.access_level or "org") != "org" for d in _live_descendants(db, [t.id])):
+        # A restricted SUBTASK goes too (its own project, or through this
+        # one): the same widening, refused the same way - a manual move takes
+        # someone who may open each restricted row up (tasks.
+        # _require_open_up_for_move); a rule has no such person.
+        return f"could not move to {project.name}: a subtask is restricted, so a rule does not move it to another project"
     if old != pid:
         values = t.custom_field_values or {}
         missing = _newly_missing_required(db, t, old, values, pid, values)

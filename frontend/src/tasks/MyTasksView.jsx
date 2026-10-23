@@ -3,8 +3,8 @@
 // A dedicated personal view: "Tasks" header, List/Board/Calendar/
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
-import { Fragment, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, XCircle, CornerDownRight, Check, Minus, Clock, Palette } from 'lucide-react';
+import { Fragment, Suspense, lazy, useMemo, useRef, useState } from 'react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, XCircle, CornerDownRight, Check, Minus, Clock, Palette, Sun } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate, todayISO, fieldsForProject } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyle, isMissed, MISSED_TITLE } from './theme';
@@ -15,6 +15,7 @@ import CreateTaskModal from './CreateTaskModal';
 import QuickCreateTask from './QuickCreateTask';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { CalendarView, DashboardView } from './views/extras';
+import { dueFilterHidesUndated } from './calendarMove';
 import { FilesView } from './views/more';
 import TimeSheetView from './TimeSheetView';
 import BoardView from './views/board';
@@ -33,8 +34,17 @@ import { changedRecently } from './recentChanges';
 import { RowColorsProvider, useRowColorScope, useRuleContext, useMyColorRules, useRowColor, rowColorAttrs, boldTitleStyle, srOnly, onTint } from './rowColorState';
 import { RowColorLegend } from './RowColors';
 import ColorRulesEditor from './ColorRulesEditor';
+import { LabelStrip } from './labels';
+import { LoadingState } from '../components/AsyncState';
+// My Day is a tab of its own, opened by choice - its screen loads with it
+// (a ring while it arrives, never a blank body).
+const MyDayView = lazy(() => import('./MyDayView'));
 
 const VIEW_TABS = [
+  // My Day (Oct 22 2026, MyDayView.jsx): the person's list for today, first
+  // in the strip. The tab the page opens on is still the last one they used
+  // (useTableValue below; List for someone who never picked one).
+  { key: 'myday', label: 'My Day', icon: Sun },
   { key: 'list', label: 'List', icon: ListIcon },
   { key: 'board', label: 'Board', icon: Columns3 },
   { key: 'calendar', label: 'Calendar', icon: CalIcon },
@@ -224,6 +234,8 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
         {/* Same badges the Task List shows. Without them the same task looked
             emptier here than there, which is the kind of difference that reads
             as data missing rather than as a different screen. */}
+        {/* Labels as on the Task List (Oct 22 2026). */}
+        <LabelStrip tags={t.tags} max={2} />
         <TaskCountBadges t={t} store={store} />
       </div>
     ),
@@ -450,22 +462,23 @@ export default function MyTasksView({ onNavigate }) {
             the completed-hidden default rather than reporting a total the view
             never shows. Board sorts the same rows through its own list, hence
             the two sources. */}
-        <span title={`${shownCount} ${shownCount === 1 ? 'task' : 'tasks'} in this view`}
+        {/* My Day counts its own rows (its progress), so no count here. */}
+        {view === 'myday' ? <span style={{ marginLeft: 'auto' }} /> : <span title={`${shownCount} ${shownCount === 1 ? 'task' : 'tasks'} in this view`}
           style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: NX.dim, background: NX.surface2, border: `1px solid ${NX.border2}`, borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' }}>
           {shownCount} {shownCount === 1 ? 'Task' : 'Tasks'}
-        </span>
+        </span>}
         {/* Next to the count rather than in the List toolbar below: the rows
             being exported are the same whichever view is on screen, and the
             project workspace's Export is not gated to List either - so looking
             for it on Board and not finding it would be the odd one out. */}
-        {!isMobile && (
+        {!isMobile && view !== 'myday' && (
           <ExportMenu
             title="Tasks" subtitle={`${exportRows.length} task${exportRows.length === 1 ? '' : 's'} including subtasks, as filtered`}
             filenameBase="my-tasks" rows={exportRows} compact
             columns={MY_TASK_EXPORT_COLS(store, nameOf)}
           />
         )}
-        {!isMobile && (
+        {!isMobile && view !== 'myday' && (
           <button type="button" onClick={() => setColorsOpen(true)} title="Color your rows by their data - only you see these"
             style={{ ...btn('outline'), padding: '0 10px', height: CONTROL_H, fontSize: CONTROL_FS, color: NX.dim, gap: 5 }}>
             <Palette size={13} />Row Colors
@@ -506,7 +519,11 @@ export default function MyTasksView({ onNavigate }) {
       {/* Body */}
       <RowColorsProvider map={rowScope.map}>
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: view === 'list' ? 16 : 0, paddingBottom: isMobile ? 88 : 76 }}>
-        {view === 'list' ? (
+        {view === 'myday' ? (
+          <Suspense fallback={<LoadingState label="Loading My Day" />}>
+            <MyDayView onOpen={setOpenId} />
+          </Suspense>
+        ) : view === 'list' ? (
           <div className={isMobile ? 'nx-edge-card' : undefined} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface }}>
             {/* Fixed-width columns (Due date/Collaborators/Project) don't shrink
                 below their content size - scroll horizontally on narrow
@@ -567,7 +584,7 @@ export default function MyTasksView({ onNavigate }) {
                 whoever creates it (CreateTaskModal). */}
           </div>
         ) : view === 'calendar' ? (
-          <CalendarView tasks={mine} store={store} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />
+          <CalendarView tasks={mine} store={store} dueFiltered={dueFilterHidesUndated(filter)} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />
         ) : view === 'files' ? (
           <FilesView tasks={allMine} onOpen={setOpenId} nameOf={nameOf} />
         ) : view === 'time' ? (
@@ -608,7 +625,8 @@ export default function MyTasksView({ onNavigate }) {
         <MobileTaskBar
           views={VIEW_TABS} view={view} setView={switchView}
           onCreate={() => openCreate({ assigneeId: myEmail })}
-          filterSheet={(onClose) => (
+          // My Day has nothing to filter: no filter button there.
+          filterSheet={view === 'myday' ? null : (onClose) => (
             <MobileFilters
               filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
               group={group} setGroup={setGroup} groupOptions={MY_GROUP_OPTIONS} hideAssignee

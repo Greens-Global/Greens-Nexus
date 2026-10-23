@@ -6,6 +6,7 @@ import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
 import { toViewUrl, isOwnImageUrl } from '../lib/storageView';
 import { dialog } from '../ui/dialog';
+import { labelKey, labelName, labelTone, labelsInUse } from './labels';
 
 export const EMPTY_FILTER = {
   // collaboratorIds = people in a task's follower list (Asana "collaborators").
@@ -176,7 +177,13 @@ export function matchesFilter(task, f = EMPTY_FILTER, taskById = null, formulaMa
     const ids = taskById ? effectiveProjectIds(task, taskById) : taskProjectIds(task);
     if (!f.projectIds.some((id) => ids.includes(id))) return false;
   }
-  if (f.tags?.length && !f.tags.some((t) => (task.tags || []).includes(t))) return false;
+  // Labels (Oct 22 2026): ANY of the picked labels, by key - "Urgent" in the
+  // filter finds a task labelled "urgent". The filter holds keys; an older
+  // saved view that stored a spelling matches the same way.
+  if (f.tags?.length) {
+    const want = new Set(f.tags.map(labelKey));
+    if (!(task.tags || []).some((t) => want.has(labelKey(t)))) return false;
+  }
   if (f.fromTicket && !task.sourceTicketId) return false;
   // Each selected field narrows independently (AND across fields, OR within
   // one) - the same shape as the assignee/status/priority filters above.
@@ -561,6 +568,16 @@ export function duplicateTaskData(t, overrides = {}) {
     followerIds: [...(t.followerIds || [])], dueOn: t.dueOn || '', startOn: t.startOn || '',
     tags: [...(t.tags || [])], estimateHours: t.estimateHours ?? null, isMilestone: !!t.isMilestone,
     customFieldValues: { ...(t.customFieldValues || {}) },
+    // Show On Card (Oct 22 2026) - not a picked image: the copy has no files.
+    cardPreviewMode: String(t.cardPreviewMode || '').startsWith('image:') ? '' : (t.cardPreviewMode || ''),
+    // A private task's copy is private too (Oct 22 2026) - never wider than
+    // what it was copied from. An org-wide one leaves it to the server (the
+    // project's level, or the parent's when that is private) - and so does
+    // one private only because of its parent (narrowedBy): the server makes
+    // the copy private under its private parent the same way, so the
+    // parent's people keep seeing it.
+    ...(t.accessLevel && t.accessLevel !== 'org' && !(t.narrowedBy && t.narrowedBy === t.parentTaskId)
+      ? { accessLevel: t.accessLevel } : {}),
     ...overrides,
   };
 }
@@ -833,7 +850,7 @@ export function sortTasks(list, sort = { key: 'manual', dir: 'asc' }, customFiel
 /** The context a new task inherits when added under a given group section -
  *  so "Do Today" dates it today, a status column sets that status, a project
  *  group scopes it to that project, etc. (Asana's add-from-anywhere flow). */
-export function groupAddDefaults(group, key) {
+export function groupAddDefaults(group, key, g = null) {
   // Under a custom-field group, a new task inherits that group's value - the
   // same "add where you're looking" behavior status/priority groups have.
   const cfId = cfFieldId(group);
@@ -846,6 +863,9 @@ export function groupAddDefaults(group, key) {
     return {}; // "Recently Assigned" → no due date
   }
   if (group === 'status') return { status: key };
+  // A label group (Oct 22 2026): the new task carries that label, as the
+  // group spells it (`g.labelName`); "No Label" adds none.
+  if (group === 'label') return g?.labelName ? { tags: [g.labelName] } : {};
   // A project's section is a field on the task; a personal (My Tasks) section
   // is not, and is filed by the caller after the create.
   if (group === 'section') return { sectionId: key === '-' ? '' : key };
@@ -902,6 +922,34 @@ export function groupTasks(list, group, ctx = {}) {
       (sid && known.has(sid) ? byKey[sid] : none).tasks.push(t);
     }
     return [none, ...out];
+  }
+  // By label (Oct 22 2026, the List view): a task with several labels is
+  // listed under EACH of them, like a shared task under each assignee, so the
+  // group counts add up to more than the rows. Groups run A-Z by the name
+  // shown (the company's display name, ctx.labelMap); "No Label" comes last.
+  // Keys are prefixed so a label never shares a collapsed-group key with a
+  // status or priority group. A group is named as the Board's label lanes
+  // name theirs: the company's display name, else the spelling most of these
+  // tasks use (labels.labelsInUse).
+  if (group === 'label') {
+    const map = ctx.labelMap || null;
+    const spelled = new Map(labelsInUse(list).map((r) => [r.key, r.name]));
+    const byKey = new Map();
+    const none = { key: '-', label: 'No Label', tasks: [] };
+    for (const t of list) {
+      const keys = new Set();
+      for (const tag of t.tags || []) { const k = labelKey(tag); if (k) keys.add(k); }
+      if (!keys.size) { none.tasks.push(t); continue; }
+      for (const k of keys) {
+        if (!byKey.has(k)) {
+          const name = labelName(spelled.get(k), map);
+          byKey.set(k, { key: `label:${k}`, label: name, labelName: name, color: labelTone(name, map).dot, tasks: [] });
+        }
+        byKey.get(k).tasks.push(t);
+      }
+    }
+    const out = [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label, 'en', { sensitivity: 'base' }));
+    return none.tasks.length ? [...out, none] : out;
   }
   const buckets = new Map();
   const push = (k, label, t) => {

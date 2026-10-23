@@ -80,6 +80,7 @@ import auth
 import models
 import task_automation
 import task_due
+import task_labels
 from database import SessionLocal
 from routers.task_config import (
     _parse_applies_to, coerce_custom_field_values, field_applies_to, missing_required_fields,
@@ -436,12 +437,26 @@ def _parse_row(ctx: _Context, raw: dict, index: int) -> _Row:
             r.dropped.append({"email": who.lower() if "@" in who else who, "reason": why})
             r.warnings.append(f"Assignee \"{who}\" {why} - left off.")
 
-    tags, tag_seen = [], set()
-    for tag in _split(_cell(raw.get("tags"))):
-        tag = tag[:100]
-        if tag.lower() not in tag_seen:
-            tag_seen.add(tag.lower())
-            tags.append(tag)
+    # Labels by their key (task_labels: "Q4  launch" is "Q4 launch"), each
+    # cut to the label length the save then holds them to - with a warning,
+    # and a second one when two DIFFERENT long labels come out the same once
+    # cut (they are kept once; nothing is merged without saying so).
+    tags, tag_seen = [], {}
+    for full in _split(_cell(raw.get("tags"))):
+        whole = task_labels.clean_name(full)
+        tag = whole[:task_labels.MAX_NAME].rstrip()
+        if not tag:
+            continue
+        key = task_labels.label_key(tag)
+        if tag != whole:
+            r.warnings.append(f"Label \"{tag}...\" was cut to {task_labels.MAX_NAME} characters.")
+        if key in tag_seen:
+            if task_labels.label_key(tag_seen[key]) != task_labels.label_key(whole):
+                r.warnings.append(f"Labels \"{tag_seen[key]}\" and \"{whole}\" are the same once cut to "
+                                  f"{task_labels.MAX_NAME} characters - kept once as \"{tag}\".")
+            continue
+        tag_seen[key] = whole
+        tags.append(tag)
     if len(tags) > MAX_TAGS:
         r.warnings.append(f"Only the first {MAX_TAGS} tags were kept.")
         tags = tags[:MAX_TAGS]

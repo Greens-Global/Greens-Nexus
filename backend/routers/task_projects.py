@@ -33,6 +33,7 @@ from routers.hr import _ensure_departments
 from routers.task_config import coerce_custom_field_values
 from task_color_rules import clean_rules as clean_color_rules, rules_rev
 import task_history
+import task_card_preview
 
 router = APIRouter(tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets")),
@@ -259,7 +260,10 @@ class ProjectBody(BaseModel):
 
 
 VIEW_KINDS = ("list", "board", "calendar", "timeline", "dashboard", "workload", "files")
-GROUP_KINDS = ("status", "priority", "assignee", "project", "none", "due")
+GROUP_KINDS = ("status", "priority", "assignee", "project", "none", "due", "label")
+# A Board's columns (Oct 22 2026) - frontend/src/tasks/boardLayout.js; the
+# one list lives in task_prefs.
+from routers.task_prefs import BOARD_COLUMNS   # noqa: E402
 MAX_SHARED_CHARTS = 24
 MAX_CHART_BYTES = 4 * 1024
 
@@ -276,6 +280,16 @@ def clean_default_view(v) -> Optional[dict]:
     # Grouping by a custom field travels as that field's id - any short string.
     if group and (group in GROUP_KINDS or len(group) <= 64):
         out["group"] = group
+    # A default Board also has its swimlanes and columns (Oct 22 2026);
+    # `group` stays the List's grouping. A lane is a built-in or a custom
+    # field's key - any short string, like `group`.
+    if out.get("view") == "board":
+        lanes = str(v.get("lanes") or "").strip()
+        if lanes and len(lanes) <= 64:
+            out["lanes"] = lanes
+        columns = str(v.get("columns") or "").strip()
+        if columns in BOARD_COLUMNS:
+            out["columns"] = columns
     return out or None
 
 
@@ -1795,6 +1809,8 @@ def _snapshot_project(db: Session, p: models.TaskProject, *, blueprint: bool,
             "followerEmails": list(t.follower_emails or []) if include_assignees else [],
             "estimateHours": t.estimate_hours,
             "isMilestone": bool(t.is_milestone),
+            # Show On Card - never a picked image, whose file is not copied.
+            "cardPreview": task_card_preview.copyable(getattr(t, "card_preview", "")),
             # Blueprint tasks inherit the new project's visibility rather than
             # carrying the old project's.
             "accessLevel": "" if blueprint else (t.access_level or "org"),
@@ -2334,6 +2350,7 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
                 approval_status="none", completed=False, completed_at="",
                 comment_ids=[], attachment_ids=[], activity_ids=[],
                 created_at=now, modified_at=now, created_by=user["email"],
+                card_preview=task_card_preview.copyable(spec.get("cardPreview")),
             )
             if include_assignees:
                 # assigneeEmails is the real field; assigneeEmail is the v2-era

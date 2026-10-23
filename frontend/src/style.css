@@ -6672,3 +6672,86 @@ tr.nx-needs-you > td:first-child::before, tr.nx-needs-you--row > td:first-child:
 [data-theme="dark"] .nx-cr-warn { color: #fcd34d; }
 .nx-cr-error { color: #b91c1c; background: rgba(220, 38, 38, 0.08); }
 [data-theme="dark"] .nx-cr-error { color: #fca5a5; background: rgba(248, 113, 113, 0.12); }
+
+/* Task labels (tasks/labels.js, Oct 22 2026): each tone's text, tint and
+   border, light and dark. labels.js LABEL_TONES holds the same values and
+   labels.test.js keeps the two in step (and checks the contrast). */
+:root {
+  --nx-tag-blue-fg: #1e40af;
+  --nx-tag-blue-bg: #dbeafe;
+  --nx-tag-blue-border: #bfdbfe;
+  --nx-tag-sky-fg: #075985;
+  --nx-tag-sky-bg: #e0f2fe;
+  --nx-tag-sky-border: #bae6fd;
+  --nx-tag-teal-fg: #115e59;
+  --nx-tag-teal-bg: #ccfbf1;
+  --nx-tag-teal-border: #99f6e4;
+  --nx-tag-green-fg: #166534;
+  --nx-tag-green-bg: #dcfce7;
+  --nx-tag-green-border: #bbf7d0;
+  --nx-tag-amber-fg: #92400e;
+  --nx-tag-amber-bg: #fef3c7;
+  --nx-tag-amber-border: #fde68a;
+  --nx-tag-orange-fg: #9a3412;
+  --nx-tag-orange-bg: #ffedd5;
+  --nx-tag-orange-border: #fed7aa;
+  --nx-tag-red-fg: #991b1b;
+  --nx-tag-red-bg: #fee2e2;
+  --nx-tag-red-border: #fecaca;
+  --nx-tag-pink-fg: #9d174d;
+  --nx-tag-pink-bg: #fce7f3;
+  --nx-tag-pink-border: #fbcfe8;
+  --nx-tag-purple-fg: #6b21a8;
+  --nx-tag-purple-bg: #f3e8ff;
+  --nx-tag-purple-border: #e9d5ff;
+  --nx-tag-indigo-fg: #3730a3;
+  --nx-tag-indigo-bg: #e0e7ff;
+  --nx-tag-indigo-border: #c7d2fe;
+  --nx-tag-slate-fg: #334155;
+  --nx-tag-slate-bg: #f1f5f9;
+  --nx-tag-slate-border: #cbd5e1;
+}
+[data-theme="dark"] {
+  --nx-tag-blue-fg: #93c5fd;
+  --nx-tag-blue-bg: #172143;
+  --nx-tag-blue-border: #1a3889;
+  --nx-tag-sky-fg: #7dd3fc;
+  --nx-tag-sky-bg: #0e273c;
+  --nx-tag-sky-border: #0c466b;
+  --nx-tag-teal-fg: #5eead4;
+  --nx-tag-teal-bg: #0c272c;
+  --nx-tag-teal-border: #134e4f;
+  --nx-tag-green-fg: #86efac;
+  --nx-tag-green-bg: #0c271e;
+  --nx-tag-green-border: #165334;
+  --nx-tag-amber-fg: #fcd34d;
+  --nx-tag-amber-bg: #331b12;
+  --nx-tag-amber-border: #6d3a17;
+  --nx-tag-orange-fg: #fdba74;
+  --nx-tag-orange-bg: #311715;
+  --nx-tag-orange-border: #753019;
+  --nx-tag-red-fg: #fca5a5;
+  --nx-tag-red-bg: #331116;
+  --nx-tag-red-border: #701c22;
+  --nx-tag-pink-fg: #f9a8d4;
+  --nx-tag-pink-bg: #390f26;
+  --nx-tag-pink-border: #731a46;
+  --nx-tag-purple-fg: #d8b4fe;
+  --nx-tag-purple-bg: #2d0f4c;
+  --nx-tag-purple-border: #501f84;
+  --nx-tag-indigo-fg: #a5b4fc;
+  --nx-tag-indigo-bg: #1b1b3d;
+  --nx-tag-indigo-border: #2f2b82;
+  --nx-tag-slate-fg: #cbd5e1;
+  --nx-tag-slate-bg: #212938;
+  --nx-tag-slate-border: #3a4558;
+}
+/* Tasks > My Day (Oct 22 2026, tasks/MyDayView.jsx): a row's drag handle and
+   Remove button show on hover or keyboard focus where there is a mouse;
+   always there on touch, where nothing hovers. The progress bar eases. */
+@media (hover: hover) and (pointer: fine) {
+  .nx-md-row .nx-md-reveal { opacity: 0; transition: opacity 0.12s ease; }
+  .nx-md-row:hover .nx-md-reveal, .nx-md-row:focus-within .nx-md-reveal { opacity: 1; }
+}
+.nx-md-bar { transition: width 0.3s ease; }
+@media (prefers-reduced-motion: reduce) { .nx-md-bar { transition: none; } }

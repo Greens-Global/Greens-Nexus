@@ -3,7 +3,7 @@
 // NexusTimelineView / NexusFilesView / NexusWorkloadView to the Nexus idiom.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState } from '../../components/AsyncState';
-import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download, ChevronDown, ChevronRight, CornerDownRight, ListTree, Check, HardDrive, ExternalLink } from 'lucide-react';
+import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download, ChevronDown, ChevronRight, CornerDownRight, ListTree, Check, HardDrive, ExternalLink, Link2 } from 'lucide-react';
 import { api } from '../../api';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
 import { Avatar, EmptyState, AttachmentViewer, useIsMobile } from '../components';
@@ -11,6 +11,7 @@ import { fmtDate, taskAssignees, localISO, nestSubtaskRows } from '../lib';
 import { useCanEditTask } from '../canEditTask';
 import { toDownloadUrl } from '../../lib/storageView';
 import { isEgnyteLink, safeEgnyteHref } from '../egnyteLinks';
+import { isWebLink, safeLinkHref, linkHost, linkLabel } from '../webLinks';
 import { useTasks } from '../TasksContext';
 import { daysFromPixels, dragModeAt, dragDates, describeMove, HANDLE_W } from '../timelineDrag';
 import { useRowColorMap, rowColorAttrs } from '../rowColorState';
@@ -343,8 +344,12 @@ export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onTo
 }
 
 // ── Files (attachment gallery across the visible tasks) ──────────────────────
+// Web links (Oct 22 2026) are listed with the files, as Planner's Files tab
+// lists them: the link icon, the name, the website, opening in a new tab -
+// never the viewer or a download, which are for files stored in Nexus.
 function iconFor(kind) {
   if (kind === 'egnyte') return <HardDrive size={18} style={{ color: NX.blue }} />;
+  if (kind === 'link') return <Link2 size={18} style={{ color: NX.blue }} />;
   if (kind === 'image') return <FileImage size={18} style={{ color: NX.teal }} />;
   if (kind === 'doc') return <FileText size={18} style={{ color: NX.blue }} />;
   return <File size={18} style={{ color: NX.dim }} />;
@@ -366,7 +371,7 @@ export function FilesView({ tasks, onOpen, nameOf }) {
     if (!rows) return [];
     const q = query.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter(({ a, t }) => `${a.name} ${t.title} ${t.code}`.toLowerCase().includes(q));
+    return rows.filter(({ a, t }) => `${a.name} ${isWebLink(a) ? a.url : ''} ${t.title} ${t.code}`.toLowerCase().includes(q));
   }, [rows, query]);
 
   return (
@@ -384,15 +389,23 @@ export function FilesView({ tasks, onOpen, nameOf }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
               {files.slice(0, 200).map(({ a, t }) => {
                 const href = a.dataUrl || a.url;
-                // An Egnyte link (Oct 22 2026) opens in Egnyte - no copy here to view or download.
+                // An Egnyte link (Oct 22 2026) opens in Egnyte, a web link in a
+                // new tab - no copy here to view or download.
                 const egnyte = isEgnyteLink(a) ? safeEgnyteHref(a) : null;
+                const web = isWebLink(a) ? safeLinkHref(a) : null;
                 return (
                 <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, padding: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                     {iconFor(a.kind)}
-                    {href && egnyte === null && <a href={toDownloadUrl(href)} download={a.name} title="Download" style={{ color: NX.faint }}><Download size={14} /></a>}
+                    {href && egnyte === null && web === null && <a href={toDownloadUrl(href)} download={a.name} title="Download" style={{ color: NX.faint }}><Download size={14} /></a>}
                   </div>
-                  {egnyte !== null ? (
+                  {web !== null ? (
+                    <a href={web || undefined} target="_blank" rel="noopener noreferrer" title={`Open ${a.url} in a new tab`} data-testid="files-web-link"
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', fontSize: 13, fontWeight: 600, color: NX.ink, textDecoration: 'none' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{linkLabel(a)}</span>
+                      <ExternalLink size={12} style={{ flexShrink: 0, color: NX.blue }} />
+                    </a>
+                  ) : egnyte !== null ? (
                     <a href={egnyte || undefined} target="_blank" rel="noopener noreferrer" title="Open In Egnyte"
                       style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', fontSize: 13, fontWeight: 600, color: NX.ink, textDecoration: 'none' }}>
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
@@ -406,7 +419,7 @@ export function FilesView({ tasks, onOpen, nameOf }) {
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.faint, textDecoration: 'line-through' }}
                       title="This file failed to upload and isn't available">{a.name}</div>
                   )}
-                  <div style={{ fontSize: 11, color: NX.faint }}>{a.size}{a.addedAt ? ` · ${fmtDate(a.addedAt)}` : ''}</div>
+                  <div style={{ fontSize: 11, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{web !== null ? linkHost(a.url) : a.size}{a.addedAt ? ` · ${fmtDate(a.addedAt)}` : ''}</div>
                   <button onClick={() => onOpen(t.id)} title={t.title} style={{ display: 'block', width: '100%', textAlign: 'left', marginTop: 2, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, color: NX.blue, padding: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {t.title}
                   </button>
