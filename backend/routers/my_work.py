@@ -108,18 +108,67 @@ def _title_case(s: str) -> str:
 
 
 # ── Tasks ────────────────────────────────────────────────────────────────────
-def _my_open_tasks(db: Session, user: dict, me: str) -> list:
-    """Open tasks the caller is assigned to. The JSON assignee list is matched as
-    text in SQL (SQLite stores JSON as text; Postgres casts json -> text) so only
-    the caller's rows are fetched, then confirmed with task_assignees - the one
-    correct way to ask "is this person on this task" (task_util)."""
+def my_open_task_rows(db: Session, user: dict, me: str) -> list:
+    """The caller's open task rows (sections left out), behind the company
+    wall - shared by the My Work tile and the dashboard's My Open Tasks
+    number (task_focus_counts), so the two never disagree on what is "mine"."""
     needle = f'%"{me}"%'
     q = (db.query(models.Task)
          .filter(models.Task.completed == False,  # noqa: E712
                  or_(func.lower(models.Task.assignee_email) == me,
                      func.lower(cast(models.Task.assignee_emails, String)).like(needle))))
-    rows = [t for t in wall_tasks(db, user, q.all())
+    return [t for t in wall_tasks(db, user, q.all())
             if me in task_assignees(t) and (t.type or "task") != "section"]
+
+
+# The dashboard's My Open Tasks number (Neil, Oct 23 2026: "it will say
+# something like 200 ... many are recurring or scheduled tasks that are
+# months out"). The headline is the work that is live now; the rest is named
+# under it instead of being added in:
+#   focus      in progress (any date); a repeating task once its date has
+#              come (due today or overdue); a one-off task overdue or due in
+#              the next FOCUS_DAYS days
+#   undated    no due date and not in progress - "+x with no due date"
+#   recurring  a repeating task whose next date is still ahead - "+y recurring"
+#   later      a one-off task due further out (shown nowhere, kept for tests)
+# Each task lands in exactly one bucket, in that order.
+FOCUS_DAYS = 30
+
+
+def is_recurring(t) -> bool:
+    """A repeating task's open occurrence - the daily briefing's test."""
+    return t.status == "recurring" or bool((t.recurrence or {}).get("freq"))
+
+
+def task_focus_bucket(t, today: str) -> str:
+    if (t.status or "") == "in_progress":
+        return "focus"
+    due = (t.due_on or "").strip()[:10]
+    try:
+        d = datetime.strptime(due, "%Y-%m-%d").date() if len(due) == 10 else None
+        now = datetime.strptime(today, "%Y-%m-%d").date()
+    except ValueError:
+        d, now = None, None
+    if is_recurring(t):
+        return "focus" if d is not None and d <= now else "recurring"
+    if d is None:
+        return "undated"
+    return "focus" if d <= now + timedelta(days=FOCUS_DAYS) else "later"
+
+
+def task_focus_counts(db: Session, user: dict, me: str, today: str) -> dict:
+    counts = {"focus": 0, "undated": 0, "recurring": 0, "later": 0}
+    for t in my_open_task_rows(db, user, me):
+        counts[task_focus_bucket(t, today)] += 1
+    return counts
+
+
+def _my_open_tasks(db: Session, user: dict, me: str) -> list:
+    """Open tasks the caller is assigned to. The JSON assignee list is matched as
+    text in SQL (SQLite stores JSON as text; Postgres casts json -> text) so only
+    the caller's rows are fetched, then confirmed with task_assignees - the one
+    correct way to ask "is this person on this task" (task_util)."""
+    rows = my_open_task_rows(db, user, me)
     if not rows:
         return []
     # Names for the project column and custom status labels - one query each,
