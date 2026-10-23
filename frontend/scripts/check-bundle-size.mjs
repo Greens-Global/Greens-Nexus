@@ -256,7 +256,10 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // 13712 KB (a clean local build reads ~13505 - CI's clean install runs about
 // 200 KB higher, see above). No new dependency: the heat map and hexes are
 // drawn by hand. Deliberate (Visesh).
-const TOTAL_KB     = 13950;
+// Oct 23, 2026: 13950 -> 14200. Hiring Setup (offer upload, Make An Offer on
+// one screen, offboarding packages) + Workplace Notices, measured 13978 KB
+// combined. App code only, no new dependency. Deliberate.
+const TOTAL_KB     = 14200;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a
