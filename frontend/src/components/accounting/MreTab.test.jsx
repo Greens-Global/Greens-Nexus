@@ -52,7 +52,11 @@ import MreTab, { MreFromLedger, dueInMonth, frequencyLabel, mreColumnFilter, mre
 import { linesCsv } from './linesExport';
 import { api } from '../../api';
 import { downloadBlob } from './reportModel';
+import fs from 'node:fs';
+import path from 'node:path';
 import { resetAccountingPrefs } from './prefs';
+
+const css = fs.readFileSync(path.join(__dirname, '..', '..', 'style.css'), 'utf8').replace(/\r\n/g, '\n');
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -407,5 +411,32 @@ describe('MreTab column filters', () => {
     expect(text).toContain('San Diego Gas & Electric');
     expect(text).not.toContain('Microsoft');
     expect(api.setMreNotes).not.toHaveBeenCalled();
+  });
+});
+
+// Oct 23 (Viral, Charmi): the headings and filter boxes stick as one block,
+// and the pinned Vendor cell stays solid while the months scroll under it.
+describe('MreTab sticky header block', () => {
+  it('keeps the headings and the filter boxes in one sticky head, the Vendor heading pinned left', async () => {
+    render(<MreTab />);
+    await screen.findByText('San Diego Gas & Electric');
+    const table = screen.getByRole('table', { name: /Recurring expenses/ });
+    expect(table.classList.contains('mre-grid')).toBe(true);
+    const head = table.querySelector('thead');
+    const vendorHead = within(head).getByRole('columnheader', { name: 'Vendor' });
+    expect(head.contains(screen.getByRole('textbox', { name: 'Filter Vendor' }))).toBe(true);
+    expect(head.contains(screen.getByRole('combobox', { name: 'Operator for Jan' }))).toBe(true);
+    expect(vendorHead.style.position).toBe('sticky');
+    expect(vendorHead.style.left).toBe('0px');
+    expect(table.querySelector('tbody td.acct-label').closest('tbody')).toBeTruthy();
+  });
+
+  it('the stylesheet makes the head one sticky block and paints the pinned Vendor cell over the card color', () => {
+    const rule = (sel) => css.split('\n').find((l) => l.startsWith(sel)) || '';
+    expect(rule('.acct-report.mre-grid thead {')).toMatch(/position: sticky; top: 0/);
+    expect(rule('.acct-report.mre-grid thead th, .acct-report.mre-grid .acct-filter-row td {')).toMatch(/top: auto/);
+    expect(rule('.acct-report.mre-grid tbody tr td.acct-label {')).toMatch(/background: var\(--bg-card\)/);
+    const hover = css.slice(css.indexOf('.acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label'));
+    expect(hover.slice(0, hover.indexOf('}'))).toMatch(/linear-gradient\(var\(--wk-brand-tint, #e8ecfd\), var\(--wk-brand-tint, #e8ecfd\)\), var\(--bg-card\)/);
   });
 });

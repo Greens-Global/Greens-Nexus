@@ -541,11 +541,13 @@ function Grid({ filterColumns = [], typed = {}, onTyped = null, rows, totals, ye
   const ariaSort = (k) => (sort?.key === k ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined);
   return (
     <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1 }}>
-      <table className="acct-report" style={{ '--acct-row-py': py }} aria-label={`Recurring expenses ${year}`}>
+      <table className="acct-report mre-grid" style={{ '--acct-row-py': py }} aria-label={`Recurring expenses ${year}`}>
+        {/* The headings and the filter boxes stick as one block (mre-grid in
+            style.css); the Vendor heading also stays pinned on the left. */}
         <thead>
           <tr>
             {[...MRE_COLUMNS.slice(0, 3), ...opt.map(([k, l]) => [k, l, k === 'variancePct']), ...MRE_COLUMNS.slice(3)].map(([k, l, isNum]) => (
-              <th key={k} aria-label={l} aria-sort={ariaSort(k)} className={k === 'vendor' ? 'acct-label acct-head' : isNum ? 'acct-num' : undefined} style={headStyle(cw.width(k))}>{head(k, l)}<ColumnResizer {...cw.resizer(k, l)} /></th>
+              <th key={k} aria-label={l} aria-sort={ariaSort(k)} className={k === 'vendor' ? 'acct-label acct-head' : isNum ? 'acct-num' : undefined} style={headStyle(cw.width(k), k === 'vendor' ? { position: 'sticky', left: 0 } : null)}>{head(k, l)}<ColumnResizer {...cw.resizer(k, l)} /></th>
             ))}
             {idx.map((i) => <th key={MONTHS[i]} aria-label={MONTHS[i]} className="acct-num" style={headStyle(cw.width(`m${i}`))}>{MONTHS[i]}<ColumnResizer {...cw.resizer(`m${i}`, MONTHS[i])} /></th>)}
             <th aria-label="Total" aria-sort={ariaSort('total')} className="acct-num" title="Paid in the months shown" style={headStyle(cw.width('total'), { fontWeight: 800 })}>{head('total', 'Total')}<ColumnResizer {...cw.resizer('total', 'Total')} /></th>
