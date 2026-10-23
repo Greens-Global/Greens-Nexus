@@ -221,6 +221,11 @@ class LeasingApiTests(unittest.TestCase):
                     from fastapi import HTTPException
                     raise HTTPException(status_code=424, detail="Accounting service returned 500")
                 return {"ok": True, "rows": [{"customer": "C00498", "account_no": "41101", "month": f"{date.today().year}-01", "debit": 0, "credit": 3000.0}]}
+            if path.endswith("/reports/buckets") and params.get("by") == "month":
+                if self.fail_ledger:
+                    from fastapi import HTTPException
+                    raise HTTPException(status_code=424, detail="Accounting service returned 500")
+                return {"ok": True, "rows": [{"bucket": f"{date.today().year}-01", "account_no": "41101", "debit": 0, "credit": 3000.0}]}
             return {"ok": True, "values": [{"code": "C00498", "name": "Greens Fairfield, LLC."}]}
 
         self._get = accounting._acct_get
@@ -336,13 +341,24 @@ class LeasingApiTests(unittest.TestCase):
         _as(VIEWER)
         self.assertEqual(self.client.post("/leasing/leases", json=self._body()).status_code, 403)
 
-    def test_rent_roll_reads_the_ledger_once(self):
+    def test_rent_roll_reads_the_lease_entity_once(self):
         _as(EDITOR)
         self.client.post("/leasing/leases", json=self._body())
         _as(VIEWER)
         out = self.client.get("/leasing/rent-roll").json()
         row = [r for r in out["rows"] if r["lease"]["region"] == TAG][0]
         self.assertEqual((row["months"][0]["expected"], row["months"][0]["received"], row["months"][0]["status"]), (3200.0, 3000.0, "short"))
+        calls = [p for (path, p) in self.asked if path.endswith("/reports/buckets") and p.get("customer") == "C00498"]
+        self.assertEqual(calls, [{"from": f"{date.today().year}-01-01", "to": f"{date.today().year}-12-31", "by": "month", "location": "15000", "customer": "C00498"}])
+        self.assertEqual([p for (path, p) in self.asked if path.endswith("by-customer") and "C00498" in p["customers"]], [])
+
+    def test_a_lease_with_no_entity_reads_the_customer_consolidated(self):
+        """No entity, no location to map to: the consolidated by-customer read."""
+        _as(EDITOR)
+        self.client.post("/leasing/leases", json=self._body(entityCode=""))
+        _as(VIEWER)
+        row = [r for r in self.client.get("/leasing/rent-roll").json()["rows"] if r["lease"]["region"] == TAG][0]
+        self.assertEqual(row["months"][0]["received"], 3000.0)
         calls = [p for (path, p) in self.asked if path.endswith("by-customer")]
         self.assertEqual(len(calls), 1)
         self.assertIn("C00498", calls[0]["customers"])
@@ -548,6 +564,43 @@ class LeasingApiTests(unittest.TestCase):
         self.assertEqual(sorted(p["location"] for p in buckets), ["12000", "15000"])
         self.assertTrue(all(p["customer"] == "C00498" and p["by"] == "month" for p in buckets))
         self.assertEqual([p for (path, p) in self.asked if path.endswith("/reports/by-customer") and "C00498" in p["customers"]], [])
+
+    def test_oct23_rent_is_pulled_from_the_location_the_lease_maps_to(self):
+        """Urmi, MRI item 24: Greens Global, Inc. (C00132) pays internal rent to
+        several properties. The 910 S El Camino Real lease (location 62004,
+        16,200 a month) read everything C00132 posted - 201,060 received in
+        January (screenshot change-24-a). It now reads location 62004 only:
+        16,200, paid. Expected is unchanged; the 184,860 difference is GG Inc.'s
+        rent at the other locations, which is not this lease's."""
+        yr = date.today().year
+        ledger = {"62004": [16200.0], "15000": [200.0, 1700.0, 400.0, 4600.0], "12000": [9135.0, 2500.0, 166325.0]}   # 201,060 in all
+        inner = accounting._acct_get
+
+        async def fake_get(path, params):
+            if path.endswith("/reports/buckets") and params.get("customer") == "C00132":
+                self.asked.append((path, {k: v for k, v in params.items() if v is not None}))
+                return {"ok": True, "rows": [{"bucket": f"{yr}-01", "account_no": "41101", "debit": 0, "credit": a} for a in ledger[params["location"]]]}
+            if path.endswith("/reports/by-customer") and "C00132" in params["customers"]:
+                self.asked.append((path, {k: v for k, v in params.items() if v is not None}))
+                return {"ok": True, "rows": [{"customer": "C00132", "account_no": "41101", "month": f"{yr}-01", "debit": 0, "credit": a} for v in ledger.values() for a in v]}
+            return await inner(path, params)
+        _as(EDITOR)
+        made = self.client.post("/leasing/leases", json=self._body(entityCode="62004", customerId="C00132", tenantName="Greens Global, Inc.", propertyName="910 S El Camino Real",
+                                                                    lateFee=0, rates=[{"startDate": f"{yr}-01-01", "rent": 16200, "cam": 0}])).json()
+        other = self.client.post("/leasing/leases", json=self._body()).json()      # C00498 on 15000: not touched
+        accounting._acct_get = fake_get
+        _as(VIEWER)
+        rows = {r["lease"]["id"]: r for r in self.client.get("/leasing/rent-roll").json()["rows"] if r["lease"]["region"] == TAG}
+        jan = rows[made["id"]]["months"][0]
+        self.assertEqual((jan["expected"], jan["received"], jan["balance"], jan["status"]), (16200.0, 16200.0, 0.0, "paid"))
+        self.assertEqual(jan["byAccount"], {"41101": 16200.0})
+        self.assertEqual(rows[other["id"]]["months"][0]["received"], 3000.0)
+        gg = [p for (path, p) in self.asked if path.endswith("/reports/buckets") and p.get("customer") == "C00132"]
+        self.assertEqual([p["location"] for p in gg], ["62004"])
+        self.assertEqual([p for (path, p) in self.asked if path.endswith("/reports/by-customer") and "C00132" in p["customers"]], [])
+        # The before / after reconciliation (test notes, change 24): read by customer it was 201,060.
+        self.assertEqual(round(sum(a for v in ledger.values() for a in v), 2), 201060.0)
+        self.assertEqual(round(201060.0 - jan["received"], 2), 184860.0)
 
     def test_a_limited_person_never_reads_the_consolidated_report(self):
         """Entity-limited: one month read per entity in reach, never the
