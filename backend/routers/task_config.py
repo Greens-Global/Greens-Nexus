@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from typing import Optional, Any
 import os
 import json
+import math
 import uuid
 import httpx
 from datetime import datetime, timedelta, timezone
@@ -19,9 +20,12 @@ import models
 from database import get_db
 from notify_company import notification_company
 from auth import get_current_user, require_level, require_manager, require_any_module_grant, module_owner_acts_as
-from routers.task_util import now_iso, gen_id, is_manager, require_project_role
+from routers.task_util import (now_iso, gen_id, is_manager, require_project_access, assert_row_wall,
+                               config_admits, config_company_for_new, assert_config_editable)
 from changelog_prs import known_developer
 import task_automation
+import task_formula
+import task_card_preview
 
 router = APIRouter(tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets")),
@@ -44,7 +48,12 @@ def saved_view_to_dict(s: models.TaskSavedView) -> dict:
     return {"id": s.id, "ownerId": _nz(s.owner_email), "name": s.name, "view": s.view or "list",
             "filters": s.filters if isinstance(s.filters, dict) else {},
             "sort": s.sort if isinstance(s.sort, dict) else {}, "group": s.group or "none",
-            "scope": s.scope or "task"}
+            "scope": s.scope or "task",
+            # A Board view's columns (Oct 22 2026); "" = Status.
+            "boardColumns": getattr(s, "board_columns", "") or ""}
+
+
+from routers.task_prefs import BOARD_COLUMNS as _BOARD_COLUMNS   # noqa: E402 - the one list
 
 
 class SavedViewBody(BaseModel):
@@ -54,6 +63,7 @@ class SavedViewBody(BaseModel):
     filters: Optional[dict] = None
     sort: Optional[dict] = None
     group: Optional[str] = "none"
+    board_columns: Optional[str] = ""
 
 
 @router.get("/task-saved-views")
@@ -68,7 +78,8 @@ def list_saved_views(user: dict = Depends(get_current_user), db: Session = Depen
 def create_saved_view(body: SavedViewBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     s = models.TaskSavedView(id=body.id or gen_id(), owner_email=user["email"].lower(), name=body.name,
                              view=body.view or "list", filters=body.filters or {}, sort=body.sort or {},
-                             group=body.group or "none", scope="task", created_at=now_iso())
+                             group=body.group or "none", scope="task", created_at=now_iso(),
+                             board_columns=(body.board_columns if body.board_columns in _BOARD_COLUMNS else ""))
     db.add(s)
     db.commit()
     db.refresh(s)
@@ -107,22 +118,45 @@ class RuleBody(BaseModel):
     enabled: Optional[bool] = None
 
 
+def _scope(user, db: Session):
+    """The caller's company scope, or None (walls off / Global Admin). A
+    direct in-process call with no user dict reads as walls-off."""
+    import auth
+    return auth.company_scope(user, db) if isinstance(user, dict) else None
+
+
+def _rule_projects(conditions) -> list:
+    """The projects a rule is confined to ("project is X" conditions) - a
+    project-scoped rule is stamped with that project's company."""
+    return [str(c.get("value") or "").strip() for c in (conditions or [])
+            if isinstance(c, dict) and c.get("field") == "project" and c.get("op", "is") == "is" and c.get("value")]
+
+
 @router.get("/task-automation-rules")
-def list_rules(db: Session = Depends(get_db)):
-    return [rule_to_dict(r) for r in db.query(models.TaskAutomationRule).all()]
+def list_rules(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Behind a company wall (Oct 21 2026): the caller's companies' rules and
+    the shared ('') ones - every rule made before the walls is shared."""
+    scope = _scope(user, db)
+    return [rule_to_dict(r) for r in db.query(models.TaskAutomationRule).all()
+            if config_admits(getattr(r, "company_id", "") or "", scope)]
 
 
 @router.post("/task-automation-rules", status_code=201, dependencies=[Depends(require_manager)])
-def create_rule(body: RuleBody, db: Session = Depends(get_db)):
+def create_rule(body: RuleBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Rule name is required")
+    # '' (shared) while the walls are off / for a Global Admin; else the
+    # creator's company, and the engine then fires it only on that company's
+    # tasks.
+    company = config_company_for_new(db, user, _rule_projects(body.conditions)) if isinstance(user, dict) else ""
     # The engine (task_automation.py) runs whatever is stored, so a rule it
-    # cannot run is refused here rather than silently never firing.
-    task_automation.validate_rule(body.trigger, body.conditions, body.actions)
+    # cannot run is refused here rather than silently never firing. The
+    # projects, fields and people a rule names are checked against its company.
+    task_automation.validate_rule(body.trigger, body.conditions, body.actions, db=db, company_id=company)
     r = models.TaskAutomationRule(id=body.id or gen_id(), name=body.name, trigger=body.trigger or {},
                                   conditions=body.conditions or [], actions=body.actions or [],
                                   enabled=True if body.enabled is None else bool(body.enabled),
-                                  created_at=now_iso())
+                                  created_at=now_iso(), company_id=company)
     db.add(r)
     db.commit()
     db.refresh(r)
@@ -130,14 +164,18 @@ def create_rule(body: RuleBody, db: Session = Depends(get_db)):
 
 
 @router.patch("/task-automation-rules/{rule_id}", dependencies=[Depends(require_manager)])
-def update_rule(rule_id: str, body: RuleBody, db: Session = Depends(get_db)):
+def update_rule(rule_id: str, body: RuleBody, user: dict = Depends(get_current_user),
+                db: Session = Depends(get_db)):
     r = db.query(models.TaskAutomationRule).filter(models.TaskAutomationRule.id == rule_id).first()
     if not r:
         raise HTTPException(404, "Rule not found")
+    if isinstance(user, dict):
+        assert_config_editable(db, user, getattr(r, "company_id", "") or "")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
     if any(k in data for k in ("trigger", "conditions", "actions")):
         task_automation.validate_rule(data.get("trigger", r.trigger), data.get("conditions", r.conditions),
-                                      data.get("actions", r.actions))
+                                      data.get("actions", r.actions), db=db,
+                                      company_id=getattr(r, "company_id", "") or "")
     for k, v in data.items():
         setattr(r, k, v)
     db.commit()
@@ -146,8 +184,13 @@ def update_rule(rule_id: str, body: RuleBody, db: Session = Depends(get_db)):
 
 
 @router.delete("/task-automation-rules/{rule_id}", status_code=204, dependencies=[Depends(require_manager)])
-def delete_rule(rule_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskAutomationRule).filter(models.TaskAutomationRule.id == rule_id).delete()
+def delete_rule(rule_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    r = db.query(models.TaskAutomationRule).filter(models.TaskAutomationRule.id == rule_id).first()
+    if r is None:
+        return
+    if isinstance(user, dict):
+        assert_config_editable(db, user, getattr(r, "company_id", "") or "")
+    db.delete(r)
     db.commit()
 
 
@@ -160,7 +203,9 @@ def list_rule_runs(rule_id: str = "", limit: int = 50, user: dict = Depends(get_
     so a manager only sees runs on tasks their scope admits."""
     import auth
     from routers.task_util import wall_tasks
-    q = db.query(models.TaskAutomationRun)
+    # The "spawned" rows only mark tasks a rule created (task_automation.
+    # SPAWNED_EVENT) - they are not firings.
+    q = db.query(models.TaskAutomationRun).filter(models.TaskAutomationRun.event != task_automation.SPAWNED_EVENT)
     if rule_id:
         q = q.filter(models.TaskAutomationRun.rule_id == rule_id)
     limit = max(1, min(int(limit or 50), 200))
@@ -200,15 +245,19 @@ class TemplateBody(BaseModel):
 
 
 @router.get("/task-templates")
-def list_templates(db: Session = Depends(get_db)):
-    return [template_to_dict(t) for t in db.query(models.TaskTemplate).all()]
+def list_templates(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    scope = _scope(user, db)   # company wall: theirs + the shared ones
+    return [template_to_dict(t) for t in db.query(models.TaskTemplate).all()
+            if config_admits(getattr(t, "company_id", "") or "", scope)]
 
 
 @router.post("/task-templates", status_code=201, dependencies=[Depends(require_manager)])
-def create_template(body: TemplateBody, db: Session = Depends(get_db)):
+def create_template(body: TemplateBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = models.TaskTemplate(id=body.id or gen_id(), name=body.name, description=body.description or "",
                             patch=body.patch or {}, subtask_titles=body.subtask_titles or [],
-                            created_at=now_iso())
+                            created_at=now_iso(),
+                            company_id=(config_company_for_new(db, user, [(body.patch or {}).get("projectId") or ""])
+                                        if isinstance(user, dict) else ""))
     db.add(t)
     db.commit()
     db.refresh(t)
@@ -223,6 +272,10 @@ def delete_template(template_id: str, user: dict = Depends(get_current_user),
     # A manager, or whoever saved it from their task (Oct 14 2026).
     t = (db.query(models.TaskTemplate).execution_options(include_deleted=True)
          .filter(models.TaskTemplate.id == template_id).first())
+    if t and (t.created_by or "").lower() != user["email"].lower():
+        # Another company's template is a 404 and a shared one is a Global
+        # Admin's - except for whoever saved it (Oct 21 2026).
+        assert_config_editable(db, user, getattr(t, "company_id", "") or "")
     if t and not is_manager(user) and (t.created_by or "").lower() != user["email"].lower():
         raise HTTPException(403, "Only a manager or whoever saved this template can delete it.")
     if t:
@@ -236,7 +289,9 @@ def delete_template(template_id: str, user: dict = Depends(get_current_user),
 # return with its eleven subtasks, saved once, started again for each entity.
 # Saving reads the task server-side (what it is, never its comments, files or
 # history); using builds the task, its subtasks and checklists in ONE commit.
-_RULE_MARKERS = ("nextOccurrenceId", "closedAsMissed", "count")
+# seriesId too (Oct 21 2026): every task started from a template is a series of
+# its own, never a copy of the one the template was saved from.
+_RULE_MARKERS = ("nextOccurrenceId", "closedAsMissed", "count", "seriesId")
 TEMPLATE_PARTS = ("subtasks", "assignees", "followers", "fields", "recurrence", "description", "checklist")
 
 
@@ -274,10 +329,9 @@ def save_task_as_template(task_id: str, body: SaveAsTemplateBody, user: dict = D
     t = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not t:
         raise HTTPException(404, "Task not found")
-    import auth
-    auth.assert_company(getattr(t, "company_id", "") or "", user, db)
     # Reading the task and everything under it into a shared blueprint takes
-    # the same tier as saving a project as one: editor.
+    # the same tier as saving a project as one: editor. require_task_role
+    # applies the company wall first (404), the same rule the task lists use.
     require_task_role(db, user, t, "editor")
     keep = set(body.parts) & set(TEMPLATE_PARTS) if body.parts is not None else set(TEMPLATE_PARTS)
     name = (body.name or t.title or "").strip()
@@ -288,6 +342,9 @@ def save_task_as_template(task_id: str, body: SaveAsTemplateBody, user: dict = D
              "projectId": t.project_id or "", "teamId": t.team_id or "", "tags": list(t.tags or [])}
     if t.estimate_hours is not None:
         patch["estimateHours"] = t.estimate_hours
+    # Show On Card (Oct 22 2026) - a picked image is not copied (its file isn't).
+    if task_card_preview.copyable(getattr(t, "card_preview", "")):
+        patch["cardPreview"] = task_card_preview.copyable(t.card_preview)
     if "description" in keep and t.description:
         patch["description"] = t.description
     if "assignees" in keep:
@@ -328,7 +385,8 @@ def save_task_as_template(task_id: str, body: SaveAsTemplateBody, user: dict = D
         id=gen_id(), name=name, description=(body.description or "").strip(), patch=patch,
         subtask_titles=[s["title"] for s in subtasks], subtasks=subtasks,
         checklist=_checklist_of(db, t.id) if "checklist" in keep else [],
-        source_task_id=t.id, created_by=user["email"].lower(), created_at=now_iso())
+        source_task_id=t.id, created_by=user["email"].lower(), created_at=now_iso(),
+        company_id=config_company_for_new(db, user, [t.project_id or ""]))
     db.add(tpl)
     db.commit()
     db.refresh(tpl)
@@ -354,7 +412,7 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
     from routers import tasks as tasks_router
     from routers.task_util import set_task_assignees, task_notify
     tpl = db.query(models.TaskTemplate).filter(models.TaskTemplate.id == template_id).first()
-    if not tpl:
+    if not tpl or not config_admits(getattr(tpl, "company_id", "") or "", _scope(user, db)):
         raise HTTPException(404, "Template not found")
     p = tpl.patch if isinstance(tpl.patch, dict) else {}
     due = (body.due_on or "")[:10]
@@ -379,12 +437,24 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
         project_id=project_id, team_id=(p.get("teamId") or "") if project_id == (p.get("projectId") or "") else "",
         tags=list(p.get("tags") or []), custom_field_values=values, due_on=due,
         estimate_hours=p.get("estimateHours"), recurrence=rule,
+        card_preview=task_card_preview.copyable(p.get("cardPreview")),
     )
     subs = tpl.subtasks if isinstance(tpl.subtasks, list) and tpl.subtasks else [
         {"title": x} for x in (tpl.subtask_titles or []) if x]
     actor = user["email"].lower()
 
+    dropped_people: list = []
+
     def add_children(parent: models.Task) -> None:
+        # Every subtask assignee and collaborator has to be somebody who may
+        # hold the work (Oct 21 2026): in the Nexus directory, not offboarded,
+        # and - behind the company wall only - not in another company. A
+        # template keeps whoever was on the task it was saved from, who may
+        # have left since. Such a person is LEFT OFF, not refused: one departed
+        # collaborator must not fail the whole template. The subtask's history
+        # says who was not added and why, and the response lists them
+        # (droppedPeople). See task_util.split_people.
+        from routers.task_util import split_people, note_dropped_people
         now = parent.created_at or now_iso()
         ids = []
         for i, s in enumerate(subs):
@@ -398,7 +468,7 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
                 title=s.get("title") or "Subtask", description=s.get("description") or "",
                 type=s.get("type") or "task", status="recurring" if (srec or {}).get("freq") else "not_started",
                 priority=s.get("priority") or "medium", owner_email="",
-                follower_emails=list(s.get("followerIds") or []), liked_by_emails=[],
+                follower_emails=[], liked_by_emails=[],
                 access_level=parent.access_level or "org", project_id=parent.project_id or "",
                 section_id="", team_id=parent.team_id or "", parent_task_id=parent.id, position=float(i),
                 subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={}, tags=[],
@@ -407,7 +477,14 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
                 recurrence=srec, is_milestone=False, approval_status="none", completed=False, completed_at="",
                 comment_ids=[], attachment_ids=[], activity_ids=[],
                 created_at=now, modified_at=now, created_by=actor)
-            set_task_assignees(row, list(s.get("assigneeIds") or []))
+            if (srec or {}).get("freq"):
+                row.recurrence = tasks_router._with_series_id(srec, row.id)   # a series of its own
+            kept_a, gone_a = split_people(db, row, s.get("assigneeIds") or [], user, actor)
+            kept_f, gone_f = split_people(db, row, s.get("followerIds") or [], user, actor)
+            set_task_assignees(row, kept_a)
+            row.follower_emails = kept_f
+            note_dropped_people(db, row, gone_a + gone_f, actor)
+            dropped_people.extend({**d, "taskId": row.id} for d in gone_a + gone_f)
             db.add(row)
             _add_checklist(db, row, s.get("checklist"), actor, now)
             ids.append(row.id)
@@ -419,7 +496,11 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
         parent.subtask_ids = ids
         _add_checklist(db, parent, tpl.checklist, actor, now)
 
-    return tasks_router._create_task(main, background_tasks, user, db, before_commit=add_children)
+    out = tasks_router._create_task(main, background_tasks, user, db, before_commit=add_children,
+                                    check_people=True)   # its own people too
+    if dropped_people:
+        out["droppedPeople"] = [*(out.get("droppedPeople") or []), *dropped_people]
+    return out
 
 
 def _add_checklist(db: Session, task: models.Task, items, actor: str, now: str) -> None:
@@ -445,14 +526,18 @@ class IntakeFormBody(BaseModel):
 
 
 @router.get("/task-intake-forms")
-def list_intake_forms(db: Session = Depends(get_db)):
-    return [intake_form_to_dict(f) for f in db.query(models.TaskIntakeForm).all()]
+def list_intake_forms(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    scope = _scope(user, db)   # company wall: theirs + the shared ones
+    return [intake_form_to_dict(f) for f in db.query(models.TaskIntakeForm).all()
+            if config_admits(getattr(f, "company_id", "") or "", scope)]
 
 
 @router.post("/task-intake-forms", status_code=201, dependencies=[Depends(require_manager)])
-def create_intake_form(body: IntakeFormBody, db: Session = Depends(get_db)):
+def create_intake_form(body: IntakeFormBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     f = models.TaskIntakeForm(id=body.id or gen_id(), title=body.title, fields=body.fields or [],
-                              target_project_id=body.target_project_id or "", created_at=now_iso())
+                              target_project_id=body.target_project_id or "", created_at=now_iso(),
+                              company_id=(config_company_for_new(db, user, [body.target_project_id or ""])
+                                          if isinstance(user, dict) else ""))
     db.add(f)
     db.commit()
     db.refresh(f)
@@ -460,8 +545,13 @@ def create_intake_form(body: IntakeFormBody, db: Session = Depends(get_db)):
 
 
 @router.delete("/task-intake-forms/{form_id}", status_code=204, dependencies=[Depends(require_manager)])
-def delete_intake_form(form_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskIntakeForm).filter(models.TaskIntakeForm.id == form_id).delete()
+def delete_intake_form(form_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    f = db.query(models.TaskIntakeForm).filter(models.TaskIntakeForm.id == form_id).first()
+    if f is None:
+        return
+    if isinstance(user, dict):
+        assert_config_editable(db, user, getattr(f, "company_id", "") or "")
+    db.delete(f)
     db.commit()
 
 
@@ -522,7 +612,7 @@ def _select_option_id(f: models.TaskCustomField, raw) -> str:
     return lower.get(key.strip().lower(), "")
 
 
-def coerce_custom_field_values(db: Session, values) -> dict:
+def coerce_custom_field_values(db: Session, values, defs: dict | None = None) -> dict:
     """Store custom-field values in the shape their field declares.
 
     The column is a free JSON dict, so before this every value arrived as
@@ -533,19 +623,29 @@ def coerce_custom_field_values(db: Session, values) -> dict:
 
     Unknown field ids are dropped (the field was deleted); a value that can't be
     coerced is dropped rather than stored wrong. Never raises - inbound Asana
-    tasks come through the same create path and must not be rejected."""
+    tasks come through the same create path and must not be rejected.
+
+    `defs` ({id: TaskCustomField}) when the caller already loaded them - the
+    task import coerces up to 2,000 rows against one load."""
     if not isinstance(values, dict) or not values:
         return {}
-    defs = {f.id: f for f in db.query(models.TaskCustomField).all()}
+    if defs is None:
+        defs = {f.id: f for f in db.query(models.TaskCustomField).all()}
     out = {}
     for fid, raw in values.items():
         f = defs.get(fid)
         if f is None or raw in ("", None):
             continue
         kind = (f.type or "text").lower()
+        if kind == "formula":
+            continue   # computed in the browser, never stored on a task (Oct 22 2026)
         try:
             if kind == "number":
                 n = float(raw)
+                # float() reads "nan" / "inf" too. Neither is a number anyone
+                # meant, and Postgres's JSON refuses both - the save would 500.
+                if not math.isfinite(n):
+                    continue
                 out[fid] = int(n) if n.is_integer() else n
             elif kind == "checkbox":
                 out[fid] = raw if isinstance(raw, bool) else str(raw).strip().lower() in ("1", "true", "yes", "on")
@@ -593,7 +693,7 @@ def field_required_in(f: models.TaskCustomField, project_id: str) -> bool:
     required either everywhere (`required`) or in this project specifically
     (`required_project_ids`, Oct 13 2026). A read-only field never is - it
     can't be filled in."""
-    if f.read_only or "task" not in _parse_applies_to(f.applies_to):
+    if f.read_only or (f.type or "") == "formula" or "task" not in _parse_applies_to(f.applies_to):
         return False
     if not field_applies_to(f, project_id):
         return False
@@ -602,13 +702,22 @@ def field_required_in(f: models.TaskCustomField, project_id: str) -> bool:
     return bool(project_id) and project_id in [p for p in (f.required_project_ids or []) if p]
 
 
-def missing_required_fields(db: Session, project_id: str, values) -> list:
+def missing_required_fields(db: Session, project_id: str, values, task_company: str | None = None,
+                            fields: list | None = None) -> list:
     """The fields a new task in `project_id` still needs, given its (already
-    coerced) custom-field values. Empty = it can be created."""
+    coerced) custom-field values. Empty = it can be created.
+
+    `task_company`: a field that belongs to one company (company_id, Oct 21
+    2026) binds only that company's tasks; a shared ('') field binds every
+    task, as all of them did before. None = do not filter (every field).
+    `fields`: the definitions when the caller already loaded them."""
     have = values if isinstance(values, dict) else {}
     out = []
-    for f in db.query(models.TaskCustomField).all():
+    for f in (fields if fields is not None else db.query(models.TaskCustomField).all()):
         if not field_required_in(f, project_id):
+            continue
+        fc = (getattr(f, "company_id", "") or "").strip()
+        if task_company is not None and fc and fc != (task_company or ""):
             continue
         v = have.get(f.id)
         if v is None or v == "" or v == []:
@@ -644,13 +753,46 @@ def _dump_applies_to(kinds) -> str:
     return json.dumps(out or ["task"])
 
 
+def _field_value_unchanged(f: models.TaskCustomField, key: str, value) -> bool:
+    """Whether `value` for `key` is what the field already holds, compared
+    the way it is stored and read back (blank vs missing, option shapes).
+    Unknown keys count as changed."""
+    if key == "name":
+        return (value or "").strip() == (f.name or "")
+    if key == "description":
+        return (value or "") == (f.description or "")
+    if key == "type":
+        return (value or "text") == (f.type or "text")
+    if key == "options":
+        return (normalize_field_options(value or [])
+                == normalize_field_options(f.options if isinstance(f.options, list) else []))
+    if key in ("required", "read_only"):
+        return bool(value) == bool(getattr(f, key))
+    if key in ("project_ids", "required_project_ids"):
+        return [p for p in (value or []) if p] == [p for p in (getattr(f, key) or []) if p]
+    if key == "applies_to":
+        return json.loads(_dump_applies_to(value)) == _parse_applies_to(f.applies_to)
+    if key == "formula":
+        return (value or "").strip() == (getattr(f, "formula", "") or "").strip()
+    if key == "formula_format":
+        return task_formula.normalize_format(value) == task_formula.normalize_format(getattr(f, "formula_format", None))
+    return False
+
+
 def custom_field_to_dict(f: models.TaskCustomField) -> dict:
-    return {"id": f.id, "name": f.name, "description": _nz(f.description), "type": f.type or "text",
-            "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
-            "projectIds": [p for p in (f.project_ids or []) if p],
-            "required": bool(f.required), "readOnly": bool(f.read_only),
-            "requiredProjectIds": [p for p in (f.required_project_ids or []) if p],
-            "appliesTo": _parse_applies_to(f.applies_to)}
+    is_formula = (f.type or "") == "formula"
+    out = {"id": f.id, "name": f.name, "description": _nz(f.description), "type": f.type or "text",
+           "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
+           "projectIds": [p for p in (f.project_ids or []) if p],
+           # A formula is computed, so it is read-only everywhere a value
+           # could be typed - every editor already skips readOnly fields.
+           "required": bool(f.required), "readOnly": bool(f.read_only) or is_formula,
+           "requiredProjectIds": [p for p in (f.required_project_ids or []) if p],
+           "appliesTo": _parse_applies_to(f.applies_to)}
+    if is_formula:
+        out["formula"] = getattr(f, "formula", "") or ""
+        out["formulaFormat"] = task_formula.normalize_format(getattr(f, "formula_format", None))
+    return out
 
 
 class CustomFieldBody(BaseModel):
@@ -664,6 +806,132 @@ class CustomFieldBody(BaseModel):
     required_project_ids: Optional[list] = None
     read_only: Optional[bool] = None
     applies_to: Optional[list] = None
+    # Formula columns (Oct 22 2026) - type "formula" only.
+    formula: Optional[str] = None
+    formula_format: Optional[dict] = None
+
+
+def _co(row) -> str:
+    return (getattr(row, "company_id", "") or "").strip()
+
+
+def _formula_sees(formula_company: str, field_company: str) -> bool:
+    """Which fields a formula may name: a SHARED formula ('' - every
+    company's list shows it) only shared fields, since a company's field
+    means nothing on another company's list; a company's formula its own
+    company's fields and the shared ones."""
+    return not field_company or field_company == formula_company
+
+
+def _formula_scope_fields(db: Session, user, company: str) -> list:
+    """The fields a formula on a `company` field may name (_formula_sees),
+    and of those only what the caller can see - a walled caller learns
+    nothing about another company's field names from a validation message."""
+    scope = _scope(user, db)
+    return [f for f in db.query(models.TaskCustomField).all()
+            if config_admits(_co(f), scope) and _formula_sees(company, _co(f))]
+
+
+def _formula_pairs(fields, rename: dict | None = None, rewritten: dict | None = None) -> list:
+    """(name, expression) of every formula field among `fields` - pairs, not
+    a dict, so two same-named formulas are both in the loop check."""
+    rename, rewritten = rename or {}, rewritten or {}
+    return [(rename.get(f.id, f.name), rewritten.get(f.id, getattr(f, "formula", "") or ""))
+            for f in fields if (f.type or "") == "formula"]
+
+
+def _check_formula(db: Session, user, company: str, field_id: str, name: str, expr: str) -> str:
+    """422 with the reason unless `expr` can be saved on field `field_id`
+    (named `name`). Returns the expression, trimmed."""
+    expr = (expr or "").strip()
+    others = [f for f in _formula_scope_fields(db, user, company) if f.id != field_id]
+    try:
+        task_formula.validate(expr, self_name=name or "", field_names=[f.name for f in others],
+                              formula_fields=_formula_pairs(others))
+    except task_formula.FormulaError as e:
+        raise HTTPException(422, f"Formula: {e}")
+    return expr
+
+
+def _check_field_name(name: str, formula: bool = False) -> None:
+    problem = (task_formula.formula_name_problem if formula else task_formula.field_name_problem)(name)
+    if problem:
+        raise HTTPException(422, problem)
+
+
+def _formulas_naming(field: models.TaskCustomField, name: str, fields: list) -> list:
+    """The formula fields whose {name} means `field`: they can see it, and
+    no OTHER field they can see carries the same name (then {name} keeps
+    meaning that one - two projects' "Budget" columns are two fields)."""
+    key = task_formula.field_key(name)
+    if task_formula.is_builtin(name):
+        return []   # {Progress} reads the built-in, never a field that shares the name
+    fc = _co(field)
+    out = []
+    for g in fields:
+        if (g.type or "") != "formula" or g.id == field.id or not (getattr(g, "formula", "") or ""):
+            continue
+        gc = _co(g)
+        if not _formula_sees(gc, fc):
+            continue
+        if any(o.id != field.id and _formula_sees(gc, _co(o)) and task_formula.field_key(o.name) == key
+               for o in fields):
+            continue
+        try:
+            if key in {task_formula.field_key(r) for r in task_formula.field_refs(g.formula)}:
+                out.append(g)
+        except task_formula.FormulaError:
+            continue
+    return out
+
+
+def _rename_formula_refs(db: Session, field: models.TaskCustomField, old: str, new: str) -> list:
+    """A field renamed keeps every formula that names it working: {Old}
+    becomes {New} in the formula fields that mean this field by it
+    (_formulas_naming - never another company's, never a shared formula for
+    a company's field, never where a same-named field remains). Each
+    rewrite is re-checked against the renamed world first; if one would
+    break, the rename is refused (422) naming that formula. Field tokens
+    only - text inside quotes is left alone. Returns the rewritten rows."""
+    if not old or task_formula.field_key(old) == task_formula.field_key(new):
+        return []
+    # Locked in id order, like every multi-row write here, so two renames
+    # cannot interleave their rewrites of the same formula.
+    db.query(models.TaskCustomField).filter(models.TaskCustomField.type == "formula") \
+        .order_by(models.TaskCustomField.id).with_for_update().all()
+    fields = db.query(models.TaskCustomField).order_by(models.TaskCustomField.id).all()
+    plan = {}
+    for g in _formulas_naming(field, old, fields):
+        updated = task_formula.rename_refs(g.formula, old, new)
+        if updated != g.formula:
+            plan[g.id] = updated
+    if plan and task_formula.is_builtin(new):
+        # {New} would silently start reading the built-in field instead.
+        g = next(x for x in fields if x.id in plan)
+        raise HTTPException(422, f"Renaming this field would break the formula in \"{g.name}\": "
+                                 f"\"{new}\" is a built-in field name, so the formula would read that instead.")
+    renamed = {field.id: new}
+    for g in fields:
+        if g.id not in plan:
+            continue
+        others = [o for o in fields if o.id != g.id and _formula_sees(_co(g), _co(o))]
+        try:
+            # Already broken before the rename (an older field deleted out
+            # from under it): the rename did not do that, so it is not held up.
+            task_formula.validate(g.formula, self_name=g.name or "", field_names=[o.name for o in others],
+                                  formula_fields=_formula_pairs(others))
+        except task_formula.FormulaError:
+            continue
+        try:
+            task_formula.validate(plan[g.id], self_name=g.name or "",
+                                  field_names=[renamed.get(o.id, o.name) for o in others],
+                                  formula_fields=_formula_pairs(others, renamed, plan))
+        except task_formula.FormulaError as e:
+            raise HTTPException(422, f"Renaming this field would break the formula in \"{g.name}\": {e}")
+    rows = [g for g in fields if g.id in plan]
+    for g in rows:
+        g.formula = plan[g.id]
+    return rows
 
 
 # Who may change a custom field (Oct 13 2026 review). These three routes took
@@ -683,12 +951,14 @@ def _require_field_projects(db: Session, user: dict, project_ids) -> None:
         project = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
         if not project:
             raise HTTPException(403, "You can only add a field to a project you can edit.")
-        require_project_role(db, user, project, "editor")
+        require_project_access(db, user, project, "editor")   # company wall, then the role
 
 
 @router.get("/task-custom-fields")
-def list_custom_fields(db: Session = Depends(get_db)):
-    return [custom_field_to_dict(f) for f in db.query(models.TaskCustomField).all()]
+def list_custom_fields(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    scope = _scope(user, db)   # company wall: theirs + the shared ones (Oct 21 2026)
+    return [custom_field_to_dict(f) for f in db.query(models.TaskCustomField).all()
+            if config_admits(getattr(f, "company_id", "") or "", scope)]
 
 
 @router.post("/task-custom-fields", status_code=201)
@@ -696,6 +966,7 @@ def create_custom_field(body: CustomFieldBody, user: dict = Depends(get_current_
                         db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Field name is required")
+    _check_field_name(body.name, formula=(body.type or "text") == "formula")
     project_ids = [p for p in (body.project_ids or []) if p]
     required_project_ids = [p for p in (body.required_project_ids or []) if p]
     if not is_manager(user):
@@ -706,13 +977,26 @@ def create_custom_field(body: CustomFieldBody, user: dict = Depends(get_current_
                 or _parse_applies_to(body.applies_to) != ["task"]):
             raise HTTPException(403, "Only a manager can set that on a custom field.")
         _require_field_projects(db, user, project_ids)
+    company = config_company_for_new(db, user, project_ids)
+    kind = body.type or "text"
+    formula, formula_format = "", {}
+    if kind == "formula":
+        # Computed on every task it applies to, so never required, never on
+        # a project record, and never holding options (Oct 22 2026).
+        new_id = body.id or gen_id()
+        formula = _check_formula(db, user, company, new_id, body.name.strip(), body.formula)
+        formula_format = task_formula.normalize_format(body.formula_format)
+        body.id = new_id
+        body.options, body.required, required_project_ids, body.applies_to = [], False, [], ["task"]
     f = models.TaskCustomField(id=body.id or gen_id(), name=body.name, description=body.description or "",
-                               type=body.type or "text",
+                               type=kind,
                                options=normalize_field_options(body.options or []),
                                project_ids=project_ids,
                                required=bool(body.required), read_only=bool(body.read_only),
                                required_project_ids=required_project_ids,
-                               applies_to=_dump_applies_to(body.applies_to))
+                               applies_to=_dump_applies_to(body.applies_to),
+                               company_id=company,
+                               formula=formula, formula_format=formula_format)
     db.add(f)
     db.commit()
     db.refresh(f)
@@ -726,8 +1010,51 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
     if not f:
         raise HTTPException(404, "Custom field not found")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    # Only what actually CHANGES is an edit (Oct 21 2026). The Manage > Fields
+    # form sends the whole field back - name, type, options and all - so
+    # without this a walled manager ticking one of their own projects on a
+    # shared field was refused for "changing" a name they never touched.
+    data = {k: v for k, v in data.items() if not _field_value_unchanged(f, k, v)}
+    # Company wall (Oct 21 2026): another company's field is a 404. A shared
+    # field's DEFINITION reaches every company, so behind a wall only a Global
+    # Admin changes it - but putting it on / taking it off a project of your
+    # own is about that project, which the project check below covers.
+    scope = _scope(user, db)
+    if not config_admits(getattr(f, "company_id", "") or "", scope):
+        raise HTTPException(404, "Custom field not found")
+    shared_walled = scope is not None and not (getattr(f, "company_id", "") or "")
+    if set(data) - {"project_ids", "required_project_ids"} or not shared_walled:
+        if set(data) - {"project_ids"}:
+            assert_config_editable(db, user, getattr(f, "company_id", "") or "")
+    else:
+        # A walled manager on a SHARED field may move it on or off, and make
+        # it required or optional in, their OWN projects - never another
+        # company's, and never to or from "every project", which would change
+        # every other company's boards. The same limits an editor has,
+        # without the role check.
+        def _own(pid):
+            proj = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
+            if proj is None:
+                raise HTTPException(403, "You can only change a field on a project you can edit.")
+            assert_row_wall(db, user, proj, scope=scope)
+        if "project_ids" in data:
+            old = {x for x in (f.project_ids or []) if x}
+            new = {x for x in (data["project_ids"] or []) if x}
+            if not old or not new:
+                raise HTTPException(403, "This field is shared by every company - only a Global Admin can change that.")
+            for pid in old ^ new:
+                _own(pid)
+        if "required_project_ids" in data:
+            old = [x for x in (f.required_project_ids or []) if x]
+            new = [x for x in (data["required_project_ids"] or []) if x]
+            for pid in set(old) ^ set(new):
+                _own(pid)
     if "name" in data and not (data["name"] or "").strip():
         raise HTTPException(422, "Field name is required")
+    if "name" in data:
+        _check_field_name(data["name"])
+    if data.get("type", f.type) == "formula" and ({"name", "type"} & set(data)):
+        _check_field_name(data.get("name", f.name or ""), formula=True)
     if "options" in data:
         data["options"] = normalize_field_options(data["options"] or [])
     if "project_ids" in data:
@@ -736,6 +1063,8 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
         data["required_project_ids"] = [p for p in (data["required_project_ids"] or []) if p]
     if "applies_to" in data:
         data["applies_to"] = _dump_applies_to(data["applies_to"])
+    if "formula_format" in data:
+        data["formula_format"] = task_formula.normalize_format(data["formula_format"])
     if not is_manager(user):
         if set(data) - {"project_ids"}:
             raise HTTPException(403, "Only a manager can change a custom field. You can add it to "
@@ -748,18 +1077,62 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
         if not old or not new:
             raise HTTPException(403, "Only a manager can change a field that is on every project.")
         _require_field_projects(db, user, sorted(old ^ new))
+    kind = data.get("type", f.type or "text")
+    if kind == "formula" and ({"type", "formula", "name"} & set(data)):
+        # Re-checked whenever the expression, the type or the field's own
+        # name changes (a rename can make a formula name itself).
+        data["formula"] = _check_formula(db, user, getattr(f, "company_id", "") or "", f.id,
+                                         (data.get("name") or f.name or "").strip(),
+                                         data.get("formula", getattr(f, "formula", "") or ""))
+    if kind != "formula":
+        data.pop("formula", None)
+        data.pop("formula_format", None)
+    if kind == "formula":
+        data.pop("options", None)
+        data["required"], data["required_project_ids"] = False, []
+        data["applies_to"] = _dump_applies_to(["task"])
+    rewritten = []
+    if "name" in data and (data["name"] or "").strip() != (f.name or ""):
+        rewritten = _rename_formula_refs(db, f, f.name or "", (data["name"] or "").strip())
     for k, v in data.items():
         setattr(f, k, v)
     db.commit()
     db.refresh(f)
-    return custom_field_to_dict(f)
+    out = custom_field_to_dict(f)
+    # The other formula columns a rename rewrote, so the screen can put them
+    # in place at once instead of showing #Error until the next load.
+    if rewritten:
+        out["rewrittenFormulas"] = [custom_field_to_dict(g) for g in rewritten
+                                    if config_admits(_co(g), scope)]
+    return out
 
 
 # Manager-only: it takes the field, and with it every value captured in it,
 # off every project at once.
 @router.delete("/task-custom-fields/{field_id}", status_code=204, dependencies=[Depends(require_manager)])
-def delete_custom_field(field_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskCustomField).filter(models.TaskCustomField.id == field_id).delete()
+def delete_custom_field(field_id: str, force: bool = False, user: dict = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    f = db.query(models.TaskCustomField).filter(models.TaskCustomField.id == field_id).first()
+    if f is None:
+        return
+    if isinstance(user, dict):
+        assert_config_editable(db, user, getattr(f, "company_id", "") or "")
+    # Formula columns that name it would show #Error from here on (Oct 22
+    # 2026): 409 with their names unless the caller has seen them (force).
+    if not force:
+        users = _formulas_naming(f, f.name or "", db.query(models.TaskCustomField).all())
+        # Counted after the wall: another company's formulas are none of this
+        # caller's business, not even as a number. (A walled caller can only
+        # delete a field their own company's formulas could name anyway.)
+        scope = _scope(user, db) if users else None
+        names = sorted(g.name for g in users if config_admits(_co(g), scope))
+        if names:
+            n = len(names)
+            raise HTTPException(409, {
+                "message": f"{n} formula column{'s' if n != 1 else ''} use{'' if n != 1 else 's'} "
+                           f"this field and will show #Error once it is deleted.",
+                "count": n, "formulas": names})
+    db.delete(f)
     db.commit()
 
 

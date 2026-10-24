@@ -10,13 +10,15 @@ import { api } from '../api';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import { repairDocJson } from '../lib/docBuilderSchema';
 import { uploadToSupabase } from '../lib/docBuilderUpload';
-import { NEXUS_FIELDS, applyBlanks, findBlanks, findText, guessPay, guessPrivate, splitPages, tokensFor } from '../lib/wordBlanks';
+import { NEXUS_FIELDS, applyBlanks, companySignerOf, findBlanks, findSection, findText, guessPay, guessPrivate, splitPages, tokensFor } from '../lib/wordBlanks';
+import { countersignFor, existingBlank, existingTokens, findSamples, personLineFor } from '../lib/wordSamples';
 import { Spinner } from './AsyncState';
+import UploadReview from './hiring/UploadReview';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '14px 0 5px', textTransform: 'uppercase', letterSpacing: '.04em' };
 const th = { fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', textAlign: 'left', padding: '7px 8px', borderBottom: '1px solid var(--line)', position: 'sticky', top: 0, background: 'var(--card)' };
 const td = { fontSize: 12.5, padding: '7px 8px', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
-const FILL_LABEL = { nexus: 'Nexus Fills It', ask: 'Ask The Person', hr: 'HR Answers At Offer', same: 'Same For Everyone', leave: 'Left Blank' };
+const FILL_LABEL = { nexus: 'Nexus Fills It', ask: 'The New Hire (Intake Form)', hr: 'HR At The Offer', same: 'Same For Everyone', leave: 'Left Blank' };
 
 const valueOf = (b) => (b.fill === 'nexus' ? `nexus:${b.token}` : b.fill);
 
@@ -27,8 +29,8 @@ function FillSelect({ value, onChange, label }) {
       <optgroup label="Nexus Fills It">
         {NEXUS_FIELDS.map(([k, l]) => <option key={k} value={`nexus:${k}`}>{l}</option>)}
       </optgroup>
-      <option value="ask">Ask The Person</option>
-      <option value="hr">HR Answers At Offer</option>
+      <option value="ask">The New Hire (Intake Form)</option>
+      <option value="hr">HR At The Offer</option>
       <option value="same">Same For Everyone</option>
       <option value="leave">Leave Blank</option>
     </select>
@@ -88,7 +90,15 @@ function MissedOne({ doc, onAdd }) {
   );
 }
 
-export default function WordTemplateWizard({ categories, onClose, onOpen, toastErr }) {
+const SIGNER_LABEL = { employee: 'Employee', company: 'Company', hr: 'HR', signatory: 'Signatory', manager: 'Manager' };
+
+// With `purpose` (Hiring Setup, Oct 23: "offer" | "hire" | "jd", and in round 2
+// "promotion" | "separation" with the event's own rules and words) there is no
+// name or category step, Nexus makes the variables from the sample text
+// itself (lib/wordSamples.js), the review is UploadReview, and Use This hands
+// the published template to onCreated({templateId, name, jdPlacement,
+// signerKeys}). Without it, the Documents flow below is unchanged.
+export default function WordTemplateWizard({ categories, onClose, onOpen, toastErr, purpose = '', title = '', context = null, onCreated }) {
   const [step, setStep] = useState('upload');           // upload | review | done
   const [file, setFile] = useState(null);
   const [name, setName] = useState('');
@@ -98,6 +108,7 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
   const [doc, setDoc] = useState(null);                 // {json, pageSetup}
   const [blanks, setBlanks] = useState([]);
   const [created, setCreated] = useState(null);
+  const [jdChoice, setJdChoice] = useState('inside');
   const inputRef = useRef(null);
 
   const pick = (f) => {
@@ -117,8 +128,29 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
       const out = await importDocumentFile(file, { uploadImage });
       if (!out?.json) throw new Error('Pick a Word file (.docx).');
       const json = repairDocJson(out.json);
-      setDoc({ json, pageSetup: out.pageSetup || null });
-      setBlanks(findBlanks(json));
+      if (!purpose) {
+        setDoc({ json, pageSetup: out.pageSetup || null });
+        setBlanks(findBlanks(json));
+        setStep('review');
+        setBusy('');
+        return;
+      }
+      // Variables the file already has are kept; with none, Nexus makes them from the sample text.
+      const { doc: withVars, tokens } = existingTokens(json);
+      const vars = tokens.length ? await api.getDocVariables().catch(() => []) : [];
+      // A duties heading ("Duties And Responsibilities:") is the section question, never a blank of its own.
+      const duties = purpose === 'hire' || purpose === 'promotion';
+      const section = findSection(withVars);
+      const found = findBlanks(withVars, { purpose })
+        .filter(b => !(section && b.kind === 'line' && b.at[0] === section.at[0]))
+        .map(b => (b.kind === 'signature' && b.who === 'company' ? { ...b, who: companySignerOf(b.label) } : b));
+      const extra = tokens.length
+        ? [...tokens.map(t => existingBlank(t, vars)), ...(tokens.includes('role_description') || (purpose === 'promotion' && tokens.includes('responsibilities')) || !section ? [] : [section])]
+        : findSamples(withVars, context || {}, purpose);
+      // An offer has no new hire form - what they would fill is HR's answer on the offer.
+      const forOffer = (b) => (purpose === 'offer' && b.fill === 'ask' ? { ...b, fill: 'hr' } : b);
+      setDoc({ json: withVars, pageSetup: out.pageSetup || null });
+      setBlanks([...found, ...extra.filter(b => b.kind !== 'section' || duties).map((b, n) => ({ ...b, id: `s${n + 1}` }))].map(forOffer));
       setStep('review');
     } catch (e) { setError(e?.message || 'Could not read the file.'); }
     setBusy('');
@@ -138,16 +170,31 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
   async function create() {
     setBusy('create'); setError('');
     try {
-      const { doc: built, fieldDefs } = applyBlanks(doc.json, blanks);
+      const { doc: built, fieldDefs, signers } = applyBlanks(doc.json, blanks.map(b => (b.kind === 'section' ? { ...b, answer: jdChoice } : b)),
+        { countersign: countersignFor(purpose), person: personLineFor(purpose) });
       // Company and Employee are always this template's signers - adding a
-      // signature block later never means typing a new signer first.
-      const roles = [{ key: 'company', label: 'Company' }, { key: 'employee', label: 'Employee' }];
+      // signature block later never means typing a new signer first. In
+      // Hiring Setup the signers are the ones HR picked for each line.
+      const signerKeys = ['employee', ...signers.filter(k => k !== 'employee')];
+      const roles = purpose ? signerKeys.map(key => ({ key, label: SIGNER_LABEL[key] || key }))
+        : [{ key: 'company', label: 'Company' }, { key: 'employee', label: 'Employee' }];
       const row = await api.createDocTemplate({
-        name: name.trim(), category, status: 'active',
+        name: name.trim(), category: purpose ? (purpose === 'jd' ? 'job_description' : 'hr') : category, status: 'active',
         content: { pages: splitPages(built), ...(doc.pageSetup ? { pageSetup: doc.pageSetup } : {}) },
         fieldDefs, signerRoles: roles,
       });
       const pub = await api.publishDocTemplate(row.id, `Created from ${file?.name || 'a Word file'}`);
+      if (purpose) {
+        const section = blanks.find(b => b.kind === 'section');
+        // HR's answer to the duties question; 'inside' without one only when the file itself prints the duties
+        // (a promotion letter's {{responsibilities}} too); a separation package never carries them
+        const json = JSON.stringify(built);
+        const printsDuties = json.includes('"token":"role_description"') || (purpose === 'promotion' && json.includes('"token":"responsibilities"'));
+        const jdPlacement = purpose === 'separation' ? '' : section ? jdChoice : printsDuties ? 'inside' : '';
+        onCreated?.({ templateId: row.id, name: name.trim(), jdPlacement, signerKeys });
+        setBusy('');
+        return;
+      }
       setCreated({ id: row.id, name: name.trim(), version: pub?.publishedVersion || 1,
         variables: new Set(tokens.filter(Boolean)).size, signatures: sigs.filter(s => s.fill === 'sign').length });
       setStep('done');
@@ -171,9 +218,10 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <FileText size={17} style={{ color: 'var(--pine)' }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 15.5 }}>New Template From A Word File</div>
+            <div style={{ fontWeight: 800, fontSize: 15.5 }}>{purpose ? (step === 'review' ? 'Check What Nexus Found' : 'Upload A Word File') : 'New Template From A Word File'}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
-              {step === 'upload' ? 'Nexus reads the file and finds every blank and signature line for you.'
+              {purpose ? [title, file?.name].filter(Boolean).join(' - ') || 'Nexus reads the file and finds every blank and signature line for you.'
+                : step === 'upload' ? 'Nexus reads the file and finds every blank and signature line for you.'
                 : step === 'review' ? 'Check what fills each blank - most are right already. Change only what is wrong.'
                   : 'Done - published and ready for a packet.'}
             </div>
@@ -192,16 +240,23 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>.docx - the page size, tables and fonts come across as they are.</div>
                 <input ref={inputRef} type="file" accept=".docx" style={{ display: 'none' }} aria-label="Word file" onChange={e => pick(e.target.files?.[0])} />
               </div>
+              {!purpose && <>
               <label style={lbl}>Template Name</label>
               <input className="form-input" style={{ width: '100%' }} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Admin Associate - Onboarding Package" />
               <label style={lbl}>Category</label>
               <select className="form-input" style={{ width: '100%' }} value={category} onChange={e => setCategory(e.target.value)} aria-label="Category">
                 {(categories || []).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
+              </>}
             </>
           )}
 
-          {step === 'review' && (
+          {step === 'review' && purpose && (
+            <UploadReview doc={doc.json} blanks={blanks} setBlanks={setBlanks} purpose={purpose} context={context || {}}
+              jdChoice={jdChoice} setJdChoice={setJdChoice} />
+          )}
+
+          {step === 'review' && !purpose && (
             <>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0 4px' }}>
                 {['nexus', 'ask', 'hr', 'same', 'leave'].map(k => (
@@ -324,7 +379,18 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
               </button>
             </>
           )}
-          {step === 'review' && (
+          {step === 'review' && purpose && (
+            <>
+              {missingValues.length > 0 && (
+                <span style={{ flex: 1, fontSize: 12.5, color: '#b45309', fontWeight: 600 }}>Type the value for {missingValues.map(b => b.label).join(', ')}, or pick who fills it.</span>
+              )}
+              <button type="button" className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
+              <button type="button" className="primary-btn" onClick={create} disabled={!!busy || !name.trim() || missingValues.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {busy === 'create' ? <Spinner size={13} /> : <CheckCircle size={13} />} Use This
+              </button>
+            </>
+          )}
+          {step === 'review' && !purpose && (
             <>
               <button type="button" className="secondary-btn" onClick={() => setStep('upload')} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginRight: 'auto' }}><ArrowLeft size={13} /> Back</button>
               <button type="button" className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>

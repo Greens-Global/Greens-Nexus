@@ -3,18 +3,25 @@
 // NexusTimelineView / NexusFilesView / NexusWorkloadView to the Nexus idiom.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState } from '../../components/AsyncState';
-import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download } from 'lucide-react';
+import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download, ChevronDown, ChevronRight, CornerDownRight, ListTree, Check, HardDrive, ExternalLink, Link2 } from 'lucide-react';
 import { api } from '../../api';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
-import { Avatar, EmptyState, AttachmentViewer } from '../components';
-import { fmtDate, taskAssignees } from '../lib';
+import { Avatar, EmptyState, AttachmentViewer, useIsMobile } from '../components';
+import { fmtDate, taskAssignees, localISO, nestSubtaskRows } from '../lib';
+import { useCanEditTask } from '../canEditTask';
 import { toDownloadUrl } from '../../lib/storageView';
+import { isEgnyteLink, safeEgnyteHref } from '../egnyteLinks';
+import { isWebLink, safeLinkHref, linkHost, linkLabel } from '../webLinks';
 import { useTasks } from '../TasksContext';
 import { daysFromPixels, dragModeAt, dragDates, describeMove, HANDLE_W } from '../timelineDrag';
+import { useRowColorMap, rowColorAttrs } from '../rowColorState';
+import { wasSentForApproval } from '../calendarMove';
 
 const DAY = 86400000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const toISO = (d) => d.toISOString().slice(0, 10);
+// LOCAL day: fromISO below is local midnight, so a UTC toISO would step back
+// a day east of UTC (India) on every addDays.
+const toISO = localISO;
 const fromISO = (s) => new Date(s + 'T00:00:00');
 const addDays = (iso, n) => { const d = fromISO(iso); d.setDate(d.getDate() + n); return toISO(d); };
 
@@ -29,9 +36,31 @@ const initialsOf = (label = '') => {
 
 // ── Timeline (gantt) ─────────────────────────────────────────────────────────
 const DAY_W = 26, ROW_H = 44, LABEL_W = 230;
+// Phones (Oct 21 2026): a narrower title column that stays put while the
+// dates scroll under it, and bars that let a swipe scroll - a touch drag
+// starts only after a long press.
+const LABEL_W_PHONE = 128;
+const LONG_PRESS_MS = 350;
+const PRESS_SLOP = 8;   // px a finger may wander before the press is a scroll
 const MAX_TIMELINE_ROWS = 300;
-export function TimelineView({ tasks, onOpen, nameOf }) {
-  const { applyServerTask } = useTasks();
+// showSubtasks / onToggleSubtasks (Oct 22 2026): the workspace's "Show
+// Subtasks" switch. When it is on, `tasks` already holds the subtasks; each
+// one is drawn right under its parent, indented, and the parent gets a
+// chevron to fold them away. A subtask whose parent is not on the timeline
+// stands on its own with "in <parent>" under its title. `taskById` names
+// those parents.
+const INDENT = 14, INDENT_PHONE = 8;
+export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onToggleSubtasks = null, taskById = null }) {
+  const store = useTasks();
+  const { applyServerTask, offerUndo } = store;
+  // A read-only person sees the bars but cannot drag them (Oct 22 2026).
+  const canEditTask = useCanEditTask(store);
+  // Conditional row colors (Oct 22 2026): the title column gets the accent
+  // and tint like a list row; the bar itself keeps its status color and gains
+  // a thin outline in the rule's color.
+  const rowColors = useRowColorMap();
+  const [collapsed, setCollapsed] = useState(() => new Set());
+  const toggleFold = (id) => setCollapsed((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   // Drag (Oct 2026): a bar moves, or its start / end edge stretches. The bar
   // follows the pointer by whole days; on release the server moves the task
   // AND pushes whatever waits on it (POST /tasks/{id}/reschedule), and the
@@ -43,16 +72,38 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
   const justDragged = useRef(false);
   const noticeTimer = useRef(null);
   useEffect(() => () => clearTimeout(noticeTimer.current), []);
+  const isMobile = useIsMobile();
+  const labelW = isMobile ? LABEL_W_PHONE : LABEL_W;
+  // A touch press waiting to become a drag: { id, startX, startY, timer }.
+  const press = useRef(null);
+  const cancelPress = () => { if (press.current) { clearTimeout(press.current.timer); press.current = null; } };
+  useEffect(() => () => clearTimeout(press.current?.timer), []);
+  // Once a long press has picked a bar up, the finger drags the bar, not the
+  // page: the bars allow panning (touch-action pan-x pan-y) so a plain swipe
+  // scrolls, and this holds the page still for the drag itself.
+  const touchDragging = !!drag?.touch;
+  useEffect(() => {
+    if (!touchDragging) return undefined;
+    const hold = (e) => { if (e.cancelable) e.preventDefault(); };
+    document.addEventListener('touchmove', hold, { passive: false });
+    return () => document.removeEventListener('touchmove', hold);
+  }, [touchDragging]);
   const say = (text) => {
     clearTimeout(noticeTimer.current);
     setNotice(text);
     noticeTimer.current = setTimeout(() => setNotice(''), 6000);
   };
   const allDated = useMemo(() => tasks.filter((t) => t.startOn || t.dueOn), [tasks]);
+  // Subtasks nested under their parents when they are shown; otherwise the
+  // rows exactly as before, one per task.
+  const entries = useMemo(() => (showSubtasks
+    ? nestSubtaskRows(allDated, allDated, { collapsed, taskById })
+    : allDated.map((t) => ({ task: t, depth: 0, crumb: '', kids: 0 }))), [allDated, showSubtasks, collapsed, taskById]);
   // Render cap: each timeline row draws a label, grid line, bar and dependency
   // arrows; thousands of rows freeze the tab. Cap the rows (the Gantt geometry,
   // rowOf and gridH all derive from this, so capping here keeps them consistent).
-  const rows = allDated.length > MAX_TIMELINE_ROWS ? allDated.slice(0, MAX_TIMELINE_ROWS) : allDated;
+  const shownEntries = entries.length > MAX_TIMELINE_ROWS ? entries.slice(0, MAX_TIMELINE_ROWS) : entries;
+  const rows = useMemo(() => shownEntries.map((e) => e.task), [shownEntries]);
   const { start, totalDays } = useMemo(() => {
     const dates = rows.flatMap((t) => [t.startOn, t.dueOn].filter(Boolean));
     const min = dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : toISO(new Date());
@@ -62,8 +113,20 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
     return { start: s, totalDays: days };
   }, [rows]);
 
+  const subtaskSwitch = onToggleSubtasks && (
+    <button type="button" onClick={onToggleSubtasks} aria-pressed={!!showSubtasks}
+      title={showSubtasks ? 'Hide the subtasks' : 'Show each subtask under its main task'}
+      style={{ ...btn('outline'), fontSize: 12.5, color: showSubtasks ? NX.blue : NX.dim, flexShrink: 0 }}>
+      <ListTree size={14} /> Show Subtasks {showSubtasks && <Check size={13} />}
+    </button>
+  );
   if (rows.length === 0) {
-    return <div style={{ padding: 16 }}><EmptyState icon={Diamond} title="Nothing Scheduled" hint="Give tasks a start or due date to see them on the timeline." /></div>;
+    return (
+      <div style={{ padding: 16 }}>
+        {subtaskSwitch && <div style={{ marginBottom: 8 }}>{subtaskSwitch}</div>}
+        <EmptyState icon={Diamond} title="Nothing Scheduled" hint="Give tasks a start or due date to see them on the timeline." />
+      </div>
+    );
   }
 
   const dayOffset = (iso) => Math.round((fromISO(iso).getTime() - fromISO(start).getTime()) / DAY);
@@ -80,18 +143,41 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
   };
 
   const onBarPointerDown = (t, e) => {
-    if (e.button !== 0 || busyId) return;
+    if (e.button !== 0 || busyId || !canEditTask(t)) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const mode = t.isMilestone ? 'move' : dragModeAt(e.clientX - rect.left, rect.width || barGeom(t).width);
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      // A finger or a stylus (an iPad pencil pans the page the same way under
+      // touch-action pan-x pan-y): wait for a long press, so a swipe across
+      // the bars scrolls. A mouse drags at once, as before.
+      cancelPress();
+      const el = e.currentTarget, pointerId = e.pointerId, startX = e.clientX, startY = e.clientY;
+      press.current = {
+        id: t.id, startX, startY,
+        timer: setTimeout(() => {
+          press.current = null;
+          try { el.setPointerCapture?.(pointerId); } catch { /* the pointer already left */ }
+          navigator.vibrate?.(10);
+          setDrag({ id: t.id, mode, startX, days: 0, touch: true });
+        }, LONG_PRESS_MS),
+      };
+      return;
+    }
     e.currentTarget.setPointerCapture?.(e.pointerId);
     setDrag({ id: t.id, mode, startX: e.clientX, days: 0 });
   };
   const onBarPointerMove = (t, e) => {
+    if (press.current?.id === t.id) {
+      // Moved before the long press landed: it is a scroll, not a drag.
+      if (Math.hypot(e.clientX - press.current.startX, e.clientY - press.current.startY) > PRESS_SLOP) cancelPress();
+      return;
+    }
     if (!drag || drag.id !== t.id) return;
     const days = daysFromPixels(e.clientX - drag.startX);
     if (days !== drag.days) setDrag({ ...drag, days });
   };
   const onBarPointerUp = async (t, e) => {
+    if (press.current?.id === t.id) { cancelPress(); return; }   // a tap: the click opens it
     if (!drag || drag.id !== t.id) return;
     const days = daysFromPixels(e.clientX - drag.startX);
     const dates = dragDates(t, drag.mode, days);
@@ -108,6 +194,15 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
       const res = await api.rescheduleTask(t.id, { start_on: dates.startOn, due_on: dates.dueOn });
       if (res?.task) applyServerTask(res.task);
       for (const m of res?.moved || []) applyServerTask(m);
+      if (wasSentForApproval(res?.task, dates)) {
+        // Held for approval (task_due.needs_approval): the bar stays where it
+        // was. Said the way the store's announceHeld says it, Withdraw as Undo.
+        say(`Due date change sent for approval - "${t.title}" stays due ${fmtDate(res.task.dueOn)} until it is approved.`);
+        offerUndo?.('Due date change sent for approval', () => {
+          api.withdrawTaskDue(t.id).then((x) => x && applyServerTask(x)).catch(() => {});
+        });
+        return;
+      }
       const text = describeMove(t.title, dates, (res?.moved || []).length, (res?.skipped || []).length, fmtDate);
       say(res?.cascadeError ? `${text}. The tasks waiting on it did not move: ${res.cascadeError}` : text);
     } catch (err) {
@@ -119,7 +214,7 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
   const openUnlessDragged = (id) => { if (!justDragged.current) onOpen(id); };
   const cursorFor = (t) => {
     if (drag && drag.id === t.id) return drag.mode === 'move' ? 'grabbing' : 'ew-resize';
-    return 'grab';
+    return canEditTask(t) ? 'grab' : 'pointer';
   };
   const rowOf = new Map(rows.map((t, i) => [t.id, i]));
   const weeks = [];
@@ -129,18 +224,23 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
 
   return (
     <>
-    {allDated.length > MAX_TIMELINE_ROWS && (
+    {entries.length > MAX_TIMELINE_ROWS && (
       <div style={{ margin: '16px 16px 0', padding: '8px 12px', borderRadius: 8, background: NX.border2, color: NX.dim, fontSize: 12, fontFamily: FONT }}>
-        Showing {MAX_TIMELINE_ROWS} of {allDated.length} scheduled tasks - filter to narrow the timeline.
+        Showing {MAX_TIMELINE_ROWS} of {entries.length} scheduled tasks - filter to narrow the timeline.
       </div>
     )}
-    <div role="status" aria-live="polite" style={{ margin: '12px 16px 0', minHeight: 18, fontSize: 12, fontFamily: FONT, color: notice ? NX.ink : NX.faint }}>
-      {notice || 'Drag a bar to move it, or its edge to change the start or due date. Tasks waiting on it move with it.'}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '12px 16px 0' }}>
+      {subtaskSwitch}
+      <div role="status" aria-live="polite" style={{ flex: 1, minWidth: 0, minHeight: 18, fontSize: 12, fontFamily: FONT, color: notice ? NX.ink : NX.faint }}>
+        {notice || (rows.some(canEditTask)
+          ? 'Drag a bar to move it, or its edge to change the start or due date. Tasks waiting on it move with it.'
+          : 'You can view these dates. Ask the project owner for edit access to change them.')}
+      </div>
     </div>
     <div className="nx-scroll" style={{ margin: 16, overflow: 'auto', border: `1px solid ${NX.border}`, borderRadius: 14, background: NX.surface, fontFamily: FONT }}>
-      <div style={{ width: LABEL_W + gridW }}>
+      <div style={{ width: labelW + gridW }}>
         <div style={{ position: 'sticky', top: 0, zIndex: 10, display: 'flex', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
-          <div style={{ width: LABEL_W, flexShrink: 0, borderRight: `1px solid ${NX.border}` }} />
+          <div style={{ width: labelW, flexShrink: 0, borderRight: `1px solid ${NX.border}`, ...(isMobile ? { position: 'sticky', left: 0, zIndex: 1, background: NX.surface } : null) }} />
           <div style={{ position: 'relative', width: gridW, height: 40 }}>
             {weeks.map((w, i) => (
               <div key={i} style={{ position: 'absolute', top: 0, height: '100%', borderLeft: `1px solid ${NX.border2}`, paddingLeft: 4, fontSize: 11, color: NX.faint, left: w.x }}>
@@ -151,12 +251,40 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
           </div>
         </div>
         <div style={{ display: 'flex' }}>
-          <div style={{ width: LABEL_W, flexShrink: 0, borderRight: `1px solid ${NX.border}` }}>
-            {rows.map((t) => (
-              <button key={t.id} onClick={() => onOpen(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, height: ROW_H, width: '100%', border: 'none', borderBottom: `1px solid ${NX.border2}`, padding: '0 12px', textAlign: 'left', background: 'transparent', cursor: 'pointer', fontSize: 12, fontFamily: FONT }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.ink }}>{t.title}</span>
-              </button>
-            ))}
+          <div data-testid="timeline-titles" style={{ width: labelW, flexShrink: 0, borderRight: `1px solid ${NX.border}`, ...(isMobile ? { position: 'sticky', left: 0, zIndex: 4, background: NX.surface } : null) }}>
+            {shownEntries.map(({ task: t, depth, crumb, kids }) => {
+              const pad = isMobile ? 8 : 12;
+              const rc = rowColors?.get(t.id) || null;
+              const rcAttrs = rowColorAttrs(rc);
+              const indent = Math.min(depth, isMobile ? 3 : 8) * (isMobile ? INDENT_PHONE : INDENT);
+              const title = (
+                <button key={t.id} onClick={() => onOpen(t.id)} title={isMobile || crumb ? `${t.title}${crumb ? ` (subtask of ${crumb})` : ''}` : rc ? `Colored ${rc.name}` : undefined}
+                  aria-label={rc ? `${t.title}, colored ${rc.name}` : undefined}
+                  data-depth={showSubtasks ? depth : undefined}
+                  style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1, height: '100%', width: '100%', minWidth: 0, flex: 1, border: 'none', padding: showSubtasks ? `0 ${pad}px 0 0` : `0 ${pad}px`, textAlign: 'left', background: 'transparent', cursor: 'pointer', fontSize: 12, fontFamily: FONT }}>
+                  <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.ink, ...(rc?.bold ? { fontWeight: 700, color: 'var(--rc-ink)' } : null) }}>{t.title}</span>
+                  {crumb && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, maxWidth: '100%', fontSize: 10.5, color: NX.faint, overflow: 'hidden' }}>
+                      <CornerDownRight size={10} style={{ flexShrink: 0 }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>in {crumb}</span>
+                    </span>
+                  )}
+                </button>
+              );
+              if (!showSubtasks) return <div key={t.id} className={rcAttrs.className || undefined} data-row-color={rc?.id} style={{ height: ROW_H, boxSizing: 'border-box', borderBottom: `1px solid ${NX.border2}`, ...rcAttrs.style }}>{title}</div>;
+              return (
+                <div key={t.id} data-timeline-row={t.id} className={rcAttrs.className || undefined} data-row-color={rc?.id} style={{ display: 'flex', alignItems: 'center', height: ROW_H, boxSizing: 'border-box', borderBottom: `1px solid ${NX.border2}`, paddingLeft: pad + indent - (isMobile ? 4 : 6), ...rcAttrs.style }}>
+                  {kids > 0 ? (
+                    <button type="button" onClick={() => toggleFold(t.id)} aria-expanded={!collapsed.has(t.id)}
+                      aria-label={`${collapsed.has(t.id) ? 'Show' : 'Hide'} the subtasks of ${t.title}`}
+                      style={{ border: 'none', background: 'transparent', padding: 2, display: 'flex', color: NX.faint, cursor: 'pointer', flexShrink: 0 }}>
+                      {collapsed.has(t.id) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                    </button>
+                  ) : <span style={{ width: 17, flexShrink: 0 }} />}
+                  {title}
+                </div>
+              );
+            })}
           </div>
           <div style={{ position: 'relative', width: gridW, height: gridH }}>
             {rows.map((_, i) => <div key={i} style={{ position: 'absolute', left: 0, right: 0, borderBottom: `1px solid ${NX.border2}`, top: (i + 1) * ROW_H - 1 }} />)}
@@ -186,17 +314,20 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
                 onPointerDown: (e) => onBarPointerDown(t, e),
                 onPointerMove: (e) => onBarPointerMove(t, e),
                 onPointerUp: (e) => onBarPointerUp(t, e),
-                onPointerCancel: () => setDrag(null),
+                onPointerCancel: () => { cancelPress(); setDrag(null); },
+                // No long-press callout or text pick-up on a phone.
+                onContextMenu: (e) => { if (press.current || drag?.touch) e.preventDefault(); },
               };
               if (t.isMilestone) {
-                return <button key={t.id} {...pointer} onClick={() => openUnlessDragged(t.id)} title={t.title} aria-label={t.title} data-bar={t.id} style={{ position: 'absolute', left: g.left, top: i * ROW_H + 10, height: 24, border: 'none', background: 'transparent', cursor: cursorFor(t), touchAction: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1 }}><Diamond size={18} fill={meta.color} style={{ color: meta.color }} /></button>;
+                return <button key={t.id} {...pointer} onClick={() => openUnlessDragged(t.id)} title={t.title} aria-label={t.title} data-bar={t.id} style={{ position: 'absolute', left: g.left, top: i * ROW_H + 10, height: 24, border: 'none', background: 'transparent', cursor: cursorFor(t), touchAction: 'pan-x pan-y', WebkitTouchCallout: 'none', userSelect: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1 }}><Diamond size={18} fill={meta.color} style={{ color: meta.color }} /></button>;
               }
               const [primary = ''] = taskAssignees(t);
               const ini = primary ? initialsOf(nameOf ? nameOf(primary) : primary) : '';
               const edge = { position: 'absolute', top: 0, bottom: 0, width: HANDLE_W, cursor: 'ew-resize' };
+              const rc = rowColors?.get(t.id);
               return (
-                <button key={t.id} {...pointer} onClick={() => openUnlessDragged(t.id)} title={`${t.title} (${meta.label})`} aria-label={t.title} data-bar={t.id}
-                  style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: cursorFor(t), background: meta.color, overflow: 'hidden', touchAction: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1, boxShadow: dragging ? '0 6px 18px rgba(0,0,0,0.25)' : 'none', transition: dragging ? 'none' : 'left 0.12s, width 0.12s' }}>
+                <button key={t.id} {...pointer} onClick={() => openUnlessDragged(t.id)} title={`${t.title} (${meta.label})${rc ? ` - ${rc.name}` : ''}`} aria-label={rc ? `${t.title}, colored ${rc.name}` : t.title} data-bar={t.id}
+                  style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: cursorFor(t), background: meta.color, overflow: 'hidden', touchAction: 'pan-x pan-y', WebkitTouchCallout: 'none', userSelect: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1, boxShadow: dragging ? '0 6px 18px rgba(0,0,0,0.25)' : 'none', transition: dragging ? 'none' : 'left 0.12s, width 0.12s', ...(rc ? { outline: `2px solid ${rc.hex}`, outlineOffset: 1 } : null) }} data-row-color={rc?.id}>
                   <span style={{ ...edge, left: 0 }} />
                   {ini && <span style={{ flexShrink: 0, fontWeight: 700, opacity: 0.9 }}>{ini}</span>}
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.95 }}>{t.title}</span>
@@ -213,7 +344,12 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
 }
 
 // ── Files (attachment gallery across the visible tasks) ──────────────────────
+// Web links (Oct 22 2026) are listed with the files, as Planner's Files tab
+// lists them: the link icon, the name, the website, opening in a new tab -
+// never the viewer or a download, which are for files stored in Nexus.
 function iconFor(kind) {
+  if (kind === 'egnyte') return <HardDrive size={18} style={{ color: NX.blue }} />;
+  if (kind === 'link') return <Link2 size={18} style={{ color: NX.blue }} />;
   if (kind === 'image') return <FileImage size={18} style={{ color: NX.teal }} />;
   if (kind === 'doc') return <FileText size={18} style={{ color: NX.blue }} />;
   return <File size={18} style={{ color: NX.dim }} />;
@@ -235,7 +371,7 @@ export function FilesView({ tasks, onOpen, nameOf }) {
     if (!rows) return [];
     const q = query.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter(({ a, t }) => `${a.name} ${t.title} ${t.code}`.toLowerCase().includes(q));
+    return rows.filter(({ a, t }) => `${a.name} ${isWebLink(a) ? a.url : ''} ${t.title} ${t.code}`.toLowerCase().includes(q));
   }, [rows, query]);
 
   return (
@@ -253,13 +389,29 @@ export function FilesView({ tasks, onOpen, nameOf }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
               {files.slice(0, 200).map(({ a, t }) => {
                 const href = a.dataUrl || a.url;
+                // An Egnyte link (Oct 22 2026) opens in Egnyte, a web link in a
+                // new tab - no copy here to view or download.
+                const egnyte = isEgnyteLink(a) ? safeEgnyteHref(a) : null;
+                const web = isWebLink(a) ? safeLinkHref(a) : null;
                 return (
                 <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, padding: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                     {iconFor(a.kind)}
-                    {href && <a href={toDownloadUrl(href)} download={a.name} title="Download" style={{ color: NX.faint }}><Download size={14} /></a>}
+                    {href && egnyte === null && web === null && <a href={toDownloadUrl(href)} download={a.name} title="Download" style={{ color: NX.faint }}><Download size={14} /></a>}
                   </div>
-                  {href ? (
+                  {web !== null ? (
+                    <a href={web || undefined} target="_blank" rel="noopener noreferrer" title={`Open ${a.url} in a new tab`} data-testid="files-web-link"
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', fontSize: 13, fontWeight: 600, color: NX.ink, textDecoration: 'none' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{linkLabel(a)}</span>
+                      <ExternalLink size={12} style={{ flexShrink: 0, color: NX.blue }} />
+                    </a>
+                  ) : egnyte !== null ? (
+                    <a href={egnyte || undefined} target="_blank" rel="noopener noreferrer" title="Open In Egnyte"
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', fontSize: 13, fontWeight: 600, color: NX.ink, textDecoration: 'none' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
+                      <ExternalLink size={12} style={{ flexShrink: 0, color: NX.blue }} />
+                    </a>
+                  ) : href ? (
                     // Opens the in-app viewer - never a new tab.
                     <button type="button" onClick={() => setView({ ...a, url: href })} title={`View ${a.name}`}
                       style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.ink, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>{a.name}</button>
@@ -267,7 +419,7 @@ export function FilesView({ tasks, onOpen, nameOf }) {
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.faint, textDecoration: 'line-through' }}
                       title="This file failed to upload and isn't available">{a.name}</div>
                   )}
-                  <div style={{ fontSize: 11, color: NX.faint }}>{a.size}{a.addedAt ? ` · ${fmtDate(a.addedAt)}` : ''}</div>
+                  <div style={{ fontSize: 11, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{web !== null ? linkHost(a.url) : a.size}{a.addedAt ? ` · ${fmtDate(a.addedAt)}` : ''}</div>
                   <button onClick={() => onOpen(t.id)} title={t.title} style={{ display: 'block', width: '100%', textAlign: 'left', marginTop: 2, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, color: NX.blue, padding: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {t.title}
                   </button>

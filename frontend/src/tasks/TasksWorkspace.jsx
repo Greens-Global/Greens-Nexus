@@ -1,18 +1,19 @@
 // Task Module - the Tasks workspace: toolbar (search / group / view-kind) + the
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
-import { useMemo, useState } from 'react';
-import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin } from 'lucide-react';
+import { lazy, Suspense, useMemo, useState } from 'react';
+import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin, Palette, Upload } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, roleAtLeast } from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, projectRoleWithTeams, roleAtLeast, withSubtasks, topLevel, taskInProject, importedSubtaskFilter } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, PRIORITY_META, chip } from './theme';
-import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton, UnassignedAvatar, ExportMenu } from './components';
+import { EmptyState, usePeople, useIsMobile, ProjectAccessButton, ExportMenu } from './components';
 import CreateTaskModal from './CreateTaskModal';
 import QuickCreateTask from './QuickCreateTask';
 import MobileTaskBar from './MobileTaskBar';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { useTableValue } from './tableCols';
+import { formulaHelpers, customFieldExportColumns } from './formula';
 
 // Stable identity: a fresh object each render would re-run consumers' memos.
 // Alphabetical A-Z out of the box (Sagar, Aug 27). Note this means row
@@ -20,6 +21,7 @@ import { useTableValue } from './tableCols';
 // that is the only order a hand-arranged sequence can be stored against.
 const WS_DEFAULT_SORT = { key: 'title', dir: 'asc' };
 import { CalendarView, DashboardView } from './views/extras';
+import { dueFilterHidesUndated } from './calendarMove';
 import { TimelineView, FilesView, WorkloadView } from './views/more';
 import { ProductivityBar, MobileFilters } from './productivity';
 import RichListView, { useHiddenCols, ListColumnControls } from './views/richlist';
@@ -28,8 +30,19 @@ import BoardView from './views/board';
 import { SaveTemplateModal, DuplicateProjectModal } from './TemplatesView';
 import BulkActionBar from './BulkActionBar';
 import { useCustomSections } from './customSections';
-import { formatDate } from '../lib/datetime';
 import ProjectIcon from './ProjectIcon';
+import { boardSetup, boardHasSections, boardPrefs, effectiveLanes } from './boardLayout';
+import { RowColorsProvider, useRowColorScope, useRuleContext } from './rowColorState';
+import { RowColorLegend } from './RowColors';
+import ColorRulesEditor from './ColorRulesEditor';
+
+// Stable identity for a project with no color rules (see useRowColorScope).
+const NO_RULES = [];
+import ProjectFollowControl from './ProjectFollow';
+
+// Import from CSV / Excel (Oct 22 2026): its own chunk - opened rarely, and
+// it brings the file reader with it.
+const ImportTasksModal = lazy(() => import('./ImportTasksModal'));
 
 const VIEW_KINDS = [
   { key: 'list', label: 'List', icon: List },
@@ -76,13 +89,46 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const rememberInProject = (patch) => setProjViews((prev) => ({ ...(prev || {}), [lockedProjectId]: { ...((prev || {})[lockedProjectId] || {}), ...patch } }));
   const setView = (next) => (lockedProjectId ? rememberInProject({ view: next }) : setGlobalView(next));
   const setGroup = (next) => (lockedProjectId ? rememberInProject({ group: typeof next === 'function' ? next(group) : next }) : setGlobalGroup(next));
+  // Show Subtasks on the Board / Timeline (Oct 22 2026): off until turned on,
+  // remembered per person - per project inside one, like the view itself.
+  const [globalSubs, setGlobalSubs] = useTableValue('richlist', 'showSubtasks', {});
+  const subsPref = (lockedProjectId ? (projViews || {})[lockedProjectId]?.showSubtasks : globalSubs) || {};
+  const toggleSubtasks = (kind) => {
+    const next = { ...subsPref, [kind]: !subsPref[kind] };
+    if (lockedProjectId) rememberInProject({ showSubtasks: next }); else setGlobalSubs(next);
+  };
+  // The Board's layout (Oct 22 2026): its swimlanes (the toolbar's Group on
+  // Board - the List keeps its own grouping), its Columns and the Card
+  // Previews switch. Remembered per person - per project inside one, like
+  // the view itself - with a project's default Board in between
+  // (boardLayout.boardPrefs). A stored value the board does not offer here
+  // shows as None / Status and is left as it was.
+  const [globalBoard, setGlobalBoard] = useTableValue('richlist', 'board', {});
+  const myProjectBoard = lockedProjectId ? (projViews || {})[lockedProjectId]?.board : null;
+  const boardPref = lockedProjectId
+    ? boardPrefs(myProjectBoard, lockedProjectForView?.defaultView, globalBoard)
+    : boardPrefs(globalBoard, null, null);
+  const setBoardPref = (patch) => (lockedProjectId
+    ? rememberInProject({ board: { ...(myProjectBoard || {}), ...patch } })
+    : setGlobalBoard({ ...(globalBoard || {}), ...patch }));
+  const sec = useCustomSections(lockedProjectId || '');
+  const board = boardSetup({
+    lanes: boardPref.lanes, columns: boardPref.columns, lockedProjectId: lockedProjectId || '',
+    fields: fieldsForProject(store.customFields || [], lockedProjectId), hasSections: boardHasSections(lockedProjectId, sec),
+  });
+  const onBoard = view === 'board';
   const canSetDefault = !!lockedProjectForView && roleAtLeast(projectRoleOf(lockedProjectForView, myEmail, canManage), 'owner');
-  const isProjectDefault = !!lockedProjectForView?.defaultView && lockedProjectForView.defaultView.view === view
-    && (!lockedProjectForView.defaultView.group || lockedProjectForView.defaultView.group === group);
+  const projDefault = lockedProjectForView?.defaultView;
+  const isProjectDefault = !!projDefault && projDefault.view === view && (onBoard
+    ? effectiveLanes(projDefault.lanes, board.laneOpts) === board.lanes && (projDefault.columns || 'status') === board.columns
+    : (!projDefault.group || projDefault.group === group));
   const [defaultSaving, setDefaultSaving] = useState(false);
   const makeDefault = async () => {
     setDefaultSaving(true);
-    try { await store.updateProject(lockedProjectId, { defaultView: { view, group } }); } catch { /* the toolbar shows the old state */ } finally { setDefaultSaving(false); }
+    // A default Board also has its swimlanes and columns; `group` stays the
+    // List's grouping, as it always was.
+    const dv = onBoard ? { view, group, lanes: board.lanes, columns: board.columns } : { view, group };
+    try { await store.updateProject(lockedProjectId, { defaultView: dv }); } catch { /* the toolbar shows the old state */ } finally { setDefaultSaving(false); }
   };
   const [search, setSearch] = useState(initialSearch || '');
   // Seeded, not forced: header search opens "everything assigned to X" through
@@ -90,6 +136,11 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const [filters, setFilters] = useState(initialFilters || EMPTY_FILTER);
   const [sort, setSort] = useTableValue('richlist', 'sort', WS_DEFAULT_SORT);
   const [selected, setSelected] = useState(new Set());
+  // The Import wizard, and the tasks it just made (View Imported Tasks
+  // narrows the list to them until Show All Tasks).
+  const [importing, setImporting] = useState(false);
+  const [imported, setImported] = useState(null);   // { projectId, ids } - only for the project it was made in
+  const importedIds = imported && imported.projectId === lockedProjectId ? imported.ids : null;
   // Edit Project from inside the project, so settings do not mean navigating
   // back out to the Projects grid first. ProjectsView imports THIS module to
   // render the workspace, so importing its modal statically would be a cycle -
@@ -107,9 +158,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const [templating, setTemplating] = useState(false);   // Save as Template dialog
   const [duplicating, setDuplicating] = useState(false);  // Duplicate Project dialog
   const [openId, setOpenId] = useState(taskIdFromUrl);
-  // The Custom grouping's sections: this project's own, shared by everyone on
-  // it (customSections.js).
-  const sec = useCustomSections(lockedProjectId || '');
+  // The Custom grouping's sections (sec, above): this project's own, shared
+  // by everyone on it (customSections.js) - the Board's Section columns too.
   const [creating, setCreating] = useState(null); // full CreateTaskModal defaults (desktop / "Full details")
   const [quickCreate, setQuickCreate] = useState(null); // mobile Asana-style quick-add defaults
   // Mobile → lightweight quick-add sheet; desktop → the full form. Same context defaults either way.
@@ -130,26 +180,65 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   // own rows, like Asana; a project/general list stays top-level with subtasks
   // reached through their parent. Project scope resolves through the parent
   // chain so a subtask still counts as being in its parent's project.
+  // Formula columns (Oct 22 2026) sort and filter by their computed value -
+  // one shared engine per data snapshot (tasks/formula.js).
+  const formulas = formulaHelpers(store);
   const visible = useMemo(
-    () => sortTasks(personScoped(tasks, filter).filter((t) => matchesFilter(t, filter, store.taskById)), sort, activeFields, { nameOf, projectName, teamName }),
-    [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields, store.taskById, nameOf, projectName, teamName],
+    () => sortTasks(personScoped(tasks, filter).filter((t) => matchesFilter(t, filter, store.taskById, formulas.formulaMatch)
+      && (!importedIds || importedIds.has(t.id))), sort, activeFields,
+      { nameOf, projectName, teamName, formulaSortValue: formulas.formulaSortValue }),
+    [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields, store.taskById, nameOf, projectName, teamName, formulas, importedIds],
   );
+
+  // The Board / Timeline with Show Subtasks on: every subtask that passes the
+  // same filter joins the view's rows (lib.withSubtasks).
+  // A person-scoped or searched list already holds every subtask as a row
+  // of its own (personScoped), so there the switch would do nothing - none.
+  const flatScope = !!(filter.assigneeIds?.length || filter.collaboratorIds?.length || (filter.search || '').trim());
+  const showBoardSubs = !flatScope && !!subsPref.board, showTimelineSubs = !flatScope && !!subsPref.timeline;
+  // The same formula filter `visible` used, and - under the import banner -
+  // only the subtasks of the tasks just imported.
+  const keepSub = useMemo(() => importedSubtaskFilter(importedIds, store.taskById), [importedIds, store.taskById]);
+  const boardTasks = useMemo(() => (showBoardSubs ? withSubtasks(visible, tasks, filter, store.taskById, formulas.formulaMatch, keepSub) : visible),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showBoardSubs, visible, tasks, store.taskById, formulas, keepSub]);
+  const timelineTasks = useMemo(() => (showTimelineSubs ? withSubtasks(visible, tasks, filter, store.taskById, formulas.formulaMatch, keepSub) : visible),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showTimelineSubs, visible, tasks, store.taskById, formulas, keepSub]);
 
   // Export rows: `visible` plus each row's subtasks, nested - see
   // taskExportRows in lib.js for why the file must not inherit the list's
   // top-level-only shape.
   const exportRows = useMemo(
-    () => taskExportRows(visible, tasks, filter, store.taskById),
-    [visible, tasks, filter, store.taskById],
+    () => taskExportRows(visible, tasks, filter, store.taskById, formulas.formulaMatch),
+    [visible, tasks, filter, store.taskById, formulas],
   );
 
   const applyView = (v) => {
     if (v.filters) setFilters({ ...EMPTY_FILTER, ...v.filters });
     if (v.sort) setSort(v.sort);
-    if (v.group) setGroup(v.group);
-    // setView, not switchView: a saved view carries its own filters and must
-    // not have them wiped by the tab change it asks for.
-    if (v.view) setView(v.view);
+    // A Board view's `group` is its swimlanes (and it may carry its columns);
+    // any other view's is the List's grouping. setView, not switchView: a
+    // saved view carries its own filters and must not have them wiped by the
+    // tab change it asks for. Inside a project it is ONE write - two would
+    // each start from the same stored copy, and the second would drop the
+    // first.
+    const toBoard = (v.view || view) === 'board';
+    const boardPatch = toBoard ? {
+      ...(v.group ? { lanes: v.group } : {}),
+      ...(v.boardColumns ? { columns: v.boardColumns } : {}),
+    } : null;
+    if (lockedProjectId) {
+      rememberInProject({
+        ...(v.view ? { view: v.view } : {}),
+        ...(!toBoard && v.group ? { group: v.group } : {}),
+        ...(boardPatch && Object.keys(boardPatch).length ? { board: { ...(myProjectBoard || {}), ...boardPatch } } : {}),
+      });
+      return;
+    }
+    if (boardPatch && Object.keys(boardPatch).length) setGlobalBoard({ ...(globalBoard || {}), ...boardPatch });
+    if (!toBoard && v.group) setGlobalGroup(v.group);
+    if (v.view) setGlobalView(v.view);
   };
 
   // Switching tabs starts clean. A filter set in List used to follow you into
@@ -174,7 +263,27 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   // time tracking setting, or any task on screen being time tracked.
   const tracksTime = lockedProject ? projectTracksTime(lockedProject, store.tasks)
     : visible.some((t) => taskTracksTime(t, store.projects, store.tasks));
+  // Conditional row colors (Neil, Oct 22 2026): the project's rules, shared
+  // with everyone who opens it; editors change them (Row Colors). Only a
+  // project has them here - the person's own rules live on My Tasks.
+  const colorRules = lockedProject?.colorRules || NO_RULES;
+  const ruleCtx = useRuleContext({ projectId: lockedProjectId || '', sections: lockedProjectId ? sec.sections : null, sectionOf: sec.sectionOf });
+  // The map covers the rows this view draws - the Board's and Timeline's
+  // subtask cards and bars included when Show Subtasks is on.
+  const shownTasks = view === 'board' ? boardTasks : view === 'timeline' ? timelineTasks : visible;
+  const rowScope = useRowColorScope({ rules: colorRules, tasks: shownTasks, ruleCtx });
+  const editorCtx = useMemo(() => ({ ...ruleCtx, people }), [ruleCtx, people]);
+  // Editor or better, team roles counted - the same check Import uses (and
+  // the server's, which counts team access too).
+  const canEditColors = !!lockedProject && roleAtLeast(projectRoleWithTeams(lockedProject, myEmail, teams, canManage), 'editor');
+  const [colorsOpen, setColorsOpen] = useState(false);
+  // What the editor's live count runs over: the project's rows as its list
+  // shows them, before any filter.
+  const projectTasks = useMemo(() => (lockedProjectId ? topLevel(tasks).filter((t) => taskInProject(t, lockedProjectId)) : NO_RULES),
+    [tasks, lockedProjectId]);
   const isBookmarked = !!lockedProject && bookmarks?.has(lockedProject.id);
+  // Import adds work to the project: editor or better, the server's bar too.
+  const canImport = !!lockedProject && roleAtLeast(projectRoleWithTeams(lockedProject, myEmail, teams, canManage), 'editor');
   const toggleStar = () => {
     const id = lockedProject.id;
     const adding = !isBookmarked;
@@ -189,8 +298,21 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     ...GROUPS.map((g) => ({ key: g, label: g === 'none' ? 'None' : g === 'section' ? 'Custom' : g[0].toUpperCase() + g.slice(1) })),
     ...groupableFields.map((f) => ({ key: cfKey(f.id), label: f.name })),
   ];
+  // Group by Label (Oct 22 2026) on the List: a task with two labels is
+  // listed under each. On Board, labels are swimlanes (board.laneOpts).
+  const listGroupOptions = groupOptions.flatMap((o) => (o.key === 'none' ? [{ key: 'label', label: 'Label' }, o] : [o]));
+  // The toolbar's Group is the List's grouping on List and the swimlanes on
+  // Board (Oct 22 2026 - on Board it used to change nothing), where Columns
+  // joins it. Saved views record whichever the view in front of you uses.
+  const menuGroup = onBoard ? board.lanes : group;
+  const menuSetGroup = onBoard ? (k) => setBoardPref({ lanes: k }) : setGroup;
+  const menuGroupOptions = onBoard ? board.laneOpts : view === 'list' ? listGroupOptions : null;
+  const columnsMenu = onBoard
+    ? { columnOptions: board.columnOpts, columns: board.columns, setColumns: (k) => setBoardPref({ columns: k }) }
+    : {};
+  const currentView = onBoard ? { view, group: board.lanes, boardColumns: board.columns } : { view, group };
   const sortFieldOptions = activeFields
-    .filter((f) => ['select', 'number', 'date', 'text', 'checkbox'].includes(f.type))
+    .filter((f) => ['select', 'number', 'date', 'text', 'checkbox', 'formula'].includes(f.type))
     .map((f) => ({ key: cfKey(f.id), label: f.name }));
 
   return (
@@ -216,6 +338,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
                 style={{ ...btn('ghost'), padding: 4, flexShrink: 0, color: isBookmarked ? '#f59e0b' : NX.faint }}>
                 <Star size={18} fill={isBookmarked ? 'currentColor' : 'none'} />
               </button>
+              {/* Phones: the header's action cluster is hidden, so Follow
+                  rides beside the star, icon and count only. */}
+              {isMobile && <ProjectFollowControl project={lockedProject} compact />}
               {lockedProject.hrDepartmentName && <span style={chip(NX.dim, NX.border2)}>{lockedProject.hrDepartmentName}</span>}
               {lockedProject.portfolioId && portfolioById(lockedProject.portfolioId) && (
                 <span style={chip(NX.purple, NX.border2)}>{portfolioById(lockedProject.portfolioId).name}</span>
@@ -225,6 +350,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         </div>
         {!isMobile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+            {lockedProject && <ProjectFollowControl project={lockedProject} />}
             {lockedProject && <ProjectAccessButton project={lockedProject} teams={teams} people={people} />}
             {lockedProject && (
               <button onClick={() => setTemplating(true)} title="Save this project as a reusable template"
@@ -233,7 +359,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               </button>
             )}
             {lockedProject && (
-              <button onClick={() => setDuplicating(true)} title="Duplicate this project"
+              <button onClick={() => setDuplicating(true)} title="Duplicate This Project"
                 style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: NX.dim }}>
                 <Copy size={14} />{!isMobile && 'Duplicate'}
               </button>
@@ -242,6 +368,12 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               <button onClick={openProjectEdit} title="Edit Project"
                 style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: NX.dim }}>
                 <Pencil size={14} />{!isMobile && 'Edit'}
+              </button>
+            )}
+            {canEditColors && (
+              <button onClick={() => setColorsOpen(true)} title="Color rows by their data"
+                style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}>
+                <Palette size={14} />Row Colors
               </button>
             )}
             {/* No "New Task" here (Neil, Sept 7). A project screen carried a
@@ -279,10 +411,10 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           </div>
           <ProductivityBar
             filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
-            lockedProjectId={lockedProjectId} current={{ view, group }} onApplyView={applyView} onOpenTask={setOpenId}
-            group={group} setGroup={setGroup}
+            lockedProjectId={lockedProjectId} current={currentView} onApplyView={applyView} onOpenTask={setOpenId}
+            group={menuGroup} setGroup={menuSetGroup} {...columnsMenu}
             customFields={activeFields} sortFieldOptions={sortFieldOptions}
-            groupOptions={(view === 'list' || view === 'board') ? groupOptions : null}
+            groupOptions={menuGroupOptions}
           />
           {/* Column controls belong to the List view only - they'd have nothing
               to act on in Board/Calendar/Timeline. */}
@@ -292,8 +424,14 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
               allCustomFields={store.customFields} updateCustomField={store.updateCustomField}
               tracksTime={tracksTime} canManageFields={canManage}
-              lockedProjectId={lockedProjectId} teams={store.teams}
+              lockedProjectId={lockedProjectId} teams={store.teams} store={store} previewTasks={visible}
             />
+          )}
+          {canImport && (
+            <button type="button" onClick={() => setImporting(true)} title="Import tasks from a CSV or Excel file"
+              style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, flexShrink: 0 }}>
+              <Upload size={14} />Import
+            </button>
           )}
           {/* `visible` is the list AFTER search, filters, sort and grouping -
               exporting the raw store would hand back rows the person had
@@ -318,24 +456,44 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               { header: 'Estimate (h)', width: 11, get: (r) => (r.task.estimateHours ?? '') },
               { header: 'Actual (h)', width: 11, get: (r) => (r.task.actualHours ?? '') },
               { header: 'Completed', width: 10, get: (r) => (r.task.completed ? 'Yes' : 'No') },
+              // The list's custom columns too, formulas as their computed
+              // values (Oct 22 2026).
+              // The ones showing in the list - a column hidden there stays out.
+              ...customFieldExportColumns(activeFields.filter((f) => !hiddenCols.has(f.id)), store),
             ]}
           />
         </div>
       </div>
       )}
 
+      {importedIds && (
+        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 20px', background: NX.surface2, borderBottom: `1px solid ${NX.border}`, fontSize: 13, color: NX.dim, flexWrap: 'wrap' }}>
+          <span>Showing the {importedIds.size} task{importedIds.size === 1 ? '' : 's'} you just imported.</span>
+          <button type="button" onClick={() => setImported(null)} style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12.5 }}>Show All Tasks</button>
+        </div>
+      )}
+
+      {/* The color key - only where a rule can color something here. */}
+      {view !== 'dashboard' && view !== 'files' && view !== 'workload' && (
+        <RowColorLegend scope={rowScope} canEdit={canEditColors} onEdit={() => setColorsOpen(true)} compact={isMobile} />
+      )}
+
       {/* Body */}
+      <RowColorsProvider map={rowScope.map}>
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, paddingBottom: isMobile ? 88 : undefined }}>
         {view === 'list' ? (
-          <RichListView visible={visible} group={group} sort={sort} setSort={setSort} ctx={ctx} store={store} people={people} selected={selected} setSelected={setSelected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} onFullCreate={openCreate} customSections={sec} />
-        ) : visible.length === 0 ? (
+          <RichListView visible={visible} group={group} sort={sort} setSort={setSort} ctx={ctx} store={store} people={people} selected={selected} setSelected={setSelected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} onFullCreate={openCreate} customSections={sec} canManageFields={canManage} />
+        ) : (view === 'board' ? boardTasks : view === 'timeline' ? timelineTasks : visible).length === 0 ? (
           <EmptyState icon={CheckCircle2} title="No Tasks Yet" hint="Create your first task to get going." />
         ) : view === 'board' ? (
-          <BoardView visible={visible} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate} />
+          <BoardView visible={boardTasks} group={board.lanes} columns={board.columns} sections={sec} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate}
+            showSubtasks={showBoardSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('board')}
+            cardPreviews={boardPref.previews !== false} onToggleCardPreviews={() => setBoardPref({ previews: boardPref.previews === false })} />
         ) : view === 'calendar' ? (
-          <CalendarView tasks={visible} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
+          <CalendarView tasks={visible} store={store} lockedProjectId={lockedProjectId} dueFiltered={dueFilterHidesUndated(filter)} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
         ) : view === 'timeline' ? (
-          <TimelineView tasks={visible} onOpen={setOpenId} nameOf={nameOf} />
+          <TimelineView tasks={timelineTasks} onOpen={setOpenId} nameOf={nameOf} taskById={store.taskById}
+            showSubtasks={showTimelineSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('timeline')} />
         ) : view === 'files' ? (
           <FilesView tasks={visible} onOpen={setOpenId} nameOf={nameOf} />
         ) : (view === 'workload' && showWorkload) ? (
@@ -344,6 +502,21 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           <DashboardView tasks={visible} stats={stats} store={store} scopeKey={lockedProjectId || 'workspace'} onFilter={goFiltered} />
         )}
       </div>
+      </RowColorsProvider>
+
+      {colorsOpen && lockedProject && canEditColors && (
+        <ColorRulesEditor
+          title={`Row Colors - ${lockedProject.name}`}
+          rules={colorRules}
+          onSave={(next) => store.saveColorRules(lockedProject.id, next, lockedProject.colorRulesRev ?? null)}
+          onClose={() => setColorsOpen(false)}
+          ctx={editorCtx}
+          customFields={activeFields}
+          statusOrder={ruleCtx.statusOrder}
+          countTasks={projectTasks}
+          scopeNoun="in this project"
+        />
+      )}
 
       {/* Bulk bar */}
       <BulkActionBar selected={selected} clearSel={clearSel} store={store} people={people} lockedProjectId={lockedProjectId} isMobile={isMobile} sections={sec} />
@@ -379,19 +552,20 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           filterSheet={(onClose) => (
             <MobileFilters
               filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
-              group={group} setGroup={setGroup}
+              group={menuGroup} setGroup={menuSetGroup} {...columnsMenu}
               customFields={activeFields} sortFieldOptions={sortFieldOptions}
-              groupOptions={(view === 'list' || view === 'board') ? groupOptions : null}
-              current={{ view, group }} onApplyView={applyView}
+              groupOptions={menuGroupOptions}
+              current={currentView} onApplyView={applyView}
               search={search} setSearch={setSearch}
               lockedProjectId={lockedProjectId}
+              rowColors={canEditColors ? () => setColorsOpen(true) : null}
               columnControls={view === 'list' ? (
                 <ListColumnControls
                   hidden={hiddenCols} setHidden={setHiddenCols}
                   customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
                   allCustomFields={store.customFields} updateCustomField={store.updateCustomField}
               tracksTime={tracksTime} canManageFields={canManage}
-                  lockedProjectId={lockedProjectId} teams={store.teams}
+                  lockedProjectId={lockedProjectId} teams={store.teams} store={store} previewTasks={visible}
                 />
               ) : null}
               onClose={onClose}
@@ -403,98 +577,16 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       {quickCreate && <QuickCreateTask defaults={quickCreate} onClose={() => setQuickCreate(null)} onFullDetails={(d) => { setQuickCreate(null); setCreating({ ...quickCreate, ...d }); }} />}
       {creating && <CreateTaskModal defaults={creating} onClose={() => setCreating(null)} lockedProjectId={lockedProjectId || ''} />}
       {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
-    </div>
-  );
-}
-
-function TaskRow({ t, store, selected, toggleSel, onOpen, band = false }) {
-  const { nameOf, toggleComplete, projectName } = store;
-  const overdue = t.dueOn && t.dueOn < new Date().toISOString().slice(0, 10) && !t.completed;
-  const rowBg = selected.has(t.id) ? 'rgba(37,99,235,0.10)' : band ? NX.zebra : NX.surface;
-  return (
-    <div onClick={() => onOpen(t.id)} data-task-row className="nx-row-hover" data-selected={selected.has(t.id) ? 'true' : undefined} style={{
-      display: 'grid', gridTemplateColumns: '26px 26px 1fr auto auto auto', alignItems: 'center', gap: 10,
-      padding: '9px 16px', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: rowBg,
-    }}>
-      <input type="checkbox" checked={selected.has(t.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(t.id)} style={{ cursor: 'pointer' }} />
-      <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} title="Toggle Complete" style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>
-        {t.completed ? <CheckCircle2 size={19} /> : <Circle size={19} />}
-      </button>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 500, color: NX.ink, textDecoration: t.completed ? 'line-through' : 'none', opacity: t.completed ? 0.6 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
-        {t.projectId && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>{projectName(t.projectId)}</div>}
-      </div>
-      {taskAssignees(t).length ? (
-        <span style={{ display: 'inline-flex' }}>
-          {taskAssignees(t).slice(0, 2).map((a, i) => (
-            <span key={a} style={{ display: 'inline-flex', marginLeft: i ? -8 : 0 }}>
-              <Avatar email={a} name={nameOf(a)} size={24} />
-            </span>
-          ))}
-        </span>
-      ) : <UnassignedAvatar size={24} />}
-      <PriorityChip priority={t.priority} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 600 : 400, minWidth: 74, textAlign: 'right' }}>{t.dueOn || '-'}</span>
-        <StatusChip status={t.status} />
-      </div>
-    </div>
-  );
-}
-
-function ListBody({ groups, store, selected, toggleSel, onOpen }) {
-  return (
-    <div>
-      {groups.map((g) => (
-        <div key={g.key}>
-          {g.label && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px 6px', fontSize: 13, fontWeight: 700, color: NX.dim }}>
-              {g.label} <span style={{ color: NX.faint, fontWeight: 600 }}>{g.tasks.length}</span>
-            </div>
-          )}
-          {g.tasks.map((t, i) => <TaskRow key={t.id} t={t} store={store} selected={selected} toggleSel={toggleSel} onOpen={onOpen} band={i % 2 === 1} />)}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function BoardBody({ visible, group, ctx, store, onOpen }) {
-  // Board always groups into columns; default to status when group is 'none'.
-  const cols = groupTasks(visible, group === 'none' ? 'status' : group, ctx);
-  const { nameOf, toggleComplete, projectName } = store;
-  return (
-    <div style={{ display: 'flex', gap: 14, padding: 16, alignItems: 'flex-start', minHeight: '100%' }}>
-      {cols.map((c) => (
-        <div key={c.key} style={{ width: 288, flexShrink: 0, background: NX.surface, borderRadius: 12, border: `1px solid ${NX.border}` }}>
-          <div style={{ padding: '11px 13px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13, fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>
-            <span>{c.label || 'Tasks'}</span><span style={{ color: NX.faint }}>{c.tasks.length}</span>
-          </div>
-          <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 9, maxHeight: '68vh', overflowY: 'auto' }}>
-            {c.tasks.map((t) => (
-              <div key={t.id} onClick={() => onOpen(t.id)} data-task-row style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 11, cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
-                  <div style={{ fontSize: 13.5, fontWeight: 500, flex: 1, textDecoration: t.completed ? 'line-through' : 'none', opacity: t.completed ? 0.6 : 1 }}>{t.title}</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 9, flexWrap: 'wrap' }}>
-                  <PriorityChip priority={t.priority} />
-                  {t.dueOn && <span style={{ fontSize: 11.5, color: NX.dim }}>{formatDate(t.dueOn, t.dueOn)}</span>}
-                  {t.projectId && <span style={{ fontSize: 11.5, color: NX.faint }}>{projectName(t.projectId)}</span>}
-                  <div style={{ marginLeft: 'auto', display: 'flex' }}>
-                    {taskAssignees(t).length ? taskAssignees(t).slice(0, 2).map((a, i) => (
-                      <span key={a} style={{ display: 'inline-flex', marginLeft: i ? -7 : 0 }}>
-                        <Avatar email={a} name={nameOf(a)} size={22} />
-                      </span>
-                    )) : <UnassignedAvatar size={22} />}
-                  </div>
-                </div>
-              </div>
-            ))}
-            {c.tasks.length === 0 && <div style={{ fontSize: 12, color: NX.faint, textAlign: 'center', padding: 14 }}>Empty</div>}
-          </div>
-        </div>
-      ))}
+      {importing && lockedProject && (
+        <Suspense fallback={null}>
+          <ImportTasksModal projectId={lockedProject.id} canManage={canManage} onClose={() => setImporting(false)}
+            onViewImported={(r) => {
+              setImporting(false);
+              setFilters(EMPTY_FILTER); setSearch('');
+              setImported({ projectId: lockedProject.id, ids: new Set(r?.topLevelIds || []) });
+            }} />
+        </Suspense>
+      )}
     </div>
   );
 }

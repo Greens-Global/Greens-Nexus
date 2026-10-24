@@ -163,7 +163,7 @@ export function BulkModal({ groups, shifts, allEmails, defaultStart, defaultEnd,
         <DialogHead title="Fill From Usual Hours" onClose={guard.requestClose} />
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>Place a shift type on a whole group across a date range in one go.</div>
         {shifts.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift types yet - add one under Settings &gt; Global Settings &gt; Shifts first.</div>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift types yet - add one under Settings &gt; Shifts &amp; Scheduling first.</div>
         ) : (
           <div style={{ display: 'grid', gap: 14 }}>
             <div>

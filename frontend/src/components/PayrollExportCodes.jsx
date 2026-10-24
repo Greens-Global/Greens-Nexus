@@ -22,9 +22,12 @@ export const PAY_CLASS_LABELS = {
 
 const draftOf = (data) => Object.fromEntries((data?.classes || []).map((c) => [c.key, c.custom ? c.code : '']));
 
-export default function PayrollExportCodes({ toastOk, toastErr }) {
+// `company` (Settings' scope picker, Oct 23) fixes the company and hides the
+// select; on its own the panel offers every company.
+export default function PayrollExportCodes({ toastOk, toastErr, company: scoped = '' }) {
   const [companies, setCompanies] = useState(null);   // null while loading
-  const [company, setCompany] = useState('');
+  const [company, setCompany] = useState(scoped);
+  useEffect(() => { if (scoped) setCompany(scoped); }, [scoped]);
   const [data, setData] = useState(null);
   const [draft, setDraft] = useState({});
   // The QuickBooks company name the IIF header carries (Oct 19); blank = the company's own name.
@@ -39,7 +42,7 @@ export default function PayrollExportCodes({ toastOk, toastErr }) {
         if (!alive) return;
         const list = Array.isArray(d) ? d : [];
         setCompanies(list);
-        setCompany(list[0]?.id || '');
+        setCompany((c) => c || list[0]?.id || '');
       })
       .catch(() => { if (alive) { setCompanies([]); setCompany(''); } });
     return () => { alive = false; };
@@ -84,7 +87,7 @@ export default function PayrollExportCodes({ toastOk, toastErr }) {
             The payroll item name each pay class carries in the QuickBooks IIF and the Intacct payroll memo, set per company. Leave a box blank to use the default shown in it. The names must match the payroll items in QuickBooks.
           </span>
         </span>
-        {companies && companies.length > 0 && (
+        {!scoped && companies && companies.length > 0 && (
           <select className="form-input" aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)} style={{ fontSize: 12.5, width: 'auto', maxWidth: 260 }}>
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
           </select>

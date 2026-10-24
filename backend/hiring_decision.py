@@ -58,12 +58,17 @@ def interviewers(db: Session, cand: models.HrCandidate) -> list:
 
 
 def decider(db: Session, cand: models.HrCandidate) -> str:
-    """The department head; the company's HR contact when no head is set up."""
+    """The department head (else its backup); the company's HR contact when
+    the department has nobody; the Global Admins as the stop gap - never
+    nobody (Neil, Oct 22 6:52)."""
+    import hr_checklists as hc
     head = department_head(db, cand)
     if head:
         return head
     ent = db.query(models.HrEntity).filter(models.HrEntity.id == cand.company).first() if cand.company else None
-    return ent.hr_contact_email.strip().lower() if ent is not None and _person(db, ent.hr_contact_email) else ""
+    if ent is not None and _person(db, ent.hr_contact_email):
+        return ent.hr_contact_email.strip().lower()
+    return next(iter(hc.global_admins(db)), "")
 
 
 def _next_workday(db: Session, company: str) -> str:

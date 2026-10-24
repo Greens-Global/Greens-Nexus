@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState } from './AsyncState';
 import { X, Search, Variable, Plus } from 'lucide-react';
 import { api } from '../api';
-import { tokenGroup, groupLabel, VARIABLE_DRAG_TYPE } from '../lib/mergeFieldTypes';
+import { tokenGroup, groupLabel, VARIABLE_DRAG_TYPE, FILLED_WHEN } from '../lib/mergeFieldTypes';
+
+// A built-in files under WHEN Nexus fills it, like the toolbar's insert picker.
+const WHEN = Object.fromEntries(FILLED_WHEN.map(([k, label, where]) => [k, { label, where }]));
 
 // ── Variable Library (requirement 5.2) ───────────────────────────────────────
 // "Browse available variables. Select a variable. Insert it into the template.
@@ -63,7 +66,7 @@ export default function VariableLibrary({ open, onClose, onInsert, localVariable
       : all;
     const out = new Map();
     for (const v of matched) {
-      const g = v.group || 'Other';
+      const g = (v.source === 'builtin' && WHEN[v.when]?.label) || v.group || 'Other';
       if (!out.has(g)) out.set(g, []);
       out.get(g).push(v);
     }
@@ -181,6 +184,6 @@ function describe(v) {
     return `{{${v.token}}} - used by ${shown}${more}`;
   }
   return v.source === 'builtin'
-    ? `{{${v.token}}} - filled automatically from the document's person and company`
+    ? `{{${v.token}}} - filled by Nexus. ${WHEN[v.when]?.where || "From the document's person and company"}`
     : `{{${v.token}}}`;
 }

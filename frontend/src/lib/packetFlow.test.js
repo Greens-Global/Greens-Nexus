@@ -19,20 +19,34 @@ describe('flowFor', () => {
   const offer = { id: 't1', signs: ['company', 'employee'] };
   const nda = { id: 't2', signs: ['employee'] };
 
-  it('adds a step for every signer the documents name, the person last', () => {
+  it('adds a step for every signer the documents name, the person first', () => {
     expect(flowFor([], [offer, nda], 'hire')).toEqual([
-      { key: 'company', role: 'hr', action: 'sign' },
       { key: 'employee', role: 'employee', action: 'sign' },
+      { key: 'company', role: 'hr', action: 'sign' },
+    ]);
+  });
+
+  it('moves an old company-first order so the person signs first (Neil, Oct 22 2026)', () => {
+    const old = [{ key: 'company', role: 'hr', action: 'sign', once: true }, { key: 'employee', role: 'employee', action: 'sign' }];
+    expect(flowFor(old, [offer], 'separation').map(s => s.key)).toEqual(['employee', 'company']);
+  });
+
+  it('an offer letter is signed by the person only', () => {
+    const old = [{ key: 'company', role: 'hr', action: 'sign' }, { key: 'employee', role: 'employee', action: 'sign' },
+      { key: 'cc', role: 'manager', action: 'copy' }];
+    expect(flowFor(old, [offer], 'offer')).toEqual([
+      { key: 'employee', role: 'employee', action: 'sign' },
+      { key: 'cc', role: 'manager', action: 'copy' },
     ]);
   });
 
   it('keeps what HR already chose and only adds what is new', () => {
     const chosen = [{ key: 'employee', role: 'employee', action: 'sign' }];
     const out = flowFor(chosen, [offer], 'separation');
-    expect(out.map(s => s.key)).toEqual(['company', 'employee']);
+    expect(out.map(s => s.key)).toEqual(['employee', 'company']);
   });
 
-  it('leaves a promotion letter in the order HR set', () => {
+  it('a promotion letter is the person, then the manager', () => {
     const chosen = [{ key: 'employee', role: 'employee', action: 'sign' }];
     expect(flowFor(chosen, [{ id: 'p', signs: ['employee', 'manager'] }], 'promotion').map(s => s.key))
       .toEqual(['employee', 'manager']);

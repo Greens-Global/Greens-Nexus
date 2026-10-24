@@ -27,7 +27,7 @@ import {
 import { useTasks } from './TasksContext';
 import { useTableValue } from './tableCols';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, useIsMobile, SearchSelect, ViewToggle } from './components';
+import { Avatar, EmptyState, Modal, usePeople, useIsMobile, SearchSelect, ViewToggle, DateField } from './components';
 import { formatDate } from '../lib/datetime';
 
 const VISIBILITY_OPTS = [
@@ -381,7 +381,7 @@ export function DuplicateProjectModal({ project, onClose, onCreated }) {
 
         <div>
           <label style={label}>Start Date</label>
-          <input type="date" value={form.startOn} onChange={(e) => set({ startOn: e.target.value })}
+          <DateField value={form.startOn} onChange={(v) => set({ startOn: v || '' })} placeholder="Keep the original dates" title="Start Date"
             style={{ ...inputStyle, cursor: 'pointer' }} />
           <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
             Leave blank to keep the original's dates. Set one to shift the whole plan onto it.

@@ -245,7 +245,9 @@ function RoleMenu({ roles, companyName, placeholder, onPick, disabled = false })
 // the roles people at ANY company can hold are org-wide, so they are managed
 // here (Pranshu, Sep 27 - they had no create/delete anywhere after the split).
 const TABS = [['people', 'People', User], ['jobroles', 'Roles', Shield], ['groups', 'Groups', Users], ['audit', 'Audit', LayoutGrid]];
-const EMBEDDED_TABS = [['people', 'People', User], ['groups', 'Groups', Users], ['jobroles', 'Shared Roles', Shield], ['audit', 'Audit', LayoutGrid]];
+// The matrix tab reads "Matrix" in Settings (Oct 23) - "Audit" next to the
+// Logs tab suggested an audit log, and it is the access matrix.
+const EMBEDDED_TABS = [['people', 'People', User], ['groups', 'Groups', Users], ['jobroles', 'Shared Roles', Shield], ['audit', 'Matrix', LayoutGrid]];
 // Company Settings' "Manage Shared Roles" link leaves this note so Access opens
 // straight on the Shared Roles tab.
 export const PENDING_ACCESS_TAB = 'access-tab';
@@ -485,7 +487,11 @@ export default function RolesAccess({ embedded = false }) {
   }
   async function removeMember(email) {
     if (!selected) return;
-    try { await api.unassignJobRole(selected.id, email); toastOk(`Removed ${nameOf(email)} from “${selected.name}”.`); loadRoles(); }
+    // Taking a role away needs the why, like any role change (Neil, Oct 22).
+    const reason = await dialog.prompt(`Why is ${nameOf(email)} leaving "${selected.name}"? Kept in their role history.`,
+      { title: 'Remove From Role', confirmText: 'Remove', required: true, multiline: true, danger: true });
+    if (!reason) return;
+    try { await api.unassignJobRole(selected.id, email, reason); toastOk(`Removed ${nameOf(email)} from “${selected.name}”.`); loadRoles(); }
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
   async function onDeleteGroup(g) {
@@ -502,7 +508,7 @@ export default function RolesAccess({ embedded = false }) {
   const allTourSteps = [
     { target: 'tabs', title: 'One rule runs this whole screen',
       body: embedded
-        ? 'A person’s access = their job role + any extra groups. Nothing else. People is where you work day to day; Groups add extras; Audit is the all-at-once view. Job roles are set up per company, in Company Settings.'
+        ? 'A person’s access = their job role + any extra groups. Nothing else. People is where you work day to day; Groups add extras; Matrix is the all-at-once view. Job roles are set up per company: pick the company in the Scope box.'
         : 'A person’s access = their job role + any extra groups. Nothing else. People is where you work day to day; Job roles and Groups are the building blocks; Audit is the all-at-once view.' },
     { target: 'people-search', before: () => setSub('people'), title: 'Start with a person',
       body: 'Type any name. You’ll see who they are, their job role, their extra groups, and every screen they can touch - with the reason next to each line.' },
@@ -583,7 +589,7 @@ export default function RolesAccess({ embedded = false }) {
             <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
               {embedded && (
                 <p style={{ margin: 0, flex: 1, minWidth: 240, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                  Roles people at any company can hold. Editing one changes it for everyone who has it. A company's own roles are in Company Settings.
+                  Roles people at any company can hold. Editing one changes it for everyone who has it. A company's own roles show with that company picked in the Scope box.
                 </p>
               )}
               <button className="primary-btn" data-tour="new-role" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> {embedded ? 'New Shared Role' : 'New Job Role'}</button>
@@ -803,8 +809,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   const [dept, setDept] = useState('');   // department (name) filter
   const [eff, setEff] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [promoteOpen, setPromoteOpen] = useState(false);
-  // Change Role here asks the manager / HR (Pranshu, Oct 13) - RoleChangeModal.
+  // Change Role here changes it directly, with a reason (Neil, Oct 22) - RoleChangeModal.
   const [roleReqOpen, setRoleReqOpen] = useState(false);
   const [roleReqKey, setRoleReqKey] = useState(0);
   // External (B2B guest) support: the selected person's external record (if
@@ -817,7 +822,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   // Which tiers this admin may hand out (mirrors the backend guard: owners give
   // any, others only strictly below their own level).
   const canAssignTier = t => can('owner') || (ROLES[t]?.level ?? 1) < myLevel;
-  useEffect(() => { setPromoteOpen(false); setRoleReqOpen(false); }, [person]);
+  useEffect(() => { setRoleReqOpen(false); }, [person]);
 
   // Same courtesy as the role panel: picking a person deep in the list brings
   // their panel (role picker, groups) into view instead of leaving it above.
@@ -987,12 +992,12 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
                 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 13px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontSize: 12.5, fontWeight: 700 }}><Shield size={13} /> {eff.job_role.name}{eff.job_role.company_id ? ` · ${companyName(eff.job_role.company_id)}` : ''}</span>
                 : <span style={{ fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>No job role yet</span>}
               {/* Neil, Oct 8: a promotion is a letter made in People. A role
-                  change without one (Pranshu, Oct 13) is asked for here or in
-                  People and approved by their manager or HR before it applies.
+                  change without one changes here or in People directly, with
+                  a required reason kept in their role history (Neil, Oct 22).
                   Settings keeps the first assignment and external users direct. */}
               {eff.job_role && !extRec ? (
                 <button className="secondary-btn" onClick={() => setRoleReqOpen(true)}
-                  title="Ask to change their role - their manager or HR approves it"
+                  title="Change their role now - the reason is kept in their role history"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5 }}>
                   <TrendingUp size={13} /> Change Role
                 </button>
@@ -1002,11 +1007,6 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
               )}
             </div>
             {eff.job_role && !extRec && (
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                A role change here goes to their manager and HR - it takes effect when one of them approves.
-              </div>
-            )}
-            {eff.job_role && !extRec && (
               <div style={{ marginTop: 12 }}>
                 <RoleChangeRequestCard email={person} refreshKey={roleReqKey} toastOk={toastOk} toastErr={toastErr}
                   onDecided={() => { setRoleReqKey(n => n + 1); refresh(); }} />
@@ -1015,18 +1015,12 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
             )}
             {roleReqOpen && (
               <RoleChangeModal employee={{ workEmail: person, firstName: nameOf(person), jobTitle: eff.job_role?.name || '' }}
-                roles={roleChoices.filter(r => r.id !== eff.job_role?.id)} approval
+                roles={roleChoices.filter(r => r.id !== eff.job_role?.id)}
                 onClose={() => setRoleReqOpen(false)} toastErr={toastErr}
                 onChanged={res => {
                   setRoleReqOpen(false); setRoleReqKey(n => n + 1);
-                  toastOk(`Sent to ${res.approvers.map(a => a.name).join(' and ')} - the role changes when one of them approves.${res.warning ? ` ${res.warning}` : ''}`);
+                  toastOk(`${nameOf(person)} is now ${res.roleName}.${res.warning ? ` ${res.warning}` : ''}`); refresh();
                 }} />
-            )}
-            {promoteOpen && (
-              <PromoteModal person={person} eff={eff} nameOf={nameOf} companyName={companyName}
-                jobRoles={roleChoices.filter(r => r.id !== eff.job_role?.id)}
-                onClose={() => setPromoteOpen(false)} onErr={toastErr}
-                onDone={r => { setPromoteOpen(false); toastOk(`${nameOf(person)} is now “${r.name}”.`); refresh(); }} />
             )}
 
             {/* Seniority tier is meaningless for externals: the server hard-caps
@@ -1121,7 +1115,7 @@ function AuditMatrix({ jobRoles, groups, companyName }) {
   const toggle = id => setOpen(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   if (!jobRoles || !groups) return <ListSkeleton />;
-  if (jobRoles.length === 0) return <Empty text="No job roles yet - create them under a company's Roles tab in Company Settings." />;
+  if (jobRoles.length === 0) return <Empty text="No job roles yet - create them under Settings > People & Access with the company picked > Roles." />;
 
   // For a row's grants, the strongest level within a family (dot = mixed levels).
   const familyCell = (byId, fam) => {
@@ -1439,91 +1433,6 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
   );
 }
 
-// ── promotion flow ───────────────────────────────────────────────────────────
-// Mechanically a promotion IS a role switch - this modal adds what the dropdown
-// can't: tier before/after and every screen gained, raised or lost, so whoever
-// promotes can see exactly what changes before committing. Title, tier and the
-// default approver all follow the new role via the existing assign endpoint.
-function PromoteModal({ person, eff, jobRoles, nameOf, companyName, onClose, onDone, onErr }) {
-  const [toId, setToId] = useState('');
-  const [busy, setBusy] = useState(false);
-  const cur = eff?.job_role || null;
-  const target = (jobRoles || []).find(r => r.id === toId) || null;
-  const diff = useMemo(() => {
-    if (!target) return null;
-    const a = Object.fromEntries((cur?.allowed_modules || []).map(g => [g.id, g.level]));
-    const b = Object.fromEntries((target.allowed_modules || []).map(g => [g.id, g.level]));
-    const rank = l => MODULE_LEVELS[l]?.rank || 0;
-    const gained = [], raised = [], lowered = [], lost = [];
-    Object.keys(b).forEach(id => {
-      if (!a[id]) gained.push({ id, to: b[id] });
-      else if (rank(b[id]) > rank(a[id])) raised.push({ id, from: a[id], to: b[id] });
-      else if (rank(b[id]) < rank(a[id])) lowered.push({ id, from: a[id], to: b[id] });
-    });
-    Object.keys(a).forEach(id => { if (!b[id]) lost.push({ id, from: a[id] }); });
-    return { gained, raised, lowered, lost };
-  }, [cur, target]);
-
-  async function promote() {
-    if (!target || busy) return;
-    setBusy(true);
-    try { await api.assignJobRole(target.id, person); onDone(target); }
-    catch (e) { onErr(e?.message || 'Could not change the role.'); setBusy(false); }
-  }
-
-  const chipRow = (label, items, render) => items.length > 0 && (
-    <div style={{ marginTop: 10 }}>
-      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>{label}</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{items.map(render)}</div>
-    </div>
-  );
-  const pill = (key, text, kind) => (
-    <span key={key} style={{ padding: '4px 11px', borderRadius: 999, fontSize: 12, fontWeight: 600,
-      background: kind === 'plus' ? 'var(--ink)' : 'var(--paper)',
-      color: kind === 'plus' ? 'var(--card)' : kind === 'minus' ? 'var(--muted)' : 'var(--ink)',
-      border: '1px solid var(--line)', textDecoration: kind === 'minus' ? 'line-through' : 'none' }}>{text}</span>
-  );
-
-  return (
-    <Modal onClose={onClose} title={`Promote ${nameOf(person)}`} isDirty={!!toId} onSave={target ? promote : undefined}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>{cur ? cur.name : 'No role yet'}</span>
-          {cur && <TierBadge tier={cur.tier} />}
-          <ChevronRight size={15} style={{ color: 'var(--muted)' }} />
-          <select value={toId} onChange={e => setToId(e.target.value)} autoFocus
-            style={{ ...input, width: 'auto', minWidth: 200, padding: '7px 10px', fontSize: 13 }}>
-            <option value="">Promote to…</option>
-            <RoleOptions roles={jobRoles} companyName={companyName} />
-          </select>
-          {target && <TierBadge tier={target.tier} />}
-        </div>
-        {target && diff && (
-          <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '4px 14px 14px', maxHeight: 300, overflow: 'auto' }}>
-            {chipRow('Gains', diff.gained, x => pill(x.id, `${moduleLabel(x.id)} · ${MODULE_LEVELS[x.to]?.label}`, 'plus'))}
-            {chipRow('Level goes up', diff.raised, x => pill(x.id, `${moduleLabel(x.id)} · ${MODULE_LEVELS[x.from]?.label} → ${MODULE_LEVELS[x.to]?.label}`, 'plus'))}
-            {chipRow('Level goes down', diff.lowered, x => pill(x.id, `${moduleLabel(x.id)} · ${MODULE_LEVELS[x.from]?.label} → ${MODULE_LEVELS[x.to]?.label}`))}
-            {chipRow('Loses', diff.lost, x => pill(x.id, moduleLabel(x.id), 'minus'))}
-            {!diff.gained.length && !diff.raised.length && !diff.lowered.length && !diff.lost.length && (
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 10 }}>Same screens and levels - only the title{cur && target.tier !== cur.tier ? ' and tier' : ''} change.</div>
-            )}
-          </div>
-        )}
-        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-          Their job title, seniority tier and baseline access follow the new role. Extra groups stay. If the new role has a default approver and they have no manager, they inherit it.
-        </div>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
-        <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" disabled={!target || busy} onClick={promote}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: (!target || busy) ? 0.6 : 1 }}>
-          {busy ? <Spinner size={14} /> : <TrendingUp size={14} />} Promote
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
 // ── editor modal ─────────────────────────────────────────────────────────────
 // `companyId` places a NEW role in that company (Company Settings > Roles);
 // `departments` offers that company's departments instead of the ones other
@@ -1779,10 +1688,25 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
 // offered - the server would refuse them.
 export function AssignModal({ role, onClose, onAssigned, onErr }) {
   const { data: dir } = usePeopleDirectory();
+  const { canAccessModule, hrTeam } = useRole();
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState('');
   const [warning, setWarning] = useState('');
   const roleCompany = role.company_id || '';
+  // Someone who already holds ANOTHER job role is a role change (Neil, Oct 22):
+  // HR, IT Admins and Global Admins only (the server's can_change_roles), with
+  // one required reason for everyone picked. People with no role go straight on.
+  const canSwap = !hrTeam && typeof canAccessModule === 'function' && canAccessModule('hr', 'administrator', 'editor');
+  const [heldRole, setHeldRole] = useState({});   // email -> the other role they hold now
+  const [swaps, setSwaps] = useState([]);         // picked people who hold another role
+  const [reason, setReason] = useState('');
+  useEffect(() => {
+    api.getJobRoles().then(rs => {
+      const m = {};
+      (rs || []).forEach(r => { if (r.id !== role.id) (r.members || []).forEach(em => { m[(em || '').toLowerCase()] = r.name; }); });
+      setHeldRole(m);
+    }).catch(() => {});
+  }, [role.id]);
   // Everyone already on this role, plus anyone added during this sitting - so the
   // dialog stays open and you can add several people in a row without reopening.
   const [added, setAdded] = useState(() => new Set((role.members || []).map(e => (e || '').toLowerCase())));
@@ -1793,23 +1717,40 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
   }, [dir, roleCompany]);
   const filtered = matchPeople(people, q);
   const listed = filtered.slice(0, 60);
-  const nav = useListNav(listed, { open: !!q.trim(), query: q, onPick: (p) => assign(p) });
+  const nav = useListNav(listed, { open: !!q.trim(), query: q, onPick: (p) => pick(p) });
   const addedThisSitting = [...added].filter(e => !(role.members || []).map(m => (m || '').toLowerCase()).includes(e)).length;
 
-  async function assign(p) {
-    if (added.has(p.email) || busy) return;
-    setBusy(p.email);
+  async function send(p, why) {
     try {
-      const res = await api.assignJobRole(role.id, p.email);
+      const res = await api.assignJobRole(role.id, p.email, why);
       setAdded(s => new Set(s).add(p.email)); setWarning(res?.warning || ''); onAssigned(p.name || p.email);
+      return true;
     }
-    catch (e) { onErr(e?.message || 'Could not assign.'); }
+    catch (e) { onErr(e?.message || 'Could not assign.'); return false; }
+  }
+  async function pick(p) {
+    if (added.has(p.email) || busy) return;
+    if (heldRole[p.email]) {
+      if (canSwap) setSwaps(s => s.some(x => x.email === p.email) ? s.filter(x => x.email !== p.email) : [...s, p]);
+      return;
+    }
+    setBusy(p.email);
+    await send(p);
+    setBusy('');
+  }
+  async function assignSwaps() {
+    if (!reason.trim() || busy) return;
+    setBusy('swaps');
+    const left = [];
+    for (const p of swaps) if (!await send(p, reason.trim())) left.push(p);
+    setSwaps(left);
+    if (!left.length) setReason('');
     setBusy('');
   }
 
   return (
     <Modal onClose={onClose} title={`Assign to “${role.name}”`}>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Sets this as their primary job role and their {ROLES[role.tier]?.label} tier. Extra groups they hold are kept. Pick as many people as you like - this stays open until you close it.{roleCompany ? ' Only people at this role’s company are listed, plus anyone with no company set.' : ''}</div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Sets this as their primary job role and their {ROLES[role.tier]?.label} tier. Extra groups they hold are kept. Pick as many people as you like - this stays open until you close it. Someone who already holds another role is a role change: pick them, write the reason, then click Assign.{roleCompany ? ' Only people at this role’s company are listed, plus anyone with no company set.' : ''}</div>
       <div style={{ position: 'relative', marginBottom: 10 }}>
         <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
         <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…"
@@ -1820,17 +1761,35 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
         {!dir ? <ListSkeleton /> : filtered.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 16, textAlign: 'center' }}>No matches.</div>
           : listed.map((p, i) => {
             const isAdded = added.has(p.email);
+            const held = !isAdded && heldRole[p.email];
+            const picked = swaps.some(x => x.email === p.email);
             return (
-              <button key={p.email} {...nav.optionProps(i)} onClick={() => assign(p)} disabled={!!busy || isAdded}
+              <button key={p.email} {...nav.optionProps(i)} onClick={() => pick(p)} disabled={!!busy || isAdded || (held && !canSwap)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: isAdded ? 'hsla(var(--color-green),0.07)' : 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: isAdded ? 'default' : 'pointer', opacity: (busy && !isAdded && busy !== p.email) ? 0.6 : 1 }}>
-                <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.email}{roleCompany && !p.company ? ' · No company set' : ''}</div></div>
+                <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.email}{roleCompany && !p.company ? ' · No company set' : ''}</div>
+                  {held && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Holds {held}{canSwap ? '' : ' - only HR, an IT Admin or a Global Admin can change their role'}</div>}</div>
                 {busy === p.email ? <Spinner size={15} />
+                  : picked ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'var(--pine)' }}><Check size={14} /> Picked</span>
                   : isAdded ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-green))' }}><Check size={14} /> Added</span>
                   : <ChevronRight size={15} style={{ color: 'var(--muted)' }} />}
               </button>
             );
           })}
       </div>
+      {swaps.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <label htmlFor="assign-reason" style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.04em' }}>Reason For The Change *</label>
+          <textarea id="assign-reason" className="form-input" rows={2} value={reason} onChange={e => setReason(e.target.value)}
+            placeholder={`Why ${swaps.length === 1 ? swaps[0].name : `these ${swaps.length} people`} move to ${role.name}`}
+            style={{ ...input, resize: 'vertical', fontFamily: 'Inter,sans-serif' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+            <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1 }}>Shown on their Role History. {swaps.length === 1 ? 'They already hold' : 'Each already holds'} another role - it changes now.</span>
+            <button className="primary-btn" onClick={assignSwaps} disabled={!!busy || !reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {busy === 'swaps' ? <Spinner size={14} /> : null} Assign {swaps.length}
+            </button>
+          </div>
+        </div>
+      )}
       {warning && (
         <div role="status" style={{ marginTop: 10, background: 'hsla(38,92%,50%,0.1)', border: '1px solid hsla(38,92%,50%,0.35)', borderRadius: 10, padding: '8px 12px', fontSize: 12.5, color: 'var(--ink)' }}>{warning}</div>
       )}

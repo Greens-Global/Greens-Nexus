@@ -23,6 +23,7 @@ import PullToRefresh from "./components/PullToRefresh";
 import FeatureBanner from "./components/FeatureBanner";
 import AssistantWidget from "./components/AssistantWidget";
 import { WhatsNewHint } from "./tasks/changelogExtras";   // "New on this screen" (What's New, Oct 16 2026)
+import BuildMode from "./devnotes/BuildMode";   // Build Mode shell (Oct 24 2026) - lazy-loads the module only for people who have it
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import WidgetBoundary, { NavFallback } from "./components/WidgetBoundary";
 import { Spinner, ViewLoading } from "./components/AsyncState";
@@ -46,7 +47,7 @@ const Tickets             = lazy(() => import("./views/Tickets"));
 // in the sidebar swaps children under the SAME provider instance instead of
 // unmounting/remounting it - no refetch of everything on every switch.
 const TasksProvider = lazy(() => import("./tasks/TasksContext").then(m => ({ default: m.TasksProvider })));
-const SOP                 = lazy(() => import("./views/SOP"));
+const SOP                 = lazy(() => import("./kb/KnowledgeBase"));   // Knowledge Base rebuild (Oct 2026); the view id stays "sop"
 const IT                  = lazy(() => import("./views/IT"));
 const Accounting          = lazy(() => import("./views/Accounting"));
 // /sso/accounting - "Login via Nexus" landing for the accounting app (full-screen
@@ -443,6 +444,10 @@ function parsePath() {
   // Contact tab, and your own shifts are Workday > My Shifts - old /directory
   // and /shifts/mine links (bells, emails, bookmarks) land there.
   if (raw === 'directory') return { view: 'shifts', sub: 'contact' };
+  // /dev-notes?pin=<id> (Build Mode, Oct 24 2026): the pin's own route is
+  // where the person lands - devnotes/BuildMode.jsx read ?pin= at module load
+  // and navigates there once the pin is fetched. Dashboard in the meantime.
+  if (raw === 'dev-notes') return { view: 'dashboard', sub: null };
   const view = PATH_TO_VIEW[raw] || raw;
   // Purchase Requisition moved to Workday (Neil, Oct 22 2026): the old
   // /purchase page and Item Management's Purchase Requests tab land on
@@ -480,7 +485,7 @@ const DEFAULT_SUBS = {
   // activeSub sync for that half).
   myhr:              "overview",
   timeclock:         "overview",   // the Clock tab is a widget on Overview (Oct 2)
-  "admin-console":   "global",
+  "admin-console":   "companies",   // Settings opens on Companies (one tab, Oct 23 2026)
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 
@@ -709,6 +714,10 @@ function MainApp() {
       const confirm = ((sub || '').match(/^mine:confirm:(.+)$/) || [])[1] || '';
       view = 'myhr'; sub = confirm ? `shifts:confirm:${confirm}` : 'shifts';
     }
+    // A Build Mode bell ({ view: 'dev-notes', sub: 'pin:<id>' }) is not a
+    // screen: devnotes/BuildMode.jsx hears the same event and opens the pin
+    // on its own route. Nothing to change here.
+    if (view === 'dev-notes') return;
     setActiveView(view);
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);
@@ -790,6 +799,7 @@ function MainApp() {
         <WidgetBoundary name="whats-new-hint" resetKey={widgetKey}><WhatsNewHint view={activeView} /></WidgetBoundary>
         <WidgetBoundary name="pull-to-refresh" resetKey={widgetKey}><PullToRefresh /></WidgetBoundary>
         <WidgetBoundary name="task-prefetch" resetKey={widgetKey}><TaskPrefetch /></WidgetBoundary>
+        <WidgetBoundary name="build-mode" resetKey={widgetKey}><BuildMode view={activeView} sub={activeSub} /></WidgetBoundary>
         {activeView === 'sso' && activeSub === 'accounting' && (
           <Suspense fallback={<ViewLoading />}>
             <AccountingHandoff next={new URLSearchParams(window.location.search).get('next') || undefined} />

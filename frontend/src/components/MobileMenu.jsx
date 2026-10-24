@@ -77,9 +77,9 @@ export const SUBMENUS = {
     { sub: 'marketing-reputation', label: 'Reputation Management' },
   ],
   sop: [
-    { sub: 'index',  label: 'SOP Index' },
-    { sub: 'review', label: 'Review Queue' },
-    { sub: 'lms',    label: 'LMS Courses' },
+    { sub: 'index',    label: 'Library' },
+    { sub: 'training', label: 'Training' },
+    { sub: 'health',   label: 'Manage' },
   ],
 };
 

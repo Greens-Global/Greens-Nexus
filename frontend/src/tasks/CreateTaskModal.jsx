@@ -2,7 +2,7 @@
 // CreateTaskModal): Title, Description, Project, Assignee, Priority, Status,
 // Due date, Estimated hours, Recurrence, Labels, Subtasks, Attachments - wired
 // to the TasksContext (subtasks + attachments created after the parent).
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Plus, X, Paperclip, ListChecks, CircleCheck, Save, Image as ImageIcon, ScanText, Camera, ImagePlus } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
@@ -13,10 +13,13 @@ import { fmtDate, isFieldRequiredIn, isBlankValue, fieldsForTask, requiredByProj
 import { ProjectCreateModal } from './ProjectsView';
 import { useFrequentCollaborators } from './frequentPeople';
 import { CustomFieldInput } from './TaskDetailDrawer';
-import { filesFromPaste, teamInProject, uploadTaskAttachment, taskAssignees, externalizeInlineImages } from './lib';
+import { filesFromPaste, teamInProject, uploadTaskAttachment, taskAssignees, externalizeInlineImages, uploadFilesToTask, notAttachedText } from './lib';
+import { dialog } from '../ui/dialog';
 import ProjectPicker from './ProjectPicker';
 import RichDescription from './RichDescription';
 import AnchoredMenu from '../components/AnchoredMenu';
+import LabelsEditor from './LabelsEditor';
+import { labelsInUse } from './labels';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -124,11 +127,12 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     recurEnd: editing?.recurrence?.until ? 'on' : editing?.recurrence?.count ? 'after' : 'never',
     recurUntil: editing?.recurrence?.until ?? '', recurCount: editing?.recurrence?.count != null ? String(editing.recurrence.count) : '',
     followerIds: editing?.followerIds ?? defaults.followerIds ?? [],
-    labels: editing?.tags ?? [],
+    // A label group's inline add hands its label over (Oct 22 2026).
+    labels: editing?.tags ?? defaults.tags ?? [],
     // Quick create's Full Details carries over what it already had.
     customFieldValues: editing?.customFieldValues ?? defaults.customFieldValues ?? {},
   }));
-  const [labelInput, setLabelInput] = useState('');
+  const knownLabels = useMemo(() => labelsInUse(tasks), [tasks]);
   const [subtaskInput, setSubtaskInput] = useState('');
   const [subtasks, setSubtasks] = useState(() => editing ? tasks.filter((t) => t.parentTaskId === editing.id).map((t) => ({ id: t.id, title: t.title })) : []);
   const [attachments, setAttachments] = useState([]);   // new files only (File objects)
@@ -144,7 +148,6 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     || JSON.stringify(subtasks) !== JSON.stringify(initialSubtasks)
     || attachments.length > 0;
 
-  const addLabel = () => { const v = labelInput.trim(); if (v && !form.labels.includes(v)) set('labels', [...form.labels, v]); setLabelInput(''); };
   const addSubtask = () => { const v = subtaskInput.trim(); if (v) setSubtasks((s) => [...s, { title: v }]); setSubtaskInput(''); };
   // Copy the files out NOW, not inside the state updater. Every caller clears
   // the input (`e.target.value = ''`) straight after calling this, and an
@@ -208,7 +211,6 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   };
   const recurPreview = form.recurFreq !== 'none' && form.recurFreq !== 'periodic'
     ? upcomingDates(recurrence(), form.dueOn || localTodayISO(), 3) : [];
-  const uploadAttachment = (parentId, f) => uploadTaskAttachment(parentId, f).catch(() => {});
 
   // Required on CREATE: Task Name, Assignee, Due Date. Editing is NOT gated -
   // the rule is about what a new task must carry, and gating Save would
@@ -223,7 +225,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   // Editing, the "also in" projects count too - the same fields the task
   // drawer shows (fieldsForTask).
   const fieldTask = { projectId: lockedProjectId || form.projectId, projectIds: editing?.projectIds || [] };
-  const activeFields = fieldsForTask(customFields, fieldTask);
+  // A formula column (Oct 22 2026) is worked out, never filled in.
+  const activeFields = fieldsForTask(customFields, fieldTask).filter((f) => f.type !== 'formula');
   // Required in THIS project - everywhere, or for this project only (Oct 13
   // 2026) - per isFieldRequiredIn, the same rule the server refuses a create
   // on. A read-only field never is; list values are blank as [].
@@ -264,13 +267,16 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
         parentId = created.id;
       }
       for (const s of subtasks.filter((s) => !s.id)) await createTask({ title: s.title, parentTaskId: parentId, projectId: form.projectId || '', teamId: form.teamId || '', followerIds: form.followerIds, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
-      for (const f of attachments) await uploadAttachment(parentId, f);
+      const notAttached = await uploadFilesToTask(parentId, attachments);
       // Pictures pasted into the description are inline until the task exists;
       // now that it does, file them as attachments and point the description
       // at the stored copies (see externalizeInlineImages). The form showed
       // them inline all along, and the saved description still shows them.
       const desc = await externalizeInlineImages(core.description, (f) => uploadTaskAttachment(parentId, f));
       if (desc !== (core.description || '')) await updateTask(parentId, { description: desc }).catch(() => {});
+      // The task itself saved, so the form closes either way - but a file
+      // that did not attach is named, never dropped without a word.
+      if (notAttached.length) dialog.alert(notAttachedText(notAttached, isEdit ? 'saved' : 'created'), { title: 'Some Files Did Not Attach' });
       onClose(true);
     } catch (e) { alert(`Could not save task: ${e.message || e}`); setBusy(false); }
   };
@@ -284,11 +290,11 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             scrolling, and a camera/scan shortcut is meaningless with a mouse. */}
         {isMobile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 'auto' }}>
-            <button ref={photoBtnRef} type="button" title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
+            <button ref={photoBtnRef} type="button" title="Add Photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
               style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><ImageIcon size={20} /></button>
-            <button type="button" title="Attach file" aria-label="Attach file" onClick={() => fileRef.current?.click()}
+            <button type="button" title="Attach File" aria-label="Attach File" onClick={() => fileRef.current?.click()}
               style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><Paperclip size={20} /></button>
-            <button type="button" title="Scan text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()}
+            <button type="button" title="Scan Text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()}
               style={{ ...btn('ghost'), padding: 7, color: NX.dim, opacity: ocrBusy ? 0.5 : 1 }}><ScanText size={20} /></button>
             {ocrBusy && <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>}
             {attachments.length > 0 && (
@@ -298,8 +304,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
                 the modal - and a tap outside now closes it. */}
             <AnchoredMenu anchorRef={photoBtnRef} open={photoMenu} onClose={() => setPhotoMenu(false)} minWidth={180}
               style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', padding: 4 }}>
-              <button type="button" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
-              <button type="button" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
+              <button type="button" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take Photo</button>
+              <button type="button" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose From Device</button>
             </AnchoredMenu>
             {/* capture="environment" opens the rear camera on a phone. */}
             <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
@@ -564,13 +570,11 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
 
         <div style={field}>
           <label style={label}>Labels</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-            {form.labels.map((l) => (
-              <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: NX.border2, color: NX.dim, borderRadius: 6, padding: '3px 8px', fontSize: 12, fontWeight: 600 }}>
-                {l}<button onClick={() => set('labels', form.labels.filter((x) => x !== l))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex', padding: 0 }}><X size={12} /></button>
-              </span>
-            ))}
-            <input value={labelInput} onChange={(e) => setLabelInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addLabel(); } }} placeholder="Add label + Enter" style={{ ...input, width: 160, padding: '5px 9px', fontSize: 13 }} />
+          {/* The drawer's labels box: suggestions from the labels in use,
+              Enter or comma adds, Backspace removes the last. */}
+          <div style={{ ...input, display: 'flex', alignItems: 'center', minHeight: 36, padding: '4px 9px' }}>
+            <LabelsEditor tags={form.labels} onChange={(next) => set('labels', next)} known={knownLabels}
+              placeholder="Add label + Enter" inputStyle={{ fontSize: 13, width: 160 }} />
           </div>
         </div>
 
@@ -580,7 +584,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             {subtasks.map((s, i) => (
               <div key={s.id ?? `new-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '6px 10px', fontSize: 13 }}>
                 <CircleCheck size={15} style={{ color: NX.faint }} /><span style={{ flex: 1 }}>{s.title}</span>
-                <button onClick={() => setSubtasks((arr) => arr.filter((_, x) => x !== i))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={13} /></button>
+                <button onClick={() => setSubtasks((arr) => arr.filter((_, x) => x !== i))} aria-label={`Remove subtask ${s.title}`} title="Remove Subtask" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={13} /></button>
               </div>
             ))}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px' }}>
@@ -597,10 +601,10 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             {attachments.map((f, i) => (
               <span key={`${f.name}-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '3px 8px', fontSize: 12 }}>
                 <Paperclip size={12} /> {f.name}
-                <button onClick={() => setAttachments((arr) => arr.filter((_, x) => x !== i))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={12} /></button>
+                <button onClick={() => setAttachments((arr) => arr.filter((_, x) => x !== i))} aria-label={`Remove ${f.name}`} title="Remove File" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={12} /></button>
               </span>
             ))}
-            <button type="button" onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), fontSize: 12, padding: '6px 10px' }}><Paperclip size={13} /> Attach file</button>
+            <button type="button" onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), fontSize: 12, padding: '6px 10px' }}><Paperclip size={13} /> Attach File</button>
             <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
           </div>
         </div>

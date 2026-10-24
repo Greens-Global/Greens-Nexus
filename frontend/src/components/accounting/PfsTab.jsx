@@ -6,7 +6,8 @@ import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { formatDate, formatDateTime } from '../../lib/datetime';
-import { EntityPicker, ExportMenu, PopoverPanel, SelectAllCheckbox, control, usePopover } from './reportControls';
+import { ControlBar, EntityPicker, ExportMenu, PopoverPanel, SelectAllCheckbox, SyncButton, control, usePopover } from './reportControls';
+import { useTableSync } from './tableSync';
 import { downloadBlob, iso, priorMonthEnd } from './reportModel';
 import SendReportDialog from './SendReportDialog';
 import { conditionOf, refSuffix } from './pfsCondition';
@@ -64,6 +65,13 @@ import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, u
 // and ZIP are three fields on both blocks (an old combined value is split on
 // read - pfsAddress.js), and the separate "Spouse or Co-Borrower" field is gone:
 // the Co-Borrower block's Name is the one source of truth.
+//
+// Oct 24 (Accounting call 10/23, item 13; Neil in the chat: "sync should be
+// table level and not just overall"): Sync beside Export reads the open
+// statement again - the file, its figures from the ledger, the statements
+// kept - past the server's short accounting cache. What is on screen stays
+// until the new figures arrive (no skeleton), and so do the tab, an open
+// editor and the date.
 
 const SECTIONS = [
   { key: 'statement', label: 'Statement' },
@@ -159,11 +167,12 @@ export default function PfsTab({ canEdit = false }) {
     loadProfiles().then((list) => setOpenId((id) => id || list.find((p) => !p.archived)?.id || ''));
   }, [loadProfiles]);
 
-  // The open profile, and its statement for the date picked.
-  const refresh = useCallback((id, date) => {
+  // The open profile, and its statement for the date picked. `keep` (Sync):
+  // the statement on screen stays until the new one arrives.
+  const refresh = useCallback((id, date, keep = false) => {
     if (!id) { setProfile(null); setStatement(null); return Promise.resolve(); }
     const mine = ++seq.current;
-    setWorking(true);
+    if (!keep) setWorking(true);
     setError('');
     // The profile shows as soon as it is read; the statement (the ledger, the
     // bank records, the schedules) follows behind a skeleton (Oct 6).
@@ -174,6 +183,10 @@ export default function PfsTab({ canEdit = false }) {
       .finally(() => { if (mine === seq.current) setWorking(false); });
   }, [markLocked]);
   useEffect(() => { setNote(''); refresh(fileOpen ? openId : '', asOf); }, [openId, asOf, refresh, fileOpen]);
+  const syncLoad = useCallback(() => refresh(fileOpen ? openId : '', asOf, true), [refresh, fileOpen, openId, asOf]);
+  const ts = useTableSync(syncLoad);
+  const [syncing, setSyncing] = useState(false);
+  const onSync = () => { setSyncing(true); Promise.resolve(ts.sync()).finally(() => setSyncing(false)); };
 
   // Oct 7 (item 28): lines whose share differs from Affiliated Entities are
   // offered once - Update or Keep - never changed silently.
@@ -322,7 +335,7 @@ export default function PfsTab({ canEdit = false }) {
       <div style={{ minWidth: 0, display: 'grid', gap: 10 }}>
         {/* Oct 7 (Neil): one bar - the guarantor, Lock Now, As of, Export; then the tabs with the Access Log beside them. */}
         <div style={{ ...card, padding: '8px 10px', display: 'grid', gap: 8 }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+          <ControlBar>
             <GuarantorPicker profiles={profiles || []} current={current} canEdit={canEdit} locks={locks} onPick={pickFile} onNew={() => setCreating(true)} onReorder={reorderProfiles} />
             {profile && fileOpen && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
@@ -350,6 +363,7 @@ export default function PfsTab({ canEdit = false }) {
                 {locks.untilOf(profile.id) && <PfsLockNow fileId={profile.id} until={locks.untilOf(profile.id)} onLocked={locks.markLocked} />}
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>As of</span>
                 <input type="date" value={asOf} aria-label="Statement date" style={control} onChange={(e) => e.target.value && setAsOf(e.target.value)} />
+                <SyncButton onSync={onSync} busy={syncing} syncedAt={ts.syncedAt} what="Statement" />
                 {/* Oct 6 (Charmi): "an option to Export to Excel and PDF and not
                     separate tabs/buttons - the exact one you had for reports".
                     Every choice keeps the statement on record and audits it. */}
@@ -361,7 +375,7 @@ export default function PfsTab({ canEdit = false }) {
                 ]} />
               </div>
             )}
-          </div>
+          </ControlBar>
           {profile && fileOpen && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderTop: '1px solid var(--border-color)', paddingTop: 8 }}>
               {profile && fileOpen ? (

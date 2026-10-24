@@ -8,7 +8,6 @@ import {
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import TimesheetsToReview from '../components/TimesheetsToReview';
-import { openNotificationTarget } from '../lib/openTarget';
 import { reasonLook, REQUEST_TIMEOFF_TYPES } from '../lib/timeOffReasons';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
@@ -1006,30 +1005,26 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     return () => { live = false; };
   }, [tab]);
 
-  // Timesheets to Review lives on this Time Sheet tab (Oct 1): the list of
-  // timesheets submitted to me, with Agree / Send Back on each row - where the
-  // "Timesheet to review" bell lands (timesheet_review._notify). It used to be
-  // only in People > Time, which needs the HR grant a reviewing manager may
-  // not have; Agree / Send Back themselves only need manager level. The count
-  // is read once for the whole Workday (the badge, and the tab for a
-  // time-tracking-exempt reviewer, who otherwise has no Time Sheet tab).
+  // Time Sheets to Sign sits on this Time Sheet tab (Oct 16): the time sheets
+  // waiting on my signature, signed in place. Reviewing other people's time
+  // sheets lives only in People > Time (Oct 22) - the Workday copy is gone.
+  // The count is read once for the whole Workday (the tab for a
+  // time-tracking-exempt person, who otherwise has no Time Sheet tab).
   // `|| {}`: the role context is null outside RoleProvider (render tests).
-  const { can = () => false, myGrantedModules, myEmail = '' } = useRole() || {};
-  const mayOpenTime = can('administrator') || !!myGrantedModules?.has('hr');
-  const [toReview, setToReview] = useState(0);
+  const { myEmail = '' } = useRole() || {};
+  const [toSignCount, setToSignCount] = useState(0);
   useEffect(() => {
     let live = true;
     const load = () => api.timesheetReviewWaiting()
-      // Reviews waiting on me plus envelopes waiting on my signature (Oct 16) -
-      // the same count the Timesheets to Review / to Sign card shows.
-      .then(r => { if (live) setToReview((Array.isArray(r?.reviews) ? r.reviews.length : 0) + (Array.isArray(r?.toSign) ? r.toSign.length : 0)); })
+      // Envelopes waiting on my signature - the same count the to Sign card shows.
+      .then(r => { if (live) setToSignCount(Array.isArray(r?.toSign) ? r.toSign.length : 0); })
       .catch(() => {});
     load();
     window.addEventListener('nexus:timesheet-review-changed', load);
     return () => { live = false; window.removeEventListener('nexus:timesheet-review-changed', load); };
   }, []);
   // Stable: TimesheetsToReview reloads whenever its onCount changes identity.
-  const onReviewCount = useCallback((n) => { if (n != null) setToReview(n); }, []);
+  const onSignCount = useCallback((n) => { if (n != null) setToSignCount(n); }, []);
   // Whether this person is time-tracking exempt, before /time/status answers
   // (Neil, 10/06: the Time Sheet tab showed for a moment, then vanished, on
   // every visit; 10/08: so did the clock card's skeleton). The last answer is
@@ -1043,12 +1038,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   useEffect(() => {
     if (status) rememberTimeExempt(myEmail, status.timeTrackingExempt);
   }, [status, myEmail]);
-  // Review opens that employee's full timecard in People > Time - only for
-  // those who can open it (administrator, or the HR grant - App.jsx's gate).
-  const openTimecardFor = mayOpenTime ? (r) => {
-    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-time' } }));
-    openNotificationTarget({ timecard: r.employeeEmail, start: r.periodStart, payType: r.payType });
-  } : undefined;
 
   // ── The Time Clock widget (top of Overview, Oct 2) ─────────────────────────
   // The page's one headline: a greeting with today's scheduled shift, the
@@ -1332,9 +1321,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     <div style={{ fontFamily: 'var(--wk-font)', animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {/* No module header band here (Neil, Oct 14 2026): the breadcrumb and
           the centered tabs already say where you are, and the band with its
-          icon and subtitle only pushed the clock down. Timesheets to Review
-          sits at the top of the Time Sheet tab, so the jump button that lived
-          in the band is gone with it. */}
+          icon and subtitle only pushed the clock down. */}
 
       {/* Tabs - one job per screen (the everything-in-one page read as clutter).
           Desktop renders them centered in the top header; phones keep the
@@ -1350,7 +1337,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
              a reviewing manager) - never for the badge count alone, which
              once surfaced a stale "sent back" row of an exempt person's own
              old time sheet as a "1" over an empty tab (Neil, Oct 21 2026). */
-          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff', 'purchase']
+          ? ['overview', ...(toSignCount > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff', 'purchase']
           : ['overview', 'timesheet', 'timeoff', 'purchase']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title })), counts, 'myhr')}
         active={tab} onChange={setTab} syncTitle />
@@ -1371,16 +1358,16 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setTab('purchase')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
 
-      {/* Timesheets submitted to me, not decided yet - above my own timesheet,
-          for exempt reviewers too. Renders nothing when nothing is waiting. */}
+      {/* Time sheets waiting on my signature - above my own timesheet. Renders
+          nothing when nothing is waiting. */}
       {tab === 'timesheet' && (
         <div>
-          <TimesheetsToReview toastOk={t => toast(true, t)} toastErr={t => toast(false, t)}
-            onCount={onReviewCount} onOpen={openTimecardFor} />
+          <TimesheetsToReview signOnly toastOk={t => toast(true, t)} toastErr={t => toast(false, t)}
+            onCount={onSignCount} />
         </div>
       )}
-      {tab === 'timesheet' && status?.timeTrackingExempt && toReview === 0 && (
-        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 2px' }}>Nothing is waiting on you to review.</div>
+      {tab === 'timesheet' && status?.timeTrackingExempt && toSignCount === 0 && (
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 2px' }}>Nothing is waiting on your signature. Time sheets you review are in People &gt; Time.</div>
       )}
 
       {/* Timesheet - day list + week summary side panel */}

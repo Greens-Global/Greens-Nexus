@@ -39,6 +39,22 @@ MIN_WIDTH, MAX_WIDTH = 40, 2000
 MAX_DATA_BYTES = 64 * 1024
 # ...and the whole document, which every table on every page load fetches.
 MAX_DOC_BYTES = 256 * 1024
+# Column totals (Oct 22 2026): per project (or "_" off a project), which
+# columns show a total and how. "none" is never stored - it is the absence.
+MAX_TOTAL_SCOPES = 200
+TOTAL_AGGS = ("sum", "avg", "min", "max", "count", "filled")
+# The Board's layout off a project (Oct 22 2026; frontend/src/tasks/
+# boardLayout.js): its swimlanes, its columns and the Card Previews switch.
+# BOARD_COLUMNS is the ONE list of a Board's columns - a saved view's
+# (task_config) and a project's default Board (task_projects) read it here.
+BOARD_LANES = ("none", "assignee", "priority", "project", "label")
+BOARD_COLUMNS = ("status", "section", "priority", "due")
+CUSTOM_FIELD_PREFIX = "cf:"
+# Show Subtasks, per view that has the switch.
+SUBTASK_VIEWS = ("board", "timeline")
+# The table key the Tasks module keeps row-color settings under
+# (frontend/src/tasks/rowColorState.js useRowColorPrefs).
+ROW_COLORS_TABLE = "rowColors"
 
 
 def _now() -> str:
@@ -64,6 +80,56 @@ class TablePrefIn(BaseModel):
     group:     str | None = None         # what the list is grouped by
     sort:      dict | None = None        # {"key": ..., "dir": "asc"|"desc"}
     data:      dict | None = None        # opaque, client-owned (charts, Home layout, project views)
+    # {scope: {"show": bool, "cols": {column: agg}}} - the totals row per
+    # project (scope = project id, "_" for a list on no project).
+    totals:    dict | None = None
+    # {"lanes", "columns", "previews"} - the Board's layout (Oct 22 2026).
+    board:     dict | None = None
+    # {"board": bool, "timeline": bool} - Show Subtasks (Oct 22 2026).
+    showSubtasks: dict | None = None
+
+
+def _clean_board(raw: dict) -> dict:
+    """The Board's layout: known lanes (or a custom field's key), known
+    columns, a boolean switch. Anything else is dropped, and the board then
+    falls back to its default for that part."""
+    out: dict = {}
+    lanes = str((raw or {}).get("lanes") or "").strip()
+    if lanes in BOARD_LANES or (lanes.startswith(CUSTOM_FIELD_PREFIX) and len(lanes) <= MAX_KEY
+                                 and len(lanes) > len(CUSTOM_FIELD_PREFIX)):
+        out["lanes"] = lanes
+    columns = str((raw or {}).get("columns") or "").strip()
+    if columns in BOARD_COLUMNS:
+        out["columns"] = columns
+    if isinstance((raw or {}).get("previews"), bool):
+        out["previews"] = raw["previews"]
+    return out
+
+
+def _clean_subtask_switches(raw: dict) -> dict:
+    return {k: v for k, v in (raw or {}).items() if k in SUBTASK_VIEWS and isinstance(v, bool)}
+
+
+def _clean_totals(raw: dict) -> dict:
+    """Shape and size only, like everything else here: a scope or column key
+    is an opaque short string, an aggregate one of TOTAL_AGGS. Anything else
+    is dropped rather than refused."""
+    out: dict = {}
+    for scope, spec in list((raw or {}).items())[:MAX_TOTAL_SCOPES]:
+        k = str(scope or "").strip()
+        if not k or len(k) > MAX_KEY or not isinstance(spec, dict):
+            continue
+        cols = {}
+        raw_cols = spec.get("cols") if isinstance(spec.get("cols"), dict) else {}
+        for col, agg in list(raw_cols.items())[:MAX_COLS]:
+            c = str(col or "").strip()
+            a = str(agg or "").strip().lower()
+            if c and len(c) <= MAX_KEY and a in TOTAL_AGGS:
+                cols[c] = a
+        show = bool(spec.get("show"))
+        if show or cols:
+            out[k] = {"show": show, "cols": cols}
+    return out
 
 
 def _clean(body: TablePrefIn) -> dict:
@@ -120,6 +186,12 @@ def _clean(body: TablePrefIn) -> dict:
         if len(raw.encode("utf-8")) > MAX_DATA_BYTES:
             raise HTTPException(400, "That is too much to save here")
         out["data"] = body.data
+    if body.totals is not None:
+        out["totals"] = _clean_totals(body.totals)
+    if body.board is not None:
+        out["board"] = _clean_board(body.board)
+    if body.showSubtasks is not None:
+        out["showSubtasks"] = _clean_subtask_switches(body.showSubtasks)
     if body.widths is not None:
         widths = {}
         for key, val in list(body.widths.items())[:MAX_COLS]:
@@ -154,9 +226,17 @@ def set_table_prefs(table: str, body: TablePrefIn,
     prefs = dict(row.prefs or {})
     if table not in prefs and len(prefs) >= MAX_TABLES:
         raise HTTPException(400, "Too many saved table layouts")
+    clean = _clean(body)
+    # The one document here that is not opaque: the person's own row-color
+    # rules (Oct 22 2026), which My Tasks evaluates and the rule editor reads.
+    # Same validator as a project's rules, so a hand-made PUT cannot store a
+    # rule that would break either.
+    if table == ROW_COLORS_TABLE and "data" in clean:
+        from task_color_rules import clean_personal_settings
+        clean["data"] = clean_personal_settings(db, user, clean["data"], (prefs.get(table) or {}).get("data"))
     # Merged, not replaced: the width save and the order save are separate
     # calls, and a width write must not wipe the order the user just set.
-    prefs[table] = {**prefs.get(table, {}), **_clean(body)}
+    prefs[table] = {**prefs.get(table, {}), **clean}
     if len(json.dumps(prefs).encode("utf-8")) > MAX_DOC_BYTES:
         raise HTTPException(400, "Your saved layouts are too large to add to; reset some tables first")
     row.prefs = prefs           # reassigned, not mutated - JSON columns only
@@ -181,10 +261,16 @@ def reset_table_prefs(table: str, user: dict = Depends(get_current_user), db: Se
 
 @router.delete("")
 def reset_all_prefs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Put EVERY table back to its defaults - the "restore all" the UI offers."""
+    """Put every table back to its defaults - the "restore all" the UI offers.
+    The row-color settings stay (see below)."""
     row = _row(db, user["email"].lower())
+    kept = {}
     if row:
-        row.prefs = {}
+        # The person's own row-color rules are not a column arrangement and
+        # are not what "restore all" offers - kept, so a rule on a field
+        # deleted since (stored, so allowed) is never lost to a column reset.
+        kept = {k: v for k, v in (row.prefs or {}).items() if k == ROW_COLORS_TABLE}
+        row.prefs = kept
         row.updated_at = _now()
         db.commit()
-    return {"prefs": {}}
+    return {"prefs": kept}

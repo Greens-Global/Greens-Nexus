@@ -6,7 +6,7 @@
 //   template        - open the template in Documents
 //   signOnce        - the company signs once (the editor opens Sign Once)
 //   addToForm       - add the variables nothing fills to the Details Form
-//   checklistOwners - Company Settings > Checklists > Role Owners
+//   checklistOwners - the department heads (Company Settings > Departments)
 import { useEffect, useState } from 'react';
 import { CheckCircle, AlertTriangle, AlertCircle, ExternalLink, PenTool, Plus } from 'lucide-react';
 import { api } from '../api';
@@ -89,7 +89,7 @@ export default function PacketReadiness({ checks, meEmails = [], onChanged, onSi
                   {f.kind === 'checklistOwners' && (
                     <button type="button" className="secondary-btn" style={btn}
                       onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-checklists' } }))}>
-                      <ExternalLink size={12} /> Set Checklist Owners
+                      <ExternalLink size={12} /> Set Department Heads
                     </button>
                   )}
                 </div>

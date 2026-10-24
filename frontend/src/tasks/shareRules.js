@@ -1,0 +1,65 @@
+// Task Module - what the Share popup offers on a subtask and warns about on a
+// task with subtasks (TaskDetailDrawer's ShareModal).
+// A subtask is never wider than its parent (Oct 22 2026): under a private
+// task "Everyone" is shown but cannot be picked, with the reason; making a
+// task private says how many of its open subtasks go private with it, and
+// opening it up again how many come back with it (the server takes them
+// along both ways - tasks._cascade_level). Since Oct 23 2026 the person
+// opening it may keep them private instead, and a subtask private only
+// because of its parent may be kept private on its own (Keep Private).
+import { taskRoleFor, roleAtLeast } from './lib';
+
+// Keep Private cuts people out, so it takes the bar for opening a task up
+// (the server's tasks._may_open_up): a manager, the task's owner or creator,
+// or an editor of its project by the project's own roles - never an assignee
+// as such, never a guest. A task with no project has no project roles.
+export function mayOpenUp(task, { projects = [], teams = [], taskById = null, email = '', isManager = false, isExternal = false } = {}) {
+  if (!task || isExternal) return false;
+  if (isManager) return true;
+  const me = (email || '').toLowerCase();
+  if (!me) return false;
+  if ([task.ownerId, task.createdBy].some((e) => (e || '').toLowerCase() === me)) return true;
+  let cur = task;
+  for (let depth = 0; cur && !cur.projectId && cur.parentTaskId && depth < 20; depth++) cur = taskById?.[cur.parentTaskId];
+  if (!cur?.projectId) return false;
+  const role = taskRoleFor(task, { projects, teams, taskById, email, countAssignee: false });
+  return !!role && roleAtLeast(role, 'editor');
+}
+
+export function shareRules(task, tasks = [], taskById = {}) {
+  const parent = task.parentTaskId ? taskById[task.parentTaskId] || tasks.find((x) => x.id === task.parentTaskId) : null;
+  // A parent this person cannot see at all is a private one.
+  const underPrivate = !!task.parentTaskId && (!parent || (parent.accessLevel || 'org') !== 'org');
+  const kids = new Map();
+  for (const x of tasks) if (x.parentTaskId) kids.set(x.parentTaskId, [...(kids.get(x.parentTaskId) || []), x]);
+  let openBelow = 0;
+  const seen = new Set([task.id]);
+  const walk = [task.id];
+  while (walk.length) {
+    for (const k of kids.get(walk.pop()) || []) {
+      if (seen.has(k.id)) continue;
+      seen.add(k.id);
+      walk.push(k.id);
+      if ((k.accessLevel || 'org') === 'org') openBelow += 1;
+    }
+  }
+  // Opening it up again brings back the subtasks private only because of it
+  // (narrowedBy = their parent), down the chain while each link is that way -
+  // what the server's _cascade_level opens. One made private by hand stays.
+  let reopenBelow = 0;
+  const again = [task.id];
+  const met = new Set([task.id]);
+  while (again.length) {
+    const pid = again.pop();
+    for (const k of kids.get(pid) || []) {
+      if (met.has(k.id) || (k.accessLevel || 'org') === 'org' || k.narrowedBy !== pid) continue;
+      met.add(k.id);
+      again.push(k.id);
+      reopenBelow += 1;
+    }
+  }
+  // Private only because of the task it is under (the server's
+  // task_util.inherits_privacy): Keep Private turns it into one set by hand.
+  const inherited = !!task.parentTaskId && (task.accessLevel || 'org') !== 'org' && task.narrowedBy === task.parentTaskId;
+  return { underPrivate, openBelow, reopenBelow, inherited };
+}

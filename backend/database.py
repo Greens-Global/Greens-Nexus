@@ -86,6 +86,11 @@ _cache.wire(SessionLocal)
 import audit_capture as _audit_capture  # noqa: E402
 _audit_capture.wire(SessionLocal)
 
+# A feature_request ticket's status moves its What's New request with it
+# (Oct 23 2026, feature_request_sync.py) - whichever path moved it.
+import feature_request_sync as _feature_request_sync  # noqa: E402
+_feature_request_sync.wire(SessionLocal)
+
 
 class Base(DeclarativeBase):
     pass

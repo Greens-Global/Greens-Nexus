@@ -566,7 +566,7 @@ function GapsPanel({ gaps, byEmail, presenceOff, onClose, onOpen }) {
         })}
       </div>
       {!Object.keys(GAP_LABELS).some((k) => (gaps[k] || []).length) && <div style={{ fontSize: 13, color: NX.dim }}>Everything is filled in.</div>}
-      <div style={{ fontSize: 12, color: NX.faint, marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }}><MapPin size={12} /> Department leads are set under Tickets, Manage, Service Desk.</div>
+      <div style={{ fontSize: 12, color: NX.faint, marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }}><MapPin size={12} /> Department heads are set in Settings &gt; Companies &gt; the company &gt; Departments.</div>
       {/* Only administrators are sent the reason; everyone else just sees no Teams status. */}
       {presenceOff && (
         <div style={{ fontSize: 12, color: NX.dim, marginTop: 8, padding: '8px 10px', borderRadius: 8, background: NX.surface2, border: `1px solid ${NX.border}` }}>

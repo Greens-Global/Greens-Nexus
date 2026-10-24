@@ -724,7 +724,7 @@ def _shift_request_rows(db: Session, email: str, my_reports: dict) -> list:
 
 def _timesheet_review_rows(db: Session, email: str) -> list:
     """Timesheets submitted to this person for review (Sep 29) - one row each,
-    opening Workday > Time Sheet's Timesheets to Review list (Oct 1). Send Back
+    opening People > Time's Time Sheets to Review list (Oct 22). Send Back
     needs a note and Agree may be refused for a still-open period, so these are
     "Open in Nexus" rather than one-click actions."""
     import timesheet_review as tsr
@@ -736,9 +736,8 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
             "title": f"Review {q['name']}'s Time Sheet",
             "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - {hours}"
                       + (" - resubmitted" if q["resubmitted"] else ""),
-            # Workday > Time Sheet, where Timesheets to Review sits (Oct 1) -
-            # the same place the bell opens; no HR grant needed to reach it.
-            "url": f"{app_url()}/timeclock/timesheet",
+            # People > Time, where Time Sheets to Review sits - the same place the bell opens.
+            "url": f"{app_url()}/hr/hr-time",
             "module": "timecard",
             **_since(q.get("submittedAt")),
         })
@@ -749,7 +748,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
         rows.append({
             "title": f"Review {q['name']}'s Time Sheet",
             "detail": f"{_fmt_date(q['periodStart'])} - {_fmt_date(q['periodEnd'])} - {hours} - not submitted",
-            "url": f"{app_url()}/timeclock/timesheet",
+            "url": f"{app_url()}/hr/hr-time",
             "module": "timecard",
             **_since(q["periodEnd"]),
         })
@@ -758,7 +757,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
                                                      models.TimesheetReview.status == "approved").all():
         rows.append({
             "title": "Sign Your Updated Time Sheet",
-            "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - HR changed the hours",
+            "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - HR changed your time sheet",
             "url": f"{app_url()}/timeclock/timesheet",
             "module": "timecard",
             **_since(r.updated_at),
@@ -879,7 +878,10 @@ def _is_person_update(a: "models.TaskActivity") -> bool:
     is logged under "system" / "asana", and counting it is how Neil got 41-56
     "updates" on tasks nobody had touched (call of 10/01)."""
     actor = (a.actor_email or "").strip().lower()
-    return "@" in actor and not (a.type or "").startswith("notify_")
+    # An automation rule's own lines (automation@nexus) are not a person
+    # either - the same rule as the Updates card (routers.tasks._is_person).
+    from task_automation import AUTOMATION_ACTOR
+    return "@" in actor and actor != AUTOMATION_ACTOR and not (a.type or "").startswith("notify_")
 
 
 def _update_line(a: "models.TaskActivity", names: dict, status_labels) -> str:
@@ -897,7 +899,11 @@ def _update_line(a: "models.TaskActivity", names: dict, status_labels) -> str:
 def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> list:
     activity = [a for a in (db.query(models.TaskActivity)
                             .filter(models.TaskActivity.entity_kind == "task",
-                                    models.TaskActivity.at >= since_iso)
+                                    models.TaskActivity.at >= since_iso,
+                                    # Per-field history rows (Oct 22 2026) stay on the
+                                    # task's own History - one line per field edit would
+                                    # crowd this list and eat its 500-row window.
+                                    models.TaskActivity.type != "field_changed")
                             .order_by(models.TaskActivity.at.desc())
                             .limit(500).all())
                 if _is_person_update(a) and (a.actor_email or "").strip().lower() != email.lower()]

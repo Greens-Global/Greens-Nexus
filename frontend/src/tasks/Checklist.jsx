@@ -5,21 +5,50 @@
 // checklistTotal / checklistDone in step, and every write here hands the
 // returned task back to the store so list rows and board cards update
 // without a refetch.
+// Convert to Subtask (Oct 22 2026): a line's "..." menu turns it into a
+// subtask of the task (one server call - the line goes, the subtask arrives
+// in the Subtasks list), with a toast whose Open steps into it.
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Circle, GripVertical, Plus, X } from 'lucide-react';
+import { CheckCircle2, Circle, GripVertical, ListTree, MoreHorizontal, Plus, X } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { NX, FONT, btn } from './theme';
-import { Avatar, PersonDot } from './components';
+import { Avatar, PersonDot, SelectMenu } from './components';
 import { itemsFromPaste } from './lib';
+
+/** A line's "..." menu. Only rendered for the people who may convert it. */
+function ItemMenu({ item, onConvert }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  return (
+    <span ref={ref} style={{ display: 'inline-flex', flexShrink: 0 }}>
+      <button type="button" aria-label={`Actions for ${item.title}`} title="More" aria-haspopup="menu" aria-expanded={open}
+        onClick={() => setOpen((v) => !v)} style={{ ...btn('ghost'), padding: 2, color: NX.faint }}>
+        <MoreHorizontal size={14} />
+      </button>
+      {open && (
+        <SelectMenu anchorRef={ref} onClose={() => setOpen(false)} minWidth={190}>
+          <div role="menu" style={{ padding: 4 }}>
+            <button type="button" role="menuitem" className="nx-menu-row" onClick={() => { setOpen(false); onConvert(item); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 9px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: FONT, color: NX.ink, background: 'transparent' }}>
+              <ListTree size={14} /> Convert to Subtask
+            </button>
+          </div>
+        </SelectMenu>
+      )}
+    </span>
+  );
+}
 
 /**
  * canEdit: may add / rename / reorder / delete (project editor). Anyone who
  * can see the task can tick a line that names them; the server enforces it,
- * this only decides what the row offers.
+ * this only decides what the row offers. canConvert: may turn a line into a
+ * subtask (editor of the task AND of its project - the Add Subtask rule -
+ * and never on an HR checklist task); onOpenTask(id) opens the new subtask.
  */
-export default function Checklist({ task, people = [], canEdit = true, autoFocusAdd = false }) {
-  const { applyServerTask, nameOf, myEmail } = useTasks();
+export default function Checklist({ task, people = [], canEdit = true, canConvert = false, onOpenTask = null, autoFocusAdd = false }) {
+  const { applyServerTask, nameOf, myEmail, convertChecklistItem, offerUndo } = useTasks();
   const [items, setItems] = useState(null);
   const [draft, setDraft] = useState('');
   const [editingId, setEditingId] = useState(null);
@@ -65,6 +94,22 @@ export default function Checklist({ task, people = [], canEdit = true, autoFocus
     const before = items;
     setItems((prev) => prev.filter((i) => i.id !== item.id));
     try { takeTask(await api.deleteTaskChecklistItem(item.id)); } catch (e) { setItems(before); fail(e); }
+  };
+
+  const convert = async (item) => {
+    const before = items;
+    setItems((prev) => prev.filter((i) => i.id !== item.id));
+    setError('');
+    try {
+      const r = await convertChecklistItem(item.id);
+      const id = r?.subtask?.id;
+      offerUndo?.('Converted to a subtask', id && onOpenTask ? () => onOpenTask(id) : null, 'Open');
+    } catch (e) {
+      // A line someone else already removed or converted (409) stays gone.
+      if (e?.status === 409) { setError(e.message || 'That item is no longer there.'); return; }
+      setItems(before);
+      fail(e);
+    }
   };
 
   const dropOn = async (targetId) => {
@@ -125,6 +170,7 @@ export default function Checklist({ task, people = [], canEdit = true, autoFocus
                 </span>
               )}
               <PersonDot value={item.assigneeId} people={people} nameOf={nameOf} disabled={!canEdit} onChange={(email) => update(item, { assignee_email: email })} emptyTitle="Hand this step to someone" />
+              {canEdit && canConvert && <ItemMenu item={item} onConvert={convert} />}
               {canEdit && (
                 <button type="button" data-x aria-label="Remove item" onClick={() => remove(item)}
                   style={{ ...btn('ghost'), padding: 2, color: NX.faint, opacity: 0, transition: 'opacity 0.1s' }}><X size={13} /></button>

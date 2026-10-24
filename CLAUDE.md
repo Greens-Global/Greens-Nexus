@@ -44,7 +44,10 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 | Area | Owner | Files |
 |---|---|---|
 | Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
-| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `backend/routers/assets.py`, property models/tables |
+| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/assets.py`, `backend/routers/property_assets.py`, property models/tables |
+
+Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
+the build-notes skill refuses commits by it) - change both together.
 
 **Do not modify the other developer's files** — ask them instead.
 Shared files (`backend/models.py`, `backend/main.py` migrations list,
@@ -209,6 +212,15 @@ keep the diff minimal.
   `/my-timecard/sign` returns 410; never add a signing path around this.
   `test_timesheet_review_matrix` drives every state x actor x action - keep it
   passing so nobody gets stuck.
+- HR signing order (Neil, Oct 22 2026): the company NEVER signs before the
+  employee - no pre-signed or countersigned document is ever sent out. An
+  offer letter is signed by the candidate only (no company signer, no Signs
+  Once; HR's Verify And Send is a review, not a signature); hiring packets,
+  separation packages and every other HR packet are signed by the person
+  FIRST and countersigned by the company after (a Signs Once signature goes
+  on only when its turn comes after the person, never at send).
+  `hr_packet_docs.signing_flow` applies this to every packet, old saved
+  configs included - never add an order around it.
 - Accounting dashboard (Sep 22): the Accounting view's Overview / Cash /
   Performance / Close / Data tabs are the Nexus face of the finance dashboard
   in Nexus Accounting. Figures come ONLY through `backend/routers/
@@ -219,6 +231,21 @@ keep the diff minimal.
   with tsc (see the accounting repo's CLAUDE.md), never edit the .js by hand.
   Writes carry the caller's name; each tab shows one section at a time.
 
+- **Feature requests are tickets** (Oct 23 2026, `feature_requests.py`): a
+  request from What's New is filed as a `feature_request` ticket through
+  `tickets.file_ticket`, and every such ticket (whatever door) gets a What's
+  New status card (`changelog_feedback.ticket_id`). The card's comments ARE
+  the ticket thread (`/task-changelog/requests/{id}/comments` ->
+  `post_ticket_comment`) - never store request comments anywhere else. Each
+  new request is posted to the "Nexus - Feedback and Bugs" Teams chat via the
+  ticket Teams queue (`kind='feedback_chat'`), as the requester if they are in
+  the chat, else the assignee, else `NEXUS_FEEDBACK_CHAT_POSTERS`.
+  ONE status story: the request status (What's New Manage) leads and
+  `push_status_to_ticket` moves the ticket (Shipped = Resolved, Declined =
+  Closed, the rest Open / In Progress; no ticket email for it - the What's
+  New bell is the notice); a ticket resolved / closed / reopened by ANY path
+  moves the request via the before_flush hook in `feature_request_sync.py`
+  (wired in `database.py`) - do not add per-route sync calls.
 - Accounting entity access (Neil, Sep 25): the Accounting grant opens the
   screen; WHICH entities a person reads is `nexus_access_scopes` rows with
   module `accounting` (Accounting > Access tab, Full level). No rows = every
@@ -264,7 +291,7 @@ keep the diff minimal.
   `company_id` ('' = shared); writes go through `_require_company_manage`.
   Trading (swaps, offers, open-shift requests), releasing a shift to the open
   pool and cross-team open shifts are OFF by default (Neil) - switches in
-  Global Settings > Shifts, per company. `shift_attendance.py`: the no-show
+  Settings > Shifts & Scheduling, per company. `shift_attendance.py`: the no-show
   scan (every minute, in a thread; one rollup bell per team and day to the
   manager, backup manager and group schedulers, one email, resolved in
   place; `noShowAlertMin`, 0 = off) and `actuals()` (On Time / Late / Left
@@ -287,6 +314,38 @@ keep the diff minimal.
   `shift_confirm.py` the confirm-my-schedule ask and nudge,
   `shift_offboard.py` clears a leaver's future shifts. New shift tables rely
   on `_enable_rls_everywhere`; run `get_advisors` after each release.
+
+- **Settings is one tab (Neil, Oct 23 2026, plan
+  https://claude.ai/artifact/UGtPmeFBrfU6wXhd474erx; `views/AdminConsole.jsx`).**
+  Every setting has ONE scope - the organization, one company, or an
+  organization default a company may override - and the screen shows it: a
+  rail of SUBJECTS (`SUBJECTS`), a Scope picker ("Every company" or one
+  company) and under each subject its setting GROUPS (`GROUPS`), all open -
+  no accordions, nothing behind a click. With a company picked, each subject
+  shows its company face (the old Company Settings tabs, spread over the
+  subjects they belong to: Profile / Departments / Holiday Calendar under
+  Companies, sites under Locations, Roles under People & Access, Checklists
+  under Hiring & Onboarding, the policy under Workforce Analytics); subjects
+  with nothing per company sit under "For every company" in the rail. The
+  sub is `<subject>[:<group>][@<companyId>]`; every pre-merge key
+  (`global`, `global-<category>`, `company`, `access`, `actas`) still lands
+  (`resolveSub`). A new setting = one `GROUPS` entry (subject, face, scope,
+  keywords) + one `renderGroup` case; the panel stays the component its
+  module owns - never a second copy. Settings holds what defines the shape
+  of a module or a company and is changed rarely by an administrator; a
+  module keeps what its managers maintain daily (Tasks > Manage, KB
+  collections, Accounting's own tools stay put). Copy says "Settings >
+  <subject>", never "Global Settings" / "Company Settings". A setting a company
+  may override layers defaults <- tenant row <- `<key>:<company_id>` through
+  `backend/scoped_settings.py` (the pay rules and time-off reasons use it;
+  Shift Settings and Payroll Readiness have the same shape of their own) -
+  readers resolve by the EMPLOYEE's company (`_round_min(db, email)`,
+  `_break_cfg_for`, `_compute_timecard`), so a company with no override
+  reads the tenant row exactly as before. The leave start date layers the
+  same way (`leave_balances.cutover(db, company_id)` / `cutover_for`). ONE
+  email logo chain (`email_theme.logo_for`): the recipient's company logo,
+  else the module's own logo setting, else Email Appearance, else the
+  wordmark - a mail with no recipient at hand keeps the theme's.
 
 ## Asana — removed (Sep 2026)
 

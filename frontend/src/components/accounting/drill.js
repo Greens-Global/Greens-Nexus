@@ -10,12 +10,17 @@
 // Oct 7: `party` ({ kind: 'vendor', code, name }) and `dims` (the report
 // filter lists - departments, vendor, customer, employee, project, item,
 // journals) narrow the lines too, and show as chips over them.
+//
+// Oct 23 (Neil, item 05): `reports` is the Report Center (the catalogue), so
+// a drill or a search lands on the statements screen itself, opened on the
+// Income Statement as `reports` used to open it.
+export const STATEMENTS_SUB = 'rpt-pnl';
 
 let pending = null;
 
 export function requestReportDrill(detail) {
   pending = { ...detail };
-  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'accounting', sub: 'reports' } }));
+  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'accounting', sub: STATEMENTS_SUB } }));
   window.dispatchEvent(new CustomEvent('nexus:accounting-drill', { detail: pending }));
 }
 
@@ -30,8 +35,51 @@ export function requestLedgerSearch({ q, entryId = null, entryNo = '' }) {
   requestReportDrill({ q: (q || '').trim(), entryId, entryNo });
 }
 
+// Accounting call 10/23, item 07 (Viral: "if we go back later, then again we
+// are in the profit and loss account. So instead of that, where we were"): a
+// screen that opens ledger lines can say where Back goes - `back: { label,
+// sub }` on the drill - and park how it looked (the open record, its filters,
+// the page and scroll) under its own name. Back on the lines returns to that
+// screen, which takes the parked look when it mounts. Kept in sessionStorage
+// so a reload of the lines still finds its way back.
+const RETURN_KEY = 'nexus-acct-drill-return';
+
+export function parkDrillReturn(screen, state) {
+  try { sessionStorage.setItem(RETURN_KEY, JSON.stringify({ screen, state })); } catch { /* private mode: Back still goes to the screen */ }
+}
+
+/** The look parked by `screen`, taken once (the next visit opens as usual). */
+export function takeDrillReturn(screen) {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(RETURN_KEY) || 'null');
+    if (!v || v.screen !== screen) return null;
+    sessionStorage.removeItem(RETURN_KEY);
+    return v.state || null;
+  } catch { return null; }
+}
+
 export function takePendingDrill() {
   const p = pending;
   pending = null;
   return p;
+}
+
+// Oct 23 (item 05): a memorized report opened from the Report Center. The
+// screen that shows it (Reports for a statement, the Report Builder for a
+// builder report) is not mounted yet, so the report waits here and that
+// screen takes it when it mounts. `builder` says which screen may take it.
+let parked = null;
+
+export function parkSavedReport(report, builder = false) {
+  parked = report ? { report, builder: !!builder } : null;
+}
+
+/** The report waiting for this screen, left in place (a state initializer may run twice). */
+export function peekParkedReport(builder = false) {
+  return parked && parked.builder === !!builder ? parked.report : null;
+}
+
+/** Done with it: the next visit to the screen opens as usual. */
+export function clearParkedReport(report) {
+  if (parked && parked.report === report) parked = null;
 }

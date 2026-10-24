@@ -34,7 +34,7 @@ import { localDayKey, formatFullDate, formatTime, formatDateTime, relativeDayLab
 import { useBackToClose } from '../lib/useBackToClose';
 import { canEditWhatsNew } from '../lib/whatsNewAccess';
 import { NX, FONT, chip, card, btn, input as inputStyle } from './theme';
-import { Avatar, Modal, usePeople, PersonSelect, useClickOutside, useIsMobile, DateField } from './components';
+import { Avatar, Modal, usePeople, PersonSelect, useClickOutside, useIsMobile, DateField, TimeField, localTodayISO } from './components';
 import { MODULES } from '../contexts/RoleContext';
 import {
   RichText, VideoEmbed, ActionRequired, CopyLinkButton, CommentThread, FeedbackRow, RelatedUpdates, RELATION_LABELS,
@@ -453,7 +453,7 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
           onEdit={isAdmin ? () => { setEditing(openOne); closeEntry(); } : undefined} />
       )}
 
-      {requesting && <MyRequestsDialog onClose={() => setRequesting(false)} onOpenEntry={openEntry} />}
+      {requesting && <MyRequestsDialog onClose={() => setRequesting(false)} onOpenEntry={openEntry} nameOf={nameOf} />}
 
       {following && (
         <FollowDialog entries={sorted} categories={CHANGE_TYPES} initial={me.subscription}
@@ -1885,7 +1885,8 @@ function ScreenshotDropzone({ label, value, onChange }) {
   );
 }
 
-// datetime-local works in the browser's own time; the payload keeps an instant.
+// The form keeps "YYYY-MM-DDTHH:mm" in the browser's own time (a DateField
+// and a 12-hour TimeField edit its two halves); the payload keeps an instant.
 const toLocalInput = (iso) => {
   const d = new Date(iso || '');
   if (Number.isNaN(d.getTime())) return '';
@@ -2075,7 +2076,16 @@ function AddUpdateModal({ entry, submitLabel, publishLabel, myEmail, onClose, on
           </Field>
           {status === 'Scheduled' ? (
             <Field label="Goes Out On" hint={scheduleBad ? 'Pick a time in the future.' : 'It publishes itself then - the bell and the weekly bar follow.'}>
-              <input type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} aria-label="Scheduled for" style={inputStyle} />
+              {/* A date box and a 12-hour time box, never a native
+                  datetime-local (it follows the computer's region). */}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <DateField value={(scheduledFor || '').slice(0, 10)} noPast title="Scheduled for" placeholder="Pick a date"
+                  onChange={(d) => setScheduledFor(d ? `${d}T${(scheduledFor || '').slice(11, 16) || '09:00'}` : '')}
+                  style={{ ...inputStyle, flex: 1, minWidth: 0, cursor: 'pointer' }} />
+                <TimeField value={(scheduledFor || '').slice(11, 16)} ariaLabel="Scheduled time"
+                  onChange={(t) => setScheduledFor(`${(scheduledFor || '').slice(0, 10) || localTodayISO()}T${t}`)}
+                  style={{ width: 128, flexShrink: 0 }} />
+              </div>
             </Field>
           ) : (
             <Field label="Show">

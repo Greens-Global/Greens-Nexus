@@ -79,7 +79,7 @@ describe('a shift with a break on the Time Sheet', () => {
   it('reads as two punch pairs with a break line between, each row its own hours', async () => {
     const { container, cells, worked, lines } = await open(card([ONE_BREAK]));
     const heads = [...container.querySelectorAll('thead th')].map(th => th.textContent);
-    expect(heads).toEqual(['Date', 'Edit', 'In', 'Out', 'Deducted Time', 'Category', 'Total Hours', 'Hrs/Day', 'OT', 'Loc', 'Pay Rate', 'Wage', 'Log']);
+    expect(heads).toEqual(['Date', 'Edit', 'In', 'Out', 'Deducted Time', 'Category', 'Total Hours', 'Hrs/Day', 'OT', 'Location', 'Pay Rate', 'Wage', 'Log']);
     expect(worked).toHaveLength(2);
     // Row 1: clock-in -> break start; row 2: break end -> clock-out.
     expect(cells(worked[0])[2]).toContain(t('15:48'));

@@ -87,7 +87,7 @@ def _tell_delegate(db: Session, d: ApprovalDelegation, actor: str, revoked: bool
     upsert_rollup(db, recipient=d.delegate_email, key=key, title="You Are Covering Approvals",
                   line=f"{who} asked you to cover their approvals {span} - their time sheets, punch fixes and time "
                        f"off come to you too, marked \"For {who}\"." + (f' "{d.note[:200]}"' if d.note else ""),
-                  action={"view": "timeclock", "sub": "timesheet"}, company=company, requested_by=actor,
+                  action={"view": "hr", "sub": "hr-time"}, company=company, requested_by=actor,
                   replace=True)
 
 

@@ -56,7 +56,7 @@ describe('People > Time > Invoices', () => {
     await screen.findByText('Meera Shah');
     const row = rowOf('Meera Shah');
     expect(within(row).getByText('Approve & Send').closest('button').disabled).toBe(true);
-    expect(within(row).getByText('No recipients set for Greens Pune - add Contractor Invoice Recipients in Company Settings.')).toBeTruthy();
+    expect(within(row).getByText('No recipients set for Greens Pune - add Contractor Invoice Recipients in Settings > Companies.')).toBeTruthy();
     expect(within(rowOf('Ravi Kumar')).getByText('Approve & Send').closest('button').disabled).toBe(false);
   });
 

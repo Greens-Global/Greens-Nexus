@@ -5,6 +5,8 @@ import { api } from '../api';
 import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
 import { toViewUrl, isOwnImageUrl } from '../lib/storageView';
+import { dialog } from '../ui/dialog';
+import { labelKey, labelName, labelTone, labelsInUse } from './labels';
 
 export const EMPTY_FILTER = {
   // collaboratorIds = people in a task's follower list (Asana "collaborators").
@@ -27,8 +29,14 @@ export const cfKey = (fieldId) => `${CF_PREFIX}${fieldId}`;
 export const cfFieldId = (key) => (String(key || '').startsWith(CF_PREFIX) ? key.slice(CF_PREFIX.length) : '');
 export const taskFieldValue = (task, fieldId) => (task.customFieldValues || {})[fieldId];
 
-export const todayISO = () => new Date().toISOString().slice(0, 10);
-export const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+// Calendar dates (due / start dates, "today") are the viewer's LOCAL day.
+// toISOString().slice(0, 10) is the UTC day - on a US evening that is already
+// tomorrow (a task due today read as overdue) and in India before 5:30 AM it
+// is still yesterday. Timestamps sent to the server stay UTC; only calendar
+// days go through these.
+export const localISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+export const todayISO = () => localISO(new Date());
+export const addDays = (iso, n) => { const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`); d.setDate(d.getDate() + n); return localISO(d); };
 
 function dueMatches(task, due, dueFrom, dueTo) {
   if (dueFrom && (!task.dueOn || task.dueOn < dueFrom)) return false;
@@ -40,8 +48,7 @@ function dueMatches(task, due, dueFrom, dueTo) {
   if (due === 'overdue') return task.dueOn < t && !task.completed;
   if (due === 'today') return task.dueOn === t;
   if (due === 'week') {
-    const wk = new Date(); wk.setDate(wk.getDate() + 7);
-    return task.dueOn >= t && task.dueOn <= wk.toISOString().slice(0, 10);
+    return task.dueOn >= t && task.dueOn <= addDays(t, 7);
   }
   return true;
 }
@@ -148,7 +155,11 @@ export function personScoped(tasks, f) {
   return flat ? (tasks || []).filter((t) => !isSection(t)) : topLevel(tasks);
 }
 
-export function matchesFilter(task, f = EMPTY_FILTER, taskById = null) {
+// `formulaMatch(task, fieldId, wanted)` (optional): how a FORMULA column's
+// filter is answered - its value is computed (tasks/formula.js), not stored,
+// so only the caller holding the formula engine can say. It returns
+// undefined for a field that is not a formula.
+export function matchesFilter(task, f = EMPTY_FILTER, taskById = null, formulaMatch = null) {
   // Matches if the task is assigned to ANY of the filtered people - that is
   // what "show me Ana's work" means once a task can have several assignees,
   // and it is what makes My Tasks list work you share rather than only lead.
@@ -166,12 +177,20 @@ export function matchesFilter(task, f = EMPTY_FILTER, taskById = null) {
     const ids = taskById ? effectiveProjectIds(task, taskById) : taskProjectIds(task);
     if (!f.projectIds.some((id) => ids.includes(id))) return false;
   }
-  if (f.tags?.length && !f.tags.some((t) => (task.tags || []).includes(t))) return false;
+  // Labels (Oct 22 2026): ANY of the picked labels, by key - "Urgent" in the
+  // filter finds a task labelled "urgent". The filter holds keys; an older
+  // saved view that stored a spelling matches the same way.
+  if (f.tags?.length) {
+    const want = new Set(f.tags.map(labelKey));
+    if (!(task.tags || []).some((t) => want.has(labelKey(t)))) return false;
+  }
   if (f.fromTicket && !task.sourceTicketId) return false;
   // Each selected field narrows independently (AND across fields, OR within
   // one) - the same shape as the assignee/status/priority filters above.
   for (const [fieldId, wanted] of Object.entries(f.customFields || {})) {
     if (!wanted?.length) continue;
+    const byFormula = formulaMatch ? formulaMatch(task, fieldId, wanted) : undefined;
+    if (byFormula !== undefined) { if (!byFormula) return false; continue; }
     // multiselect/people hold a LIST, so a task matches when it carries ANY of
     // the wanted values. Comparing the array itself never matched anything.
     const have = taskFieldValue(task, fieldId);
@@ -217,7 +236,7 @@ export const teamColumnApplies = (teams, projectId) => (
 // work. The same filter is applied to the children, so an export still says
 // exactly what the filter says rather than smuggling non-matching rows in
 // under a matching parent.
-export function taskExportRows(visible, allTasks, filter, taskById) {
+export function taskExportRows(visible, allTasks, filter, taskById, formulaMatch = null) {
   const kids = new Map();
   for (const t of (allTasks || [])) {
     if (!t.parentTaskId) continue;
@@ -231,10 +250,174 @@ export function taskExportRows(visible, allTasks, filter, taskById) {
     seen.add(t.id);
     out.push({ task: t, depth, parent });
     (kids.get(t.id) || [])
-      .filter((k) => matchesFilter(k, filter, taskById))
+      .filter((k) => matchesFilter(k, filter, taskById, formulaMatch))
       .forEach((k) => walk(k, depth + 1, t));
   };
   (visible || []).forEach((t) => walk(t, 0, null));
+  return out;
+}
+
+// ── Moving a task in the subtask tree (Neil, Oct 22 2026) ───────────────────
+/** Every task under `id` (subtasks, their subtasks...), as a Set of ids.
+ *  Cycle-safe: a bad parent pointer must never hang the picker. */
+export function descendantIds(id, tasks) {
+  const kids = new Map();
+  for (const t of tasks || []) {
+    if (!t.parentTaskId) continue;
+    if (!kids.has(t.parentTaskId)) kids.set(t.parentTaskId, []);
+    kids.get(t.parentTaskId).push(t.id);
+  }
+  const out = new Set();
+  const stack = [...(kids.get(id) || [])];
+  while (stack.length) {
+    const cur = stack.pop();
+    if (cur === id || out.has(cur)) continue;
+    out.add(cur);
+    stack.push(...(kids.get(cur) || []));
+  }
+  return out;
+}
+
+/** The tasks `task` can be moved under (Move To...): not itself, not one of
+ *  its own subtasks at any depth (that would be a loop - the server refuses
+ *  it too), not its current parent (it is already there), no sections, and
+ *  only tasks `canEdit` says this person may edit - moving a task under
+ *  another one changes that one's subtask list. Its own project first, then
+ *  by title. */
+export function moveTargets(task, tasks, { canEdit = () => true, taskById = null } = {}) {
+  if (!task) return [];
+  const below = descendantIds(task.id, tasks);
+  const home = effectiveProjectId(task, taskById);
+  const rank = (t) => (effectiveProjectId(t, taskById) === home ? 0 : 1);
+  return (tasks || [])
+    .filter((t) => t.id !== task.id && !below.has(t.id) && t.id !== task.parentTaskId && !isSection(t) && canEdit(t))
+    .sort((a, b) => rank(a) - rank(b)
+      || String(a.title || '').localeCompare(String(b.title || ''), 'en', { sensitivity: 'base', numeric: true }));
+}
+
+/** The server's Move To rule as a predicate over targets (backend
+ *  routers/tasks._plan_move): (target) => would moving `task` under it be
+ *  accepted? `target` null = Make Top-Level Task (same project).
+ *    - never an HR checklist task, either end;
+ *    - editor on the task itself and on the target (an assignee counts, as
+ *      on the server; a role this browser cannot work out does not);
+ *    - into another project: editor on both projects by their own roles
+ *      (team roles included, an assignee does not count), and every private
+ *      row that goes must be one this person may open up - a manager, its
+ *      owner or creator, or an editor of the project it leaves. */
+export function moveRule(task, { tasks = [], projects = [], teams = [], taskById = null, email = '', isManager = false } = {}) {
+  const opts = { projects, teams, taskById, email, isManager };
+  const isEditor = (r) => !!r && roleAtLeast(r, 'editor');
+  const projectEditor = (pid) => isEditor(taskRoleFor({ id: '', projectId: pid, parentTaskId: '' }, { ...opts, countAssignee: false }));
+  if (!task || task.hrChecklist || !isEditor(taskRoleFor(task, opts))) return () => false;
+  const home = effectiveProjectId(task, taskById);
+  const below = descendantIds(task.id, tasks);
+  const rows = [task, ...(tasks || []).filter((t) => below.has(t.id))];
+  const me = (email || '').toLowerCase();
+  const mayOpenUp = (row) => isManager || (home && projectEditor(home))
+    || [row.ownerId, row.createdBy].some((e) => (e || '').toLowerCase() === me && !!me);
+  const privateRowsOk = rows.every((r) => (r.accessLevel || 'org') === 'org' || mayOpenUp(r));
+  return (target) => {
+    if (!target) return true;
+    if (target.hrChecklist || !isEditor(taskRoleFor(target, opts))) return false;
+    const dest = effectiveProjectId(target, taskById);
+    if (dest === home) return true;
+    if (home && !projectEditor(home)) return false;
+    if (dest && !projectEditor(dest)) return false;
+    return !dest || privateRowsOk;
+  };
+}
+
+/** The PATCH that puts a moved task back (Move To's Undo): under its old
+ *  parent, or top-level in its old project and section - with the place,
+ *  team and "skip this occurrence" rule the move changed. `before` is the
+ *  task as it was. */
+export function moveUndoBody(before) {
+  const back = before.parentTaskId
+    ? { parentTaskId: before.parentTaskId }
+    : { parentTaskId: '', projectId: before.projectId || '', sectionId: before.sectionId || '' };
+  back.teamId = before.teamId || '';
+  if (before.position != null) back.position = before.position;
+  if (before.recurrence?.skip && !before.recurrence?.freq) back.recurrence = before.recurrence;
+  return back;
+}
+
+// ── Show Subtasks on the Board and Timeline (Neil, Oct 22 2026) ────────────
+/** `visible` (the view's own rows - top-level unless person-scoped) plus
+ *  every subtask that matches the same filter, wherever its parent is: a
+ *  subtask whose parent is filtered out still shows. `formulaMatch` is the
+ *  view's formula-column filter (the same one `visible` was filtered with);
+ *  `keep(subtask)` narrows further (the import banner keeps only the
+ *  imported tasks' subtasks). */
+export function withSubtasks(visible, tasks, filter, taskById, formulaMatch = null, keep = null) {
+  const have = new Set((visible || []).map((t) => t.id));
+  const extra = (tasks || []).filter((t) => t.parentTaskId && !have.has(t.id) && !isSection(t)
+    && matchesFilter(t, filter, taskById, formulaMatch) && (!keep || keep(t)));
+  return extra.length ? [...(visible || []), ...extra] : (visible || []);
+}
+
+/** The `keep` for withSubtasks under the import banner: only subtasks whose
+ *  top-level task is one of `importedIds` (a Set). null = no narrowing. */
+export function importedSubtaskFilter(importedIds, taskById) {
+  if (!importedIds) return null;
+  return (t) => importedIds.has(rootParent(t, taskById)?.id);
+}
+
+/** Timeline rows with subtasks nested directly under their parent:
+ *  [{ task, depth, crumb, kids }]. `rows` is the view's own order; each
+ *  row's subtasks that pass `include` follow it, indented, in the parent's
+ *  own subtask order (orderSubtasks) - unless the parent is `collapsed`, when
+ *  its whole subtree is hidden (not lifted to the top). A subtask whose parent
+ *  is not on the timeline (filtered out, or undated) stands at depth 0 with
+ *  `crumb` = the title of the task it hangs off. `kids` = how many subtasks a
+ *  row holds on the timeline, collapsed or not. */
+export function nestSubtaskRows(rows, tasks, { include = () => true, collapsed = new Set(), taskById = null } = {}) {
+  const byParent = new Map();
+  for (const t of tasks || []) {
+    if (!t.parentTaskId || !include(t)) continue;
+    if (!byParent.has(t.parentTaskId)) byParent.set(t.parentTaskId, []);
+    byParent.get(t.parentTaskId).push(t);
+  }
+  const lookup = (id) => taskById?.[id] || (tasks || []).find((x) => x.id === id) || null;
+  const shown = new Set((rows || []).map((t) => t.id));
+  // A row with an ancestor that is also a row is drawn under that one.
+  const underAnother = (t) => {
+    let cur = t;
+    for (let depth = 0; cur?.parentTaskId && depth < 20; depth++) {
+      if (shown.has(cur.parentTaskId)) return true;
+      cur = lookup(cur.parentTaskId);
+    }
+    return false;
+  };
+  const out = [];
+  const placed = new Set();
+  const hide = (t) => {
+    if (placed.has(t.id)) return;
+    placed.add(t.id);
+    for (const k of byParent.get(t.id) || []) hide(k);
+  };
+  const walk = (t, depth) => {
+    if (placed.has(t.id)) return;
+    placed.add(t.id);
+    const kids = orderSubtasks((byParent.get(t.id) || []).filter((k) => !placed.has(k.id)), t);
+    const parent = depth === 0 && t.parentTaskId ? lookup(t.parentTaskId) : null;
+    out.push({ task: t, depth, crumb: parent ? parent.title || '' : '', kids: kids.length });
+    for (const k of kids) (collapsed.has(t.id) ? hide(k) : walk(k, depth + 1));
+  };
+  for (const t of rows || []) if (!underAnother(t)) walk(t, 0);
+  // Subtasks that match but whose parent is not on the timeline: each branch
+  // starts from its highest task that is, so it still nests below that.
+  const topOf = (k) => {
+    let cur = k;
+    for (let depth = 0; cur.parentTaskId && depth < 20; depth++) {
+      const p = lookup(cur.parentTaskId);
+      if (!p || placed.has(p.id) || !include(p)) break;
+      cur = p;
+    }
+    return cur;
+  };
+  for (const list of byParent.values()) for (const k of list) if (!placed.has(k.id)) walk(topOf(k), 0);
+  for (const t of rows || []) if (!placed.has(t.id)) walk(t, 0);
   return out;
 }
 
@@ -385,6 +568,16 @@ export function duplicateTaskData(t, overrides = {}) {
     followerIds: [...(t.followerIds || [])], dueOn: t.dueOn || '', startOn: t.startOn || '',
     tags: [...(t.tags || [])], estimateHours: t.estimateHours ?? null, isMilestone: !!t.isMilestone,
     customFieldValues: { ...(t.customFieldValues || {}) },
+    // Show On Card (Oct 22 2026) - not a picked image: the copy has no files.
+    cardPreviewMode: String(t.cardPreviewMode || '').startsWith('image:') ? '' : (t.cardPreviewMode || ''),
+    // A private task's copy is private too (Oct 22 2026) - never wider than
+    // what it was copied from. An org-wide one leaves it to the server (the
+    // project's level, or the parent's when that is private) - and so does
+    // one private only because of its parent (narrowedBy): the server makes
+    // the copy private under its private parent the same way, so the
+    // parent's people keep seeing it.
+    ...(t.accessLevel && t.accessLevel !== 'org' && !(t.narrowedBy && t.narrowedBy === t.parentTaskId)
+      ? { accessLevel: t.accessLevel } : {}),
     ...overrides,
   };
 }
@@ -480,6 +673,66 @@ export function projectRoleOf(project, email, isManager = false) {
 const ROLE_RANK = { viewer: 1, commenter: 2, editor: 3, owner: 4 };
 export const roleAtLeast = (role, min) => (ROLE_RANK[role] || 0) >= (ROLE_RANK[min] || 0);
 
+/** projectRoleOf raised by any APPROVED team on the project the caller is in
+ *  (the team's accessRole, default editor) - the server's project_role_for.
+ *  Shared by taskRoleFor and the project-level checks (followRules.js). */
+export function projectRoleWithTeams(project, email, teams = [], isManager = false) {
+  if (!project) return null;
+  if (isManager) return 'owner';
+  const me = (email || '').toLowerCase();
+  let role = projectRoleOf(project, me, false);
+  if (!me) return role;
+  for (const tm of teams || []) {
+    if ((tm.approvalStatus || 'approved') !== 'approved') continue;
+    if (!teamProjectIds(tm).includes(project.id)) continue;
+    if (!(tm.memberIds || []).some((e) => (e || '').toLowerCase() === me)) continue;
+    const r = tm.accessRole || 'editor';
+    role = role && (ROLE_RANK[role] || 0) >= (ROLE_RANK[r] || 0) ? role : r;
+  }
+  return role;
+}
+
+/**
+ * The caller's role on ONE task, decided the way the server decides it
+ * (backend task_util.require_task_role + project_role_for), so the drawer can
+ * stop offering controls that can only come back 403. The server stays the
+ * authority; this only hides what it would refuse.
+ *   - A manager (or Tasks Owner) is 'owner' - they bypass the check.
+ *   - Anyone the task is assigned to counts as at least 'editor' on it -
+ *     unless `countAssignee` is false: the checks that are about the PROJECT
+ *     (require_project_role - adding a subtask, removing someone else's file)
+ *     give an assignee nothing.
+ *   - A task with no project anywhere up its parent chain is 'editor'.
+ *   - Otherwise the best of projectRoleOf and any APPROVED team on that
+ *     project the caller is in (team accessRole, default editor).
+ * null = cannot be told from what this browser has (the project or a parent
+ * is not loaded, or no grant is visible): callers keep today's controls.
+ */
+export function taskRoleFor(task, { projects = [], teams = [], taskById = null, email = '', isManager = false, countAssignee = true } = {}) {
+  if (!task) return null;
+  if (isManager) return 'owner';
+  const me = (email || '').toLowerCase();
+  if (!me) return null;
+  const assigned = countAssignee && taskAssignees(task).some((e) => (e || '').toLowerCase() === me);
+  const atLeast = (a, b) => ((ROLE_RANK[a] || 0) >= (ROLE_RANK[b] || 0) ? a : b);
+  // The project is the primary one of the top of the parent chain - the
+  // same walk as project_for_task.
+  let cur = task;
+  for (let depth = 0; cur && !cur.projectId && cur.parentTaskId && depth < 20; depth++) {
+    const parent = taskById?.[cur.parentTaskId];
+    if (!parent) return assigned ? 'editor' : null;
+    cur = parent;
+  }
+  const projectId = cur?.projectId || '';
+  if (!projectId) return 'editor';
+  const project = (projects || []).find((p) => p.id === projectId);
+  if (!project) return assigned ? 'editor' : null;
+  let role = projectRoleWithTeams(project, me, teams, false);
+  if (assigned) role = role ? atLeast(role, 'editor') : 'editor';
+  // A role name this file does not know is not guessed at.
+  return ROLE_RANK[role] ? role : null;
+}
+
 /** Which view and grouping a project opens with for this person (Oct 2026):
  *  their own choice IN this project, else the project's default, else how
  *  they look at task lists generally. */
@@ -559,9 +812,14 @@ const CTX_SORTERS = {
 // A custom field sorts by its OWN order where it has one - a select by the order
 // its options are defined in (Design before Build), which is what makes a stage or
 // severity field read correctly. Numbers sort numerically, else text. Empty last.
-function customFieldSorter(field) {
+// A formula column sorts by its computed value (ctx.formulaSortValue, from
+// tasks/formula.js): numbers and dates by size, text by letters, blanks and
+// "#Error" rows last. One column can mix kinds row to row, so numbers come
+// before text rather than comparing the two.
+function customFieldSorter(field, ctx = {}) {
   const order = (field?.options || []).map((o) => (o?.id ?? o));
   const rank = (t) => {
+    if (field.type === 'formula') return ctx.formulaSortValue ? ctx.formulaSortValue(t, field) : null;
     const v = taskFieldValue(t, field.id);
     if (v === undefined || v === null || v === '') return null;
     if (field.type === 'select') { const i = order.indexOf(v); return i === -1 ? order.length : i; }
@@ -574,6 +832,7 @@ function customFieldSorter(field) {
     if (x === null && y === null) return 0;
     if (x === null) return 1;
     if (y === null) return -1;
+    if (typeof x !== typeof y) return typeof x === 'number' ? -1 : 1;
     return typeof x === 'string' ? x.localeCompare(y) : x - y;
   };
 }
@@ -581,7 +840,7 @@ function customFieldSorter(field) {
 export function sortTasks(list, sort = { key: 'manual', dir: 'asc' }, customFields = [], ctx = {}) {
   const fieldId = cfFieldId(sort.key);
   const field = fieldId ? (customFields || []).find((f) => f.id === fieldId) : null;
-  const fn = field ? customFieldSorter(field)
+  const fn = field ? customFieldSorter(field, ctx)
     : CTX_SORTERS[sort.key] ? CTX_SORTERS[sort.key](ctx)
     : (SORTERS[sort.key] || SORTERS.manual);
   const out = [...list].sort(fn);
@@ -591,7 +850,7 @@ export function sortTasks(list, sort = { key: 'manual', dir: 'asc' }, customFiel
 /** The context a new task inherits when added under a given group section -
  *  so "Do Today" dates it today, a status column sets that status, a project
  *  group scopes it to that project, etc. (Asana's add-from-anywhere flow). */
-export function groupAddDefaults(group, key) {
+export function groupAddDefaults(group, key, g = null) {
   // Under a custom-field group, a new task inherits that group's value - the
   // same "add where you're looking" behavior status/priority groups have.
   const cfId = cfFieldId(group);
@@ -604,6 +863,9 @@ export function groupAddDefaults(group, key) {
     return {}; // "Recently Assigned" → no due date
   }
   if (group === 'status') return { status: key };
+  // A label group (Oct 22 2026): the new task carries that label, as the
+  // group spells it (`g.labelName`); "No Label" adds none.
+  if (group === 'label') return g?.labelName ? { tags: [g.labelName] } : {};
   // A project's section is a field on the task; a personal (My Tasks) section
   // is not, and is filed by the caller after the create.
   if (group === 'section') return { sectionId: key === '-' ? '' : key };
@@ -611,6 +873,17 @@ export function groupAddDefaults(group, key) {
   if (group === 'project') return key && key !== '-' ? { projectId: key } : {};
   if (group === 'team') return key && key !== '-' ? { teamId: key } : {};
   return {}; // assignee, none
+}
+
+/** A patch whose customFieldValues is a PARTIAL change (one field set by a
+ *  group drag), merged over the task's current values. PATCH /tasks/{id}
+ *  REPLACES the whole dict, so sending just the one field erased every other
+ *  field value on the task (and can now be refused when a required field
+ *  reads as cleared). Anything else in the patch passes through untouched;
+ *  a full dict built from the task already is unchanged by the merge. */
+export function withTaskFields(task, patch) {
+  if (!patch || !patch.customFieldValues) return patch;
+  return { ...patch, customFieldValues: { ...(task?.customFieldValues || {}), ...patch.customFieldValues } };
 }
 
 /** Group tasks by a GroupBy key. Returns [{ key, label, tasks }] ordered sensibly. */
@@ -649,6 +922,34 @@ export function groupTasks(list, group, ctx = {}) {
       (sid && known.has(sid) ? byKey[sid] : none).tasks.push(t);
     }
     return [none, ...out];
+  }
+  // By label (Oct 22 2026, the List view): a task with several labels is
+  // listed under EACH of them, like a shared task under each assignee, so the
+  // group counts add up to more than the rows. Groups run A-Z by the name
+  // shown (the company's display name, ctx.labelMap); "No Label" comes last.
+  // Keys are prefixed so a label never shares a collapsed-group key with a
+  // status or priority group. A group is named as the Board's label lanes
+  // name theirs: the company's display name, else the spelling most of these
+  // tasks use (labels.labelsInUse).
+  if (group === 'label') {
+    const map = ctx.labelMap || null;
+    const spelled = new Map(labelsInUse(list).map((r) => [r.key, r.name]));
+    const byKey = new Map();
+    const none = { key: '-', label: 'No Label', tasks: [] };
+    for (const t of list) {
+      const keys = new Set();
+      for (const tag of t.tags || []) { const k = labelKey(tag); if (k) keys.add(k); }
+      if (!keys.size) { none.tasks.push(t); continue; }
+      for (const k of keys) {
+        if (!byKey.has(k)) {
+          const name = labelName(spelled.get(k), map);
+          byKey.set(k, { key: `label:${k}`, label: name, labelName: name, color: labelTone(name, map).dot, tasks: [] });
+        }
+        byKey.get(k).tasks.push(t);
+      }
+    }
+    const out = [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label, 'en', { sensitivity: 'base' }));
+    return none.tasks.length ? [...out, none] : out;
   }
   const buckets = new Map();
   const push = (k, label, t) => {
@@ -857,6 +1158,62 @@ export async function uploadTaskAttachment(taskId, file, extra = {}, onProgress)
   return api.addTaskAttachment(taskId, { name: file.name, size, kind, url, ...extra });
 }
 
+/** Upload New Version (Oct 22 2026): stores `file` the same way, then makes
+ *  it the current version of attachment `attachmentId`'s file. Unlike a new
+ *  attachment, a file that could not be stored is NOT recorded - a blank
+ *  current version would hide the good one behind it - so it throws and the
+ *  caller says so. */
+export async function uploadTaskAttachmentVersion(attachmentId, file, onProgress) {
+  const size = `${Math.max(1, Math.round(file.size / 1024))} KB`;
+  const url = await storeTaskFile(file, onProgress);
+  if (!url) throw new Error('the file could not be stored');
+  return api.addTaskAttachmentVersion(attachmentId, { name: file.name, size, kind: attachmentKindOf(file), url });
+}
+
+/** Delete the selected tasks as ONE batch (store.deleteTasks): one "Deleted N
+ *  tasks" toast whose Undo restores them all, and a refusal is reported with
+ *  how many failed instead of vanishing. Shared with Data Quality. */
+export async function deleteSelectedTasks(store, ids) {
+  const r = await store.deleteTasks(ids);
+  if (r?.failed) {
+    const why = r.error?.message ? ` ${r.error.message}` : '';
+    await dialog.alert(
+      r.deleted
+        ? `Deleted ${r.deleted} of ${ids.length} tasks. ${r.failed} could not be deleted and ${r.failed === 1 ? 'is' : 'are'} back in the list.${why}`
+        : `${r.failed === 1 ? 'The task' : `The ${r.failed} tasks`} could not be deleted.${why}`,
+      { title: 'Some Tasks Were Not Deleted' },
+    );
+  }
+  return r;
+}
+
+// WIP limits are per BOARD (Oct 21 2026): one project's "In Progress: 3" used
+// to sit on every board, My Tasks included, because they shared one key.
+// Still this browser only - there is no server copy. The old shared key
+// ('nexus.board.wip') is left alone and no longer read: nobody can say which
+// board its numbers were meant for, so each board starts with no limit.
+export const wipStorageKey = (lockedProjectId, defaultAssigneeId) => (
+  `nexus.board.wip:${lockedProjectId ? `project:${lockedProjectId}` : defaultAssigneeId ? 'mine' : 'all'}`
+);
+
+/** Upload files onto a task one after another. Resolves to the ones that did
+ *  NOT attach ([{ name, error }]) - a create/save flow reports them rather
+ *  than swallowing the failure (they used to be .catch(() => {})). */
+export async function uploadFilesToTask(taskId, files) {
+  const failed = [];
+  for (const f of files || []) {
+    try { await uploadTaskAttachment(taskId, f); } catch (e) { failed.push({ name: f.name, error: e?.message || '' }); }
+  }
+  return failed;
+}
+
+/** What to tell someone whose task saved but some files did not attach. */
+export function notAttachedText(failed, verb = 'created') {
+  const names = failed.map((x) => `"${x.name}"`).join(', ');
+  const why = failed.find((x) => x.error)?.error;
+  return `The task was ${verb}, but ${failed.length === 1 ? 'this file' : `${failed.length} files`} did not attach: ${names}.${why ? ` ${why}` : ''} Open the task and add ${failed.length === 1 ? 'it' : 'them'} again from Attachments.`;
+}
+
 // ── Dates ────────────────────────────────────────────────────────────────────
 // One date format for the whole module: mm/dd/yyyy. The views previously each
 // rolled their own (`Jul 15`, `15 July 2026`, locale default…), so a task's due
@@ -892,6 +1249,12 @@ export function fmtHours(h) {
 export function taskIdFromUrl() {
   if (typeof window === 'undefined') return '';
   return new URLSearchParams(window.location.search).get('task') || '';
+}
+
+/** ?project=<id> - the project a followed project's email links to (Oct 22 2026). */
+export function projectIdFromUrl() {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.search).get('project') || '';
 }
 
 /** Asana-imported comments are stamped "[Asana · Name · date]\n<text>" so the
@@ -1071,3 +1434,4 @@ export function groupTimeByDay(entries) {
   }
   return [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
 }
+

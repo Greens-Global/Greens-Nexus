@@ -1,12 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
-// Timesheets to Review on Workday > Time Sheet (Oct 1): the list of
-// timesheets submitted to me sits on my own Time Sheet tab - where the
-// "Timesheet to review" bell lands - with a header button that jumps to it.
-// Approve / Send Back work for any reviewer; Review (the full timecard in
-// People > Time) only shows to those who can open People > Time. A
-// time-tracking-exempt reviewer gets the Time Sheet tab while something waits.
+// Workday > Time Sheet (Oct 22): Time Sheets to Review moved to People > Time
+// only. The tab keeps Time Sheets to Sign - my own time sheet waiting on my
+// signature, signed in place.
 
 const role = { level: 'manager', granted: new Set() };
 const RANK = ['employee', 'supervisor', 'manager', 'administrator', 'owner'];
@@ -17,7 +14,7 @@ vi.mock('../components/PayrollTimecard', () => ({ default: () => <div>Timecard</
 vi.mock('../api', () => {
   const api = new Proxy({}, {
     get: (_, key) => () => Promise.resolve(
-      key === 'timesheetReviewWaiting' ? { reviews: globalThis.__waiting || [] }
+      key === 'timesheetReviewWaiting' ? { reviews: globalThis.__waiting || [], toSign: globalThis.__toSign || [] }
         : key === 'timeStatus' ? (globalThis.__status || {}) : []),
   });
   return { api, default: api };
@@ -27,7 +24,7 @@ const ROW = { id: 'r1', name: 'Valinda Cranfill', employeeEmail: 'v@x.com', peri
   payType: 'hourly', workedMin: 4800, submittedAt: '2026-09-28', note: '', resubmitted: false, agreeBlocker: '' };
 const SLOW = 20000;
 beforeEach(() => {
-  globalThis.__waiting = []; globalThis.__status = {};
+  globalThis.__waiting = []; globalThis.__toSign = []; globalThis.__status = {};
   role.level = 'manager'; role.granted = new Set();
   Element.prototype.scrollIntoView = vi.fn();
 });
@@ -37,41 +34,30 @@ async function renderTab(tab = 'timesheet') {
   return render(<TimeClock initialTab={tab} activeSub={tab} onSubChange={() => {}} />);
 }
 
-describe('Time Sheets to Review on the Time Sheet tab', () => {
-  it('lists what is waiting at the top of the tab, with no jump button (the header band is gone, Oct 14)', async () => {
+describe('Workday > Time Sheet: signing only, reviewing is in People > Time (Oct 22)', () => {
+  it('does not list time sheets waiting on my review', async () => {
     globalThis.__waiting = [ROW, { ...ROW, id: 'r2', name: 'Pranshu Upadhyay' }];
-    await renderTab();
-    expect(await screen.findByText('Valinda Cranfill')).toBeTruthy();
-    expect(screen.getByText('2 waiting on you')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Time Sheets to Review/ })).toBeNull();
-    // Approve / Send Back for a manager without the HR grant; no Review link.
-    expect(screen.getAllByRole('button', { name: /^Approve$/ }).length).toBe(2);
-    expect(screen.queryByRole('button', { name: /^Review$/ })).toBeNull();
-  }, SLOW);
-
-  it('offers Review to someone who can open People > Time', async () => {
-    globalThis.__waiting = [ROW];
-    role.granted = new Set(['hr']);
-    const nav = vi.fn();
-    window.addEventListener('nexus:navigate', nav);
-    await renderTab();
-    fireEvent.click(await screen.findByRole('button', { name: /^Review$/ }));
-    expect(nav.mock.calls[0][0].detail).toEqual({ view: 'hr', sub: 'hr-time' });
-    window.removeEventListener('nexus:navigate', nav);
-  }, SLOW);
-
-  it('shows no list when nothing is waiting', async () => {
     await renderTab();
     await screen.findByText('Timecard');
     await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText('Valinda Cranfill')).toBeNull();
     expect(screen.queryByText(/waiting on you/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Approve$/ })).toBeNull();
   }, SLOW);
 
-  it('gives a time-tracking-exempt reviewer the Time Sheet tab while something waits', async () => {
+  it('still lists my time sheet waiting on my signature', async () => {
+    globalThis.__toSign = [{ id: 's1', partyId: 'p1', role: 'employee', employeeEmail: 'me@x.com', name: 'Me',
+      periodStart: '2026-09-14', periodEnd: '2026-09-27', payType: 'hourly' }];
+    await renderTab();
+    expect(await screen.findByText('Time Sheets to Sign')).toBeTruthy();
+    expect(screen.getByText('1 waiting on your signature')).toBeTruthy();
+  }, SLOW);
+
+  it('gives a time-tracking-exempt person no Time Sheet tab for reviews alone', async () => {
     globalThis.__status = { timeTrackingExempt: true };
     globalThis.__waiting = [ROW];
     await renderTab('overview');
-    // ModuleTabs renders its strip as plain buttons outside the header provider.
-    expect(await screen.findByRole('button', { name: 'Time Sheet' })).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole('button', { name: 'Time Sheet' })).toBeNull();
   }, SLOW);
 });

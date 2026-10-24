@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 // Workday > Reimbursements (Oct 18 2026): file one (category, currency, a
 // pasted receipt, the approver), the approver sends back / rejects with a
 // note, the employee fixes and resubmits, HR approves and marks it paid, and
-// People > person > Expenses lists the claims.
+// People > person > Reimbursements lists the claims.
 
 const overview = vi.fn();
 const create = vi.fn();
@@ -123,7 +123,7 @@ describe('Reimbursements', () => {
     expect(pay).toHaveBeenCalledWith('r1', expect.objectContaining({ payment_method: 'payroll', payment_ref: 'PR-1031' }));
   });
 
-  it('People > person > Expenses lists their claims', async () => {
+  it('People > person > Reimbursements lists their claims', async () => {
     render(<PersonReimbursements email="amy@x.com" />);
     expect(await screen.findByText('Monitor')).toBeTruthy();
     expect(person).toHaveBeenCalledWith('amy@x.com');

@@ -70,7 +70,7 @@ describe('TicketDeskSettings', () => {
     expect(screen.queryByText('Old Dept')).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/Add a department/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Rename|Delete/ })).not.toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /Company Settings/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /Settings > Companies/ }).length).toBeGreaterThan(0);
 
     const sw = screen.getByRole('switch', { name: 'Offer Construction on Submit a Ticket' });
     expect(sw).toHaveAttribute('aria-checked', 'true');
@@ -80,13 +80,13 @@ describe('TicketDeskSettings', () => {
       .toHaveAttribute('aria-checked', 'false'));
   });
 
-  it('links to Company Settings, where departments are managed', async () => {
+  it('links to Settings > Companies, where departments are managed', async () => {
     const seen = vi.fn();
     window.addEventListener('nexus:navigate', seen);
     render(<TicketDeskSettings />);
     fireEvent.click(await screen.findByRole('button', { name: /Beta/ }));
-    fireEvent.click(screen.getAllByRole('button', { name: /Company Settings/ })[0]);
-    expect(seen.mock.calls[0][0].detail).toEqual({ view: 'admin-console', sub: 'company' });
+    fireEvent.click(screen.getAllByRole('button', { name: /Settings > Companies/ })[0]);
+    expect(seen.mock.calls[0][0].detail).toEqual({ view: 'admin-console', sub: 'companies' });
     window.removeEventListener('nexus:navigate', seen);
   });
 });

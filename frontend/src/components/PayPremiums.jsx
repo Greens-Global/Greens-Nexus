@@ -42,9 +42,12 @@ const chip = (on) => ({
 });
 const lbl = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--muted)' };
 
-export default function PayPremiums({ toastOk, toastErr }) {
+// `company` (Settings' scope picker, Oct 23) fixes the company and hides the
+// select; on its own the panel offers every company.
+export default function PayPremiums({ toastOk, toastErr, company: scoped = '' }) {
   const [companies, setCompanies] = useState(null);   // null while loading
-  const [company, setCompany] = useState('');
+  const [company, setCompany] = useState(scoped);
+  useEffect(() => { if (scoped) setCompany(scoped); }, [scoped]);
   const [data, setData] = useState(null);
   const [draft, setDraft] = useState(null);
   const [err, setErr] = useState('');
@@ -57,7 +60,7 @@ export default function PayPremiums({ toastOk, toastErr }) {
         if (!alive) return;
         const list = Array.isArray(d) ? d : [];
         setCompanies(list);
-        setCompany(list[0]?.id || '');
+        setCompany((c) => c || list[0]?.id || '');
       })
       .catch(() => { if (alive) { setCompanies([]); setCompany(''); } });
     return () => { alive = false; };
@@ -103,7 +106,7 @@ export default function PayPremiums({ toastOk, toastErr }) {
             Extra pay per hour worked at night, on weekends or at certain sites, and a minimum paid time when someone is called back after clocking out. Set per company, off by default. Hourly employees only. A finalized time sheet keeps the rules it was finalized with.
           </span>
         </span>
-        {companies && companies.length > 0 && (
+        {!scoped && companies && companies.length > 0 && (
           <select className="form-input" aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)} style={{ fontSize: 12.5, width: 'auto', maxWidth: 260 }}>
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
           </select>

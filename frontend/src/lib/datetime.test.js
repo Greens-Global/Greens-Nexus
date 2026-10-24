@@ -174,3 +174,21 @@ describe("Typing a punch time on the employee's clock (People > Time, Oct 20)", 
     expect(zonedInputValue(zonedInputToUtc(v, 'Not/AZone'), '')).toBe(v);
   });
 });
+
+describe('company (Pacific) time - Nexus Sign audit trails, Oct 23 2026', () => {
+  it('reads a UTC stamp on Pacific time and names PDT or PST by the date', async () => {
+    const { formatPacificDateTime, pacificZoneName } = await import('./datetime');
+    expect(formatPacificDateTime('2026-10-20T18:08:00+00:00')).toBe('10/20/2026, 11:08 AM PDT');
+    expect(formatPacificDateTime('2026-12-20T18:08:00+00:00')).toBe('12/20/2026, 10:08 AM PST');
+    expect(pacificZoneName('2026-11-01T12:00:00Z')).toBe('PST');   // the day DST ends
+  });
+  it('treats a stamp with no zone as UTC, and an empty one as the fallback', async () => {
+    const { formatPacificDateTime } = await import('./datetime');
+    expect(formatPacificDateTime('2026-10-20T18:08:00')).toBe('10/20/2026, 11:08 AM PDT');
+    expect(formatPacificDateTime('', '-')).toBe('-');
+  });
+  it('keeps an evening signature on its Pacific day, not the next UTC one', async () => {
+    const { formatPacificDate } = await import('./datetime');
+    expect(formatPacificDate('2026-10-21T02:30:00+00:00')).toBe('10/20/2026');
+  });
+});

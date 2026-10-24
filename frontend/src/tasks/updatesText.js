@@ -107,6 +107,7 @@ export function updatePhrases(u, statusMeta) {
         break;
       case 'resolved': out.push({ text: n > 1 ? `resolved ${n} comments` : 'resolved a comment' }); break;
       case 'attached': out.push({ text: n > 1 ? `attached ${n} files` : 'attached a file' }); break;
+      case 'linked': out.push({ text: n > 1 ? `added ${n} links` : 'added a link' }); break;
       case 'checklist': out.push({ text: n > 1 ? `checked off ${n} checklist items` : (p.detail || 'checked off a checklist item') }); break;
       default: break;
     }

@@ -15,14 +15,16 @@
 //     Send emails it; the candidate signs with no Nexus login. Both signed =
 //     hired, and the hiring packet starts by itself.
 // Problems show only when Continue is pressed, on the step they belong to.
-import { useEffect, useMemo, useState } from 'react';
-import { X, FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { X, FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check, Info } from 'lucide-react';
 import { api } from '../api';
 import { currencyOptions } from '../asset/lib/currency';
 import { usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { DateField } from '../tasks/components';
+import { US_STATE_NAMES } from '../lib/usStates';
+import { leadsFor } from './HiringSchedule';
 
 const OTHER_ROLE = '__other__';
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
@@ -37,6 +39,7 @@ const h2 = { fontSize: 17, fontWeight: 800, margin: '22px 0 4px', color: 'var(--
 const lead = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, margin: 0 };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 18px' };
 const card = { border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' };
+export const REPORTS_TO = 'Reports To - the person this hire reports to day to day. They become the manager on the profile.';
 const smallBtn = { fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 };
 
 function Warn({ children }) {
@@ -68,13 +71,15 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const first = c.firstName || 'They';
   const [step, setStep] = useState('who');
   const [tried, setTried] = useState(false);
-  const [who, setWho] = useState({ worker_type: '', employment_type: 'full_time', country: '' });
+  // Where they work picks the paperwork - country AND state (Neil, Oct 22).
+  const [who, setWho] = useState({ worker_type: '', employment_type: 'full_time', country: '', region: '' });
   const [f, setF] = useState(() => ({
     role_id: c.roleId || (c.roleTitle ? OTHER_ROLE : ''), new_role_name: c.roleId ? '' : (c.roleTitle || ''),
     department: c.department || '', start_date: (c.expectedStart || '').slice(0, 10),
     // A week is the usual window - still HR's call.
     offer_expires: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
     manager_email: '', work_location: '',
+    offer_from: 'hr',          // Offer Comes From (Neil, Oct 22): Head of HR, or the department head
   }));
   const [person, setPerson] = useState({ first_name: c.firstName || '', last_name: c.lastName || '', address: '' });
   const [timing, setTiming] = useState({ work_start: '09:00', work_end: '17:00', work_days: ['mon', 'tue', 'wed', 'thu', 'fri'], timings_text: '' });
@@ -82,20 +87,28 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const [answers, setAnswers] = useState({});          // the documents' own HR Answers questions
   const [jdId, setJdId] = useState('');
   const [jds, setJds] = useState([]);
-  const [roles, setRoles] = useState({ roles: [], departments: [] });
+  const [roles, setRoles] = useState({ roles: [], departments: [], leads: {} });
   const [opts, setOpts] = useState(null);              // which letter + packet, and what they ask
   const [chosenId, setChosenId] = useState('');         // HR picked another offer letter by hand
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const autoMgr = useRef('');                          // the supervisor Nexus filled in, not HR
 
   useEffect(() => {
     if (!c.company) return;
     api.hiringOptions(c.company).then(o => {
-      setRoles({ roles: o.roles || [], departments: o.departments || [] });
+      setRoles({ roles: o.roles || [], departments: o.departments || [], leads: o.departmentLeads || {} });
       const r = (o.roles || []).find(x => x.id === c.roleId);
-      if (r?.defaultManagerEmail) setF(p => (p.manager_email ? p : { ...p, manager_email: r.defaultManagerEmail }));
+      const d = r ? r.defaultManagerEmail : leadsFor(o.departmentLeads, c.roleId ? '' : c.department)[0];
+      autoMgr.current = d || '';
+      if (d) setF(p => (p.manager_email ? p : { ...p, manager_email: d }));
     }).catch(() => {});
-    api.getDocTemplates({ category: 'job_description', status: 'active' }).then(r => setJds(r || [])).catch(() => setJds([]));
+    // One Job Description document serves every role (Oct 22): picked for HR when it is the only one.
+    api.getDocTemplates({ category: 'job_description', status: 'active' }).then(r => {
+      const list = Array.isArray(r) ? r : [];
+      setJds(list);
+      if (list.length === 1) setJdId(id => id || list[0].id);
+    }).catch(() => setJds([]));
   }, [c.company, c.roleId]);
 
   const isOther = f.role_id === OTHER_ROLE;
@@ -104,13 +117,18 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    api.offerOptions(c.id, { worker_type: who.worker_type, country: who.country, role_id: roleId, packet_id: chosenId,
+    api.offerOptions(c.id, { worker_type: who.worker_type, country: who.country, region: who.region, role_id: roleId, packet_id: chosenId,
                              new_role: isOther ? '1' : '', department: isOther ? f.department : '' })
-      .then(o => { if (!alive) return; setOpts(o); setWho(w => (w.country ? w : { ...w, country: o.country || '' })); })
+      .then(o => {
+        if (!alive) return;
+        setOpts(o);
+        setWho(w => (w.country ? (w.region || w.country !== o.country ? w : { ...w, region: o.region || '' })
+          : { ...w, country: o.country || '', region: o.region || '' }));
+      })
       .catch(e => { if (alive) { setOpts(null); toastErr?.(e?.message || 'Could not find the offer letter.'); } })
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [c.id, who.worker_type, who.country, roleId, chosenId, isOther, f.department]);
+  }, [c.id, who.worker_type, who.country, who.region, roleId, chosenId, isOther, f.department]);
 
   const letter = opts?.offerLetter || null;
   const packet = opts?.hiringPacket || null;
@@ -120,19 +138,32 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
     return [...(letter?.hrQuestions || []), ...(packet?.hrQuestions || [])].filter(q => !seen.has(q.token) && seen.add(q.token));
   }, [letter, packet]);
   const manager = people.find(p => p.email === f.manager_email);
+  const from = opts?.offerFrom || {};
+  // A role whose department has no head: back to Head of HR, never a refused send.
+  useEffect(() => { if (opts && !opts.offerFrom?.department_head?.email) setF(p => (p.offer_from === 'hr' ? p : { ...p, offer_from: 'hr' })); }, [opts]);
   const contractor = who.worker_type === 'contractor';
   const countries = useMemo(() => [...new Set([opts?.companyCountry, 'US', 'IN', who.country].filter(Boolean))], [opts, who.country]);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  // Supervisor = the role's default, else the department head (Neil, Oct 22). One Nexus
+  // filled in follows a role or department change; one HR picked by hand is kept.
+  const withMgr = (next, email) => {
+    const keep = f.manager_email && f.manager_email !== autoMgr.current;
+    autoMgr.current = email || '';
+    return keep ? next : { ...next, manager_email: email || '' };
+  };
   const pickRole = (id) => {
     const r = roles.roles.find(x => x.id === id);
-    setF(p => ({ ...p, role_id: id, department: r ? (r.department || p.department) : p.department,
-                 manager_email: p.manager_email || r?.defaultManagerEmail || '' }));
+    const department = r ? (r.department || f.department) : f.department;
+    setF(withMgr({ ...f, role_id: id, department }, r ? r.defaultManagerEmail : id === OTHER_ROLE ? leadsFor(roles.leads, department)[0] : ''));
   };
+  const pickDept = (d) => setF(withMgr({ ...f, department: d }, leadsFor(roles.leads, d)[0]));
 
   // What each step still needs - shown only once Continue is pressed there.
   const problemsFor = {
     who: [
       !who.worker_type && 'Choose Employee or Contractor.',
+      // Never an offer with nothing after it (Neil, Oct 22): the hire would sign and then wait.
+      who.worker_type && !loading && opts?.missingPacket && 'Set up the hiring packet for this place first - see below.',
       (!f.role_id || (isOther && (!f.new_role_name.trim() || !f.department))) && 'Pick the role.',
       who.worker_type && !loading && !letter && 'There is no offer letter for this hire yet - set one up, pick another above, or move them to Offer without one.',
     ],
@@ -193,9 +224,16 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
             </select></div>
         )}
         <div><label style={lbl} htmlFor="of-country">Works In</label>
-          <select id="of-country" className="form-input" style={{ width: '100%' }} value={who.country} onChange={e => setWho(w => ({ ...w, country: e.target.value }))}>
+          <select id="of-country" className="form-input" style={{ width: '100%' }} value={who.country} onChange={e => setWho(w => ({ ...w, country: e.target.value, region: '' }))}>
             {countries.map(k => <option key={k} value={k}>{COUNTRY_NAMES[k] || k}</option>)}
           </select></div>
+        {who.country === 'US' && (
+          <div><label style={lbl} htmlFor="of-region">State</label>
+            <select id="of-region" className="form-input" style={{ width: '100%' }} value={who.region} onChange={e => setWho(w => ({ ...w, region: e.target.value }))}>
+              <option value="">- pick the state -</option>
+              {Object.entries(US_STATE_NAMES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+            </select></div>
+        )}
         <div><label style={lbl} htmlFor="of-role">Role</label>
           <select id="of-role" className="form-input" style={{ width: '100%' }} value={f.role_id} onChange={e => pickRole(e.target.value)}>
             <option value="">- pick the role -</option>
@@ -207,7 +245,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
             <div><label style={lbl} htmlFor="of-newrole">New Role Name</label>
               <input id="of-newrole" className="form-input" style={{ width: '100%' }} value={f.new_role_name} onChange={e => set('new_role_name', e.target.value)} /></div>
             <div><label style={lbl} htmlFor="of-dept">Department</label>
-              <select id="of-dept" className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => set('department', e.target.value)}>
+              <select id="of-dept" className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => pickDept(e.target.value)}>
                 <option value="">- pick a department -</option>
                 {roles.departments.map(d => <option key={d} value={d}>{d}</option>)}
               </select></div>
@@ -221,8 +259,13 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
             <>
               <div><CheckCircle size={14} style={{ verticalAlign: 'middle', color: 'hsl(var(--color-green))', marginRight: 6 }} /><b>Offer letter:</b> {letter.name}</div>
               <div style={{ marginTop: 4 }}>
-                {packet ? <><b>Then:</b> {packet.name}, sent to {first} by itself once they sign the offer.</>
-                  : <span style={{ color: 'hsl(var(--color-orange))' }}>No hiring packet is set up for this hire yet - they are still hired when they sign; the packet can be started from their card later.</span>}
+                {packet ? <>
+                  <b>Then:</b> {packet.name}, sent to {first} by itself once they sign the offer.
+                  {(packet.documents || []).length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>It holds: {packet.documents.join(', ')}{jdId ? ', and the job description' : ''}.</div>
+                  )}
+                </>
+                  : <Warn>{opts?.missingPacket || 'No hiring packet is set up for this hire yet.'}</Warn>}
               </div>
               {(letter.problems || []).map(p => <Warn key={p}>{p}</Warn>)}
             </>
@@ -281,13 +324,30 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           <div style={{ gridColumn: '1 / -1' }}><label style={lbl} htmlFor="of-loc">Primary Work Location</label>
             <input id="of-loc" className="form-input" style={{ width: '100%' }} value={f.work_location} onChange={e => set('work_location', e.target.value)} placeholder="e.g. Irvine, CA - or Remote" /></div>
         )}
-        <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Supervisor</label>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={{ ...lbl, display: 'flex', alignItems: 'center', gap: 6 }} title={REPORTS_TO}>
+            Supervisor <Info size={13} aria-label={REPORTS_TO} style={{ color: 'var(--muted)', cursor: 'help' }} />
+          </label>
           {manager ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 13.5, fontWeight: 600 }}>{manager.name || manager.email}</span>
               <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => set('manager_email', '')}>Change</button>
             </div>
           ) : <PersonSearchSelect placeholder="Type a name or email" groups={[{ label: 'Nexus People', people }]} onPick={v => set('manager_email', v)} />}
+          <div style={hint}>{REPORTS_TO}</div>
+        </div>
+        <div style={{ gridColumn: '1 / -1' }}><label style={lbl} htmlFor="of-from">Offer Comes From</label>
+          <select id="of-from" className="form-input" style={{ width: '100%' }} value={f.offer_from} onChange={e => set('offer_from', e.target.value)}>
+            <option value="hr">Head of HR{from.hr?.name ? ` - ${from.hr.name}` : ''}</option>
+            <option value="department_head" disabled={!from.department_head?.email}>
+              Department Head{from.department_head?.name ? ` - ${from.department_head.name}` : ' - none set up'}
+            </option>
+          </select>
+          <div style={hint}>
+            {!from.department_head?.email
+              ? `${from.department ? `The ${from.department} department` : 'This department'} has no head set up (Settings > Companies > Departments), so the offer comes from HR.`
+              : 'The letter closes with their name and the offer email comes from them. It still says who they report to.'}
+          </div>
         </div>
       </div>
 
@@ -376,8 +436,8 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
       <div style={{ ...card, marginTop: 26, background: 'var(--mist)', fontSize: 13, lineHeight: 1.65 }}>
         <b>What happens next</b>
         <div style={{ marginTop: 4 }}>1. You check the filled-in letter, then Verify And Send.</div>
-        <div>2. The company signs, then {first} gets an email and signs - no login needed.</div>
-        <div>3. Both signed: {first} is hired{packet ? `, and ${packet.name} goes out to them by itself` : ''}.</div>
+        <div>2. {first} gets an email and signs - no login needed. Nobody signs an offer for the company.</div>
+        <div>3. Signed: {first} is hired{packet ? `, and ${packet.name} goes out to them by itself` : ''}.</div>
       </div>
     </>
   );

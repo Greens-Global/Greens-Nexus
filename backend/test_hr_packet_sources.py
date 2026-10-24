@@ -98,6 +98,86 @@ class SourceTests(ReviewCase):
         self.assertEqual(ev.status, "review")
         self.assertEqual(ev.intake["answers"]["pan_number"], "ABCDE1234F")
 
+    def test_what_the_new_hire_will_be_asked_is_the_intake_pages_own_list(self):
+        # The editor's unsaved state: a document twice, a team document, and
+        # packet-only fields - one of them a variable the NDA also asks for.
+        r = self.client.post("/hr/packets/intake-preview", json={
+            "doc_template_ids": ["t-offer", "t-nda"], "extra_docs": [{"templateIds": ["t-nda"]}],
+            "details_form": [{"label": "Nationality", "type": "text", "required": True},
+                             {"label": "Bank Name", "type": "text"}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        out = r.json()
+        self.assertEqual([f["key"] for f in out["standard"]][:4], ["first_name", "last_name", "preferred_name", "phone"])
+        self.assertTrue(next(f for f in out["standard"] if f["key"] == "address")["required"])
+        by = {f["key"]: f for f in out["form"]}
+        self.assertEqual(list(by), ["nationality", "bank_name", "pan_number"])        # each once
+        self.assertEqual((by["pan_number"]["documents"], by["pan_number"]["packetOnly"]), (["NDA"], False))
+        self.assertTrue(by["pan_number"]["sensitive"])                                 # Private kept
+        self.assertEqual((by["nationality"]["documents"], by["nationality"]["packetOnly"]), ([], True))
+        self.assertEqual(by["bank_name"]["documents"], ["NDA"])
+        self.assertEqual([(q["token"], q["documents"]) for q in out["hrAtOffer"]], [("probation_period", ["NDA"])])
+        # With no extra fields it is exactly the form the saved packet's link shows.
+        bare = self.client.post("/hr/packets/intake-preview", json={"doc_template_ids": ["t-offer", "t-nda"]}).json()
+        self.assertEqual([f["key"] for f in bare["form"]], ["pan_number", "bank_name"])
+
+    def test_an_optional_answer_left_empty_is_named_before_send(self):
+        # Neil, 10/22 56:42 - the verifier sees what prints blank before Verify And Send.
+        r = self.client.post("/hr/candidates/cand-1/hiring-packet/start", json={
+            "inputs": {"job_title": "Analyst", "start_date": "2030-11-02", "offer_expires": "2030-10-28",
+                       "employment_type": "full_time", "merge": {"probation_period": "90 days"},
+                       "work_start": "09:00", "work_end": "17:30", "work_days": ["mon", "tue", "wed", "thu", "fri"]},
+            "pay": {"base": 85000, "payBasis": "salary", "frequency": "annual", "currency": "USD"},
+            "details": {"first_name": "Jane", "last_name": "Doe", "phone": "555-0100", "address": "12 Pine St",
+                        "answers": {"pan_number": "ABCDE1234F"}}})
+        self.assertEqual(r.status_code, 200, r.text)
+        review = self.client.get(f"/hr/life-events/{r.json()['id']}/review").json()
+        self.assertEqual(review["warnings"], ["Prints blank: Bank Name (NDA) - Jane left it empty. "
+                                              "Click Edit to fill it in, or send as is."])
+        self.assertTrue(review["canVerify"], review["problems"])        # a warning, never a block
+
+    def test_an_empty_answer_with_a_default_is_not_called_blank(self):
+        db = database.SessionLocal()
+        _publish(db, "t-nda", NDA2, [PAN, {**BANK, "default": "HDFC"}, PROBATION], version=3)
+        db.commit()
+        db.close()
+        r = self.client.post("/hr/candidates/cand-1/hiring-packet/start", json={
+            "inputs": {"job_title": "Analyst", "start_date": "2030-11-02", "offer_expires": "2030-10-28",
+                       "employment_type": "full_time", "merge": {"probation_period": "90 days"},
+                       "work_start": "09:00", "work_end": "17:30", "work_days": ["mon", "tue", "wed", "thu", "fri"]},
+            "pay": {"base": 85000, "payBasis": "salary", "frequency": "annual", "currency": "USD"},
+            "details": {"first_name": "Jane", "last_name": "Doe", "phone": "555-0100", "address": "12 Pine St",
+                        "answers": {"pan_number": "ABCDE1234F"}}})
+        self.assertEqual(r.status_code, 200, r.text)
+        review = self.client.get(f"/hr/life-events/{r.json()['id']}/review").json()
+        self.assertEqual(review["warnings"], [])                        # it prints HDFC, not a blank
+
+    def test_the_preview_lists_what_each_roles_own_documents_add(self):
+        db = database.SessionLocal()
+        content = _doc(_p("Safety card ", "{{safety_card}}", " for ", "{{full_name}}"), _sig("employee"))
+        db.add(models.DocTemplate(id="t-site", name="Site NDA", category="hr", status="active", version=1, content=content,
+                                  department="", published_version=1,
+                                  published_meta={"fieldDefs": _clean_field_defs([{"token": "safety_card", "label": "Safety Card",
+                                                                                   "type": "text", "source": "person"}])}))
+        db.add(models.DocTemplateVersion(id="v-site", template_id="t-site", version_no=1, content=content))
+        for gid, name, company, docs in (("r-site", "Site Associate", "co-review", [{"templateId": "t-site", "replaces": "t-nda"}]),
+                                         ("r-desk", "Desk Associate", "co-review", []),
+                                         ("r-away", "Away Associate", "co-other", [{"templateId": "t-site"}])):
+            db.add(models.NexusGroup(id=gid, name=name, is_job_role=1, company_id=company, hiring_docs=docs))
+        db.commit()
+        db.close()
+        body = {"doc_template_ids": ["t-offer", "t-nda"], "entity_id": "co-review"}
+        roles = self.client.post("/hr/packets/intake-preview", json=body).json()["roles"]
+        self.assertEqual(roles, [{"id": "r-site", "name": "Site Associate", "documents": ["Site NDA"],
+                                  "replaces": ["NDA"], "asks": ["Safety Card"]}])
+        only = self.client.post("/hr/packets/intake-preview", json={**body, "role_ids": ["r-desk"]}).json()["roles"]
+        self.assertEqual(only, [])
+
+    def test_a_field_that_would_not_save_says_why(self):
+        r = self.client.post("/hr/packets/intake-preview", json={"doc_template_ids": ["t-nda"],
+                                                                 "details_form": [{"label": "Phone"}]})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("already fills", r.json()["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

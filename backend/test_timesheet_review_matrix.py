@@ -24,7 +24,7 @@ from routers import timeclock  # noqa: E402
 MGR2 = "mgr2.ts@greensglobal.com"
 ADMIN = "admin.ts@greensglobal.com"
 OTHER = "other.ts@greensglobal.com"
-STATES = ("not_submitted", "with_manager", "with_employee", "signing", "approved", "completed", "unlocked")
+STATES = ("not_submitted", "with_manager", "with_employee", "signing", "approved", "completed", "correcting")
 
 
 class MatrixCase(ReviewCase):
@@ -107,9 +107,9 @@ class MatrixCase(ReviewCase):
         self._sign_now()
         if state == "completed":
             return
-        timeclock.unfinalize_timecard(timeclock.FinalizeIn(email=EMP, start=self.ps, end=self.pe),
+        timeclock.unfinalize_timecard(timeclock.FinalizeIn(email=EMP, start=self.ps, end=self.pe, reason="Wrong lunch on Monday"),
                                       user={"email": HR, "level": 4}, db=self.db)
-        assert state == "unlocked"
+        assert state == "correcting"
 
     def _finish(self, state):
         """Who moves it on from `state`, until it is signed and finalized."""
@@ -118,8 +118,16 @@ class MatrixCase(ReviewCase):
             if st == "completed":
                 return
             self._decide_pending_fixes()
-            if st in ("not_submitted", "unlocked"):
+            if st == "not_submitted":
                 tsr.approve_period(self.db, EMP, self.ps, MGR)
+            elif st == "correcting":
+                # Oct 22: HR finishes a correction - re-lock if nothing changed, else send it to sign.
+                rv = self._rv()
+                if tsr.correction_changed(self.db, rv):
+                    tsr.send_correction(self.db, rv, HR)
+                else:
+                    tsr.relock(self.db, rv, HR)
+                self.db.commit()
             elif st == "with_manager":
                 tsr.approve(self.db, self._rv(), MGR)
             elif st == "with_employee":
@@ -151,7 +159,7 @@ class NoDeadEndTests(MatrixCase):
             return [x for x in tsr.to_sign(self.db, EMP) if x["periodStart"] == self.ps]
 
         for state, who in (("not_submitted", "mgr"), ("with_manager", "mgr"), ("signing", "emp"),
-                           ("approved", "emp"), ("unlocked", "mgr")):
+                           ("approved", "emp")):
             with self.subTest(state=state):
                 self._fresh()
                 self._to(state)
@@ -271,18 +279,25 @@ class LoopTests(MatrixCase):
         self.assertEqual(self._status(), "with_manager")
         self._finish("with_manager")
 
-    def test_unlock_and_sign_again_twice(self):
+    def test_unlock_correct_and_sign_again_twice(self):
+        """Oct 22: HR unlocks, changes the hours, sends the corrected card; the
+        employee signs it - twice over, never via the manager."""
         self._to("signing")
-        for i in range(2):
-            if i:
-                tsr.approve_period(self.db, EMP, self.ps, MGR)
-            self._sign_now()
-            timeclock.unfinalize_timecard(timeclock.FinalizeIn(email=EMP, start=self.ps, end=self.pe),
-                                          user={"email": HR, "level": 4}, db=self.db)
-            self.assertEqual(self._status(), "unlocked")
-        tsr.approve_period(self.db, EMP, self.ps, MGR)
         self._sign_now()
-        self.assertEqual(self._status(), "completed")
+        for i in range(2):
+            timeclock.unfinalize_timecard(timeclock.FinalizeIn(email=EMP, start=self.ps, end=self.pe, reason="Wrong lunch on Monday"),
+                                          user={"email": HR, "level": 4}, db=self.db)
+            self.assertEqual(self._status(), "correcting")
+            self._punch(self.pe, "in", f"1{i}:00:00")      # HR's correction: a shift on the last day
+            self._punch(self.pe, "out", f"1{i}:30:00")
+            tsr.guard_edit(self.db, EMP, self.pe, HR)
+            self.db.commit()
+            tsr.send_correction(self.db, self._rv(), HR)
+            self.db.commit()
+            self.assertEqual(self._status(), "signing")
+            self._sign_now()
+            self.assertEqual(self._status(), "completed")
+            self.assertTrue(timeclock._finalized_row(self.db, EMP, self.ps, self.pe))
 
 
 class WhoCanActTests(MatrixCase):

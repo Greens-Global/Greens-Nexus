@@ -71,6 +71,8 @@ describe('TimesheetsToReview', () => {
     render(<TimesheetsToReview onOpen={() => {}} />);
     expect(await screen.findByText(/not submitted - period closed/)).toBeTruthy();
     expect(screen.queryByText('Send Back')).toBeNull();
+    // No stray note box under it (Oct 22: every unsubmitted row showed one, the last one focused).
+    expect(screen.queryByPlaceholderText('What needs changing?')).toBeNull();
     fireEvent.click(screen.getByText('Approve'));
     await waitFor(() => expect(approvePeriod).toHaveBeenCalledWith('erin@x.com', '2026-09-01', ''));
     expect(approve).not.toHaveBeenCalled();
@@ -99,7 +101,7 @@ describe('TimesheetsToReview', () => {
       name: 'Erin Test', periodStart: '2026-09-20', periodEnd: '2026-10-03', agreedBy: 'Max Test', agreedAt: '2026-10-05T10:00:00Z',
       needsResign: true }] });
     render(<TimesheetsToReview onOpen={() => {}} />);
-    expect(await screen.findByText(/HR changed the hours - sign the updated time sheet/)).toBeTruthy();
+    expect(await screen.findByText(/HR changed your time sheet - sign the updated one/)).toBeTruthy();
     fireEvent.click(screen.getByText('Sign Updated Time Sheet'));
     await waitFor(() => expect(sign).toHaveBeenCalledWith('r9'));
     expect(await screen.findByTestId('sign-modal')).toHaveTextContent('p-new');

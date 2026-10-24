@@ -18,11 +18,12 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
+import { FILLED_WHEN } from '../lib/mergeFieldTypes';
 import { BODY_EXTENSIONS, repairDocJson } from '../lib/docBuilderSchema';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import { slugifyToken, variableFromDrop } from '../lib/mergeFieldTypes';
-import { extractVariables, mergeFieldDefs } from '../lib/extractVariables';
+import { extractVariables, mergeFieldDefs, sharedDefs, tokensInDoc } from '../lib/extractVariables';
 import { Pagination, paginationKey, planBreaks } from '../lib/docBuilderPagination';
 import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, pageCanvasStyle, textFlowPx, textColumnPx, sheetPadding, sheetsFor, scrollableAncestor, measureHtmlHeight } from '../lib/pageSetup';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -32,6 +33,7 @@ import TemplateFieldsPanel from './TemplateFieldsPanel';
 import VariableLibrary from './VariableLibrary';
 import AnchoredMenu from './AnchoredMenu';
 import { Spinner } from './AsyncState';
+import { formatPacificDateTime } from '../lib/datetime';
 
 const FONT_GROUPS = {
   'Sans-serif': ['Inter', 'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Roboto', 'Open Sans', 'Lato', 'Montserrat'],
@@ -408,6 +410,11 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [fieldsPanel, setFieldsPanel] = useState(null);   // null | { newTokens: [] }
   const [mergeFieldModal, setMergeFieldModal] = useState(null); // null | { range?: {from,to}, existingDef?: object, initialLabel?: string }
   const [variableLibraryOpen, setVariableLibraryOpen] = useState(false);
+  // /documents/variables: every built-in (with WHEN Nexus fills it) and every
+  // custom field the other templates define - the insert picker's groups, the
+  // Template Fields panel's Filled By Nexus rows and its shared definitions.
+  const [variables, setVariables] = useState([]);
+  const [activating, setActivating] = useState(false);
   // Page Setup (Phase 14) - content.pageSetup, a sibling of body/header/footer
   // in the same JSON blob (no schema change needed).
   const [pageSetup, setPageSetup] = useState(DEFAULT_PAGE_SETUP);
@@ -695,6 +702,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   }, [docId, headerEditor, footerEditor]);
 
   useEffect(() => { api.getDocLetterheads().then(setLetterheads).catch(() => setLetterheads([])); }, []);
+  useEffect(() => { api.getDocVariables().then(v => setVariables(Array.isArray(v) ? v : [])).catch(() => setVariables([])); }, []);
 
   useEffect(() => {
     headerEditor?.setEditable(!preview);
@@ -923,13 +931,16 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // meant a detected variable appeared as a chip in the document but was
   // missing from Merge data and the insert picker - you could see it and not
   // set a default for it.
+  const builtins = useMemo(() => Object.fromEntries(variables.filter(v => v.source === 'builtin')
+    .map(v => [v.token, { label: v.label, when: v.when }])), [variables]);
+  const builtinSet = useMemo(() => new Set([...MERGE_TOKENS, ...Object.keys(builtins)]), [builtins]);
   const customVarKeys = useMemo(() => {
-    const keys = Object.keys(mergeOverrides).filter(k => !MERGE_TOKENS.includes(k));
+    const keys = Object.keys(mergeOverrides).filter(k => !builtinSet.has(k));
     for (const fd of fieldDefs) {
-      if (fd?.token && !MERGE_TOKENS.includes(fd.token) && !keys.includes(fd.token)) keys.push(fd.token);
+      if (fd?.token && !builtinSet.has(fd.token) && !keys.includes(fd.token)) keys.push(fd.token);
     }
     return keys;
-  }, [mergeOverrides, fieldDefs]);
+  }, [mergeOverrides, fieldDefs, builtinSet]);
   // The label a field definition gave it, so the picker reads "Offer - Letter
   // Date" rather than a bare token.
   const varLabel = useMemo(() => {
@@ -937,6 +948,24 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     for (const fd of fieldDefs) if (fd?.token && fd.label) out[fd.token] = fd.label;
     return out;
   }, [fieldDefs]);
+  const shared = useMemo(() => sharedDefs(variables, docId), [variables, docId]);
+  // The insert picker, grouped by WHEN Nexus fills each built-in. Until the
+  // library answers, the short list it always had.
+  const builtinGroups = useMemo(() => {
+    const list = variables.filter(v => v.source === 'builtin');
+    if (!list.length) return [['Filled By Nexus', MERGE_TOKENS.map(t => [t, FRIENDLY_MERGE[t]])]];
+    return FILLED_WHEN.map(([when, label]) => [label, list.filter(v => (v.when || 'document') === when).map(v => [v.token, v.label])])
+      .filter(([, items]) => items.length);
+  }, [variables]);
+  // Every token placed on the pages, header and footer - the panel lists the
+  // built-ins among them as Filled By Nexus.
+  const openFieldsPanel = (newTokens = []) => {
+    const out = [];
+    for (const p of pages) tokensInDoc(editorsRef.current.get(p.id)?.getJSON(), out);
+    tokensInDoc(headerEditor?.getJSON(), out);
+    tokensInDoc(footerEditor?.getJSON(), out);
+    setFieldsPanel({ newTokens, docTokens: out });
+  };
   const addCustomVariable = () => {
     const key = slugifyToken(newVarName);   // keeps the dotted taxonomy (principal.amount)
     if (!key || !newVarValue.trim()) return;
@@ -1394,6 +1423,21 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     } finally { setPublishing(false); }
   };
 
+  // Activate (Oct 23): a Draft cannot make documents or go in an HR packet.
+  // The first activation also publishes (documents.update_template).
+  const activateTemplate = async () => {
+    if (activating) return;
+    setActivating(true);
+    try {
+      await flushPendingSave();
+      const res = await api.updateDocTemplate(docId, { status: 'active' });
+      setDoc(d => ({ ...d, ...res }));
+      toastOk?.(res.publishedVersion ? `Active - published version ${res.publishedVersion}.` : 'Active.');
+    } catch (e) {
+      toastErr?.(e.message || 'Could not activate the template');
+    } finally { setActivating(false); }
+  };
+
   // Phase 5 bridge: hand the document to E-Sign's existing SendWizard via the
   // same window.__esignPrefill + nexus:navigate handoff HR->Hiring already
   // uses - no new backend send path, no change to esign.py's compliance logic.
@@ -1482,14 +1526,14 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       if (!total) { if (!quiet) toastOk?.('No {{variables}} found on this page.'); return; }
       let added = [];
       if (kind === 'template') {
-        const merged = mergeFieldDefs(fieldDefs, found);
+        const merged = mergeFieldDefs(fieldDefs, found, { builtins: builtinSet, shared });
         added = merged.added;
         if (added.length) {
           setFieldDefs(merged.fieldDefs);
           await apiUpdate(docId, { fieldDefs: merged.fieldDefs });
           // Pasted from Word, or typed: same reason as the import path - offer
           // the types straight away rather than leaving the guesses standing.
-          setFieldsPanel({ newTokens: added.map(fd => fd.token) });
+          openFieldsPanel(added.map(fd => fd.token));
         }
       }
       scheduleSave();
@@ -1540,13 +1584,17 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       const chip = e.target.closest?.('[data-merge-token]');
       if (!chip) return;
       const token = chip.getAttribute('data-merge-token');
+      // A built-in has nothing to set - Nexus fills it; show where from.
+      if (builtinSet.has(token) && !fieldDefs.some((f) => f.token === token)) { openFieldsPanel(); return; }
+      const start = shared[token] ? mergeFieldDefs([], [token], { shared }).added[0] : {};
       const existingDef = fieldDefs.find((f) => f.token === token)
-        || { token, label: FRIENDLY_MERGE[token] || token, type: 'text', required: false, validation: {} };
+        || { token, label: FRIENDLY_MERGE[token] || token, type: 'text', required: false, validation: {}, ...start };
       setMergeFieldModal({ existingDef });
     };
     dom.addEventListener('dblclick', onDblClick);
     return () => dom.removeEventListener('dblclick', onDblClick);
-  }, [activeEditor, kind, fieldDefs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeEditor, kind, fieldDefs, builtinSet, shared]);
 
   const saveFieldDefs = (next) => {
     setFieldDefs(next);
@@ -1682,7 +1730,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       // already configured by hand exactly as they are.
       let added = [];
       if (tokens.length && kind === 'template') {
-        const merged = mergeFieldDefs(fieldDefs, tokens);
+        const merged = mergeFieldDefs(fieldDefs, tokens, { builtins: builtinSet, shared });
         added = merged.added;
         if (added.length) {
           setFieldDefs(merged.fieldDefs);
@@ -1693,7 +1741,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       // Straight into the field list when an import brought variables in: the
       // types are only guesses from the names until somebody says otherwise,
       // and this is the moment the author is looking at the template.
-      if (added.length) setFieldsPanel({ newTokens: added.map(fd => fd.token) });
+      if (added.length) openFieldsPanel(added.map(fd => fd.token));
       const found = tokens.length
         ? ` ${tokens.length} variable${tokens.length === 1 ? '' : 's'} detected${added.length ? `, ${added.length} added to this template` : ''}.`
         : '';
@@ -1752,6 +1800,19 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: publishing ? 0.6 : 1 }}>
                 {publishing ? <Spinner size={14} /> : <BadgeCheck size={14} />}
                 {doc.publishedVersion ? 'Publish Changes' : 'Publish'}
+              </button>
+            )}
+          </span>
+        )}
+        {kind === 'template' && doc.status !== 'active' && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+            title="Only an Active template can make documents or go in an HR packet. Activating publishes this wording.">
+            <span style={doc.status === 'draft' ? chipTone('orange') : { ...chipTone('blue'), color: 'var(--muted)', background: 'var(--mist)' }}>{doc.status === 'draft' ? 'Draft - Not Usable Yet' : 'Archived'}</span>
+            {!preview && (
+              <button onClick={activateTemplate} disabled={activating} className="primary-btn"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: activating ? 0.6 : 1 }}>
+                {activating ? <Spinner size={14} /> : <BadgeCheck size={14} />}
+                {doc.status === 'draft' ? 'Activate' : 'Restore'}
               </button>
             )}
           </span>
@@ -2256,20 +2317,25 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </ToolbarBtn>
           {kind === 'template' && (
             <ToolbarBtn title="Template Fields - set the type of answer each variable takes"
-              active={!!fieldsPanel} onClick={() => setFieldsPanel({ newTokens: [] })}>
+              active={!!fieldsPanel} onClick={() => openFieldsPanel()}>
               <ListChecks size={15} />
             </ToolbarBtn>
           )}
-          <ToolbarBtn title="Variable Library - browse every variable and drag one in"
-            active={variableLibraryOpen} onClick={() => setVariableLibraryOpen(o => !o)}>
-            <Variable size={15} />
-          </ToolbarBtn>
-          <select onChange={insertMergeField} defaultValue=""
+          <button type="button" title="Variable Library - browse every variable and drag one in"
+            className={variableLibraryOpen ? 'is-active' : ''} onClick={() => setVariableLibraryOpen(o => !o)}
+            style={{ width: 'auto', padding: '0 8px', gap: 4, fontSize: 12, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+            <Variable size={15} /> Variables
+          </button>
+          <select onChange={insertMergeField} defaultValue="" aria-label="Insert a variable"
             style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 8px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)' }}>
-            <option value="">✨ Insert auto-filled detail…</option>
-            {MERGE_TOKENS.map(t => <option key={t} value={t}>{FRIENDLY_MERGE[t]}</option>)}
+            <option value="">Insert A Variable…</option>
+            {builtinGroups.map(([label, items]) => (
+              <optgroup key={label} label={label}>
+                {items.map(([t, l]) => <option key={t} value={t}>{l}</option>)}
+              </optgroup>
+            ))}
             {customVarKeys.length > 0 && (
-              <optgroup label="Custom variables">
+              <optgroup label="Custom Fields In This Template">
                 {customVarKeys.map(k => <option key={k} value={k}>{varLabel[k] || humanizeKey(k)}</option>)}
               </optgroup>
             )}
@@ -2765,7 +2831,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                 <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 8px', borderBottom: '1px solid var(--line)' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12.5, fontWeight: 700 }}>Version {v.versionNo}{i === 0 && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 800, color: 'hsl(var(--color-green))' }}>CURRENT</span>}</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{v.editedBy} · {(v.editedAt || '').slice(0, 16).replace('T', ' ')}{v.note ? ` · ${v.note}` : ''}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{v.editedBy} · {formatPacificDateTime(v.editedAt, '-')}{v.note ? ` · ${v.note}` : ''}</div>
                   </div>
                   {i !== 0 && (
                     <button onClick={() => restoreVersion(v)} disabled={!!restoringId}
@@ -2790,6 +2856,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       {fieldsPanel && kind === 'template' && (
         <TemplateFieldsPanel
           fieldDefs={fieldDefs} tokens={fieldsPanel.newTokens} highlight={fieldsPanel.newTokens}
+          docTokens={fieldsPanel.docTokens} builtins={builtins} shared={shared}
           onChange={saveFieldDefs}
           onEdit={(fd) => { setFieldsPanel(null); setMergeFieldModal({ existingDef: fd }); }}
           onClose={() => setFieldsPanel(null)} />

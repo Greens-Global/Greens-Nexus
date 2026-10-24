@@ -8,12 +8,15 @@
 // Manage rather than rendered here.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, CheckCircle2, SlidersHorizontal, Plus, Circle, CalendarDays, Bell, X, Building2, Flag, Clock, GripVertical, Check } from 'lucide-react';
+import {
+  ChevronDown, ChevronRight, SlidersHorizontal, Plus, Circle, X, GripVertical, Check, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
+  CheckSquare, Star, Sun, CalendarDays, Flag, AlertCircle, CheckCircle2, Users, Bell, Trash2, Activity,
+} from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { DeletedTasksTab as RecycleBinPanel } from './ManageView';
-import { fmtDate, taskIdFromUrl, taskAssignees } from './lib';
-import { NX, FONT, btn, card, PRIORITY_ORDER } from './theme';
-import { Avatar, useIsMobile, localTodayISO, notPast } from './components';
+import { taskIdFromUrl, taskAssignees } from './lib';
+import { NX, FONT, btn, PRIORITY_META } from './theme';
+import { useIsMobile, DateField, notPast } from './components';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { useTableValue, whenTablePrefsLoaded } from './tableCols';
@@ -21,29 +24,43 @@ import { api } from '../api';
 import UpdatesCard from './HomeUpdates';
 import ProjectIcon from './ProjectIcon';
 import { projectLook } from './projectLook';
+import { useMyDay } from './myDay';
+import {
+  localISO, addDays, completedOn, focusCounts, tileCounts, upcomingGroups, dueLabel, dayTitle, isRecurring,
+  byDueThenPriority, projectsAtRisk, teamWorkload, completedWeeks,
+} from './homeRules';
+import {
+  WidgetCard, WidgetHeader, ViewAll, FocusTiles, TaskLine, ProjectsAtRiskWidget, CompletedWeekWidget,
+  WeekAheadWidget, ByPriorityWidget, MyDayWidget, TeamWorkloadWidget, TeamsWidget, NotificationsWidget,
+} from './homeWidgets';
 
+// Keys are what saved layouts store, so a widget renamed in the Oct 23 2026
+// pass kept its key: 'urgent' is Projects at Risk (was "Urgent Tasks"),
+// 'team_members' is Team Workload (was "Team Members"), 'projects' is
+// Bookmarks. `desc` is the Add Widgets tray's one line; `offer: false` keeps
+// a widget for whoever has it while no longer offering it (Notifications -
+// the bell already holds every notice; Neil, Oct 23 2026).
 const WIDGET_META = [
-  { key: 'my_tasks', label: 'Tasks' },   // was "My Tasks" (Neil, Oct 13 2026); the key is what saved layouts store
+  { key: 'my_tasks', label: 'Tasks', Icon: CheckSquare },   // was "My Tasks" (Neil, Oct 13 2026)
   // What other people did lately on the tasks I am on (Neil, Oct 14 2026).
-  { key: 'updates', label: 'Updates' },
-  // Key stays 'projects' though the widget is now Bookmarks: it is what every
-  // saved dashboard layout stores, and renaming it would drop the widget off
-  // everyone's Home rather than change what it shows.
-  { key: 'projects', label: 'Bookmarks' },
-  { key: 'urgent', label: 'Urgent tasks' },
-  { key: 'activity', label: 'Completed this week' },
-  { key: 'week', label: 'Week ahead' },
-  { key: 'priorities', label: 'By priority' },
-  { key: 'teams', label: 'Teams' },
-  { key: 'team_members', label: 'Team Members' },
-  { key: 'notifications', label: 'Notifications' },
+  { key: 'updates', label: 'Updates', Icon: Activity },
+  { key: 'projects', label: 'Bookmarks', Icon: Star },
+  { key: 'my_day', label: 'My Day', Icon: Sun, desc: 'Today\'s list and how much of it is done.' },
+  { key: 'urgent', label: 'Projects at Risk', Icon: AlertCircle, desc: 'Your projects with overdue or due-soon work.' },
+  { key: 'activity', label: 'Completed This Week', Icon: CheckCircle2, desc: 'What you finished each day, against last week.' },
+  { key: 'week', label: 'Week Ahead', Icon: CalendarDays, desc: 'Your open tasks due each of the next 7 days.' },
+  { key: 'priorities', label: 'By Priority', Icon: Flag, desc: 'Your open tasks by priority.' },
+  { key: 'teams', label: 'Teams', Icon: Users, desc: 'The teams you are on.' },
+  { key: 'team_members', label: 'Team Workload', Icon: Users, desc: 'Open and overdue work for each teammate.' },
+  { key: 'notifications', label: 'Notifications', Icon: Bell, offer: false },
   // The Recycle Bin. On Home rather than under My Tasks (Neil, Sept 9): it is
   // not a view of my tasks, it is where deleted things wait - and it is meant
   // to grow past tasks to projects, portfolios and teams. A widget, so someone
   // who never deletes anything can switch it off from Customize like any other.
-  { key: 'recycle', label: 'Recycle Bin' },
+  { key: 'recycle', label: 'Recycle Bin', Icon: Trash2, desc: 'What you deleted, for 90 days.' },
 ];
-const DEFAULT_LAYOUT = ['my_tasks', 'updates', 'projects', 'urgent', 'activity', 'week', 'priorities'];
+// A Home nobody arranged (Neil, Oct 23 2026). A saved layout is kept as it is.
+const DEFAULT_LAYOUT = ['my_tasks', 'updates', 'projects', 'my_day', 'week', 'urgent', 'priorities'];
 // Always on Home, in a layout of their own above the customizable grid - not
 // removable or draggable there. Saved layouts still list them; they are just
 // not drawn twice.
@@ -57,10 +74,18 @@ const CORE_WIDE = 860;
 // layout's `introduced`, so taking it off again in Customize sticks. (Updates
 // was the first; it is core now, so the slotting no longer shows anywhere.)
 const INTRODUCED = ['updates'];
-const PRIORITY_COLORS = { urgent: '#fc6363', high: '#ffb546', medium: '#0998c3', low: '#9699a6' };
 const LAYOUT_KEY = 'nexus.homeWidgets';
-const TABS = ['Upcoming', 'Overdue', 'Completed'];
-const RANGES = [{ key: 'day', label: 'My Day', days: 0 }, { key: 'week', label: 'My Week', days: 7 }, { key: 'month', label: 'My Month', days: 30 }];
+const TABS = ['Upcoming', 'Overdue', 'In Progress', 'Completed'];
+// Rows the Tasks card shows before View All (Charmi's Upcoming ran to hundreds).
+const ROW_CAP = 12;
+// Today / This Week / This Month (Neil, Oct 23 2026 - called My Day / My Week /
+// My Month until Tasks got its own My Day list; the keys are unchanged).
+// `days` past today: This Week is the next 7 days, today included (homeRules.WEEK_LAST).
+const RANGES = [
+  { key: 'day', label: 'Today', days: 0, ahead: 'today', back: 'today' },
+  { key: 'week', label: 'This Week', days: 6, ahead: 'in the next 7 days', back: 'in the last 7 days' },
+  { key: 'month', label: 'This Month', days: 30, ahead: 'in the next 30 days', back: 'in the last 30 days' },
+];
 
 // Row-order masonry cell: measures its content and spans that many 8px grid
 // rows, so widgets keep left-to-right order while short ones pull UP to fill
@@ -96,13 +121,14 @@ function MasonryCell({ masonry, style, children, ...rest }) {
 
 // LOCAL calendar dates throughout. toISOString() is the UTC date, which on a US
 // evening is already tomorrow - "today" and the range edges were a day off.
-const localISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const todayISO = () => localISO(new Date());
-const addDays = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return localISO(d); };
-/** The local date a task was completed on ('' if it never recorded one). */
-const completedOn = (t) => (t.completedAt ? localISO(new Date(t.completedAt)) : '');
-const fmtUS = (iso) => fmtDate(iso);
 const dueColor = (iso, done) => { if (!iso || done) return NX.faint; const t = todayISO(); return iso < t ? NX.red : iso === t ? NX.amber : NX.dim; };
+
+// My Day reads its list only when its card is on the page.
+function MyDayCard(props) {
+  const myDay = useMyDay();
+  return <MyDayWidget myDay={myDay} {...props} />;
+}
 
 export default function HomeView({ onNavigate }) {
   const store = useTasks();
@@ -110,9 +136,23 @@ export default function HomeView({ onNavigate }) {
   const [tab, setTab] = useState('Upcoming');
   const [range, setRange] = useState('week');
   const [rangeOpen, setRangeOpen] = useState(false);
+  // A chart's pick narrows the Tasks card (Oct 23 2026): a Week Ahead day or a
+  // By Priority bar - { kind: 'day', iso } | { kind: 'priority', p } | null.
+  const [pick, setPick] = useState(null);
+  const [showUndated, setShowUndated] = useState(false);
+  const tasksCardRef = useRef(null);
+  const toTasksCard = () => { tasksCardRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); };
+  // My Tasks opens on the tab it was last left on; My Day's Open sets it first.
+  const [, setMineView] = useTableValue('mytasks', 'view', 'list');
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDue, setNewDue] = useState(null);
+  // The quick-add row saves when you leave it - Enter, Tab away, or a click
+  // anywhere outside the row and its calendar - and never while its date is
+  // being picked (the calendar takes focus; a picked date hands it back).
+  const createRowRef = useRef(null);
+  const titleRef = useRef(null);
+  const creatingTask = useRef(false);
   const [openId, setOpenId] = useState(taskIdFromUrl);
   // An update opens its task at the comment it is about ({ id, threadId, taskId }).
   const [openComment, setOpenComment] = useState(null);
@@ -127,7 +167,6 @@ export default function HomeView({ onNavigate }) {
   const [barSlot, setBarSlot] = useState(null);
   useEffect(() => { setBarSlot(document.getElementById('nx-tasks-bar-actions')); }, []);
   const isMobile = useIsMobile();
-  const dateRef = useRef(null);
   const rangeRef = useRef(null);
   // The layout lives in the person's profile (the "home" document in
   // /task-prefs, Oct 2026) so the Home they arranged at a desk is the Home
@@ -185,7 +224,25 @@ export default function HomeView({ onNavigate }) {
     next.splice(next.indexOf(to) >= 0 ? next.indexOf(to) : next.length, 0, from);
     persist(next);
   };
-  const availableWidgets = WIDGET_META.filter((w) => !widgets.includes(w.key) && !CORE.includes(w.key));
+  const availableWidgets = WIDGET_META.filter((w) => !widgets.includes(w.key) && !CORE.includes(w.key) && w.offer !== false);
+  // Keyboard and touch can't drag: Move Up / Move Down in customize mode.
+  // Earlier / Later in reading order (left to right, then down); focus stays
+  // on the button that moved, or its twin once the card reaches an end.
+  const move = (key, by) => {
+    const i = widgets.indexOf(key);
+    const extras = widgets.filter((k) => !CORE.includes(k));
+    const j = extras.indexOf(key) + by;
+    if (i < 0 || j < 0 || j >= extras.length) return;
+    const next = widgets.filter((k) => k !== key);
+    const anchor = extras[j];
+    const at = next.indexOf(anchor) + (by > 0 ? 1 : 0);
+    next.splice(at, 0, key);
+    persist(next);
+    setTimeout(() => {
+      const el = document.querySelector(`[data-move="${key}:${by}"]`);
+      (el && !el.disabled ? el : document.querySelector(`[data-move="${key}:${-by}"]`))?.focus();
+    }, 0);
+  };
   // The customizable grid: everything the person put on Home but the core.
   const extraWidgets = widgets.filter((k) => !CORE.includes(k));
 
@@ -246,27 +303,37 @@ export default function HomeView({ onNavigate }) {
       .catch(() => {});
   }, [updates]);
   const rangeDef = RANGES.find((r) => r.key === range);
-  const rangeEnd = addDays(todayISO(), rangeDef.days);
-  // The My Day / My Week / My Month picker scopes every tile and tab except
-  // Overdue (overdue is overdue whatever the window). It used to narrow only
-  // Upcoming - and that list also carried every undated task, so switching the
-  // range barely moved a number and read as a dead control.
-  //   Upcoming  - open, due between today and the end of the window
-  //   Completed - finished within the same window looking back (today / last
-  //               7 / last 30 days)
-  //   Priority  - urgent/high among the open work due by the window's end
-  //               (overdue included - it is still on the plate) or undated
-  const rangeStart = addDays(todayISO(), -rangeDef.days);
-  const overdue = myTasks.filter((t) => !t.completed && t.dueOn && t.dueOn < todayISO());
-  const completed = myTasks.filter((t) => t.completed && completedOn(t) >= rangeStart && completedOn(t) <= todayISO());
-  const upcoming = myTasks.filter((t) => !t.completed && t.dueOn && t.dueOn >= todayISO() && t.dueOn <= rangeEnd);
-  // The Upcoming LIST still carries undated open work, after the dated tasks -
-  // the tile counts only what is actually due in the window, but a task with
-  // no date (e.g. one just added from this card without one) must not vanish
-  // from Home altogether.
-  const undated = myTasks.filter((t) => !t.completed && !t.dueOn);
-  const upcomingList = [...upcoming.slice().sort((x, y) => x.dueOn.localeCompare(y.dueOn)), ...undated];
-  const shown = tab === 'Upcoming' ? upcomingList : tab === 'Overdue' ? overdue : completed;
+  const today = todayISO();
+  // The Today / This Week / This Month picker scopes Upcoming (due between
+  // today and the end of the window) and Completed (finished within the same
+  // window looking back). Overdue and In Progress are what they are whatever
+  // the window.
+  const rangeStart = addDays(today, -rangeDef.days);
+  const openMine = myTasks.filter((t) => !t.completed);
+  const overdue = openMine.filter((t) => t.dueOn && t.dueOn.slice(0, 10) < today).sort(byDueThenPriority);
+  const inProgress = openMine.filter((t) => t.status === 'in_progress').sort(byDueThenPriority);
+  const completed = myTasks.filter((t) => t.completed && completedOn(t) >= rangeStart && completedOn(t) <= today)
+    .sort((a, b) => String(b.completedAt || '').localeCompare(String(a.completedAt || '')));
+  const { groups: upcomingByDay, undated } = upcomingGroups(myTasks, today, rangeDef.days);
+  // The tiles and the line under them: the dashboard's own rule.
+  const tiles = tileCounts(myTasks, today);
+  const focus = focusCounts(myTasks, today);
+  const activeTile = pick ? null
+    : tab === 'Overdue' ? 'overdue' : tab === 'In Progress' ? 'inProgress'
+    : tab === 'Upcoming' && range === 'day' ? 'today' : tab === 'Upcoming' && range === 'week' ? 'week' : null;
+  const pickTile = (key) => {
+    setPick(null);
+    if (key === 'overdue') setTab('Overdue');
+    else if (key === 'inProgress') setTab('In Progress');
+    else { setTab('Upcoming'); setRange(key === 'today' ? 'day' : 'week'); }
+    toTasksCard();
+  };
+  const pickDay = (iso) => { setPick({ kind: 'day', iso }); toTasksCard(); };
+  const pickPriority = (p) => { setPick({ kind: 'priority', p }); toTasksCard(); };
+  const picked = !pick ? null
+    : pick.kind === 'day' ? openMine.filter((t) => (t.dueOn || '').slice(0, 10) === pick.iso).sort(byDueThenPriority)
+    : openMine.filter((t) => (t.priority || 'medium') === pick.p).sort(byDueThenPriority);
+  const pickLabel = !pick ? '' : pick.kind === 'day' ? `Due ${dayTitle(pick.iso)}` : `${PRIORITY_META[pick.p]?.label || pick.p} Priority`;
   const myTeams = useMemo(() => teams.filter((d) => (d.memberIds || []).includes(myEmail)), [teams, myEmail]);
   const teamMembers = useMemo(() => { const s = new Set(); myTeams.forEach((d) => (d.memberIds || []).forEach((id) => s.add(id))); return [...s]; }, [myTeams]);
   // The bookmark rows, in the order the person set. A bookmark whose project
@@ -276,7 +343,8 @@ export default function HomeView({ onNavigate }) {
     () => (projects || []).filter((p) => bookmarks?.has(p.id)),
     [projects, bookmarks],
   );
-  // Per-project task tallies for the monday-style progress bars on project cards.
+  const projectById = useMemo(() => new Map((projects || []).map((p) => [p.id, p])), [projects]);
+  // Per-project task tallies for the progress bars on Bookmarks.
   const projStats = useMemo(() => {
     const m = {};
     for (const t of tasks) {
@@ -286,69 +354,71 @@ export default function HomeView({ onNavigate }) {
     }
     return m;
   }, [tasks]);
-  // Taskboard-kit summary tiles: my open totals split by what needs attention.
-  const openMine = myTasks.filter((t) => !t.completed);
-  const openInRange = openMine.filter((t) => !t.dueOn || t.dueOn <= rangeEnd);
-  const priorityMine = openInRange.filter((t) => t.priority === 'urgent' || t.priority === 'high');
-  // Kit "Urgently task" list: projects ranked by overdue load, bar = completion.
-  const urgentProjects = useMemo(() => {
-    const today = todayISO();
-    const od = {};
-    for (const t of tasks) {
-      if (t.projectId && !t.parentTaskId && !t.completed && t.dueOn && t.dueOn < today) od[t.projectId] = (od[t.projectId] || 0) + 1;
-    }
-    return projects
-      .map((p) => ({ p, overdue: od[p.id] || 0, ...(projStats[p.id] || { total: 0, done: 0 }) }))
-      .filter((x) => x.total > 0)
-      .sort((a, b) => b.overdue - a.overdue || (b.total - b.done) - (a.total - a.done))
-      .slice(0, 4);
-  }, [projects, tasks, projStats]);
+  const teamProjectIds = useMemo(() => myTeams.map((d) => d.projectId).filter(Boolean), [myTeams]);
+  const atRisk = useMemo(() => projectsAtRisk(projects, tasks, { me: myEmail, bookmarks, today, teamProjectIds }),
+    [projects, tasks, myEmail, bookmarks, today, teamProjectIds]);
+  const workload = useMemo(() => teamWorkload(teamMembers, tasks, today), [teamMembers, tasks, today]);
 
   // Chart widgets - all derived from real task rows, nothing sampled.
   const dayCharts = useMemo(() => {
-    const today = todayISO();
-    const doneByDay = [];   // trailing 7 days, from completedAt
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(); d.setDate(d.getDate() - i);
-      const iso = d.toISOString().slice(0, 10);
-      doneByDay.push({
-        iso, label: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2),
-        n: myTasks.filter((t) => t.completed && (t.completedAt || '').slice(0, 10) === iso).length,
-      });
-    }
     const dueByDay = [];    // next 7 days incl. today, from dueOn (open tasks)
     for (let i = 0; i < 7; i++) {
-      const d = new Date(); d.setDate(d.getDate() + i);
-      const iso = d.toISOString().slice(0, 10);
-      dueByDay.push({
-        iso, today: iso === today,
-        day: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2),
-        date: d.getDate(),
-        n: myTasks.filter((t) => !t.completed && t.dueOn === iso).length,
-      });
+      const iso = addDays(today, i);
+      dueByDay.push({ iso, today: i === 0, n: myTasks.filter((t) => !t.completed && (t.dueOn || '').slice(0, 10) === iso).length });
     }
-    const prio = PRIORITY_ORDER.map((p) => ({ p, color: PRIORITY_COLORS[p], n: openMine.filter((t) => (t.priority || 'low') === p).length }));
-    return { doneByDay, dueByDay, prio };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myTasks]);
+    const prio = {};
+    for (const t of myTasks) if (!t.completed) prio[t.priority || 'medium'] = (prio[t.priority || 'medium'] || 0) + 1;
+    return { dueByDay, prio, weeks: completedWeeks(myTasks, today) };
+  }, [myTasks, today]);
 
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const firstName = (nameOf(myEmail) || '').split(' ')[0] || 'there';
-  const todayLong = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  // A row's context: its project (a subtask's is its parent's) and its parent.
+  const rowProps = (t) => {
+    const parent = t.parentTaskId ? taskById.get(t.parentTaskId) : null;
+    const pid = t.projectId || parent?.projectId || '';
+    const project = pid ? projectById.get(pid) : null;
+    return {
+      project, projectName: project ? project.name : '', parentTitle: parent?.title || '',
+      recurring: isRecurring(t), due: t.dueOn ? dueLabel(t.dueOn, today) : '', dueTone: dueColor((t.dueOn || '').slice(0, 10), t.completed),
+    };
+  };
+  const openMyDay = () => { setMineView('myday'); onNavigate('mine'); };
+  const openPerson = (email) => window.dispatchEvent(new CustomEvent('nexus:tasks-person', { detail: { email, name: nameOf(email) || email } }));
+  const openNotification = (n) => {
+    if (!n.read) store.markNotificationRead?.(n.id);
+    if (n.taskId) setOpenId(n.taskId);
+  };
 
   const cancelCreate = () => { setCreating(false); setNewTitle(''); setNewDue(null); };
   const commitCreate = async (openDetails) => {
     const title = newTitle.trim();
     if (!title) { if (!openDetails) cancelCreate(); return; }
-    const t = await createTask({ title, assigneeIds: myEmail ? [myEmail] : [], dueOn: newDue || '', status: 'not_started', priority: 'medium', type: 'task' }).catch(() => null);
+    // One save per title: cleared before the request, so Enter then a
+    // click-away cannot make it twice.
+    if (creatingTask.current) return;
+    creatingTask.current = true;
+    const dueOn = newDue || '';
     setNewTitle(''); setNewDue(null);
+    const t = await createTask({ title, assigneeIds: myEmail ? [myEmail] : [], dueOn, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => null);
+    creatingTask.current = false;
     if (openDetails && t) { setCreating(false); setOpenId(t.id); }
   };
+  // The click-away listener always calls the latest commitCreate.
+  const commitRef = useRef(commitCreate);
+  useEffect(() => { commitRef.current = commitCreate; });
+  useEffect(() => {
+    if (!creating) return undefined;
+    const away = (e) => {
+      const el = e.target;
+      if (createRowRef.current?.contains(el) || el?.closest?.('[data-nx-calendar]')) return;
+      commitRef.current(false);
+    };
+    document.addEventListener('pointerdown', away, true);
+    return () => document.removeEventListener('pointerdown', away, true);
+  }, [creating]);
 
   // Phones: slimmer card padding - the cards run edge to edge there (see the
   // phone block in style.css) and 20px a side cost a quarter of a task title.
-  const widgetBox = (children, extra) => <div style={{ ...card, borderRadius: 16, padding: isMobile ? '14px 14px 12px' : 20, breakInside: 'avoid', ...extra }}>{children}</div>;
+  const widgetBox = (children, extra) => <WidgetCard isMobile={isMobile} style={extra}>{children}</WidgetCard>;
   // The core's width decides side by side or stacked (CORE_WIDE). Measured,
   // not a media query: the sidebar's width changes what the column gets.
   const coreRef = useRef(null);
@@ -362,9 +432,9 @@ export default function HomeView({ onNavigate }) {
     return () => ro.disconnect();
   }, []);
   const coreWide = !isMobile && coreW >= CORE_WIDE;
-  // My Day / My Week / My Month. On the summary card at a desk; on phones that
-  // card is gone (Neil, Oct 14: keep it focused on the task list), so the
-  // picker sits in the Tasks card's own header - it scopes those tabs.
+  // Today / This Week / This Month, in the Tasks card's header - the tabs it
+  // scopes (Upcoming, Completed) are there, so it is too (Oct 23 2026; it sat
+  // on the tiles' card at a desk before).
   const rangePicker = (
     <div>
       <button ref={rangeRef} onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: 12.5 }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
@@ -374,61 +444,132 @@ export default function HomeView({ onNavigate }) {
       </AnchoredMenu>
     </div>
   );
-  // Widget options (remove/drag) live on the customize-mode overlay only -
-  // no always-visible more-options buttons (owner call, Jul 28).
-  const moreBtn = () => null;
+  // The Tasks card's list for the tab (or a chart's pick), capped at ROW_CAP
+  // with View All - grouped Today / Tomorrow / This Week / Later on Upcoming,
+  // with the undated ones folded under No Due Date.
+  // Under a Today or Tomorrow heading the row's own date would only repeat it.
+  const line = (t, group) => {
+    const p = rowProps(t);
+    return <TaskLine key={t.id} t={t} {...p} due={group === 'today' || group === 'tomorrow' ? '' : p.due} compact={isMobile} onOpen={setOpenId} onToggle={toggleComplete} />;
+  };
+  const groupHead = (label, n, extra) => (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 0 4px', fontSize: 11.5, fontWeight: 700, color: NX.faint, letterSpacing: '.02em' }}>
+      {extra}{label}<span style={{ fontWeight: 600 }}>{n}</span>
+    </span>
+  );
+  const tasksList = () => {
+    if (store.loading && myTasks.length === 0) return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '10px 0' }}>
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span className="skel" style={{ width: 16, height: 16, borderRadius: '50%' }} />
+            <span className="skel" style={{ width: `${62 - i * 9}%`, height: 12 }} />
+            <span className="skel" style={{ width: 64, height: 11, marginLeft: 'auto' }} />
+          </div>
+        ))}
+      </div>
+    );
+    const windowWords = rangeDef.ahead;
+    const lookback = rangeDef.back;
+    let flat = null;
+    let emptyText = 'Nothing here.';
+    if (picked) { flat = picked; emptyText = pick.kind === 'day' ? 'Nothing due that day.' : 'No open tasks at that priority.'; }
+    else if (tab === 'Overdue') { flat = overdue; emptyText = 'Nothing overdue.'; }
+    else if (tab === 'In Progress') { flat = inProgress; emptyText = 'Nothing in progress. Set a task to In Progress to see it here.'; }
+    else if (tab === 'Completed') { flat = completed; emptyText = `Nothing completed ${lookback}.`; }
+    const total = flat ? flat.length : upcomingByDay.reduce((n, g) => n + g.rows.length, 0);
+    const viewAll = (n) => (
+      <div style={{ paddingTop: 8 }}><ViewAll label={`${n - ROW_CAP} More in My Tasks`} onClick={() => { setMineView('list'); onNavigate('mine'); }} /></div>
+    );
+    if (flat) {
+      if (flat.length === 0) return <p style={{ padding: '24px 0', textAlign: 'center', fontSize: 13, color: NX.faint, margin: 0 }}>{emptyText}</p>;
+      return <div style={{ display: 'flex', flexDirection: 'column' }}>{flat.slice(0, ROW_CAP).map((t) => line(t))}{flat.length > ROW_CAP && viewAll(flat.length)}</div>;
+    }
+    // Upcoming: the groups, up to ROW_CAP rows in all.
+    let left = ROW_CAP;
+    const blocks = [];
+    for (const g of upcomingByDay) {
+      if (left <= 0) break;
+      const rows = g.rows.slice(0, left);
+      left -= rows.length;
+      blocks.push(<div key={g.key}>{groupHead(g.label, g.rows.length)}{rows.map((t) => line(t, g.key))}</div>);
+    }
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {total === 0 && <p style={{ padding: '18px 0 10px', textAlign: 'center', fontSize: 13, color: NX.faint, margin: 0 }}>{`Nothing due ${windowWords}.`}</p>}
+        {blocks}
+        {total > ROW_CAP && viewAll(total)}
+        {undated.length > 0 && (
+          <div>
+            <button type="button" onClick={() => setShowUndated((v) => !v)} aria-expanded={showUndated}
+              style={{ ...btn('ghost'), padding: 0, marginTop: 4 }}>
+              {groupHead('No Due Date', undated.length, showUndated ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
+            </button>
+            {showUndated && <>{undated.slice(0, ROW_CAP).map((t) => line(t))}{undated.length > ROW_CAP && viewAll(undated.length)}</>}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderWidget = (key) => {
     if (key === 'my_tasks') return widgetBox(
-      <>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {!isMobile && <Avatar email={myEmail} name={nameOf(myEmail)} size={38} />}
-            <button onClick={() => onNavigate('mine')} style={{ ...btn('ghost'), padding: 0, fontSize: 16, fontWeight: 700, color: NX.ink }}>Tasks</button>
+      <div ref={tasksCardRef} data-home-tasks style={{ scrollMarginTop: 12 }}>
+        <WidgetHeader Icon={CheckSquare} tone={NX.blue} title="Tasks" onTitle={() => onNavigate('mine')}
+          action={(tab === 'Upcoming' || tab === 'Completed') && !pick ? rangePicker : null} />
+        <div role="tablist" aria-label="Tasks"
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+            e.preventDefault();
+            const i = TABS.indexOf(pick ? '' : tab);
+            const next = TABS[(Math.max(0, i) + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length];
+            setPick(null); setTab(next);
+            setTimeout(() => e.currentTarget?.querySelector?.(`[data-tab="${next}"]`)?.focus(), 0);
+          }}
+          style={{ display: 'flex', alignItems: 'center', gap: 16, borderBottom: `1px solid ${NX.border}`, marginBottom: 10, fontSize: 13, fontWeight: 600, flexWrap: 'wrap' }}>
+          {TABS.map((t) => {
+            const on = tab === t && !pick;
+            const n = t === 'Overdue' ? overdue.length : t === 'In Progress' ? inProgress.length : 0;
+            return (
+              <button key={t} type="button" role="tab" aria-selected={on} aria-controls="home-tasks-panel" tabIndex={on || (pick && t === tab) ? 0 : -1} data-tab={t}
+                onClick={() => { setPick(null); setTab(t); }}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '0 0 8px', borderBottom: `2px solid ${on ? NX.blue : 'transparent'}`, color: on ? NX.blue : NX.dim, fontFamily: FONT, fontWeight: 600 }}>
+                {t}{n > 0 ? ` (${n})` : ''}
+              </button>
+            );
+          })}
+        </div>
+        {pick && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 6px 3px 10px', borderRadius: 999, background: `${NX.blue}1a`, color: NX.blue, fontSize: 12.5, fontWeight: 600 }}>
+              {pickLabel}
+              <button type="button" onClick={() => setPick(null)} aria-label="Clear Filter" title="Clear Filter"
+                style={{ ...btn('ghost'), padding: 2, color: NX.blue, borderRadius: '50%' }}><X size={13} /></button>
+            </span>
           </div>
-          {isMobile ? rangePicker : moreBtn(() => onNavigate('mine'))}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, borderBottom: `1px solid ${NX.border}`, marginBottom: 10, fontSize: 13, fontWeight: 600, flexWrap: 'wrap' }}>
-          {TABS.map((t) => (
-            <button key={t} onClick={() => setTab(t)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', paddingBottom: 8, borderBottom: `2px solid ${tab === t ? NX.blue : 'transparent'}`, color: tab === t ? NX.blue : NX.dim, fontFamily: FONT, fontWeight: 600 }}>
-              {t}{t === 'Overdue' && overdue.length > 0 ? ` (${overdue.length})` : ''}
-            </button>
-          ))}
-        </div>
+        )}
         {creating ? (
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, borderBottom: `2px solid ${NX.blue}`, padding: '6px 0', marginBottom: 4 }}>
+          <div ref={createRowRef} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, borderBottom: `2px solid ${NX.blue}`, padding: '6px 0', marginBottom: 4 }}>
             <Circle size={16} style={{ color: NX.faint, flexShrink: 0 }} />
-            <input autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(false); if (e.key === 'Escape') cancelCreate(); }} onBlur={() => commitCreate(false)} placeholder="Write a task name" className="nx-inline-edit" style={{ flex: 1, minWidth: 0, border: 'none', fontFamily: FONT, fontSize: 13, color: NX.ink }} />
-            {newDue && <span style={{ fontSize: 12, fontWeight: 500, color: dueColor(newDue, false) }}>{fmtUS(newDue)}</span>}
-            <button onMouseDown={(e) => { e.preventDefault(); dateRef.current?.showPicker?.() ?? dateRef.current?.focus(); }} style={{ ...btn('ghost'), padding: 4, color: NX.faint }} title="Set due date"><CalendarDays size={16} /></button>
-            <input ref={dateRef} type="date" value={newDue ?? ''} min={localTodayISO()} onChange={(e) => setNewDue(notPast(e.target.value) || null)} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
-            <button onMouseDown={(e) => { e.preventDefault(); commitCreate(true); }} style={{ ...btn('ghost'), padding: 4, color: NX.faint }} title="Details"><ChevronRight size={16} /></button>
+            <input ref={titleRef} autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} aria-label="Task Name"
+              onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(false); if (e.key === 'Escape') cancelCreate(); }}
+              // Keyboard focus leaving the row saves; a pointer leaving it is the
+              // document listener above (a click inside the calendar moves
+              // focus too, and must not save).
+              onBlur={(e) => { const to = e.relatedTarget; if (to && !createRowRef.current?.contains(to) && !to.closest?.('[data-nx-calendar]')) commitCreate(false); }}
+              placeholder="Write a task name" className="nx-inline-edit" style={{ flex: 1, minWidth: 0, border: 'none', fontFamily: FONT, fontSize: 13, color: NX.ink }} />
+            {/* DateField, never a native date box (it follows the computer's
+                region). A picked date puts the cursor back in the title, so
+                Enter saves. */}
+            <DateField compact noPast value={newDue || ''} title="Set Due Date" color={newDue ? dueColor(newDue, false) : undefined}
+              onChange={(v) => { setNewDue(notPast(v) || null); setTimeout(() => titleRef.current?.focus(), 0); }} />
+            <button onMouseDown={(e) => { e.preventDefault(); commitCreate(true); }} style={{ ...btn('ghost'), padding: 4, color: NX.faint }} title="Details" aria-label="Details"><ChevronRight size={16} /></button>
           </div>
         ) : (
           <button onClick={() => setCreating(true)} style={{ ...btn('ghost'), padding: '6px 0', color: NX.dim, fontSize: 13, fontWeight: 500 }}><Plus size={15} /> Create Task</button>
         )}
-        {store.loading && shown.length === 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '10px 0' }}>
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span className="skel" style={{ width: 16, height: 16, borderRadius: '50%' }} />
-                <span className="skel" style={{ width: `${62 - i * 9}%`, height: 12 }} />
-                <span className="skel" style={{ width: 64, height: 11, marginLeft: 'auto' }} />
-              </div>
-            ))}
-          </div>
-        ) : shown.length === 0 ? <p style={{ padding: '24px 0', textAlign: 'center', fontSize: 13, color: NX.faint }}>{tab === 'Completed' ? `Nothing completed ${rangeDef.key === 'day' ? 'today' : `in the last ${rangeDef.days} days`}.` : tab === 'Upcoming' ? `Nothing due ${rangeDef.key === 'day' ? 'today' : `in the next ${rangeDef.days} days`}.` : 'Nothing here.'}</p> : (
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {shown.map((t) => (
-              <div key={t.id} data-task-row onClick={() => setOpenId(t.id)} className="nx-row-hover" style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border2}`, padding: '8px 6px', margin: '0 -6px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
-                <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={16} /> : <Circle size={16} />}</button>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
-                {t.dueOn && <span style={{ fontSize: 12, fontWeight: 600, color: dueColor(t.dueOn, t.completed) }}>{fmtUS(t.dueOn)}</span>}
-              </div>
-            ))}
-          </div>
-        )}
-      </>
+        <div id="home-tasks-panel" role="tabpanel" aria-label={pick ? pickLabel : tab}>{tasksList()}</div>
+      </div>
     );
     if (key === 'updates') return (
       <UpdatesCard updates={updates} failed={updatesFailed} seenAt={updatesSeenAt} nameOf={nameOf} statusMeta={store.statusMeta}
@@ -438,10 +579,7 @@ export default function HomeView({ onNavigate }) {
     );
     if (key === 'projects') return widgetBox(
       <>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Bookmarks</h2>
-          {moreBtn(() => onNavigate('projects'))}
-        </div>
+        <WidgetHeader Icon={Star} tone={NX.amber} title="Bookmarks" count={bookmarked.length || null} action={{ label: 'View All', onClick: () => onNavigate('projects') }} />
         {/* Was "Projects": the four most recent, as cover-band tiles. Two
             problems with that (Neil, Sept 8) - the list was whatever the API
             returned rather than what you care about, and a tile is ~110px tall,
@@ -449,7 +587,7 @@ export default function HomeView({ onNavigate }) {
             as LINES: the same card now holds a dozen, which is the number a
             person actually watches. Bookmark from a project's own header. */}
         {bookmarked.length === 0 ? (
-          <div style={{ padding: '18px 0', fontSize: 13, color: NX.faint }}>
+          <div style={{ padding: '6px 0', fontSize: 13, color: NX.faint }}>
             No bookmarks yet. Open a project and click the <strong>star</strong> next to its name to pin it here.
           </div>
         ) : (
@@ -471,7 +609,7 @@ export default function HomeView({ onNavigate }) {
                   {/* The bar is the whole point of a watch list - progress at a
                       glance, without opening anything. */}
                   <span style={{ width: 64, height: 5, borderRadius: 3, background: NX.border2, overflow: 'hidden', flexShrink: 0 }}>
-                    <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 3, background: pct === 100 ? '#00c875' : pc }} />
+                    <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 3, background: pct === 100 ? NX.green : pc }} />
                   </span>
                   <span style={{ fontSize: 11.5, color: NX.faint, flexShrink: 0, width: 46, textAlign: 'right' }}>
                     {st.total ? `${st.done}/${st.total}` : '-'}
@@ -488,188 +626,32 @@ export default function HomeView({ onNavigate }) {
     );
     if (key === 'recycle') return widgetBox(
       <>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Recycle Bin</h2>
-        </div>
+        <WidgetHeader Icon={Trash2} tone={NX.dim} title="Recycle Bin" style={{ marginBottom: 4 }} />
         {/* scope="mine" - what YOU deleted plus what you were assigned, enforced
             server-side and NOT widened for managers. The whole workspace's is
             Manage > Recycle Bin, which is a different question. */}
         <RecycleBinPanel store={store} scope="mine" />
       </>
     );
-    if (key === 'teams') return widgetBox(
-      <>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Teams</h2>
-          {moreBtn(() => onNavigate('teams'))}
-        </div>
-        {myTeams.length === 0 ? <p style={{ padding: '16px 0', fontSize: 13, color: NX.faint }}>You're not part of any team yet.</p> : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {myTeams.map((d) => {
-              const proj = d.projectId ? projects.find((p) => p.id === d.projectId) : null;
-              return (
-                <button key={d.id} onClick={() => onNavigate('teams')} style={{ display: 'flex', alignItems: 'center', gap: 12, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: NX.surface, textAlign: 'left', fontFamily: FONT }}>
-                  <span style={{ display: 'flex', width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 9, background: `${d.color}1a`, color: d.color }}><Building2 size={18} /></span>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</div>
-                    <div style={{ fontSize: 12, color: NX.faint }}>{(d.memberIds || []).length} member{(d.memberIds || []).length === 1 ? '' : 's'} · {proj ? proj.name : 'Unassigned'}</div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </>
+    if (key === 'my_day') return (
+      <MyDayCard onOpenTask={setOpenId} onToggle={toggleComplete} onOpenMyDay={openMyDay} isMobile={isMobile} />
     );
-    if (key === 'team_members') return widgetBox(
-      <>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <Building2 size={18} style={{ color: NX.faint }} /><h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Team Members</h2><span style={{ fontSize: 13, color: NX.faint }}>{teamMembers.length}</span>
-        </div>
-        {teamMembers.length === 0 ? <p style={{ padding: '16px 0', fontSize: 13, color: NX.faint }}>No teammates yet.</p> : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {teamMembers.map((em) => (
-              <div key={em} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Avatar email={em} name={nameOf(em)} size={34} />
-                <div style={{ minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</div></div>
-              </div>
-            ))}
-          </div>
-        )}
-      </>
+    if (key === 'teams') return <TeamsWidget teams={myTeams} projects={projects} onViewAll={() => onNavigate('teams')} isMobile={isMobile} />;
+    if (key === 'team_members') return <TeamWorkloadWidget rows={workload} nameOf={nameOf} me={myEmail} onOpenPerson={openPerson} isMobile={isMobile} />;
+    if (key === 'urgent') return <ProjectsAtRiskWidget rows={atRisk} onOpenProject={(id) => onNavigate({ projectId: id })} onViewAll={() => onNavigate('projects')} isMobile={isMobile} />;
+    if (key === 'activity') return (
+      <CompletedWeekWidget weeks={dayCharts.weeks} isMobile={isMobile}
+        onOpen={() => { setPick(null); setTab('Completed'); setRange('week'); toTasksCard(); }} />
     );
-    if (key === 'urgent') return widgetBox(
-      <>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Urgent Tasks</h2>
-          {moreBtn(() => onNavigate('projects'))}
-        </div>
-        {urgentProjects.length === 0 ? <p style={{ padding: '16px 0', fontSize: 13, color: NX.faint }}>No projects with open tasks - nothing is on fire.</p> : (
-          <>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {urgentProjects.map(({ p, overdue: od, total, done }) => (
-                <button key={p.id} onClick={() => onNavigate({ projectId: p.id })}
-                  style={{ ...btn('ghost'), display: 'block', width: '100%', padding: 0, textAlign: 'left' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 13 }}>
-                    <span style={{ fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.name}</span>
-                    {od > 0 && <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: `${NX.red}1a`, color: NX.red }}>{od} overdue</span>}
-                    <span style={{ fontSize: 12, color: NX.faint, fontVariantNumeric: 'tabular-nums' }}>{done}/{total}</span>
-                  </div>
-                  {/* Kit's dark bars: near-black fill on a light track */}
-                  <div style={{ height: 10, borderRadius: 99, background: NX.border2, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${total ? Math.max(4, Math.round((done / total) * 100)) : 0}%`, borderRadius: 99, background: NX.ink }} />
-                  </div>
-                </button>
-              ))}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 11, color: NX.faint }}>
-              <span>0%</span><span>50%</span><span>100%</span>
-            </div>
-          </>
-        )}
-      </>
-    );
-    if (key === 'activity') {
-      const { doneByDay } = dayCharts;
-      const maxDone = Math.max(...doneByDay.map((d) => d.n), 1);
-      const weekTotal = doneByDay.reduce((s, d) => s + d.n, 0);
-      return widgetBox(
-        <>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Completed This Week</h2>
-            <span style={{ fontSize: 13, color: NX.faint }}>{weekTotal} task{weekTotal === 1 ? '' : 's'}</span>
-          </div>
-          <div role="button" tabIndex={0} title="Open your completed tasks"
-            onClick={() => { setTab('Completed'); onNavigate('mine'); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') { setTab('Completed'); onNavigate('mine'); } }}
-            style={{ display: 'flex', gap: 10, alignItems: 'flex-end', height: 96, cursor: 'pointer' }}>
-            {doneByDay.map((d) => (
-              <div key={d.iso} title={`${d.iso}: ${d.n} completed`}
-                style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 5, height: '100%' }}>
-                {d.n > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: '#06c698', fontVariantNumeric: 'tabular-nums' }}>{d.n}</span>}
-                <div style={{ width: '100%', maxWidth: 26, height: d.n === 0 ? 3 : Math.max(10, Math.round((d.n / maxDone) * 66)), borderRadius: 99, background: d.n === 0 ? NX.border2 : 'linear-gradient(180deg, #4fd9b3 0%, #06c698 100%)' }} />
-              </div>
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
-            {doneByDay.map((d) => <span key={d.iso} style={{ flex: 1, textAlign: 'center', fontSize: 11, color: NX.faint }}>{d.label}</span>)}
-          </div>
-        </>
-      );
-    }
-    if (key === 'week') return widgetBox(
-      <>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Week Ahead</h2>
-          {moreBtn(() => { setTab('Upcoming'); onNavigate('mine'); })}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {dayCharts.dueByDay.map((d) => (
-            <div key={d.iso} role="button" tabIndex={0} title={`${d.iso}: ${d.n} due - open upcoming tasks`}
-              onClick={() => { setTab('Upcoming'); onNavigate('mine'); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') { setTab('Upcoming'); onNavigate('mine'); } }}
-              /* Today's cell inverts to stand out - NX.primary (brand blue,
-                 unchanged across themes), not NX.ink (Sep 19: "not visible
-                 clearly" - NX.ink is near-black in light mode, which reads
-                 fine as an inverted dark tile with white text, but flips to
-                 near-white in dark mode, so the hardcoded white date number
-                 below was rendering white-on-near-white). */
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px', borderRadius: 12, background: d.today ? NX.primary : NX.hover, minWidth: 0, cursor: 'pointer' }}>
-              <span style={{ fontSize: 11, color: d.today ? 'rgba(255,255,255,.7)' : NX.faint }}>{d.day}</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: d.today ? '#fff' : NX.ink, fontVariantNumeric: 'tabular-nums' }}>{d.date}</span>
-              <span style={{ minWidth: 20, textAlign: 'center', padding: '1px 6px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: d.n > 0 ? (d.today ? 'rgba(255,255,255,.22)' : 'rgba(9,152,195,0.16)') : 'transparent', color: d.n > 0 ? (d.today ? '#fff' : '#0998c3') : (d.today ? 'rgba(255,255,255,.4)' : NX.faint) }}>
-                {d.n > 0 ? d.n : '·'}
-              </span>
-            </div>
-          ))}
-        </div>
-        <div style={{ marginTop: 10, fontSize: 12, color: NX.faint }}>Open tasks due per day</div>
-      </>
-    );
-    if (key === 'priorities') {
-      const maxP = Math.max(...dayCharts.prio.map((x) => x.n), 1);
-      return widgetBox(
-        <>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>By Priority</h2>
-            <span style={{ fontSize: 13, color: NX.faint }}>{openMine.length} open</span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {dayCharts.prio.map(({ p, color, n }) => (
-              <div key={p} role="button" tabIndex={0} title={`Open your ${p}-priority tasks`}
-                onClick={() => { setTab('Upcoming'); onNavigate('mine'); }}
-                onKeyDown={(e) => { if (e.key === 'Enter') { setTab('Upcoming'); onNavigate('mine'); } }}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer' }}>
-                <span style={{ width: 62, color: NX.dim, textTransform: 'capitalize', flexShrink: 0 }}>{p}</span>
-                <span style={{ flex: 1, height: 9, borderRadius: 6, background: NX.border2, overflow: 'hidden' }}>
-                  <span style={{ display: 'block', height: '100%', width: `${Math.round((n / maxP) * 100)}%`, minWidth: n > 0 ? 10 : 0, borderRadius: 6, background: color }} />
-                </span>
-                <span style={{ fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums', width: 18, textAlign: 'right' }}>{n}</span>
-              </div>
-            ))}
-          </div>
-        </>
-      );
-    }
-    if (key === 'notifications') return widgetBox(
-      <>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <Bell size={18} style={{ color: NX.faint }} /><h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Notifications</h2>
-        </div>
-        {(notifications || []).length === 0 ? <p style={{ padding: '16px 0', fontSize: 13, color: NX.faint }}>You're all caught up.</p> : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {(notifications || []).slice(0, 6).map((n) => (
-              <div key={n.id} style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{n.title}</span>
-                <span style={{ fontSize: 12, color: NX.dim }}>{n.body}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </>
-    );
+    if (key === 'week') return <WeekAheadWidget days={dayCharts.dueByDay} onPickDay={pickDay} isMobile={isMobile} />;
+    if (key === 'priorities') return <ByPriorityWidget counts={dayCharts.prio} open={openMine.length} onPick={pickPriority} isMobile={isMobile} />;
+    if (key === 'notifications') return <NotificationsWidget notifications={notifications} onOpen={openNotification} isMobile={isMobile} />;
     return null;
   };
+
+  const metaOf = (key) => WIDGET_META.find((w) => w.key === key);
+  const overlayOff = { opacity: 0.4, cursor: 'default', boxShadow: 'none' };
+  const overlayBtn = { width: 26, height: 26, borderRadius: '50%', border: `1px solid ${NX.border}`, background: NX.surface, color: NX.dim, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.12)', cursor: 'pointer', padding: 0 };
 
   return (
     <div className="nx-page" style={{ padding: '24px 24px 76px', fontFamily: FONT, color: NX.ink, height: '100%', overflow: 'auto' }}>
@@ -686,77 +668,19 @@ export default function HomeView({ onNavigate }) {
             <button onClick={() => { setCustomizing(false); setDragKey(null); setOverKey(null); }} style={{ ...btn('primary'), flexShrink: 0, whiteSpace: 'nowrap' }}><Check size={14} /> Done</button>
           </>
         ) : (
-          <button onClick={() => setCustomizing(true)} title="Customize widgets" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap' }}><SlidersHorizontal size={14} /> Customize</button>
+          <button onClick={() => setCustomizing(true)} title="Customize Widgets" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap' }}><SlidersHorizontal size={14} /> Customize</button>
         ),
         barSlot,
       )}
 
-      {/* Taskboard-kit summary tiles (owner-adopted concept): pastel tiles with
-          solid icon chips and X/Y fractions of MY real tasks. Each tile is a
-          real action - it switches the My Tasks widget tab or jumps to a view.
-          Wrapped in the kit's titled section card so the row reads as one
-          composed group even at full-bleed width. */}
-      {/* Not on phones (Neil, Oct 14): four tiles across a phone were a row
-          of tiny numbers the list's own tabs already carry, and they pushed
-          the list itself below the fold. The range picker moves into the
-          Tasks card there. */}
-      {!isMobile && (
-      <div style={{ ...card, borderRadius: 16, padding: 20, marginBottom: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '0 0 14px' }}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Tasks</h2>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          {rangePicker}
-        </div>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: isMobile ? 6 : 16 }}>
-        {[
-          /* bg is a translucent tint of `chip`, not an opaque pastel hex (Sep
-             19: "Colours are still not accurate" - an opaque light pastel
-             like #e4f5ee reads fine on a white card but turns into a glaring
-             light patch on a dark one; the rest of the app's tint pattern -
-             STATUS_META/PRIORITY_META in theme.js - already solves this by
-             using low-alpha rgba of the accent colour, which reads correctly
-             composited over either card colour). */
-          { label: 'Priority', n: priorityMine.length, of: openInRange.length, unit: 'open', Icon: Flag, chip: '#06c698', bg: 'rgba(6,198,152,0.16)', go: () => onNavigate('mine'), title: 'Open my tasks' },
-          { label: 'Upcoming', n: upcoming.length, of: myTasks.length, unit: 'tasks', Icon: CalendarDays, chip: '#0998c3', bg: 'rgba(9,152,195,0.16)', go: () => setTab('Upcoming'), title: 'Show upcoming' },
-          { label: 'Overdue', n: overdue.length, of: myTasks.length, unit: 'tasks', Icon: Clock, chip: '#7c6af0', bg: 'rgba(124,106,240,0.16)', go: () => setTab('Overdue'), title: 'Show overdue' },
-          { label: 'Completed', n: completed.length, of: myTasks.length, unit: 'tasks', Icon: CheckCircle2, chip: '#fc6363', bg: 'rgba(252,99,99,0.16)', go: () => setTab('Completed'), title: 'Show completed' },
-        ].map(({ label, n, of, unit, Icon, chip, bg, go, title }) => (
-          /* Horizontal anatomy (chip left, text right) at desktop width - a
-             vertical (chip-on-top) tile stretched across a wide column reads
-             as empty wash there. Mobile flips to that same chip-on-top
-             anatomy deliberately: 4 across a phone width leaves each tile too
-             narrow for icon+text side by side, so it goes vertical and
-             compact instead - smaller chip, tighter type, no unit word. */
-          <button key={label} onClick={go} title={title}
-            style={{
-              background: bg, border: 'none', borderRadius: isMobile ? 12 : 16,
-              padding: isMobile ? '10px 4px' : '16px 18px', cursor: 'pointer',
-              textAlign: isMobile ? 'center' : 'left', fontFamily: FONT,
-              display: 'flex', alignItems: 'center',
-              flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 6 : 14,
-              minWidth: 0, transition: 'transform .15s, box-shadow .15s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(29,33,57,.10)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}>
-            <span style={{
-              width: isMobile ? 26 : 44, height: isMobile ? 26 : 44, borderRadius: isMobile ? 8 : 13,
-              background: chip, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              <Icon size={isMobile ? 13 : 20} />
-            </span>
-            <span style={{ display: 'flex', flexDirection: 'column', alignItems: isMobile ? 'center' : 'stretch', gap: 3, minWidth: 0 }}>
-              <span style={{ fontSize: isMobile ? 10.5 : 13.5, color: NX.dim, lineHeight: 1.15 }}>{label}</span>
-              <span style={{ fontSize: isMobile ? 15 : 24, fontWeight: 800, color: NX.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                {n}
-                <span style={{ fontSize: isMobile ? 10.5 : 14, fontWeight: 600, color: NX.dim }}> /{of}{!isMobile ? ` ${unit}` : ''}</span>
-              </span>
-            </span>
-          </button>
-        ))}
-      </div>
-      </div>
-      )}
+      {/* The four tiles (Neil, Oct 23 2026): Overdue / Due Today / This Week /
+          In Progress, each a tint of what it means, each switching the Tasks
+          card below; under them the dashboard's own number. They replace the
+          pastel kit tiles, whose colors meant nothing (Completed was red) and
+          whose "/N" divided by every task the person ever had. Not on phones
+          (Neil, Oct 14): the list's tabs carry the same counts there, and the
+          tiles pushed the list below the fold. */}
+      {!isMobile && <FocusTiles counts={tiles} focus={focus} onPick={pickTile} active={activeTile} />}
 
       {/* The core: Tasks and Bookmarks down the left, Updates beside them for
           the full height of both (its list scrolls inside), so the feed gets
@@ -783,14 +707,20 @@ export default function HomeView({ onNavigate }) {
 
       {/* Customize mode: add-widget tray (only unused widgets) */}
       {customizing && availableWidgets.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Add widgets:</span>
-          {availableWidgets.map((w) => (
-            <button key={w.key} onClick={() => persist([...widgets, w.key])}
-              style={{ ...btn('ghost'), border: `1px dashed ${NX.border}`, borderRadius: 20, padding: '5px 13px', fontSize: 12.5, color: NX.dim }}>
-              <Plus size={13} /> {w.label}
-            </button>
-          ))}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Add Widgets</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(240px, 100%), 1fr))', gap: 8 }}>
+            {availableWidgets.map(({ key: k, label, Icon, desc }) => (
+              <button key={k} type="button" onClick={() => persist([...widgets, k])}
+                style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: '10px 12px', borderRadius: 12, border: `1px dashed ${NX.border}`, background: 'transparent', cursor: 'pointer', fontFamily: FONT }}>
+                <span aria-hidden="true" style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: NX.hover, color: NX.dim }}>{Icon ? <Icon size={14} /> : <Plus size={14} />}</span>
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 600, color: NX.ink }}><Plus size={12} /> {label}</span>
+                  {desc && <span style={{ display: 'block', fontSize: 12, color: NX.faint, marginTop: 2 }}>{desc}</span>}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -830,9 +760,16 @@ export default function HomeView({ onNavigate }) {
             }}>
             {customizing && (
               <div style={{ position: 'absolute', top: -12, right: 6, zIndex: 5, display: 'flex', gap: 4 }}>
-                <span title="Drag to rearrange" style={{ width: 26, height: 26, borderRadius: '50%', border: `1px solid ${NX.border}`, background: NX.surface, color: NX.faint, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.12)', cursor: 'grab' }}><GripVertical size={14} /></span>
-                <button onClick={() => persist(widgets.filter((k) => k !== key))} title="Remove widget"
-                  style={{ width: 26, height: 26, borderRadius: '50%', border: `1px solid ${NX.border}`, background: NX.surface, color: NX.dim, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.12)', cursor: 'pointer' }}><X size={14} /></button>
+                {!isMobile && <span title="Drag to rearrange" style={{ ...overlayBtn, color: NX.faint, cursor: 'grab' }}><GripVertical size={14} /></span>}
+                {/* Dragging needs a mouse; these work by keyboard and touch. */}
+                <button type="button" data-move={`${key}:-1`} onClick={() => move(key, -1)} disabled={extraWidgets.indexOf(key) === 0}
+                  title="Move Earlier" aria-label={`Move ${metaOf(key)?.label || key} Earlier`} style={{ ...overlayBtn, ...(extraWidgets.indexOf(key) === 0 ? overlayOff : {}) }}>
+                  {isMobile ? <ArrowUp size={14} /> : <ArrowLeft size={14} />}</button>
+                <button type="button" data-move={`${key}:1`} onClick={() => move(key, 1)} disabled={extraWidgets.indexOf(key) === extraWidgets.length - 1}
+                  title="Move Later" aria-label={`Move ${metaOf(key)?.label || key} Later`} style={{ ...overlayBtn, ...(extraWidgets.indexOf(key) === extraWidgets.length - 1 ? overlayOff : {}) }}>
+                  {isMobile ? <ArrowDown size={14} /> : <ArrowRight size={14} />}</button>
+                <button type="button" onClick={() => persist(widgets.filter((k) => k !== key))} title="Remove Widget"
+                  aria-label={`Remove ${metaOf(key)?.label || key}`} style={overlayBtn}><X size={14} /></button>
               </div>
             )}
             {renderWidget(key)}

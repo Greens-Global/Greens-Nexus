@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Building2, Check, ChevronDown, ExternalLink, FolderUp, Home, Landmark, Mail, Pencil, Plus, RefreshCw, Search, Tags, Trash2, UserPlus, Users, X } from 'lucide-react';
-import { api } from '../../api';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, Building2, Check, ChevronDown, ExternalLink, FolderUp, Home, Landmark, Mail, Pencil, Plus, RefreshCw, Tags, Trash2, UserPlus, Users, X } from 'lucide-react';
+import { api, withFreshReads } from '../../api';
 import Amount, { formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate, formatDateTime } from '../../lib/datetime';
-import { ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, control, usePopover } from './reportControls';
-import { useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
+import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, SyncButton, control, usePopover } from './reportControls';
+import { spaceBelow, useCustomizePrefs, usePaged } from './tableHooks';
+import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { cellStyle, headStyle } from './columnStyles';
 import { requestReportDrill } from './drill';
 import { downloadBlob, iso } from './reportModel';
@@ -15,6 +16,8 @@ import SendReportDialog from './SendReportDialog';
 import AddMenu from './AddMenu';
 import EntryDetail from './EntryDetail';
 import { DateField } from '../../tasks/components';
+import { dialog } from '../../ui/dialog';
+import SidePanel, { PanelSection } from './SidePanel';
 import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths } from './recurringShared';
 
 // Accounting -> Leasing: leases and monthly recurring income (Neil and
@@ -261,6 +264,82 @@ function rowFigures(row, [from, to]) {
   return { received: sum((c) => c.received), expected: sum((c) => c.expected), balance: sum((c) => c.balance) };
 }
 
+/** Expired / Inactive in words, for the export. */
+const standingText = (r) => [r.expired ? 'Expired' : '', r.customerActive === false ? 'Inactive' : ''].filter(Boolean).join(', ');
+/** The team note and the notes written on single months, for the export. */
+const notesText = (r) => [r.lease.teamNote?.text || '', monthNotesText(r)].filter(Boolean).join(' - ');
+/** The rate in force this month (the Amount column). */
+const rateNow = (l, thisMonth) => [...(l.rates || [])].reverse().find((x) => x.startDate <= `${thisMonth}-31`) || (l.rates || [])[0];
+/** What a month's cell shows: received, or what is expected when not yet paid; null for a dash. */
+const monthShown = (c) => {
+  if (!c || !c.inForce || blankMonth(c)) return null;
+  if (c.status === 'covered') return c.received + (c.covered || 0);
+  if (c.status === 'upcoming' || c.status === 'due' || c.status === 'unknown') return c.expected;
+  return c.received;
+};
+
+/**
+ * The Income Roll's columns for the standard table view (10/23 meeting, item
+ * 01): the property pinned first, the Amount, each month shown, Total and
+ * Balance as amounts (the totals line adds up the months, Total and Balance
+ * as it always did), the notes. Payer and Status export beside the property,
+ * as before.
+ */
+function mriRollColumns([from, to], thisMonth) {
+  const money = (v) => (v == null ? '' : whole(v));
+  const amountOf = (r) => { if (r.kind === 'account') return null; const rate = rateNow(r.lease, thisMonth); return rate ? rate.rent + rate.cam + rate.other : null; };
+  return [
+    { key: 'property', label: 'Property or Source', fixed: true, text: rowName, sortBy: (r) => rowName(r).toLowerCase(),
+      exportAs: [{ label: 'Property or Source', width: 200, get: rowName }, { label: 'Payer', width: 170, get: tenantOf }, { label: 'Status', width: 80, get: (r) => (r.kind === 'account' ? '' : standingText(r)) }] },
+    { key: 'type', label: 'Type', text: (r) => TYPE_LABEL[typeOf(r)] || 'Other', exportAs: [{ label: 'Type', width: 90, get: (r) => TYPE_LABEL[typeOf(r)] }] },
+    { key: 'amount', label: 'Amount', type: 'amount', value: amountOf, text: (r) => money(amountOf(r)), exportAs: [{ label: 'Amount', num: true, width: 80, get: (r) => amountOf(r) ?? '' }] },
+    ...MONTHS.map((m, i) => ({
+      key: `m${i}`, label: m, type: 'amount', value: (r) => monthShown(r.months[i]), text: (r) => money(monthShown(r.months[i])),
+      exportAs: [{ label: m, num: true, width: 70, total: true, get: (r) => { const c = r.months[i]; return blankMonth(c) ? '-' : counts(c) ? c.received : 0; } }],
+    })).slice(from, to + 1),
+    { key: 'total', label: 'Total', type: 'amount', total: true, value: (r) => rowFigures(r, [from, to]).received, text: (r) => money(rowFigures(r, [from, to]).received) },
+    { key: 'balance', label: 'Balance', type: 'amount', total: true, value: (r) => rowFigures(r, [from, to]).balance, text: (r) => money(rowFigures(r, [from, to]).balance) },
+    { key: 'notes', label: 'Notes', text: (r) => (r.kind === 'account' ? '' : notesText(r)), exportAs: [{ label: 'Notes', width: 180, get: (r) => (r.kind === 'account' ? '' : notesText(r)) }] },
+  ];
+}
+
+const behindMonths = (r) => r.months.filter((c) => ['late', 'short', 'unpaid'].includes(c.status)).map((c) => MONTHS[Number(c.month.slice(5, 7)) - 1]);
+const contactText = (l) => [l.contactName, l.phone].filter(Boolean).join(' · ');
+const ACTIONS = { fixed: true, noFilter: true, noSort: true, exportAs: [], text: () => '' };
+
+/** Outstanding's columns for the standard table view (item 01): who owes the most first. */
+const OUTSTANDING_COLUMNS = [
+  { key: 'property', label: 'Property or Source', fixed: true, text: (r) => r.lease.propertyName || '', exportAs: [{ label: 'Property or Source', width: 220, get: (r) => r.lease.propertyName }] },
+  { key: 'type', label: 'Type', text: (r) => TYPE_LABEL[typeOf(r)] || 'Other', exportAs: [{ label: 'Type', width: 90, get: (r) => TYPE_LABEL[typeOf(r)] }] },
+  { key: 'payer', label: 'Payer', text: tenantOf, exportAs: [{ label: 'Payer', width: 200, get: tenantOf }] },
+  { key: 'behind', label: 'Months Behind', type: 'number', value: (r) => r.monthsBehind || 0, text: (r) => `${r.monthsBehind} - ${behindMonths(r).join(', ')}`,
+    exportAs: [{ label: 'Months Behind', width: 160, get: (r) => `${r.monthsBehind} - ${behindMonths(r).join(', ')}` }] },
+  { key: 'owed', label: 'Balance Due', type: 'amount', total: true, value: (r) => r.owed || 0, text: (r) => whole(r.owed) },
+  { key: 'lateFees', label: 'Late Fees', type: 'amount', total: true, value: (r) => r.lateFees || 0, text: (r) => (r.lateFees ? whole(r.lateFees) : '') },
+  { key: 'contact', label: 'Contact', text: (r) => contactText(r.lease), exportAs: [{ label: 'Contact', width: 200, get: (r) => [r.lease.contactName, r.lease.phone, r.lease.email].filter(Boolean).join(' · ') }] },
+  { key: 'write', label: 'Write', ...ACTIONS },
+];
+const OUTSTANDING_SORT = { col: 'owed', dir: 'desc' };
+
+/** Payers' columns for the standard table view (item 01). */
+const PAYER_COLUMNS = [
+  { key: 'property', label: 'Property or Source', fixed: true, text: (r) => r.lease.propertyName || '', exportAs: [{ label: 'Property or Source', width: 220, get: (r) => r.lease.propertyName }] },
+  { key: 'type', label: 'Type', text: (r) => TYPE_LABEL[typeOf(r)] || 'Other', exportAs: [{ label: 'Type', width: 90, get: (r) => TYPE_LABEL[typeOf(r)] }] },
+  { key: 'payer', label: 'Payer', text: (r) => `${r.lease.customerId ? `${r.lease.customerId} ` : ''}${tenantOf(r)}`, exportAs: [{ label: 'Payer', width: 200, get: tenantOf }, { label: 'Customer', width: 80, get: (r) => r.lease.customerId }] },
+  { key: 'landlord', label: 'Landlord', text: (r) => r.lease.landlord || '', exportAs: [{ label: 'Landlord', width: 160, get: (r) => r.lease.landlord }] },
+  { key: 'dates', label: 'Dates', type: 'date', value: (r) => r.lease.leaseStart || '', text: (r) => `${r.lease.leaseStart ? formatDate(r.lease.leaseStart) : '-'} to ${r.lease.leaseEnd ? formatDate(r.lease.leaseEnd) : 'Month to Month'}`,
+    exportAs: [{ label: 'Start', width: 90, get: (r) => (r.lease.leaseStart ? formatDate(r.lease.leaseStart) : '') }, { label: 'End', width: 90, get: (r) => (r.lease.leaseEnd ? formatDate(r.lease.leaseEnd) : 'Month to Month') }, { label: 'Term', width: 130, get: (r) => leaseTermLabel(r.lease) }] },
+  { key: 'amount', label: 'Amount', type: 'amount', value: (r) => { const x = r.lease.rates[r.lease.rates.length - 1]; return x ? x.rent : null; }, text: (r) => { const x = r.lease.rates[r.lease.rates.length - 1]; return x ? whole(x.rent) : ''; },
+    exportAs: [{ label: 'Amount', num: true, width: 90, get: (r) => { const x = r.lease.rates[r.lease.rates.length - 1]; return x ? x.rent : 0; } }] },
+  { key: 'cam', label: 'CAM', type: 'amount', value: (r) => { const x = r.lease.rates[r.lease.rates.length - 1]; return x?.cam || null; }, text: (r) => { const x = r.lease.rates[r.lease.rates.length - 1]; return x?.cam ? whole(x.cam) : ''; },
+    exportAs: [{ label: 'CAM', num: true, width: 80, get: (r) => { const x = r.lease.rates[r.lease.rates.length - 1]; return x ? x.cam : 0; } }] },
+  { key: 'deposit', label: 'Deposit', type: 'amount', value: (r) => r.lease.securityDeposit || null, text: (r) => (r.lease.securityDeposit ? whole(r.lease.securityDeposit) : ''),
+    exportAs: [{ label: 'Deposit', num: true, width: 90, get: (r) => r.lease.securityDeposit || 0 }] },
+  { key: 'status', label: 'Status', text: (r) => [LEASE_STATUS[r.lease.status] || r.lease.status, standingText(r)].filter(Boolean).join(', '),
+    exportAs: [{ label: 'Status', width: 120, get: (r) => [LEASE_STATUS[r.lease.status] || r.lease.status, standingText(r)].filter(Boolean).join(', ') }] },
+  { key: 'change', label: 'Change', ...ACTIONS },
+];
+
 /** Chips for a row: Expired (an ended lease) and Inactive (the customer is inactive in Intacct). */
 function StandingChips({ row }) {
   return (
@@ -292,7 +371,19 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const [period, setPeriod] = useState('year');
   const [custom, setCustom] = useState([0, 11]);
   const [states, setStates] = useState([]);           // picked month states ([] = all) - the legend as a filter
-  const [editing, setEditing] = useState(null);       // { lease, replacing? }
+  const [editing, setEditingNow] = useState(null);    // { lease, replacing? }
+  // Item 03 (10/23): the lease opens in a side panel with the list still
+  // clickable, so another lease (or Add) can replace it - unsaved edits are
+  // asked about first, never dropped quietly.
+  const editorDirty = useRef(false);
+  const setEditing = useCallback(async (next) => {
+    if (next && editorDirty.current) {
+      const ok = await dialog.confirm('The lease open on the right has unsaved changes. Discard them and open this one?', { title: 'Unsaved Changes', confirmText: 'Discard Edits', cancelText: 'Keep Editing', danger: true });
+      if (!ok) return;
+    }
+    editorDirty.current = false;
+    setEditingNow(next);
+  }, []);
   const [cell, setCell] = useState(null);             // { row, month }
   const [sending, setSending] = useState(null);       // email | egnyte
   const [sent, setSent] = useState(null);             // { text, url }
@@ -346,10 +437,17 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
     return [...kept, ...ledgerRows];
   }, [roll, accountRows, q, tenants, types, showInactive, states, spanFrom, spanTo]);
   const sources = useMemo(() => rows.filter((r) => r.kind !== 'account'), [rows]);
-  const figures = useMemo(() => rows.reduce((t, r) => {
+  const thisMonth = iso(new Date()).slice(0, 7);
+  // 10/23 meeting, item 01: the Income Roll's standard view over what the
+  // pickers, the colors and the search leave; the figures above it, its
+  // totals line and its export follow it. (Widths dragged before: 'mriRoll'.)
+  const rollColumns = useMemo(() => mriRollColumns([spanFrom, spanTo], thisMonth), [spanFrom, spanTo, thisMonth]);
+  const rollView = useTableView('mri-roll', rollColumns, rows, { widthsKey: 'mriRoll' });
+  const rollRows = rollView.rows;
+  const figures = useMemo(() => rollRows.reduce((t, r) => {
     const f = rowFigures(r, span);
     return { expected: t.expected + f.expected, received: t.received + f.received, balance: t.balance + f.balance };
-  }, { expected: 0, received: 0, balance: 0 }), [rows, span]);
+  }, { expected: 0, received: 0, balance: 0 }), [rollRows, span]);
   const hidden = showInactive ? 0 : (roll?.rows || []).filter(inactiveRow).length;
   const customers = useMemo(() => {
     const by = new Map();
@@ -357,10 +455,13 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
     return [...by.values()].sort((a, b) => a.name.localeCompare(b.name, 'en-US'));
   }, [roll]);
   const sum = roll?.summary || {};
-  const thisMonth = iso(new Date()).slice(0, 7);
   const behind = sources.filter((r) => r.monthsBehind);
+  // Outstanding and Payers have their own views (item 01).
+  const outView = useTableView('mri-outstanding', OUTSTANDING_COLUMNS, behind, { sort: OUTSTANDING_SORT });
+  const payersView = useTableView('mri-payers', PAYER_COLUMNS, sources);
+  const sectionView = section === 'outstanding' ? outView : section === 'tenants' ? payersView : rollView;
   // Rows per Page: back to page 1 whenever the filters or the section change.
-  const pageKey = [section, year, entities, tenants, types, period, custom, cz.pageSize, q, showInactive, states];
+  const pageKey = [section, year, entities, tenants, types, period, custom, cz.pageSize, q, showInactive, states, sectionView.state];
   const pageSize = cz.pageSize;
   // A ledger income account's Total opens its lines in Reports for the months shown (item 33).
   const drillWindow = () => {
@@ -389,25 +490,11 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const buildTable = () => {
     const title = section === 'outstanding' ? 'Income Outstanding' : section === 'tenants' ? 'Payers' : 'Monthly Recurring Income';
     const subtitle = `${entityLabel} · ${periodLabel}${types.length ? ` · ${types.map((t) => TYPE_LABEL[t]).join(', ')}` : ''}${tenants.length ? ` · ${tenants.length} ${tenants.length === 1 ? 'payer' : 'payers'}` : ''}${q.trim() ? ` · "${q.trim()}"` : ''}`;
-    const standing = (r) => [r.expired ? 'Expired' : '', r.customerActive === false ? 'Inactive' : ''].filter(Boolean).join(', ');
-    const notesOf = (r) => [r.lease.teamNote?.text || '', monthNotesText(r)].filter(Boolean).join(' - ');
-    if (section === 'outstanding') {
-      const list = [...behind].sort((a, b) => b.owed - a.owed);
-      return { title, subtitle, name: `${title} - ${year}`, columns: [{ label: 'Property or Source', width: 220 }, { label: 'Type', width: 90 }, { label: 'Payer', width: 200 }, { label: 'Months Behind', width: 160 }, { label: 'Balance Due', num: true, width: 100 }, { label: 'Late Fees', num: true, width: 90 }, { label: 'Contact', width: 200 }],
-        rows: list.map((r) => [r.lease.propertyName, TYPE_LABEL[typeOf(r)], tenantOf(r), `${r.monthsBehind} - ${r.months.filter((c) => ['late', 'short', 'unpaid'].includes(c.status)).map((c) => MONTHS[Number(c.month.slice(5, 7)) - 1]).join(', ')}`, r.owed, r.lateFees, [r.lease.contactName, r.lease.phone, r.lease.email].filter(Boolean).join(' · ')]),
-        totals: [`Total Outstanding - ${list.length}`, '', '', '', list.reduce((s, r) => s + r.owed, 0), list.reduce((s, r) => s + r.lateFees, 0), ''] };
-    }
-    if (section === 'tenants') {
-      return { title, subtitle, name: `${title} - ${year}`, columns: [{ label: 'Property or Source', width: 220 }, { label: 'Type', width: 90 }, { label: 'Payer', width: 200 }, { label: 'Customer', width: 80 }, { label: 'Landlord', width: 160 }, { label: 'Start', width: 90 }, { label: 'End', width: 90 }, { label: 'Term', width: 130 }, { label: 'Amount', num: true, width: 90 }, { label: 'CAM', num: true, width: 80 }, { label: 'Deposit', num: true, width: 90 }, { label: 'Status', width: 120 }],
-        rows: sources.map((r) => { const l = r.lease; const rate = l.rates[l.rates.length - 1]; return [l.propertyName, TYPE_LABEL[typeOf(r)], tenantOf(r), l.customerId, l.landlord, l.leaseStart ? formatDate(l.leaseStart) : '', l.leaseEnd ? formatDate(l.leaseEnd) : 'Month to Month', leaseTermLabel(l), rate ? rate.rent : 0, rate ? rate.cam : 0, l.securityDeposit || 0, [LEASE_STATUS[l.status] || l.status, standing(r)].filter(Boolean).join(', ')]; }),
-        totals: null };
-    }
-    const shownMonths = MONTHS.slice(span[0], span[1] + 1);
-    const monthTotals = shownMonths.map((_m, i) => rows.reduce((s, r) => { const c = r.months[span[0] + i]; return s + (c && counts(c) ? c.received : 0); }, 0));
-    return { title, subtitle, name: `${title} - ${periodLabel}`,
-      columns: [{ label: 'Property or Source', width: 200 }, { label: 'Type', width: 90 }, { label: 'Payer', width: 170 }, { label: 'Status', width: 80 }, ...shownMonths.map((m) => ({ label: m, num: true, width: 70 })), { label: 'Total', num: true, width: 85 }, { label: 'Balance', num: true, width: 85 }, { label: 'Notes', width: 180 }],
-      rows: rows.map((r) => { const f = rowFigures(r, span); return [rowName(r), TYPE_LABEL[typeOf(r)], tenantOf(r), r.kind === 'account' ? '' : standing(r), ...r.months.slice(span[0], span[1] + 1).map((c) => (blankMonth(c) ? '-' : counts(c) ? c.received : 0)), f.received, f.balance, r.kind === 'account' ? '' : notesOf(r)]; }),
-      totals: ['Total Received', '', '', '', ...monthTotals, figures.received, figures.balance, ''] };
+    // Each section: exactly what its view leaves - rows, order and columns (item 01).
+    if (section === 'outstanding') return { ...viewTable(outView.rows, outView.columns, { title, subtitle, totalLabel: 'Total Outstanding' }), name: `${title} - ${year}` };
+    if (section === 'tenants') return { ...viewTable(payersView.rows, payersView.columns, { title, subtitle, totals: false }), name: `${title} - ${year}` };
+    // The Income Roll: exactly what its view leaves - rows, order and columns.
+    return { ...viewTable(rollRows, rollView.columns, { title, subtitle, totalLabel: 'Total Received' }), name: `${title} - ${periodLabel}` };
   };
   const exportAs = async (format) => {
     if (exporting) return;
@@ -425,7 +512,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
     setSyncing(true);
     setSynced(null);
     api.syncLeasingFromLedger()
-      .then((d) => { setSynced(d); reload(); })
+      .then((d) => { setSynced(d); return withFreshReads(reload); })   // item 13 (10/23): past the server's cache
       .catch((e) => setError(e?.message || 'Could not sync with the ledger.'))
       .finally(() => setSyncing(false));
   };
@@ -435,8 +522,10 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
 
   return (
     <AsyncSection loading={roll === null} skeleton={<SkeletonBlocks count={3} />}>
-      <div style={{ display: 'grid', gap: 10 }}>
-        <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      {/* One column no wider than the screen: a wide year scrolls inside the
+          Income Roll box (its property column and total stay pinned), not the page. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10 }}>
+        <ControlBar style={{ ...card, padding: '8px 10px' }}>
           <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
             {SECTIONS.map((s) => (
               <button key={s.key} type="button" onClick={() => setSection(s.key)} aria-pressed={section === s.key}
@@ -446,15 +535,20 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
             ))}
           </div>
           <PeriodPicker year={year} onYear={setYear} period={period} onPeriod={setPeriod} custom={custom} onCustom={setCustom} />
+          {/* Round 3 (UI test 10/24: two lines at 1100, the page scrolling): Entities and Sync are the fourth to move into More, Export the fifth. */}
+          <BarMore level={4} active={entities.length ? 1 : 0}>
           <EntitiesPicker entities={locations.entities} value={entities} onChange={setEntities} limited={locations.limited} showHistorical={!!prefs.showHistoricalEntities} />
+          </BarMore>
+          <BarMore level={2} active={(types.length ? 1 : 0) + (tenants.length ? 1 : 0)}>
           <MultiPicker label="Type filter" allLabel="All Types" noun={['type', 'types']} Icon={Tags} options={TYPES.map((t) => ({ code: t.key, name: t.label }))} value={types} onChange={setTypes} showCodes={false} />
           <MultiPicker label="Payer filter" allLabel="All Payers" noun={['payer', 'payers']} Icon={Users} options={customers} value={tenants} onChange={setTenants}
             find="Find a payer by name or customer code" empty="No payer has a customer code yet." />
-          <div style={{ position: 'relative', flex: '0 1 220px' }}>
-            <Search size={13} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--text-muted)' }} />
-            <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by property, payer or account" aria-label="Filter by property, payer or account" style={{ ...control, width: '100%', paddingLeft: 28 }} />
-          </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          </BarMore>
+          {/* 10/23 meeting, item 02 (fix 10/24): the search is an icon until used; Customize and Settings move into More on a narrow row. */}
+          <BarSearch value={q} onChange={setQ} label="Filter by property, payer or account" placeholder="Filter by property, payer or account" width={240} />
+          <TableViewBar key={section} view={sectionView} />
+          <div className="acct-bar-end">
+            <BarMore level={1} active={showInactive ? 1 : 0}>
             <CustomizeButton {...cz} active={showInactive}>
               {[['mriShowInactiveLeases', showInactive, 'Show Inactive Leases', 'Ended, expired and vacant leases, and payers inactive in Intacct. The text filter finds them either way.']].map(([k, on, text, hint]) => (
                 <label key={k} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
@@ -463,6 +557,9 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
                 </label>
               ))}
             </CustomizeButton>
+            {canDelete && <RecurringSettingsButton onChecked={reload} />}
+            </BarMore>
+            <BarMore level={5}>
             <ExportMenu disabled={!roll} items={[
               { key: 'excel', label: 'Excel', hint: 'As on screen, live totals', onPick: () => exportAs('excel'), busy: exporting === 'excel' },
               { key: 'csv', label: 'CSV', hint: 'Plain values, one row per source', onPick: () => exportAs('csv'), busy: exporting === 'csv' },
@@ -470,28 +567,35 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
               { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, file attached', Icon: Mail, onPick: () => setSending('email') },
               { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
             ]} />
-            {canDelete && <RecurringSettingsButton onChecked={reload} />}
+            </BarMore>
+            {/* 10/23 meeting, item 13: a viewer's Sync reads this table again; an editor's Sync Now also links the leases first. */}
+            <BarMore level={4}>
+            {!canEdit && <SyncButton onSync={() => { setSyncing(true); withFreshReads(reload).finally(() => setSyncing(false)); }} busy={syncing} />}
             {canEdit && (
-              <button type="button" className="secondary-btn" onClick={syncNow} disabled={syncing} title="Link every lease to its Intacct customer and add the leases of new tenants" style={btn}>
-                <RefreshCw size={14} className={syncing ? 'spin' : undefined} /> {syncing ? 'Syncing...' : 'Sync Now'}
+              <button type="button" className="secondary-btn" onClick={syncNow} disabled={syncing} aria-label={syncing ? 'Syncing...' : 'Sync Now'} title="Link every lease to its Intacct customer and add the leases of new tenants" style={btn}>
+                <RefreshCw size={14} className={syncing ? 'spin' : undefined} /> <span className="acct-bar-label">{syncing ? 'Syncing...' : 'Sync Now'}</span>
               </button>
             )}
+            </BarMore>
+            {/* The last to move into More, at 1100 with the sidebar open (the three section buttons stay). */}
             {canEdit && (
+              <BarMore level={6}>
               <AddMenu ariaLabel="Add an income source" items={[
                 { key: 'lease', label: 'New Lease', hint: 'A tenant, the dates and the rent', Icon: Home, onPick: () => setEditing({ lease: blank('lease') }) },
                 { key: 'cam', label: 'New CAM Charge', hint: 'Common area maintenance billed to a tenant', Icon: Building2, onPick: () => setEditing({ lease: blank('cam') }) },
                 { key: 'interest', label: 'New Interest or Loan Payment', hint: 'Who pays, how much, from when', Icon: Landmark, onPick: () => setEditing({ lease: blank('interest') }) },
               ]} />
+              </BarMore>
             )}
           </div>
-        </div>
+        </ControlBar>
 
         {section === 'roll' && <StateFilter value={states} onChange={setStates} />}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums', padding: '0 4px' }}>
           <span>Expected <strong><Amount value={figures.expected} /></strong></span>
           <span>Received <strong><Amount value={figures.received} /></strong></span>
           <span title="Expected less received. A credit (in parentheses) is a prepayment.">Balance <strong style={{ color: figures.balance > 0.005 ? 'var(--bad-fg, #dc2626)' : figures.balance < -0.005 ? 'var(--ok-fg, #15803d)' : undefined }}><Amount value={figures.balance} /></strong>{figures.balance < -0.005 ? <span style={{ color: 'var(--ok-fg, #15803d)' }}> Credit</span> : null}</span>
-          <span style={{ color: 'var(--text-muted)' }}>{periodLabel} · {noun(rows.length)}{hidden && !q.trim() ? ` · ${hidden} inactive ${hidden === 1 ? 'lease' : 'leases'} hidden (Customize)` : ''}</span>
+          <span style={{ color: 'var(--text-muted)' }}>{periodLabel} · {noun(rollRows.length)}{rollView.count ? ` of ${rows.length} (filtered)` : ''}{hidden && !q.trim() ? ` · ${hidden} inactive ${hidden === 1 ? 'lease' : 'leases'} hidden (Customize)` : ''}</span>
         </div>
 
         {error && <div style={bad}>{error}</div>}
@@ -519,15 +623,16 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
 
         {loading ? <SkeletonBlocks count={4} /> : (
           <div>
-            {section === 'roll' && <RentRoll rows={rows} span={span} figures={figures} year={year} thisMonth={thisMonth} py={py} onCell={(row, month) => setCell({ row, month })} onLease={(l) => setEditing({ lease: l })} any={(roll?.rows || []).length + accountRows.length > 0} canEdit={canEdit} onNote={updateNote}
+            {section === 'roll' && <RentRoll view={rollView} rows={rollRows} span={span} figures={figures} year={year} thisMonth={thisMonth} py={py} onCell={(row, month) => setCell({ row, month })} onLease={(l) => setEditing({ lease: l })} any={(roll?.rows || []).length + accountRows.length > 0} canEdit={canEdit} onNote={updateNote}
               pageSize={pageSize} pageKey={pageKey} onDrillAccount={drillAccount} onDrillLease={drillLease} />}
-            {section === 'outstanding' && <Outstanding rows={behind} year={year} py={py} pageSize={pageSize} pageKey={pageKey} />}
-            {section === 'tenants' && <Tenants rows={sources} py={py} canEdit={canEdit} pageSize={pageSize} pageKey={pageKey} onEdit={(l) => setEditing({ lease: l })} onReplace={(l) => setEditing({ lease: { ...blank(l.incomeType || 'lease'), propertyName: l.propertyName, region: l.region, tenancy: l.tenancy, landlord: l.landlord, entityCode: l.entityCode, incomeAccounts: l.incomeAccounts, lateFee: l.lateFee, dueDay: l.dueDay, graceDays: l.graceDays }, replacing: l })} />}
+            {section === 'outstanding' && <Outstanding view={outView} rows={outView.rows} year={year} py={py} pageSize={pageSize} pageKey={pageKey} />}
+            {section === 'tenants' && <Tenants view={payersView} rows={payersView.rows} py={py} canEdit={canEdit} pageSize={pageSize} pageKey={pageKey} onEdit={(l) => setEditing({ lease: l })} onReplace={(l) => setEditing({ lease: { ...blank(l.incomeType || 'lease'), propertyName: l.propertyName, region: l.region, tenancy: l.tenancy, landlord: l.landlord, entityCode: l.entityCode, incomeAccounts: l.incomeAccounts, lateFee: l.lateFee, dueDay: l.dueDay, graceDays: l.graceDays }, replacing: l })} />}
           </div>
         )}
       </div>
       {cell && <MonthDetail cell={cell} canEdit={canEdit} onClose={() => setCell(null)} onSaved={() => { setCell(null); reload(); }} />}
-      {editing && <LeaseEditor lease={editing.lease} replacing={editing.replacing} canDelete={canDelete} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
+      {editing && <LeaseEditor key={`${editing.lease.id || `new-${editing.lease.incomeType}`}|${editing.replacing?.id || ''}`} lease={editing.lease} replacing={editing.replacing} canDelete={canDelete}
+        onDirty={(d) => { editorDirty.current = d; }} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
       {sending && (() => {
         const t = buildTable();
         return (
@@ -583,7 +688,7 @@ function MultiPicker({ label: aria, allLabel, noun, Icon, options, value, onChan
       <button type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label={aria} title={text}
         style={{ ...control, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', maxWidth: 260, whiteSpace: 'nowrap', border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', fontWeight: on ? 600 : 400 }}>
         <Icon size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{text}</span>
+        <span className={value.length ? undefined : 'acct-bar-label-2'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{text}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} role="listbox" aria-label={allLabel.replace(/^All /, '')} aria-multiselectable="true"
@@ -711,121 +816,188 @@ function NoteCell({ lease, canEdit, onSaved, monthNotes = '' }) {
   );
 }
 
-// The Income Roll's resizable columns (Oct 7, item 32), saved per viewer:
-// property, type, amount, each month (m0..m11), total, balance, notes.
-function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, any, canEdit, onNote, pageSize = 0, pageKey = '', onDrillAccount = null, onDrillLease = null }) {
-  const cw = useColumnWidths('mriRoll');
+// The Income Roll box ends on the screen (Viral, 10/22: "Received - 27
+// sources is hide when scroll up"): its height is what is left below its top
+// with the page scrolled up, at most 74% of the screen and at least 320px, so
+// the pinned total row is in view while the rows scroll. `below` is what the
+// page still shows under the box - the pager and the note under the roll
+// (10/23 meeting, item 05, UI test 10/24: the note pushed the page ~90px past
+// the bottom, so the whole page scrolled). Outstanding and Tenants fit the same way.
+// Item 02, round 3 (UI test 10/24: at 1100 x 700 the page still scrolled):
+// the least it keeps is 240px - a few rows and the total - not 320, which ran
+// past the bottom of a 700px window.
+export function fitRollHeight(top, screenHeight, below = 12) {
+  return Math.round(Math.max(240, Math.min(screenHeight * 0.74, screenHeight - top - below)));
+}
+
+function useFitToScreen(ref, active) {
+  const [height, setHeight] = useState(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!active || !el) return undefined;
+    const measure = () => {
+      let top = el.getBoundingClientRect().top + window.scrollY;
+      for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) top += p.scrollTop;
+      setHeight(fitRollHeight(top, window.innerHeight, spaceBelow(el) + 8));
+    };
+    measure();
+    // Re-fit when anything above it moves it: a banner, the toolbar wrapping.
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    ro?.observe(document.body);
+    window.addEventListener('resize', measure);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [ref, active]);
+  return height;
+}
+
+// The Income Roll (Oct 7, item 32: resizable columns, saved per viewer). 10/23
+// meeting, item 01: the headings are the standard view's - a click opens the
+// menu (sort, filter, width, move, hide), the funnel a value list - and the
+// cells and the Received line follow its column order; the property stays
+// pinned first.
+function RentRoll({ view, rows, span, figures, year, thisMonth, py, onCell, onLease, any, canEdit, onNote, pageSize = 0, pageKey = '', onDrillAccount = null, onDrillLease = null }) {
   const paged = usePaged(rows, pageSize, pageKey);
+  const wrapRef = useRef(null);
+  const fitHeight = useFitToScreen(wrapRef, rows.length > 0);
   if (!rows.length) {
-    return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{any ? 'Nothing matches these filters.' : `No leases yet.${canEdit ? ' + Add > New Lease: the tenant, the dates and the rent.' : ''}`}</div>;
+    return (
+      <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span>{any ? 'Nothing matches these filters.' : `No leases yet.${canEdit ? ' + Add > New Lease: the tenant, the dates and the rent.' : ''}`}</span>
+        {any && view.dirty && <button type="button" className="secondary-btn" onClick={view.clear} style={{ fontSize: '0.76rem' }}>Clear</button>}
+      </div>
+    );
   }
   const [from, to] = span;
   const idx = MONTHS.map((_m, i) => i).slice(from, to + 1);
+  const w = (k) => view.manualWidth(k);
   const monthTotal = (i) => rows.reduce((s, r) => { const c = r.months[i]; return s + (c && counts(c) ? c.received : 0); }, 0);
   const monthExpected = (i) => rows.reduce((s, r) => { const c = r.months[i]; return s + (c && counts(c) ? c.expected : 0); }, 0);
+  const propertyCell = (children) => (
+    <td style={{ position: 'sticky', left: 0, zIndex: 1, whiteSpace: 'normal', minWidth: w('property') || 250, ...(w('property') ? { width: w('property'), maxWidth: w('property'), overflow: 'hidden' } : {}) }}>{children}</td>
+  );
+  const head = (c) => {
+    if (c.key === 'property') return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} style={headStyle(w('property'), { position: 'sticky', left: 0, zIndex: 5, minWidth: w('property') || 250 })} />;
+    if (c.key === 'total') return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className="acct-num" title="Received in the months shown" style={headStyle(w('total'))} />;
+    if (c.key === 'balance') return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className="acct-num" title="Expected less received in the months shown. A credit (in parentheses) is a prepayment." style={headStyle(w('balance'))} />;
+    if (c.key === 'notes') return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} style={headStyle(w('notes'), { minWidth: w('notes') || 180 })} />;
+    if (/^m\d+$/.test(c.key)) {
+      const i = Number(c.key.slice(1));
+      return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className="acct-num" style={headStyle(w(c.key), `${year}-${String(i + 1).padStart(2, '0')}` === thisMonth ? { color: 'var(--wk-brand, #2b45e1)' } : null)} />;
+    }
+    return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={c.type === 'amount' ? 'acct-num' : undefined} style={headStyle(w(c.key))} />;
+  };
   return (
     <div style={{ ...card, padding: 10 }}>
-      <div className="acct-lines-wrap" style={{ maxHeight: '74vh' }}>
-        <table className="acct-lines acct-roll" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
+      <div ref={wrapRef} className="acct-lines-wrap" style={{ maxHeight: fitHeight || '74vh' }}>
+        <table className="acct-lines acct-roll acct-sticky-head" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
           <thead>
-            <tr>
-              <th scope="col" aria-label="Property or Source" style={headStyle(cw.width('property'), { position: 'sticky', left: 0, zIndex: 5, minWidth: cw.width('property') || 250 })}>Property or Source<ColumnResizer {...cw.resizer('property', 'Property or Source')} /></th>
-              <th scope="col" aria-label="Type" style={headStyle(cw.width('type'))}>Type<ColumnResizer {...cw.resizer('type', 'Type')} /></th>
-              <th scope="col" aria-label="Amount" className="acct-num" style={headStyle(cw.width('amount'))}>Amount<ColumnResizer {...cw.resizer('amount', 'Amount')} /></th>
-              {idx.map((i) => <th key={MONTHS[i]} scope="col" aria-label={MONTHS[i]} className="acct-num" style={headStyle(cw.width(`m${i}`), `${year}-${String(i + 1).padStart(2, '0')}` === thisMonth ? { color: 'var(--wk-brand, #2b45e1)' } : null)}>{MONTHS[i]}<ColumnResizer {...cw.resizer(`m${i}`, MONTHS[i])} /></th>)}
-              <th scope="col" aria-label="Total" className="acct-num" title="Received in the months shown" style={headStyle(cw.width('total'))}>Total<ColumnResizer {...cw.resizer('total', 'Total')} /></th>
-              <th scope="col" aria-label="Balance" className="acct-num" title="Expected less received in the months shown. A credit (in parentheses) is a prepayment." style={headStyle(cw.width('balance'))}>Balance<ColumnResizer {...cw.resizer('balance', 'Balance')} /></th>
-              <th scope="col" aria-label="Notes" style={headStyle(cw.width('notes'), { minWidth: cw.width('notes') || 180 })}>Notes<ColumnResizer {...cw.resizer('notes', 'Notes')} /></th>
-            </tr>
+            <tr>{view.columns.map(head)}</tr>
           </thead>
           <tbody>
             {paged.rows.map((r) => {
               const f = rowFigures(r, span);
               const name = rowName(r);
               if (r.kind === 'account') {
+                const months = Object.fromEntries(idx.map((i) => {
+                  const c = r.months[i];
+                  if (!c || !c.inForce) return [`m${i}`, <td className="acct-num" style={{ color: 'var(--text-muted)' }}>-</td>];
+                  return [`m${i}`, (
+                    <td className="acct-num" style={{ padding: 2 }}>
+                      <button type="button" onClick={() => onCell(r, c)} aria-label={`${name}, ${monthName(c.month)}: received ${money(c.received)}`} title={`Received ${money(c.received)} - click for the entries`}
+                        style={{ width: '100%', border: 'none', borderRadius: 6, cursor: 'pointer', font: 'inherit', fontVariantNumeric: 'tabular-nums', padding: '3px 6px', textAlign: 'right', background: 'transparent', color: 'var(--text-primary)' }}>
+                        {whole(c.received)}
+                      </button>
+                    </td>
+                  )];
+                }));
                 return (
                   <tr key={r.key}>
-                    <td style={{ position: 'sticky', left: 0, zIndex: 1, whiteSpace: 'normal', minWidth: cw.width('property') || 250, ...(cw.width('property') ? { width: cw.width('property'), maxWidth: cw.width('property'), overflow: 'hidden' } : {}) }}>
-                      <span style={{ fontWeight: 600 }}><span className="acct-code">{r.account.code}</span>{r.account.title}</span>
-                      <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>From the ledger - every posting to this account, no schedule</div>
-                    </td>
-                    <td><TypeChip type={r.type} /></td>
-                    <td className="acct-num" style={{ color: 'var(--text-muted)' }}>-</td>
-                    {idx.map((i) => {
-                      const c = r.months[i];
-                      if (!c || !c.inForce) return <td key={i} className="acct-num" style={{ color: 'var(--text-muted)' }}>-</td>;
-                      return (
-                        <td key={c.month} className="acct-num" style={{ padding: 2 }}>
-                          <button type="button" onClick={() => onCell(r, c)} aria-label={`${name}, ${monthName(c.month)}: received ${money(c.received)}`} title={`Received ${money(c.received)} - click for the entries`}
-                            style={{ width: '100%', border: 'none', borderRadius: 6, cursor: 'pointer', font: 'inherit', fontVariantNumeric: 'tabular-nums', padding: '3px 6px', textAlign: 'right', background: 'transparent', color: 'var(--text-primary)' }}>
-                            {whole(c.received)}
-                          </button>
+                    {viewCells(view, {
+                      property: propertyCell(
+                        <>
+                          <span style={{ fontWeight: 600 }}><span className="acct-code">{r.account.code}</span>{r.account.title}</span>
+                          <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>From the ledger - every posting to this account, no schedule</div>
+                        </>,
+                      ),
+                      type: <td><TypeChip type={r.type} /></td>,
+                      amount: <td className="acct-num" style={{ color: 'var(--text-muted)' }}>-</td>,
+                      ...months,
+                      total: (
+                        <td className="acct-num" style={{ fontWeight: 700 }}>
+                          {f.received && onDrillAccount
+                            ? <button type="button" className="acct-drill" onClick={() => onDrillAccount(r)} aria-label={`Ledger lines behind the total of ${name}`} title="Open the ledger lines in Reports"><Amount value={f.received} /></button>
+                            : f.received ? <Amount value={f.received} /> : '-'}
                         </td>
-                      );
+                      ),
+                      balance: <td className="acct-num" style={{ color: 'var(--text-muted)' }} title="No schedule, so nothing is expected">-</td>,
+                      notes: <td style={{ color: 'var(--text-muted)' }}>-</td>,
                     })}
-                    <td className="acct-num" style={{ fontWeight: 700 }}>
-                      {f.received && onDrillAccount
-                        ? <button type="button" className="acct-drill" onClick={() => onDrillAccount(r)} aria-label={`Ledger lines behind the total of ${name}`} title="Open the ledger lines in Reports"><Amount value={f.received} /></button>
-                        : f.received ? <Amount value={f.received} /> : '-'}
-                    </td>
-                    <td className="acct-num" style={{ color: 'var(--text-muted)' }} title="No schedule, so nothing is expected">-</td>
-                    <td style={{ color: 'var(--text-muted)' }}>-</td>
                   </tr>
                 );
               }
               const l = r.lease;
-              const rate = [...l.rates].reverse().find((x) => x.startDate <= `${thisMonth}-31`) || l.rates[0];
+              const rate = rateNow(l, thisMonth);
+              const months = Object.fromEntries(idx.map((i) => {
+                const c = r.months[i];
+                if (!c || !c.inForce) return [`m${i}`, <td className="acct-num" style={{ color: 'var(--text-muted)' }}>-</td>];
+                const st = STATUS[c.status] || STATUS.none;
+                const dash = blankMonth(c);
+                const off = c.offCycle && dash;
+                const credit = coverText(c);
+                return [`m${i}`, (
+                  <td className="acct-num" style={{ padding: 2 }}>
+                    <button type="button" onClick={() => onCell(r, c)} aria-label={`${l.propertyName}, ${monthName(c.month)}: ${off ? 'Not Due This Month' : dash ? 'Not in Force' : st.label}, received ${money(c.received)} of ${money(c.expected)}${credit ? `. ${credit}` : ''}`}
+                      title={`${off ? 'Not due this month' : dash ? 'Not in force' : st.label} - received ${money(c.received)} of ${money(c.expected)}${credit ? ` - ${credit}` : ''}${c.note ? ` - ${c.note}` : ''}`}
+                      style={{ width: '100%', border: 'none', borderRadius: 6, cursor: 'pointer', font: 'inherit', fontVariantNumeric: 'tabular-nums', padding: '3px 6px', textAlign: 'right', background: dash ? 'transparent' : st.bg, color: dash ? 'var(--text-muted)' : st.fg, fontWeight: ['short', 'unpaid', 'late'].includes(c.status) ? 700 : 400, fontStyle: c.status === 'covered' ? 'italic' : undefined }}>
+                      {dash ? '-' : c.status === 'covered' ? whole(c.received + (c.covered || 0)) : c.status === 'upcoming' || c.status === 'due' || c.status === 'unknown' ? whole(c.expected) : whole(c.received)}{c.note ? '*' : ''}
+                      {c.covered ? <sup data-testid="covered-mark" aria-hidden="true" style={{ marginLeft: 1, fontSize: '0.6rem', color: 'var(--ok-fg, #15803d)' }}>c</sup> : null}
+                    </button>
+                  </td>
+                )];
+              }));
               return (
                 <tr key={l.id} style={r.expired || r.customerActive === false ? { color: 'var(--text-secondary)' } : undefined}>
-                  <td style={{ position: 'sticky', left: 0, zIndex: 1, whiteSpace: 'normal', minWidth: cw.width('property') || 250, ...(cw.width('property') ? { width: cw.width('property'), maxWidth: cw.width('property'), overflow: 'hidden' } : {}) }}>
-                    <button type="button" className="acct-drill" onClick={() => onLease(l)} style={{ fontWeight: 600, textAlign: 'left' }}>{l.propertyName}</button>
-                    <StandingChips row={r} />
-                    <PossiblyEndedChip flag={l.possiblyEnded} kind="mri" />
-                    <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}><TenantName row={r} />{l.status === 'ended' ? ` · ended ${l.leaseEnd ? formatDate(l.leaseEnd) : ''}` : ''}</div>
-                  </td>
-                  <td><TypeChip type={typeOf(r)} /></td>
-                  <td className="acct-num">{rate ? whole(rate.rent + rate.cam + rate.other) : '-'}{stepMonths(l) > 1 ? <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>{frequencyLabel(l)}</span> : null}</td>
-                  {idx.map((i) => {
-                    const c = r.months[i];
-                    if (!c || !c.inForce) return <td key={i} className="acct-num" style={{ color: 'var(--text-muted)' }}>-</td>;
-                    const s = STATUS[c.status] || STATUS.none;
-                    const dash = blankMonth(c);
-                    const off = c.offCycle && dash;
-                    const credit = coverText(c);
-                    return (
-                      <td key={c.month} className="acct-num" style={{ padding: 2 }}>
-                        <button type="button" onClick={() => onCell(r, c)} aria-label={`${l.propertyName}, ${monthName(c.month)}: ${off ? 'Not Due This Month' : dash ? 'Not in Force' : s.label}, received ${money(c.received)} of ${money(c.expected)}${credit ? `. ${credit}` : ''}`}
-                          title={`${off ? 'Not due this month' : dash ? 'Not in force' : s.label} - received ${money(c.received)} of ${money(c.expected)}${credit ? ` - ${credit}` : ''}${c.note ? ` - ${c.note}` : ''}`}
-                          style={{ width: '100%', border: 'none', borderRadius: 6, cursor: 'pointer', font: 'inherit', fontVariantNumeric: 'tabular-nums', padding: '3px 6px', textAlign: 'right', background: dash ? 'transparent' : s.bg, color: dash ? 'var(--text-muted)' : s.fg, fontWeight: ['short', 'unpaid', 'late'].includes(c.status) ? 700 : 400, fontStyle: c.status === 'covered' ? 'italic' : undefined }}>
-                          {dash ? '-' : c.status === 'covered' ? whole(c.received + (c.covered || 0)) : c.status === 'upcoming' || c.status === 'due' || c.status === 'unknown' ? whole(c.expected) : whole(c.received)}{c.note ? '*' : ''}
-                          {c.covered ? <sup data-testid="covered-mark" aria-hidden="true" style={{ marginLeft: 1, fontSize: '0.6rem', color: 'var(--ok-fg, #15803d)' }}>c</sup> : null}
-                        </button>
+                  {viewCells(view, {
+                    property: propertyCell(
+                      <>
+                        <button type="button" className="acct-drill" onClick={() => onLease(l)} style={{ fontWeight: 600, textAlign: 'left' }}>{l.propertyName}</button>
+                        <StandingChips row={r} />
+                        <PossiblyEndedChip flag={l.possiblyEnded} kind="mri" />
+                        <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}><TenantName row={r} />{l.status === 'ended' ? ` · ended ${l.leaseEnd ? formatDate(l.leaseEnd) : ''}` : ''}</div>
+                      </>,
+                    ),
+                    type: <td><TypeChip type={typeOf(r)} /></td>,
+                    amount: <td className="acct-num">{rate ? whole(rate.rent + rate.cam + rate.other) : '-'}{stepMonths(l) > 1 ? <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>{frequencyLabel(l)}</span> : null}</td>,
+                    ...months,
+                    total: (
+                      <td className="acct-num" style={{ fontWeight: 700 }}>
+                        {f.received && onDrillLease && l.customerId
+                          ? <button type="button" className="acct-drill" onClick={() => onDrillLease(r)} aria-label={`Ledger lines behind the total of ${l.propertyName}`} title="Open the ledger lines in Reports"><Amount value={f.received} /></button>
+                          : f.received ? <Amount value={f.received} /> : '-'}
                       </td>
-                    );
+                    ),
+                    balance: (
+                      <td className="acct-num" style={{ fontWeight: 700, color: f.balance > 0.005 ? 'var(--bad-fg, #dc2626)' : f.balance < -0.005 ? 'var(--ok-fg, #15803d)' : 'var(--text-muted)' }}
+                        title={f.balance < -0.005 ? 'Credit - paid ahead' : undefined}>
+                        {Math.abs(f.balance) > 0.005
+                          ? (onDrillLease && l.customerId
+                            ? <button type="button" className="acct-drill" onClick={() => onDrillLease(r)} aria-label={`Ledger lines behind the balance of ${l.propertyName}`} title="Open the ledger lines in Reports" style={{ color: 'inherit' }}><Amount value={f.balance} /></button>
+                            : <Amount value={f.balance} />)
+                          : '-'}
+                      </td>
+                    ),
+                    notes: <td style={w('notes') ? cellStyle(w('notes'), { whiteSpace: 'normal' }) : { maxWidth: 260, minWidth: 180, whiteSpace: 'normal' }}><NoteCell lease={l} canEdit={canEdit} onSaved={onNote} monthNotes={monthNotesText(r)} /></td>,
                   })}
-                  <td className="acct-num" style={{ fontWeight: 700 }}>
-                    {f.received && onDrillLease && l.customerId
-                      ? <button type="button" className="acct-drill" onClick={() => onDrillLease(r)} aria-label={`Ledger lines behind the total of ${l.propertyName}`} title="Open the ledger lines in Reports"><Amount value={f.received} /></button>
-                      : f.received ? <Amount value={f.received} /> : '-'}
-                  </td>
-                  <td className="acct-num" style={{ fontWeight: 700, color: f.balance > 0.005 ? 'var(--bad-fg, #dc2626)' : f.balance < -0.005 ? 'var(--ok-fg, #15803d)' : 'var(--text-muted)' }}
-                    title={f.balance < -0.005 ? 'Credit - paid ahead' : undefined}>
-                    {Math.abs(f.balance) > 0.005
-                      ? (onDrillLease && l.customerId
-                        ? <button type="button" className="acct-drill" onClick={() => onDrillLease(r)} aria-label={`Ledger lines behind the balance of ${l.propertyName}`} title="Open the ledger lines in Reports" style={{ color: 'inherit' }}><Amount value={f.balance} /></button>
-                        : <Amount value={f.balance} />)
-                      : '-'}
-                  </td>
-                  <td style={cw.width('notes') ? cellStyle(cw.width('notes'), { whiteSpace: 'normal' }) : { maxWidth: 260, minWidth: 180, whiteSpace: 'normal' }}><NoteCell lease={l} canEdit={canEdit} onSaved={onNote} monthNotes={monthNotesText(r)} /></td>
                 </tr>
               );
             })}
             <tr className="acct-grand">
-              <td style={{ position: 'sticky', left: 0 }}>Received - {rows.length} {rows.length === 1 ? 'source' : 'sources'}</td><td /><td />
-              {idx.map((i) => { const v = monthTotal(i); return <td key={i} className="acct-num" title={`Expected ${money(monthExpected(i))}`}>{v || monthExpected(i) ? whole(v) : '-'}</td>; })}
-              <td className="acct-num"><Amount value={figures.received} /></td>
-              <td className="acct-num"><Amount value={figures.balance} /></td>
-              <td />
+              {viewCells(view, {
+                property: <td className="acct-roll-label">Received - {rows.length} {rows.length === 1 ? 'source' : 'sources'}</td>,
+                ...Object.fromEntries(idx.map((i) => { const v = monthTotal(i); return [`m${i}`, <td className="acct-num" title={`Expected ${money(monthExpected(i))}`}>{v || monthExpected(i) ? whole(v) : '-'}</td>]; })),
+                total: <td className="acct-num"><Amount value={figures.received} /></td>,
+                balance: <td className="acct-num"><Amount value={figures.balance} /></td>,
+              })}
             </tr>
           </tbody>
         </table>
@@ -846,39 +1018,53 @@ function reminder(row, year) {
   return `mailto:${encodeURIComponent(l.email)}?subject=${encodeURIComponent(`Rent outstanding - ${l.propertyName}`)}&body=${encodeURIComponent(body)}`;
 }
 
-function Outstanding({ rows, year, py, pageSize = 0, pageKey = '' }) {
-  const sorted = useMemo(() => [...rows].sort((a, b) => b.owed - a.owed), [rows]);
+function Outstanding({ view, rows, year, py, pageSize = 0, pageKey = '' }) {
+  // Who owes the most first is the view's built-in sort (item 01).
+  const sorted = rows;
   const paged = usePaged(sorted, pageSize, pageKey);
-  if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>Nobody is behind for {year}.</div>;
+  const wrapRef = useRef(null);
+  const fitHeight = useFitToScreen(wrapRef, rows.length > 0);
+  if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{view.count ? 'Nobody behind passes the filters.' : `Nobody is behind for ${year}.`}</div>;
   return (
     <div style={{ ...card, padding: 10 }}>
-      <div className="acct-lines-wrap">
-        <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
+      <div ref={wrapRef} className="acct-lines-wrap" data-testid="mri-outstanding-box" style={fitHeight ? { maxHeight: fitHeight } : undefined}>
+        <table className="acct-lines acct-sticky-head" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
           <thead>
-            <tr><th scope="col">Property or Source</th><th scope="col">Type</th><th scope="col">Payer</th><th scope="col">Months Behind</th><th scope="col" className="acct-num">Balance Due</th><th scope="col" className="acct-num">Late Fees</th><th scope="col">Contact</th><th scope="col" aria-label="Write" /></tr>
+            <tr>{view.columns.map((c) => (c.key === 'write' ? <th key={c.key} scope="col" aria-label="Write" />
+              : <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={c.type === 'amount' ? 'acct-num' : undefined} style={headStyle(view.manualWidth(c.key))} />))}</tr>
           </thead>
           <tbody>
             {paged.rows.map((r) => {
               const l = r.lease;
-              const months = r.months.filter((c) => ['late', 'short', 'unpaid'].includes(c.status)).map((c) => MONTHS[Number(c.month.slice(5, 7)) - 1]);
+              const months = behindMonths(r);
               return (
                 <tr key={l.id}>
-                  <td style={{ fontWeight: 600 }}>{l.propertyName}<StandingChips row={r} /></td>
-                  <td><TypeChip type={typeOf(r)} /></td>
-                  <td><TenantName row={r} /></td>
-                  <td style={{ whiteSpace: 'normal' }}>{r.monthsBehind} - {months.join(', ')}</td>
-                  <td className="acct-num" style={{ fontWeight: 700, color: 'var(--bad-fg, #dc2626)' }}><Amount value={r.owed} /></td>
-                  <td className="acct-num">{r.lateFees ? <Amount value={r.lateFees} /> : '-'}</td>
-                  <td style={{ whiteSpace: 'normal' }}>{[l.contactName, l.phone].filter(Boolean).join(' · ') || '-'}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    {l.email
-                      ? <a className="secondary-btn" href={reminder(r, year)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', padding: '3px 10px', textDecoration: 'none' }}><Mail size={13} /> Write to Tenant</a>
-                      : <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>No email on file</span>}
-                  </td>
+                  {viewCells(view, {
+                    property: <td style={{ fontWeight: 600 }}>{l.propertyName}<StandingChips row={r} /></td>,
+                    type: <td><TypeChip type={typeOf(r)} /></td>,
+                    payer: <td><TenantName row={r} /></td>,
+                    behind: <td style={{ whiteSpace: 'normal' }}>{r.monthsBehind} - {months.join(', ')}</td>,
+                    owed: <td className="acct-num" style={{ fontWeight: 700, color: 'var(--bad-fg, #dc2626)' }}><Amount value={r.owed} /></td>,
+                    lateFees: <td className="acct-num">{r.lateFees ? <Amount value={r.lateFees} /> : '-'}</td>,
+                    contact: <td style={{ whiteSpace: 'normal' }}>{contactText(l) || '-'}</td>,
+                    write: (
+                      <td style={{ textAlign: 'right' }}>
+                        {l.email
+                          ? <a className="secondary-btn" href={reminder(r, year)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', padding: '3px 10px', textDecoration: 'none' }}><Mail size={13} /> Write to Tenant</a>
+                          : <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>No email on file</span>}
+                      </td>
+                    ),
+                  })}
                 </tr>
               );
             })}
-            <tr className="acct-grand"><td colSpan={4}>Total Outstanding - {sorted.length} {sorted.length === 1 ? 'tenant' : 'tenants'}</td><td className="acct-num"><Amount value={sorted.reduce((s, r) => s + r.owed, 0)} /></td><td className="acct-num"><Amount value={sorted.reduce((s, r) => s + r.lateFees, 0)} /></td><td colSpan={2} /></tr>
+            <tr className="acct-grand">
+              {viewCells(view, {
+                property: <td style={{ whiteSpace: 'nowrap' }}>Total Outstanding - {sorted.length} {sorted.length === 1 ? 'tenant' : 'tenants'}</td>,
+                owed: <td className="acct-num"><Amount value={sorted.reduce((s, r) => s + r.owed, 0)} /></td>,
+                lateFees: <td className="acct-num"><Amount value={sorted.reduce((s, r) => s + r.lateFees, 0)} /></td>,
+              })}
+            </tr>
           </tbody>
         </table>
       </div>
@@ -888,15 +1074,18 @@ function Outstanding({ rows, year, py, pageSize = 0, pageKey = '' }) {
   );
 }
 
-function Tenants({ rows, py, canEdit, onEdit, onReplace, pageSize = 0, pageKey = '' }) {
+function Tenants({ view, rows, py, canEdit, onEdit, onReplace, pageSize = 0, pageKey = '' }) {
   const paged = usePaged(rows, pageSize, pageKey);
-  if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>No lease matches.</div>;
+  const wrapRef = useRef(null);
+  const fitHeight = useFitToScreen(wrapRef, rows.length > 0);
+  if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{view.count ? 'No lease passes the filters.' : 'No lease matches.'}</div>;
   return (
     <div style={{ ...card, padding: 10 }}>
-      <div className="acct-lines-wrap">
-        <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
+      <div ref={wrapRef} className="acct-lines-wrap" data-testid="mri-tenants-box" style={fitHeight ? { maxHeight: fitHeight } : undefined}>
+        <table className="acct-lines acct-sticky-head" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
           <thead>
-            <tr><th scope="col">Property or Source</th><th scope="col">Type</th><th scope="col">Payer</th><th scope="col">Landlord</th><th scope="col">Dates</th><th scope="col" className="acct-num">Amount</th><th scope="col" className="acct-num">CAM</th><th scope="col" className="acct-num">Deposit</th><th scope="col">Status</th><th scope="col" aria-label="Change" /></tr>
+            <tr>{view.columns.map((c) => (c.key === 'change' ? <th key={c.key} scope="col" aria-label="Change" />
+              : <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={c.type === 'amount' ? 'acct-num' : undefined} style={headStyle(view.manualWidth(c.key))} />))}</tr>
           </thead>
           <tbody>
             {paged.rows.map((r) => {
@@ -904,23 +1093,27 @@ function Tenants({ rows, py, canEdit, onEdit, onReplace, pageSize = 0, pageKey =
               const rate = l.rates[l.rates.length - 1];
               return (
                 <tr key={l.id}>
-                  <td style={{ fontWeight: 600, whiteSpace: 'normal' }}>{l.propertyName}{l.region ? <div style={{ fontWeight: 400, fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{l.region}</div> : null}</td>
-                  <td><TypeChip type={typeOf(r)} /></td>
-                  <td style={{ whiteSpace: 'normal' }}>{l.customerId ? <span className="acct-code">{l.customerId}</span> : null}<TenantName row={r} /></td>
-                  <td style={{ whiteSpace: 'normal' }}>{l.landlord || '-'}</td>
-                  <td>{l.leaseStart ? formatDate(l.leaseStart) : '-'} to {l.leaseEnd ? formatDate(l.leaseEnd) : 'Month to Month'}{leaseTermLabel(l) ? <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>Term: {leaseTermLabel(l)}</div> : null}</td>
-                  <td className="acct-num">{rate ? <Amount value={rate.rent} /> : '-'}</td>
-                  <td className="acct-num">{rate?.cam ? <Amount value={rate.cam} /> : '-'}</td>
-                  <td className="acct-num">{l.securityDeposit ? <Amount value={l.securityDeposit} /> : '-'}</td>
-                  <td>{LEASE_STATUS[l.status] || l.status}<StandingChips row={r} /><PossiblyEndedChip flag={l.possiblyEnded} kind="mri" /></td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {canEdit && (
-                      <>
-                        <button type="button" style={icon} aria-label={`Change ${l.propertyName}`} title="Change this lease" onClick={() => onEdit(l)}><Pencil size={14} /></button>
-                        {l.status !== 'ended' && <button type="button" style={icon} aria-label={`New tenant at ${l.propertyName}`} title="New tenant in this space" onClick={() => onReplace(l)}><UserPlus size={14} /></button>}
-                      </>
-                    )}
-                  </td>
+                  {viewCells(view, {
+                    property: <td style={{ fontWeight: 600, whiteSpace: 'normal' }}>{l.propertyName}{l.region ? <div style={{ fontWeight: 400, fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{l.region}</div> : null}</td>,
+                    type: <td><TypeChip type={typeOf(r)} /></td>,
+                    payer: <td style={{ whiteSpace: 'normal' }}>{l.customerId ? <span className="acct-code">{l.customerId}</span> : null}<TenantName row={r} /></td>,
+                    landlord: <td style={{ whiteSpace: 'normal' }}>{l.landlord || '-'}</td>,
+                    dates: <td>{l.leaseStart ? formatDate(l.leaseStart) : '-'} to {l.leaseEnd ? formatDate(l.leaseEnd) : 'Month to Month'}{leaseTermLabel(l) ? <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>Term: {leaseTermLabel(l)}</div> : null}</td>,
+                    amount: <td className="acct-num">{rate ? <Amount value={rate.rent} /> : '-'}</td>,
+                    cam: <td className="acct-num">{rate?.cam ? <Amount value={rate.cam} /> : '-'}</td>,
+                    deposit: <td className="acct-num">{l.securityDeposit ? <Amount value={l.securityDeposit} /> : '-'}</td>,
+                    status: <td>{LEASE_STATUS[l.status] || l.status}<StandingChips row={r} /><PossiblyEndedChip flag={l.possiblyEnded} kind="mri" /></td>,
+                    change: (
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {canEdit && (
+                          <>
+                            <button type="button" style={icon} aria-label={`Change ${l.propertyName}`} title="Change this lease" onClick={() => onEdit(l)}><Pencil size={14} /></button>
+                            {l.status !== 'ended' && <button type="button" style={icon} aria-label={`New tenant at ${l.propertyName}`} title="New tenant in this space" onClick={() => onReplace(l)}><UserPlus size={14} /></button>}
+                          </>
+                        )}
+                      </td>
+                    ),
+                  })}
                 </tr>
               );
             })}
@@ -1098,7 +1291,7 @@ function LeaveConfirm({ onKeep, onDiscard }) {
   );
 }
 
-function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
+function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty }) {
   const [l, setL] = useState(() => { const t = termOf(lease); return { incomeType: 'lease', ...lease, termType: t.termType, termMonths: t.termMonths, termLegacy: t.termLegacy, rates: (lease.rates || []).map((r) => ({ ...r })) }; });
   const [initial] = useState(() => JSON.stringify(l));
   const isLease = leaseLike(l.incomeType);
@@ -1116,14 +1309,15 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
   const dirty = JSON.stringify(l) !== initial || (!!replacing && movedOut !== initialMoved);
   const [leaving, setLeaving] = useState(false);
   const live = useRef({ unsaved: false, leaving: false });
-  useEffect(() => { live.current = { unsaved: dirty, leaving }; }, [dirty, leaving]);
+  useEffect(() => { live.current = { unsaved: dirty, leaving }; onDirty?.(dirty); }, [dirty, leaving]); // eslint-disable-line react-hooks/exhaustive-deps
   const tryClose = useCallback(() => { if (live.current.unsaved) setLeaving(true); else onClose(); }, [onClose]);
   useEffect(() => {
     api.getLeasingCustomers().then((d) => setCustomers(d?.customers || [])).catch(() => setCustomers([]));
     api.getAccountingLocations().then((d) => setEntities(d?.entities || [])).catch(() => setEntities([]));
   }, []);
   useEffect(() => {
-    const onKey = (e) => { if (e.key !== 'Escape') return; if (live.current.leaving) setLeaving(false); else tryClose(); };
+    // A popup open over the panel (a month's detail) takes its own Escape.
+    const onKey = (e) => { if (e.key !== 'Escape' || document.querySelector('.modal-overlay')) return; if (live.current.leaving) setLeaving(false); else tryClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [tryClose]);
@@ -1172,17 +1366,35 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
     </div>
   );
   const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 };
+  const heading = replacing ? 'New Tenant in This Space' : isCam ? (l.id ? 'Change CAM Charge' : 'New CAM Charge') : !isLease ? (l.id ? 'Change Income Source' : 'New Interest or Loan Payment') : l.id ? 'Change Lease' : 'New Lease';
+  const who = isLease ? 'Tenant' : 'Payer';
+  // Item 04 (Neil, 10/23: "It should be like the tenant info, lease info, and
+  // then comments"): the same fields as before, in three titled groups - no
+  // tabs ("there's not that much on there where you need two tabs").
   return (
-    <div className="modal-overlay" onClick={tryClose} role="presentation">
-      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={replacing ? 'New tenant in this space' : isCam ? (l.id ? 'Change CAM charge' : 'New CAM charge') : !isLease ? (l.id ? 'Change income source' : 'New interest or loan payment') : l.id ? 'Change lease' : 'New lease'} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <div>
-            <h3 style={{ margin: 0 }}>{replacing ? 'New Tenant in This Space' : isCam ? (l.id ? 'Change CAM Charge' : 'New CAM Charge') : !isLease ? (l.id ? 'Change Income Source' : 'New Interest or Loan Payment') : l.id ? 'Change Lease' : 'New Lease'}</h3>
-            {replacing && <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>{replacing.tenantName}'s lease is ended and kept. This starts the next one.</div>}
-          </div>
-          <button type="button" onClick={tryClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+    <SidePanel label={replacing ? 'New tenant in this space' : isCam ? (l.id ? 'Change CAM charge' : 'New CAM charge') : !isLease ? (l.id ? 'Change income source' : 'New interest or loan payment') : l.id ? 'Change lease' : 'New lease'}
+      title={heading}
+      caption={replacing ? `${replacing.tenantName}'s lease is ended and kept. This starts the next one.` : l.id ? [lease.propertyName, lease.tenantName].filter(Boolean).join(' - ') : 'The list stays open beside this while you fill it in.'}
+      onClose={tryClose}
+      footer={leaving ? <LeaveConfirm onKeep={() => setLeaving(false)} onDiscard={onClose} /> : (
+        <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+          <span>
+            {canDelete && l.id && !replacing && (confirm ? (
+              <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: '0.8rem' }}>
+                Entered by mistake?
+                <button type="button" className="secondary-btn" style={{ color: 'var(--bad-fg, #dc2626)' }} onClick={() => api.deleteLeasingLease(l.id).then(onSaved).catch((e) => setError(e?.message || 'Could not delete.'))}>Delete Lease</button>
+                <button type="button" className="secondary-btn" onClick={() => setConfirm(false)}>Keep</button>
+              </span>
+            ) : <button type="button" style={{ ...icon, fontSize: '0.78rem', gap: 5, alignItems: 'center' }} onClick={() => setConfirm(true)}><Trash2 size={13} /> Delete</button>)}
+          </span>
+          <span style={{ display: 'inline-flex', gap: 8 }}>
+            <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
+            <button type="button" className="primary-btn" onClick={save} disabled={!ready || busy}>{busy ? 'Saving...' : 'Save'}</button>
+          </span>
         </div>
-        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 14, maxHeight: '72vh', overflowY: 'auto' }}>
+      )}>
+      <PanelSection title={isLease ? 'Tenant Info' : 'Payer Info'} caption={isLease ? 'Who pays the rent, and how to reach them.' : 'Who pays, and how to reach them.'}>
+        <div style={{ display: 'grid', gap: 10 }}>
           {replacing && (
             <div style={{ maxWidth: 240 }}>
               <span style={label}>Last Day of {replacing.tenantName}</span>
@@ -1191,20 +1403,40 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
           )}
           <div style={grid}>
             <div>
+              <label style={label} htmlFor="lease-tenancy">{who} Is</label>
+              <select id="lease-tenancy" value={l.tenancy} onChange={(e) => set({ tenancy: e.target.value })} style={{ ...control, width: '100%' }}>
+                <option value="external">External</option><option value="internal">Internal - a related company</option>
+              </select>
+            </div>
+          </div>
+          {vacant ? (
+            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>The space is vacant - no {who.toLowerCase()} until the status changes.</p>
+          ) : (
+            <div style={grid}>
+              <CustomerCombo id="lease-tenantName" text={isLease ? 'Tenant Name' : 'Payer Name'} value={l.tenantName || ''} customers={customers} picked={l.customerId}
+                onType={(v) => set({ tenantName: v })} onPick={pickCustomer} />
+              {field('customerId', 'Intacct Customer Code', { maxLength: 60 })}
+              {field('contactName', 'Primary Contact', { maxLength: 200 })}
+              {field('phone', 'Phone', { maxLength: 60 })}
+              {field('email', 'Email', { maxLength: 200, type: 'email' })}
+              {field('mailingAddress', 'Mailing Address', { maxLength: 300 })}
+            </div>
+          )}
+        </div>
+      </PanelSection>
+
+      <PanelSection title={isLease ? 'Lease Info' : 'Income Info'} caption="The space, the dates, the rent and where the income posts.">
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div style={grid}>
+            <div>
               <label style={label} htmlFor="lease-type">Type</label>
               <select id="lease-type" value={l.incomeType || 'lease'} onChange={(e) => set({ incomeType: e.target.value })} style={{ ...control, width: '100%' }}>
                 {TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
               </select>
             </div>
-            {field('propertyName', isLease ? 'Property or Space' : 'Source', { maxLength: 200, autoFocus: true, placeholder: isLease ? '910 SECR - Ste 100, San Clemente' : 'Note receivable - Oversite Inv2' })}
+            {field('propertyName', isLease ? 'Property or Space' : 'Source', { maxLength: 200, placeholder: isLease ? '910 SECR - Ste 100, San Clemente' : 'Note receivable - Oversite Inv2' })}
             {field('region', 'Region', { maxLength: 120, placeholder: 'Orange County' })}
             {field('landlord', 'Landlord (the tenant pays)', { maxLength: 200 })}
-            <div>
-              <label style={label} htmlFor="lease-tenancy">Tenant Is</label>
-              <select id="lease-tenancy" value={l.tenancy} onChange={(e) => set({ tenancy: e.target.value })} style={{ ...control, width: '100%' }}>
-                <option value="external">External</option><option value="internal">Internal - a related company</option>
-              </select>
-            </div>
             <div>
               <label style={label} htmlFor="lease-status">Status</label>
               <select id="lease-status" value={l.status} onChange={(e) => set({ status: e.target.value })} style={{ ...control, width: '100%' }}>
@@ -1212,20 +1444,6 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
               </select>
             </div>
           </div>
-
-          {!vacant && (
-            <div style={{ display: 'grid', gap: 10 }}>
-              <div style={grid}>
-                <CustomerCombo id="lease-tenantName" text={isLease ? 'Tenant Name' : 'Payer Name'} value={l.tenantName || ''} customers={customers} picked={l.customerId}
-                  onType={(v) => set({ tenantName: v })} onPick={pickCustomer} />
-                {field('customerId', 'Intacct Customer Code', { maxLength: 60 })}
-                {field('contactName', 'Primary Contact', { maxLength: 200 })}
-                {field('phone', 'Phone', { maxLength: 60 })}
-                {field('email', 'Email', { maxLength: 200, type: 'email' })}
-                {field('mailingAddress', 'Mailing Address', { maxLength: 300 })}
-              </div>
-            </div>
-          )}
 
           <div style={grid}>
             <div>
@@ -1317,7 +1535,6 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
               <span style={label}>Entity the Income Posts To</span>
               <EntityPicker entities={entities} value={l.entityCode || ''} onChange={(code) => set({ entityCode: code })} noneLabel="Not Set"
                 ariaLabel="Entity the Income Posts To" active={false} style={{ width: '100%', maxWidth: 'none' }} />
-
             </div>
             <div>
               <label style={label} htmlFor="lease-accounts">{isLease ? 'Rental Income Accounts' : 'Income Accounts'}</label>
@@ -1325,28 +1542,15 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>GL codes, separated by commas. What posts here for the tenant counts as rent received.</div>
             </div>
           </div>
-          {field('notes', 'Notes', { maxLength: 1000 })}
-          {error && <div style={bad}>{error}</div>}
         </div>
-        {leaving ? <LeaveConfirm onKeep={() => setLeaving(false)} onDiscard={onClose} /> : (
-        <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
-          <span>
-            {canDelete && l.id && !replacing && (confirm ? (
-              <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: '0.8rem' }}>
-                Entered by mistake?
-                <button type="button" className="secondary-btn" style={{ color: 'var(--bad-fg, #dc2626)' }} onClick={() => api.deleteLeasingLease(l.id).then(onSaved).catch((e) => setError(e?.message || 'Could not delete.'))}>Delete Lease</button>
-                <button type="button" className="secondary-btn" onClick={() => setConfirm(false)}>Keep</button>
-              </span>
-            ) : <button type="button" style={{ ...icon, fontSize: '0.78rem', gap: 5, alignItems: 'center' }} onClick={() => setConfirm(true)}><Trash2 size={13} /> Delete</button>)}
-          </span>
-          <span style={{ display: 'inline-flex', gap: 8 }}>
-            <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
-            <button type="button" className="primary-btn" onClick={save} disabled={!ready || busy}>{busy ? 'Saving...' : 'Save'}</button>
-          </span>
-        </div>
-        )}
-      </div>
-    </div>
+      </PanelSection>
+
+      <PanelSection title="Comments" caption="Anything the team should know about this lease.">
+        <label style={label} htmlFor="lease-notes">Notes</label>
+        <textarea id="lease-notes" rows={4} value={l.notes ?? ''} maxLength={1000} onChange={(e) => set({ notes: e.target.value })} style={{ ...control, width: '100%', height: 'auto', minHeight: 84, padding: '6px 8px', resize: 'vertical', fontFamily: 'inherit' }} />
+      </PanelSection>
+      {error && <div style={bad}>{error}</div>}
+    </SidePanel>
   );
 }
 

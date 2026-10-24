@@ -617,7 +617,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       run(() => api.timeShiftGroupMeta(group.id, { archived: !group.archived }), { ok: group.archived ? `${group.name} restored.` : `${group.name} archived. Find it under Archived Groups.`, fail: 'Could not update the group.' });
       if (!group.archived && groupFilter === group.id) { setTeamPick(null); try { localStorage.removeItem(teamKey); } catch { /* */ } }
     } else if (action === 'reorder') setOpen('reorder');
-    else if (action === 'manage') window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'global-shifts' } }));
+    else if (action === 'manage') window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'shifts' } }));
     else if (action === 'delete') {
       const ok = await dialog.confirm(`Delete the group ${group.name}? Its people stay on the schedule; only the group goes.`, { title: 'Delete Group', confirmText: 'Delete', danger: true });
       if (ok) { if (groupFilter === group.id) { setTeamPick(null); setFrozenDefault(null); try { localStorage.removeItem(teamKey); } catch { /* */ } } run(() => api.timeShiftGroupDelete(group.id), { ok: 'Group deleted.', fail: 'Could not delete the group.' }); }
@@ -1071,7 +1071,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
               : <><strong>{weatherSetup.length} groups</strong> have no work site, so weather alerts cannot watch them: {weatherSetup.map((g) => g.name).join(', ')}.</>}
           </span>
           <button type="button" className="secondary-btn" style={{ fontSize: 12 }}
-            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'global-shifts' } }))}>Set a Work Site</button>
+            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'shifts' } }))}>Set a Work Site</button>
           <button type="button" onClick={() => setWeatherSetupHidden(true)} aria-label="Hide the weather setup note" title="Hide for now"
             style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><XIcon size={14} /></button>
         </div>

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight } from 'lucide-react';
 import AnchoredMenu from './AnchoredMenu';
 import TabInk from './TabInk';
 
@@ -23,6 +23,13 @@ Oct 6 (Charmi and Neil, 10/04): a tab may carry `items: [{ key, label, Icon? }]`
 Performance / Close). `active` stays the CHILD's key, so every existing sub
 key and deep link keeps working; the group lights up when one of its items
 is active and names that item beside its own label.
+
+Oct 22 (Neil and Charmi, Accounting's bar - all opt-in, no other module
+changes): an item may carry its own `items`, drawn as a row with an arrow
+that opens a side flyout (Reports > Financial > Income Statement > T12); a
+tab may name a `landing` item that a click on the group opens (Dashboard ->
+Overview); and `compactGroups` keeps the picked item's name OUT of the bar,
+so choosing a page never widens it.
 
 On desktop the strip renders in the header (TopHeader reads it via
 useHeaderTabs). Below 900px the header center is hidden, so <ModuleTabs>
@@ -62,7 +69,10 @@ export function useHeaderTabs() {
 // Publishing is skipped rather than ignored: a module that draws its own strip
 // and also published one would show the same tabs twice on desktop. It makes
 // syncTitle moot for that module - nothing is published for TopHeader to read.
-export default function ModuleTabs({ tabs, active, onChange, mobileInline = true, syncTitle = false, inline = false }) {
+//
+// compactGroups=true (Accounting, Oct 22): a dropdown tab shows only its own
+// label, never "Dashboard · Overview".
+export default function ModuleTabs({ tabs, active, onChange, mobileInline = true, syncTitle = false, inline = false, compactGroups = false }) {
   const ctx = useContext(HeaderTabsContext);
   const setEntry = inline ? null : ctx?.setEntry;
 
@@ -73,12 +83,13 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   const onChangeRef = useRef(onChange);
   useEffect(() => { onChangeRef.current = onChange; });
 
-  const signature = tabs.map(t => `${t.key} ${t.label} ${t.title ?? ''} ${t.badge ?? ''}${t.items ? ` [${t.items.map(i => `${i.key}:${i.label}`).join(',')}]` : ''}`).join('|');
+  const itemsSig = (items) => (items ? ` [${items.map(i => `${i.key}:${i.label}${itemsSig(i.items)}`).join(',')}]` : '');
+  const signature = tabs.map(t => `${t.key} ${t.label} ${t.title ?? ''} ${t.badge ?? ''}${t.landing ? ` >${t.landing}` : ''}${itemsSig(t.items)}`).join('|');
   useEffect(() => {
     if (!setEntry) return;
-    setEntry({ tabs, active, syncTitle, onChange: key => onChangeRef.current?.(key) });
+    setEntry({ tabs, active, syncTitle, compactGroups, onChange: key => onChangeRef.current?.(key) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setEntry, signature, active, syncTitle]);
+  }, [setEntry, signature, active, syncTitle, compactGroups]);
 
   useEffect(() => {
     if (!setEntry) return;
@@ -90,8 +101,8 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   return (
     <div className={`scroll-tabs module-tabs-inline${inline ? ' module-tabs-inline--always' : ''}`}>
       <TabInk key={signature} active={active} variant="line" />
-      {tabs.map(({ key, label, Icon, badge, items }) => (items ? (
-        <TabGroupButton key={key} tab={{ key, label, Icon, items }} active={active} onSelect={(k) => onChange?.(k)} className="module-tab-inline-btn" iconSize={16} />
+      {tabs.map(({ key, label, Icon, badge, items, landing }) => (items ? (
+        <TabGroupButton key={key} tab={{ key, label, Icon, items, landing }} active={active} onSelect={(k) => onChange?.(k)} className="module-tab-inline-btn" iconSize={16} compact={compactGroups} />
       ) : (
         <button
           key={key}
@@ -106,43 +117,90 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   );
 }
 
+/** Does this list of items (flyouts included) hold the key `active`? */
+const holds = (items, active) => !!items?.some((i) => i.key === active || holds(i.items, active));
 /** Is `active` this tab, or one of its dropdown items? */
-const tabIsActive = (tab, active) => tab.key === active || !!tab.items?.some((i) => i.key === active);
+const tabIsActive = (tab, active) => tab.key === active || holds(tab.items, active);
+/** The item `active` names, however deep in the flyouts. */
+const findItem = (items, active) => {
+  for (const i of items || []) {
+    if (i.key === active) return i;
+    const hit = findItem(i.items, active);
+    if (hit) return hit;
+  }
+  return null;
+};
+
+const MENU_STYLE = { background: 'var(--bg-card, #fff)', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.15)', padding: 4, display: 'grid', gap: 1 };
+const rowStyle = (sel, on = sel) => ({ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: 'none', borderRadius: 7, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', font: 'inherit', fontSize: '0.84rem', fontWeight: on ? 700 : 500, textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap' });
 
 // A tab with a dropdown (Oct 6). The menu is portaled (AnchoredMenu): the
 // header strip scrolls sideways, and a scroller would clip a menu drawn
 // inside it. Used by the header strip (TopHeader) and the phone strip above,
 // each passing its own button class so it looks like its neighbors.
-export function TabGroupButton({ tab, active, onSelect, className, iconSize = 16 }) {
+export function TabGroupButton({ tab, active, onSelect, className, iconSize = 16, compact = false }) {
   const [open, setOpen] = useState(false);
   const btn = useRef(null);
-  const { label, Icon, items } = tab;
+  const { label, Icon, items, landing } = tab;
   const on = tabIsActive(tab, active);
-  const current = items.find((i) => i.key === active);
+  const current = compact ? null : findItem(items, active);
+  const pick = (key) => { setOpen(false); onSelect?.(key); };
   return (
     <>
       <button ref={btn} type="button" className={`${className}${on ? ' active' : ''}`} aria-haspopup="menu" aria-expanded={open}
-        aria-current={on ? 'page' : undefined} onClick={() => setOpen((v) => !v)}>
+        aria-current={on ? 'page' : undefined}
+        onClick={() => {
+          // A group with a landing item opens it on the first click (Oct 22,
+          // Neil: Dashboard comes up on Overview); the menu still opens.
+          if (landing && !on) onSelect?.(landing);
+          setOpen((v) => !v);
+        }}>
         {Icon && <Icon size={iconSize} strokeWidth={2} />}
         <span>{label}</span>
         {current && current.label !== label && <span className="tab-group-current">{current.label}</span>}
-        <ChevronDown size={14} style={{ opacity: 0.7, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+        <ChevronDown size={14} className="tab-group-caret" style={{ opacity: 0.7, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
-      <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} minWidth={200} aria-label={label}
-        style={{ background: 'var(--bg-card, #fff)', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.15)', padding: 4, display: 'grid', gap: 1 }}>
-        {items.map((it) => {
-          const sel = it.key === active;
-          const ItemIcon = it.Icon;
-          return (
-            <button key={it.key} type="button" role="menuitem" aria-current={sel ? 'page' : undefined}
-              onClick={() => { setOpen(false); onSelect?.(it.key); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: 'none', borderRadius: 7, background: sel ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', color: sel ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', font: 'inherit', fontSize: '0.84rem', fontWeight: sel ? 700 : 500, textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              {ItemIcon ? <ItemIcon size={15} /> : null}
-              <span style={{ flex: 1 }}>{it.label}</span>
-              {sel ? <Check size={14} /> : null}
-            </button>
-          );
-        })}
+      <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} minWidth={200} aria-label={label} style={MENU_STYLE}>
+        <MenuRows items={items} active={active} onPick={pick} />
+      </AnchoredMenu>
+    </>
+  );
+}
+
+// The rows of a dropdown. An item with `items` is a row with an arrow whose
+// flyout opens beside it, on hover, click or the right arrow key; pointing at
+// any other row closes it (Oct 22, Neil: "an arrow here and it pops out and
+// you get a secondary menu on the side").
+function MenuRows({ items, active, onPick }) {
+  const [flyout, setFlyout] = useState(null);
+  return items.map((it) => (it.items ? (
+    <FlyoutRow key={it.key} item={it} active={active} onPick={onPick} open={flyout === it.key}
+      onOpen={() => setFlyout(it.key)} onClose={() => setFlyout((k) => (k === it.key ? null : k))} />
+  ) : (
+    <button key={it.key} type="button" role="menuitem" aria-current={it.key === active ? 'page' : undefined}
+      onMouseEnter={() => setFlyout(null)} onClick={() => onPick(it.key)} style={rowStyle(it.key === active)}>
+      {it.Icon ? <it.Icon size={15} /> : null}
+      <span style={{ flex: 1 }}>{it.label}</span>
+      {it.key === active ? <Check size={14} /> : null}
+    </button>
+  )));
+}
+
+function FlyoutRow({ item, active, onPick, open, onOpen, onClose }) {
+  const row = useRef(null);
+  const on = holds(item.items, active);
+  return (
+    <>
+      <button ref={row} type="button" role="menuitem" aria-haspopup="menu" aria-expanded={open}
+        onMouseEnter={onOpen} onClick={() => (open ? onClose() : onOpen())}
+        onKeyDown={(e) => { if (e.key === 'ArrowRight') { e.preventDefault(); onOpen(); } }}
+        style={{ ...rowStyle(false, on), fontWeight: on ? 700 : 500 }}>
+        {item.Icon ? <item.Icon size={15} /> : null}
+        <span style={{ flex: 1 }}>{item.label}</span>
+        <ChevronRight size={14} style={{ opacity: 0.7 }} />
+      </button>
+      <AnchoredMenu anchorRef={row} open={open} onClose={onClose} side="right" minWidth={200} aria-label={item.label} style={MENU_STYLE}>
+        <MenuRows items={item.items} active={active} onPick={onPick} />
       </AnchoredMenu>
     </>
   );

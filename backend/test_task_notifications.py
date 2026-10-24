@@ -145,8 +145,10 @@ class BulkNotificationTests(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         for m in (models.Task, models.TaskActivity, models.TaskNotification,
-                  models.NexusNotification):
+                  models.NexusNotification, models.NexusEmployee):
             self.db.query(m).delete()
+        # The person tasks are bulk-assigned to is in the directory (Oct 21 2026).
+        self.db.add(models.NexusEmployee(id=gen_id(), work_email="assignee@greensglobal.com", first_name="A"))
         self.db.commit()
 
     def tearDown(self):

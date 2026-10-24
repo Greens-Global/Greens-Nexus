@@ -63,6 +63,8 @@ class DueCase(unittest.TestCase):
             self.db.query(m).delete()
         self.db.add(models.NexusEmployee(id=gen_id(), work_email=SAGAR["email"], first_name="Sagar",
                                          manager_email=MANAGER["email"]))
+        # A reassignment target is a directory person too (Oct 21 2026).
+        self.db.add(models.NexusEmployee(id=gen_id(), work_email="other@greensglobal.com", first_name="Other"))
         self.db.commit()
 
     def tearDown(self):
@@ -104,9 +106,20 @@ class ExtensionCountTests(DueCase):
         self._patch(t, due_on="2026-09-25")       # first date
         self._patch(t, due_on="2026-09-23")       # earlier
         self._patch(t, due_on="")                 # cleared
-        self._patch(t, due_on="2026-10-01")       # set again
+        # Set again, no later than the date it was cleared from. (Set LATER, it
+        # is an extension of that date - Oct 21 2026; this used to read
+        # 2026-10-01 and pass, which was the clear-then-push loophole. See
+        # test_clearing_then_setting_a_later_date_still_counts.)
+        self._patch(t, due_on="2026-09-20")
         self.assertEqual(t.due_extension_count, 0)
         self.assertEqual(len(t.due_history), 4)
+
+    def test_clearing_then_setting_a_later_date_still_counts(self):
+        t = self._create(user=SAGAR, due_on="2026-09-25")
+        self._patch(t, due_on="")
+        self._patch(t, due_on="2026-10-01")
+        self.assertEqual(t.due_extension_count, 1)
+        self.assertEqual([h["extension"] for h in t.due_history], [False, False, True])
 
     def test_unchanged_date_logs_nothing(self):
         t = self._create(user=SAGAR, due_on="2026-09-25")

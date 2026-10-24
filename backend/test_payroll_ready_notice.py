@@ -95,7 +95,8 @@ class PayrollReadyTests(unittest.TestCase):
         self.assertIn("All 2 time sheets for Greens Storage, 09/13/2026 - 09/26/2026, are finalized", n.body)
         self.assertIn("4 h sick, 0 h vacation", n.body)
         # Unlock and finalize again: no second bell for the same period.
-        tc.unfinalize_timecard(tc.FinalizeIn(email=B, start=PS, end=PE), user=HR, db=self.db)
+        tc.unfinalize_timecard(tc.FinalizeIn(email=B, start=PS, end=PE, reason="Wrong lunch on Monday"),
+                                user={"email": HR_EMAIL, "level": 4}, db=self.db)   # the HR contact (Oct 22: HR only)
         self._finalize(B)
         self.assertEqual(len(self._ready()), 1)
 
