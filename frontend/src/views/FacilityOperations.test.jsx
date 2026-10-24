@@ -370,6 +370,31 @@ describe('Operations module', () => {
     expect(kpi('Past Due')).toBe('$1,800');              // a balance is as of today whatever the period
   });
 
+  // Oct 23 (Charmi, item 17): a reload lands on the same screen with the same period.
+  it('keeps the period across a reload, and opens fresh when you come back inside Nexus', async () => {
+    const { resetRefreshForTests } = await import('../lib/refreshState');
+    sessionStorage.clear(); resetRefreshForTests();
+    sessionStorage.setItem('nexus.refresh.ops.period', JSON.stringify('last-month'));
+    const { unmount } = render(<FacilityOperations activeSub="collections" onSubChange={() => {}} />);
+    await screen.findByText('Tenants Past Due', { selector: '.dash-card-title' });
+    expect(screen.getByLabelText('Period').value).toBe('last-month');
+    fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'last-90' } });
+    expect(JSON.parse(sessionStorage.getItem('nexus.refresh.ops.period'))).toBe('last-90');
+    unmount();
+    render(<FacilityOperations activeSub="collections" onSubChange={() => {}} />);
+    await screen.findByText('Tenants Past Due', { selector: '.dash-card-title' });
+    expect(screen.getByLabelText('Period').value).toBe('this-month');
+  });
+
+  it('ignores a kept period that is no longer offered', async () => {
+    const { resetRefreshForTests } = await import('../lib/refreshState');
+    sessionStorage.clear(); resetRefreshForTests();
+    sessionStorage.setItem('nexus.refresh.ops.period', JSON.stringify('last-decade'));
+    render(<FacilityOperations activeSub="collections" onSubChange={() => {}} />);
+    await screen.findByText('Tenants Past Due', { selector: '.dash-card-title' });
+    expect(screen.getByLabelText('Period').value).toBe('this-month');
+  });
+
   it('pages a long list instead of growing the page, and finds a row by typing', async () => {
     const many = Array.from({ length: 30 }, (_, i) => ({ unit: `D${String(i).padStart(2, '0')}`, type: 'Drive-Up', reason: 'OTHER', note: '', street: 20000 }));
     getFacilityOps.mockResolvedValue({ ...PAYLOAD, facilities: [facility('fac_a', 'Temecula', { offMarket: many })] });

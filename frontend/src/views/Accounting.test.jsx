@@ -13,6 +13,7 @@ vi.mock('../api', () => ({ api: apiMock }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@greensglobal.com', canAccessModule: (m) => m === 'accounting' }) }));
 vi.mock('../lib/useNameResolver', () => ({ useNameResolver: () => () => 'Neil Kadakia' }));
 vi.mock('../components/accounting/ReportsTab', () => ({ default: ({ search }) => <div data-testid="reports">{`reports:${search?.text || ''}`}</div> }));
+vi.mock('../components/accounting/ReportCenter', () => ({ default: () => <div data-testid="report-center">report-center</div> }));
 vi.mock('../components/accounting/PackagesTab', () => ({ default: () => <div>packages-tab</div> }));
 vi.mock('../components/accounting/AccessTab', () => ({ default: () => <div>access-tab</div> }));
 vi.mock('../components/accounting/PfsTab', () => ({ default: () => <div>pfs-tab</div> }));
@@ -38,9 +39,10 @@ describe('Accounting view', () => {
     render(<Accounting activeSub={undefined} onSubChange={onSubChange} />);
     expect(await screen.findByText('overview-tab')).toBeTruthy();
     // The strip is grouped now (Oct 7): the Dashboard group leads, showing
-    // its active tab, and the Reporting group is there for everyone.
-    expect(tabNames()[0]).toBe('DashboardOverview');
-    expect(tabNames()).toContain('Reporting');
+    // its own name only (Oct 22: the picked page never widens the bar), and
+    // the Reports group is there for everyone.
+    expect(tabNames()[0]).toBe('Dashboard');
+    expect(tabNames()).toContain('Reports');
     await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('overview'));
   });
 
@@ -48,9 +50,10 @@ describe('Accounting view', () => {
     apiMock.getMyAccountingAccess.mockResolvedValue({ limited: true });
     const onSubChange = vi.fn();
     render(<Accounting activeSub={undefined} onSubChange={onSubChange} />);
-    expect(await screen.findByTestId('reports')).toBeTruthy();
-    // No Dashboard group for an entity-limited reader: Reporting leads, on Reports.
-    expect(tabNames()[0]).toBe('ReportingAll Reports');
+    // Oct 23: `reports` is the Report Center, the catalogue of every report.
+    expect(await screen.findByTestId('report-center')).toBeTruthy();
+    // No Dashboard group for an entity-limited reader: Reports leads, on the Report Center.
+    expect(tabNames()[0]).toBe('Reports');
     expect(tabNames().some((t) => /^Dashboard/.test(t))).toBe(false);
     await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('reports'));
     // Links made before the rename still land.
@@ -73,7 +76,18 @@ describe('Accounting view', () => {
     await screen.findByText('cash-tab');
     fireEvent.change(screen.getByLabelText('Search the ledger'), { target: { value: 'sunbelt' } });
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
-    expect(onSubChange).toHaveBeenCalledWith('reports');
+    // Oct 23: the statements screen, on the Income Statement (`reports` is the Report Center now).
+    expect(onSubChange).toHaveBeenCalledWith('rpt-pnl');
     vi.useRealTimers();
+  });
+
+  // Oct 24 (bundle budget): every screen is fetched the first time it is
+  // opened. A screen imported up front again would put it back in the
+  // Accounting file, which had grown past its 1,000 KB budget.
+  it('carries only the header, bar and dashboard helpers - every screen loads on first open', async () => {
+    const src = (await import('./Accounting.jsx?raw')).default;
+    const upFront = [...src.matchAll(/^import .* from '\.\.\/components\/accounting\/([^']+)';\r?$/gm)].map((m) => m[1]).sort();
+    expect(upFront).toEqual(['assumptions', 'dashboard/DashContext', 'dashboard/registry', 'drill', 'prefs', 'reportControls', 'reportModel']);
+    expect(src).toMatch(/const OverviewTab = lazy\(/);
   });
 });

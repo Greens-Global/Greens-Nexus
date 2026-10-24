@@ -263,7 +263,7 @@ describe('Statement of Cash Flows (item 26c)', () => {
   const bs = (cash, ar, bldg, acc, ap, loan, capital) => ({ sections: [
     { key: 'asset', accounts: [{ account_no: '10100', title: 'Chase Operating', amount: cash }, { account_no: '12000', title: 'Accounts Receivable', amount: ar }, { account_no: '15000', title: 'Buildings', amount: bldg }, { account_no: '15900', title: 'Accumulated Depreciation - Buildings', amount: acc }] },
     { key: 'liability', accounts: [{ account_no: '20100', title: 'Accounts Payable', amount: ap }, { account_no: '25000', title: 'Mortgage Loan - Chase', amount: loan }] },
-    { key: 'equity', accounts: [{ account_no: '30000', title: 'Members Capital', amount: capital }, { account_no: '', title: 'Current year earnings (2026)', amount: 0 }] },
+    { key: 'equity', accounts: [{ account_no: '30000', title: 'Members Capital', amount: capital }, { account_no: '', title: 'Current Year Earnings (2026)', amount: 0 }] },
   ] });
 
   it('runs from net income to the change in cash, and ties to Cash Position', () => {

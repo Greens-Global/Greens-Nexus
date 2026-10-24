@@ -203,7 +203,11 @@ function _detailToMessage(detail, status) {
 // A POST/PATCH/PUT/DELETE that committed server-side but exceeded the 18s abort
 // (Azure cold start) or 5xx'd after committing would otherwise be re-sent -
 // duplicate checkouts/assignments/notifications (P1-10). No method = GET.
+// `noRetry: true` opts ONE call out (Oct 23, Compensation): a long report the
+// server already bounds and explains gets one attempt - retrying a 180s read
+// three times only made people wait nine minutes in front of empty rows.
 function _isRetryable(options) {
+  if (options.noRetry) return false;
   const method = (options.method || 'GET').toUpperCase();
   return method === 'GET' || method === 'HEAD';
 }
@@ -235,7 +239,32 @@ function _networkError(err) {
   return out;
 }
 
+// Oct 24 (Neil, 10/23 meeting chat: "sync should be table level and not just
+// overall"): a table's own Sync reads past the server's short accounting cache.
+// Every GET started while `withFreshReads(fn)` runs - until the promise fn
+// returns settles, so a report read in several steps is fresh throughout -
+// carries fresh=1; the backend then asks the accounting app again instead of
+// answering from its cache. Only Accounting, Leasing (MRI) and PFS reads are
+// marked - the same list as the backend's _FRESH_PREFIXES (review 10/24): a
+// read another module starts in that moment (Facility Operations takes fresh
+// too) keeps its own caches.
+let _freshReads = 0;
+const FRESH_PREFIXES = ['/accounting', '/leasing', '/pfs'];
+const freshScoped = (path) => FRESH_PREFIXES.some((p) => path.startsWith(p));
+export function withFreshReads(fn) {
+  _freshReads += 1;
+  let out;
+  try { out = fn(); } catch (e) { _freshReads -= 1; throw e; }
+  if (out && typeof out.then === 'function') {
+    return Promise.resolve(out).finally(() => { _freshReads -= 1; });
+  }
+  _freshReads -= 1;
+  return out;
+}
+const freshPath = (path) => (/[?&]fresh=/.test(path) ? path : `${path}${path.includes('?') ? '&' : '?'}fresh=1`);
+
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
+  if (_freshReads > 0 && attempt === 1 && !tokenRefreshed && (!options.method || options.method === 'GET') && freshScoped(path)) path = freshPath(path);
   const authHeader = await getAuthHeader(tokenRefreshed);
   const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
   let res;
@@ -271,7 +300,9 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
       await new Promise(r => setTimeout(r, 800 * attempt));
       return req(path, options, attempt + 1, tokenRefreshed);
     }
-    _setBackendDown(true);
+    // A no-retry call that ran out its own long timeout says nothing about
+    // whether Nexus is up - no "reconnecting" banner for it.
+    if (!(options.noRetry && err?.name === 'AbortError')) _setBackendDown(true);
     throw _networkError(err);
   }
 
@@ -341,7 +372,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
 const _getCache = new Map(); // path → { ts, promise }
 function cachedGet(path, ttlMs = 60_000) {
   const hit = _getCache.get(path);
-  if (hit && (Date.now() - hit.ts) < ttlMs) return hit.promise;
+  if (hit && !(_freshReads && freshScoped(path)) && (Date.now() - hit.ts) < ttlMs) return hit.promise;
   const promise = req(path).catch(err => { _getCache.delete(path); throw err; });
   _getCache.set(path, { ts: Date.now(), promise });
   return promise;
@@ -2122,6 +2153,11 @@ export const api = {
   //    accounting app has no list yet), and the Flux Analysis explanation
   //    notes kept per entity set, account and period ──
   getAccountingJournals:   ()               => req('/accounting/journals'),
+  // Oct 23 (CR-12): Records > General Ledger Accounts - the chart ({source, accounts}).
+  getAccountingAccounts:   ()               => req('/accounting/accounts'),
+  // Oct 23 (CR-10): Audit & Insights > Manual Journal Entries - who keyed each entry, read from Intacct.
+  getManualJournalEntries: ({ from, to, locations = [], journals = [], user = '', edited = true }) =>
+    req(`/accounting/manual-entries?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${journals.length ? `&journals=${encodeURIComponent(journals.join(','))}` : ''}${user ? `&user=${encodeURIComponent(user)}` : ''}${edited ? '' : '&edited=false'}`, { timeoutMs: 120_000 }),
   getAccountingFluxNotes:  (entity, period) => req(`/accounting/flux-notes?entity=${encodeURIComponent(entity || 'all')}&period=${encodeURIComponent(period)}`),
   saveAccountingFluxNote:  (body)           => req('/accounting/flux-notes', { method: 'PUT', body: JSON.stringify(body) }),
 
@@ -2391,10 +2427,12 @@ export const api = {
   },
   // Accounting > Reporting > AMA, Asset Management Agreements (Oct 7,
   // routers/accounting_ama.py): Billed YTD read from the ledger.
-  getAmaSummary:       (year)     => req(`/accounting/ama/summary${year ? `?year=${year}` : ''}`),
+  // Oct 23 (CR-03): `period` = ytd | q1-q4 | m01-m12; getAmaAccounts lists the GL accounts for the Fee GL Account picker.
+  getAmaSummary:       (year, period = '') => req(`/accounting/ama/summary?${new URLSearchParams({ ...(year ? { year } : {}), ...(period ? { period } : {}) })}`),
   createAmaAgreement:  (body)     => req('/accounting/ama/agreements', { method: 'POST', body: JSON.stringify(body) }),
   updateAmaAgreement:  (id, body) => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteAmaAgreement:  (id)       => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getAmaAccounts:      ()         => req('/accounting/ama/accounts'),
   // Accounting > Reporting > AMA, Ask My Accountant (Neil, 10/15,
   // routers/accounting_ask.py): questions on ledger lines + the lines on the
   // Ask My Accountant (suspense) accounts. The agreements above are now
@@ -2416,6 +2454,21 @@ export const api = {
   getAskSettings:      ()         => req('/accounting/ask/settings'),
   saveAskSettings:     (body)     => req('/accounting/ask/settings', { method: 'PUT', body: JSON.stringify(body) }),
   getAskChart:         ()         => req('/accounting/ask/chart'),
+  // AMA, CR-13 (Charmi, 10/22; routers/accounting_ask_review.py): the other
+  // side of each entry on screen, Notes per line, and the GL reclass a
+  // bookkeeper approves and pushes.
+  getAskOffsets:       (entryIds) => req(`/accounting/ask/offsets?entries=${encodeURIComponent(entryIds.join(','))}`, { timeoutMs: 120_000 }),
+  getAskGlAccounts:    ()         => req('/accounting/ask/gl-accounts'),
+  saveAskNote:         (body)     => req('/accounting/ask/lines/note', { method: 'PUT', body: JSON.stringify(body) }),
+  proposeAskReclass:   (body)     => req('/accounting/ask/lines/reclass', { method: 'POST', body: JSON.stringify(body) }),
+  sendBackAskReclass:  (id, note = '') => req(`/accounting/ask/reviews/${encodeURIComponent(id)}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
+  pushAskReclass:      (id, previewId = '') => req(`/accounting/ask/reviews/${encodeURIComponent(id)}/push`, { method: 'POST', body: JSON.stringify({ previewId }), timeoutMs: 120_000 }),
+  // CR-13 rework (Neil, 23 Oct): the push edits the original Intacct entry -
+  // a preview first, then the push of exactly that preview, and its log.
+  previewAskPush:      (ids)      => req('/accounting/ask/reviews/preview', { method: 'POST', body: JSON.stringify({ ids }), timeoutMs: 120_000 }),
+  pushAskBatch:        (previewId, ids) => req('/accounting/ask/reviews/push', { method: 'POST', body: JSON.stringify({ previewId, ids }), timeoutMs: 180_000 }),
+  getAskPushLog:       (reviewId = '') => req(`/accounting/ask/push-log${reviewId ? `?review=${encodeURIComponent(reviewId)}` : ''}`),
+  exportAskReclasses:  (id = '')  => reqBlob(`/accounting/ask/reviews/export.csv${id ? `?id=${encodeURIComponent(id)}` : ''}`),
   // ── Dashboard Essentials tiles (Oct 7): My Work, My Team, Announcements.
   //    routers/my_work.py, my_team.py (supervisor+), announcements.py.
   //    My Day reads getMyBriefing / actOnMyBriefing; My Time reads
@@ -2504,7 +2557,8 @@ export const api = {
   updateLoanSlow:    (id, body) => req(`/accounting/loans/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body), timeoutMs: 90_000 }),
   // Accounting > Reporting > Profitability and Employee Compensation (10/15).
   getProfitability:      (from, to, { locations = [], book = 'accrual', expand = false, compare = true } = {}) => req(`/accounting/profitability?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${book && book !== 'accrual' ? `&book=${encodeURIComponent(book)}` : ''}${expand ? '&expand=true' : ''}${compare ? '' : '&compare=false'}`, { timeoutMs: 120_000 }),
-  getCompensationPeople: (from, to) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs: 180_000 }),
+  // One attempt (noRetry): the server bounds the run and says why it stopped.
+  getCompensationPeople: (from, to, { timeoutMs = 180_000 } = {}) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs, noRetry: true }),
   getCompensationLedger: (from, to, by = 'department') => req(`/accounting/compensation/ledger?from=${from}&to=${to}&by=${by}`, { timeoutMs: 120_000 }),
   // Flux Analysis review (Charmi, Oct 15): close (sign off) or reopen one
   // account's review - { entity, period, accountNo, closed }.

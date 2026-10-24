@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, FolderOpen, FolderSearch, FolderUp, Mail, MapPin, Pencil, Phone, Search, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, FolderOpen, FolderSearch, FolderUp, Mail, MapPin, Pencil, Phone, X } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput, formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useAccountingPrefs } from './prefs';
-import { ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, control } from './reportControls';
-import { useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
+import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, OpFilter, Pager, PopoverPanel, SyncButton, control, fitSelect } from './reportControls';
+import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
+import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
+import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
 import EntryDetail from './EntryDetail';
-import { downloadBlob, iso } from './reportModel';
+import { downloadBlob, iso, numberFilterHit } from './reportModel';
 import { linesFile } from './linesExport';
 import SendReportDialog from './SendReportDialog';
 import { ScanOutcome, ScanProgress, entitiesScannedText, mergeScans, useLedgerScan, useScanRetry, POLL_MS } from './LedgerScan';
@@ -70,6 +72,11 @@ export { CUSTOM_MAX_MONTHS, frequencyLabel, stepMonths };
 //     from Egnyte's search, the person picks, changes or clears it.
 //   - Possibly Ended: a line with nothing posted for months (the daily
 //     check, recurring_stale.py) carries a chip.
+//
+// Oct 23 (Charmi, Teams): a filter box under every heading, as on AMA and the
+// Reports - text columns hold the words typed, amount columns compare with
+// =, >, <, >=, <=, Between (OpFilter). They stack with the vendor search, the
+// category and Customize, and the exports follow what is left. View only.
 
 const CATEGORIES = [
   { key: 'utilities', label: 'Utilities' },
@@ -178,6 +185,92 @@ export function spanFigures(row, [from, to]) {
   };
 }
 
+// The filter box under each heading (Oct 23), in the grid's column order:
+// Vendor, Entity, Category, the optional columns shown, Expected, the months
+// shown, Total, Balance, Notes. A month filters on the figure in its cell.
+export function mreFilterColumns(extra = [], span = [0, 11]) {
+  const [from, to] = span;
+  const shownFigure = (c) => (c?.status === 'upcoming' && !c.paid ? Number(c.expected) || 0 : Number(c?.paid) || 0);
+  return [
+    { key: 'vendor', label: 'Vendor', text: (r) => `${vendorLabel(r.line.vendorId, r.line.vendorName)} ${r.line.vendorName || ''}` },
+    { key: 'entity', label: 'Entity', text: (r) => `${r.line.entityCode || ''} ${r.line.entityName || ''}` },
+    { key: 'category', label: 'Category', text: (r) => CATEGORY[r.line.category] || 'Other' },
+    ...OPTIONAL_COLUMNS.filter(([k]) => extra.includes(k)).map(([k, l]) => (k === 'variancePct'
+      ? { key: k, label: l, num: true, value: (r) => Number(r.line.variancePct) || 0 }
+      : { key: k, label: l, text: (r) => optionalValue(r.line, k) })),
+    { key: 'expected', label: 'Expected', num: true, value: (r) => Number(r.line.expectedAmount) || 0 },
+    ...MONTHS.map((m, i) => ({ key: `m${i}`, label: m, num: true, value: (r) => shownFigure(r.months?.[i]) })).slice(from, to + 1),
+    { key: 'total', label: 'Total', num: true, value: (r) => spanFigures(r, span).paid },
+    { key: 'balance', label: 'Balance', num: true, value: (r) => spanFigures(r, span).balance },
+    { key: 'notes', label: 'Notes', text: (r) => r.line.notes || '' },
+  ];
+}
+
+// The grid's columns for the standard table view (10/23 meeting, item 01):
+// the filter columns above, typed for the rules (amounts) and the value lists,
+// the vendor pinned first and sorting by name (Urmi, 10/22), each with what
+// it exports as - the export is the view's rows and columns.
+function mreViewColumns(extra = [], span = [0, 11]) {
+  const money = (c) => ({ ...c, type: 'amount', text: (r) => formatAmount(c.value(r)) });
+  return mreFilterColumns(extra, span).map((c) => {
+    if (c.key === 'vendor') {
+      return { ...c, fixed: true, text: (r) => vendorLabel(r.line.vendorId, r.line.vendorName), sortBy: (r) => (r.line.vendorName || r.line.vendorId || '').toLowerCase(),
+        exportAs: [{ label: 'Vendor No.', width: 80, get: (r) => r.line.vendorId }, { label: 'Vendor', width: 200, get: (r) => r.line.vendorName }] };
+    }
+    if (c.key === 'entity') return { ...c, text: (r) => `${r.line.entityCode || ''} ${r.line.entityName || ''}`.trim(), exportAs: [{ label: 'Entity', width: 170, get: (r) => `${r.line.entityName} (${r.line.entityCode})` }] };
+    if (c.key === 'category') return { ...c, exportAs: [{ label: 'Category', width: 100, get: (r) => CATEGORY[r.line.category] || 'Other' }, { label: 'Frequency', width: 80, get: (r) => frequencyLabel(r.line) }] };
+    if (c.key === 'expected') return { ...money(c), exportAs: [{ label: 'Expected', num: true, width: 80, get: (r) => r.line.expectedAmount }] };
+    if (c.key === 'total') return { ...money(c), total: true, exportAs: [{ label: 'Total', num: true, width: 84, total: true, get: (r) => spanFigures(r, span).paid }] };
+    if (c.key === 'balance') return { ...money(c), total: true, exportAs: [{ label: 'Balance', num: true, width: 84, total: true, get: (r) => spanFigures(r, span).balance }] };
+    if (c.key === 'notes') return { ...c, exportAs: [{ label: 'Notes', width: 160, get: (r) => r.line.notes || '' }] };
+    if (/^m\d+$/.test(c.key)) {
+      const i = Number(c.key.slice(1));
+      return { ...money(c), exportAs: [{ label: c.label, num: true, width: 70, total: true, get: (r) => r.months?.[i]?.paid || 0 }] };
+    }
+    // The optional columns under Customize.
+    return c.num ? { ...money(c), exportAs: [{ label: c.label, width: 120, get: (r) => optionalValue(r.line, c.key) }] } : { ...c, exportAs: [{ label: c.label, width: 120, get: (r) => optionalValue(r.line, c.key) }] };
+  });
+}
+
+/** The summary over some rows: what the full year's server summary says, added up from them. */
+function mreSummary(rows, [from, to]) {
+  const r2 = (n) => Math.round(n * 100) / 100;
+  if (from === 0 && to === 11) {
+    return {
+      expectedToDate: r2(rows.reduce((s, r) => s + (r.expectedToDate || 0), 0)),
+      paidToDate: r2(rows.reduce((s, r) => s + (r.paidToDate || 0), 0)),
+      balance: r2(rows.reduce((s, r) => s + (r.balance || 0), 0)),
+      missed: rows.filter((r) => r.monthsMissed).length,
+    };
+  }
+  const cells = (r) => r.months.slice(from, to + 1).filter((c) => ['paid', 'short', 'over', 'missed'].includes(c.status));
+  return {
+    expectedToDate: r2(rows.reduce((s, r) => s + cells(r).reduce((t, c) => t + (Number(c.expected) || 0), 0), 0)),
+    paidToDate: r2(rows.reduce((s, r) => s + cells(r).reduce((t, c) => t + (Number(c.paid) || 0), 0), 0)),
+    balance: r2(rows.reduce((s, r) => s + spanFigures(r, [from, to]).balance, 0)),
+    missed: rows.filter((r) => cells(r).some((c) => c.status === 'missed')).length,
+  };
+}
+
+const opSet = (f) => !!f && typeof f === 'object' && !!(String(f.a ?? '').trim() || String(f.b ?? '').trim());
+const textSet = (v) => typeof v === 'string' && !!v.trim();
+/** Whether any of these column filters is typed. */
+export const mreFiltering = (columns, typed) => columns.some((c) => (c.num ? opSet(typed?.[c.key]) : textSet(typed?.[c.key])));
+
+/** The rows every typed column filter lets through: a text column holds the
+ *  words typed (each must appear, any case), an amount column compares. They
+ *  stack. A filter on a column not shown (a month outside the period, an
+ *  optional column turned off) is ignored. */
+export function mreColumnFilter(rows, typed = {}, columns = mreFilterColumns()) {
+  const active = columns.filter((c) => (c.num ? opSet(typed[c.key]) : textSet(typed[c.key])));
+  if (!active.length) return rows || [];
+  return (rows || []).filter((r) => active.every((c) => {
+    if (c.num) return numberFilterHit(c.value(r), typed[c.key]);
+    const hay = String(c.text(r) || '').toLowerCase();
+    return typed[c.key].trim().toLowerCase().split(/\s+/).every((w) => hay.includes(w));
+  }));
+}
+
 // Sortable headers (Oct 22, Urmi), remembered per viewer (prefs.mreSort).
 const SORTS = {
   vendor: (r) => (r.line.vendorName || r.line.vendorId || '').toLowerCase(),
@@ -260,6 +353,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   const [q, setQ] = useState('');
   const [category, setCategory] = useState('');
   const [showZero, setShowZero] = useState(false);
+  const [typed, setTyped] = useState({});              // the filter boxes under the headings
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -287,29 +381,28 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
       .finally(() => { if (mine === seq.current) setLoading(false); });
   }, [year, pickedKey]);
   useEffect(() => { load(); }, [load]);
+  // 10/23 meeting, item 13: Sync reads the grid again past the server's cache;
+  // the rows, the filters, the sort and an open popup stay while it does.
+  const ts = useTableSync(load);
 
   const span = periodMonths(period, year, custom);
   const [spanFrom, spanTo] = span;
-  const sortKey = prefs.mreSort?.key || '';
-  const sortDir = prefs.mreSort?.dir || 'asc';
-  const sort = sortKey ? { key: sortKey, dir: sortDir } : null;
   const visible = useMemo(() => visibleRows(data?.rows, { q, category, showEnded, showInactive, showZero }), [data, q, category, showEnded, showInactive, showZero]);
-  const rows = sortRows(visible, sort, span);
-  const onSort = (key) => setPrefs({ mreSort: sort?.key === key ? (sort.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' } });
+  const extraKey = extra.join(',');
+  const filterColumns = useMemo(() => mreFilterColumns(extra, span), [extraKey, spanFrom, spanTo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filtering = mreFiltering(filterColumns, typed);
+  const boxed = useMemo(() => mreColumnFilter(visible, typed, filterColumns), [visible, typed, filterColumns]);
+  // 10/23 meeting, item 01: the standard table view over what the boxes, the
+  // search, the category and Customize leave. The header-click sort Urmi
+  // asked for (10/22, prefs.mreSort) is the person's built-in default sort.
+  const viewColumns = useMemo(() => mreViewColumns(extra, span), [extraKey, spanFrom, spanTo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const legacySort = prefs.mreSort?.key ? { col: prefs.mreSort.key, dir: prefs.mreSort.dir === 'desc' ? 'desc' : 'asc' } : null;
+  const view = useTableView('mre', viewColumns, boxed, { sort: legacySort });
+  const rows = view.rows;
   const fullYear = spanFrom === 0 && spanTo === 11;
-  // The figures over the months shown; the full year is the server's summary as it always was.
-  const sum = (() => {
-    if (fullYear) return data?.summary || {};
-    const all = data?.rows || [];
-    const cells = (r) => r.months.slice(spanFrom, spanTo + 1).filter((c) => ['paid', 'short', 'over', 'missed'].includes(c.status));
-    const r2 = (n) => Math.round(n * 100) / 100;
-    return {
-      expectedToDate: r2(all.reduce((s, r) => s + cells(r).reduce((t, c) => t + (Number(c.expected) || 0), 0), 0)),
-      paidToDate: r2(all.reduce((s, r) => s + cells(r).reduce((t, c) => t + (Number(c.paid) || 0), 0), 0)),
-      balance: r2(all.reduce((s, r) => s + spanFigures(r, [spanFrom, spanTo]).balance, 0)),
-      missed: all.filter((r) => cells(r).some((c) => c.status === 'missed')).length,
-    };
-  })();
+  // The figures over the months shown; the full year is the server's summary
+  // as it always was - until the view filters, then they follow it (item 01).
+  const sum = view.count ? mreSummary(rows, [spanFrom, spanTo]) : fullYear ? data?.summary || {} : mreSummary(data?.rows || [], [spanFrom, spanTo]);
   const periodLabel = periodText(period, year, span);
   // Oct 22 (Urmi: "adding a manual expense is very slow"): a save updates its
   // own row - the line from the save at once, then its months from one ledger
@@ -336,7 +429,11 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   };
   const entityLabel = !picked.length ? (limited ? 'All my entities' : 'All entities')
     : picked.length === 1 ? `${entities.find((e) => e.code === picked[0])?.name || picked[0]} (${picked[0]})` : `${picked.length} entities`;
-  const table = () => mreTable(rows, year, entityLabel, extra, span, fullYear ? '' : periodLabel);
+  // Exactly what the view leaves: its rows, order and columns (item 01).
+  const table = () => {
+    const base = mreTable([], year, entityLabel, extra, span, fullYear ? '' : periodLabel);
+    return viewTable(rows, view.columns, { title: base.title, period: base.period, subtitle: base.subtitle, totalLabel: 'Total Paid' });
+  };
   const exportAs = async (format) => {
     if (busy) return;
     setBusy(format);
@@ -354,18 +451,28 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   return (
     <AsyncSection loading={data === null} skeleton={<SkeletonBlocks count={4} />}>
       <div style={{ display: 'grid', gap: 10 }}>
-        <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        {/* Item 02, round 3 (UI test 10/24: two lines at 1366 / 1440 once View
+            and Filters joined): the search is an icon until used, Category
+            as wide as its choice; into More first Customize, Columns and
+            Settings, then Category, then Entities and Sync, then Export. */}
+        <ControlBar style={{ ...card, padding: '8px 10px' }}>
+          <BarMore level={4} active={picked.length ? 1 : 0}>
           <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} showHistorical={customize.showHistorical} />
+          </BarMore>
           <PeriodPicker year={year} onYear={setYear} period={period} onPeriod={setPeriod} custom={custom} onCustom={setCustom2} />
-          <div style={{ position: 'relative', flex: '1 1 200px', maxWidth: 300 }}>
-            <Search size={13} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--text-muted)' }} />
-            <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a vendor" aria-label="Search a vendor" style={{ ...control, width: '100%', paddingLeft: 28 }} />
-          </div>
-          <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" style={control}>
+          <BarSearch value={q} onChange={setQ} label="Search a vendor" placeholder="Search a vendor" width={220} />
+          <BarMore level={2} active={category ? 1 : 0}>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" style={{ ...control, ...fitSelect(CATEGORIES.find((c) => c.key === category)?.label || 'All Categories', { max: 220 }) }}>
             <option value="">All Categories</option>
             {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          </BarMore>
+          <TableViewBar view={view} />
+          <div className="acct-bar-end">
+            <BarMore level={4}>
+            <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
+            </BarMore>
+            <BarMore level={1} active={showEnded || showInactive || extra.length ? 1 : 0}>
             <CustomizeButton {...customize} showZero={showZero} onShowZero={setShowZero} active={showEnded || showInactive || !!extra.length}>
               <Toggle checked={showEnded} onChange={(v) => setPrefs({ mreShowEnded: v })} title="Show Ended"
                 hint="Recurring expenses that have stopped. They keep their history; nothing is deleted." />
@@ -376,6 +483,8 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
                   hint={k === 'variancePct' ? 'How far a paid month may be from expected and still count as Paid.' : `The ${l.toLowerCase()} kept on each line, as a column.`} />
               ))}
             </CustomizeButton>
+            </BarMore>
+            <BarMore level={5}>
             <ExportMenu disabled={!rows.length} items={[
               { key: 'excel', label: 'Excel', hint: 'Every line, months as columns, live totals', onPick: () => exportAs('excel'), busy: busy === 'excel' },
               { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => exportAs('csv'), busy: busy === 'csv' },
@@ -383,14 +492,15 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
               { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, the grid attached', Icon: Mail, onPick: () => setSending('email') },
               { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
             ]} />
-            {canDelete && <RecurringSettingsButton onChecked={load} />}
+            </BarMore>
+            {canDelete && <BarMore level={1}><RecurringSettingsButton onChecked={load} /></BarMore>}
             {canEdit && (
               <AddMenu ariaLabel="Add a recurring expense" items={[
                 { key: 'manual', label: 'Manual', hint: 'One vendor, accounts and amount by hand', Icon: Pencil, onPick: () => setEditing(blankLine(picked[0], entities)) },
               ]} />
             )}
           </div>
-        </div>
+        </ControlBar>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums', padding: '0 4px' }}>
           <span style={{ color: 'var(--text-muted)' }}>{periodLabel}</span>
@@ -414,7 +524,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
           </div>
         )}
 
-        {loading && !data?.rows?.length ? <SkeletonBlocks count={4} /> : !rows.length ? (
+        {loading && !data?.rows?.length ? <SkeletonBlocks count={4} /> : !rows.length && !filtering && !view.count ? (
           <div style={{ ...card, padding: '18px 16px', fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
             <strong style={{ color: 'var(--text-primary)' }}>{(data?.rows || []).length ? 'Nothing matches these filters.' : 'No recurring expenses yet.'}</strong>
             <span>
@@ -424,8 +534,9 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
             </span>
           </div>
         ) : (
-          <Grid rows={rows} totals={data?.totals || []} year={year} density={density} loading={loading} canEdit={canEdit} extra={extra} span={span} sort={sort} onSort={onSort}
-            pageSize={customize.pageSize} pageKey={[year, picked, q, category, showEnded, showInactive, showZero, period, spanFrom, spanTo, sort?.key, sort?.dir]} onLines={setLines}
+          <Grid view={view} filterColumns={filterColumns} typed={typed} onTyped={(k, v) => setTyped((t) => ({ ...t, [k]: v }))}
+            rows={rows} totals={data?.totals || []} year={year} density={density} loading={loading} canEdit={canEdit} span={span}
+            pageSize={customize.pageSize} pageKey={[year, picked, q, category, showEnded, showInactive, showZero, period, spanFrom, spanTo, JSON.stringify(view.state), JSON.stringify(typed)]} onLines={setLines}
             onEdit={(l) => setEditing(l)} onNotes={(id, notes) => api.setMreNotes(id, notes).then((line) => setData((d) => ({ ...d, rows: d.rows.map((r) => (r.line.id === id ? { ...r, line } : r)) })))} />
         )}
       </div>
@@ -463,87 +574,115 @@ function Legend() {
   );
 }
 
-// The grid's resizable columns (Oct 7, item 32), saved per viewer: vendor,
-// entity, category, expected, each month (m0..m11), total, balance, notes.
-const MRE_COLUMNS = [['vendor', 'Vendor'], ['entity', 'Entity'], ['category', 'Category'], ['expected', 'Expected', true]];
-
-function Grid({ rows, totals, year, density, loading, canEdit, onEdit, onNotes, pageSize = 0, pageKey = '', onLines = null, extra = [], span = [0, 11], sort = null, onSort = null }) {
+// The grid (Oct 7, item 32: resizable columns, saved per viewer). 10/23
+// meeting, item 01: its headings are the standard view's - a click opens the
+// menu (sort, filter, width, move, hide), the funnel a value list - and the
+// columns, the filter boxes under them and the Total Paid line follow the
+// view's order; the Vendor column stays pinned first.
+function Grid({ view, filterColumns = [], typed = {}, onTyped = null, rows, totals, year, density, loading, canEdit, onEdit, onNotes, pageSize = 0, pageKey = '', onLines = null, span = [0, 11] }) {
+  const [box, setBox] = useState(null);
+  const fit = useFitHeight(box);
   const [from, to] = span;
   const idx = MONTHS.map((_m, i) => i).slice(from, to + 1);
   const range = { from: `${year}-${String(from + 1).padStart(2, '0')}-01`, to: monthRange(`${year}-${String(to + 1).padStart(2, '0')}`).to };
-  const opt = OPTIONAL_COLUMNS.filter(([k]) => extra.includes(k));
   const py = DENSITIES.find((d) => d.key === density)?.py || '5px';
-  const cw = useColumnWidths('mre');
+  const w = (k) => view.manualWidth(k);
   // Rows per Page: this page's lines; the Total Paid row adds up every line.
   const paged = usePaged(rows, pageSize, pageKey);
   const totalPaid = rows.reduce((s, r) => s + spanFigures(r, span).paid, 0);
   const totalBalance = rows.reduce((s, r) => s + spanFigures(r, span).balance, 0);
-  const monthPaid = idx.map((i) => rows.reduce((s, r) => s + (r.months[i]?.paid || 0), 0));
-  const head = (k, l, extraStyle = null) => {
-    const on = sort?.key === k;
-    if (!onSort || !(k in SORTS || k === 'total' || k === 'balance')) return l;
-    return (
-      <button type="button" onClick={() => onSort(k)} title={`Sort by ${l}`} aria-label={`Sort by ${l}${on ? (sort.dir === 'asc' ? ', ascending' : ', descending') : ''}`}
-        style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'inherit', fontWeight: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, ...extraStyle }}>
-        {l}{on ? (sort.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />) : null}
-      </button>
-    );
+  const monthPaid = Object.fromEntries(idx.map((i) => [i, rows.reduce((s, r) => s + (r.months[i]?.paid || 0), 0)]));
+  const filterOf = Object.fromEntries(filterColumns.map((c) => [c.key, c]));
+  const head = (c) => {
+    const num = c.type === 'amount';
+    if (c.key === 'vendor') return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className="acct-label acct-head" style={headStyle(w(c.key), { position: 'sticky', left: 0 })} />;
+    if (c.key === 'total') return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className="acct-num" title="Paid in the months shown" style={headStyle(w(c.key), { fontWeight: 800 })} />;
+    if (c.key === 'balance') return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className="acct-num" title="Expected less paid, in the months shown that are over" style={headStyle(w(c.key))} />;
+    if (c.key === 'notes') return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} style={headStyle(w(c.key), { minWidth: w(c.key) || 180 })} />;
+    return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={num ? 'acct-num' : undefined} style={headStyle(w(c.key))} />;
   };
-  const ariaSort = (k) => (sort?.key === k ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined);
   return (
-    <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1 }}>
-      <table className="acct-report" style={{ '--acct-row-py': py }} aria-label={`Recurring expenses ${year}`}>
+    // 10/23 meeting, item 05: the grid scrolls inside a box that ends in the window.
+    <div className="acct-report-wrap acct-scroll-box acct-fit" ref={setBox} data-testid="mre-box" style={{ opacity: loading ? 0.6 : 1, ...fit }}>
+      <table className="acct-report mre-grid" style={{ '--acct-row-py': py }} aria-label={`Recurring expenses ${year}`}>
+        {/* The headings and the filter boxes stick as one block (mre-grid in
+            style.css); the Vendor heading also stays pinned on the left. */}
         <thead>
-          <tr>
-            {[...MRE_COLUMNS.slice(0, 3), ...opt.map(([k, l]) => [k, l, k === 'variancePct']), ...MRE_COLUMNS.slice(3)].map(([k, l, isNum]) => (
-              <th key={k} aria-label={l} aria-sort={ariaSort(k)} className={k === 'vendor' ? 'acct-label acct-head' : isNum ? 'acct-num' : undefined} style={headStyle(cw.width(k))}>{head(k, l)}<ColumnResizer {...cw.resizer(k, l)} /></th>
-            ))}
-            {idx.map((i) => <th key={MONTHS[i]} aria-label={MONTHS[i]} className="acct-num" style={headStyle(cw.width(`m${i}`))}>{MONTHS[i]}<ColumnResizer {...cw.resizer(`m${i}`, MONTHS[i])} /></th>)}
-            <th aria-label="Total" aria-sort={ariaSort('total')} className="acct-num" title="Paid in the months shown" style={headStyle(cw.width('total'), { fontWeight: 800 })}>{head('total', 'Total')}<ColumnResizer {...cw.resizer('total', 'Total')} /></th>
-            <th aria-label="Balance" aria-sort={ariaSort('balance')} className="acct-num" title="Expected less paid, in the months shown that are over" style={headStyle(cw.width('balance'))}>{head('balance', 'Balance')}<ColumnResizer {...cw.resizer('balance', 'Balance')} /></th>
-            <th aria-label="Notes" style={headStyle(cw.width('notes'), { minWidth: cw.width('notes') || 180 })}>Notes<ColumnResizer {...cw.resizer('notes', 'Notes')} /></th>
-          </tr>
+          <tr>{view.columns.map(head)}</tr>
+          {onTyped && (
+            <tr className="acct-filter-row">
+              {view.columns.map((col) => {
+                const c = filterOf[col.key];
+                return (
+                  <td key={col.key} className={col.key === 'vendor' ? 'acct-head' : undefined}>
+                    {!c ? null : c.num
+                      ? <OpFilter label={c.label} value={typed[c.key]} onChange={(v) => onTyped(c.key, v)} />
+                      : <input type="text" value={typed[c.key] || ''} onChange={(e) => onTyped(c.key, e.target.value)} aria-label={`Filter ${c.label}`} placeholder="contains" />}
+                  </td>
+                );
+              })}
+            </tr>
+          )}
         </thead>
         <tbody>
-          {paged.rows.map((r) => { const f = spanFigures(r, span); return (
-            <tr key={r.line.id}>
-              <td className="acct-label" style={cw.width('vendor') ? cellStyle(cw.width('vendor')) : { maxWidth: 260 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%' }}>
-                  <VendorName id={r.line.vendorId} name={r.line.vendorName} />
-                  {r.line.status === 'ended' && <Chip text="Ended" />}
-                  {r.vendorInactive && <Chip text="Inactive" />}
-                  <PossiblyEndedChip flag={r.line.possiblyEnded} kind="mre" />
-                  {r.line.egnyteUrl && <a href={r.line.egnyteUrl} target="_blank" rel="noreferrer" aria-label={`Documents of ${r.line.vendorName} in Egnyte`} title={`Documents: ${r.line.egnyteFolder}`} style={{ display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }}><FolderOpen size={13} /></a>}
-                  {canEdit && <button type="button" style={{ ...icon, padding: 2 }} onClick={() => onEdit(r.line)} aria-label={`Edit ${r.line.vendorName}`} title="Edit"><Pencil size={12} /></button>}
-                </span>
-              </td>
-              <td title={`${r.line.entityName} (${r.line.entityCode})`} style={cw.width('entity') ? cellStyle(cw.width('entity')) : { maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}><span className="acct-code">{r.line.entityCode}</span>{r.line.entityName}</td>
-              <td style={cellStyle(cw.width('category'))}>{CATEGORY[r.line.category] || 'Other'}</td>
-              {opt.map(([k]) => (
-                <td key={k} className={k === 'variancePct' ? 'acct-num' : undefined} title={optionalValue(r.line, k)}
-                  style={cw.width(k) ? cellStyle(cw.width(k)) : { maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{optionalValue(r.line, k)}</td>
-              ))}
-              <td className="acct-num" style={cellStyle(cw.width('expected'))} title={`${frequencyLabel(r.line)} from ${formatDate(r.line.startDate) || 'the start'}${r.line.endDate ? ` to ${formatDate(r.line.endDate)}` : ''}${r.line.variancePct ? `; paid within ${r.line.variancePct}% counts as Paid` : ''}`}>
-                <Amount value={r.line.expectedAmount} />
-                <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>{frequencyLabel(r.line)}</span>
-              </td>
-              {idx.map((i) => r.months[i]).filter(Boolean).map((c) => <MonthCell key={c.month} cell={c} width={cw.width(`m${Number(c.month.slice(5, 7)) - 1}`)} onOpen={onLines && Math.abs(Number(c.paid) || 0) > 0.005 ? () => onLines({ line: r.line, ...monthRange(c.month), title: monthLabel(c.month) }) : null} />)}
-              <td className="acct-num" style={cellStyle(cw.width('total'), { fontWeight: 700 })}>
-                {onLines && Math.abs(Number(f.paid) || 0) > 0.005
-                  ? <button type="button" className="acct-drill" onClick={() => onLines({ line: r.line, ...range, title: from === 0 && to === 11 ? String(year) : `${MONTHS[from]}${to !== from ? ` - ${MONTHS[to]}` : ''} ${year}` })} aria-label={`Ledger lines behind ${r.line.vendorName}'s total for ${year}`} title="The ledger lines behind this total"><Amount value={f.paid} zero="dash" /></button>
-                  : <Amount value={f.paid} zero="dash" />}
-              </td>
-              <td className="acct-num" style={cellStyle(cw.width('balance'), { color: f.balance > 0.5 ? 'var(--bad-fg, #dc2626)' : undefined })} title="Expected less paid, to date"><Amount value={f.balance} zero="dash" /></td>
-              <td style={cw.width('notes') ? cellStyle(cw.width('notes'), { whiteSpace: 'normal' }) : { whiteSpace: 'normal', minWidth: 180 }}><NotesCell line={r.line} canEdit={canEdit} onSave={onNotes} /></td>
-            </tr>
-          ); })}
+          {!rows.length && (
+            <tr><td colSpan={view.columns.length || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: '0.84rem' }}>Nothing matches these column filters.</td></tr>
+          )}
+          {paged.rows.map((r) => {
+            const f = spanFigures(r, span);
+            const months = Object.fromEntries(idx.map((i) => {
+              const c = r.months[i];
+              return [`m${i}`, c ? <MonthCell cell={c} width={w(`m${i}`)} onOpen={onLines && Math.abs(Number(c.paid) || 0) > 0.005 ? () => onLines({ line: r.line, ...monthRange(c.month), title: monthLabel(c.month) }) : null} /> : <td />];
+            }));
+            const optional = Object.fromEntries(OPTIONAL_COLUMNS.map(([k]) => [k, (
+              <td className={k === 'variancePct' ? 'acct-num' : undefined} title={optionalValue(r.line, k)}
+                style={w(k) ? cellStyle(w(k)) : { maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{optionalValue(r.line, k)}</td>
+            )]));
+            return (
+              <tr key={r.line.id}>
+                {viewCells(view, {
+                  vendor: (
+                    <td className="acct-label" style={w('vendor') ? cellStyle(w('vendor')) : { maxWidth: 260 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%' }}>
+                        <VendorName id={r.line.vendorId} name={r.line.vendorName} />
+                        {r.line.status === 'ended' && <Chip text="Ended" />}
+                        {r.vendorInactive && <Chip text="Inactive" />}
+                        <PossiblyEndedChip flag={r.line.possiblyEnded} kind="mre" />
+                        {r.line.egnyteUrl && <a href={r.line.egnyteUrl} target="_blank" rel="noreferrer" aria-label={`Documents of ${r.line.vendorName} in Egnyte`} title={`Documents: ${r.line.egnyteFolder}`} style={{ display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }}><FolderOpen size={13} /></a>}
+                        {canEdit && <button type="button" style={{ ...icon, padding: 2 }} onClick={() => onEdit(r.line)} aria-label={`Edit ${r.line.vendorName}`} title="Edit"><Pencil size={12} /></button>}
+                      </span>
+                    </td>
+                  ),
+                  entity: <td title={`${r.line.entityName} (${r.line.entityCode})`} style={w('entity') ? cellStyle(w('entity')) : { maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}><span className="acct-code">{r.line.entityCode}</span>{r.line.entityName}</td>,
+                  category: <td style={cellStyle(w('category'))}>{CATEGORY[r.line.category] || 'Other'}</td>,
+                  ...optional,
+                  expected: (
+                    <td className="acct-num" style={cellStyle(w('expected'))} title={`${frequencyLabel(r.line)} from ${formatDate(r.line.startDate) || 'the start'}${r.line.endDate ? ` to ${formatDate(r.line.endDate)}` : ''}${r.line.variancePct ? `; paid within ${r.line.variancePct}% counts as Paid` : ''}`}>
+                      <Amount value={r.line.expectedAmount} />
+                      <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>{frequencyLabel(r.line)}</span>
+                    </td>
+                  ),
+                  ...months,
+                  total: (
+                    <td className="acct-num" style={cellStyle(w('total'), { fontWeight: 700 })}>
+                      {onLines && Math.abs(Number(f.paid) || 0) > 0.005
+                        ? <button type="button" className="acct-drill" onClick={() => onLines({ line: r.line, ...range, title: from === 0 && to === 11 ? String(year) : `${MONTHS[from]}${to !== from ? ` - ${MONTHS[to]}` : ''} ${year}` })} aria-label={`Ledger lines behind ${r.line.vendorName}'s total for ${year}`} title="The ledger lines behind this total"><Amount value={f.paid} zero="dash" /></button>
+                        : <Amount value={f.paid} zero="dash" />}
+                    </td>
+                  ),
+                  balance: <td className="acct-num" style={cellStyle(w('balance'), { color: f.balance > 0.5 ? 'var(--bad-fg, #dc2626)' : undefined })} title="Expected less paid, to date"><Amount value={f.balance} zero="dash" /></td>,
+                  notes: <td style={w('notes') ? cellStyle(w('notes'), { whiteSpace: 'normal' }) : { whiteSpace: 'normal', minWidth: 180 }}><NotesCell line={r.line} canEdit={canEdit} onSave={onNotes} /></td>,
+                })}
+              </tr>
+            );
+          })}
           <tr className="acct-grand">
-            <td className="acct-label">Total Paid</td>
-            <td /><td />{opt.map(([k]) => <td key={k} />)}<td />
-            {monthPaid.map((v, k) => <td key={idx[k]} className="acct-num" title={`Expected ${formatAmount(totals[idx[k]]?.expected || 0)}`}><Amount value={v} zero="dash" /></td>)}
-            <td className="acct-num"><Amount value={totalPaid} zero="dash" /></td>
-            <td className="acct-num"><Amount value={totalBalance} zero="dash" /></td>
-            <td />
+            {viewCells(view, {
+              vendor: <td className="acct-label">Total Paid</td>,
+              ...Object.fromEntries(idx.map((i) => [`m${i}`, <td className="acct-num" title={`Expected ${formatAmount(totals[i]?.expected || 0)}`}><Amount value={monthPaid[i]} zero="dash" /></td>])),
+              total: <td className="acct-num"><Amount value={totalPaid} zero="dash" /></td>,
+              balance: <td className="acct-num"><Amount value={totalBalance} zero="dash" /></td>,
+            })}
           </tr>
         </tbody>
       </table>

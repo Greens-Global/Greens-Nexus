@@ -75,7 +75,7 @@ export function WidgetPanel({ id, right, flash, style, sub, compact }) {
   const link = w.report ? { label: 'Open report', to: w.report } : w.page ? { label: `Open ${w.page[0].toUpperCase()}${w.page.slice(1)}`, to: w.page } : null;
   return (
     <Panel title={w.title} sub={sub} right={right} flash={flash} style={style} onOpenReport={link && !compact ? () => nav(link.to) : undefined} reportLabel={link?.label}>
-      <WidgetBoundary><Body onOpenClose={() => nav('close')} onOpenBanks={() => nav('reports')} compact={compact} /></WidgetBoundary>
+      <WidgetBoundary><Body onOpenClose={() => nav('close')} onOpenBanks={() => nav('reports')} onNavigate={nav} compact={compact} /></WidgetBoundary>
     </Panel>
   );
 }
