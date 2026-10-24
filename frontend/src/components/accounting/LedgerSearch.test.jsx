@@ -47,15 +47,27 @@ describe('LedgerSearch grid', () => {
     expect(screen.getByText('08/19/2026')).toBeTruthy();
     expect(api.searchAccountingLedger.mock.calls[0][0]).toMatchObject({ q: 'amazon', location: '12000' });
 
-    fireEvent.click(screen.getByRole('button', { name: /Columns/ }));
-    fireEvent.click(screen.getByLabelText('Doc No'));
+    // 10/23 meeting, item 01: the standard view's column chooser.
+    fireEvent.click(screen.getByRole('button', { name: 'Show or Hide Columns' }));
+    fireEvent.click(await screen.findByLabelText('Doc No'));
     fireEvent.click(screen.getByLabelText('Project-Job'));
     expect(headers()).toContain('Doc No');
     expect(screen.getByText('INV-77')).toBeTruthy();
     expect(screen.getByText('Valley Center')).toBeTruthy();
-    // The layout is the person's own and is saved for them.
+    expect(screen.getByText('Unsaved')).toBeTruthy();
+    // The layout is the person's own and is saved for them (their view of the lines).
     await waitFor(() => expect(api.saveAccountingPrefs).toHaveBeenCalled(), { timeout: 2000 });
-    expect(api.saveAccountingPrefs.mock.calls.at(-1)[0].lines.visible).toEqual({ doc: true, project: true });
+    expect(api.saveAccountingPrefs.mock.calls.at(-1)[0].tableViews['ledger-lines'].draft.vis).toEqual({ doc: true, project: true });
+  });
+
+  it('keeps a layout chosen before views existed as the built-in default', async () => {
+    localStorage.setItem('nexus-accounting-prefs', JSON.stringify({ lines: { visible: { doc: true, vendor: false }, widths: { description: 420 } } }));
+    resetAccountingPrefs();
+    render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+    await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
+    expect(headers()).toContain('Doc No');
+    expect(headers()).not.toContain('Vendor');
+    expect(screen.queryByText('Unsaved')).toBeNull();
   });
 
   it('sends what is typed under a column to the server, stacked', async () => {
@@ -100,20 +112,59 @@ describe('LedgerSearch grid', () => {
     await waitFor(() => expect(JSON.parse(api.searchAccountingLedger.mock.calls.at(-1)[0].cols || '{}')).toEqual({ department: '9100' }), { timeout: 2000 });
   });
 
-  it('narrows by vendor, customer, account or journal from a dropdown', async () => {
-    api.searchAccountingLedger.mockResolvedValue({ rows: [line], total: 3, debit: 60, credit: 0, facets: {
-      vendors: [{ code: 'V00225', name: 'American Express', lines: 2, net: 40 }, { code: 'V00412', name: 'Home Depot', lines: 1, net: 20 }],
-      accounts: [{ code: '71100', name: 'General', lines: 3, net: 60 }],
-    } });
-    render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
-    await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
-    // One account behind every line is not a choice, so it is not offered.
-    expect(screen.queryByLabelText('Accounts')).toBeNull();
-    const vendors = screen.getByLabelText('Vendors');
-    expect([...vendors.options].map((o) => o.textContent)).toEqual(['Vendors (2)', 'V00225 American Express - 2 lines, net 40.00', 'V00412 Home Depot - 1 lines, net 20.00']);
-    fireEvent.change(vendors, { target: { value: 'V00412' } });
-    await waitFor(() => expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toMatchObject({ party_kind: 'vendor', party: 'V00412' }));
-    expect(screen.getByText('Vendor: V00412 Home Depot')).toBeTruthy();
+  it('has no Narrow by row: a heading value list filters EVERY line of the search and the totals follow (10/23, item 01)', async () => {
+    // 150 lines: the ledger hands back 100 a page; customers alternate.
+    const all = Array.from({ length: 150 }, (_v, i) => ({
+      ...line, line_id: `x${i}`, entry_no: `IA-${1000 + i}`, description: `Sales Invoice ${i}`, vendor_id: '', vendor_name: '',
+      customer_id: i % 3 === 0 ? 'C00127' : 'C00142', customer_name: i % 3 === 0 ? 'Greens Austin' : 'Greens Sachse', debit: 0, credit: 100,
+    }));
+    api.searchAccountingLedger.mockImplementation(async (p) => ({ rows: all.slice(p.offset || 0, (p.offset || 0) + (p.limit || 100)), total: 150, debit: 0, credit: 15000, facets: {} }));
+    render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+      drill={{ account: '40005', accountName: 'Property Management Fee', from: '2026-01-01', to: '2026-10-23', book: 'accrual' }} />);
+    await screen.findByText('Sales Invoice 0');
+    expect(screen.queryByText('Narrow by')).toBeNull();
+    expect(screen.queryByLabelText('Customers')).toBeNull();
+    // Opening a heading's list reads every line, so the list is complete.
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Customer by value' }));
+    const list = await screen.findByRole('dialog', { name: 'Customer values' });
+    await waitFor(() => expect(api.searchAccountingLedger.mock.calls.some(([p]) => p.limit === 1000)).toBe(true));
+    await waitFor(() => expect(within(list).getByRole('checkbox', { name: /Greens Austin/ }).closest('label').textContent).toContain('50'));
+    fireEvent.click(within(list).getByRole('checkbox', { name: /Greens Sachse/ }));
+    // 50 of the 150 lines, and the credits of those 50 only.
+    await waitFor(() => expect(screen.getByTestId('ledger-lines-count').textContent).toBe('50 of 150 lines'));
+    expect(screen.getByText('Credits').textContent).toContain('5,000.00');
+    expect(screen.getByRole('button', { name: 'Filters (1 on)' })).toBeTruthy();
+    // The totals line at the bottom says the same.
+    expect(document.querySelector('.acct-grand').textContent).toContain('Totals - 50 lines');
+  });
+
+  it('a rule from Filters, a sort and the export: exactly the lines and columns the view leaves', async () => {
+    const big = { ...line, line_id: 'l2', entry_no: 'IA-2', description: 'Roof repair', debit: 600, credit: 0 };
+    const cr = { ...line, line_id: 'l3', entry_no: 'IA-3', description: 'Refund', debit: 0, credit: 150 };
+    api.searchAccountingLedger.mockResolvedValue({ rows: [line, big, cr], total: 3, debit: 622.46, credit: 150, facets: {} });
+    let exporter = null;
+    render(<LedgerSearch term="repairs" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} onExport={(x) => { exporter = x; }} />);
+    await screen.findByText('Roof repair');
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const panel = await screen.findByRole('dialog', { name: 'Filters' });
+    fireEvent.click(within(panel).getByRole('button', { name: /Add Filter/ }));
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 field' }), { target: { value: 'debit' } });
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 condition' }), { target: { value: 'gt' } });
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'Rule 1 value' }), { target: { value: '10' } });
+    expect(screen.queryByText('Refund')).toBeNull();
+    expect(screen.getByTestId('ledger-lines-count').textContent).toBe('2 of 3 lines');
+    fireEvent.click(screen.getByRole('button', { name: /^Debit - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Debit column' })).getByRole('menuitemradio', { name: /Sort Descending/ }));
+    const firstRow = document.querySelector('.acct-lines tbody tr');
+    expect(firstRow.textContent).toContain('Roof repair');
+    // Hide Entity; the export follows: two lines, biggest first, no Entity column.
+    fireEvent.click(screen.getByRole('button', { name: /^Entity - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Entity column' })).getByRole('menuitem', { name: /Hide Column/ }));
+    await waitFor(() => expect(exporter).toBeTruthy());
+    const table = await exporter.build();
+    expect(table.columns.map((c) => c.label)).not.toContain('Entity');
+    expect(table.rows.map((r) => r[table.columns.findIndex((c) => c.label === 'Description')])).toEqual(['Roof repair', 'Amazon Marketplace Pay - Mop stainless steel']);
+    expect(table.totals[table.columns.findIndex((c) => c.label === 'Debit')]).toBe(622.46);
   });
 
   it('scrolls inside its own box with the headings pinned, the page staying put (Viral, 10/22, item 18)', async () => {

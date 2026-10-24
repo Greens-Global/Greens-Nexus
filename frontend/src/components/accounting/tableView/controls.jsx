@@ -29,7 +29,7 @@ export function TableViewBar({ view, columns = true }) {
   const viewRef = useRef(null);
   const filtersRef = useRef(null);
   const columnsRef = useRef(null);
-  const toggle = (k) => { preloadPanels(); setOpen((o) => (o === k ? '' : k)); };
+  const toggle = (k) => { preloadPanels(); view.onOpen?.(k); setOpen((o) => (o === k ? '' : k)); };
   const anchor = open === 'filters' ? filtersRef : open === 'columns' ? columnsRef : viewRef;
   const n = view.count;
   return (
@@ -62,7 +62,7 @@ export function TableViewBar({ view, columns = true }) {
       </button>
       {columns && (
         <button ref={columnsRef} type="button" style={btn(false)} onClick={() => toggle('columns')} onPointerEnter={preloadPanels}
-          aria-haspopup="dialog" aria-expanded={open === 'columns'} aria-label="Columns" title="Show, hide and order the columns">
+          aria-haspopup="dialog" aria-expanded={open === 'columns'} aria-label="Show or Hide Columns" title="Show, hide and order the columns">
           <Columns3 size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} /> <span className="acct-bar-label">Columns</span>
         </button>
       )}
@@ -89,7 +89,7 @@ export function ViewHead({ view, col, children = null, as: Tag = 'th', resize = 
   const [open, setOpen] = useState('');
   const dir = view.sortOf(col.key);
   const on = view.filtered(col.key);
-  const toggle = (k) => { preloadPanels(); setOpen((o) => (o === k ? '' : k)); };
+  const toggle = (k) => { preloadPanels(); view.onOpen?.(k); setOpen((o) => (o === k ? '' : k)); };
   return (
     <Tag ref={ref} scope={Tag === 'th' ? 'col' : undefined} aria-sort={dir ? (dir === 'asc' ? 'ascending' : 'descending') : undefined} {...rest}>
       <span className="acct-vh" onPointerEnter={preloadPanels}>

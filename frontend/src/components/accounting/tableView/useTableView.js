@@ -20,13 +20,15 @@ import {
 //   view.rows      the rows the view leaves, in its order (totals, paging and export use these)
 //   view.columns   the columns shown, in order, each with its width
 //   <TableViewBar view={view} />   <ViewHead view={view} col={c} />   (./controls)
+// `onOpen(kind)`: called when one of its panels or menus opens (a screen that
+// pages on the server reads every row then, so a value list is complete).
 //
 // `columns` should be memoized by the screen (useMemo / a module constant).
 // Each column: see ./model (key, label, type, text, value, width, off, fixed, total).
 
 const SAVE_MS = 400;
 
-export function useTableView(tableKey, baseColumns, rows, { sort = null } = {}) {
+export function useTableView(tableKey, baseColumns, rows, { sort = null, onOpen = null } = {}) {
   const [prefs, setPrefs] = useAccountingPrefs();
   // Widths a person dragged before views existed (useColumnWidths, same table
   // key) are their default widths, so nobody loses a layout.
@@ -220,6 +222,7 @@ export function useTableView(tableKey, baseColumns, rows, { sort = null } = {}) 
 
   return {
     key: tableKey,
+    onOpen,
     rows: out,
     all: rows || [],
     columns: shown,

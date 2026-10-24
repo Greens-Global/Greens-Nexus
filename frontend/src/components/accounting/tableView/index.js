@@ -5,4 +5,4 @@ export { useTableView } from './useTableView';
 export { TableViewBar, ViewHead } from './controls';
 export { viewCells } from './cells';
 export { preloadPanels } from './load';
-export { viewTable, sumColumn, isNumeric, textOf, numOf } from './model';
+export { applyView, viewTable, sumColumn, isNumeric, textOf, numOf } from './model';

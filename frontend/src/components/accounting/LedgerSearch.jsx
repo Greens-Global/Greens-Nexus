@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Columns3, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { api, withFreshReads } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
@@ -8,9 +8,10 @@ import EntryDetail from './EntryDetail';
 import AskAccountantDialog, { AskButton, lineFromSearch } from './AskAccountantDialog';
 import Amount from './Amount';
 import { useAccountingPrefs } from './prefs';
-import { OpFilter, PopoverPanel, usePopover } from './reportControls';
+import { OpFilter } from './reportControls';
 import { linesBaseName } from './linesExport';
-import { useFitHeight } from './tableHooks';
+import { useFitHeight, usePaged } from './tableHooks';
+import { TableViewBar, ViewHead, applyView, useTableView } from './tableView';
 import { DIM_KINDS, bookOptions, bookTitle, glLineParams, lineMatchesDims, numberFilterHit, parseFigure } from './reportModel';
 
 // Search results and report drill-downs for Accounting -> Reports.
@@ -48,16 +49,13 @@ import { DIM_KINDS, bookOptions, bookTitle, glLineParams, lineMatchesDims, numbe
 
 const PAGE = 100;
 const EXPORT_CAP = 10000;
+// 10/23 meeting, item 01: a view's filters read at most this many lines.
+const ALL_CAP = 10000;
 
 const money = (n) => {
   const v = Number(n) || 0;
   if (Math.abs(v) < 0.005) return '';
   return Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
-const signed = (n) => {
-  const v = Number(n) || 0;
-  const s = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return v < 0 ? `(${s})` : s;
 };
 const named = (name, id) => name || id || '';
 // Oct 14 (Charmi): a vendor's or customer's number before the
@@ -86,6 +84,14 @@ export const LINE_COLUMNS = [
   { key: 'credit', label: 'Credit', width: 118, num: true, filter: true, text: (r) => money(r.credit) },
 ];
 const MIN_WIDTH = 60;
+// What the standard table view needs to filter and sort a column as a date or
+// an amount (item 01). A zero debit or credit is a blank cell, so it is blank.
+const figure = (key) => (r) => { const v = Number(r[key]) || 0; return Math.abs(v) < 0.005 ? null : v; };
+const LINE_TYPES = {
+  date: { type: 'date', value: (r) => r.entry_date || '' },
+  debit: { type: 'amount', value: figure('debit'), total: true },
+  credit: { type: 'amount', value: figure('credit'), total: true },
+};
 // Oct 15 (Neil): the Ask My Accountant action at the end of every line.
 const ASK_WIDTH = 34;
 const DENSITY_PY = { comfortable: '9px', compact: '5px', condensed: '2px' };
@@ -127,25 +133,6 @@ function LineCard({ r, onOpen }) {
     </Tag>
   );
 }
-
-// A dropdown only earns its place when picking from it narrows the result:
-// one vendor behind EVERY matching line is not a choice, one vendor behind
-// some of them is (Neil: "as a vendor, not as an employee"). Dropdowns, not
-// chips (Charmi, 09/29 call: the rows of chips read as clutter).
-function FacetSelect({ label, items, total, onPick, text }) {
-  if (!items?.length || (items.length === 1 && items[0].lines >= total)) return null;
-  return (
-    <select value="" aria-label={label} onChange={(e) => { const f = items.find((x) => x.code === e.target.value); if (f) onPick(f); }}
-      style={{ ...facetSelect }}>
-      <option value="">{label} ({items.length})</option>
-      {items.map((f) => {
-        const name = text ? text(f) : numbered(f.name, f.code);
-        return <option key={f.code} value={f.code}>{name} - {f.lines.toLocaleString('en-US')} lines, net {signed(f.net)}</option>;
-      })}
-    </select>
-  );
-}
-const facetSelect = { height: 28, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.76rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)', maxWidth: 260 };
 
 // The report's filters follow the lines (Oct 7, Charmi): the entities, and
 // every dimension picked on the report - departments, vendors, customers,
@@ -224,13 +211,16 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const closeEntry = () => { setOpenEntry(null); onEntryClosed?.(); };
   const seq = useRef(0);
 
-  // The person's own layout: which columns show and how wide.
-  const [prefs, setPrefs] = useAccountingPrefs();
+  // The person's own layout: which columns show and how wide. Since 10/24 it
+  // is the standard table view (item 01) - the layout chosen before (prefs
+  // `lines`) is the person's built-in default.
+  const [prefs] = useAccountingPrefs();
   const layout = prefs.lines || {};
-  const visible = (c) => layout.visible?.[c.key] ?? !c.off;
-  const widthOf = (c) => Math.max(MIN_WIDTH, Number(layout.widths?.[c.key]) || c.width);
-  const shownColumns = LINE_COLUMNS.filter(visible);
-  const setLayout = (p) => setPrefs({ lines: { ...layout, ...p } });
+  const viewColumns = useMemo(() => LINE_COLUMNS.map((c) => ({
+    ...c, ...(LINE_TYPES[c.key] || {}),
+    off: !(layout.visible?.[c.key] ?? !c.off),
+    width: Math.max(MIN_WIDTH, Number(layout.widths?.[c.key]) || c.width),
+  })), [layout.visible, layout.widths]);
   // The grid uses the whole width it is given (Neil, Sep 25: "it should take up
   // much more screen"): whatever is left over on a wide monitor is shared out
   // over the text columns the reader has not sized by hand (Charmi, 09/29:
@@ -251,12 +241,6 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   // scrollbar; 300px at least. It re-measures when the window or the area
   // around it changes size (filters or totals above wrapping after a load).
   const fitBox = useFitHeight(wrap, { off: full, cssVar: '--acct-lines-h' });   // tableHooks, shared by every table since 10/24
-  const natural = shownColumns.reduce((s, c) => s + widthOf(c), 0);
-  const fillers = shownColumns.filter((c) => !c.num && !layout.widths?.[c.key] && !['date', 'entry', 'journal'].includes(c.key));
-  const spare = fillers.length ? Math.max(0, room - natural - ASK_WIDTH - 2) : 0;
-  const columns = shownColumns;
-  const colWidth = (c) => widthOf(c) + (fillers.includes(c) ? Math.floor(spare / fillers.length) : 0);
-  const tableWidth = natural + Math.floor(spare / Math.max(1, fillers.length)) * fillers.length + ASK_WIDTH;
 
   // The filter boxes. What is typed waits a moment before the ledger is asked.
   // An amount column's box is { op, a, b } (the Reports tables' operators);
@@ -338,58 +322,116 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   // The ledger echoes every operator it applied (`cols.debit_cmp`); only the
   // rest are checked here, on the lines loaded.
   const opFilters = opFiltersAll.filter(({ c }) => !data?.cols?.[`${c.key}_cmp`]);
+  const opKey = JSON.stringify(opFilters.map(({ c, f }) => [c.key, f]));
   const passesOps = (r) => opFilters.every(({ c, f }) => numberFilterHit(Number(r[c.key]) || 0, f));
   const total = data?.total || 0;
   const pages = Math.max(1, Math.ceil(total / PAGE));
+
+  // 10/23 meeting, item 01 (Viral, 06:05: "instead of that [Narrow by], can
+  // we do filters here similar to Excel table?"): once a filter, a value
+  // list or a sort of the standard view is in use, EVERY line of the search
+  // is read (1,000 at a time, ALL_CAP at most), so the filters, the totals
+  // and the pages cover all of them - not just the 100 on the page.
+  const readKey = JSON.stringify([params, syncTick]);
+  const [all, setAll] = useState(null);              // { key, rows, error } - every line, once read
+  const [allDone, setAllDone] = useState(0);         // lines read so far
+  // One of the view's panels was opened for this search (a new search starts without).
+  const searchKey = JSON.stringify(params);
+  const [wantKey, setWantKey] = useState('');
+  const wantAll = wantKey === searchKey;
+  const reading = useRef('');
+  const allSync = useRef(syncTick);
+  const allHere = !!all && all.key === readKey && !all.error;
   // The ledger narrows the lines by the report's filters (10/07); one that
   // does not yet hands back lines of other payees - those are left out here.
-  const loaded = data?.rows || [];
+  const loaded = allHere ? all.rows : data?.rows || [];
   const dimsMissed = !!effectiveDims && loaded.some((l) => !lineMatchesDims(l, effectiveDims));
-  const rows = loaded.filter((l) => (!dimsMissed || lineMatchesDims(l, effectiveDims)) && passesOps(l));
-  const facets = data?.facets || {};
+  const base = useMemo(() => loaded.filter((l) => (!dimsMissed || lineMatchesDims(l, effectiveDims)) && passesOps(l)), [loaded, dimsMissed, effectiveDims, opKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const view = useTableView('ledger-lines', viewColumns, base, { onOpen: () => setWantKey(searchKey) });
+  const viewOn = view.count > 0;
+  const engaged = viewOn || !!view.state.sort || wantAll;
+  // Everything is on screen already: the search fits on its first page, or all of it was read.
+  const complete = allHere || (!!data && (data.rows || []).length >= total);
+  const capped = engaged && total > ALL_CAP;
+  useEffect(() => {
+    if (!engaged || complete || !data || !hasCriteria || reading.current === readKey) return undefined;
+    const key = readKey;
+    reading.current = key;
+    let alive = true;
+    // After the table's Sync these reads go past the server's cache too (item 13).
+    const fresh = allSync.current !== syncTick;
+    allSync.current = syncTick;
+    setAllDone(0);
+    (async () => {
+      const got = [];
+      for (let offset = 0; offset < Math.min(total, ALL_CAP); offset += 1000) {
+        const read = () => api.searchAccountingLedger({ ...params, offset, limit: 1000 });
+        const d = await (fresh ? withFreshReads(read) : read());
+        if (!alive) return;
+        const batch = d?.rows || [];
+        got.push(...batch);
+        setAllDone(got.length);
+        if (batch.length < 1000) break;
+      }
+      if (alive) setAll({ key, rows: got });
+    })()
+      .catch((e) => { if (alive) setAll({ key, rows: [], error: e?.message || 'Could not read every line.' }); })
+      .finally(() => { if (alive && reading.current === key) reading.current = ''; });
+    return () => { alive = false; if (reading.current === key) reading.current = ''; };
+  }, [engaged, complete, readKey, data, hasCriteria]); // eslint-disable-line react-hooks/exhaustive-deps
+  const readingAll = engaged && !complete && !!data && !(all && all.key === readKey);
 
-  // Drag a column's right edge to resize it; double-click puts it back.
-  const startResize = (c, e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX;
-    const startW = colWidth(c);
-    const move = (ev) => setLayout({ widths: { ...(layout.widths || {}), [c.key]: Math.max(MIN_WIDTH, Math.round(startW + ev.clientX - startX)) } });
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  };
-  const resetWidth = (c) => { const w = { ...(layout.widths || {}) }; delete w[c.key]; setLayout({ widths: w }); };
+  // The lines on screen: the client pages them once everything is here, the
+  // ledger does while it is not (paging on the server, as before).
+  const paged = usePaged(complete ? view.rows : [], PAGE, [readKey, view.state]);
+  const rows = complete ? paged.rows : view.rows;
+  const sum = (key) => Math.round(view.rows.reduce((s, r) => s + (Number(r[key]) || 0), 0) * 100) / 100;
+  // The figures over the lines: the view's own once it filters (Viral, 07:00:
+  // "You can adjust the totals here"), else the ledger's for the whole search.
+  const shownTotals = viewOn && complete ? { lines: view.rows.length, debit: sum('debit'), credit: sum('credit') } : { lines: total, debit: Number(data?.debit) || 0, credit: Number(data?.credit) || 0 };
+  const lastPage = complete ? paged.page >= paged.pages : page + 1 >= pages;
+
+  const columns = view.columns;
+  const manualWidth = (c) => !!(view.state.widths[c.key] || layout.widths?.[c.key]);
+  const natural = columns.reduce((s, c) => s + c.width, 0);
+  const fillers = columns.filter((c) => !c.num && !manualWidth(c) && !['date', 'entry', 'journal'].includes(c.key));
+  const spare = fillers.length ? Math.max(0, room - natural - ASK_WIDTH - 2) : 0;
+  const colWidth = (c) => c.width + (fillers.includes(c) ? Math.floor(spare / fillers.length) : 0);
+  const tableWidth = natural + Math.floor(spare / Math.max(1, fillers.length)) * fillers.length + ASK_WIDTH;
 
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' };
   const select = { height: 30, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)' };
 
   const heading = [term ? `"${term}"` : null, party ? partyText(party) : null, account ? `${account.code} ${account.name || ''}`.trim() : drill && !drill.account && drill.accountName ? `${drill.accountName} - every line` : null].filter(Boolean).join(' - ') || 'Ledger lines';
   const periodText = usePeriod ? `${drill.from ? formatDate(drill.from) : 'Start'} - ${formatDate(drill.to)}` : 'All dates';
-  const labelSpan = columns.filter((c) => !c.num).length;
+  const labelAt = columns.findIndex((c) => !c.num);
 
   // Oct 2 (Charmi): one Export, the report's own at the top. The lines hand it
   // a builder for the WHOLE result (walked 1,000 at a time, up to EXPORT_CAP),
-  // in the columns on screen and their order, amounts as numbers.
-  const exportKey = JSON.stringify([params, columns.map((c) => c.key), total, heading, periodText, entityName, book, opFilters.map(({ c, f }) => [c.key, f])]);
+  // in the columns on screen and their order, amounts as numbers. 10/24 (item
+  // 01): exactly what the view leaves - its filters, its sort, its columns.
+  const exportKey = JSON.stringify([params, columns.map((c) => [c.key, c.width]), total, heading, periodText, entityName, book, opKey, view.state]);
   useEffect(() => {
     if (!onExport) return undefined;
     if (!total) { onExport(null); return undefined; }
+    const state = view.state;
     const build = async () => {
-      const all = [];
+      const got = [];
       for (let offset = 0; offset < Math.min(total, EXPORT_CAP); offset += 1000) {
         const d = await api.searchAccountingLedger({ ...params, offset, limit: 1000 });
-        all.push(...(d?.rows || []).filter((l) => (!effectiveDims || lineMatchesDims(l, effectiveDims)) && passesOps(l)));
+        got.push(...(d?.rows || []).filter((l) => (!effectiveDims || lineMatchesDims(l, effectiveDims)) && passesOps(l)));
       }
+      const kept = applyView(got, viewColumns, state);
       const firstNum = columns.findIndex((c) => c.num);
-      const sums = Object.fromEntries(columns.filter((c) => c.num).map((c) => [c.key, all.reduce((n, r) => n + (Number(r[c.key]) || 0), 0)]));
+      const labelAt = columns.findIndex((c) => !c.num);
+      const sums = Object.fromEntries(columns.filter((c) => c.num).map((c) => [c.key, kept.reduce((n, r) => n + (Number(r[c.key]) || 0), 0)]));
       return {
         title: `Ledger Lines - ${heading}`,
         period: periodText.replace(/\//g, '-'),
-        subtitle: [entityName, periodText, book === 'all' ? 'All Books' : bookTitle(book), `${all.length.toLocaleString('en-US')} lines`].filter(Boolean).join(' · '),
+        subtitle: [entityName, periodText, book === 'all' ? 'All Books' : bookTitle(book), `${kept.length.toLocaleString('en-US')} lines`].filter(Boolean).join(' · '),
         columns: columns.map((c) => ({ label: c.label, num: !!c.num, width: colWidth(c) })),
-        rows: all.map((r) => columns.map((c) => (c.num ? (Number(r[c.key]) || 0) : c.text(r)))),
-        totals: firstNum > 0 ? columns.map((c, i) => (c.num ? Math.round(sums[c.key] * 100) / 100 : i === 0 ? `Totals - ${all.length.toLocaleString('en-US')} lines` : '')) : null,
+        rows: kept.map((r) => columns.map((c) => (c.num ? (Number(r[c.key]) || 0) : c.text(r)))),
+        totals: firstNum >= 0 ? columns.map((c, i) => (c.num ? Math.round(sums[c.key] * 100) / 100 : i === labelAt ? `Totals - ${kept.length.toLocaleString('en-US')} lines` : '')) : null,
         capped: total > EXPORT_CAP,
       };
     };
@@ -426,7 +468,8 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
             {[...bookOptions({ report: 'general-ledger' }), ...(book !== 'all' && !bookOptions({ report: 'general-ledger' }).some((b) => b.key === book) ? [{ key: book }] : [])]
               .map((b) => <option key={b.key} value={b.key}>{bookTitle(b.key)}</option>)}
           </select>
-          {!isPhone && <ColumnChooser layout={layout} visible={visible} onChange={setLayout} />}
+          {/* 10/23 meeting, item 01: the standard view - View, Filters, Columns. */}
+          <TableViewBar view={view} columns={!isPhone} />
         </div>
       </div>
 
@@ -470,20 +513,31 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
         </div>
       ) : data ? (
         <>
-          {/* One line on a wide screen: the grid below is what the height is for. */}
+          {/* One line on a wide screen: the grid below is what the height is for.
+              10/23 meeting, item 01: "Narrow by" is gone (Viral, 07:00: "So, this
+              line will go") - the funnel on each heading and Filters do it, and
+              the count and totals follow them. */}
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 18px', fontSize: '0.8rem', marginBottom: 8, fontVariantNumeric: 'tabular-nums' }}>
-            <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Narrow by</span>
-              {!party && <FacetSelect label="Vendors" total={total} items={facets.vendors} onPick={(f) => setParty({ kind: 'vendor', code: f.code, name: f.name || f.code })} />}
-              {!party && <FacetSelect label="Customers" total={total} items={facets.customers} onPick={(f) => setParty({ kind: 'customer', code: f.code, name: f.name || f.code })} />}
-              {!account && <FacetSelect label="Accounts" total={total} items={facets.accounts} text={(f) => `${f.code} ${f.name || ''}`} onPick={(f) => setAccount({ code: f.code, name: f.name })} />}
-              {!journal && <FacetSelect label="Journals" total={total} items={facets.journals} onPick={(f) => setJournal(f.code)} />}
+            <span data-testid="ledger-lines-count">
+              <strong>{shownTotals.lines.toLocaleString('en-US')}</strong>{viewOn && complete ? ` of ${base.length.toLocaleString('en-US')}` : ''} lines
             </span>
-            <span><strong>{total.toLocaleString('en-US')}</strong> lines</span>
-            <span>Debits <strong><Amount value={data.debit} /></strong></span>
-            <span>Credits <strong><Amount value={data.credit} /></strong></span>
-            <span>Net <strong style={{ color: data.debit - data.credit < 0 ? 'var(--bad-fg, #dc2626)' : undefined }}><Amount value={data.debit - data.credit} /></strong></span>
-            {total > PAGE && (
+            <span>Debits <strong><Amount value={shownTotals.debit} /></strong></span>
+            <span>Credits <strong><Amount value={shownTotals.credit} /></strong></span>
+            <span>Net <strong style={{ color: shownTotals.debit - shownTotals.credit < 0 ? 'var(--bad-fg, #dc2626)' : undefined }}><Amount value={shownTotals.debit - shownTotals.credit} /></strong></span>
+            {readingAll && (
+              <span role="status" style={{ color: 'var(--text-secondary)' }}>
+                Reading every line for the filters... {allDone.toLocaleString('en-US')} of {Math.min(total, ALL_CAP).toLocaleString('en-US')}
+              </span>
+            )}
+            {complete && paged.pages > 1 && (
+              <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
+                Lines {paged.from.toLocaleString('en-US')}-{paged.to.toLocaleString('en-US')}
+                <button type="button" className="secondary-btn" disabled={paged.page <= 1} onClick={() => paged.setPage(paged.page - 1)} aria-label="Previous page" style={{ padding: '2px 6px' }}><ChevronLeft size={14} /></button>
+                {paged.page} / {paged.pages}
+                <button type="button" className="secondary-btn" disabled={paged.page >= paged.pages} onClick={() => paged.setPage(paged.page + 1)} aria-label="Next page" style={{ padding: '2px 6px' }}><ChevronRight size={14} /></button>
+              </span>
+            )}
+            {!complete && total > PAGE && (
               <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
                 Lines {(page * PAGE + 1).toLocaleString('en-US')}-{Math.min(total, (page + 1) * PAGE).toLocaleString('en-US')}
                 <button type="button" className="secondary-btn" disabled={page === 0 || loading} onClick={() => setPage((p) => p - 1)} aria-label="Previous page" style={{ padding: '2px 6px' }}><ChevronLeft size={14} /></button>
@@ -507,13 +561,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
               <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}<col style={{ width: ASK_WIDTH }} /></colgroup>
               <thead>
                 <tr>
-                  {columns.map((c) => (
-                    <th key={c.key} className={c.num ? 'acct-num' : undefined} scope="col">
-                      {c.label}
-                      <span role="separator" aria-orientation="vertical" aria-label={`Resize the ${c.label} column`} title="Drag to resize · double-click to reset"
-                        className="acct-resize" onPointerDown={(e) => startResize(c, e)} onDoubleClick={() => resetWidth(c)} />
-                    </th>
-                  ))}
+                  {columns.map((c) => <ViewHead key={c.key} view={view} col={c} className={c.num ? 'acct-num' : undefined} />)}
                   <th scope="col" aria-label="Ask My Accountant" />
                 </tr>
                 <tr className="acct-filter-row">
@@ -552,13 +600,14 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                 ))}
                 {!rows.length && (
                   <tr><td colSpan={columns.length + 1} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '22px 10px', whiteSpace: 'normal' }}>
-                    {loaded.length ? 'None of the lines loaded here pass' : 'Nothing in the ledger matches'}{filtering ? ' these filters' : ' all of that'}{entities.length ? ' for the entities picked' : ''}. {filtering ? 'Clear a column filter' : 'Remove a word or a filter'} to widen the search.
+                    {loaded.length ? 'None of the lines loaded here pass' : 'Nothing in the ledger matches'}{filtering || viewOn ? ' these filters' : ' all of that'}{entities.length ? ' for the entities picked' : ''}. {filtering || viewOn ? 'Clear a filter' : 'Remove a word or a filter'} to widen the search.
                   </td></tr>
                 )}
-                {rows.length > 0 && page + 1 >= pages && (
+                {rows.length > 0 && lastPage && (
                   <tr className="acct-grand">
-                    {labelSpan > 0 && <td colSpan={labelSpan}>Totals - {total.toLocaleString('en-US')} lines</td>}
-                    {columns.filter((c) => c.num).map((c) => <td key={c.key} className="acct-num"><Amount value={data[c.key]} /></td>)}
+                    {columns.map((c, i) => (c.num
+                      ? <td key={c.key} className="acct-num"><Amount value={shownTotals[c.key]} /></td>
+                      : <td key={c.key} style={i === labelAt ? { overflow: 'visible' } : undefined}>{i === labelAt ? `Totals - ${shownTotals.lines.toLocaleString('en-US')} lines` : ''}</td>))}
                     <td />
                   </tr>
                 )}
@@ -573,6 +622,14 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
               The line count and totals above are for the whole search{opFilters.length > 0 ? '; the export applies the same filter to every line' : ''}.
             </div>
           )}
+          {capped && (
+            <div role="note" style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              The filters, sort and totals cover the first {ALL_CAP.toLocaleString('en-US')} of {total.toLocaleString('en-US')} lines. Narrow the search for the rest.
+            </div>
+          )}
+          {all?.error && all.key === readKey && (
+            <div role="alert" style={{ marginTop: 8, fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>{all.error} The filters cover the lines on this page only.</div>
+          )}
           {total > EXPORT_CAP && (
             <div style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
               The export holds the first {EXPORT_CAP.toLocaleString('en-US')} lines. Narrow the search for a complete file.
@@ -582,40 +639,6 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
       ) : null}
       {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={closeEntry} />}
       {asking && <AskAccountantDialog line={asking} onClose={() => setAsking(null)} onAsked={(t) => { setAsking(null); setAsked(t); }} />}
-    </div>
-  );
-}
-
-// Which columns show. The choice is the person's own and follows them.
-function ColumnChooser({ layout, visible, onChange }) {
-  const [open, setOpen, ref] = usePopover();
-  const customized = Object.keys(layout.visible || {}).length > 0 || Object.keys(layout.widths || {}).length > 0;
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" className="secondary-btn" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
-        <Columns3 size={14} /> Columns
-      </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align="right" role="dialog" aria-label="Columns"
-        style={{ width: 240, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 10 }}>
-        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Show these columns</div>
-        <div style={{ display: 'grid', gap: 2, maxHeight: 320, overflowY: 'auto' }}>
-          {LINE_COLUMNS.map((c) => (
-            <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', padding: '3px 4px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={visible(c)} onChange={(e) => onChange({ visible: { ...(layout.visible || {}), [c.key]: e.target.checked } })} />
-              {c.label}
-            </label>
-          ))}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-          <button type="button" disabled={!customized} onClick={() => onChange({ visible: {}, widths: {} })}
-            style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: customized ? 'pointer' : 'default', textDecoration: 'underline', opacity: customized ? 1 : 0.5, padding: 0 }}>
-            Reset to default
-          </button>
-          <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
-        </div>
-        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>Your layout is saved for you on every computer.</div>
-      </PopoverPanel>
     </div>
   );
 }
