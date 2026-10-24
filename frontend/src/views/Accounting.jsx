@@ -1,53 +1,59 @@
-import { useEffect, useRef, useState } from 'react';
-import { Banknote, CheckSquare, Database, FileStack, FileText, KeyRound, Landmark, LayoutGrid, Loader2, Receipt, Search, ShieldCheck, TrendingUp, Upload, Wallet, Wrench, X } from 'lucide-react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import {
+  Activity, ArrowLeftRight, Banknote, BookOpen, Building2, Calculator, ChartColumn, CheckSquare, CreditCard, Database, FileStack, FileText,
+  Hammer, HandCoins, Handshake, KeyRound, Landmark, LayoutGrid, Library, ListChecks, Loader2, MessageCircleQuestion, PieChart, Receipt,
+  ReceiptText, Scale, Search, ShieldCheck, Split, Target, TrendingUp, Upload, UserPen, Users, Wallet, Wrench, X,
+} from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import ModuleTabs from '../components/ModuleTabs';
-import ReportsTab from '../components/accounting/ReportsTab';
-import PackagesTab from '../components/accounting/PackagesTab';
-import AccessTab from '../components/accounting/AccessTab';
-import PfsTab from '../components/accounting/PfsTab';
-import MriTab from '../components/accounting/MriTab';
-import LoansTab from '../components/accounting/LoansTab';
-import MreTab from '../components/accounting/MreTab';
-import ImportHub from '../components/accounting/ImportHub';
 import { control } from '../components/accounting/reportControls';
 import { dashDensityOf, useAccountingPrefs } from '../components/accounting/prefs';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
 import { DashNav } from '../components/accounting/dashboard/registry';
-import OverviewTab from '../components/accounting/dashboard/OverviewTab';
-import CashTab from '../components/accounting/dashboard/CashTab';
-import PerformanceTab from '../components/accounting/dashboard/PerformanceTab';
-import CloseTab from '../components/accounting/dashboard/CloseTab';
-import DataTab from '../components/accounting/dashboard/DataTab';
-import BudgetTab from '../components/accounting/BudgetTab';
-import PartnersTab from '../components/accounting/PartnersTab';
-import AllocationsTab from '../components/accounting/AllocationsTab';
-import ManagementFeesTab from '../components/accounting/ManagementFeesTab';
-// Oct 15 (Neil): AMA is Ask My Accountant; the agreements are Management Fees.
-import AskAccountantTab from '../components/accounting/AskAccountantTab';
-import { MessageCircleQuestion } from 'lucide-react';
-import { Calculator, Handshake, Split, Users } from 'lucide-react';
-import { ArrowLeftRight, BookOpen, PieChart, Scale, Target, Activity } from 'lucide-react';
-// Oct 15 (Charmi + Neil): Profitability and Employee Compensation under Reporting.
-import { ChartColumn, HandCoins } from 'lucide-react';
-import ProfitabilityReport from '../components/accounting/ProfitabilityReport';
-import CompensationReport from '../components/accounting/CompensationReport';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
-import { Hammer, ListChecks } from 'lucide-react';
 import { REPORTS, REPORT_VIEWS, parseActivitySub } from '../components/accounting/reportModel';
-import { CreditCard } from 'lucide-react';
-import ReportCenter from '../components/accounting/ReportCenter';
-import ReportBuilder from '../components/accounting/ReportBuilder';
 import { STATEMENTS_SUB } from '../components/accounting/drill';
 import { BUILDER_PUBLISH_MIN_LEVEL, PAYROLL_SUMMARY_LEVEL, RECORDS_JOURNALS, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
-import { EntitiesTab, GlAccountsTab } from '../components/accounting/RecordsLists';
-import JournalTab from '../components/accounting/JournalTab';
-import ManualJournalEntries from '../components/accounting/ManualJournalEntries';
-import { Building2, Library, ReceiptText, UserPen } from 'lucide-react';
-import PayrollSummary from '../components/accounting/PayrollSummary';
+
+// Oct 24 (bundle budget, 10/23 meeting round 2): every screen behind the bar
+// is fetched the first time it is opened, not with the Accounting view - all
+// of them together had grown the view's file past its 1,000 KB budget. The
+// header, the bar and the dashboard's shared provider stay here; a screen on
+// its way shows the skeleton (SCREEN_LOADING), never nothing, and a file gone
+// after a deploy is the view boundary's quiet reload, as for every view.
+const ReportsTab = lazy(() => import('../components/accounting/ReportsTab'));
+const PackagesTab = lazy(() => import('../components/accounting/PackagesTab'));
+const AccessTab = lazy(() => import('../components/accounting/AccessTab'));
+const PfsTab = lazy(() => import('../components/accounting/PfsTab'));
+const MriTab = lazy(() => import('../components/accounting/MriTab'));
+const LoansTab = lazy(() => import('../components/accounting/LoansTab'));
+const MreTab = lazy(() => import('../components/accounting/MreTab'));
+const ImportHub = lazy(() => import('../components/accounting/ImportHub'));
+const OverviewTab = lazy(() => import('../components/accounting/dashboard/OverviewTab'));
+const CashTab = lazy(() => import('../components/accounting/dashboard/CashTab'));
+const PerformanceTab = lazy(() => import('../components/accounting/dashboard/PerformanceTab'));
+const CloseTab = lazy(() => import('../components/accounting/dashboard/CloseTab'));
+const DataTab = lazy(() => import('../components/accounting/dashboard/DataTab'));
+const BudgetTab = lazy(() => import('../components/accounting/BudgetTab'));
+const PartnersTab = lazy(() => import('../components/accounting/PartnersTab'));
+const AllocationsTab = lazy(() => import('../components/accounting/AllocationsTab'));
+const ManagementFeesTab = lazy(() => import('../components/accounting/ManagementFeesTab'));
+// Oct 15 (Neil): AMA is Ask My Accountant; the agreements are Management Fees.
+const AskAccountantTab = lazy(() => import('../components/accounting/AskAccountantTab'));
+// Oct 15 (Charmi + Neil): Profitability and Employee Compensation under Reporting.
+const ProfitabilityReport = lazy(() => import('../components/accounting/ProfitabilityReport'));
+const CompensationReport = lazy(() => import('../components/accounting/CompensationReport'));
+const ReportCenter = lazy(() => import('../components/accounting/ReportCenter'));
+const ReportBuilder = lazy(() => import('../components/accounting/ReportBuilder'));
+const EntitiesTab = lazy(() => import('../components/accounting/RecordsLists').then((m) => ({ default: m.EntitiesTab })));
+const GlAccountsTab = lazy(() => import('../components/accounting/RecordsLists').then((m) => ({ default: m.GlAccountsTab })));
+const JournalTab = lazy(() => import('../components/accounting/JournalTab'));
+const ManualJournalEntries = lazy(() => import('../components/accounting/ManualJournalEntries'));
+const PayrollSummary = lazy(() => import('../components/accounting/PayrollSummary'));
+const SCREEN_LOADING = <div style={{ marginTop: 8 }}><SkeletonBlocks count={3} /></div>;
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -436,53 +442,57 @@ export default function Accounting({ activeSub, onSubChange }) {
         // No dashboard provider for a limited person: it loads the
         // consolidated ledger the moment it mounts.
         <div style={{ marginTop: 8 }}>
-          {reportCenter}
-          {reportsTab}
-          {sub === 'report-builder' && <ReportBuilder canPublish={canPublish} />}
-          {sub === 'packages' && <PackagesTab />}
-          {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
-          {sub === 'loans' && <LoansTab canEdit={canEdit} />}
-          {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
-          {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
-          {partnersTab}
-          {records}
-          {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
-          {sub === 'imports' && <ImportHub />}
-          {sub === 'ama' && <AskAccountantTab canEdit={canEdit} limited />}
-          {sub === 'mgmt-fees' && <ManagementFeesTab canEdit={canEdit} />}
-          {sub === 'profitability' && <ProfitabilityReport limited />}
+          <Suspense fallback={SCREEN_LOADING}>
+            {reportCenter}
+            {reportsTab}
+            {sub === 'report-builder' && <ReportBuilder canPublish={canPublish} />}
+            {sub === 'packages' && <PackagesTab />}
+            {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
+            {sub === 'loans' && <LoansTab canEdit={canEdit} />}
+            {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
+            {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
+            {partnersTab}
+            {records}
+            {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
+            {sub === 'imports' && <ImportHub />}
+            {sub === 'ama' && <AskAccountantTab canEdit={canEdit} limited />}
+            {sub === 'mgmt-fees' && <ManagementFeesTab canEdit={canEdit} />}
+            {sub === 'profitability' && <ProfitabilityReport limited />}
+          </Suspense>
         </div>
       ) : (
         <DashProvider>
           {/* The dashboard's "open the report" links mean the statements (they predate the Report Center). */}
           <DashNav.Provider value={(to) => onSubChange?.(to === 'reports' ? STATEMENTS_SUB : to)}>
             <div style={{ marginTop: 8 }} className={DASH_SUBS.includes(sub) ? `acct-dash acct-dash--${dashDensity}` : undefined}>
-              {sub === 'overview' && <OverviewTab canEdit={canEdit} />}
-              {sub === 'cash' && <CashTab />}
-              {sub === 'performance' && <PerformanceTab canEdit={canEdit} />}
-              {sub === 'close' && <CloseTab canEdit={canEdit} meName={meName} />}
-              {reportCenter}
-              {reportsTab}
-              {sub === 'report-builder' && <ReportBuilder canPublish={canPublish} />}
-              {sub === 'packages' && <PackagesTab />}
-              {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
-              {sub === 'loans' && <LoansTab canEdit={canEdit} />}
-              {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
-              {sub === 'data' && canEdit && <DataTab exclude={['loans', 'intercompany', 'holdings']} />}
-              {sub === 'intercompany' && canEdit && <DataTab key="intercompany" only={['intercompany']} />}
-              {sub === 'investments' && canEdit && <DataTab key="investments" only={['holdings']} />}
-              {sub === 'access' && canManage && <AccessTab />}
-              {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
-              {partnersTab}
-              {records}
-              {sub === 'allocations' && <AllocationsTab canEdit={canManage} />}
-              {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
-              {sub === 'imports' && <ImportHub />}
-              {sub === 'ama' && <AskAccountantTab canEdit={canEdit} />}
-              {sub === 'mgmt-fees' && <ManagementFeesTab canEdit={canEdit} />}
-              {sub === 'profitability' && <ProfitabilityReport />}
-              {sub === 'compensation' && canManage && <CompensationReport />}
-              {sub === 'payroll-summary' && canPayrollSummary && <PayrollSummary />}
+              <Suspense fallback={SCREEN_LOADING}>
+                {sub === 'overview' && <OverviewTab canEdit={canEdit} />}
+                {sub === 'cash' && <CashTab />}
+                {sub === 'performance' && <PerformanceTab canEdit={canEdit} />}
+                {sub === 'close' && <CloseTab canEdit={canEdit} meName={meName} />}
+                {reportCenter}
+                {reportsTab}
+                {sub === 'report-builder' && <ReportBuilder canPublish={canPublish} />}
+                {sub === 'packages' && <PackagesTab />}
+                {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
+                {sub === 'loans' && <LoansTab canEdit={canEdit} />}
+                {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
+                {sub === 'data' && canEdit && <DataTab exclude={['loans', 'intercompany', 'holdings']} />}
+                {sub === 'intercompany' && canEdit && <DataTab key="intercompany" only={['intercompany']} />}
+                {sub === 'investments' && canEdit && <DataTab key="investments" only={['holdings']} />}
+                {sub === 'access' && canManage && <AccessTab />}
+                {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
+                {partnersTab}
+                {records}
+                {sub === 'allocations' && <AllocationsTab canEdit={canManage} />}
+                {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
+                {sub === 'imports' && <ImportHub />}
+                {sub === 'ama' && <AskAccountantTab canEdit={canEdit} />}
+                {sub === 'mgmt-fees' && <ManagementFeesTab canEdit={canEdit} />}
+                {sub === 'profitability' && <ProfitabilityReport />}
+                {sub === 'compensation' && canManage && <CompensationReport />}
+                {sub === 'payroll-summary' && canPayrollSummary && <PayrollSummary />}
+              </Suspense>
             </div>
           </DashNav.Provider>
         </DashProvider>

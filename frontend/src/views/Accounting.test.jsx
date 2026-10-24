@@ -80,4 +80,14 @@ describe('Accounting view', () => {
     expect(onSubChange).toHaveBeenCalledWith('rpt-pnl');
     vi.useRealTimers();
   });
+
+  // Oct 24 (bundle budget): every screen is fetched the first time it is
+  // opened. A screen imported up front again would put it back in the
+  // Accounting file, which had grown past its 1,000 KB budget.
+  it('carries only the header, bar and dashboard helpers - every screen loads on first open', async () => {
+    const src = (await import('./Accounting.jsx?raw')).default;
+    const upFront = [...src.matchAll(/^import .* from '\.\.\/components\/accounting\/([^']+)';\r?$/gm)].map((m) => m[1]).sort();
+    expect(upFront).toEqual(['assumptions', 'dashboard/DashContext', 'dashboard/registry', 'drill', 'prefs', 'reportControls', 'reportModel']);
+    expect(src).toMatch(/const OverviewTab = lazy\(/);
+  });
 });

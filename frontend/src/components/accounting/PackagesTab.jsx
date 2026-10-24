@@ -7,7 +7,6 @@ import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { control } from './reportControls';
 import { bookLabel, downloadBlob, entityText, periodText, reportDef, resolveConfig, runReport, withAdjustments } from './reportModel';
-import { SkeletonBlocks as Blocks } from '../AsyncState';
 import { isBuilderConfig } from './builderModel';
 
 // Accounting -> Packages (Neil, Sep 25). A lender asks for the same set of
@@ -325,7 +324,7 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
             <span style={{ marginLeft: 'auto', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>{list.length} {list.length === 1 ? 'line' : 'lines'} · net adjustment <strong><Amount value={total} /></strong></span>
           </div>
           {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{error}</div>}
-          {!result && !error && <Blocks count={4} />}
+          {!result && !error && <SkeletonBlocks count={4} />}
           {result && (
             <div className="acct-lines-wrap" style={{ maxHeight: 'calc(92vh - 230px)' }}>
               <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
