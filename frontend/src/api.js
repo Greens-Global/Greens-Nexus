@@ -2983,6 +2983,14 @@ export const api = {
   devNotesTokenRevoke: (id) => req(`/dev-notes/tokens/${encodeURIComponent(id)}`, { method: "DELETE" }),
   // { pins: {...}, medianPinToPrHours, reopenRate, firstClaimHitRate } - the Sessions tab's Stats strip.
   devNotesStats: () => req("/dev-notes/stats"),
+  // Build Mode v2: a pin on someone's area is held for them until they (or a
+  // Global Admin) release it to Claude Code; a pin Ready To Check is accepted
+  // or reopened (a note is required to reopen) against its local preview.
+  devNotesRelease: (id) => req(`/dev-notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ release: true }) }),
+  devNotesPreviewVerdict: (id, { accepted, comment = "" } = {}) => req(`/dev-notes/${encodeURIComponent(id)}/preview-verdict`, { method: "POST", body: JSON.stringify({ accepted: !!accepted, comment }) }),
+  // { owner: {name, email} | null, held } for a source stamp - the composer
+  // asks before saving whether the pin would be held for that owner.
+  devNotesOwnerOf: (path) => req(`/dev-notes/owner-of?${new URLSearchParams({ path: path || "" }).toString()}`),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()
