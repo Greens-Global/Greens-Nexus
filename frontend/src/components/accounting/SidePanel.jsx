@@ -1,5 +1,5 @@
+import { useState } from 'react';
 import { Maximize2, Minimize2, X } from 'lucide-react';
-import { useAccountingPrefs } from './prefs';
 
 // A record opened on the right, the list still on screen (Accounting call,
 // 10/23, item 03 - Viral: "instead of making a pop-up, we can do a right side
@@ -12,9 +12,11 @@ import { useAccountingPrefs } from './prefs';
 //
 // There is no backdrop: the list behind stays clickable, so clicking another
 // row swaps the panel to that record. Popups (z 500) still open above it.
-// Open Full widens the panel over the whole screen; the choice is kept with
-// the person's accounting preferences, like the journal entry's Fill the
-// Screen. Escape is the caller's (it knows whether there are unsaved edits).
+// Open Full widens the panel over the whole screen for this one open only:
+// every record starts in the side panel, the list beside it (UI test 10/24 -
+// a remembered Open Full made every later record cover the list). Callers
+// key the panel by record, so another row or the next open starts fresh.
+// Escape is the caller's (it knows whether there are unsaved edits).
 //
 //   <SidePanel label="Change lease" title="910 SECR - Ste 100" caption="..."
 //     tabs={[{ key: 'details', label: 'Details' }]} tab={tab} onTab={setTab}
@@ -23,8 +25,7 @@ import { useAccountingPrefs } from './prefs';
 //   </SidePanel>
 
 export default function SidePanel({ label, title, caption = null, badges = null, tabs = null, tab = '', onTab, onClose, footer = null, children }) {
-  const [prefs, setPrefs] = useAccountingPrefs();
-  const full = !!prefs.sidePanelFull;
+  const [full, setFull] = useState(false);
   return (
     <aside className={`acct-side-panel${full ? ' is-full' : ''}`} role="dialog" aria-modal="false" aria-label={label} data-testid="acct-side-panel">
       <header style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '16px 20px 12px', borderBottom: tabs ? 'none' : '1px solid var(--border-color)' }}>
@@ -36,7 +37,7 @@ export default function SidePanel({ label, title, caption = null, badges = null,
             </div>
           )}
         </div>
-        <button type="button" className="secondary-btn" onClick={() => setPrefs({ sidePanelFull: !full })} aria-pressed={full}
+        <button type="button" className="secondary-btn" onClick={() => setFull((f) => !f)} aria-pressed={full}
           title={full ? 'Back to the side panel, the list beside it' : 'Open over the whole screen'}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.76rem', padding: '4px 10px', whiteSpace: 'nowrap' }}>
           {full ? <Minimize2 size={13} /> : <Maximize2 size={13} />} {full ? 'Side Panel' : 'Open Full'}

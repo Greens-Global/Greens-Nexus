@@ -744,13 +744,28 @@ describe('LeasingTab - side panel (10/23)', () => {
     expect(within(within(panel).getByRole('region', { name: 'Comments' })).getByLabelText('Notes')).toBeTruthy();
     // The list is still on screen behind it.
     expect(screen.getByRole('button', { name: '47385 RCR, Temecula' })).toBeTruthy();
-    // Open Full widens it and is kept; Side Panel brings it back.
+    // Open Full widens it; Side Panel brings it back.
     fireEvent.click(within(panel).getByRole('button', { name: /Open Full/ }));
     expect(panel.className).toContain('is-full');
     fireEvent.click(within(panel).getByRole('button', { name: /Side Panel/ }));
     expect(panel.className).not.toContain('is-full');
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog', { name: 'Change lease' })).toBeNull();
+  });
+
+  it('Open Full is for that one open: the next lease opens in the side panel again', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    let panel = screen.getByRole('dialog', { name: 'Change lease' });
+    fireEvent.click(within(panel).getByRole('button', { name: /Open Full/ }));
+    expect(panel.className).toContain('is-full');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    // Not kept with the person's preferences.
+    expect(JSON.parse(localStorage.getItem('nexus-accounting-prefs') || '{}').sidePanelFull).toBeUndefined();
+    fireEvent.click(screen.getByRole('button', { name: '47385 RCR, Temecula' }));
+    panel = screen.getByRole('dialog', { name: 'Change lease' });
+    expect(panel.className).not.toContain('is-full');
+    expect(within(panel).getByRole('button', { name: /Open Full/ }).getAttribute('aria-pressed')).toBe('false');
   });
 
   it('saves from the pinned Save as before', async () => {
