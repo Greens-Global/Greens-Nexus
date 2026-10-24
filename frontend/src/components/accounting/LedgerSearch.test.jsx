@@ -133,7 +133,7 @@ describe('LedgerSearch grid', () => {
     // 50 of the 150 lines, and the credits of those 50 only.
     await waitFor(() => expect(screen.getByTestId('ledger-lines-count').textContent).toBe('50 of 150 lines'));
     expect(screen.getByText('Credits').textContent).toContain('5,000.00');
-    expect(screen.getByRole('button', { name: 'Filters (1 on)' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Row Filters (1 on)' })).toBeTruthy();
     // The totals line at the bottom says the same.
     expect(document.querySelector('.acct-grand').textContent).toContain('Totals - 50 lines');
   });
@@ -145,8 +145,8 @@ describe('LedgerSearch grid', () => {
     let exporter = null;
     render(<LedgerSearch term="repairs" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} onExport={(x) => { exporter = x; }} />);
     await screen.findByText('Roof repair');
-    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
-    const panel = await screen.findByRole('dialog', { name: 'Filters' });
+    fireEvent.click(screen.getByRole('button', { name: 'Row Filters' }));
+    const panel = await screen.findByRole('dialog', { name: 'Row Filters' });
     fireEvent.click(within(panel).getByRole('button', { name: /Add Filter/ }));
     fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 field' }), { target: { value: 'debit' } });
     fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 condition' }), { target: { value: 'gt' } });

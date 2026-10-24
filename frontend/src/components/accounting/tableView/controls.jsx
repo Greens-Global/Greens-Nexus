@@ -23,8 +23,10 @@ const count = { fontSize: '0.68rem', fontWeight: 700, padding: '1px 6px', border
  * View, Unsaved + Update + Clear (only after a change), Filters (with how many
  * are on) and Columns - the same controls in the same order on every
  * Accounting table. `columns={false}` leaves out the column chooser.
+ * `filtersLabel`: "Row Filters" where the screen already has a report Filters
+ * button (journals, departments...), so the two never share a name.
  */
-export function TableViewBar({ view, columns = true }) {
+export function TableViewBar({ view, columns = true, filtersLabel = 'Filters' }) {
   const [open, setOpen] = useState('');
   const viewRef = useRef(null);
   const filtersRef = useRef(null);
@@ -55,9 +57,9 @@ export function TableViewBar({ view, columns = true }) {
         </>
       )}
       <button ref={filtersRef} type="button" style={btn(n > 0)} onClick={() => toggle('filters')} onPointerEnter={preloadPanels} onFocus={preloadPanels}
-        aria-haspopup="dialog" aria-expanded={open === 'filters'} aria-label={n ? `Filters (${n} on)` : 'Filters'} title="Filter the rows: field, condition and value">
+        aria-haspopup="dialog" aria-expanded={open === 'filters'} aria-label={n ? `${filtersLabel} (${n} on)` : filtersLabel} title="Filter the rows: field, condition and value">
         <Funnel size={14} style={{ flexShrink: 0, color: n ? 'inherit' : 'var(--text-muted)' }} />
-        <span className="acct-bar-label-2">Filters</span>
+        <span className="acct-bar-label-2">{filtersLabel}</span>
         {n > 0 && <span style={count}>{n}</span>}
       </button>
       {columns && (
@@ -68,7 +70,7 @@ export function TableViewBar({ view, columns = true }) {
       )}
       {open && (
         <Suspense fallback={null}>
-          <Panels kind={open} view={view} anchor={anchor} onClose={() => setOpen('')} onKind={setOpen} />
+          <Panels kind={open} view={view} anchor={anchor} onClose={() => setOpen('')} onKind={setOpen} label={filtersLabel} />
         </Suspense>
       )}
     </>

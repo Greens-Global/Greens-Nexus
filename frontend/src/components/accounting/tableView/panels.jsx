@@ -35,11 +35,11 @@ const hint = { fontSize: '0.72rem', color: 'var(--text-muted)' };
 const muted = { color: 'var(--text-muted)', flexShrink: 0 };
 const done = (onClick, text = 'Done') => <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={onClick}>{text}</button>;
 
-export default function Panels({ kind, view, col = null, anchor, onClose, onKind }) {
+export default function Panels({ kind, view, col = null, anchor, onClose, onKind, label = 'Filters' }) {
   const common = { anchorRef: anchor, open: true, onClose };
   if (kind === 'menu' && col) return <ColumnMenu {...common} view={view} col={col} onKind={onKind} anchor={anchor} />;
   if (kind === 'values' && col) return <ValueList {...common} view={view} col={col} />;
-  if (kind === 'filters' || (kind === 'filter' && col)) return <FilterPanel {...common} view={view} focusCol={kind === 'filter' ? col : null} />;
+  if (kind === 'filters' || (kind === 'filter' && col)) return <FilterPanel {...common} view={view} focusCol={kind === 'filter' ? col : null} label={label} />;
   if (kind === 'columns') return <ColumnsChooser {...common} view={view} />;
   if (kind === 'views' || kind === 'save') return <ViewsMenu {...common} view={view} saving={kind === 'save'} />;
   return null;
@@ -62,7 +62,7 @@ function RuleValue({ col, value, onChange, label, autoFocus = false }) {
   );
 }
 
-function FilterPanel({ view, focusCol, ...menu }) {
+function FilterPanel({ view, focusCol, label = 'Filters', ...menu }) {
   const cols = view.arranged.filter((c) => !c.noFilter);
   const byKey = new Map(view.allColumns.map((c) => [c.key, c]));
   const rules = view.state.rules;
@@ -74,10 +74,10 @@ function FilterPanel({ view, focusCol, ...menu }) {
   const picks = Object.keys(view.state.picks).filter((k) => byKey.has(k));
   const full = rules.length >= MAX_RULES;
   return (
-    <AnchoredMenu {...menu} role="dialog" aria-label="Filters" align="end" style={{ ...panel(640), display: 'grid', gap: 10 }}>
+    <AnchoredMenu {...menu} role="dialog" aria-label={label} align="end" style={{ ...panel(640), display: 'grid', gap: 10 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
         <div style={{ flex: 1 }}>
-          <div style={head}>Filters</div>
+          <div style={head}>{label}</div>
           <div style={hint}>Up to {MAX_RULES} rules. Each is a field, a condition and a value.</div>
         </div>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>

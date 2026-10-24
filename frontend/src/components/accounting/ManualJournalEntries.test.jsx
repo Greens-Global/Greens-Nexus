@@ -44,6 +44,27 @@ describe('Manual Journal Entries', () => {
     expect(api.getManualJournalEntries.mock.calls[0][0].from).toMatch(/-01$/);
   });
 
+  it('has the standard table view: a rule narrows the entries, the count and the total follow; the stamps sort in time order (10/23, item 01)', async () => {
+    try { localStorage.clear(); } catch { /* private mode */ }
+    render(<ManualJournalEntries />);
+    const table = await screen.findByRole('table');
+    fireEvent.click(screen.getByRole('button', { name: 'Row Filters' }));
+    const panel = await screen.findByRole('dialog', { name: 'Row Filters' });
+    fireEvent.click(within(panel).getByRole('button', { name: /Add Filter/ }));
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 field' }), { target: { value: 'amount' } });
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 condition' }), { target: { value: 'gt' } });
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'Rule 1 value' }), { target: { value: '300' } });
+    expect(table.textContent).not.toContain('urmi.shah · 1 entry');
+    expect(table.closest('div').parentElement.textContent).toMatch(/1 manual entry of 40 .* Amount 497\.00/);
+    fireEvent.click(within(panel).getByRole('button', { name: 'Delete rule 1' }));
+    // Turn grouping off, then sort Posted / Changed ascending: 10/20 11:30 before 10/21 16:25.
+    fireEvent.click(screen.getByLabelText('Group by user'));
+    fireEvent.click(screen.getByRole('button', { name: /^Posted \/ Changed - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Posted / Changed column' })).getByRole('menuitemradio', { name: /Sort Ascending/ }));
+    const first = table.querySelector('tbody tr');
+    expect(first.textContent).toContain('Bank feed draft, edited');
+  });
+
   it('filters by user and leaves out changed system entries when asked', async () => {
     render(<ManualJournalEntries />);
     await screen.findByRole('table');
