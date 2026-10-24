@@ -217,6 +217,34 @@ describe('PartnersTab - the 10/23 call', () => {
     expect(t.subtitle).toMatch(/^2 vendors · As of \d{2}\/\d{2}\/\d{4}$/);
   });
 
+  it('has the standard table view: filters, a value list, the heading menu, and an export of exactly what shows (10/23, item 01)', async () => {
+    render(<PartnersTab />);
+    await screen.findByText('Acme Plumbing');
+    expect(screen.getByRole('button', { name: 'View: Built-in Default' })).toBeTruthy();
+    // Excel-style value list on City: Escondido only.
+    fireEvent.click(screen.getByRole('button', { name: 'Filter City by value' }));
+    const list = await screen.findByRole('dialog', { name: 'City values' });
+    fireEvent.click(within(list).getByRole('checkbox', { name: /\(Blanks\)/ }));
+    expect(screen.queryByText('Bay Electric')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Filters (1 on)' })).toBeTruthy();
+    fireEvent.click(within(list).getByRole('button', { name: 'Clear Filter' }));
+    // Sort Name descending, hide Email; the export follows.
+    fireEvent.click(screen.getByRole('button', { name: /^Name - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Name column' })).getByRole('menuitemradio', { name: /Sort Descending/ }));
+    expect(screen.getAllByRole('row')[1].textContent).toContain('Bay Electric');
+    fireEvent.click(screen.getByRole('button', { name: /^Email - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Email column' })).getByRole('menuitem', { name: /Hide Column/ }));
+    expect(screen.queryByRole('columnheader', { name: 'Email' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
+    const file = URL.createObjectURL.mock.calls[0][0];
+    const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(fr.result); fr.readAsText(file); });
+    const csv = text.replace(/^﻿/, '').split('\r\n');
+    expect(csv[0]).toBe('Vendor Number,Name,Phone,City,Terms,Status,Entity');
+    expect(csv[1]).toMatch(/^V00013,Bay Electric,/);
+  });
+
   it('opens records on the right with the list still clickable; another row swaps it', async () => {
     render(<PartnersTab />);
     fireEvent.click((await screen.findByText('Acme Plumbing')).closest('tr'));

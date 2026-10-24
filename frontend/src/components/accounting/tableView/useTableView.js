@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useAccountingPrefs } from '../prefs';
 import {
   MAX_RULES, MAX_VIEWS, MAX_WIDTH, MIN_WIDTH, applyView, arrange, canMove, defaultState, distinctValues,
   filterCount, kindOf, moveColumn, normalizeState, opsFor, ruleId, sameState,
@@ -28,8 +27,10 @@ import {
 
 const SAVE_MS = 400;
 
-export function useTableView(tableKey, baseColumns, rows, { sort = null, onOpen = null } = {}) {
-  const [prefs, setPrefs] = useAccountingPrefs();
+// `store` is [prefs, setPrefs] of the person's Accounting layout (../prefs);
+// index.js hands it in, so this folder imports nothing of the screens.
+export function useTableViewWith(store, tableKey, baseColumns, rows, { sort = null, onOpen = null } = {}) {
+  const [prefs, setPrefs] = store;
   // Widths a person dragged before views existed (useColumnWidths, same table
   // key) are their default widths, so nobody loses a layout.
   const legacy = prefs.colWidths && typeof prefs.colWidths === 'object' ? prefs.colWidths[tableKey] : null;
@@ -239,6 +240,8 @@ export function useTableView(tableKey, baseColumns, rows, { sort = null, onOpen 
     filtered: (key) => !!state.picks[key] || state.rules.some((r) => r.col === key),
     distinct: (key) => distinctValues(rows || [], columns, state, key),
     width: (key) => (live?.key === key ? live.w : shown.find((c) => c.key === key)?.width),
+    /** A width the person set (dragged or typed), else undefined - for tables that size to their content. */
+    manualWidth: (key) => (live?.key === key ? live.w : state.widths[key]),
     ...actions,
   };
 }

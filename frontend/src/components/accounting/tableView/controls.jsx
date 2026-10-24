@@ -1,7 +1,7 @@
 import { Suspense, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, Columns3, Funnel, Save, X } from 'lucide-react';
-import { ColumnResizer } from '../reportControls';
 import { Panels, preloadPanels } from './load';
+import { ColumnResizer } from '../reportControls';
 
 // The standard table view's bar and headings (10/23 meeting, item 01). These
 // are the parts that draw with the table; the panels and menus they open
