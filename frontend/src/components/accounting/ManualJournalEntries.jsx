@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Search } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import Amount from './Amount';
 import EntryDetail from './EntryDetail';
-import { ColumnResizer, ControlBar, EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, SyncButton, control } from './reportControls';
+import { BarMore, BarSearch, ColumnResizer, ControlBar, EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, SyncButton, control, fitSelect } from './reportControls';
 import { DIM_KINDS, downloadBlob, resolveConfig } from './reportModel';
 import { linesFile } from './linesExport';
 import { useColumnWidths, useFitHeight } from './tableHooks';
@@ -147,20 +147,22 @@ export default function ManualJournalEntries() {
         <PeriodStepper config={config} period="range" onChange={patch} />
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
         <FiltersButton dims={config.dims} onChange={(d) => patch({ dims: d })} kinds={JOURNAL_KIND} />
-        <select value={user} onChange={(e) => setUser(e.target.value)} aria-label="User" style={{ ...control, maxWidth: 200 }}>
+        <BarMore level={2} active={user ? 1 : 0}>
+        <select value={user} onChange={(e) => setUser(e.target.value)} aria-label="User" style={{ ...control, ...fitSelect(user || 'All Users', { max: 200 }) }}>
           <option value="">All Users</option>
           {[...new Set([...(data?.users || []), ...(user ? [user] : [])])].map((u) => <option key={u} value={u}>{u}</option>)}
         </select>
+        </BarMore>
+        {/* 10/23 meeting, item 02 (fix 10/24): the two switches move into More on a narrow row; the search is an icon until used. */}
+        <BarMore level={1} active={(edited ? 0 : 1) + (grouped === MANUAL_JE_GROUP_BY_USER ? 0 : 1)}>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
           <input type="checkbox" checked={edited} onChange={(e) => setEdited(e.target.checked)} /> Include system entries a person changed
         </label>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
           <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} /> Group by user
         </label>
-        <div style={{ position: 'relative', flex: '1 1 180px', maxWidth: 280 }}>
-          <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />
-          <input type="text" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search the entries" placeholder="Search description, entry, user..." style={{ ...control, width: '100%', paddingLeft: 28 }} />
-        </div>
+        </BarMore>
+        <BarSearch value={q} onChange={setQ} label="Search the entries" placeholder="Search description, entry, user..." width={260} />
         <div className="acct-bar-end">
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
           <ExportMenu disabled={!rows.length} items={[

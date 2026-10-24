@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Download, FileDown, FileSpreadsheet, Funnel, ListFilter, Loader2, RefreshCw, Search, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
+import { Fragment, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Download, FileDown, FileSpreadsheet, Funnel, ListFilter, Loader2, MoreHorizontal, RefreshCw, Search, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import AnchoredMenu from '../AnchoredMenu';
@@ -937,35 +938,92 @@ export function ClearButton({ onClick, label }) {
 // wrap - cleanly, as whole controls, never on top of each other. The fold is
 // measured on the real row (no guessed breakpoints) whenever its width or
 // content changes. Put the right-hand group in `<div className="acct-bar-end">`.
+//
+// Fix 10/24 (UI test: still two lines on 7 screens at 1366 / 1440, wrapping
+// instead of folding at 1100): when the icons alone still do not fit, the
+// controls a screen marks as less used (<BarMore level={1}>, then level 2...)
+// move into a More menu (...) at the end of the row, one level at a time, and
+// come back out when the row is wide enough again. Nothing gets smaller and
+// nothing is lost: the More menu holds the same live controls, with their
+// words. <BarSearch> is a search that stays an icon until it is used.
 const FOLDS = ['', '1', '2'];
-/** Does the row hold its controls on more than one line? Exported for the tests. */
-export function barWraps(el) {
+const BarContext = createContext(null);
+/** The boxes on the row, in order (the More menu's own box is not on it). */
+function barBoxes(el) {
   const boxes = [];
   const collect = (node) => {
     for (const kid of node.children) {
       const d = getComputedStyle(kid).display;
-      if (d === 'none' || kid.tagName === 'STYLE') continue;
+      if (d === 'none' || kid.tagName === 'STYLE' || kid.hidden || kid.classList.contains('acct-bar-more-panel')) continue;
       if (d === 'contents') collect(kid);
       else if (kid.classList.contains('acct-bar-end')) collect(kid);
-      else boxes.push(kid.getBoundingClientRect());
+      else boxes.push(kid);
     }
   };
   collect(el);
-  const sized = boxes.filter((b) => b.width > 0 || b.height > 0);
+  return boxes;
+}
+/** Does the row hold its controls on more than one line? Exported for the tests. */
+export function barWraps(el) {
+  const sized = barBoxes(el).map((k) => k.getBoundingClientRect()).filter((b) => b.width > 0 || b.height > 0);
   if (sized.length < 2) return false;
   const firstBottom = Math.min(...sized.map((b) => b.bottom));
   return sized.some((b) => b.top >= firstBottom - 1);
 }
+const px = (v) => parseFloat(v) || 0;
+const gapOf = (el) => px(getComputedStyle(el).columnGap) || 8;
+/** How wide the row would have to be for its boxes on one line. */
+function barNeed(el) {
+  const widths = barBoxes(el).map((k) => k.getBoundingClientRect().width).filter((w) => w > 0);
+  const cs = getComputedStyle(el);
+  return widths.reduce((s, w) => s + w, 0) + gapOf(el) * Math.max(0, widths.length - 1) + px(cs.paddingLeft) + px(cs.paddingRight);
+}
+/** How much of the row the controls of one More level take while they are on it. */
+function groupWidth(el, level) {
+  let sum = 0;
+  el.querySelectorAll(`.acct-bar-more[data-more-level="${level}"]`).forEach((g) => {
+    [...g.children].forEach((k) => { const w = k.getBoundingClientRect().width; if (w > 0) sum += w + gapOf(el); });
+  });
+  return sum;
+}
 export function ControlBar({ children, className = '', style = null, ...rest }) {
   const ref = useRef(null);
-  const fit = () => {
+  const moreRef = useRef(null);
+  const [level, setLevel] = useState(0);       // BarMore groups up to this level are in the More menu
+  const levelRef = useRef(0);
+  const [panel, setPanel] = useState(null);    // the More menu's box; BarMore portals into it
+  const [open, setOpen] = useState(false);
+  const groups = useRef(new Map());            // BarMore id -> { level, active }
+  const [groupList, setGroupList] = useState([]);   // the same, for drawing the More button
+  const groupW = useRef([]);                   // groupW[l]: what level l took on the row
+  const flips = useRef(0);                     // fold / unfold turns this frame (a guard, never a loop)
+  const fit = useCallback(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || flips.current > 6) return;
+    const setLvl = (l) => {
+      flips.current += 1;
+      if (flips.current === 1) requestAnimationFrame(() => { flips.current = 0; });
+      levelRef.current = l;
+      setLevel(l);
+    };
+    const lvl = levelRef.current;
+    // Wide enough again for the last level moved into More? Bring it back.
+    if (lvl > 0) {
+      el.dataset.fold = '2';
+      const more = moreRef.current ? moreRef.current.getBoundingClientRect().width + gapOf(el) : 0;
+      const need = barNeed(el) + (groupW.current[lvl] || 0) - (lvl === 1 ? more : 0);
+      if (groupW.current[lvl] && need + 12 <= el.clientWidth) { setLvl(lvl - 1); return; }
+    }
     for (const f of FOLDS) {
       if (f) el.dataset.fold = f; else delete el.dataset.fold;
       if (!barWraps(el)) return;
     }
-  };
+    const top = Math.max(0, ...[...groups.current.values()].map((g) => g.level));
+    if (lvl < top) {
+      groupW.current[lvl + 1] = groupWidth(el, lvl + 1);
+      setLvl(lvl + 1);
+    }
+  }, []);
   // After every render (a picker's label or a new button changes the width
   // the row needs) and whenever the row itself is resized.
   useLayoutEffect(fit);
@@ -976,10 +1034,100 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
     const ro = new ResizeObserver(() => { if (el.clientWidth !== w) { w = el.clientWidth; fit(); } });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [fit]);
+  // The More menu closes on a click outside it (a dropdown opened from inside
+  // it counts as inside) and on Escape.
+  const shown = open && level > 0;
+  useEffect(() => {
+    if (!shown) return undefined;
+    const onDown = (e) => {
+      if (ref.current?.contains(e.target) || e.target.closest?.('.nx-anchored')) return;
+      setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') { setOpen(false); moreRef.current?.focus(); } };
+    document.addEventListener('pointerdown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('pointerdown', onDown); window.removeEventListener('keydown', onKey); };
+  }, [shown]);
+  const register = useCallback((id, l, active) => { groups.current.set(id, { level: l, active }); setGroupList([...groups.current.values()]); }, []);
+  const unregister = useCallback((id) => { groups.current.delete(id); setGroupList([...groups.current.values()]); }, []);
+  const ctx = useMemo(() => ({ level, panel, refit: fit, register, unregister }), [level, panel, fit, register, unregister]);
+  // What is changed inside the More menu shows as a count on its button.
+  const changed = groupList.reduce((s, g) => s + (g.level <= level ? g.active || 0 : 0), 0);
   return (
-    <div ref={ref} className={`acct-controlbar${className ? ` ${className}` : ''}`} style={style || undefined} {...rest}>
-      {children}
+    <BarContext.Provider value={ctx}>
+      <div ref={ref} className={`acct-controlbar${className ? ` ${className}` : ''}`} style={style || undefined} data-more-open={shown || undefined} {...rest}
+        onClick={(e) => {
+          rest.onClick?.(e);
+          // In the More menu, a plain action closes it; one that opens its own
+          // dropdown keeps it. (The menu's controls are portaled, so their
+          // clicks reach this row, not the menu's own box.)
+          const b = shown ? e.target.closest?.('button') : null;
+          if (b && b.closest('.acct-bar-more-panel') && !b.hasAttribute('aria-haspopup') && !b.hasAttribute('aria-expanded') && b.getAttribute('role') !== 'switch') setOpen(false);
+        }}>
+        {children}
+        {level > 0 && (
+          <button ref={moreRef} type="button" className="acct-bar-more-btn" onClick={() => setOpen((v) => !v)} aria-haspopup="true" aria-expanded={shown}
+            aria-label={changed ? `More (${changed} changed)` : 'More'} title="More controls" style={button(changed > 0)}>
+            <MoreHorizontal size={14} style={{ flexShrink: 0 }} />{changed > 0 && <span>{changed}</span>}
+          </button>
+        )}
+        <div ref={setPanel} className="acct-bar-more-panel" role="group" aria-label="More controls" hidden={!shown} style={{ position: 'absolute' }} />
+      </div>
+    </BarContext.Provider>
+  );
+}
+
+/**
+ * Controls that may move into the bar's More menu when the row runs out of
+ * room - level 1 first, then 2. `active`: how many of them are changed from
+ * their default (shown on the More button while they are in it).
+ *   <BarMore level={1}><SavedReportsButton .../><MemorizeButton .../></BarMore>
+ */
+export function BarMore({ level = 1, active = 0, children }) {
+  const bar = useContext(BarContext);
+  const id = useId();
+  const register = bar?.register;
+  const unregister = bar?.unregister;
+  useLayoutEffect(() => {
+    if (!register) return undefined;
+    register(id, level, active);
+    return () => unregister(id);
+  }, [register, unregister, id, level, active]);
+  if (!bar) return children;
+  if (bar.level >= level && bar.panel) {
+    return createPortal(<div className="acct-bar-more-group" data-more-level={level}>{children}</div>, bar.panel);
+  }
+  return <span className="acct-bar-more" data-more-level={level} style={{ display: 'contents' }}>{children}</span>;
+}
+
+/**
+ * A search that is an icon until it is used (10/23 meeting: "there is only
+ * one icon ... we can save space in the control bar"): a click opens the box;
+ * it closes again when left empty, Escape clears it. `label` names it.
+ */
+export function BarSearch({ value, onChange, label, placeholder = '', width = 240 }) {
+  const [open, setOpen] = useState(false);
+  const input = useRef(null);
+  const bar = useContext(BarContext);
+  const refit = bar?.refit;
+  const shown = open || !!value;
+  useLayoutEffect(() => { refit?.(); }, [shown, refit]);
+  if (!shown) {
+    return (
+      <button type="button" onClick={() => { setOpen(true); requestAnimationFrame(() => input.current?.focus()); }} aria-label={label} title={label}
+        style={{ ...button(false), justifyContent: 'center', width: 30, padding: 0, color: 'var(--text-secondary)' }}>
+        <Search size={14} />
+      </button>
+    );
+  }
+  return (
+    <div style={{ position: 'relative', flex: `0 1 ${width}px`, minWidth: 150 }}>
+      <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />
+      <input ref={input} type="text" value={value} onChange={(e) => onChange(e.target.value)} aria-label={label} placeholder={placeholder} autoFocus={open && !value}
+        onBlur={() => { if (!value) setOpen(false); }} onKeyDown={(e) => { if (e.key === 'Escape') { onChange(''); setOpen(false); } }}
+        style={{ ...control, width: '100%', paddingLeft: 28, paddingRight: value ? 26 : 9 }} />
+      {value && <ClearButton onClick={() => { onChange(''); setOpen(false); }} label={`Clear ${label.toLowerCase()}`} />}
     </div>
   );
 }

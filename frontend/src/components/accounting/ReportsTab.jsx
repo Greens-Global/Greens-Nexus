@@ -18,14 +18,14 @@ import { TRIAL_BALANCE_DEFAULT_BOOK } from './assumptions';
 import { useColumnWidths, useCustomizePrefs } from './tableHooks';
 import Amount, { Figure } from './Amount';
 import {
-  AccountsPicker, ClearButton, ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, OpFilter, Pager, PeriodStepper,
+  AccountsPicker, BarMore, ClearButton, ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, OpFilter, Pager, PeriodStepper,
   SavedReportsMenu, control, ControlBar, SyncButton, fitSelect,
 } from './reportControls';
 import { useTableSync } from './tableSync';
 import {
   EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookOptions, canBothBooks, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
   reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
-  viewConfig, periodOf, ACTIVITY_REPORTS, activityConfig, isActivity, needsEntityList,
+  viewConfig, periodOf, ACTIVITY_REPORTS, activityConfig, isActivity, needsEntityList, countDims,
 } from './reportModel';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
@@ -620,6 +620,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         {showControls && (<div id="acct-report-controls" style={{ display: 'contents' }}>
         <PeriodStepper config={config} period={periodOf(config)} onChange={patch} />
 
+        {/* Fix 10/24 (item 02): on a row too narrow even for the icons,
+            Columns and Book are the second to move into the More menu. */}
+        <BarMore level={2} active={(showColumns && cols !== 'total' ? 1 : 0) + (canPickBook(config) && config.book !== 'accrual' ? 1 : 0)}>
         {showColumns && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
             <span className="acct-bar-label-2">Columns</span>
@@ -630,17 +633,24 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         )}
 
         {canPickBook(config) && (
-          <select value={config.book} onChange={(e) => patch({ book: e.target.value })} aria-label="Book" style={{ ...select(config.book !== 'accrual'), ...fitSelect(books.find((b) => b.key === config.book)?.label) }}>
-            {books.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
-          </select>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            <span className="acct-more-only">Book</span>
+            <select value={config.book} onChange={(e) => patch({ book: e.target.value })} aria-label="Book" style={{ ...select(config.book !== 'accrual'), ...fitSelect(books.find((b) => b.key === config.book)?.label) }}>
+              {books.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
+            </select>
+          </label>
         )}
+        </BarMore>
 
-        {/* Entities, Filters, then Accounts last (Charmi, 10/02). */}
+        {/* Entities, Filters, then Accounts last (Charmi, 10/02). On a very
+            narrow row (fix 10/24) they are the third to move into More. */}
+        <BarMore level={3} active={(config.entities.length ? 1 : 0) + (canUseDims(config) && countDims(config.dims) ? 1 : 0)}>
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
         {canUseDims(config) && (
           <FiltersButton dims={config.dims} onNames={onNames} showHistorical={!!prefs.showHistoricalAccounts} kinds={filterKinds}
             onChange={(dims) => { const mode = columnsForPicks(config, dims); setCollapsed(new Set()); patch({ dims, ...(mode ? { cols: mode } : {}) }); }} />
         )}
+        </BarMore>
         {/* Flux review state (Charmi, 10/15): Open, Answered, Closed, with counts. */}
         {config.report === 'flux' && (
           <select value={config.fluxStatus} onChange={(e) => patch({ fluxStatus: e.target.value })} aria-label="Review Status" title="Show the lines in one review state" style={select(config.fluxStatus !== 'all')}>
@@ -667,11 +677,19 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             {(shown?.pickable || []).map((a) => <option key={a.code} value={a.code}>{a.title ? `${a.code} ${a.title}` : a.code}</option>)}
           </select>
         )}
-        {canPickAccounts(config) && <AccountsPicker accounts={shown?.pickable || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} showHistorical={!!prefs.showHistoricalAccounts} />}
+        {canPickAccounts(config) && (
+          <BarMore level={3} active={config.accounts.length ? 1 : 0}>
+            <AccountsPicker accounts={shown?.pickable || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} showHistorical={!!prefs.showHistoricalAccounts} />
+          </BarMore>
+        )}
 
         <div className="acct-bar-end">
+          <BarMore level={4}>
           <SyncButton busy={searching ? searchBusy && linesSync > 0 : loading && syncLoad} syncedAt={searching ? linesSyncedAt : ts.syncedAt}
             onSync={() => { if (searching) { setLinesSync((n) => n + 1); setLinesSyncedAt(new Date()); } else ts.sync(); }} />
+          </BarMore>
+          {/* Fix 10/24 (item 02): the first to move into the More menu. */}
+          <BarMore level={1}>
           <SavedReportsMenu reports={saved} loading={savedState.loading} error={savedState.error} activeId={activeSaved?.id}
             onOpen={openSaved} onDelete={deleteSaved} onShare={shareSaved} onManage={() => setManaging(true)} nameOf={nameOf} />
           <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${periodOf(config) === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
@@ -681,6 +699,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             pageSize={custom.pageSize} onPageSize={custom.onPageSize}
             {...(shown?.activeKnown ? { showInactiveAccounts: custom.showInactiveAccounts, onShowInactiveAccounts: custom.onShowInactiveAccounts } : {})}
             flux={config.report === 'flux' ? { fluxPct: config.fluxPct, fluxAmount: config.fluxAmount } : null} onFlux={(p) => patch(p)} />
+          </BarMore>
           <ExportMenu disabled={searching ? !linesExport : !shown} items={searching ? [
             { key: 'excel', label: 'Excel', hint: 'Every line, columns as on screen, live totals', onPick: () => exportLines('excel'), busy: linesBusy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => exportLines('csv'), busy: linesBusy === 'csv' },
@@ -695,10 +714,12 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
             { key: 'share', group: 'send', label: 'Share With a Teammate...', hint: 'Memorized for the team, with a bell notice', Icon: Share2, onPick: () => setSending('share') },
           ]} />
+          <BarMore level={1}>
           <button type="button" onClick={() => setFull((v) => !v)} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
-            style={{ ...control, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-            {full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            style={{ ...control, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-secondary)' }}>
+            {full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}<span className="acct-more-only">{full ? 'Back to Window Size' : 'Fill the Screen'}</span>
           </button>
+          </BarMore>
         </div>
         </div>)}
       </ControlBar>

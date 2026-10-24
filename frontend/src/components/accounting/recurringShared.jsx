@@ -102,8 +102,8 @@ export function RecurringSettingsButton({ onChecked }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" className="secondary-btn" onClick={() => setOpen(true)} aria-haspopup="dialog" title="Possibly Ended check and vendor folders"
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}><Settings size={14} /> Settings</button>
+      <button type="button" className="secondary-btn" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-label="Settings" title="Possibly Ended check and vendor folders"
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}><Settings size={14} /> <span className="acct-bar-label">Settings</span></button>
       {open && <RecurringSettingsDialog onClose={() => setOpen(false)} onChecked={onChecked} />}
     </>
   );

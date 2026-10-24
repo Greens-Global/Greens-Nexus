@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import Amount, { Figure } from './Amount';
-import { ControlBar, control, EntitiesPicker, ExportMenu, SyncButton } from './reportControls';
+import { BarMore, ControlBar, control, EntitiesPicker, ExportMenu, SyncButton, fitSelect } from './reportControls';
 import { useFitHeight } from './tableHooks';
 import { useTableSync } from './tableSync';
 import { downloadBlob, iso, presetRange } from './reportModel';
@@ -35,7 +35,8 @@ const thLeft = { ...th, textAlign: 'left', minWidth: 200, position: 'sticky', le
 const td = { padding: '5px 8px', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const tdLeft = { ...td, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--bg-card)', whiteSpace: 'normal' };
 const cellBtn = { border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3 };
-const label = { fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: 3 };
+// 10/23 meeting, item 02 (fix 10/24): the words sit beside the controls, not above them, so the bar is one line.
+const inline = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' };
 
 const rangeOf = (key) => { const [f, t] = presetRange(key); return [iso(f), iso(t)]; };
 
@@ -105,35 +106,33 @@ export default function ProfitabilityReport({ limited = false }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <ControlBar style={{ ...card, padding: 12, alignItems: 'flex-end' }}>
-        <label style={label}>Period
-          <select value={period} onChange={(e) => pickPeriod(e.target.value)} style={control} aria-label="Period">
-            {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-          </select>
-        </label>
-        <label style={label}>From
-          <input type="date" value={from} onChange={(e) => { setPeriod('custom'); setRange([e.target.value, to]); }} style={control} aria-label="From" />
-        </label>
-        <label style={label}>To
-          <input type="date" value={to} onChange={(e) => { setPeriod('custom'); setRange([from, e.target.value]); }} style={control} aria-label="To" />
-        </label>
-        <div style={label}>Entities
-          <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} />
-        </div>
-        <label style={label}>Book
-          <select value={book} onChange={(e) => setBook(e.target.value)} style={control} aria-label="Book">
-            <option value="accrual">Accrual</option>
-            <option value="cash">Cash</option>
-          </select>
-        </label>
-        <label style={label}>Compare On
-          <select value={compareOn} onChange={(e) => setCompareOn(e.target.value)} style={control} aria-label="Compare On">
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
+        <select value={period} onChange={(e) => pickPeriod(e.target.value)} style={{ ...control, ...fitSelect(PERIODS.find((p) => p.key === period)?.label) }} aria-label="Period" title="Period">
+          {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+        </select>
+        <span style={inline}>
+          <input type="date" value={from} onChange={(e) => { setPeriod('custom'); setRange([e.target.value, to]); }} style={control} aria-label="From" title="From" />
+          to
+          <input type="date" value={to} onChange={(e) => { setPeriod('custom'); setRange([from, e.target.value]); }} style={control} aria-label="To" title="To" />
+        </span>
+        <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} />
+        <select value={book} onChange={(e) => setBook(e.target.value)} style={{ ...control, ...fitSelect(book === 'cash' ? 'Cash' : 'Accrual') }} aria-label="Book" title="Book">
+          <option value="accrual">Accrual</option>
+          <option value="cash">Cash</option>
+        </select>
+        <BarMore level={2} active={compareOn !== COMPARE_ON[0].key ? 1 : 0}>
+        <label style={inline}>
+          <span className="acct-bar-label-2">Compare On</span>
+          <select value={compareOn} onChange={(e) => setCompareOn(e.target.value)} style={{ ...control, ...fitSelect(COMPARE_ON.find((c) => c.key === compareOn)?.label) }} aria-label="Compare On" title="Compare On">
             {COMPARE_ON.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
         </label>
-        <label style={{ ...label, flexDirection: 'row', alignItems: 'center', gap: 6, height: 30, color: 'var(--text-primary)', fontSize: '0.78rem' }}>
-          <input type="checkbox" checked={expand} onChange={(e) => setExpand(e.target.checked)} /> Show Sub-Entities
-        </label>
+        </BarMore>
+        <BarMore level={1} active={expand ? 1 : 0}>
+          <label style={{ ...inline, color: 'var(--text-primary)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={expand} onChange={(e) => setExpand(e.target.checked)} /> Show Sub-Entities
+          </label>
+        </BarMore>
         <div className="acct-bar-end">
           <SyncButton onSync={ts.sync} busy={!!state.syncing} syncedAt={ts.syncedAt} />
           <ExportMenu disabled={!data || !rows.length} items={[

@@ -206,7 +206,10 @@ describe('LeasingTab - the 10/04 feedback', () => {
     // Off again: the text filter still finds the ended lease, marked.
     fireEvent.click(screen.getByLabelText(/Show Inactive Leases/));
     await waitFor(() => expect(screen.queryByText('Suite 300, Escondido')).toBeNull());
-    fireEvent.change(screen.getByLabelText('Filter by property, payer or account'), { target: { value: 'old tenant' } });
+    // The search is an icon until it is used (10/23 meeting, item 02).
+    expect(screen.queryByRole('textbox', { name: 'Filter by property, payer or account' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by property, payer or account' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter by property, payer or account' }), { target: { value: 'old tenant' } });
     expect(within(screen.getByText('Suite 300, Escondido').closest('tr')).getByText('Expired')).toBeTruthy();
   });
 

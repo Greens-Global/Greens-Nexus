@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import Amount from './Amount';
-import { ControlBar, control, ExportMenu, SyncButton } from './reportControls';
+import { BarMore, ControlBar, control, ExportMenu, SyncButton } from './reportControls';
 import { useTableSync } from './tableSync';
 import { useFitHeight } from './tableHooks';
 import { downloadBlob } from './reportModel';
@@ -29,7 +29,8 @@ const th = { textAlign: 'left', padding: '6px 8px', fontSize: '0.72rem', fontWei
 const thNum = { ...th, textAlign: 'right' };
 const td = { padding: '4px 8px', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', verticalAlign: 'top' };
 const tdNum = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
-const label = { fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: 3 };
+// 10/23 meeting, item 02 (fix 10/24): the words sit beside the boxes, not above them, so the bar is one line.
+const inline = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' };
 const muted = { color: 'var(--text-muted)', fontSize: '0.72rem' };
 const seg = (on) => ({ ...control, cursor: 'pointer', fontWeight: on ? 700 : 400, color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', borderColor: on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)' });
 
@@ -105,17 +106,18 @@ export default function CompensationReport() {
 
   return (
     <div ref={setBox} className="acct-fit-stack" data-testid="compensation-stack" style={fit}>
-      <ControlBar style={{ ...card, padding: 12, alignItems: 'flex-end' }}>
-        <label style={label}>From Month
-          <input type="month" value={from} onChange={(e) => setRange([e.target.value, to])} style={control} aria-label="From Month" />
-        </label>
-        <label style={label}>To Month
-          <input type="month" value={to} onChange={(e) => setRange([from, e.target.value])} style={control} aria-label="To Month" />
-        </label>
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
+        <span style={inline}>
+          <input type="month" value={from} onChange={(e) => setRange([e.target.value, to])} style={control} aria-label="From Month" title="From Month" />
+          to
+          <input type="month" value={to} onChange={(e) => setRange([from, e.target.value])} style={control} aria-label="To Month" title="To Month" />
+        </span>
         <button type="button" className="primary-btn" onClick={run} disabled={!!rangeError || state.loading} style={{ height: 30, fontSize: '0.78rem' }}>Run Report</button>
+        <BarMore level={1} active={view !== 'people' ? 1 : 0}>
         <div style={{ display: 'flex', gap: 4 }} role="group" aria-label="View">
           {VIEWS.map((v) => <button key={v.key} type="button" style={seg(view === v.key)} aria-pressed={view === v.key} onClick={() => setView(v.key)}>{v.label}</button>)}
         </div>
+        </BarMore>
         <div className="acct-bar-end">
           <SyncButton onSync={peopleSync.sync} busy={!!state.syncing} syncedAt={peopleSync.syncedAt} what="Compensation" />
           <ExportMenu disabled={!data || !rows.length} items={exportItems('people', () => compensationTable(data, view, { period }), !data)} />

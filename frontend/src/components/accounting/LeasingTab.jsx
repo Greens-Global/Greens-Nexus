@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Building2, Check, ChevronDown, ExternalLink, FolderUp, Home, Landmark, Mail, Pencil, Plus, RefreshCw, Search, Tags, Trash2, UserPlus, Users, X } from 'lucide-react';
+import { AlertTriangle, Building2, Check, ChevronDown, ExternalLink, FolderUp, Home, Landmark, Mail, Pencil, Plus, RefreshCw, Tags, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { api, withFreshReads } from '../../api';
 import Amount, { formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate, formatDateTime } from '../../lib/datetime';
-import { ColumnResizer, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, SyncButton, control, usePopover } from './reportControls';
+import { BarMore, BarSearch, ColumnResizer, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, SyncButton, control, usePopover } from './reportControls';
 import { spaceBelow, useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
 import { cellStyle, headStyle } from './columnStyles';
 import { requestReportDrill } from './drill';
@@ -463,14 +463,15 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
           </div>
           <PeriodPicker year={year} onYear={setYear} period={period} onPeriod={setPeriod} custom={custom} onCustom={setCustom} />
           <EntitiesPicker entities={locations.entities} value={entities} onChange={setEntities} limited={locations.limited} showHistorical={!!prefs.showHistoricalEntities} />
+          <BarMore level={2} active={(types.length ? 1 : 0) + (tenants.length ? 1 : 0)}>
           <MultiPicker label="Type filter" allLabel="All Types" noun={['type', 'types']} Icon={Tags} options={TYPES.map((t) => ({ code: t.key, name: t.label }))} value={types} onChange={setTypes} showCodes={false} />
           <MultiPicker label="Payer filter" allLabel="All Payers" noun={['payer', 'payers']} Icon={Users} options={customers} value={tenants} onChange={setTenants}
             find="Find a payer by name or customer code" empty="No payer has a customer code yet." />
-          <div style={{ position: 'relative', flex: '0 1 220px' }}>
-            <Search size={13} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--text-muted)' }} />
-            <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by property, payer or account" aria-label="Filter by property, payer or account" style={{ ...control, width: '100%', paddingLeft: 28 }} />
-          </div>
+          </BarMore>
+          {/* 10/23 meeting, item 02 (fix 10/24): the search is an icon until used; Customize and Settings move into More on a narrow row. */}
+          <BarSearch value={q} onChange={setQ} label="Filter by property, payer or account" placeholder="Filter by property, payer or account" width={240} />
           <div className="acct-bar-end">
+            <BarMore level={1} active={showInactive ? 1 : 0}>
             <CustomizeButton {...cz} active={showInactive}>
               {[['mriShowInactiveLeases', showInactive, 'Show Inactive Leases', 'Ended, expired and vacant leases, and payers inactive in Intacct. The text filter finds them either way.']].map(([k, on, text, hint]) => (
                 <label key={k} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
@@ -487,11 +488,12 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
               { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
             ]} />
             {canDelete && <RecurringSettingsButton onChecked={reload} />}
+            </BarMore>
             {/* 10/23 meeting, item 13: a viewer's Sync reads this table again; an editor's Sync Now also links the leases first. */}
             {!canEdit && <SyncButton onSync={() => { setSyncing(true); withFreshReads(reload).finally(() => setSyncing(false)); }} busy={syncing} />}
             {canEdit && (
-              <button type="button" className="secondary-btn" onClick={syncNow} disabled={syncing} title="Link every lease to its Intacct customer and add the leases of new tenants" style={btn}>
-                <RefreshCw size={14} className={syncing ? 'spin' : undefined} /> {syncing ? 'Syncing...' : 'Sync Now'}
+              <button type="button" className="secondary-btn" onClick={syncNow} disabled={syncing} aria-label={syncing ? 'Syncing...' : 'Sync Now'} title="Link every lease to its Intacct customer and add the leases of new tenants" style={btn}>
+                <RefreshCw size={14} className={syncing ? 'spin' : undefined} /> <span className="acct-bar-label">{syncing ? 'Syncing...' : 'Sync Now'}</span>
               </button>
             )}
             {canEdit && (
@@ -602,7 +604,7 @@ function MultiPicker({ label: aria, allLabel, noun, Icon, options, value, onChan
       <button type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label={aria} title={text}
         style={{ ...control, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', maxWidth: 260, whiteSpace: 'nowrap', border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', fontWeight: on ? 600 : 400 }}>
         <Icon size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{text}</span>
+        <span className={value.length ? undefined : 'acct-bar-label-2'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{text}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} role="listbox" aria-label={allLabel.replace(/^All /, '')} aria-multiselectable="true"

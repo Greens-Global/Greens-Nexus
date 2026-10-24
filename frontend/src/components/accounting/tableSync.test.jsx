@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import { useEffect, useState } from 'react';
 
 // 10/23 Accounting meeting: the shared pieces behind items 02 and 13.
@@ -7,7 +7,10 @@ import { useEffect, useState } from 'react';
 //   load a Sync asked for is the only one marked fresh.
 // - SyncButton: "Sync", spinning and not clickable while it reads.
 // - ControlBar: folds words away (action words, then pickers at their
-//   default) before the row wraps; wraps only when even that is too wide.
+//   default) before the row wraps; then (fix 10/24) moves what a screen marks
+//   as less used into a More menu, level by level; wraps only when even that
+//   is too wide.
+// - BarSearch: a search that is an icon until it is used.
 // - fitSelect: a select as wide as the option picked.
 
 vi.mock('../../api', () => ({
@@ -17,7 +20,7 @@ vi.mock('../../api', () => ({
 
 import { withFreshReads } from '../../api';
 import { useTableSync } from './tableSync';
-import { ControlBar, SyncButton, barWraps, fitSelect } from './reportControls';
+import { BarMore, BarSearch, ControlBar, SyncButton, barWraps, fitSelect } from './reportControls';
 
 beforeEach(() => { vi.clearAllMocks(); });
 
@@ -83,7 +86,8 @@ describe('SyncButton', () => {
 // A row `width` px wide lays its boxes left to right and wraps when one does
 // not fit; a box with a hidden word (data-fold on the bar) is narrower.
 function layOut(bar, width) {
-  const boxes = [...bar.querySelectorAll('[data-w]')];
+  // What sits in the More menu is not on the row.
+  const boxes = [...bar.querySelectorAll('[data-w]')].filter((el) => !el.closest('.acct-bar-more-panel'));
   const fold = bar.dataset.fold || '';
   const w = (el) => {
     const label = el.querySelector('.acct-bar-label');
@@ -108,14 +112,21 @@ function layOut(bar, width) {
 describe('ControlBar', () => {
   let width = 2000;
   const orig = Element.prototype.getBoundingClientRect;
+  const origWidth = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth');
   beforeEach(() => {
     Element.prototype.getBoundingClientRect = function rect() {
       const bar = this.closest?.('.acct-controlbar');
-      if (bar && this.dataset?.w) return layOut(bar, width).get(this);
+      if (bar && this.dataset?.w && !this.closest('.acct-bar-more-panel')) return layOut(bar, width).get(this);
       return orig.call(this);
     };
+    // The row is `width` px wide (the More menu brings controls back when there is room).
+    Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get() { return this.classList?.contains('acct-controlbar') ? width : 0; } });
   });
-  afterEach(() => { Element.prototype.getBoundingClientRect = orig; });
+  afterEach(() => {
+    Element.prototype.getBoundingClientRect = orig;
+    if (origWidth) Object.defineProperty(Element.prototype, 'clientWidth', origWidth);
+    else delete Element.prototype.clientWidth;
+  });
 
   const Bar = () => (
     <ControlBar>
@@ -150,6 +161,100 @@ describe('ControlBar', () => {
     render(<Bar />);
     expect(bar().dataset.fold).toBe('2');
     expect(barWraps(bar())).toBe(true);
+  });
+
+  // Fix 10/24 (UI test: two lines at 1366 / 1440, wrapping at 1100): what a
+  // screen marks as less used moves into a More menu, one level at a time.
+  // Row at fold 2: 160 + 50 + [Saved 40] + [Columns 120] + 40 + gaps =
+  // 442 wide; 394 without Saved; 266 without Columns too.
+  const MoreBar = ({ changed = 0 }) => (
+    <ControlBar>
+      <select data-w="160" aria-label="Report" />
+      <button type="button" data-w="140">All <span className="acct-bar-label-2" data-lw="90">entities</span></button>
+      <BarMore level={2} active={changed}><button type="button" data-w="120">Columns</button></BarMore>
+      <div className="acct-bar-end">
+        <BarMore level={1}><button type="button" data-w="100"><span className="acct-bar-label" data-lw="60">Saved Reports</span></button></BarMore>
+        <button type="button" data-w="110"><span className="acct-bar-label" data-lw="70">Export</span></button>
+      </div>
+    </ControlBar>
+  );
+  const panel = () => document.querySelector('.acct-bar-more-panel');
+
+  it('keeps everything on the row, and no More button, while it fits', () => {
+    width = 2000;
+    render(<MoreBar />);
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    expect(panel().children).toHaveLength(0);
+    expect(within(bar().querySelector('.acct-bar-end')).getByRole('button', { name: 'Saved Reports' })).toBeTruthy();
+  });
+
+  it('moves level 1 into More first, then level 2, before anything wraps', () => {
+    width = 400;
+    const { unmount } = render(<MoreBar />);
+    expect(bar().dataset.fold).toBe('2');
+    expect(within(panel()).getByRole('button', { name: 'Saved Reports', hidden: true })).toBeTruthy();
+    expect(within(panel()).queryByRole('button', { name: 'Columns', hidden: true })).toBeNull();
+    expect(screen.getByRole('button', { name: 'More' })).toBeTruthy();
+    expect(barWraps(bar())).toBe(false);
+    unmount();
+    width = 300;
+    render(<MoreBar />);
+    expect(within(panel()).getByRole('button', { name: 'Saved Reports', hidden: true })).toBeTruthy();
+    expect(within(panel()).getByRole('button', { name: 'Columns', hidden: true })).toBeTruthy();
+    expect(barWraps(bar())).toBe(false);
+  });
+
+  it('brings them back out when the row is wide again', () => {
+    width = 300;
+    const { rerender } = render(<MoreBar />);
+    expect(within(panel()).getByRole('button', { name: 'Columns', hidden: true })).toBeTruthy();
+    width = 2000;
+    rerender(<MoreBar />);
+    expect(panel().children).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    expect(bar().dataset.fold).toBeUndefined();
+  });
+
+  it('opens the More menu with the words, counts what is changed in it, and closes on Escape or a click outside', () => {
+    width = 300;
+    render(<MoreBar changed={1} />);
+    const more = screen.getByRole('button', { name: 'More (1 changed)' });
+    expect(panel().hidden).toBe(true);
+    fireEvent.click(more);
+    expect(panel().hidden).toBe(false);
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(panel().hidden).toBe(true);
+    fireEvent.click(more);
+    fireEvent.pointerDown(document.body);
+    expect(panel().hidden).toBe(true);
+    // A plain action inside closes it; one that opens its own dropdown keeps it open.
+    fireEvent.click(more);
+    fireEvent.click(within(panel()).getByRole('button', { name: 'Columns', hidden: true }));
+    expect(panel().hidden).toBe(true);
+  });
+});
+
+describe('BarSearch', () => {
+  const Search = () => {
+    const [q, setQ] = useState('');
+    return <ControlBar><BarSearch value={q} onChange={setQ} label="Filter questions" placeholder="Filter questions" /></ControlBar>;
+  };
+
+  it('is an icon until it is used, stays open with text in it, and Escape clears and closes it', () => {
+    render(<Search />);
+    expect(screen.queryByRole('textbox', { name: 'Filter questions' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Filter questions' }));
+    const box = screen.getByRole('textbox', { name: 'Filter questions' });
+    fireEvent.change(box, { target: { value: 'rent' } });
+    fireEvent.blur(box);
+    expect(screen.getByRole('textbox', { name: 'Filter questions' }).value).toBe('rent');
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Filter questions' }), { key: 'Escape' });
+    expect(screen.queryByRole('textbox', { name: 'Filter questions' })).toBeNull();
+    // Empty and left: back to the icon.
+    fireEvent.click(screen.getByRole('button', { name: 'Filter questions' }));
+    fireEvent.blur(screen.getByRole('textbox', { name: 'Filter questions' }));
+    expect(screen.getByRole('button', { name: 'Filter questions' })).toBeTruthy();
   });
 });
 

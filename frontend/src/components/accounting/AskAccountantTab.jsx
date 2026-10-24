@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { MessageCircleQuestion, Plus, Search, Send, Settings, Trash2, X } from 'lucide-react';
+import { MessageCircleQuestion, Plus, Send, Settings, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import Amount from './Amount';
-import { ControlBar, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, OpFilter, Pager, SyncButton, control } from './reportControls';
+import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, OpFilter, Pager, SyncButton, control, fitSelect } from './reportControls';
 import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { useTableSync } from './tableSync';
 import { Chip } from './LoanSetupDialog';
@@ -47,6 +47,7 @@ const ellipsis = { maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', 
 const dash = <span style={muted}>-</span>;
 
 export const STATUS_FILTERS = ['Open', 'Answered', 'Resolved', 'All'];
+const WHOSE = { all: 'Everyone', assigned: 'Assigned To Me', asked: 'Asked By Me', awaiting: 'Awaiting Bookkeeper' };
 const TONE = { Open: 'wait', Answered: 'brand', Resolved: 'ok' };
 
 const yearAgo = () => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return iso(d); };
@@ -572,21 +573,21 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
             </button>
           ))}
         </div>
+        <BarMore level={2} active={entity ? 1 : 0}>
         <EntityPicker entities={entities} value={entity} onChange={setEntity} noneLabel={limited ? 'My Entities' : 'All Entities'} showHistorical={custom.showHistorical} ariaLabel="Entity" />
+        </BarMore>
         <input type="date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} aria-label="From" title="Lines dated from" style={control} />
         <input type="date" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} aria-label="To" title="Lines dated to" style={control} />
-        <select value={mine} onChange={(e) => setMine(e.target.value)} aria-label="Whose" style={control}>
-          <option value="all">Everyone</option>
-          <option value="assigned">Assigned To Me</option>
-          <option value="asked">Asked By Me</option>
-          <option value="awaiting">Awaiting Bookkeeper</option>
+        {/* 10/23 meeting, item 02 (fix 10/24): the list as wide as the choice, the search an icon until used. */}
+        <BarMore level={2} active={mine !== 'all' ? 1 : 0}>
+        <select value={mine} onChange={(e) => setMine(e.target.value)} aria-label="Whose" style={{ ...control, ...fitSelect(WHOSE[mine]) }}>
+          {Object.entries(WHOSE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        <div style={{ position: 'relative' }}>
-          <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
-          <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Filter questions" aria-label="Filter questions" style={{ ...control, width: 180, paddingLeft: 24 }} />
-        </div>
+        </BarMore>
+        <BarSearch value={text} onChange={setText} label="Filter questions" placeholder="Filter questions" width={200} />
         <div className="acct-bar-end">
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
+          <BarMore level={1}>
           <CustomizeButton {...custom} />
           {bookkeeper && reclassMode !== 'new_entry' && awaiting.length > 0 && (
             <button type="button" className="secondary-btn" onClick={() => setPushing(true)} title="Push Reclasses" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
@@ -598,6 +599,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
               <Settings size={14} /> <span className="acct-bar-label">Settings</span>
             </button>
           )}
+          </BarMore>
           <ExportMenu disabled={!rows.length} items={[
             { key: 'excel', label: 'Excel', hint: 'The lines on screen, amounts as numbers', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => exportAs('csv'), busy: busy === 'csv' },

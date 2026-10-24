@@ -2840,10 +2840,24 @@ html { overflow-x: hidden; }
    reportControls). Words fold away before anything wraps - data-fold 1 hides
    the action words, 2 also the words of pickers at their default - and only
    then does the row wrap, as whole controls. */
-.acct-controlbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.acct-controlbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
 .acct-controlbar .acct-bar-end { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; min-width: 0; }
 .acct-controlbar[data-fold] .acct-bar-label { display: none; }
 .acct-controlbar[data-fold="2"] .acct-bar-label-2 { display: none; }
+/* Fix 10/24: the More menu (BarMore) - the less used controls, with their
+   words, in a box under the row's right end. */
+.acct-controlbar .acct-bar-more-panel { position: absolute; top: calc(100% + 4px); right: 8px; z-index: 30; display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 200px; max-width: min(360px, 90vw); padding: 8px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 10px; box-shadow: var(--shadow-md, 0 8px 24px rgba(15, 23, 42, 0.14)); }
+.acct-controlbar .acct-bar-more-panel[hidden] { display: none; }
+.acct-controlbar .acct-bar-more-group { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.acct-controlbar[data-fold] .acct-bar-more-panel .acct-bar-label,
+.acct-controlbar[data-fold] .acct-bar-more-panel .acct-bar-label-2 { display: inline; }
+/* A word only the More menu shows (the row has the icon and its tooltip). */
+.acct-controlbar .acct-more-only { display: none; }
+.acct-controlbar .acct-bar-more-panel .acct-more-only { display: inline; }
+/* In the menu every control is as wide as the menu, its words from the left
+   (an icon button's fixed row width does not apply there). */
+.acct-controlbar .acct-bar-more-panel button { width: 100% !important; max-width: none !important; justify-content: flex-start !important; padding: 0 9px !important; }
+.acct-controlbar .acct-bar-more-panel label { justify-content: space-between; }
 
 /* Accounting call 10/23, item 03: a record opens in a panel on the right
    (SidePanel.jsx), the list still on screen and clickable - no backdrop.
