@@ -8296,6 +8296,10 @@ class DevNoteSession(Base):
     pr_url        = Column(String, default="")
     pr_number     = Column(Integer, default=0)
     note_count    = Column(Integer, default=0)
+    # The Teams chat the author picked for this session (any group or 1:1
+    # chat they are in; build_mode_chat.py posts there as them). '' = none.
+    teams_chat_id   = Column(String, default="")
+    teams_chat_name = Column(String, default="")
 
 
 class DevNoteToken(Base):

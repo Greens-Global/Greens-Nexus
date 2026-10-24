@@ -74,6 +74,19 @@ describe('BuildMode', () => {
     expect(sessionStorage.getItem('nexus:build-mode')).toBe('0');
   });
 
+  it('Browse lets clicks through to Nexus with the mode still on; Pin takes them back', async () => {
+    enabled = true;
+    sessionStorage.setItem('nexus:build-mode', '1');
+    await mount();
+    await screen.findByRole('toolbar', { name: 'Build Mode tools' }, { timeout: 4000 });
+    expect(screen.getByTestId('bm-overlay').style.pointerEvents).toBe('auto');
+    fireEvent.click(screen.getByRole('button', { name: /^Browse/ }));
+    expect(screen.getByTestId('bm-overlay').style.pointerEvents).toBe('none');
+    expect(screen.getByText(/Browse: use Nexus as usual/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Pin/ }));
+    expect(screen.getByTestId('bm-overlay').style.pointerEvents).toBe('auto');
+  });
+
   it('a pin on this screen renders with its number and status; click opens its thread with Accept / Reopen', async () => {
     enabled = true;
     pins = [pin()];

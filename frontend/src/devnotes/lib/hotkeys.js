@@ -14,7 +14,7 @@ export function isTyping(el) {
   return !!el.isContentEditable;
 }
 
-export const TOOL_KEYS = { p: 'pin', e: 'edit', r: 'rect', a: 'arrow', d: 'path', h: 'highlight', t: 'text', x: 'redact' };
+export const TOOL_KEYS = { b: 'browse', p: 'pin', e: 'edit', r: 'rect', a: 'arrow', d: 'path', h: 'highlight', t: 'text', x: 'redact' };
 
 // handlers: { tool(id), video(), voice(), queue(), undo(), escape(), color() }
 export function installHotkeys(handlers) {

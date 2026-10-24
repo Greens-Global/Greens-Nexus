@@ -1309,6 +1309,9 @@ def _run_migrations():
             "ALTER TABLE accounting_ama_settings ADD COLUMN bookkeepers JSON DEFAULT '[]'",
             # AMA push edits the original (CR-13 rework) - see the Postgres list.
             "ALTER TABLE accounting_ama_settings ADD COLUMN closed_through VARCHAR DEFAULT ''",
+            # Build Mode -> Teams mirror (Oct 25) - see the Postgres list.
+            "ALTER TABLE dev_note_sessions ADD COLUMN teams_chat_id VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_note_sessions ADD COLUMN teams_chat_name VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3029,6 +3032,10 @@ def _run_migrations():
         "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS closed_through VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_ama_push_previews ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_ama_push_log ENABLE ROW LEVEL SECURITY",
+        # Build Mode -> Teams mirror (Oct 25): the chat a Build Session posts
+        # to, picked by its author (build_mode_chat.py). models.DevNoteSession.
+        "ALTER TABLE dev_note_sessions ADD COLUMN IF NOT EXISTS teams_chat_id VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_note_sessions ADD COLUMN IF NOT EXISTS teams_chat_name VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

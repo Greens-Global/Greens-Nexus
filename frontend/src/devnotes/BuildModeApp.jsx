@@ -340,7 +340,7 @@ export default function BuildModeApp({ view, sub }) {
   const queueCount = pins.filter((p) => p.status === 'open').length;
   return (
     <div data-nx-devnotes="1" className="bm-root">
-      <Overlay tool={s.tool} color={s.color} interactive={!s.editPick && !s.panelOpen} items={s.markup}
+      <Overlay tool={s.tool} color={s.color} interactive={!s.editPick && !s.panelOpen && s.tool !== 'browse'} items={s.markup}
         onAdd={(item) => store.set((st) => ({ markup: [...st.markup, item] }))} onPick={onPick}
         faintItems={faint.items} faintOffset={faint.offset} />
       <Pins pins={pins} openPinId={s.openPinId} show={s.showPins} onOpen={(id) => store.set({ openPinId: id, pick: null })} onClose={() => store.set({ openPinId: '' })} onChanged={onPinChanged} />

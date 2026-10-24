@@ -16,14 +16,23 @@ import { speechSupported } from './lib/recorder';
 const ROUTE_LABEL = Object.fromEntries(MODULES.map((m) => [m.id, m.label]));
 const MOD = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘' : 'Ctrl';
 
-/** "Looks like UpdateRow in Tasks > Home (src/tasks/Home.jsx:142)". */
+/** 'You picked "Mark All Read" in Tasks > Home'. Plain words for a person
+ *  who is not technical (Pranshu, Oct 25); the component and source stamp
+ *  stay on the pin for the dev and show in the line's tooltip. */
 export function looksLike(target, view) {
   if (!target) return '';
-  const comp = (target.components || []).slice(-1)[0];
   const where = (target.headings || []).slice(0, 3).join(' > ') || ROUTE_LABEL[view] || view || '';
-  const what = comp || (target.text ? `"${target.text.slice(0, 40)}${target.text.length > 40 ? '…' : ''}"` : `<${target.tag || 'element'}>`);
-  const src = target.source?.file ? ` (${target.source.file}:${target.source.line})` : '';
-  return `Looks like ${what}${where ? ` in ${where}` : ''}${src}`;
+  const text = target.text ? `"${target.text.slice(0, 40)}${target.text.length > 40 ? '…' : ''}"` : '';
+  const what = text || (target.mode === 'region' ? 'this area' : 'this');
+  return `You picked ${what}${where ? ` in ${where}` : ''}`;
+}
+
+/** The technical half, for the tooltip: component and source stamp. */
+export function looksLikeDetail(target) {
+  if (!target) return '';
+  const comp = (target.components || []).slice(-1)[0] || '';
+  const src = target.source?.file ? `${target.source.file}:${target.source.line}` : '';
+  return [comp, src, target.selector].filter(Boolean).join(' · ');
 }
 
 const fmtDur = (ms) => { const s = Math.round((ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -84,7 +93,7 @@ export default function Composer({
         <button type="button" className="bm-icon-btn" onClick={() => onCancel?.(false)} aria-label="Close composer"><X size={16} /></button>
       </div>
       <div className="bm-card-body">
-        {hint && <div className="bm-looks" title={pick?.target?.selector}>{hint}</div>}
+        {hint && <div className="bm-looks" title={looksLikeDetail(pick?.target)}>{hint}</div>}
         <div className="bm-pills" role="radiogroup" aria-label="Kind">
           {KINDS.map((k) => (
             <button key={k.id} type="button" role="radio" aria-checked={draft.kind === k.id} className={`bm-pill${draft.kind === k.id ? ' is-on' : ''}`} style={{ '--c': k.color }} onClick={() => set({ kind: k.id })}>{k.label}</button>
