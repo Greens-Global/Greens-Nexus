@@ -423,7 +423,15 @@ def _save_settings(db: Session, email: str, values: dict) -> dict:
 
 
 # ── bells ─────────────────────────────────────────────────────────────────────
-def _notify(db: Session, *, type: str, recipient: str, title: str, body: str, ref_id: str) -> None:
+def _bell_action(ref_kind: str, ref_id: str) -> str:
+    """NotificationBell.jsx (Visesh's) navigates an unknown type only through
+    action.view; devnotes/store.js answers `dev-notes` with `pin:<id>` /
+    `session:<id>` by opening the pin's thread or the Sessions tab."""
+    return json.dumps({"view": "dev-notes", "sub": f"{ref_kind}:{ref_id}"})
+
+
+def _notify(db: Session, *, type: str, recipient: str, title: str, body: str, ref_id: str,
+            ref_kind: str = "pin") -> None:
     """One bell per pin per event: a row with the same type + ref_id +
     recipient is updated in place (and surfaces again as unread) instead of a
     second row being added. Row-locked so two concurrent writers cannot both
@@ -442,11 +450,13 @@ def _notify(db: Session, *, type: str, recipient: str, title: str, body: str, re
         row.read_by = ""
         row.closed_by = ""
         row.actioned = False
+        row.action = _bell_action(ref_kind, ref_id)
         row.created_at = now
         return
     db.add(NexusNotification(
         id=str(uuid.uuid4()), type=type, recipient=recipient, title=title, body=body[:500],
-        ref_id=ref_id, item_name="", requested_by="", action="", actioned=False, read_by="",
+        ref_id=ref_id, item_name="", requested_by="", action=_bell_action(ref_kind, ref_id),
+        actioned=False, read_by="",
         company=company_of(recipient, db), created_at=now,
     ))
 
@@ -606,7 +616,18 @@ def create_note(body: dict, user: dict = Depends(require_build_mode), db: Sessio
     s = _collecting_session(db, email, title=str(_get(body, "sessionTitle", "") or ""))
     top = db.query(func.max(DevNote.number)).filter(DevNote.session_id == s.id).scalar() or 0
     now = _now()
-    n = DevNote(id=str(uuid.uuid4()), session_id=s.id, number=int(top) + 1, status="open",
+    # The browser uploads screenshots to dev-notes/<id>/ BEFORE it creates the
+    # pin, so it may name the id (a uuid it minted); anything else is minted here.
+    want = str(_get(body, "id", "") or "").strip().lower()
+    note_id = str(uuid.uuid4())
+    if want:
+        try:
+            note_id = str(uuid.UUID(want))
+        except ValueError:
+            raise HTTPException(400, "id must be a UUID")
+        if db.query(DevNote.id).filter(DevNote.id == note_id).first():
+            raise HTTPException(409, "A pin with this id already exists")
+    n = DevNote(id=note_id, session_id=s.id, number=int(top) + 1, status="open",
                 thread=[], dispatch_target=settings.get("dispatchTarget") or "local",
                 created_by=email, created_at=now, updated_at=now, **fields)
     for k in _LIST_FIELDS:
@@ -1231,7 +1252,7 @@ def cli_complete(body: dict, user: dict = Depends(require_build_mode_or_token), 
         _notify(db, type="dev_note_pr", recipient=s.created_by,
                 title=f"PR #{pr_number} Open For Build Session '{s.title or 'Build Session'}'",
                 body=f"Claude Code opened PR #{pr_number} for {len([x for x in notes if x.session_id == s.id])} pin(s). {pr_url}",
-                ref_id=s.id)
+                ref_id=s.id, ref_kind="session")
     db.commit()
     for n in notes:
         db.refresh(n)

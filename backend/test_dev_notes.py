@@ -673,3 +673,32 @@ def test_reclaim_does_not_stack_picked_up_entries():
     assert any(x["id"] == n["id"] for x in client.get("/dev-notes/cli/wait?timeout=0", headers=_hdr(token)).json()["notes"])
     client.post("/dev-notes/cli/claim", json={"noteIds": [n["id"]]}, headers=_hdr(token))
     assert client.get("/dev-notes/cli/wait?timeout=0", headers=_hdr(token)).json()["notes"] == []
+
+
+def test_client_id_and_bell_actions():
+    import json as _json
+    import uuid as _uuid
+    want = str(_uuid.uuid4())
+    n = _create(id=want)
+    assert n["id"] == want
+    r = client.post("/dev-notes/", json={"kind": "bug", "comment": "x", "route": "tasks", "id": want})
+    assert r.status_code == 409
+    r = client.post("/dev-notes/", json={"kind": "bug", "comment": "x", "route": "tasks", "id": "not-a-uuid"})
+    assert r.status_code == 400
+    # bells carry the action the bell navigates by
+    note = _to_pr_open(pr=31)
+    pr_bell = _bells("dev_note_pr")[-1]
+    db = database.SessionLocal()
+    try:
+        rows = {b.type: _json.loads(b.action) for b in db.query(models.NexusNotification).all() if b.action}
+    finally:
+        db.close()
+    assert rows["dev_note_pr"] == {"view": "dev-notes", "sub": f"session:{note['sessionId']}"}
+    assert pr_bell["ref_id"] == note["sessionId"]
+    _mark_fixed(pr=31)
+    db = database.SessionLocal()
+    try:
+        fixed = [b for b in db.query(models.NexusNotification).filter(models.NexusNotification.type == "dev_note_fixed").all()]
+    finally:
+        db.close()
+    assert _json.loads(fixed[-1].action) == {"view": "dev-notes", "sub": f"pin:{note['id']}"}
