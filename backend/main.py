@@ -4583,3 +4583,5 @@ from routers import task_labels as task_labels_router  # noqa: E402
 app.include_router(task_labels_router.router)      # Tasks: label colors, labels in use, Manage > Labels (Neil, Oct 22 2026)
 from routers import meeting_files as meeting_files_router  # noqa: E402
 app.include_router(meeting_files_router.router)    # Meeting files: Teams transcript/recording of a meeting you were in, whoever recorded it - for Nexus Bots (Visesh, Oct 24 2026)
+from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: create_all + _enable_rls_everywhere, no ALTER lines
+app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)

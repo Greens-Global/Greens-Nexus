@@ -8116,3 +8116,91 @@ class TimecardBonus(Base):
     created_at     = Column(String, default="")
     removed_by     = Column(String, default="")
     removed_at     = Column(String, default="")
+
+
+# ── Build Mode (Neil, Oct 24 2026) ─────────────────────────────────────────────
+# Pins, Build Sessions and Build Tokens for routers/dev_notes.py. Brand-new
+# tables: create_all builds them and main.py's _enable_rls_everywhere turns RLS
+# on at startup, so they need no ALTER lines in the migration lists. A column
+# added to one of them AFTER its first release does - in BOTH lists.
+class DevNote(Base):
+    """One Pin: a comment plus markup on one element of the live app, with the
+    captured context (route, viewport, selector, console and network tails,
+    screenshots, recording), its thread with Claude Code, and the PR that
+    fixed it. Status machine in docs/Build-Mode.md."""
+    __tablename__ = "dev_notes"
+    id                = Column(String, primary_key=True)
+    session_id        = Column(String, default="", index=True)   # dev_note_sessions.id ('' = none yet)
+    number            = Column(Integer, default=0)               # pin number on screen, per session
+    kind              = Column(String, default="bug")            # bug | change | question | edit
+    priority          = Column(String, default="normal")         # blocking | normal | nice
+    status            = Column(String, default="open", index=True)
+    comment           = Column(Text, default="")
+    thread            = Column(JSON, default=list)               # [{id, by, at, kind, text, image_url}]
+    route             = Column(String, default="")               # activeView
+    sub               = Column(String, default="")               # activeSub
+    url               = Column(String, default="")
+    build_id          = Column(String, default="")
+    viewport          = Column(JSON, default=dict)               # {w, h, dpr, ua, phone, theme}
+    target            = Column(JSON, default=dict)
+    markup            = Column(JSON, default=dict)
+    edit              = Column(JSON, default=dict)
+    screenshot_url    = Column(String, default="")
+    page_shot_url     = Column(String, default="")
+    video_url         = Column(String, default="")
+    contact_sheet_url = Column(String, default="")
+    transcript        = Column(Text, default="")
+    attachments       = Column(JSON, default=list)               # [url]
+    console_log       = Column(JSON, default=list)               # [{level, text, at}] max 50
+    network_log       = Column(JSON, default=list)               # [{method, path, status, ms, at}] max 30
+    dispatch_target   = Column(String, default="local")          # local | github (github reserved)
+    dispatched_at     = Column(String, default="")
+    progress          = Column(String, default="")
+    progress_at       = Column(String, default="")
+    branch            = Column(String, default="")
+    pr_url            = Column(String, default="")
+    pr_number         = Column(Integer, default=0, index=True)
+    github_issue      = Column(Integer, default=0)               # reserved
+    fixed_build_id    = Column(String, default="")               # merge commit sha
+    fixed_at          = Column(String, default="")
+    verified_by       = Column(String, default="")
+    verified_at       = Column(String, default="")
+    reopen_count      = Column(Integer, default=0)
+    created_by        = Column(String, default="", index=True)
+    created_at        = Column(String, default="")
+    updated_at        = Column(String, default="")
+    actions           = Column(JSON, default=list)               # last 30 user actions before the pin [{t, type, label, selector, value, view, sub}]
+    state             = Column(JSON, default=dict)               # the target's React props/state snapshot (client-capped)
+    verification      = Column(JSON, default=dict)               # written by the CLI: {repro, styleCheck, visual}
+    purge_at          = Column(String, default="")               # done/dismissed + 30 days: media objects are purged after this
+
+
+class DevNoteSession(Base):
+    """One Build Session: the pins a person collected together and sent to
+    Claude Code in one go. A person has at most one `collecting` session."""
+    __tablename__ = "dev_note_sessions"
+    id            = Column(String, primary_key=True)
+    title         = Column(String, default="")
+    status        = Column(String, default="collecting")   # collecting | sent | building | pr_open | fixed | done
+    created_by    = Column(String, default="", index=True)
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+    dispatched_at = Column(String, default="")
+    branch        = Column(String, default="")
+    pr_url        = Column(String, default="")
+    pr_number     = Column(Integer, default=0)
+    note_count    = Column(Integer, default=0)
+
+
+class DevNoteToken(Base):
+    """A Build Token for the local watcher / CLI: `nxbn_` + 43 urlsafe chars,
+    stored only as its sha256, 30 days, shown once, revocable."""
+    __tablename__ = "dev_note_tokens"
+    id           = Column(String, primary_key=True)
+    email        = Column(String, nullable=False, index=True)
+    label        = Column(String, default="")
+    token_hash   = Column(String, nullable=False, index=True)
+    created_at   = Column(String, default="")
+    expires_at   = Column(String, default="")
+    last_used_at = Column(String, default="")
+    revoked_at   = Column(String, default="")
