@@ -528,8 +528,10 @@ into a repo path (`frontend/src/...`), backend paths unchanged;
 - `POST /dev-notes/dispatch` sends only unheld pins and answers `held: [{id,
   number, ownerName}]` for the ones it left. Held open pins left in a session
   that is now sent are MOVED to their author's collecting session (created
-  when needed) as its next number, with the entry "Moved to Build Session
-  '<title>' as Pin #m" - so the sent session can finish and they stay
+  when needed, titled "<title of the session they left> (Held)", at most 120
+  characters and never "(Held) (Held)" - not the server's UTC auto title) as
+  its next number, with the entry "Moved to Build Session '<title>' as Pin
+  #m" - so the sent session can finish and they stay
   sendable; `held` carries their new numbers. 400 when nothing unheld is
   left; the detail names the held ones: "No open pins to send - Pin #2 waits
   for Visesh" (several joined with "; ").
@@ -574,6 +576,16 @@ SQLite, never a shared database) and posts each pin's preview.
   the PR recorded against a different commit is reset. Audit
   `dev_note_preview`. Status stays `pr_open`; the status label on screen is
   "Ready To Check" while `readyToCheck`.
+- `DELETE /dev-notes/cli/preview/{id}` (Build Token or user) -> 204, called
+  by `preview.py` when it stops or replaces a running preview: `preview`
+  becomes `{}` (so `readyToCheck` is false - the link would be dead); an
+  accepted verdict is kept (that pin was already checked) together with its
+  commit - `preview` becomes `{verdictCommit}` - so a later commit change on
+  the PR still resets that Accept (still no url: never Ready To Check); a pin
+  that was Ready To Check gets the system entry "Preview stopped - it comes
+  back when Claude Code restarts it". Idempotent: a pin with no running
+  preview (no url) gets 204 and nothing changes. 404 for an unknown pin. Audit `dev_note_preview`
+  (`stopped: true`).
 - `POST /dev-notes/{id}/preview-verdict` (author or Global Admin) `{accepted:
   bool, comment?}` -> note. 409 unless `readyToCheck`; 400 without
   `accepted`. The verdict records the commit it was given against
@@ -614,6 +626,7 @@ SQLite, never a shared database) and posts each pin's preview.
 State machine additions:
 
     pr_open ──(cli preview)──> pr_open + readyToCheck
+    pr_open + readyToCheck ──(cli preview stopped: DELETE)──> pr_open (until the preview restarts)
     pr_open (readyToCheck) ──(author accepts)──> pr_open, previewVerdict accepted ──(merge)──> done
     pr_open, accepted ──(branch changed: complete on the PR / preview on a new commit)──> pr_open + readyToCheck
     pr_open (readyToCheck) ──(author reopens with a comment)──> building ──(complete)──> pr_open
@@ -665,6 +678,7 @@ left alone, a draft is refreshed):
 | POST | /dispatch | Build Mode | response adds `held: [{id, number, ownerName}]` (numbers after any move) |
 | POST | /{id}/preview-verdict | author or Global Admin | `{accepted, comment?}` -> note (`devNotesPreviewVerdict`) |
 | POST | /cli/preview/{id} | token or user | `{url, branch, prNumber, host, commit?}` -> note |
+| DELETE | /cli/preview/{id} | token or user | 204; preview cleared, an accepted verdict kept |
 | POST | /cli/complete | token or user | as before; also clears preview + previewVerdict, resets the PR's other Accepts |
 | POST | /cli/verify/{id} | token or user | `repro.kind` e2e \| python |
 

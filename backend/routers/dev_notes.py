@@ -571,6 +571,21 @@ def _assign_owner(db: Session, n: DevNote) -> None:
             body=body, ref_id=n.id)
 
 
+HELD_SUFFIX = " (Held)"
+
+
+def _held_title(old: Optional[DevNoteSession]) -> str:
+    """A NEW session made for moved held pins is named after the one they
+    left - "<title> (Held)", at most 120 characters - not the server's UTC
+    auto title. '' (the auto title) when there is no old session."""
+    base = ((old.title if old else "") or "").strip()
+    if not base:
+        return ""
+    if base.endswith(HELD_SUFFIX):
+        return base[:120]
+    return base[:120 - len(HELD_SUFFIX)].rstrip() + HELD_SUFFIX
+
+
 def _move_to_collecting(db: Session, n: DevNote) -> None:
     """Move a pin out of a session that is no longer collecting into its
     author's collecting session (created when there is none), as its next
@@ -578,7 +593,7 @@ def _move_to_collecting(db: Session, n: DevNote) -> None:
     old = _session(db, n.session_id)
     if old and old.status == "collecting":
         return
-    s = _collecting_session(db, n.created_by)
+    s = _collecting_session(db, n.created_by, title=_held_title(old))
     if old and s.id == old.id:
         return
     top = db.query(func.max(DevNote.number)).filter(DevNote.session_id == s.id).scalar() or 0
@@ -1838,6 +1853,31 @@ def cli_preview(note_id: str, body: dict, user: dict = Depends(require_build_mod
     db.commit()
     db.refresh(n)
     return _serialize(n, _viewer(user, db))
+
+
+@router.delete("/cli/preview/{note_id}", status_code=204)
+def cli_preview_stop(note_id: str, user: dict = Depends(require_build_mode_or_token),
+                     db: Session = Depends(get_db)):
+    """preview.py stopped (or is replacing) the running preview: the Open
+    Preview link would be dead, so the pin is no longer Ready To Check. An
+    accepted verdict stays - that pin was already checked - with its
+    `verdictCommit`. Idempotent: a pin with no running preview (no url) is
+    left exactly as it is."""
+    n = _note(db, note_id, lock=True)
+    old = dict(n.preview or {})
+    if not old.get("url"):
+        return Response(status_code=204)
+    was_ready = _ready_to_check(n)
+    # An accepted verdict keeps the commit it was given against, so a later
+    # commit change on the PR still resets it (no url: never Ready To Check).
+    keep = n.preview_verdict == "accepted" and "verdictCommit" in old
+    n.preview = {"verdictCommit": old["verdictCommit"]} if keep else {}
+    n.updated_at = _now()
+    if was_ready:
+        _append(n, _entry("claude", "system", "Preview stopped - it comes back when Claude Code restarts it"))
+    _audit(db, user, "preview", n.id, {"stopped": True, "token": user.get("token_label") or ""})
+    db.commit()
+    return Response(status_code=204)
 
 
 # ── GitHub webhook hook ───────────────────────────────────────────────────────

@@ -947,6 +947,8 @@ def test_dispatch_skips_held_pins_and_names_them():
     assert got["status"] == "open" and got["sessionId"] != a["sessionId"] and got["number"] == 1
     new_s = next(s for s in client.get("/dev-notes/sessions").json() if s["id"] == got["sessionId"])
     assert new_s["status"] == "collecting"
+    first_title = next(s for s in client.get("/dev-notes/sessions").json() if s["id"] == a["sessionId"])["title"]
+    assert new_s["title"] == f"{first_title} (Held)"        # named after the session it left, not a UTC auto title
     assert got["thread"][-1]["text"] == f"Moved to Build Session '{new_s['title']}' as Pin #1"
     sent = next(s for s in client.get("/dev-notes/sessions").json() if s["id"] == a["sessionId"])
     assert sent["status"] == "sent" and sent["noteCount"] == 1
@@ -1436,6 +1438,68 @@ def test_owner_of_endpoint():
         GRANTS.pop(NEIL["email"], None)
     _as(ADMIN)
     assert client.get("/dev-notes/owner-of", params={"path": "src/x.jsx"}).status_code == 403
+
+
+def test_held_session_title_is_truncated_to_120_and_never_doubled():
+    _create()
+    h = _held_pin()
+    _dispatch(title="A" * 150)
+    moved = client.get(f"/dev-notes/{h['id']}").json()
+    s = next(x for x in client.get("/dev-notes/sessions").json() if x["id"] == moved["sessionId"])
+    assert s["title"] == "A" * 113 + " (Held)" and len(s["title"]) == 120
+    # sent again with the held pin still in it: no "(Held) (Held)"
+    _create()
+    _dispatch()
+    again = client.get(f"/dev-notes/{h['id']}").json()
+    s2 = next(x for x in client.get("/dev-notes/sessions").json() if x["id"] == again["sessionId"])
+    assert again["sessionId"] != moved["sessionId"] and s2["title"] == s["title"]
+    assert D._held_title(None) == ""
+
+
+def test_stopping_a_preview_ends_ready_to_check_and_keeps_an_accept():
+    token = _token()["token"]
+    a, b = _two_pins_on_one_pr(token)
+    _preview(a, token)
+    _preview(b, token)
+    client.post(f"/dev-notes/{b['id']}/preview-verdict", json={"accepted": True})
+    r = client.delete(f"/dev-notes/cli/preview/{a['id']}", headers=_hdr(token))
+    assert r.status_code == 204 and r.content == b""
+    got = client.get(f"/dev-notes/{a['id']}").json()
+    assert got["preview"] == {} and got["readyToCheck"] is False and got["status"] == "pr_open"
+    assert got["thread"][-1]["text"] == "Preview stopped - it comes back when Claude Code restarts it"
+    # idempotent: no preview, nothing happens
+    before = len(got["thread"])
+    assert client.delete(f"/dev-notes/cli/preview/{a['id']}", headers=_hdr(token)).status_code == 204
+    assert len(client.get(f"/dev-notes/{a['id']}").json()["thread"]) == before
+    # an accepted pin keeps its verdict and gets no entry (it was not Ready To Check)
+    n_b = len(client.get(f"/dev-notes/{b['id']}").json()["thread"])
+    assert client.delete(f"/dev-notes/cli/preview/{b['id']}").status_code == 204       # a signed-in user works too
+    got_b = client.get(f"/dev-notes/{b['id']}").json()
+    assert got_b["preview"] == {"verdictCommit": ""} and got_b["previewVerdict"] == "accepted"
+    assert got_b["readyToCheck"] is False and len(got_b["thread"]) == n_b
+    assert client.delete("/dev-notes/cli/preview/nope", headers=_hdr(token)).status_code == 404
+    # a restart makes it Ready To Check again
+    assert _preview(a, token).json()["readyToCheck"] is True
+
+
+def test_a_stopped_preview_keeps_the_verdict_commit_so_a_new_commit_still_resets_it():
+    token = _token()["token"]
+    a, b = _two_pins_on_one_pr(token)
+    _preview(a, token, commit="abc1234")
+    _preview(b, token, commit="abc1234")
+    client.post(f"/dev-notes/{a['id']}/preview-verdict", json={"accepted": True})
+    assert client.delete(f"/dev-notes/cli/preview/{a['id']}", headers=_hdr(token)).status_code == 204
+    got = client.get(f"/dev-notes/{a['id']}").json()
+    assert got["preview"] == {"verdictCommit": "abc1234"} and got["previewVerdict"] == "accepted"
+    assert got["readyToCheck"] is False
+    # stopping again: no url, nothing changes
+    assert client.delete(f"/dev-notes/cli/preview/{a['id']}", headers=_hdr(token)).status_code == 204
+    assert client.get(f"/dev-notes/{a['id']}").json()["preview"] == {"verdictCommit": "abc1234"}
+    # the PR moves to a new commit (seen on b's preview): a's Accept is reset
+    _preview(b, token, commit="def5678")
+    got = client.get(f"/dev-notes/{a['id']}").json()
+    assert got["previewVerdict"] == "" and got["readyToCheck"] is False      # still no url
+    assert got["thread"][-1]["text"] == "The branch changed after you checked it - check it again on the preview"
 
 
 def test_names_come_from_task_notify_and_lookup_errors_are_not_swallowed(monkeypatch):
