@@ -2,13 +2,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Check, Download, List, Pencil, Search, X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
-import { CustomizeButton, ExportMenu, Pager, Toggle, control } from './reportControls';
+import { ControlBar, CustomizeButton, ExportMenu, Pager, SyncButton, Toggle, control } from './reportControls';
 import { downloadBlob, iso } from './reportModel';
 import { parkDrillReturn, requestReportDrill, takeDrillReturn } from './drill';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { dialog } from '../../ui/dialog';
 import { useAccountingPrefs } from './prefs';
 import { usePaged } from './tableHooks';
+import { useTableSync } from './tableSync';
 import { linesFile } from './linesExport';
 import SidePanel, { PanelSection } from './SidePanel';
 import Amount from './Amount';
@@ -53,6 +54,10 @@ import Amount from './Amount';
 //   item 07  View All Ledger Lines parks how this screen looked; Back on the
 //            lines returns here with the same record, search, page and
 //            scroll (drill.js parkDrillReturn).
+//   items 02 / 13 (fixes 10/24) the shared one-line ControlBar and the
+//            list's own Sync: it reads the list again past the server's
+//            2-minute cache (Requests: the requests again); the open record,
+//            the search, the page and the scroll stay.
 
 const KINDS = [{ key: 'vendor', label: 'Vendors' }, { key: 'customer', label: 'Customers' }];
 const SECTIONS = [{ key: 'records', label: 'Records' }, { key: 'requests', label: 'Requests' }];
@@ -137,6 +142,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
   const showInactive = !!prefs.showInactivePartners;
   const pageSize = prefs.partnersPageSize === undefined ? DEFAULT_PAGE_SIZE : Math.max(0, Math.floor(Number(prefs.partnersPageSize) || 0));
   const seq = useRef(0);
+  const loadedText = useRef('');                   // the server search the list was read with
   const boxRef = useRef(null);
   const searchRef = useRef(null);
 
@@ -163,8 +169,9 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
 
   const loadRecords = useCallback((k, text) => {
     const mine = ++seq.current;
+    loadedText.current = text;
     setRecState({ loading: true, error: '', notReady: false });
-    api.getAccountingPartners(k, text).then((d) => {
+    return api.getAccountingPartners(k, text).then((d) => {
       if (mine !== seq.current) return;
       setRecords(d?.partners || []);
       setSource(d?.source === 'ledger' ? 'ledger' : 'intacct');
@@ -175,9 +182,9 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
       setRecState({ loading: false, error: e?.status === 501 ? '' : (e?.message || 'Could not load the records.'), notReady: e?.status === 501 });
     });
   }, []);
-  const loadRequests = useCallback((status, k) => {
-    api.getAccountingPartnerChanges(status, k).then((d) => setRequests(d?.changes || [])).catch(() => setRequests([]));
-  }, []);
+  const loadRequests = useCallback((status, k) => (
+    api.getAccountingPartnerChanges(status, k).then((d) => setRequests(d?.changes || [])).catch(() => setRequests([]))
+  ), []);
   useEffect(() => { loadRecords(kind, ''); }, [kind, loadRecords]);
   useEffect(() => { loadRequests(reqStatus, kind); }, [reqStatus, kind, loadRequests]);
 
@@ -187,6 +194,13 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
       && (!s || [r.displayName, r.name, r.id, r.email, r.phone, r.entity].some((v) => String(v || '').toLowerCase().includes(s))));
   }, [records, q, showInactive]);
   const hiddenInactive = showInactive ? 0 : (records || []).filter(isInactive).length;
+
+  // The list's own Sync (item 13): the rows stay on screen and are swapped in place.
+  const syncLoad = useCallback(() => (section === 'requests' ? loadRequests(reqStatus, kind) : loadRecords(kind, loadedText.current)), [section, reqStatus, kind, loadRequests, loadRecords]);
+  const ts = useTableSync(syncLoad);
+  const [syncing, setSyncing] = useState(false);
+  const onSync = () => { setSyncing(true); Promise.resolve(ts.sync()).finally(() => setSyncing(false)); };
+  const syncButton = <SyncButton onSync={onSync} busy={syncing} syncedAt={ts.syncedAt} what={section === 'requests' ? 'Requests' : ''} />;
   const paged = usePaged(shown, pageSize, `${kind}|${q.trim().toLowerCase()}|${showInactive}`);
   const { setPage } = paged;
 
@@ -264,7 +278,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
           {KINDS.map((k) => (
             <button key={k.key} type="button" onClick={() => { setKind(k.key); setOpened(null); }} aria-pressed={kind === k.key}
@@ -294,7 +308,8 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
               <button type="button" onClick={() => { setSearchOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); }} aria-label="Open Search" title="Search (Ctrl+F)"
                 style={{ ...control, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, padding: 0, color: 'var(--text-secondary)' }}><Search size={14} /></button>
             )}
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="acct-bar-end">
+              {syncButton}
               <CustomizeButton active={showInactive} pageSize={pageSize} onPageSize={(n) => setPrefs({ partnersPageSize: Math.max(0, Math.floor(Number(n) || 0)) })}>
                 <Toggle checked={showInactive} onChange={(v) => setPrefs({ showInactivePartners: !!v })} label="Show Inactive"
                   hint={`Vendors and customers marked inactive in Intacct are hidden until this is on.`} />
@@ -313,10 +328,13 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
               <option value="declined">Declined</option>
               <option value="">All</option>
             </select>
-            <button type="button" className="secondary-btn" disabled={busy === 'export'} onClick={exportApproved} style={{ marginLeft: 'auto', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Approved CSV</button>
+            <div className="acct-bar-end">
+              {syncButton}
+              <button type="button" className="secondary-btn" disabled={busy === 'export'} onClick={exportApproved} aria-label="Export Approved CSV" title="Export Approved CSV" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> <span className="acct-bar-label">Export Approved CSV</span></button>
+            </div>
           </>
         )}
-      </div>
+      </ControlBar>
 
       {notice && (
         <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: 'var(--ok-fg, #15803d)' }}>

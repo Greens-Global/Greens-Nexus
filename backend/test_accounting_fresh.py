@@ -22,7 +22,7 @@ import cache
 import database
 import main
 import models
-from routers import accounting
+from routers import accounting, accounting_partners
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -55,8 +55,8 @@ class AsksFreshTests(unittest.TestCase):
         self.assertEqual(accounting.fresh_ttl(300.0), 300.0)
 
 
-class FreshReadTests(unittest.TestCase):
-    """End to end: GET /accounting/books, the upstream call counted."""
+class _AccountingViewer(unittest.TestCase):
+    """A viewer of Accounting; the accounting app replaced by a call counter."""
 
     def setUp(self):
         self.client = TestClient(main.app)
@@ -109,6 +109,10 @@ class FreshReadTests(unittest.TestCase):
         for k, (t, v) in list(accounting._ACCT_CACHE.items()):
             accounting._ACCT_CACHE[k] = (t - seconds, v)
 
+
+class FreshReadTests(_AccountingViewer):
+    """End to end: GET /accounting/books, the upstream call counted."""
+
     def test_plain_reads_keep_the_cache(self):
         self.assertEqual(self.client.get("/accounting/books").status_code, 200)
         self._age_cache(60)
@@ -136,6 +140,51 @@ class FreshReadTests(unittest.TestCase):
         self._age_cache(60)
         asyncio.run(accounting._acct_get("/api/internal/books", {}))
         self.assertEqual(self.calls, 1)
+
+
+class PartnersFreshTests(_AccountingViewer):
+    """Vendors & Customers keeps its own 2-minute cache (accounting_partners._get);
+    its Sync reads past it too (backend test 10/24, Bug 1)."""
+
+    def setUp(self):
+        super().setUp()
+        accounting_partners._CACHE.clear()
+        self.partner_calls = 0
+        self._psync = accounting_partners._get_sync
+
+        def fake_partners(params):
+            self.partner_calls += 1
+            return [{"id": "V100", "kind": params.get("kind"), "name": f"Delta Supply {self.partner_calls}", "status": "active"}]
+        accounting_partners._get_sync = fake_partners
+
+    def tearDown(self):
+        accounting_partners._get_sync = self._psync
+        accounting_partners._CACHE.clear()
+        super().tearDown()
+
+    def _age_partners(self, seconds):
+        for k, (t, v) in list(accounting_partners._CACHE.items()):
+            accounting_partners._CACHE[k] = (t - seconds, v)
+
+    def test_vendors_plain_reads_keep_the_cache(self):
+        self.assertEqual(self.client.get("/accounting/partners?kind=vendor").status_code, 200)
+        self._age_partners(60)
+        r = self.client.get("/accounting/partners?kind=vendor")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self.partner_calls, 1)
+        self.assertEqual(r.json()["partners"][0]["name"], "Delta Supply 1")
+
+    def test_vendors_sync_reads_the_accounting_app_again(self):
+        self.client.get("/accounting/partners?kind=vendor")
+        self._age_partners(60)
+        r = self.client.get("/accounting/partners?kind=vendor&fresh=1")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self.partner_calls, 2)
+        self.assertEqual(r.json()["partners"][0]["name"], "Delta Supply 2")
+        # Kept for the next plain read; a burst of Syncs costs one call.
+        self.client.get("/accounting/partners?kind=vendor")
+        self.client.get("/accounting/partners?kind=vendor&fresh=1")
+        self.assertEqual(self.partner_calls, 2)
 
 
 if __name__ == "__main__":

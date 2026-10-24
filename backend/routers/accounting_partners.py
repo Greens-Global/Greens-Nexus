@@ -94,7 +94,7 @@ async def _get(params: dict) -> list:
     key = "&".join(f"{k}={v}" for k, v in sorted(clean.items()))
     hit = _CACHE.get(key)
     now = time.monotonic()
-    if hit and now - hit[0] < _TTL:
+    if hit and now - hit[0] < acct.fresh_ttl(_TTL):    # the list's Sync reads past the cache (10/23 meeting, item 13)
         return hit[1]
     data = await asyncio.to_thread(_get_sync, clean)
     _CACHE[key] = (now, data)

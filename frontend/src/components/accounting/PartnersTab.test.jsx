@@ -27,12 +27,13 @@ vi.mock('../../api', () => ({
     getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
     saveAccountingPrefs: vi.fn(async () => ({})),
   },
+  withFreshReads: vi.fn((fn) => fn()),
 }));
 vi.mock('../../ui/dialog', () => ({ dialog: { alert: vi.fn(async () => true), confirm: vi.fn(async () => true), prompt: vi.fn(async () => 'Please') } }));
 
 import PartnersTab, { diffPartner, isInactive, partnersTable } from './PartnersTab';
 import { dialog as appDialog } from '../../ui/dialog';
-import { api } from '../../api';
+import { api, withFreshReads } from '../../api';
 import { resetAccountingPrefs } from './prefs';
 
 beforeEach(() => {
@@ -267,5 +268,48 @@ describe('PartnersTab - the 10/23 call', () => {
     } finally {
       window.removeEventListener('nexus:accounting-drill', onDrill);
     }
+  });
+
+  // Fixes 10/24 (items 02 and 13): the shared control bar and the list's own Sync.
+  it('Sync reads the list again, fresh, and keeps the open record, the search, the page and the scroll', async () => {
+    const list = many(250);
+    api.getAccountingPartners.mockResolvedValue({ kind: 'vendor', partners: list });
+    api.getAccountingPartnerRecord.mockImplementation(async (kind, id) => ({ kind, source: 'intacct', record: list.find((r) => r.id === id), history: [], activity: null, activityError: '' }));
+    const { container } = render(<PartnersTab />);
+    await screen.findByText('Vendor 001');
+    expect(container.querySelector('.acct-controlbar')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Open Search' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search vendors' }), { target: { value: 'Vendor' } });
+    fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    fireEvent.click(screen.getByText('Vendor 150', { selector: 'strong' }).closest('tr'));
+    await screen.findByRole('dialog', { name: 'Vendor V00150' });
+    screen.getByTestId('partners-box').scrollTop = 240;
+    let release;
+    api.getAccountingPartners.mockImplementationOnce(() => new Promise((r) => { release = () => r({ kind: 'vendor', partners: list.map((v) => (v.id === 'V00150' ? { ...v, displayName: 'Vendor 150 Renamed' } : v)) }); }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sync' }));
+    expect(withFreshReads).toHaveBeenCalledTimes(1);
+    expect(api.getAccountingPartners).toHaveBeenLastCalledWith('vendor', '');
+    // While it reads, the rows and the open record stay.
+    expect(screen.getByText('Vendor 150', { selector: 'strong' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Sync' }).getAttribute('aria-busy')).toBe('true');
+    release();
+    expect(await screen.findByText('Vendor 150 Renamed', { selector: 'strong' })).toBeTruthy();
+    expect(api.getAccountingPartnerChanges).toHaveBeenCalledTimes(1);    // only the list was read again
+    expect(screen.getByRole('dialog', { name: 'Vendor V00150' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Search vendors' }).value).toBe('Vendor');
+    expect(screen.getByText(/Page 2 of 3/)).toBeTruthy();
+    expect(screen.getByTestId('partners-box').scrollTop).toBe(240);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sync' }).getAttribute('aria-busy')).toBeNull());
+  });
+
+  it('Requests has its own Sync too, reading only the requests again', async () => {
+    render(<PartnersTab canApprove />);
+    await screen.findByText('Acme Plumbing');
+    fireEvent.click(screen.getByRole('button', { name: /^Requests/ }));
+    await screen.findByText('Amy Bolanos');
+    fireEvent.click(screen.getByRole('button', { name: 'Sync Requests' }));
+    expect(withFreshReads).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(api.getAccountingPartnerChanges).toHaveBeenCalledTimes(2));
+    expect(api.getAccountingPartners).toHaveBeenCalledTimes(1);
   });
 });
