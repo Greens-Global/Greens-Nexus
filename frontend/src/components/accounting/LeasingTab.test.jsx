@@ -51,7 +51,11 @@ vi.mock('../../api', () => ({
   },
 }));
 
-import LeasingTab, { leaseTermLabel, parseLeaseTerm } from './LeasingTab';
+import LeasingTab, { leaseTermLabel, parseLeaseTerm, fitRollHeight } from './LeasingTab';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const css = fs.readFileSync(path.resolve(__dirname, '../../style.css'), 'utf8');
 import { api } from '../../api';
 import { resetAccountingPrefs } from './prefs';
 
@@ -485,6 +489,25 @@ describe('LeasingTab shared controls', () => {
     expect(screen.getByText(/Received - 2 sources/)).toBeTruthy();       // the total row counts both
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(await screen.findByText('47385 RCR, Temecula')).toBeTruthy();
+  });
+
+  it('pins the Received total to the bottom of a box that ends on the screen (Viral, 10/22)', async () => {
+    render(<LeasingTab canEdit />);
+    const label = (await screen.findByText(/Received - 2 sources/)).closest('td');
+    // The pinning lives in style.css (.acct-roll .acct-grand), not an inline
+    // style that would leave the label under the month totals.
+    expect(label.className).toBe('acct-roll-label');
+    expect(label.style.position).toBe('');
+    expect(label.closest('table').className).toContain('acct-roll');
+    expect(label.closest('.acct-lines-wrap').style.maxHeight).toBeTruthy();
+    expect(css).toMatch(/\.acct-lines\.acct-roll tbody tr\.acct-grand td \{ position: sticky; bottom: 0; z-index: 3; background: var\(--bg-secondary\); \}/);
+    expect(css).toMatch(/\.acct-lines\.acct-roll tbody tr\.acct-grand td\.acct-roll-label \{ left: 0; z-index: 4; \}/);
+  });
+
+  it('fits the Income Roll box to what is left of the screen, 74% at most, 320px at least', () => {
+    expect(fitRollHeight(330, 768)).toBe(426);         // 1366x768: ends 12px above the bottom
+    expect(fitRollHeight(200, 1440)).toBe(1066);       // a tall screen keeps the 74% cap
+    expect(fitRollHeight(600, 700)).toBe(320);         // a short one still shows rows
   });
 
   it('has a resize handle on the Income Roll columns', async () => {
