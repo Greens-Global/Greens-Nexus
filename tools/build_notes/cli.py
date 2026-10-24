@@ -11,18 +11,25 @@ to work a Build Session's pins.
     python3 tools/build_notes/cli.py complete <id> [<id> ...] --pr URL --branch NAME [--summary "..."]
     python3 tools/build_notes/cli.py verify <id> [--repro-script PATH --before failing --after passing]
                                                [--style-json PATH] [--before-image PATH --after-image PATH]
+    python3 tools/build_notes/cli.py owners [--check] [--me EMAIL] [paths...]
+    python3 tools/build_notes/cli.py preview <id> [<id> ...] --branch NAME [--pr N] [--url http://localhost:5180] [--commit SHA]
 
 Global flags (before the subcommand): --api URL, --token TOKEN.
 `claim` downloads every media file into ~/.cache/nexus-build-notes/<id>/ and
 prints one markdown brief per pin (also saved as brief.md in that folder).
+`owners --check` exits 3 when the changes touch another developer's files
+(the map is backend/code_owners.py, else GET /dev-notes/owners).
 
 Standard library only.
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import re
+import socket
+import subprocess
 import sys
 import urllib.parse
 from pathlib import Path
@@ -292,16 +299,96 @@ def latest_human_answer(thread):
     return answer
 
 
+def latest_human_comment(thread):
+    """(by, at, text) of the newest comment a person left on the thread - on a
+    pin reopened on the preview that is the reopen note, which the server
+    appends as the last human comment."""
+    found = None
+    for e in thread or []:
+        if not isinstance(e, dict):
+            continue
+        if str(e.get("kind") or "comment") == "comment" and str(e.get("by") or "").lower() != "claude":
+            found = (str(e.get("by") or "author"), str(e.get("at") or ""), str(e.get("text") or "").strip())
+    return found
+
+
+MERGED_MEANWHILE = "merged while this pin was being reworked"
+
+
+def pr_merged_meanwhile(note):
+    """The server's entry when a reopened / answered pin's PR merged before the
+    rework landed ("PR #n merged while this pin was being reworked - the rework
+    comes in a new PR"); it also clears the pin's PR fields."""
+    for e in _g(note, "thread", default=[]) or []:
+        if isinstance(e, dict) and MERGED_MEANWHILE in str(e.get("text") or "").lower():
+            return True
+    return False
+
+
+def is_held(note):
+    """A pin on another developer's area that they have not released yet."""
+    held = _g(note, "held", default=None)
+    if held is not None:
+        return bool(held)
+    owner = str(_g(note, "ownerEmail", "owner_email", default="") or "").lower()
+    author = str(_g(note, "createdBy", "created_by", default="") or "").lower()
+    released = _g(note, "ownerReleasedBy", "owner_released_by", default="")
+    return bool(owner) and owner != author and not released
+
+
+def display_status(note):
+    """The status label a person sees: Ready To Check is a PR Open pin with a
+    preview running that has not been accepted yet."""
+    ready = _g(note, "readyToCheck", "ready_to_check", default=None)
+    if ready is None:
+        preview = _g(note, "preview", default={}) or {}
+        ready = (str(_g(note, "status", default="")) == "pr_open" and isinstance(preview, dict)
+                 and bool(preview.get("url"))
+                 and str(_g(note, "previewVerdict", "preview_verdict", default="") or "") != "accepted")
+    if ready:
+        return "Ready To Check"
+    return status_label(_g(note, "status"))
+
+
+def ownership_lines(note):
+    """'Waits for Visesh ...' for a held pin, 'Owner: ...' once released."""
+    owner = str(_g(note, "ownerName", "owner_name", default="") or _g(note, "ownerEmail", "owner_email", default="") or "")
+    if not owner:
+        return []
+    if is_held(note):
+        return ["Waits for " + owner + " - the pin is in their area and goes to Claude Code only once they release it; do not work it"]
+    released = str(_g(note, "ownerReleasedBy", "owner_released_by", default="") or "")
+    if released:
+        return ["Owner: " + owner + " - released to Claude Code by " + released]
+    return []
+
+
 def render_brief(note, files, session_title=None):
     """One markdown brief for a pin. `files` maps label -> local path."""
     n = note
     number = _g(n, "number", default="?")
     lines = []
     lines.append("# Pin #" + str(number) + " - " + kind_label(_g(n, "kind")) + " - " + priority_label(_g(n, "priority")))
+    reopened = str(_g(n, "previewVerdict", "preview_verdict", default="") or "") == "reopened"
+    branch = str(_g(n, "branch", default="") or "")
+    pr = _g(n, "prNumber", "pr_number", default=0)
+    merged = pr_merged_meanwhile(n)
+    if reopened:
+        reopen = latest_human_comment(_g(n, "thread", default=[]) or [])
+        lines.append("Reopened on the preview: " + (reopen[2] if reopen and reopen[2] else "(no comment)"))
+    # The entry stays on the thread after an -r2 PR exists; it only counts while the PR fields are cleared.
+    if (merged or reopened) and not pr and not branch:
+        lines.append("Its PR merged while it was being reworked - rework it on a NEW branch from fresh origin/dev "
+                     "(the usual name plus -r2), open a new PR and run `complete` with that PR, then restart the preview")
+    elif reopened:
+        lines.append("Rework it on the SAME branch" + (" " + branch if branch else "")
+                     + (" (PR #" + str(pr) + ")" if pr else "")
+                     + " - no new branch or PR; push, run `complete` again and restart the preview")
+    lines.extend(ownership_lines(n))
     author = _g(n, "createdBy", "created_by", default="")
     created = common.us_datetime(_g(n, "createdAt", "created_at", default=""))
     lines.append("By " + str(author or "unknown") + " on " + (created or "unknown date")
-                 + " - Status: " + status_label(_g(n, "status")) + " - Id: " + str(_g(n, "id", default="")))
+                 + " - Status: " + display_status(n) + " - Id: " + str(_g(n, "id", default="")))
     sess = session_title or _g(n, "sessionTitle", "session_title")
     sess_id = _g(n, "sessionId", "session_id", default="")
     if sess or sess_id:
@@ -316,7 +403,9 @@ def render_brief(note, files, session_title=None):
     # Only a pin that came back through the watcher (needs_input / building
     # with a fresh human comment) carries an answer; a dispatched pin's own
     # comments are just its thread.
-    answer = latest_human_answer(_g(n, "thread", default=[]) or []) if str(_g(n, "status", default="")) in ("needs_input", "building") else None
+    answer = None
+    if not reopened and str(_g(n, "status", default="")) in ("needs_input", "building"):
+        answer = latest_human_answer(_g(n, "thread", default=[]) or [])
     if answer:
         lines.append("Author's latest answer (" + answer[0] + ", " + common.us_datetime(answer[1]) + "): " + answer[2])
     lines.append("")
@@ -503,7 +592,7 @@ def _print_list(notes, sessions=None):
         sub = _g(n, "sub", default="")
         if sub:
             where += "/" + str(sub)
-        line = ("#" + str(_g(n, "number", default="?")).ljust(4) + " " + status_label(_g(n, "status")).ljust(14)
+        line = ("#" + str(_g(n, "number", default="?")).ljust(4) + " " + display_status(n).ljust(14)
                 + " " + kind_label(_g(n, "kind")).ljust(9) + " " + priority_label(_g(n, "priority")).ljust(13)
                 + " " + where.ljust(22) + " " + str(_g(n, "createdBy", "created_by", default="")).ljust(28)
                 + " " + str(_g(n, "id", default="")))
@@ -517,6 +606,8 @@ def _print_list(notes, sessions=None):
         where = source_location(_g(n, "target", default={}) or {})
         if where:
             print("      Where: " + where)
+        for extra in ownership_lines(n):
+            print("      " + extra)
 
 
 def cmd_list(client, args):
@@ -600,8 +691,13 @@ def cmd_claim(client, args):
             continue
         notes = data.get("notes") or []
         sessions = {s.get("id"): s.get("title") for s in (data.get("sessions") or []) if isinstance(s, dict)}
+        skipped = [k for k in (data.get("skipped") or []) if isinstance(k, dict)]
+        for k in skipped:
+            label = ("#" + str(k.get("number"))) if k.get("number") not in (None, "") else str(k.get("id") or note_id)
+            failures.append((label, str(k.get("reason") or status_label(k.get("status")) or "skipped")))
         if not notes:
-            failures.append((note_id, "the server returned no pin"))
+            if not skipped:
+                failures.append((note_id, "the server returned no pin"))
             continue
         for note in notes:
             folder, files = _download_media(client, note, out_dir, skip=args.no_download)
@@ -717,6 +813,18 @@ def cmd_complete(client, args):
 
 
 VERIFY_STATES = ("failing", "passing", "skipped")
+REPRO_SCRIPT_LIMIT = 20 * 1024   # the server's cap on verification.repro.script
+
+
+def repro_kind(script, filename=""):
+    """'e2e' for a Playwright Test spec in the repo's e2e format, else 'python'."""
+    text = str(script or "")
+    name = str(filename or "").lower()
+    if "@playwright/test" in text and re.search(r"\btest\s*\(", text):
+        return "e2e"
+    if name.endswith((".spec.mjs", ".spec.js", ".spec.ts")) and "import " in text:
+        return "e2e"
+    return "python"
 
 
 def cmd_verify(client, args):
@@ -732,12 +840,23 @@ def cmd_verify(client, args):
         return 2
     if args.repro_script or args.before:
         script = ""
+        script_name = ""
         if args.repro_script:
             path = Path(args.repro_script).expanduser()
             if not path.is_file():
                 raise common.ConfigError("Repro script not found: " + str(path))
             script = path.read_text(encoding="utf-8", errors="replace")
+            script_name = path.name
+            if len(script.encode("utf-8")) > REPRO_SCRIPT_LIMIT:
+                common.eprint("The repro script is over 20 KB (the server keeps at most that) - trim it: " + str(path))
+                return 2
         body["repro"] = {"script": script, "before": args.before, "after": args.after}
+        if script:
+            kind = repro_kind(script, script_name)
+            body["repro"]["kind"] = kind
+            if kind == "e2e" and ("[" + args.id + "]") not in script:
+                common.eprint("Warning: the spec's test title does not start with [" + args.id + "] - "
+                              "it cannot become a regression test until it does")
     if args.style_json:
         path = Path(args.style_json).expanduser()
         if not path.is_file():
@@ -786,6 +905,265 @@ def cmd_verify(client, args):
         bits.append("before/after attached")
     print("Pin #" + str(_g(note, "number", default="?")) + " evidence recorded: " + ", ".join(bits))
     return 0
+
+
+# --------------------------------------------------------------------------
+# Ownership (backend/code_owners.py, else GET /dev-notes/owners)
+# --------------------------------------------------------------------------
+
+OWNERS_FILE = None          # None: <repo>/backend/code_owners.py; the tests point it elsewhere
+FOREIGN_EXIT = 3
+
+
+def owners_file():
+    return Path(OWNERS_FILE) if OWNERS_FILE else common.repo_root() / "backend" / "code_owners.py"
+
+
+def normalize_path(path):
+    """'src/tasks/X.jsx' | './src/...' | 'frontend/src/...' -> 'frontend/src/tasks/X.jsx';
+    backend paths unchanged. Mirrors code_owners.normalize for the API fallback."""
+    p = str(path or "").strip().replace("\\", "/")
+    while p.startswith("./"):
+        p = p[2:]
+    p = p.lstrip("/")
+    if p.startswith("src/"):
+        p = "frontend/" + p
+    return p
+
+
+class OwnersMap:
+    """owner_of / foreign_files over the File Ownership map: the module's own
+    functions when backend/code_owners.py loaded, else the same rules over the
+    owners list the API returned."""
+
+    def __init__(self, module=None, owners=None, source=""):
+        self.module = module
+        self.owners = owners if owners is not None else list(getattr(module, "OWNERS", []) or [])
+        self.source = source
+
+    def normalize(self, path):
+        if self.module is not None and hasattr(self.module, "normalize"):
+            return self.module.normalize(path)
+        return normalize_path(path)
+
+    def owner_of(self, path):
+        if self.module is not None and hasattr(self.module, "owner_of"):
+            return self.module.owner_of(path)
+        p = normalize_path(path)
+        for owner in self.owners:
+            for rule in owner.get("paths") or []:
+                rule = normalize_path(rule)
+                if (rule.endswith("/") and p.startswith(rule)) or p == rule:
+                    return {"name": owner.get("name") or "", "email": owner.get("email") or ""}
+        return None
+
+    def foreign_files(self, paths, me_email):
+        if self.module is not None and hasattr(self.module, "foreign_files"):
+            return list(self.module.foreign_files(paths, me_email))
+        # Same contract as code_owners.foreign_files: normalized paths, each once, input order.
+        me = str(me_email or "").strip().lower()
+        out = []
+        seen = set()
+        for path in paths:
+            norm = normalize_path(path)
+            owner = self.owner_of(norm)
+            if norm in seen or not owner or str(owner.get("email") or "").lower() == me:
+                continue
+            seen.add(norm)
+            out.append({"path": norm, "name": owner.get("name") or "", "email": owner.get("email") or ""})
+        return out
+
+
+def load_owners(client=None):
+    """The owners map: backend/code_owners.py loaded by file path (it imports
+    nothing from the app), else GET /dev-notes/owners."""
+    path = owners_file()
+    if path.is_file():
+        spec = importlib.util.spec_from_file_location("nexus_code_owners", str(path))
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except Exception as exc:   # noqa: BLE001 - a broken file falls back to the API
+            common.eprint("Warning: could not load " + str(path) + " (" + str(exc) + ") - asking the API")
+        else:
+            return OwnersMap(module=module, source=str(path))
+    if client is None:
+        raise common.ConfigError(str(path) + " is not here and there is no Build Token to ask the API "
+                                 "(GET /dev-notes/owners) - " + common.MINT_HINT)
+    data = client.get("/owners", timeout=30) or {}
+    owners = [o for o in (data.get("owners") or []) if isinstance(o, dict)]
+    return OwnersMap(owners=owners, source="GET /dev-notes/owners")
+
+
+def _git_lines(args):
+    """Output lines of a git command run in the current checkout; None when it fails."""
+    try:
+        res = subprocess.run(["git"] + list(args), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             universal_newlines=True, timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if res.returncode != 0:
+        return None
+    return [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
+
+
+GIT_LINES = _git_lines      # swapped out by the tests
+
+
+def changed_files(git=None):
+    """Every file this branch changes against origin/dev, plus staged,
+    unstaged and untracked changes - what a commit could carry."""
+    git = git or GIT_LINES
+    files = []
+    sets = (
+        ["diff", "--name-only", "--no-renames", "origin/dev...HEAD"],
+        ["diff", "--name-only", "--no-renames", "--cached"],
+        ["diff", "--name-only", "--no-renames"],
+        ["ls-files", "--others", "--exclude-standard"],
+    )
+    for args in sets:
+        lines = git(args)
+        if lines is None:
+            if args[-1] == "origin/dev...HEAD":
+                common.eprint("Warning: could not diff against origin/dev (run git fetch origin dev) - checking local changes only")
+            continue
+        files.extend(lines)
+    return list(dict.fromkeys(files))
+
+
+def cmd_owners(client, args):
+    paths = list(args.paths or [])
+    if args.check and not paths:
+        paths = changed_files()
+        if not paths:
+            print("No changed files.")
+            return 0
+    if not paths:
+        common.eprint("owners needs paths, or --check to look at this branch's changes")
+        return 2
+    owners = load_owners(client)
+    paths = list(dict.fromkeys(owners.normalize(p) for p in paths))
+    if owners.source.startswith("GET "):
+        common.eprint("(owners map from " + owners.source + " - backend/code_owners.py is not in this checkout)")
+    me = (args.me or "").strip()
+    if not me:
+        if client is not None:
+            me = str(_g(client.get("/cli/whoami", timeout=30) or {}, "email", default="") or "")
+        elif args.check:
+            common.eprint("owners --check needs --me EMAIL or a Build Token (whoami) to know who you are")
+            return 2
+    width = max(len(owners.normalize(p)) for p in paths)
+    for path in paths:
+        owner = owners.owner_of(path)
+        who = (str(owner.get("name") or "") + " (" + str(owner.get("email") or "") + ")") if owner else "no owner"
+        print(owners.normalize(path).ljust(width) + "  " + who)
+    if not me:
+        return 0
+    foreign = owners.foreign_files(paths, me)
+    if not foreign:
+        print("No files in another developer's area.")
+        return 0
+    common.eprint("")
+    common.eprint("Owned by another developer - do not commit changes to these:")
+    for f in foreign:
+        common.eprint("  " + str(f.get("path")) + " - " + str(f.get("name") or f.get("email")) + "'s area")
+    common.eprint("Revert each with `git checkout origin/dev -- <file>` and reply --needs-input naming the owner.")
+    return FOREIGN_EXIT
+
+
+# --------------------------------------------------------------------------
+# Ready To Check (the local preview)
+# --------------------------------------------------------------------------
+
+PREVIEW_BASE = "http://localhost:5180"
+LOCAL_PREFIXES = ("http://localhost:", "http://127.0.0.1:")
+
+
+def pin_path(note):
+    """The pathname of the pin's own URL ('/tasks/home'), else one built from route / sub."""
+    url = str(_g(note, "url", default="") or "")
+    path = ""
+    if url:
+        try:
+            path = urllib.parse.urlparse(url).path or ""
+        except ValueError:
+            path = ""
+    if not path:
+        try:
+            from . import repro_template
+        except ImportError:
+            import repro_template
+        path = repro_template.route_path(_g(note, "route", default=""), _g(note, "sub", default=""))
+    return path if path.startswith("/") else "/" + path
+
+
+def preview_url(base, note):
+    """base + the pin's pathname: 'http://localhost:5180/tasks/home'."""
+    return str(base or PREVIEW_BASE).rstrip("/") + pin_path(note)
+
+
+def branch_commit(branch, git=None):
+    """The sha the preview runs: origin/<branch>, else the local branch; '' when neither resolves."""
+    git = git or GIT_LINES
+    for ref in ("origin/" + str(branch), str(branch)):
+        lines = git(["rev-parse", "--verify", "--quiet", ref + "^{commit}"])
+        if lines:
+            return lines[0]
+    return ""
+
+
+def post_preview(client, note_id, base=PREVIEW_BASE, branch="", pr_number=0, host=None, note=None, commit=""):
+    """Record the running preview on one pin (POST /cli/preview/{id}). The pin
+    is read first for its URL (and its PR number when none is given). `commit`
+    is the branch HEAD the preview runs - the server drops an Accept given on
+    an older commit. Returns (note, body sent)."""
+    if not str(base or "").startswith(LOCAL_PREFIXES):
+        raise common.ConfigError("The preview URL must be local (http://localhost:<port> or http://127.0.0.1:<port>), not " + str(base))
+    if note is None:
+        note = client.get("/" + note_id) or {}
+    pr = int(pr_number or 0) or int(_num(_g(note, "prNumber", "pr_number", default=0)))
+    body = {
+        "url": preview_url(base, note),
+        "branch": branch or str(_g(note, "branch", default="") or ""),
+        "prNumber": pr,
+        "host": host or socket.gethostname(),
+    }
+    if commit:
+        body["commit"] = str(commit)
+    return client.post("/cli/preview/" + note_id, body) or {}, body
+
+
+def pr_arg(value):
+    """A PR number from '812' or a PR URL; 0 when blank."""
+    if value in (None, ""):
+        return 0
+    text = str(value).strip().lstrip("#")
+    if text.isdigit():
+        return int(text)
+    n = pr_number_from_url(text)
+    if not n:
+        raise common.ConfigError("--pr takes a PR number or a PR URL, not " + str(value))
+    return n
+
+
+def cmd_preview(client, args):
+    ids = list(dict.fromkeys(args.ids))
+    pr = pr_arg(args.pr)
+    commit = (args.commit or "").strip() or branch_commit(args.branch)
+    if not commit:
+        common.eprint("Warning: could not resolve " + args.branch + " to a commit - pass --commit <sha>")
+    failed = 0
+    for note_id in ids:
+        try:
+            note, body = post_preview(client, note_id, args.url, args.branch, pr, args.host, commit=commit)
+        except common.ApiError as exc:
+            if exc.status in (401, 403) or exc.status == 0:
+                raise
+            failed += 1
+            common.eprint("Preview not recorded on pin " + note_id + " - " + str(exc.detail or exc.message))
+            continue
+        print("Pin #" + str(_g(note, "number", default="?")) + " Ready To Check: " + body["url"])
+    return 1 if failed else 0
 
 
 # --------------------------------------------------------------------------
@@ -849,6 +1227,21 @@ def build_parser():
     p.add_argument("--before-image", help="screenshot before the fix (png/jpg/webp)")
     p.add_argument("--after-image", help="screenshot after the fix (png/jpg/webp)")
     p.set_defaults(func=cmd_verify)
+
+    p = sub.add_parser("owners", help="who owns these files; --check exits 3 when the changes touch another developer's area")
+    p.add_argument("paths", nargs="*", help="files to look up (default with --check: this branch's changes)")
+    p.add_argument("--check", action="store_true", help="exit 3 and list the files owned by someone else")
+    p.add_argument("--me", help="your email (default: whoami's)")
+    p.set_defaults(func=cmd_owners, token_optional=True)
+
+    p = sub.add_parser("preview", help="record the running local preview on pins (Ready To Check)")
+    p.add_argument("ids", nargs="+")
+    p.add_argument("--branch", required=True)
+    p.add_argument("--pr", help="PR number or URL (default: the pin's own)")
+    p.add_argument("--url", default=PREVIEW_BASE, help="preview base URL (default " + PREVIEW_BASE + "); the pin's path is appended")
+    p.add_argument("--host", help="this computer's name (default: socket.gethostname())")
+    p.add_argument("--commit", help="the sha the preview runs (default: git rev-parse origin/<branch>, else <branch>)")
+    p.set_defaults(func=cmd_preview)
     return parser
 
 
@@ -856,7 +1249,14 @@ def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        client = common.make_client(args.api, args.token)
+        try:
+            client = common.make_client(args.api, args.token)
+        except common.ConfigError:
+            # `owners` reads backend/code_owners.py and needs a token only for
+            # the API fallback and whoami.
+            if not getattr(args, "token_optional", False):
+                raise
+            client = None
         return args.func(client, args)
     except common.ConfigError as exc:
         common.eprint(str(exc))
