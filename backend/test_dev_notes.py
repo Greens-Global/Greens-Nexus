@@ -647,3 +647,29 @@ def test_illegal_transitions_are_409():
     assert r.status_code == 409
     # a missing pin is 404
     assert client.get("/dev-notes/nope").status_code == 404
+
+
+def test_session_title_from_client_names_only_a_new_session():
+    a = _create(sessionTitle="Build Session 10/24/2026 9:15 AM")
+    b = _create(sessionTitle="Something Else")      # joins a's session - the title stays
+    assert a["sessionId"] == b["sessionId"]
+    s = client.get("/dev-notes/sessions").json()[0]
+    assert s["title"] == "Build Session 10/24/2026 9:15 AM"
+
+
+def test_reclaim_does_not_stack_picked_up_entries():
+    token = _token()["token"]
+    n = _create()
+    _dispatch()
+    for _ in range(3):
+        r = client.post("/dev-notes/cli/claim", json={"noteIds": [n["id"]]}, headers=_hdr(token))
+        assert r.status_code == 200, r.text
+    thread = client.get(f"/dev-notes/{n['id']}").json()["thread"]
+    picked = [e for e in thread if e["kind"] == "progress" and e["text"] == "Picked up by Claude Code"]
+    assert len(picked) == 1
+    # an answer in between needs a fresh entry so the pin leaves the wait set again
+    client.post(f"/dev-notes/cli/reply/{n['id']}", json={"text": "Which one?", "needsInput": True}, headers=_hdr(token))
+    client.post(f"/dev-notes/{n['id']}/thread", json={"text": "The left one."})
+    assert any(x["id"] == n["id"] for x in client.get("/dev-notes/cli/wait?timeout=0", headers=_hdr(token)).json()["notes"])
+    client.post("/dev-notes/cli/claim", json={"noteIds": [n["id"]]}, headers=_hdr(token))
+    assert client.get("/dev-notes/cli/wait?timeout=0", headers=_hdr(token)).json()["notes"] == []

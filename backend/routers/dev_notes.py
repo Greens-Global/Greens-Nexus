@@ -457,7 +457,11 @@ def _auto_title() -> str:
     return f"Build Session {now.strftime('%m/%d/%Y')} {now.strftime('%I:%M %p').lstrip('0')}"
 
 
-def _collecting_session(db: Session, email: str, create: bool = True) -> Optional[DevNoteSession]:
+def _collecting_session(db: Session, email: str, create: bool = True,
+                        title: str = "") -> Optional[DevNoteSession]:
+    """The author's one collecting session, created on the first pin. `title`
+    (the browser's "Build Session MM/DD/YYYY h:mm AM" in the author's local
+    time) names a NEW session only - the server clock is UTC."""
     email = email.lower()
     s = (db.query(DevNoteSession)
          .filter(DevNoteSession.created_by == email, DevNoteSession.status == "collecting")
@@ -466,7 +470,7 @@ def _collecting_session(db: Session, email: str, create: bool = True) -> Optiona
     if s or not create:
         return s
     now = _now()
-    s = DevNoteSession(id=str(uuid.uuid4()), title=_auto_title(), status="collecting",
+    s = DevNoteSession(id=str(uuid.uuid4()), title=(title or "").strip()[:120] or _auto_title(), status="collecting",
                        created_by=email, created_at=now, updated_at=now, note_count=0)
     db.add(s)
     db.flush()
@@ -599,7 +603,7 @@ def create_note(body: dict, user: dict = Depends(require_build_mode), db: Sessio
     if (fields.get("route") or "") in BLOCKED_ROUTES:
         raise HTTPException(400, "Build Mode is off on this screen")
     settings = _settings(db, email)
-    s = _collecting_session(db, email)
+    s = _collecting_session(db, email, title=str(_get(body, "sessionTitle", "") or ""))
     top = db.query(func.max(DevNote.number)).filter(DevNote.session_id == s.id).scalar() or 0
     now = _now()
     n = DevNote(id=str(uuid.uuid4()), session_id=s.id, number=int(top) + 1, status="open",
@@ -1035,7 +1039,12 @@ def cli_claim(body: dict, user: dict = Depends(require_build_mode_or_token), db:
         n.progress = "Picked up by Claude Code"
         n.progress_at = now
         n.updated_at = now
-        _append(n, _entry("claude", "progress", n.progress))
+        # The entry is what takes the pin out of the wait set (the last entry
+        # is no longer the author's comment) - one is enough; a re-claim right
+        # after another must not stack them.
+        last = (n.thread or [{}])[-1]
+        if not (last.get("kind") == "progress" and last.get("text") == n.progress):
+            _append(n, _entry("claude", "progress", n.progress))
         s = _session(db, n.session_id)
         if s and s not in touched:
             touched.append(s)
