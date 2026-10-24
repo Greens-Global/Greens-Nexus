@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from tools.build_notes import cli, common, watch
+from tools.build_notes import cli, common, repro_template, watch
 
 GOOD_TOKEN = "nxbn_" + "a" * 43
 REVOKED_TOKEN = "nxbn_" + "r" * 43
@@ -60,7 +60,15 @@ def sample_note(base, note_id=NOTE_ID, number=3, with_media=True):
             "html": "<button class=\"secondary-btn\">Mark all read</button>",
             "components": ["TasksHome", "UpdatesCard", "UpdateRow"],
             "record": {"ids": ["t_8f21"], "keys": ["data-task-id"], "queryKeys": [["tasks", "home"]]},
+            "source": {"file": "tasks/home/UpdatesCard.jsx", "line": 142, "col": 7},
         },
+        "actions": [
+            {"t": "2026-10-24T16:03:50Z", "type": "nav", "label": "Tasks", "selector": "", "value": "", "view": "tasks", "sub": "home"},
+            {"t": "2026-10-24T16:03:55Z", "type": "input", "label": "Search tasks", "selector": "input.search", "value": "***", "view": "tasks", "sub": "home"},
+            {"t": "2026-10-24T16:03:58Z", "type": "click", "label": "Mark all read", "selector": "button.secondary-btn", "value": "", "view": "tasks", "sub": "home"},
+            {"t": "2026-10-24T16:03:59Z", "type": "key", "label": "", "selector": "", "value": "Escape", "view": "tasks", "sub": "home"},
+        ],
+        "state": {"props": {"unread": 3, "label": "Mark all read"}, "state": {"busy": False}},
         "markup": {
             "base": "page",
             "items": [
@@ -79,7 +87,11 @@ def sample_note(base, note_id=NOTE_ID, number=3, with_media=True):
         "transcript": "So this button here should be title case.",
         "attachments": [],
         "consoleLog": [{"level": "error", "text": "Warning: Each child in a list should have a key", "at": "2026-10-24T16:04:58Z"}],
-        "networkLog": [{"method": "GET", "path": "/tasks/home", "status": 200, "ms": 134, "at": "2026-10-24T16:04:57Z"}],
+        "networkLog": [
+            {"method": "GET", "path": "/tasks/home", "status": 200, "ms": 134, "at": "2026-10-24T16:04:57Z"},
+            {"method": "POST", "path": "/tasks/mark-read", "status": 500, "ms": 88, "at": "2026-10-24T16:04:59Z",
+             "requestBody": {"ids": ["t_8f21"]}, "responseBody": "Internal Server Error\nat mark_read"},
+        ],
         "dispatchTarget": "local",
         "dispatchedAt": "2026-10-24T16:06:00Z",
         "progress": "",
@@ -228,6 +240,11 @@ class FakeApi(BaseHTTPRequestHandler):
         m = re.match(r"^/dev-notes/cli/attach/([^/]+)$", path)
         if m:
             return self._json(200, {"url": "https://x.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/" + m.group(1) + "/after-1.png"})
+        m = re.match(r"^/dev-notes/cli/verify/([^/]+)$", path)
+        if m:
+            n = sample_note(base, m.group(1), with_media=False)
+            n["evidence"] = body
+            return self._json(200, n)
         if path == "/dev-notes/cli/complete":
             ids = body.get("noteIds") or []
             notes = [dict(sample_note(base, i, with_media=False), status="pr_open", prUrl=body.get("prUrl"), prNumber=body.get("prNumber")) for i in ids]
@@ -440,7 +457,12 @@ class BuildNotesToolsTest(unittest.TestCase):
         # Brief sections, in order.
         for marker in ("# Pin #3 - Bug - Blocking", "By neil@greensglobal.com on ", "Build Session: Tasks Home polish 10/24",
                        common.NEXUS_URL + "/dev-notes?pin=" + NOTE_ID,
+                       "Where: frontend/src/tasks/home/UpdatesCard.jsx:142:7",
                        "## Where", "- Route: tasks", "- Sub: home", "- Build: abc1234", "1440x900, @2x, desktop, light theme",
+                       "## Actions (last 4)", "1. ", "nav \"Tasks\" on tasks/home", "2. ", "input \"Search tasks\" (input.search) = \"***\"",
+                       "3. ", "click \"Mark all read\" (button.secondary-btn) on tasks/home", "4. ", "key = \"Escape\"",
+                       "## State", "```json", "\"unread\": 3",
+                       "POST /tasks/mark-read -> 500 88ms", "  request: {\"ids\": [\"t_8f21\"]}", "  response: Internal Server Error at mark_read",
                        "## Comment", "The Mark All Read button is lowercase",
                        "## Thread", "neil@greensglobal.com (comment): Also check the hover color.",
                        "## Target", "- Selector: `main > div.tasks-home", "- Tag: button.secondary-btn",
@@ -453,13 +475,13 @@ class BuildNotesToolsTest(unittest.TestCase):
                        "Text before: \"Mark all read\"", "Text after:  \"Mark All Read\"", "- padding: 8px 12px -> 12px 16px",
                        "## Transcript", "title case",
                        "## Console (last 1)", "[error]", "Each child in a list",
-                       "## Network (last 1)", "GET /tasks/home -> 200 134ms",
+                       "## Network (last 2)", "GET /tasks/home -> 200 134ms",
                        "## Files", "- Screenshot: " + str(folder / "screenshot.png"), "- Page shot: " + str(folder / "page.png"),
                        "- Contact sheet: " + str(folder / "sheet.png"), "- Video: " + str(folder / "video.webm"),
                        "- Attachment 1: " + str(folder / "attachment-1.png")):
             self.assertIn(marker, out, marker)
-        order = [out.index(h) for h in ("## Where", "## Comment", "## Thread", "## Target", "## Markup", "## Edit In Place",
-                                        "## Transcript", "## Console", "## Network", "## Files")]
+        order = [out.index(h) for h in ("Where: frontend/src/", "## Where", "## Comment", "## Thread", "## Target", "## Markup", "## Edit In Place",
+                                        "## Actions", "## State", "## Transcript", "## Console", "## Network", "## Files")]
         self.assertEqual(order, sorted(order))
         # Dates are US format, never ISO.
         self.assertNotIn("2026-10-24T", out.split("```html")[0])
@@ -506,6 +528,38 @@ class BuildNotesToolsTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.server.posts("/dev-notes/cli/progress/" + NOTE_ID)[0][2], {"text": "Reading pins"})
         self.assertIn("Pin #3 progress: Reading pins", out)
+        # Collapsed to one line of 300 chars, as the server keeps it.
+        long = "Found frontend/src/x.jsx\nand then " + "y" * 400
+        code, out, _ = run_cli(["--api", self.server.base, "progress", NOTE_ID, long])
+        sent = self.server.posts("/dev-notes/cli/progress/" + NOTE_ID)[1][2]["text"]
+        self.assertEqual(len(sent), 300)
+        self.assertNotIn("\n", sent)
+        self.assertTrue(sent.startswith("Found frontend/src/x.jsx and then yyy"))
+
+    def test_answered_pin_shows_the_answer_and_marker(self):
+        answered = sample_note(self.server.base, with_media=False)
+        answered["status"] = "needs_input"
+        answered["thread"] = [
+            {"id": "t1", "by": "claude", "at": "2026-10-24T16:10:00Z", "kind": "claude", "text": "Which button?"},
+            {"id": "t2", "by": "neil@greensglobal.com", "at": "2026-10-24T16:12:00Z", "kind": "comment", "text": "The one in the Updates card."},
+        ]
+        self.assertEqual(cli.latest_human_answer(answered["thread"])[2], "The one in the Updates card.")
+        self.assertIsNone(cli.latest_human_answer(answered["thread"][:1]))
+        self.assertIsNone(cli.latest_human_answer([{"by": "neil@greensglobal.com", "kind": "progress", "text": "x"}]))
+        brief = cli.render_brief(answered, [])
+        self.assertIn("Author's latest answer (neil@greensglobal.com, ", brief)
+        self.assertIn("): The one in the Updates card.", brief)
+        self.assertLess(brief.index("Author's latest answer"), brief.index("## Where"))
+        self.assertNotIn("Author's latest answer", cli.render_brief(sample_note(self.server.base, with_media=False), []))
+        lines = watch.describe_batch([answered, sample_note(self.server.base, NOTE_ID_2, 4, with_media=False)], [])
+        self.assertIn("Pin #3 - Bug - Blocking (answered) - tasks/home", lines[0])
+        self.assertNotIn("(answered)", lines[1])
+
+    def test_error_hints(self):
+        self.assertIn("claim it first", common._friendly(409, "not building", "POST", "/cli/complete"))
+        self.assertIn("over 8 MB", common._friendly(413, None, "POST", "/cli/attach/x"))
+        self.assertIn("storage is not configured", common._friendly(503, None, "POST", "/cli/attach/x"))
+        self.assertEqual(common._friendly(400, "prUrl missing", "POST", "/cli/complete"), "API error 400 on POST /cli/complete: prUrl missing")
 
     def test_reply_needs_input(self):
         code, out, _ = run_cli(["--api", self.server.base, "reply", NOTE_ID, "Which button do you mean?", "--needs-input"])
@@ -578,9 +632,118 @@ class BuildNotesToolsTest(unittest.TestCase):
         self.assertIn("--pr-number", err)
         self.assertEqual(cli.pr_number_from_url("https://github.com/o/r/pull/77/files"), 77)
 
+    # -- evidence: verify / repro template ----------------------------------------------------
+
+    def test_list_prints_where_line(self):
+        code, out, _ = run_cli(["--api", self.server.base, "list"])
+        self.assertEqual(code, 0)
+        self.assertIn("      Where: frontend/src/tasks/home/UpdatesCard.jsx:142", out)
+
+    def test_source_location_normalizes_paths(self):
+        self.assertEqual(cli.source_location({"source": {"file": "tasks/Tasks.jsx", "line": 10, "col": 3}}), "frontend/src/tasks/Tasks.jsx:10")
+        self.assertEqual(cli.source_location({"source": {"file": "./src/views/HR.jsx", "line": 5, "col": 2}}, with_col=True), "frontend/src/views/HR.jsx:5:2")
+        self.assertEqual(cli.source_location({"source": {"file": "frontend/src/App.jsx"}}), "frontend/src/App.jsx")
+        self.assertEqual(cli.source_location({"source": {}}), "")
+        self.assertEqual(cli.source_location({}), "")
+
+    def test_verify_repro_posts_script_and_results(self):
+        script = Path(self.tmp.name) / "repro.py"
+        script.write_text("print('hi')\n")
+        code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--repro-script", str(script),
+                                  "--before", "failing", "--after", "passing"])
+        self.assertEqual(code, 0, err)
+        body = self.server.posts("/dev-notes/cli/verify/" + NOTE_ID)[0][2]
+        self.assertEqual(body, {"repro": {"script": "print('hi')\n", "before": "failing", "after": "passing"}})
+        self.assertIn("evidence recorded: repro failing -> passing", out)
+
+    def test_verify_style_json_and_images(self):
+        style = Path(self.tmp.name) / "style.json"
+        style.write_text(json.dumps({"checks": [
+            {"prop": "padding", "expected": "12px 16px", "actual": "12px 16px", "ok": True},
+            {"prop": "color", "expected": "rgb(17, 24, 39)", "actual": "rgb(107, 114, 128)", "ok": False},
+        ]}))
+        before = Path(self.tmp.name) / "before.png"
+        after = Path(self.tmp.name) / "after.png"
+        before.write_bytes(PNG)
+        after.write_bytes(PNG)
+        code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--style-json", str(style),
+                                  "--before-image", str(before), "--after-image", str(after), "--before", "skipped", "--after", "skipped"])
+        self.assertEqual(code, 0, err)
+        attaches = self.server.posts("/dev-notes/cli/attach/" + NOTE_ID)
+        self.assertEqual(len(attaches), 2)
+        self.assertIn(b'name="kind"\r\n\r\nafter\r\n', attaches[0][2]["_multipart"])
+        body = self.server.posts("/dev-notes/cli/verify/" + NOTE_ID)[0][2]
+        self.assertEqual(body["repro"], {"script": "", "before": "skipped", "after": "skipped"})
+        self.assertEqual(body["styleCheck"]["passed"], False)   # derived when the file leaves it out
+        self.assertEqual(len(body["styleCheck"]["checks"]), 2)
+        self.assertTrue(body["visual"]["beforeUrl"].endswith("/after-1.png"))
+        self.assertTrue(body["visual"]["afterUrl"].endswith("/after-1.png"))
+        self.assertIn("style check 1/2", out)
+        self.assertIn("before/after attached", out)
+
+    def test_verify_argument_rules(self):
+        code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID])
+        self.assertEqual(code, 2)
+        self.assertIn("at least one of", err)
+        script = Path(self.tmp.name) / "r.py"
+        script.write_text("x = 1\n")
+        code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--repro-script", str(script), "--before", "failing"])
+        self.assertEqual(code, 2)
+        self.assertIn("--before and --after", err)
+        code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--before-image", str(script)])
+        self.assertEqual(code, 2)
+        self.assertIn("both --before-image and --after-image", err)
+        bad = Path(self.tmp.name) / "bad.json"
+        bad.write_text("[1, 2]")
+        code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--style-json", str(bad)])
+        self.assertEqual(code, 2)
+        self.assertIn("checks", err)
+        self.assertEqual(self.server.posts("/dev-notes/cli/verify/"), [])
+
+    def test_repro_template_builds_a_runnable_skeleton(self):
+        pin = sample_note("http://x", with_media=False)
+        script = repro_template.script_from_pin(pin, base="http://localhost:5173")
+        compile(script, "repro.py", "exec")   # valid Python
+        self.assertIn('BASE = "http://localhost:5173"', script)
+        self.assertIn('ROUTE = "/tasks/home"', script)
+        self.assertIn('VIEWPORT = {"width": 1440, "height": 900}', script)
+        self.assertIn("Repro for Pin #3 - The Mark All Read button", script)
+        self.assertIn("Source stamp: tasks/home/UpdatesCard.jsx:142", script)
+        # nav -> goto with the alias-aware path; masked input -> TODO; click by label with the selector as a comment; key press.
+        self.assertIn('page.goto(BASE + "/tasks/home")', script)
+        self.assertIn("(value was masked at capture)", script)
+        self.assertIn('page.get_by_label("Search tasks").or_(page.get_by_placeholder("Search tasks")).first.fill("TODO: the value typed here")', script)
+        self.assertIn('# or: page.locator("input.search").first', script)
+        self.assertIn('page.get_by_text("Mark all read", exact=True).first.click()', script)
+        self.assertIn('# or: page.locator("button.secondary-btn").first', script)
+        # The generated script's non-comment lines must not hide a call behind a comment.
+        self.assertFalse([ln for ln in script.splitlines() if "  # or" in ln and not ln.strip().startswith("#")])
+        self.assertIn('page.keyboard.press("Escape")', script)
+        self.assertIn('target = page.locator("main > div.tasks-home > section:nth-of-type(2) > button.secondary-btn").first', script)
+        self.assertIn("TODO: assert the pin's complaint", script)
+        self.assertIn('print("FAILING: "', script)
+        self.assertIn('print("PASSING")', script)
+        # A bare actions list works too, and the CLI writes a file.
+        bare = repro_template.script_from_pin([{"type": "click", "selector": "#go"}, {"type": "scroll", "value": 250}, {"type": "nav", "view": "myhr", "sub": "timesheet"}])
+        compile(bare, "bare.py", "exec")
+        self.assertIn('page.locator("#go").first.click()', bare)
+        self.assertIn("page.mouse.wheel(0, 250)", bare)
+        self.assertIn('page.goto(BASE + "/workday/timesheet")', bare)
+        src = Path(self.tmp.name) / "pin.json"
+        src.write_text(json.dumps(pin))
+        dest = Path(self.tmp.name) / "repro_pin_3.py"
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = repro_template.main([str(src), "--out", str(dest), "--base", "http://localhost:4173"])
+        self.assertEqual(code, 0)
+        self.assertIn('BASE = "http://localhost:4173"', dest.read_text())
+        self.assertEqual(repro_template.route_path("dashboard"), "/")
+        self.assertEqual(repro_template.route_path("dashboard", "links"), "/links")
+        self.assertEqual(repro_template.route_path("inventory", "items"), "/itemmanagement/items")
+
     def test_no_em_dashes_in_tool_output(self):
         here = Path(__file__).resolve().parent
-        for name in ("common.py", "cli.py", "watch.py", "watch.sh", "README.md"):
+        for name in ("common.py", "cli.py", "watch.py", "watch.sh", "README.md", "repro_template.py"):
             text = (here / name).read_text(encoding="utf-8")
             self.assertNotIn(chr(0x2014), text, name + " contains an em dash")
         skill = here.parents[1] / ".claude" / "skills" / "build-notes" / "SKILL.md"

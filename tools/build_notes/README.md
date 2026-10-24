@@ -105,8 +105,10 @@ python3 tools/build_notes/cli.py list [--status dispatched] [--route tasks] [--m
 python3 tools/build_notes/cli.py claim <id>... [--out DIR] [--no-download]
 python3 tools/build_notes/cli.py progress <id> "Reading pins"
 python3 tools/build_notes/cli.py reply <id> "text" [--needs-input | --answered] [--image PATH]
+python3 tools/build_notes/cli.py verify <id> [--repro-script PATH --before failing|passing|skipped --after failing|passing|skipped] [--style-json PATH] [--before-image PATH --after-image PATH]
 python3 tools/build_notes/cli.py after <id> --image PATH
 python3 tools/build_notes/cli.py complete <id>... --pr URL --branch NAME [--summary "..."]
+python3 tools/build_notes/repro_template.py <pin.json> [--base http://localhost:5173] [--out repro_pin_<n>.py]
 ```
 
 `--api` and `--token` go before the subcommand.
@@ -114,12 +116,30 @@ python3 tools/build_notes/cli.py complete <id>... --pr URL --branch NAME [--summ
 - `claim` moves the pins to Building, downloads every media file (screenshot,
   page shot, contact sheet, video, pasted attachments, after shots) into
   `~/.cache/nexus-build-notes/<id>/` (`--out DIR` to change it) and prints one
-  markdown brief per pin: header, author and date, route / sub / URL / build,
-  viewport, comment, thread, target (selector, tag, text, headings, breadcrumb,
-  components, record ids, HTML), the markup in words ("red rectangle around
-  the target"), the Edit In Place diff, transcript, console (last 50), network
-  (last 30) and the local file paths. The brief is also saved as `brief.md`
-  next to the files, with the raw `pin.json`.
+  markdown brief per pin: header, author and date, the **Where** line
+  (`frontend/src/<file>:<line>:<col>` from the build-time source stamp when
+  the pin has one), route / sub / URL / build, viewport, comment, thread,
+  target (selector, tag, text, headings, breadcrumb, components, record ids,
+  HTML), the markup in words ("red rectangle around the target"), the Edit In
+  Place diff, the author's last actions as a numbered trace, the element's
+  React props/state as JSON, transcript, console (last 50), network (last 30,
+  with request and response bodies) and the local file paths. The brief is
+  also saved as `brief.md` next to the files, with the raw `pin.json`.
+- `list` prints a `Where:` line under each pin that has a source stamp.
+- `verify` records the evidence that a fix is right (Neil: proof must come
+  from something other than Claude or Neil): a repro script with its result
+  on dev code (`--before`) and on the branch (`--after`), a computed-style
+  check (`--style-json`, `{"passed": bool, "checks": [{"prop", "expected",
+  "actual", "ok"}]}`; `passed` is derived when missing), and/or before/after
+  screenshots (uploaded through `attach` with kind `after`). Use
+  `--before skipped --after skipped` when a repro was not possible.
+- `repro_template.py` turns a pin's action trace (`pin.json` from `claim`,
+  or a bare JSON list) into a Playwright Python script skeleton: it replays
+  the clicks, inputs, keys and navigations against the local dev server
+  (masked inputs become `TODO`s) and leaves one `TODO` assertion for the
+  pin's complaint. The finished script exits 0 (`PASSING`) or 1 (`FAILING`).
+  It needs `pip install playwright` and `playwright install chromium` where
+  it runs; the generator itself is standard library.
 - `progress` is one line the author sees on the pin.
 - `reply` adds a thread entry as Claude; `--needs-input` parks the pin in Needs
   Input and rings the author's bell, `--answered` closes a Question pin;
@@ -147,6 +167,11 @@ or missing token.
   (Send To Claude Code in the Build Mode panel, or Send Instantly on). Pins
   already Building were claimed by another terminal; `list --status building`
   shows them.
+- **A pin I already worked came back** - the author answered a question on it
+  (a Needs Input or Building pin whose newest thread entry is a person's
+  comment). The watcher hands it over again marked "(answered)"; `claim` is
+  idempotent, prints the answer right under the brief's header, and the
+  pick-up note it adds takes the pin out of the wait set.
 - **"The `claude` command is not on PATH"** - install Claude Code, or run
   `--no-claude` and paste the printed command into a Claude Code session.
 - **A pin came back after Claude exited** - the watcher only hands over pins

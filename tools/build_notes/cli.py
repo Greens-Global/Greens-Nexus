@@ -9,6 +9,8 @@ to work a Build Session's pins.
     python3 tools/build_notes/cli.py reply <id> "text" [--needs-input] [--answered] [--image PATH]
     python3 tools/build_notes/cli.py after <id> --image PATH
     python3 tools/build_notes/cli.py complete <id> [<id> ...] --pr URL --branch NAME [--summary "..."]
+    python3 tools/build_notes/cli.py verify <id> [--repro-script PATH --before failing --after passing]
+                                               [--style-json PATH] [--before-image PATH --after-image PATH]
 
 Global flags (before the subcommand): --api URL, --token TOKEN.
 `claim` downloads every media file into ~/.cache/nexus-build-notes/<id>/ and
@@ -57,6 +59,10 @@ MEDIA_FILES = (
 )
 CONSOLE_LIMIT = 50
 NETWORK_LIMIT = 30
+ACTIONS_LIMIT = 30
+PROGRESS_LIMIT = 300   # the server keeps one line of this many chars
+BODY_LIMIT = 1200      # chars of a request / response body shown per network entry
+STATE_LIMIT = 8000     # chars of the React state snapshot shown
 
 
 # --------------------------------------------------------------------------
@@ -208,6 +214,76 @@ def _trim(text, limit):
 # Brief
 # --------------------------------------------------------------------------
 
+def source_location(target, with_col=False):
+    """'frontend/src/tasks/TasksHome.jsx:142' from target.source = {file, line, col}
+    (the build-time stamp); '' when the pin has none."""
+    src = (target or {}).get("source") if isinstance(target, dict) else None
+    if not isinstance(src, dict) or not src.get("file"):
+        return ""
+    file = str(src.get("file")).replace("\\", "/")
+    while file.startswith("./"):
+        file = file[2:]
+    file = file.lstrip("/")
+    if file.startswith("frontend/"):
+        pass
+    elif file.startswith("src/"):
+        file = "frontend/" + file
+    else:
+        file = "frontend/src/" + file
+    loc = file
+    if src.get("line") not in (None, "", 0):
+        loc += ":" + str(src.get("line"))
+        if with_col and src.get("col") not in (None, "", 0):
+            loc += ":" + str(src.get("col"))
+    return loc
+
+
+def _body_text(value, limit=BODY_LIMIT):
+    if value is None or value == "":
+        return ""
+    if isinstance(value, (dict, list)):
+        text = json.dumps(value, separators=(", ", ": "))
+    else:
+        text = str(value)
+    return _trim(text.replace("\n", " "), limit)
+
+
+def describe_actions(actions):
+    """The last user actions as a numbered trace."""
+    out = []
+    acts = [a for a in (actions or []) if isinstance(a, dict)][-ACTIONS_LIMIT:]
+    for i, a in enumerate(acts, 1):
+        t = str(a.get("type") or "action")
+        label = a.get("label")
+        selector = a.get("selector")
+        where = ""
+        if a.get("view"):
+            where = str(a.get("view")) + ("/" + str(a.get("sub")) if a.get("sub") else "")
+        line = str(i) + ". " + (common.us_time(a.get("t")) + " " if a.get("t") else "") + t
+        if label:
+            line += " " + json.dumps(str(label))
+        if selector:
+            line += " (" + str(selector) + ")"
+        if a.get("value") not in (None, ""):
+            line += " = " + json.dumps(str(a.get("value")))
+        if where:
+            line += " on " + where
+        out.append(line)
+    return out
+
+
+def latest_human_answer(thread):
+    """(by, at, text) when the thread's LAST entry is a person's comment - the
+    author answered a question and the pin came back through the watcher."""
+    entries = [e for e in (thread or []) if isinstance(e, dict)]
+    if not entries:
+        return None
+    last = entries[-1]
+    if str(last.get("kind") or "comment") != "comment" or str(last.get("by") or "").lower() == "claude":
+        return None
+    return (str(last.get("by") or "author"), str(last.get("at") or ""), str(last.get("text") or "").strip())
+
+
 def render_brief(note, files, session_title=None):
     """One markdown brief for a pin. `files` maps label -> local path."""
     n = note
@@ -223,6 +299,18 @@ def render_brief(note, files, session_title=None):
     if sess or sess_id:
         lines.append("Build Session: " + str(sess or sess_id) + ((" (" + str(sess_id) + ")") if sess and sess_id else ""))
     lines.append("Nexus: " + common.pin_link(_g(n, "id", default="")))
+    tgt = _g(n, "target", default={}) or {}
+    where = source_location(tgt, with_col=True)
+    if where:
+        lines.append("Where: " + where + "  (build-time source stamp - open this file first)")
+    else:
+        lines.append("Where: no source stamp - locate by text, headings and components below")
+    # Only a pin that came back through the watcher (needs_input / building
+    # with a fresh human comment) carries an answer; a dispatched pin's own
+    # comments are just its thread.
+    answer = latest_human_answer(_g(n, "thread", default=[]) or []) if str(_g(n, "status", default="")) in ("needs_input", "building") else None
+    if answer:
+        lines.append("Author's latest answer (" + answer[0] + ", " + common.us_datetime(answer[1]) + "): " + answer[2])
     lines.append("")
 
     lines.append("## Where")
@@ -267,7 +355,6 @@ def render_brief(note, files, session_title=None):
             lines.append(entry)
         lines.append("")
 
-    tgt = _g(n, "target", default={}) or {}
     lines.append("## Target")
     if tgt:
         if tgt.get("mode"):
@@ -327,6 +414,21 @@ def render_brief(note, files, session_title=None):
         lines.extend(edit_lines)
         lines.append("")
 
+    action_lines = describe_actions(_g(n, "actions", default=[]) or [])
+    if action_lines:
+        lines.append("## Actions (last " + str(len(action_lines)) + ")")
+        lines.extend(action_lines)
+        lines.append("")
+
+    state = _g(n, "state", default=None)
+    if state not in (None, "", {}, []):
+        lines.append("## State")
+        text = json.dumps(state, indent=2, sort_keys=True) if isinstance(state, (dict, list)) else str(state)
+        if len(text) > STATE_LIMIT:
+            text = text[:STATE_LIMIT] + "\n... (truncated, full snapshot in pin.json)"
+        lines.extend(_code_block(text, "json"))
+        lines.append("")
+
     transcript = _g(n, "transcript", default="")
     if transcript:
         lines.append("## Transcript")
@@ -352,6 +454,12 @@ def render_brief(note, files, session_title=None):
                              + str(e.get("status") if e.get("status") is not None else "?")
                              + (" " + str(int(_num(e.get("ms")))) + "ms" if e.get("ms") is not None else "")
                              + (" at " + common.us_time(e.get("at")) if e.get("at") else ""))
+                req = _body_text(e.get("requestBody", e.get("request_body")))
+                res = _body_text(e.get("responseBody", e.get("response_body")))
+                if req:
+                    lines.append("  request: " + req)
+                if res:
+                    lines.append("  response: " + res)
             else:
                 lines.append("- " + _trim(e, 300))
         lines.append("")
@@ -398,6 +506,9 @@ def _print_list(notes, sessions=None):
         comment = _trim(str(_g(n, "comment", default="") or "").replace("\n", " "), 120)
         if comment:
             print("      " + comment)
+        where = source_location(_g(n, "target", default={}) or {})
+        if where:
+            print("      Where: " + where)
 
 
 def cmd_list(client, args):
@@ -494,8 +605,10 @@ def cmd_progress(client, args):
     if not text:
         common.eprint("progress needs a one-line text")
         return 2
-    note = client.post("/cli/progress/" + args.id, {"text": text.splitlines()[0]}) or {}
-    print("Pin #" + str(_g(note, "number", default="?")) + " progress: " + text.splitlines()[0])
+    # The server keeps one line of 300 chars; send exactly that.
+    line = " ".join(text.split())[:PROGRESS_LIMIT]
+    note = client.post("/cli/progress/" + args.id, {"text": line}) or {}
+    print("Pin #" + str(_g(note, "number", default="?")) + " progress: " + line)
     return 0
 
 
@@ -560,6 +673,63 @@ def cmd_complete(client, args):
     return 0
 
 
+VERIFY_STATES = ("failing", "passing", "skipped")
+
+
+def cmd_verify(client, args):
+    """Record the evidence that a fix is right: a repro script with its
+    before/after result, a computed-style check, before/after screenshots."""
+    body = {}
+    if args.repro_script or args.before or args.after:
+        if args.repro_script and not (args.before and args.after):
+            common.eprint("verify --repro-script needs --before and --after (failing | passing | skipped)")
+            return 2
+        script = ""
+        if args.repro_script:
+            path = Path(args.repro_script).expanduser()
+            if not path.is_file():
+                raise common.ConfigError("Repro script not found: " + str(path))
+            script = path.read_text(encoding="utf-8", errors="replace")
+        body["repro"] = {"script": script, "before": args.before or "skipped", "after": args.after or "skipped"}
+    if args.style_json:
+        path = Path(args.style_json).expanduser()
+        if not path.is_file():
+            raise common.ConfigError("Style check JSON not found: " + str(path))
+        try:
+            style = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            raise common.ConfigError("Style check JSON does not parse (" + str(exc) + "): " + str(path))
+        if not isinstance(style, dict) or "checks" not in style:
+            raise common.ConfigError('Style check JSON must be {"passed": bool, "checks": [{prop, expected, actual, ok}]}')
+        checks = style.get("checks") or []
+        if "passed" not in style:
+            style["passed"] = all(bool(c.get("ok")) for c in checks if isinstance(c, dict))
+        body["styleCheck"] = style
+    if args.before_image or args.after_image:
+        if not (args.before_image and args.after_image):
+            common.eprint("verify needs both --before-image and --after-image")
+            return 2
+        body["visual"] = {
+            "beforeUrl": _attach(client, args.id, args.before_image, "after"),
+            "afterUrl": _attach(client, args.id, args.after_image, "after"),
+        }
+    if not body:
+        common.eprint("verify needs at least one of --repro-script/--before/--after, --style-json, --before-image/--after-image")
+        return 2
+    note = client.post("/cli/verify/" + args.id, body) or {}
+    bits = []
+    if "repro" in body:
+        bits.append("repro " + body["repro"]["before"] + " -> " + body["repro"]["after"])
+    if "styleCheck" in body:
+        checks = body["styleCheck"].get("checks") or []
+        ok = sum(1 for c in checks if isinstance(c, dict) and c.get("ok"))
+        bits.append("style check " + str(ok) + "/" + str(len(checks)))
+    if "visual" in body:
+        bits.append("before/after attached")
+    print("Pin #" + str(_g(note, "number", default="?")) + " evidence recorded: " + ", ".join(bits))
+    return 0
+
+
 # --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
@@ -611,6 +781,16 @@ def build_parser():
     p.add_argument("--summary")
     p.add_argument("--pr-number", type=int, help="override the number read from the URL")
     p.set_defaults(func=cmd_complete)
+
+    p = sub.add_parser("verify", help="record the evidence that the fix is right")
+    p.add_argument("id")
+    p.add_argument("--repro-script", help="the Playwright repro script file (its contents are stored)")
+    p.add_argument("--before", choices=VERIFY_STATES, help="repro result on origin/dev code")
+    p.add_argument("--after", choices=VERIFY_STATES, help="repro result on the branch")
+    p.add_argument("--style-json", help='{"passed": bool, "checks": [{"prop", "expected", "actual", "ok"}]} file')
+    p.add_argument("--before-image", help="screenshot before the fix (png/jpg/webp)")
+    p.add_argument("--after-image", help="screenshot after the fix (png/jpg/webp)")
+    p.set_defaults(func=cmd_verify)
     return parser
 
 

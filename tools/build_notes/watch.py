@@ -60,6 +60,10 @@ def describe_batch(notes, sessions):
         where = route + ("/" + sub if sub else "")
         sess = titles.get(n.get("sessionId") or n.get("session_id"))
         line = "  Pin #" + str(n.get("number") or "?") + " - " + kind + " - " + prio
+        # A pin that is not freshly dispatched came back because the author
+        # answered a question on it (needs_input / building with a new comment).
+        if str(n.get("status") or "dispatched") != "dispatched":
+            line += " (answered)"
         if where:
             line += " - " + where
         if who:

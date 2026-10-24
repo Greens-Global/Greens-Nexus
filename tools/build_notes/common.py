@@ -105,7 +105,14 @@ def _friendly(status, detail, method, path):
         return NOT_ENABLED_MESSAGE
     text = detail if isinstance(detail, str) and detail else json.dumps(detail) if detail else ""
     base = "API error " + str(status) + " on " + method + " " + path
-    return base + (": " + text if text else "")
+    hint = ""
+    if status == 409:
+        hint = " - the pin is not being built (claim it first, or it was dismissed / completed already)"
+    elif status == 413:
+        hint = " - the image is over 8 MB"
+    elif status == 503:
+        hint = " - file storage is not configured on this API"
+    return base + (": " + text if text else "") + hint
 
 
 def _detail_from(body_bytes):
