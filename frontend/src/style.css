@@ -6825,9 +6825,18 @@ body:has(.nx-finish-bar) { overflow-x: clip; }
 .bm-pin-inline:hover { transform: none; }
 .bm-pin-ring { position: fixed; z-index: 5939; pointer-events: none; border: 2px solid var(--c); border-radius: 6px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 18%, transparent); box-sizing: border-box; }
 
-/* cards: composer, thread, edit panel */
-.bm-card { position: fixed; z-index: 5950; width: 400px; max-width: calc(100vw - 16px); max-height: min(78vh, 760px); display: flex; flex-direction: column; background: var(--card); color: var(--ink);
+/* cards: composer, thread, edit panel.
+   These are anchored popovers - a comment card sitting on the element it is
+   about, like a review comment on a line of code - not modals, so the 60vw
+   popup rule does not apply: a 60vw box would hide the very element being
+   discussed. They size to their content (the body grows, then scrolls) up to
+   480px wide. The one exception is a thread whose element is gone: nothing
+   to anchor to, so it opens as a proper centered sheet (.bm-thread.is-sheet
+   inside .bm-sheet-overlay, the 60vw / 60vh / 85vh rule). */
+.bm-card { position: fixed; z-index: 5950; width: min(480px, calc(100vw - 32px)); max-height: min(78vh, 760px); display: flex; flex-direction: column; background: var(--card); color: var(--ink);
   border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 24px 70px rgba(17,24,39,.3); font-family: 'Inter', sans-serif; font-size: 13px; }
+.bm-sheet-overlay .bm-thread.is-sheet { position: static; width: 60vw; min-width: min(420px, 100%); max-width: 100%; min-height: 60vh; max-height: 85vh; border-radius: 16px; }
+.bm-sheet-overlay .bm-thread.is-sheet .bm-card-body { flex: 1 1 auto; }
 .bm-editpanel { width: 320px; }
 .bm-card-head { display: flex; align-items: center; gap: 10px; padding: 11px 12px 11px 14px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .bm-card-title { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; }

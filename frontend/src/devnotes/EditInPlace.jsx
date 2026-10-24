@@ -32,7 +32,12 @@ function rgbToHex(v) {
 }
 const isTransparent = (v) => /rgba\(\s*\d+,\s*\d+,\s*\d+,\s*0\)|transparent/.test(String(v));
 
-const canEditText = (el) => el && !/^(INPUT|TEXTAREA|SELECT|IMG|SVG|VIDEO|CANVAS)$/.test(el.tagName) && !el.querySelector('input, textarea, select, img, svg, video') && !!textOf(el, 2000);
+// Text is edited through ONE text node: contentEditable goes on the element,
+// but what is restored is that node's `data` - never innerHTML, which would
+// hand React detached children (removeChild -> ViewErrorBoundary). An element
+// whose text is built from several parts gets the style panel only.
+const singleTextNode = (el) => (el && el.childNodes.length === 1 && el.firstChild.nodeType === Node.TEXT_NODE ? el.firstChild : null);
+const canEditText = (el) => !!el && !/^(INPUT|TEXTAREA|SELECT|IMG|SVG|VIDEO|CANVAS)$/.test(el.tagName) && !!singleTextNode(el) && !!textOf(el, 2000);
 
 export function editSentence(text, styles) {
   const parts = [];
@@ -55,12 +60,14 @@ export default function EditInPlace({ editPick, onSave, onCancel }) {
     if (!el) return undefined;
     const cs = getComputedStyle(el);
     const computed = Object.fromEntries(PROPS.map((p) => [p.key, cs.getPropertyValue(p.css)]));
-    snap.current = { text: textOf(el, 2000), cssText: el.style.cssText, computed, contentEditable: el.getAttribute('contenteditable'), html: el.innerHTML };
+    const node = singleTextNode(el);
+    snap.current = { text: textOf(el, 2000), cssText: el.style.cssText, computed, contentEditable: el.getAttribute('contenteditable'), node, data: node ? node.data : '' };
     const restore = () => {
       el.style.cssText = snap.current.cssText;
       if (snap.current.contentEditable == null) el.removeAttribute('contenteditable'); else el.setAttribute('contenteditable', snap.current.contentEditable);
       el.classList.remove('bm-editing');
-      if (editable && textOf(el, 2000) !== snap.current.text) el.innerHTML = snap.current.html;
+      // The original text node gets its data back; children are never replaced.
+      if (snap.current.node && snap.current.node.data !== snap.current.data) snap.current.node.data = snap.current.data;
     };
     touched.set(el, restore);
     setValues(Object.fromEntries(PROPS.map((p) => [p.key, ''])));
@@ -112,7 +119,7 @@ export default function EditInPlace({ editPick, onSave, onCancel }) {
       </div>
       <div className="bm-card-body">
         <div className="bm-dim bm-small">
-          {editable ? 'The text on the page is editable now - click into it and type.' : 'This element has no editable text; change its style below.'}
+          {editable ? 'The text on the page is editable now - click into it and type.' : 'The text here is built from several parts, so only the style can change - pick the exact word to edit it.'}
           {target?.source?.file && <> <span className="bm-src">{target.source.file}:{target.source.line}</span></>}
         </div>
         <div className="bm-style-grid">

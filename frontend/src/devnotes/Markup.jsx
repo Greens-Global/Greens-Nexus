@@ -50,7 +50,10 @@ export function MarkupItem({ it, dx = 0, dy = 0, faint = false }) {
   }
 }
 
-export default function Markup({ items = [], draft = null, faintItems = [], faintOffset = { dx: 0, dy: 0 } }) {
+// Items are stored in PAGE coordinates; `offset` ({ dx: -scrollX, dy: -scrollY })
+// puts them where they are on screen right now, so a box drawn over something
+// stays on it while the page scrolls underneath.
+export default function Markup({ items = [], draft = null, offset = { dx: 0, dy: 0 }, faintItems = [], faintOffset = { dx: 0, dy: 0 } }) {
   return (
     <svg className="bm-markup" data-testid="bm-markup" width="100%" height="100%" aria-hidden="true"
       style={{ position: 'fixed', inset: 0, width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: 5905, overflow: 'visible' }}>
@@ -61,8 +64,8 @@ export default function Markup({ items = [], draft = null, faintItems = [], fain
         </pattern>
       </defs>
       {faintItems.map((it, i) => <MarkupItem key={`f${i}`} it={it} dx={faintOffset.dx} dy={faintOffset.dy} faint />)}
-      {items.map((it, i) => <MarkupItem key={it.id || i} it={it} />)}
-      {draft && <MarkupItem it={draft} />}
+      {items.map((it, i) => <MarkupItem key={it.id || i} it={it} dx={offset.dx} dy={offset.dy} />)}
+      {draft && <MarkupItem it={draft} dx={offset.dx} dy={offset.dy} />}
     </svg>
   );
 }

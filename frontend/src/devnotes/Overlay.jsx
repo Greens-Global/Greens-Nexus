@@ -46,6 +46,16 @@ export default function Overlay({ tool, color, interactive = true, items = [], o
   const [region, setRegion] = useState(null);       // drag rectangle
   const [draft, setDraft] = useState(null);         // markup item in progress
   const [textAt, setTextAt] = useState(null);       // { x, y } where a text item is being typed
+  // Items are in page coordinates; the layer re-renders them against the
+  // current scroll, so they stay on what they were drawn over.
+  const [scroll, setScroll] = useState(() => ({ x: window.scrollX || 0, y: window.scrollY || 0 }));
+  useEffect(() => {
+    let raf = 0;
+    const onScroll = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => setScroll({ x: window.scrollX || 0, y: window.scrollY || 0 })); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); };
+  }, []);
   const downRef = useRef(null);
   const pressTimer = useRef(null);
   const raf = useRef(0);
@@ -89,9 +99,12 @@ export default function Overlay({ tool, color, interactive = true, items = [], o
     try { ref.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     if (isMarkup) {
       if (tool === 'text') { setTextAt({ x, y }); return; }
-      if (tool === 'arrow') setDraft({ type: 'arrow', x1: x, y1: y, x2: x, y2: y, color, width: 3 });
-      else if (tool === 'path') setDraft({ type: 'path', points: [[x, y]], color, width: 3 });
-      else setDraft({ type: tool, x, y, w: 0, h: 0, color: tool === 'highlight' ? '#facc15' : color, width: 3, _x0: x, _y0: y });
+      // Markup lives in PAGE coordinates (viewport + scroll), so a box drawn
+      // over something stays on it while the page scrolls underneath.
+      const px = x + window.scrollX, py = y + window.scrollY;
+      if (tool === 'arrow') setDraft({ type: 'arrow', x1: px, y1: py, x2: px, y2: py, color, width: 3 });
+      else if (tool === 'path') setDraft({ type: 'path', points: [[px, py]], color, width: 3 });
+      else setDraft({ type: tool, x: px, y: py, w: 0, h: 0, color: tool === 'highlight' ? '#facc15' : color, width: 3, _x0: px, _y0: py });
       return;
     }
     downRef.current = { x, y, lx: x, ly: y, t: Date.now(), touch: e.pointerType === 'touch', moved: false, consumed: false };
@@ -123,7 +136,8 @@ export default function Overlay({ tool, color, interactive = true, items = [], o
     if (!interactive) return;
     const { clientX: x, clientY: y } = e;
     if (draft) {
-      setDraft((d) => applyPoint(d, x, y));
+      const px = x + window.scrollX, py = y + window.scrollY;
+      setDraft((d) => applyPoint(d, px, py));
       return;
     }
     const d = downRef.current;
@@ -148,7 +162,7 @@ export default function Overlay({ tool, color, interactive = true, items = [], o
     const { clientX: x, clientY: y } = e;
     try { ref.current?.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
     if (draft) {
-      const d = applyPoint(draft, x, y);
+      const d = applyPoint(draft, x + window.scrollX, y + window.scrollY);
       setDraft(null);
       const big = d.type === 'arrow' ? Math.hypot(d.x2 - d.x1, d.y2 - d.y1) > 4 : d.type === 'path' ? d.points.length > 1 : (d.w > 3 && d.h > 3);
       if (big) { const { _x0, _y0, ...item } = d; onAdd?.({ ...item, id: `m${Date.now()}` }); }
@@ -177,7 +191,7 @@ export default function Overlay({ tool, color, interactive = true, items = [], o
 
   const commitText = (value) => {
     const t = (value || '').trim();
-    if (t && textAt) onAdd?.({ id: `m${Date.now()}`, type: 'text', x: textAt.x, y: textAt.y, text: t.slice(0, 200), color: color === '#ffffff' ? '#111827' : color, size: 16 });
+    if (t && textAt) onAdd?.({ id: `m${Date.now()}`, type: 'text', x: textAt.x + window.scrollX, y: textAt.y + window.scrollY, text: t.slice(0, 200), color: color === '#ffffff' ? '#111827' : color, size: 16 });
     setTextAt(null);
   };
 
@@ -189,7 +203,7 @@ export default function Overlay({ tool, color, interactive = true, items = [], o
         style={{ pointerEvents: interactive ? 'auto' : 'none', cursor }}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}
         onPointerLeave={() => setHover(null)} onContextMenu={(e) => e.preventDefault()} />
-      <Markup items={items} draft={draft} faintItems={faintItems} faintOffset={faintOffset} />
+      <Markup items={items} draft={draft} offset={{ dx: -scroll.x, dy: -scroll.y }} faintItems={faintItems} faintOffset={faintOffset} />
       {hover && interactive && !isMarkup && (
         <div className="bm-hover" style={{ left: hover.rect.x, top: hover.rect.y, width: hover.rect.w, height: hover.rect.h }} aria-hidden="true">
           <span className="bm-hover-label" style={{ top: hover.rect.y < 26 ? 'auto' : -24, bottom: hover.rect.y < 26 ? -24 : 'auto' }}>{hover.label}</span>

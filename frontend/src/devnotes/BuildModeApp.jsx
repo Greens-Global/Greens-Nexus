@@ -15,7 +15,8 @@ import EditInPlace, { restoreAllEdits, restoreEdit } from './EditInPlace';
 import Panel from './Panel';
 import { store, useBuildStore, turnOff, saveSettings, takePendingPin, toast, loadDrafts, saveDraft, removeDraft, newId } from './store';
 import { describeTarget, rectOf, anchorRect, stateOf, preloadSourceFiles } from './lib/capture';
-import { startTabCapture, stopTabCapture, captureStatus, grabFrame, withUiHidden, makeShots } from './lib/screenshot';
+import { startTabCapture, stopTabCapture, captureStatus, grabFrame, withUiHidden, makeShots, shiftItems } from './lib/screenshot';
+import { useRole } from '../contexts/RoleContext';
 import { startRecording, stopRecording, isRecording, startSpeech, speechSupported } from './lib/recorder';
 import { startBuffers, stopBuffers, pauseBuffers, snapshotBuffers } from './lib/buffers';
 import { setActionContext, pauseActions, snapshotActions } from './lib/actions';
@@ -33,8 +34,13 @@ const newDraft = (target, view, sub) => ({
 export default function BuildModeApp({ view, sub }) {
   const s = useBuildStore();
   const isMobile = useIsMobile();
+  // The caller (acting-as identity when one is on): the Queue counts only
+  // their own open pins for Send To Claude Code. Absent in tests.
+  const myEmail = useRole()?.myEmail || '';
   const blocked = (s.blockedRoutes || []).includes(view);
   const [draft, setDraft] = useState(null);
+  const draftRef = useRef(null);
+  useEffect(() => { draftRef.current = draft; }, [draft]);
   const [saving, setSaving] = useState('');
   const [voiceOn, setVoiceOn] = useState(false);
   const [interim, setInterim] = useState('');
@@ -121,11 +127,13 @@ export default function BuildModeApp({ view, sub }) {
       return;
     }
     pickElRef.current = el || null;
-    setDraft((d) => {
-      const next = d && st.pick ? { ...d, target, route: view, sub: sub || '' } : newDraft(target, view, sub);
-      saveDraft(next);
-      return next;
-    });
+    // Computed outside the updater: StrictMode runs updaters twice, which
+    // used to mint two ids and leave an orphan draft in storage.
+    const prev = draftRef.current;
+    const next = prev && st.pick ? { ...prev, target, route: view, sub: sub || '' } : newDraft(target, view, sub);
+    saveDraft(next);
+    draftRef.current = next;
+    setDraft(next);
     store.set({ pick: { target, rect, mode }, openPinId: '' });
   }, [blocked, view, sub]);
 
@@ -195,14 +203,18 @@ export default function BuildModeApp({ view, sub }) {
     setSaving(sendNow ? 'send' : 'save');
     stopVoice();
     try {
+      // Markup is stored in page coordinates; the shot is of the viewport at
+      // this scroll, so the items move to viewport coordinates for the burn.
       const items = store.get().markup;
+      const scrollAt = { x: Math.round(window.scrollX || 0), y: Math.round(window.scrollY || 0) };
+      const vpItems = shiftItems(items, -scrollAt.x, -scrollAt.y);
       const vp = { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1, ua: navigator.userAgent, phone: isMobile, theme: document.documentElement.getAttribute('data-theme') || 'light' };
       let screenshotUrl = '', pageShotUrl = '';
       if (captureStatus() === 'live') {
         const boxes = sensitiveRects();
         const frame = await withUiHidden(() => grabFrame());
         if (frame) {
-          const shots = await makeShots({ frame, rect: pick.rect, markup: { items }, vp, boxes });
+          const shots = await makeShots({ frame, rect: pick.rect, markup: { items: vpItems }, vp, boxes });
           if (shots.page) pageShotUrl = await uploadDevNoteFile(draft.id, 'page', shots.page, 'png');
           if (shots.element) screenshotUrl = await uploadDevNoteFile(draft.id, 'screenshot', shots.element, 'png');
         }
@@ -217,7 +229,9 @@ export default function BuildModeApp({ view, sub }) {
       const body = {
         id: draft.id, kind: draft.kind, priority: draft.priority, comment: draft.comment || '',
         route: view, sub: sub || '', url: window.location.href, buildId: BUILD_ID, viewport: vp,
-        target, markup: { base: 'page', items, rel: { ox: target?.rect?.x || 0, oy: target?.rect?.y || 0 } },
+        // base 'page': items in page px; rel = the target's page origin at capture;
+        // scroll = the viewport's offset when the shot was taken.
+        target, markup: { base: 'page', items, rel: { ox: target?.rect?.pageX ?? target?.rect?.x ?? 0, oy: target?.rect?.pageY ?? target?.rect?.y ?? 0 }, scroll: scrollAt },
         edit: draft.edit || {}, screenshotUrl, pageShotUrl, videoUrl, contactSheetUrl,
         transcript: recorded?.transcript || draft.transcript || '', attachments: draft.attachments || [],
         consoleLog, networkLog, actions: snapshotActions(), state: stateOf(pickElRef.current) || {},
@@ -248,19 +262,28 @@ export default function BuildModeApp({ view, sub }) {
     queue: () => store.set((st) => ({ panelOpen: !st.panelOpen })),
     undo: () => store.set((st) => ({ markup: st.markup.slice(0, -1) })),
     color: () => store.set((st) => ({ color: nextColor(st.color) })),
-    escape: () => {
+    // Esc closes our things first. It turns the mode OFF only when nothing of
+    // ours is open AND the key was pressed on the page itself (body / our
+    // overlay) - never from inside a Nexus dialog or a field, where Esc means
+    // "close that". The chip, the menu and Ctrl/Cmd+Shift+. are the explicit
+    // off paths.
+    escape: (e) => {
       const st = store.get();
       if (st.panelOpen) { store.set({ panelOpen: false }); return; }
       if (st.editPick) { restoreEdit(st.editPick.el); store.set({ editPick: null }); return; }
       if (st.pick) { store.set({ pick: null }); stopVoice(); return; }
       if (st.openPinId) { store.set({ openPinId: '' }); return; }
       if (MARKUP_TOOLS.has(st.tool)) { store.set({ tool: 'pin' }); return; }
+      const t = e?.target;
+      const ours = !!t?.closest?.('[data-nx-devnotes]');
+      if (!ours && t?.closest?.('[role="dialog"], .modal, [data-modal], .modal-overlay, .nx-overlay, input, textarea, select, [contenteditable="true"]')) return;
+      if (!ours && t !== document.body && t !== document.documentElement && t !== document) return;
       turnOff();
     },
   };
   useEffect(() => installHotkeys({
     tool: (id) => handlers.current.tool(id), video: () => handlers.current.video(), voice: () => handlers.current.voice(),
-    queue: () => handlers.current.queue(), undo: () => handlers.current.undo(), color: () => handlers.current.color(), escape: () => handlers.current.escape(),
+    queue: () => handlers.current.queue(), undo: () => handlers.current.undo(), color: () => handlers.current.color(), escape: (e) => handlers.current.escape(e),
   }), []);
 
   // ── Pins list (+ a deep-linked pin the route list does not carry) ────────
@@ -280,9 +303,11 @@ export default function BuildModeApp({ view, sub }) {
   const openPin = pins.find((p) => p.id === s.openPinId) || null;
   const faint = useMemo(() => {
     if (!openPin?.markup?.items?.length) return { items: [], offset: { dx: 0, dy: 0 } };
+    // Items and rel are page coordinates; the target's viewport x now minus
+    // its page origin at capture is exactly the viewport shift to draw at.
     const a = anchorRect(openPin.target);
-    const rel = openPin.markup.rel || { ox: openPin.target?.rect?.x || 0, oy: openPin.target?.rect?.y || 0 };
-    return { items: openPin.markup.items, offset: a ? { dx: a.x - rel.ox, dy: a.y - rel.oy } : { dx: 0, dy: 0 } };
+    const rel = openPin.markup.rel || { ox: openPin.target?.rect?.pageX || 0, oy: openPin.target?.rect?.pageY || 0 };
+    return { items: openPin.markup.items, offset: a ? { dx: a.x - rel.ox, dy: a.y - rel.oy } : { dx: -(window.scrollX || 0), dy: -(window.scrollY || 0) } };
   }, [openPin]);
 
   const openFromPanel = (pin) => {
@@ -294,7 +319,7 @@ export default function BuildModeApp({ view, sub }) {
 
   const panel = (
     <Panel open={s.panelOpen} tab={s.panelTab} onTab={(t) => store.set({ panelTab: t })} onClose={() => store.set({ panelOpen: false })}
-      settings={s.settings} onSettings={saveSettings} onOpenPin={openFromPanel} version={s.version} onDispatched={() => store.set((st) => ({ version: st.version + 1 }))} />
+      settings={s.settings} onSettings={saveSettings} onOpenPin={openFromPanel} version={s.version} onDispatched={() => store.set((st) => ({ version: st.version + 1 }))} myEmail={myEmail} />
   );
   const toastEl = s.toast && <div className="bm-toast" role="status">{s.toast.text}</div>;
 

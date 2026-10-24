@@ -58,6 +58,27 @@ describe('Overlay drawing', () => {
     delete document.elementsFromPoint;
   });
 
+  it('items are stored in page coordinates: a scrolled page adds its offset, and the layer draws them back at the viewport spot', () => {
+    const onAdd = vi.fn();
+    Object.defineProperty(window, 'scrollX', { value: 0, configurable: true });
+    Object.defineProperty(window, 'scrollY', { value: 1000, configurable: true });
+    try {
+      const { container, rerender } = render(<Overlay tool="redact" color="#ef4444" items={[]} onAdd={onAdd} onPick={vi.fn()} />);
+      const layer = screen.getByTestId('bm-overlay');
+      down(layer, 10, 20); up(layer, 60, 50);
+      expect(onAdd).toHaveBeenCalledTimes(1);
+      const item = onAdd.mock.calls[0][0];
+      expect(item).toMatchObject({ type: 'redact', x: 10, y: 1020, w: 50, h: 30 });
+      // Rendered against the current scroll it sits where it was drawn.
+      rerender(<Overlay tool="redact" color="#ef4444" items={[item]} onAdd={onAdd} onPick={vi.fn()} />);
+      const rect = container.querySelector('svg rect[fill="url(#bm-redact)"]');
+      expect(rect.getAttribute('x')).toBe('10');
+      expect(rect.getAttribute('y')).toBe('20');
+    } finally {
+      Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
+    }
+  });
+
   it('nothing is drawn while not interactive', () => {
     const onAdd = vi.fn();
     render(<Overlay tool="rect" color="#ef4444" interactive={false} items={[]} onAdd={onAdd} onPick={vi.fn()} />);

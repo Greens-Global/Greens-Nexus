@@ -3,7 +3,7 @@
 // its outer HTML, the React component chain when the build kept names, and
 // the record ids it shows. Everything here is best effort and never throws.
 
-import { SENSITIVE_RE } from './privacy';
+import { SENSITIVE_RE, isSensitiveField } from './privacy';
 
 export const OWN_ATTR = 'data-nx-devnotes';
 
@@ -73,12 +73,20 @@ export function selectorFor(el) {
   return pathSelector(el);
 }
 
-/** Visible text, whitespace collapsed, at most 300 characters. Inputs give their value or placeholder. */
+/** The label a form field goes by - placeholder, aria-label, its <label>, its name - never what is typed in it. */
+function fieldLabelOf(el) {
+  const byFor = el.id ? document.querySelector(`label[for="${esc(el.id)}"]`)?.textContent : '';
+  const wrap = el.closest?.('label')?.textContent;
+  return el.getAttribute('placeholder') || el.getAttribute('aria-label') || byFor || wrap || el.getAttribute('name') || el.getAttribute('title') || '';
+}
+
+/** Visible text, whitespace collapsed, at most 300 characters. A form field gives its label, never its value; a sensitive field gives "***". */
 export function textOf(el, max = 300) {
   if (!el) return '';
   let t = '';
   if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
-    t = el.value || el.getAttribute('placeholder') || el.getAttribute('aria-label') || '';
+    if (isSensitiveField(el)) return '***';
+    t = fieldLabelOf(el);
   } else if (el.tagName === 'IMG') {
     t = el.getAttribute('alt') || '';
   } else {
@@ -127,7 +135,16 @@ export function headingsFor(el) {
 export function htmlOf(el, max = 4000) {
   if (!el) return '';
   let html = '';
-  try { html = el.outerHTML || ''; } catch { return ''; }
+  try {
+    // What is typed into a field never travels: value attributes and textarea
+    // contents come off a clone before the HTML is read.
+    const c = el.cloneNode(true);
+    for (const f of [c, ...c.querySelectorAll('input, textarea')]) {
+      if (!f.removeAttribute) continue;
+      if (f.tagName === 'INPUT' || f.tagName === 'TEXTAREA') { f.removeAttribute('value'); if (f.tagName === 'TEXTAREA') f.textContent = ''; }
+    }
+    html = c.outerHTML || '';
+  } catch { return ''; }
   html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
   return html.length > max ? `${html.slice(0, max)}…` : html;
 }

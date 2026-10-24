@@ -95,7 +95,12 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
   const canSend = mineOpen.length > 0;
   const send = async () => {
     setSending(true);
-    try { const r = await api.devNotesDispatch({}); toast(`${r?.notes?.length || mineOpen.length} pin${(r?.notes?.length || mineOpen.length) === 1 ? '' : 's'} sent to Claude Code`); onDispatched?.(); }
+    try {
+      const r = await api.devNotesDispatch({});
+      const n = Array.isArray(r?.notes) ? r.notes.length : 0;   // the server's count, nothing guessed
+      toast(n ? `${n} pin${n === 1 ? '' : 's'} sent to Claude Code` : 'Build Session sent to Claude Code');
+      onDispatched?.();
+    }
     catch (e) { toast(e?.message || 'Nothing was sent.'); }
     finally { setSending(false); }
   };

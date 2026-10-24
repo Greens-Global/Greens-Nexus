@@ -36,7 +36,9 @@ export function startBuffers() {
   const onReject = (e) => { if (!paused) ring(consoleBuf, CONSOLE_MAX, { level: 'error', text: `Unhandled rejection: ${stringify(e.reason)}`.slice(0, 600), at: now() }); };
   window.addEventListener('error', onError);
   window.addEventListener('unhandledrejection', onReject);
-  setApiBodyCapture(true);
+  // Bodies only while not paused (a blocked route pauses the buffers), and
+  // api.js itself keeps it to JSON of at most 64 KB.
+  setApiBodyCapture(true, () => !paused);
   const offApi = onApiRequest((entry) => {
     if (paused) return;
     const row = { method: entry.method, path: entry.path, status: entry.status, ms: entry.ms, at: entry.at, requestBody: maskBody(entry.requestBody), responseBody: '' };

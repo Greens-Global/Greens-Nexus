@@ -27,7 +27,8 @@ export function fixDeploying(pin) {
 /** A human answered and Claude Code has not picked it up again yet. */
 export function waitingForClaude(pin) {
   if (pin?.status !== 'building') return false;
-  const last = (pin.thread || [])[pin.thread.length - 1];
+  const t = Array.isArray(pin.thread) ? pin.thread : [];
+  const last = t[t.length - 1];
   return !!last && last.kind === 'comment' && last.by !== 'claude';
 }
 
@@ -88,7 +89,15 @@ export default function Pins({ pins = [], openPinId = '', onOpen, onClose, onCha
       {openPin && anchors[openPin.id] && (
         <div className="bm-pin-ring" aria-hidden="true" style={{ left: anchors[openPin.id].x - 3, top: anchors[openPin.id].y - 3, width: anchors[openPin.id].w + 6, height: anchors[openPin.id].h + 6, '--c': statusMeta(openPin.status).color }} />
       )}
-      {openPin && <PinThread pin={openPin} anchor={anchors[openPin.id]} onClose={onClose} onChanged={onChanged} />}
+      {openPin && (anchors[openPin.id]?.anchored
+        ? <PinThread pin={openPin} anchor={anchors[openPin.id]} onClose={onClose} onChanged={onChanged} />
+        // The element is gone (or was never found): no popover to anchor, so
+        // the thread opens as a proper centered sheet (60vw / 60vh / 85vh).
+        : (
+          <div className="bm-sheet-overlay" onClick={onClose} role="presentation">
+            <PinThread pin={openPin} anchor={null} detached onClose={onClose} onChanged={onChanged} />
+          </div>
+        ))}
     </>
   );
 }
@@ -167,7 +176,7 @@ function Evidence({ v }) {
   );
 }
 
-export function PinThread({ pin, anchor, onClose, onChanged }) {
+export function PinThread({ pin, anchor, onClose, onChanged, detached = false }) {
   const isMobile = useIsMobile();
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
@@ -183,7 +192,7 @@ export function PinThread({ pin, anchor, onClose, onChanged }) {
   const closed = pin.status === 'done' || pin.status === 'dismissed';
 
   useLayoutEffect(() => {
-    if (isMobile) { setPos(null); return; }
+    if (isMobile || detached) { setPos(null); return; }
     const size = { w: ref.current?.offsetWidth || 400, h: ref.current?.offsetHeight || 480 };
     const rect = anchor ? { x: anchor.x + anchor.w, y: anchor.y, w: 0, h: 0 } : { x: window.innerWidth / 2, y: 80, w: 0, h: 0 };
     setPos(placeCard(rect, size, { w: window.innerWidth, h: window.innerHeight }, false, 18));
@@ -205,8 +214,9 @@ export function PinThread({ pin, anchor, onClose, onChanged }) {
   const shot = pin.screenshotUrl || pin.pageShotUrl;
 
   return (
-    <div ref={ref} className="bm-card bm-thread" role="dialog" aria-label={`Pin ${pin.number}`} data-testid="bm-thread"
-      style={pos ? { left: pos.left, top: pos.top } : undefined} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose?.(); } }}>
+    <div ref={ref} className={`bm-card bm-thread${detached ? ' is-sheet' : ''}`} role="dialog" aria-label={`Pin ${pin.number}`} data-testid="bm-thread"
+      style={pos ? { left: pos.left, top: pos.top } : undefined} onClick={detached ? (e) => e.stopPropagation() : undefined}
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose?.(); } }}>
       <div className="bm-card-head">
         <span className="bm-pin bm-pin-inline" style={{ '--c': m.color }} aria-hidden="true"><span className="bm-pin-no">{pin.number}</span></span>
         <div className="bm-card-title">

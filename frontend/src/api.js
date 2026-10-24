@@ -276,7 +276,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
     _emitApiRequest(path, options, 0, _startedAt);
     throw _networkError(err);
   }
-  _emitApiRequest(path, options, res.status, _startedAt, _apiBodyCapture ? res.clone() : null);
+  _emitApiRequest(path, options, res.status, _startedAt, _apiBodyWanted(path, res) ? res.clone() : null);
 
   // BFF mode: a 401 means the session cookie is dead/absent -> server-side login
   // (the replacement for MSAL's token-refresh + interactive reauth).
@@ -2940,6 +2940,19 @@ const _apiRequestListeners = new Set();
 // the response is cloned for the listener to read, the request body is the
 // string that was sent. Off (the default) nothing is cloned or kept.
 let _apiBodyCapture = false;
+let _apiBodyFilter = null;      // (path) => bool, set by the listener (Build Mode skips its blocked routes)
+const BODY_MAX_BYTES = 64 * 1024;
+// Clone only what the buffer will keep: JSON, at most 64 KB when the server
+// says how long it is, and only when the listener's filter agrees.
+function _apiBodyWanted(path, res) {
+  if (!_apiBodyCapture) return false;
+  try {
+    if (_apiBodyFilter && !_apiBodyFilter(path)) return false;
+    if (!/json/i.test(res.headers.get('content-type') || '')) return false;
+    const len = res.headers.get('content-length');
+    return !len || Number(len) <= BODY_MAX_BYTES;
+  } catch { return false; }
+}
 function _emitApiRequest(path, options, status, startedAt, responseClone = null) {
   if (!_apiRequestListeners.size) return;
   const entry = { method: (options?.method || 'GET').toUpperCase(), path, status, ms: Date.now() - startedAt, at: new Date().toISOString() };
@@ -2953,7 +2966,7 @@ export function onApiRequest(listener) {
   _apiRequestListeners.add(listener);
   return () => _apiRequestListeners.delete(listener);
 }
-export function setApiBodyCapture(on) { _apiBodyCapture = !!on; }
+export function setApiBodyCapture(on, filter = null) { _apiBodyCapture = !!on; _apiBodyFilter = on && typeof filter === 'function' ? filter : null; }
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
 // no MSAL involved, the token in the URL is the credential.

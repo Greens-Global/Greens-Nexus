@@ -17,35 +17,54 @@ export const captureStatus = () => status;
 /** The live tab stream (for the recorder to clone), or null. */
 export const tabStream = () => (status === 'live' ? stream : null);
 
-export async function startTabCapture() {
-  if (status === 'live' && stream) return true;
-  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getDisplayMedia) { setStatus('unsupported'); return false; }
-  try {
-    stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { displaySurface: 'browser', frameRate: 5 },
-      audio: false,
-      preferCurrentTab: true,
-      selfBrowserSurface: 'include',
-      surfaceSwitching: 'exclude',
-      monitorTypeSurfaces: 'exclude',
-    });
-  } catch { stream = null; setStatus('off'); return false; }
-  video = document.createElement('video');
-  video.muted = true;
-  video.playsInline = true;
-  video.setAttribute('aria-hidden', 'true');
-  video.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
-  video.srcObject = stream;
-  document.body.appendChild(video);
-  try { await video.play(); } catch { /* autoplay refused - readyState still advances */ }
-  const track = stream.getVideoTracks()[0];
-  // The browser's own "Stop sharing" ends the track: screenshots are off from here.
-  track?.addEventListener('ended', () => stopTabCapture('off'));
-  setStatus('live');
-  return true;
+// One picker at a time: a start while another is still waiting on the picker
+// joins it (StrictMode runs the mount effect twice), and a stop that arrives
+// while the picker is open is remembered - the stream that then resolves is
+// closed at once, never attached, never 'live'.
+let pending = null;
+let wantStop = false;
+
+export function startTabCapture() {
+  if (status === 'live' && stream) return Promise.resolve(true);
+  if (pending) { wantStop = false; return pending; }
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getDisplayMedia) { setStatus('unsupported'); return Promise.resolve(false); }
+  wantStop = false;
+  pending = (async () => {
+    let s = null;
+    try {
+      s = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: 'browser', frameRate: 5 },
+        audio: false,
+        preferCurrentTab: true,
+        selfBrowserSurface: 'include',
+        surfaceSwitching: 'exclude',
+        monitorTypeSurfaces: 'exclude',
+      });
+    } catch { if (!wantStop) setStatus('off'); return false; }
+    if (wantStop) {
+      try { s.getTracks().forEach((t) => t.stop()); } catch { /* already stopped */ }
+      return false;
+    }
+    stream = s;
+    video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.setAttribute('aria-hidden', 'true');
+    video.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
+    video.srcObject = stream;
+    document.body.appendChild(video);
+    try { await video.play(); } catch { /* autoplay refused - readyState still advances */ }
+    const track = stream.getVideoTracks()[0];
+    // The browser's own "Stop sharing" ends the track: screenshots are off from here.
+    track?.addEventListener('ended', () => { if (stream === s) stopTabCapture('off'); });
+    setStatus('live');
+    return true;
+  })().finally(() => { pending = null; });
+  return pending;
 }
 
 export function stopTabCapture(next = 'idle') {
+  if (pending) wantStop = true;        // the picker is still open: close its stream when it lands
   try { stream?.getTracks().forEach((t) => t.stop()); } catch { /* already stopped */ }
   stream = null;
   try { video?.remove(); } catch { /* detached */ }
@@ -97,6 +116,16 @@ export function cropRect(rect, scale, frame, pad = 24) {
 }
 
 const sxy = (p, s, o) => ({ x: (p.x + (o?.dx || 0)) * s.sx, y: (p.y + (o?.dy || 0)) * s.sy });
+
+/** Markup items moved by (dx, dy) - PAGE coordinates (how they are stored) to viewport ones at capture is shiftItems(items, -scrollX, -scrollY). */
+export function shiftItems(items, dx, dy) {
+  return (items || []).map((it) => {
+    if (!it) return it;
+    if (it.type === 'arrow') return { ...it, x1: it.x1 + dx, y1: it.y1 + dy, x2: it.x2 + dx, y2: it.y2 + dy };
+    if (it.type === 'path') return { ...it, points: (it.points || []).map(([x, y]) => [x + dx, y + dy]) };
+    return { ...it, x: it.x + dx, y: it.y + dy };
+  });
+}
 
 /** Pixelate every redact rectangle in place (frame px) - the only trace left of what was under it. */
 export function applyRedactions(ctx, canvas, items, scale, offset) {

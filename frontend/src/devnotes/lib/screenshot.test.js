@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { frameScale, cropRect, burnMarkup, applyRedactions, paintBoxes } from './screenshot';
+import { frameScale, cropRect, burnMarkup, applyRedactions, paintBoxes, shiftItems, startTabCapture, stopTabCapture, captureStatus } from './screenshot';
+
+vi.mock('../store', () => ({ store: { set: () => {} } }));
 
 // Crop math (DPR-aware) and the markup burn on a canvas mock.
 
@@ -71,5 +73,44 @@ describe('screenshot', () => {
     expect(ctx.calls.filter((c) => c[0] === 'drawImage').length).toBe(1);
     expect(ctx.calls).toContainEqual(['fillRect', 100, 100, 120, 24]);  // the darkening wash on top
     expect(applyRedactions(ctx, canvas, [], { sx: 1, sy: 1 })).toBe(0);
+  });
+
+  it('shiftItems moves page-coordinate items to the viewport of the capture (every item type)', () => {
+    const items = [
+      { type: 'redact', x: 100, y: 1100, w: 50, h: 20 },
+      { type: 'arrow', x1: 0, y1: 1000, x2: 10, y2: 1010 },
+      { type: 'path', points: [[5, 1005], [6, 1006]] },
+      { type: 'text', x: 1, y: 1001, text: 't' },
+    ];
+    const out = shiftItems(items, 0, -1000);   // the page was scrolled 1000px down when the shot was taken
+    expect(out[0]).toMatchObject({ x: 100, y: 100, w: 50, h: 20 });
+    expect(out[1]).toMatchObject({ x1: 0, y1: 0, x2: 10, y2: 10 });
+    expect(out[2].points).toEqual([[5, 5], [6, 6]]);
+    expect(out[3]).toMatchObject({ x: 1, y: 1 });
+    expect(items[0].y).toBe(1100);               // never in place
+    // Redaction then lands on the right pixels of the frame.
+    const ctx = mockCtx();
+    vi.spyOn(document, 'createElement').mockImplementation(() => ({ width: 0, height: 0, getContext: () => mockCtx() }));
+    applyRedactions(ctx, { width: 1000, height: 800 }, out, { sx: 1, sy: 1 });
+    expect(ctx.calls).toContainEqual(['fillRect', 100, 100, 50, 20]);
+  });
+
+  it('startTabCapture: a stop while the picker is open closes the stream that then lands; a second start joins the first', async () => {
+    let resolve;
+    const track = { stop: vi.fn(), addEventListener: vi.fn() };
+    const fakeStream = { getTracks: () => [track], getVideoTracks: () => [track] };
+    const gdm = vi.fn(() => new Promise((r) => { resolve = r; }));
+    Object.defineProperty(navigator, 'mediaDevices', { value: { getDisplayMedia: gdm }, configurable: true });
+    const p1 = startTabCapture();
+    const p2 = startTabCapture();              // StrictMode's second run
+    expect(gdm).toHaveBeenCalledTimes(1);
+    expect(p2).toBe(p1);
+    stopTabCapture();                          // the mode went off before the person answered the picker
+    resolve(fakeStream);
+    expect(await p1).toBe(false);
+    expect(track.stop).toHaveBeenCalledTimes(1);
+    expect(captureStatus()).not.toBe('live');
+    expect(document.querySelector('video')).toBeNull();
+    delete navigator.mediaDevices;
   });
 });

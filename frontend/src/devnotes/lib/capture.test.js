@@ -39,6 +39,27 @@ describe('capture', () => {
     expect(textOf(document.querySelector('.secondary-btn'), 4)).toBe('Mark');
   });
 
+  it('textOf never ships what is typed in a field, and masks a sensitive one', () => {
+    document.querySelector('.other').innerHTML = `
+      <input id="q" placeholder="Search tasks" value="payroll june" />
+      <label for="ssn">Social Security Number</label><input id="ssn" value="123-45-6789" />
+      <input type="password" placeholder="Password" value="hunter2" />
+      <input name="routing_number" aria-label="Routing" value="021000021" />
+      <input autocomplete="cc-number" value="4111111111111111" />
+      <input data-sensitive aria-label="Note" value="private" />
+      <textarea aria-label="Comment">typed text</textarea>`;
+    expect(textOf(document.querySelector('#q'))).toBe('Search tasks');
+    expect(textOf(document.querySelector('#ssn'))).toBe('***');
+    expect(textOf(document.querySelector('[type="password"]'))).toBe('***');
+    expect(textOf(document.querySelector('[name="routing_number"]'))).toBe('***');
+    expect(textOf(document.querySelector('[autocomplete="cc-number"]'))).toBe('***');
+    expect(textOf(document.querySelector('[data-sensitive]'))).toBe('***');
+    expect(textOf(document.querySelector('textarea'))).toBe('Comment');
+    const t = describeTarget(document.querySelector('[type="password"]'));
+    expect(t.text).toBe('***');
+    expect(JSON.stringify(t)).not.toContain('hunter2');
+  });
+
   it('headingsFor goes page title, module tab, then the containers\' headings', () => {
     expect(headingsFor(document.querySelector('.secondary-btn'))).toEqual(['Tasks', 'Home', 'Updates']);
   });

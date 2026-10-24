@@ -62,7 +62,14 @@ describe('BuildMode', () => {
     expect(screen.getByTestId('bm-overlay')).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Pin/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Redact/ })).toBeTruthy();
-    fireEvent.keyDown(window, { key: 'Escape' });
+    // Esc inside a Nexus dialog (or a field) is that dialog's - the mode stays on.
+    document.body.insertAdjacentHTML('beforeend', '<div role="dialog" id="host-dialog"><input id="host-field" /></div>');
+    fireEvent.keyDown(document.getElementById('host-field'), { key: 'Escape' });
+    fireEvent.keyDown(document.getElementById('host-dialog'), { key: 'Escape' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId('bm-overlay')).toBeTruthy();
+    // Esc on the page itself, with nothing of ours open, turns it off.
+    fireEvent.keyDown(document.body, { key: 'Escape' });
     await waitFor(() => expect(container.innerHTML).toBe(''));
     expect(sessionStorage.getItem('nexus:build-mode')).toBe('0');
   });
