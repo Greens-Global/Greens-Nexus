@@ -35,6 +35,29 @@ export function requestLedgerSearch({ q, entryId = null, entryNo = '' }) {
   requestReportDrill({ q: (q || '').trim(), entryId, entryNo });
 }
 
+// Accounting call 10/23, item 07 (Viral: "if we go back later, then again we
+// are in the profit and loss account. So instead of that, where we were"): a
+// screen that opens ledger lines can say where Back goes - `back: { label,
+// sub }` on the drill - and park how it looked (the open record, its filters,
+// the page and scroll) under its own name. Back on the lines returns to that
+// screen, which takes the parked look when it mounts. Kept in sessionStorage
+// so a reload of the lines still finds its way back.
+const RETURN_KEY = 'nexus-acct-drill-return';
+
+export function parkDrillReturn(screen, state) {
+  try { sessionStorage.setItem(RETURN_KEY, JSON.stringify({ screen, state })); } catch { /* private mode: Back still goes to the screen */ }
+}
+
+/** The look parked by `screen`, taken once (the next visit opens as usual). */
+export function takeDrillReturn(screen) {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(RETURN_KEY) || 'null');
+    if (!v || v.screen !== screen) return null;
+    sessionStorage.removeItem(RETURN_KEY);
+    return v.state || null;
+  } catch { return null; }
+}
+
 export function takePendingDrill() {
   const p = pending;
   pending = null;

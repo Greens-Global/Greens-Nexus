@@ -193,7 +193,7 @@ const opText = (label, f) => (f.op === 'between' ? `${label} between ${f.a || '.
 // as soon as the grid mounts - the dashboard's Find a Transaction tile hands
 // it over with the words typed (Oct 1). `onEntryClosed` lets the owner forget
 // it, so closing the modal does not reopen it on the next render.
-export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, onExport, dims = null, dimNames = null, full = false, initialEntry = null, onEntryClosed }) {
+export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, backLabel = '', onBusy, onExport, dims = null, dimNames = null, full = false, initialEntry = null, onEntryClosed }) {
   const entitiesKey = entities.join(',');
   // The report's filters, plus any a drill from another tab brought with it
   // (requestReportDrill's `dims`), less the ones lifted here with a chip's x.
@@ -424,7 +424,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
         {/* A journal page (Records > Journals) is the lines themselves: no report to go back to. */}
         {onClose && (
           <button type="button" className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', padding: '4px 10px' }}>
-            <ArrowLeft size={14} /> Back to Report
+            <ArrowLeft size={14} /> {backLabel || 'Back to Report'}
           </button>
         )}
         <div style={{ minWidth: 0 }}>

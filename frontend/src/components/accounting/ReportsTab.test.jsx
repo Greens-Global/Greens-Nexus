@@ -92,11 +92,16 @@ const LINES_TABLE = {
 };
 vi.mock('./LedgerSearch', async () => {
   const { useEffect } = await import('react');
-  function LedgerSearchMock({ drill, term, onBusy, onExport, initialEntry }) {
+  function LedgerSearchMock({ drill, term, onBusy, onExport, initialEntry, onClose, backLabel }) {
     onBusy?.(false);
     // The real grid hands the report's Export menu a builder for its lines.
     useEffect(() => { onExport?.({ build: async () => LINES_TABLE, lines: 1, name: 'Ledger Lines - 61000 Repairs', title: 'Ledger Lines - 61000 Repairs' }); return () => onExport?.(null); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-    return <div data-testid="ledger-search" data-from={drill?.from} data-drill-dims={JSON.stringify(drill?.dims || null)} data-party={drill?.party?.code || ''} data-entry={initialEntry?.id || ''}>{drill ? `drill:${drill.account}:${drill.to}:${drill.book}` : `search:${term}`}</div>;
+    return (
+      <>
+        <div data-testid="ledger-search" data-from={drill?.from} data-drill-dims={JSON.stringify(drill?.dims || null)} data-party={drill?.party?.code || ''} data-entry={initialEntry?.id || ''}>{drill ? `drill:${drill.account}:${drill.to}:${drill.book}` : `search:${term}`}</div>
+        <button type="button" onClick={onClose}>{backLabel || 'Back to Report'}</button>
+      </>
+    );
   }
   return { default: LedgerSearchMock };
 });
@@ -188,6 +193,34 @@ describe('Cross-tab drill with filters (Oct 7)', () => {
     render(<ReportsTab />);
     await waitFor(() => expect(screen.getByTestId('ledger-search').dataset.party).toBe('C1'));
     expect(JSON.parse(screen.getByTestId('ledger-search').dataset.drillDims)).toEqual({ departments: ['9500'], journals: ['ARJ'] });
+  });
+});
+
+// Accounting call 10/23, item 07: lines opened from a vendor's record go Back
+// to Vendors & Customers, not to the Income Statement.
+describe('Back to the screen the lines came from (10/23)', () => {
+  it('names that screen on Back and returns to it', async () => {
+    const went = [];
+    const onNav = (e) => went.push(e.detail);
+    window.addEventListener('nexus:navigate', onNav);
+    try {
+      requestReportDrill({ from: '', to: '2026-10-23', party: { kind: 'vendor', code: 'V05212', name: '104 Ave Barcelona' }, back: { label: 'Back to Vendors', sub: 'partners' } });
+      render(<ReportsTab />);
+      await waitFor(() => expect(screen.getByTestId('ledger-search').dataset.party).toBe('V05212'));
+      went.length = 0;
+      fireEvent.click(screen.getByRole('button', { name: 'Back to Vendors' }));
+      expect(went).toEqual([{ view: 'accounting', sub: 'partners' }]);
+      expect(screen.queryByTestId('ledger-search')).toBeNull();
+    } finally {
+      window.removeEventListener('nexus:navigate', onNav);
+    }
+  });
+
+  it('keeps Back to Report for a drill from the report itself', async () => {
+    requestReportDrill({ account: '11452', accountName: 'GC Chase Chkg', from: '', to: '2026-08-31', entity: '32000' });
+    render(<ReportsTab />);
+    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('drill:11452:2026-08-31:accrual'));
+    expect(screen.getByRole('button', { name: 'Back to Report' })).toBeTruthy();
   });
 });
 

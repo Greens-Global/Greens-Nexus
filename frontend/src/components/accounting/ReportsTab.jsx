@@ -223,6 +223,13 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   const waiting = (searchText.trim().length >= 2 && searchText.trim() !== term) || (searching && searchBusy);
   useEffect(() => { onWaiting?.(waiting); }, [waiting]); // eslint-disable-line react-hooks/exhaustive-deps
   const closeSearch = () => { setSearchText(''); setTerm(''); setDrill(null); };
+  // Item 07 (10/23): lines opened from another screen (a vendor's record) go
+  // Back to that screen, which reopens as it was (drill.js parkDrillReturn).
+  const backFromDrill = () => {
+    const sub = drill?.back?.sub;
+    closeSearch();
+    if (sub) window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'accounting', sub } }));
+  };
   // UI test 10/23: another statement or quick view picked from the menu closes
   // the ledger lines open from the last one (they were kept with the screen,
   // item 17, and stayed on top of the new report). Not on the first draw, so a
@@ -260,7 +267,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
       }
       if (d.entity !== undefined) patch({ entities: d.entity ? [d.entity] : [] });
       setDrill({ account: d.account || '', accountName: d.accountName || '', from: d.from || '', to: d.to || iso(new Date()), book: d.book || 'accrual',
-        ...(d.party ? { party: d.party } : {}), ...(d.dims ? { dims: d.dims } : {}) });
+        ...(d.party ? { party: d.party } : {}), ...(d.dims ? { dims: d.dims } : {}), ...(d.back?.sub ? { back: { label: d.back.label || '', sub: d.back.sub } } : {}) });
       toTop();
     };
     take(takePendingDrill());
@@ -727,7 +734,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
 
       {searching && (
         <LedgerSearch term={term.length >= 2 ? term : ''} entities={drillEntities} entityName={drillEntityLabel} full={full}
-          dims={canUseDims(config) ? config.dims : null} dimNames={dimNames} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} onExport={setLinesExport}
+          dims={canUseDims(config) ? config.dims : null} dimNames={dimNames} drill={drill} onClearDrill={() => setDrill(null)} onClose={drill?.back ? backFromDrill : closeSearch} backLabel={drill?.back?.label || ''} onBusy={setSearchBusy} onExport={setLinesExport}
           initialEntry={initialEntry} onEntryClosed={() => setInitialEntry(null)} />
       )}
 
