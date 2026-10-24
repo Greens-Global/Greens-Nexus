@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock, Printer } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
@@ -1781,7 +1781,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {/* Summary + acknowledgment */}
       {T && (
         <div style={{ marginTop: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <div data-tour="pr-summary" style={{ flex: 1, minWidth: 300, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
+          <div data-tour="pr-summary" style={{ flex: '0 1 620px', minWidth: 300, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
             {(() => {
               // SwipeClock shows both clock time and decimal - "58:30 (58.50)" -
               // so payroll can be keyed either way without converting by hand.
@@ -1862,6 +1862,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <span>Paid breaks</span><span style={{ fontWeight: 700, color: 'hsl(var(--color-green))' }}>+{T.paidBreakMin}m</span>
               </div>
             )}
+            {!self && data?.review?.isHr && <PrintTimeSheetButton email={email} start={perStart} toastErr={toastErr} />}
             {!self && showPay && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <button className="secondary-btn" disabled={exporting} onClick={() => exportFile(() => api.timeExportCsv(start, end, 'punches'), 'CSV', [start, end])} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
@@ -1906,7 +1907,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         </p>
       )}
 
-      {T && <TimecardBonuses card={data} periodStart={perStart} self={self} locked={noEdit} fmtM={fmtM} showPay={showPay}
+      {T && <TimecardBonuses card={data} periodStart={perStart} self={self} locked={ownCard || (!!fin && !data.review?.isHr)} fmtM={fmtM} showPay={showPay}
         onChanged={load} toastOk={toastOk} toastErr={toastErr} />}
 
       {/* Review + Nexus Sign (Sep 2026): the employee submits, the manager sends
@@ -2325,7 +2326,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 
       {/* Monthly pay summary - payroll's, never the manager tier's */}
       <div style={{ marginTop: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, minWidth: 300, display: showPay ? undefined : 'none', border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
+        <div style={{ flex: '0 1 620px', minWidth: 300, display: showPay ? undefined : 'none', border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
           {(() => {
             const rows = [
               [data.contractor ? (fixedSplit ? 'Fee this month (pro-rated by day)' : 'Monthly fee') : (fixedSplit ? 'Salary this month (pro-rated by day)' : 'Monthly salary'), fmtM(T.salaryForPeriod ?? T.monthlySalary)],
@@ -2366,6 +2367,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               <span>Pending edits</span><span>{T.pendingEdits}</span>
             </div>
           )}
+          {!self && data.review?.isHr && <PrintTimeSheetButton email={email} start={data.periodStart} toastErr={toastErr} />}
           {!self && ((fin && data.review?.canUnlock) || (isAdmin && LEGACY_FINALIZE)) && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               {fin && data.review?.canUnlock && (
@@ -2378,7 +2380,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         </div>
       </div>
 
-      <TimecardBonuses card={data} periodStart={data.periodStart} self={self} locked={noEdit} fmtM={fmtM} showPay={showPay}
+      <TimecardBonuses card={data} periodStart={data.periodStart} self={self} locked={ownCard || (!!fin && !data.review?.isHr)} fmtM={fmtM} showPay={showPay}
         onChanged={load} toastOk={toastOk} toastErr={toastErr} />
 
       {/* Review + Nexus Sign (same as hourly) - at the top on the employee's own sheet */}
@@ -2410,6 +2412,35 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 
 // The key to the In / Out color banding (Pranshu, Oct 19), above the grid on
 // the manager / HR card. Classes live in style.css so dark mode has its own shades.
+// Print Time Sheet (Neil, Oct 23 2026): HR / Global Admin print the period to
+// be signed on paper, not through Nexus Sign - any period, in review, finalized
+// or locked, hourly or salaried. The tab opens before the fetch so the browser
+// does not treat it as a pop-up.
+function PrintTimeSheetButton({ email, start, toastErr }) {
+  const [printing, setPrinting] = useState(false);
+  async function printSheet() {
+    const tab = window.open('', '_blank');
+    setPrinting(true);
+    try {
+      const res = await api.printTimeSheet(email, start);
+      const url = URL.createObjectURL(res.blob);
+      if (tab) tab.location.href = url;
+      else downloadBlob(res.filename || 'Time Sheet.pdf', res.blob);
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      tab?.close();
+      toastErr?.(e?.message || 'Could not print the time sheet.');
+    } finally { setPrinting(false); }
+  }
+  return (
+    <button className="secondary-btn" disabled={printing} onClick={printSheet}
+      title="A PDF of this period to print and sign on paper, not through Nexus Sign. HR and Global Admins only."
+      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 10 }}>
+      {printing ? <Spinner size={13} /> : <Printer size={13} />} Print Time Sheet
+    </button>
+  );
+}
+
 function TimeColorKey() {
   return (
     <div className="pt-time-key" aria-label="Time colors">

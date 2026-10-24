@@ -1,7 +1,8 @@
 """Time Sheet bonuses (Neil, Oct 22 2026): a manager or HR adds a bonus with
 why to a pay period; it is its own line, adds to totalPay on the hourly and
 the monthly card, prints on the Time Sheet PDF and on a contractor's
-invoice, and is locked like the hours.
+invoice. Neil, Oct 23: it needs no new
+approval or signature, and HR adds one even after the period is finalized.
 
     python -m unittest test_timecard_bonus
 """
@@ -49,11 +50,11 @@ class BonusTests(ReviewCase):
         self.assertNotIn("amount", stripped["bonuses"][0])
         self.assertNotIn("bonusPay", stripped["totals"])
 
-    def test_a_bonus_changes_what_the_employee_signs(self):
+    def test_a_bonus_never_makes_an_approval_or_signature_stale(self):
         import timesheet_review as tsr
         before = tsr.fingerprint(self.db, EMP, self.start, self.end)
         bid = self._add()["id"]
-        self.assertNotEqual(tsr.fingerprint(self.db, EMP, self.start, self.end), before)
+        self.assertEqual(tsr.fingerprint(self.db, EMP, self.start, self.end), before)
         timeclock.remove_timecard_bonus(bid, user=HR, _su={}, db=self.db)
         self.assertEqual(tsr.fingerprint(self.db, EMP, self.start, self.end), before)
 
@@ -104,8 +105,9 @@ HR_USER = {"email": HR_EMAIL, "level": 4}
 
 
 class BonusWorkflowTests(ReviewCase):
-    """Where a bonus goes in the review (Oct 22): the employee always signs a
-    Time Sheet that shows it, whoever added it and whenever."""
+    """Neil, Oct 23: "a bonus should not require anyone to reapprove. It can be
+    added at the very end by HR also. No employee will need to validate the
+    bonus as it was not guaranteed base pay to begin with." """
 
     def setUp(self):
         super().setUp()
@@ -143,112 +145,70 @@ class BonusWorkflowTests(ReviewCase):
         self._sign(self._parties(r.sign_request_id)["employee"])
         return self._r()
 
+    def _bonus_pay(self):
+        self.db.expire_all()
+        return timeclock._compute_timecard(self.db, EMP, self.start, self.end)["totals"].get("bonusPay")
+
     def test_added_before_approval_it_is_on_the_time_sheet_the_employee_signs(self):
-        out = self._add(MANAGER)
-        self.assertEqual((out["reopened"], out["signAgain"]), (False, False))
-        # The employee hears at once, with the amount - not only when they sign.
+        self._add(MANAGER)
+        # The employee hears at once, with the amount, and has nothing to do.
         body = self._bell(EMP, "Bonus Added to Your Time Sheet")
         self.assertIn("Max Test added a bonus to your time sheet for", body)
         self.assertIn("Holiday cover - $150.00", body)
-        self.assertIn("on the copy you sign", body)
-        # Their own Time Sheet carries it (Workday > Time Sheet reads /my-payroll).
+        self.assertIn("needs no approval or signature", body)
         mine = timeclock.my_payroll(start=self.start, user={"email": EMP, "level": 1}, db=self.db)
         self.assertEqual([(b["description"], b["amount"]) for b in mine["bonuses"]], [("Holiday cover", 150.0)])
         r = tsr.submit(self.db, EMP, ANCHOR, "All in")
         tsr.approve(self.db, r, MGR, "")
-        r = self._r()
-        self.assertEqual(r.status, "signing")
-        self.assertEqual(r.agreed_fingerprint, tsr.fingerprint(self.db, EMP, self.start, self.end))
-        text = self._text(self.pdfs[-1])
-        self.assertIn("Bonus: Holiday cover", text)
-        self.assertIn("150.00", text)
-        r = self._sign_now()
-        self.assertEqual(r.status, "completed")
-        card = timeclock._compute_timecard(self.db, EMP, self.start, self.end)
-        self.assertEqual(card["totals"]["bonusPay"], 150.0)
-
-    def test_a_manager_adding_one_while_it_is_out_to_sign_sends_it_back_to_the_manager(self):
-        r = self._to_signing()
-        first = r.sign_request_id
-        out = self._add(MANAGER)
-        self.assertTrue(out["reopened"])
-        r = self._r()
-        self.assertEqual((r.status, r.sign_request_id), ("with_manager", ""))
-        self.assertEqual(self.db.get(models.HrSignRequest, first).status, "voided")
-        # Says it was a bonus, not "changed the hours".
-        back = self._bell(EMP, "Time Sheet Back for Review")
-        self.assertIn("added a bonus: Holiday cover", back)
-        self.assertNotIn("changed the hours", back)
-        self.assertIn("back to your manager to approve, then to you to sign again",
-                      self._bell(EMP, "Bonus Added to Your Time Sheet"))
-        # The manager approves again: a new envelope, with the bonus on it.
-        tsr.approve(self.db, r, MGR, "")
+        self.assertEqual(self._r().status, "signing")
         self.assertIn("Bonus: Holiday cover", self._text(self.pdfs[-1]))
         self.assertEqual(self._sign_now().status, "completed")
 
-    def test_hr_adding_one_while_it_is_out_to_sign_asks_the_employee_to_sign_again(self):
+    def test_a_manager_adding_one_while_it_is_out_to_sign_reopens_nothing(self):
         r = self._to_signing()
-        first = r.sign_request_id
-        self.assertTrue(self._add(HR_USER)["signAgain"])
+        envelope = r.sign_request_id
+        self._add(MANAGER)
         r = self._r()
-        self.assertEqual(r.status, "approved")      # HR needs no new approval
-        self.assertEqual(self.db.get(models.HrSignRequest, first).status, "voided")
-        self.assertIn("Time Sheet Updated by HR", self._bells(EMP))
-        self.assertIn("sign it again", self._bell(EMP, "Bonus Added to Your Time Sheet"))
-        tsr.employee_approve(self.db, r, EMP)
+        self.assertEqual((r.status, r.sign_request_id), ("signing", envelope))
+        self.assertNotEqual(self.db.get(models.HrSignRequest, envelope).status, "voided")
+        self.assertNotIn("Time Sheet Back for Review", self._bells(EMP))
+        self.assertEqual(self._sign_now().status, "completed")      # the same signature still finalizes it
+        self.assertEqual(self._bonus_pay(), 150.0)
+
+    def test_hr_adding_one_while_it_is_out_to_sign_asks_for_no_new_signature(self):
+        r = self._to_signing()
+        envelope = r.sign_request_id
+        self._add(HR_USER)
         r = self._r()
-        self.assertEqual(r.status, "signing")
-        text = self._text(self.pdfs[-1])
-        self.assertIn("Bonus: Holiday cover", text)
-        # The approval history on the copy they sign names the bonus.
-        self.assertTrue(any(x.startswith("Changed by Hana Test (HR)") and "added a bonus: Holiday cover" in x
-                            for x in tsr.approval_log(self.db, r)), tsr.approval_log(self.db, r))
+        self.assertEqual((r.status, r.sign_request_id), ("signing", envelope))
+        self.assertNotIn("Time Sheet Updated by HR", self._bells(EMP))
         self.assertEqual(self._sign_now().status, "completed")
 
-    def test_hr_changing_hours_then_adding_a_bonus_logs_both(self):
-        # Seen in Chrome (Oct 22): HR's second change in the same pass was
-        # folded into "Hours changed", so the bonus never reached the log.
-        self._to_signing()
-        tsr.guard_edit(self.db, EMP, self.start, HR_EMAIL)      # HR fixes a punch first
-        self.db.commit()
-        self.assertEqual(self._r().status, "approved")
-        self._add(HR_USER)
-        log = tsr.approval_log(self.db, self._r())
-        self.assertTrue(any(x.startswith("Hours changed by Hana Test (HR)") for x in log), log)
-        self.assertTrue(any('"added a bonus: Holiday cover"' in x for x in log), log)
-        # The PDF's Approval History table: the hours row, then the bonus row - not two "Hours changed".
-        steps = [(h["step"], h.get("note", "")) for h in tsr.approval_history(self.db, self._r())]
-        self.assertIn(("Hours changed by HR", ""), steps)
-        self.assertIn(("Changed by HR", "added a bonus: Holiday cover"), steps)
-
-    def test_removing_one_after_approval_reopens_it_too(self):
+    def test_removing_one_after_approval_changes_no_review_step(self):
         bid = self._add(MANAGER)["id"]
         self._to_signing()
         timeclock.remove_timecard_bonus(bid, user=MANAGER, _su={}, db=self.db)
-        r = self._r()
-        self.assertEqual(r.status, "with_manager")
+        self.assertEqual(self._r().status, "signing")
         self.assertIn('removed the bonus "Holiday cover" ($150.00)', self._bell(EMP, "Bonus Removed from Your Time Sheet"))
-        tsr.approve(self.db, r, MGR, "")
-        self.assertNotIn("Bonus:", self._text(self.pdfs[-1]))
+        self.assertIsNone(self._bonus_pay())
 
-    def test_back_with_the_employee_only_hr_can_add_one(self):
+    def test_back_with_the_employee_a_manager_can_still_add_one(self):
         r = tsr.submit(self.db, EMP, ANCHOR, "All in")
         tsr.send_back(self.db, r, MGR, "Check Monday")
+        self._add(MANAGER)
+        self.assertEqual(self._r().status, "with_employee")
+
+    def test_after_it_is_final_only_hr_adds_one_at_the_very_end(self):
+        self._to_signing()
+        self._sign_now()
         with self.assertRaises(HTTPException) as e:
             self._add(MANAGER)
         self.assertEqual(e.exception.status_code, 403)
+        self.assertIn("only HR can add or remove a bonus", e.exception.detail)
         self._add(HR_USER)
-        self.assertEqual(self._r().status, "with_employee")
-
-    def test_once_signed_and_final_nobody_adds_one(self):
-        self._to_signing()
-        self._sign_now()
-        for who in (MANAGER, HR_USER):
-            with self.assertRaises(HTTPException) as e:
-                self._add(who)
-            self.assertEqual(e.exception.status_code, 403)
-            self.assertIn("Add the bonus on the current pay period, or ask HR to unlock", e.exception.detail)
-        self.assertNotIn("Bonus Added to Your Time Sheet", self._bells(EMP))
+        self.assertEqual(self._r().status, "completed")              # still final, nobody signs again
+        self.assertEqual(self._bonus_pay(), 150.0)                   # the exports read it from the card
+        self.assertIn("Bonus Added to Your Time Sheet", self._bells(EMP))
 
 
 if __name__ == "__main__":

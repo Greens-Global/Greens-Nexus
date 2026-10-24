@@ -449,6 +449,67 @@ class SigningTests(ReviewCase):
         self.assertIn(tsr.BREAK_STATEMENT, text())
 
 
+class PaperPrintTests(ReviewCase):
+    """Neil, Oct 23 2026: HR / Global Admin print a time sheet to sign on
+    paper, not Nexus Sign - any period, finalized or not; it changes nothing."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(auth.invalidate_role_cache)   # is_hr looks people's levels up; later tests set roles
+
+    def _text(self, pdf):
+        import io
+        from pypdf import PdfReader
+        return " ".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
+
+    def test_hr_prints_any_period_with_every_note_and_nobody_else_can(self):
+        self.db.add(models.TimecardNote(id="n-1", employee_email=EMP, date=self.start, note="Lunch fixed by hand",
+                                        updated_by=MGR, employee_note="Doctor visit"))
+        self.db.commit()
+        self.addCleanup(lambda: (self.db.query(models.TimecardNote).filter_by(id="n-1").delete(), self.db.commit()))
+        pdf, name = tsr.paper_pdf(self.db, EMP, ANCHOR, HR)
+        text = self._text(pdf)
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertIn("to be signed on paper", text)
+        self.assertIn("Doctor visit", text)
+        self.assertIn("Lunch fixed by hand", text)            # HR's copy carries the manager's note too
+        self.assertTrue(name.endswith(".pdf"))
+        self.assertIsNone(self._r())                          # printing starts no review
+        for who in (MGR, EMP):
+            with self.assertRaises(HTTPException) as e:
+                tsr.paper_pdf(self.db, EMP, ANCHOR, who)
+            self.assertEqual(e.exception.status_code, 403)
+
+    def test_the_paper_copy_shows_every_break_and_who_finalized_it(self):
+        self._punch(self.start, "break_start", "19:00:00")
+        self._punch(self.start, "break_end", "19:30:00")
+        self.db.add(models.TimeApproval(id="fin-paper", employee_email=EMP, period_start=self.start, period_end=self.end,
+                                        worked_min=0, approved_by=HR, approved_at=f"{self.end}T20:00:00",
+                                        note="Final", revoked=0, kind="final"))
+        self.db.commit()
+        self.addCleanup(lambda: (self.db.query(models.TimeApproval).filter_by(id="fin-paper").delete(), self.db.commit()))
+        text = self._text(tsr.paper_pdf(self.db, EMP, ANCHOR, HR)[0])
+        self.assertIn("Break 30m", text)
+        self.assertIn("BREAK TIME", text)
+        self.assertIn("Finalized by HR - period locked", text)
+        self.assertIn("Signed by employee on paper", text)
+        self.assertNotIn("reported instead of signing", text)       # a Nexus Sign step, not a paper one
+        self.db.query(models.TimeApproval).filter_by(id="fin-paper").delete()
+        self.db.commit()
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        esign_text = self._text(tsr.build_pdf(self.db, r)[0])
+        self.assertNotIn("Break 30m", esign_text)                    # the e-sign copy keeps its layout
+        self.assertNotIn("on paper", esign_text)
+
+    def test_a_finalized_time_sheet_still_prints_and_stays_as_it_was(self):
+        r = self._to_signing()
+        self._sign(self._parties(r.sign_request_id)["employee"])
+        before = self._r().status
+        pdf, _ = tsr.paper_pdf(self.db, EMP, ANCHOR, HR)
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertEqual(self._r().status, before)
+
+
 class StateTests(ReviewCase):
     def test_what_each_viewer_may_do(self):
         self.assertEqual(tsr.state_for(self.db, EMP, self.start, EMP, False)["status"], "not_submitted")

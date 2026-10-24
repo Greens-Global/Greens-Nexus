@@ -1596,6 +1596,8 @@ export const api = {
   timeGeofencePunches: (email, start, end) => req(`/timeclock/geofence-punches?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}`),
   timeAdjustPunch:   (id, data)  => req(`/timeclock/punches/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeAddPunch:      (data)      => req('/timeclock/punches', { method: 'POST', body: JSON.stringify(data) }),
+  // HR / Global Admin: the period's time sheet as a PDF to sign on paper (Neil, Oct 23).
+  printTimeSheet:    (email, start) => reqBlob(`/timesheet-review/print?email=${encodeURIComponent(email || '')}&start=${encodeURIComponent(start || '')}`),
   timeExportCsv:     (start, end, mode) => reqBlob(`/timeclock/export.csv?start=${start || ''}&end=${end || ''}&mode=${mode || 'summary'}`),
   // QuickBooks Desktop time import (IIF TIMEACT rows) - Charmi imports this
   // instead of keying hours per employee by hand (Aug 21).
