@@ -509,7 +509,7 @@ export default function ManagementFeesTab({ canEdit = false }) {
         <div style={{ ...card, padding: 0, overflow: 'hidden' }} aria-busy={loading}>
           {/* 10/23 meeting, item 05: the agreements scroll inside this box, headings pinned. */}
           <div className="req-table-wrapper acct-scroll-box" ref={setBox} data-testid="mgmt-fees-box" style={fit}>
-            <table className="req-table acct-ama" style={{ fontVariantNumeric: 'tabular-nums', '--ama-py': py }}>
+            <table className="req-table acct-ama acct-sticky-head" style={{ fontVariantNumeric: 'tabular-nums', '--ama-py': py }}>
               <thead>
                 <tr>
                   {view.columns.map((c) => (c.key === 'actions' ? <th key={c.key} aria-label="Actions" style={{ width: 60 }} /> : (

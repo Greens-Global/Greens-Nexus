@@ -582,6 +582,18 @@ describe('LeasingTab shared controls', () => {
     await waitFor(() => expect(screen.getByTestId('mri-tenants-box').style.maxHeight).toMatch(/px$/));
   });
 
+  // Round 3 (item 05, UI test 10/24: Payers' headings scrolled away with the rows): each heading
+  // keeps position: relative for its drag handle, so the heading block pins as one piece instead.
+  it('pins the headings of the Income Roll, Outstanding and Payers to the top of their box', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    expect(document.querySelector('.acct-roll').classList.contains('acct-sticky-head')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /Outstanding/ }));
+    await waitFor(() => expect(screen.getByTestId('mri-outstanding-box').querySelector('table').classList.contains('acct-sticky-head')).toBe(true));
+    fireEvent.click(screen.getByRole('button', { name: /^Payers/ }));
+    await waitFor(() => expect(screen.getByTestId('mri-tenants-box').querySelector('table').classList.contains('acct-sticky-head')).toBe(true));
+  });
+
   it('has a resize handle on the Income Roll columns', async () => {
     render(<LeasingTab canEdit />);
     await screen.findByText('910 SECR - Ste 100, San Clemente');

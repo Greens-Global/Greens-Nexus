@@ -206,7 +206,9 @@ export default function CompensationReport() {
                 <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Compensation</h3>
                 <span style={muted}>{period} · {data.people.length} {data.people.length === 1 ? 'employee' : 'employees'}{tv.count ? ` · ${rows.length} of ${all.length} rows pass the filters` : ''}</span>
               </div>
-              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+              {/* Item 05 (round 3): the heading block pins as one piece (acct-sticky-head) -
+                  each heading keeps position: relative for its drag handle, which stopped it pinning by itself. */}
+              <table className="acct-sticky-head" style={{ borderCollapse: 'collapse', width: '100%' }}>
                 <thead>
                   <tr>
                     {tv.columns.map((c) => {

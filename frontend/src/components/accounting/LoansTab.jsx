@@ -195,7 +195,8 @@ export function loansTable(rows, { from, to, entityLabel }) {
 // 01). The figures compare as amounts (the Total line adds up the ones it
 // always did), Rate and DSCR as numbers, Maturity as a date. The details the
 // export always carried (Charmi, 10/06) are columns too, hidden until shown
-// from Columns - the export is exactly the columns shown.
+// from Columns - and `alwaysExport`: the file carries them shown or not
+// (loanExportColumns).
 function loanColumns(canEdit) {
   const money = (key, label, field, total = true) => ({ key, label, type: 'amount', total, value: (r) => (r[field] == null ? null : Number(r[field])), text: (r) => (r[field] == null ? '' : formatAmount(r[field])) });
   const n = (v) => (v == null ? '' : v);
@@ -216,16 +217,24 @@ function loanColumns(canEdit) {
     { key: 'dscr', label: 'DSCR', type: 'number', value: (r) => (r.dscr == null ? null : Number(r.dscr)), text: (r) => (r.dscr == null ? '' : dscrText(r.dscr)), exportAs: [{ label: 'DSCR', width: 70, get: (r) => dscrText(r.dscr) }] },
     { key: 'type', label: 'Type', text: (r) => (r.internal ? 'Internal' : 'External'), exportAs: [{ label: 'Type', width: 80, get: (r) => (r.internal ? 'Internal' : 'External') }] },
     { key: 'egnyte', label: 'Egnyte', text: (r) => [r.docsPath, r.statementsPath].filter(Boolean).map(folderName).join(' · '), exportAs: [] },
-    { key: 'principalAccount', label: 'Principal Account', off: true, text: (r) => r.glAccount || '', exportAs: [{ label: 'Principal Account', width: 90, get: (r) => r.glAccount || '' }] },
-    { key: 'interestAccount', label: 'Interest Account', off: true, text: (r) => r.interestAccount || '', exportAs: [{ label: 'Interest Account', width: 90, get: (r) => r.interestAccount || '' }] },
-    { key: 'loanType', label: 'Loan Type', off: true, text: (r) => loanTypeLabel(r.loanType), exportAs: [{ label: 'Loan Type', width: 90, get: (r) => loanTypeLabel(r.loanType) }] },
-    { key: 'vendor', label: 'Vendor', off: true, text: (r) => (r.vendorId ? `${r.vendorName || r.vendorId} (${r.vendorId})` : ''), exportAs: [{ label: 'Vendor', width: 140, get: (r) => (r.vendorId ? `${r.vendorName || r.vendorId} (${r.vendorId})` : '') }] },
-    { key: 'draws', label: 'Draws', off: true, type: 'amount', total: true, value: (r) => (r.lineOfCredit && r.draws != null ? Number(r.draws) : null), text: (r) => (r.lineOfCredit && r.draws != null ? formatAmount(r.draws) : ''),
+    { key: 'principalAccount', label: 'Principal Account', off: true, alwaysExport: true, text: (r) => r.glAccount || '', exportAs: [{ label: 'Principal Account', width: 90, get: (r) => r.glAccount || '' }] },
+    { key: 'interestAccount', label: 'Interest Account', off: true, alwaysExport: true, text: (r) => r.interestAccount || '', exportAs: [{ label: 'Interest Account', width: 90, get: (r) => r.interestAccount || '' }] },
+    { key: 'loanType', label: 'Loan Type', off: true, alwaysExport: true, text: (r) => loanTypeLabel(r.loanType), exportAs: [{ label: 'Loan Type', width: 90, get: (r) => loanTypeLabel(r.loanType) }] },
+    { key: 'vendor', label: 'Vendor', off: true, alwaysExport: true, text: (r) => (r.vendorId ? `${r.vendorName || r.vendorId} (${r.vendorId})` : ''), exportAs: [{ label: 'Vendor', width: 140, get: (r) => (r.vendorId ? `${r.vendorName || r.vendorId} (${r.vendorId})` : '') }] },
+    { key: 'draws', label: 'Draws', off: true, alwaysExport: true, type: 'amount', total: true, value: (r) => (r.lineOfCredit && r.draws != null ? Number(r.draws) : null), text: (r) => (r.lineOfCredit && r.draws != null ? formatAmount(r.draws) : ''),
       exportAs: [{ label: 'Draws', num: true, width: 100, total: true, get: (r) => (r.lineOfCredit ? n(r.draws) : '') }] },
-    { key: 'docs', label: 'Documents Folder', off: true, text: (r) => r.docsPath || '', exportAs: [{ label: 'Documents Folder', width: 160, get: (r) => r.docsPath || '' }] },
-    { key: 'statements', label: 'Statements Folder', off: true, text: (r) => r.statementsPath || '', exportAs: [{ label: 'Statements Folder', width: 160, get: (r) => r.statementsPath || '' }] },
+    { key: 'docs', label: 'Documents Folder', off: true, alwaysExport: true, text: (r) => r.docsPath || '', exportAs: [{ label: 'Documents Folder', width: 160, get: (r) => r.docsPath || '' }] },
+    { key: 'statements', label: 'Statements Folder', off: true, alwaysExport: true, text: (r) => r.statementsPath || '', exportAs: [{ label: 'Statements Folder', width: 160, get: (r) => r.statementsPath || '' }] },
     ...(canEdit ? [{ key: 'actions', label: 'Actions', fixed: true, noFilter: true, noSort: true, exportAs: [], text: () => '' }] : []),
   ];
+}
+
+/** The export's columns (round 3, Charmi 10/06): the columns shown, in their
+ *  order, then each `alwaysExport` detail column that is hidden, in setup
+ *  order - so an untouched view exports the 10/06 file. */
+export function loanExportColumns(shown, all) {
+  const on = new Set(shown.map((c) => c.key));
+  return [...shown, ...all.filter((c) => c.alwaysExport && !on.has(c.key))];
 }
 
 function SkeletonRows({ rows = 6, cols = 14 }) {
@@ -484,10 +493,10 @@ export default function LoansTab({ canEdit = false }) {
       load();
     })
     .catch((e) => setSent({ text: e?.message || 'Could not remove the loan.', bad: true }));
-  // Exactly what the view leaves: its rows, order and columns.
+  // What the view leaves - its rows, order and columns - plus the 10/06 details, shown or not.
   const table = () => {
     const base = loansTable([], { from, to, entityLabel });
-    return viewTable(rows, tv.columns, { title: base.title, period: base.period, subtitle: base.subtitle });
+    return viewTable(rows, loanExportColumns(tv.columns, tv.allColumns), { title: base.title, period: base.period, subtitle: base.subtitle });
   };
   const exportAs = async (format) => {
     if (busy) return;

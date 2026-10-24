@@ -139,7 +139,7 @@ describe('LoansTab', () => {
     expect(api.getLoansReview.mock.calls[0][0]).toMatchObject({ from: expect.stringMatching(/^\d{4}-\d{2}-01$/), to: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), entities: [] });
   });
 
-  it('has the standard table view: a value list narrows the loans, the totals follow, a hidden detail column can be shown, the export is what shows (10/23, item 01)', async () => {
+  it('has the standard table view: a value list narrows the loans, the totals follow, a hidden detail column can be shown, the export follows the view (10/23, item 01)', async () => {
     globalThis.URL.createObjectURL = vi.fn(() => 'blob:x');
     globalThis.URL.revokeObjectURL = vi.fn();
     render(<LoansTab canEdit />);
@@ -162,8 +162,43 @@ describe('LoansTab', () => {
     const file = URL.createObjectURL.mock.calls[0][0];
     const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
     const lines = text.replace(/^\s+/, '').split('\r\n');
-    expect(lines[0]).toBe('Lender,Loan #,GL Code,Entity,Monthly Payment,Original Principal,Balance,Principal Paid,Interest Paid,Debt Service,Rate,Maturity,DSCR,Type,Vendor');
+    // Vendor, shown, sits where the screen has it; the other 10/06 details follow (round 3).
+    expect(lines[0]).toBe('Lender,Loan #,GL Code,Entity,Monthly Payment,Original Principal,Balance,Principal Paid,Interest Paid,Debt Service,Rate,Maturity,DSCR,Type,Vendor,Principal Account,Interest Account,Loan Type,Draws,Documents Folder,Statements Folder');
     expect(text).not.toContain('Golden 1');
+  });
+
+  // Round 3 (Charmi, 10/06): the 7 detail columns are always in the file,
+  // shown or hidden; every other column follows Columns, and the rows follow
+  // the filters and the sort.
+  it('always exports the 7 detail columns, hidden or not, with the filters and sort applied', async () => {
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:x');
+    globalThis.URL.revokeObjectURL = vi.fn();
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    // Filter out Golden 1, sort by Balance (largest first), hide Rate.
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Lender by value' }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Lender values' })).getByRole('checkbox', { name: /Golden 1 Credit Union/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Balance - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Balance column' })).getByRole('menuitemradio', { name: /Sort Descending/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show or Hide Columns' }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Columns' })).getByLabelText('Rate'));
+    expect(screen.queryByRole('columnheader', { name: 'Rate' })).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Principal Account' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
+    const file = URL.createObjectURL.mock.calls[0][0];
+    const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
+    const lines = text.replace(/^\s+/, '').split('\r\n');
+    expect(lines[0]).toBe('Lender,Loan #,GL Code,Entity,Monthly Payment,Original Principal,Balance,Principal Paid,Interest Paid,Debt Service,Maturity,DSCR,Type,Principal Account,Interest Account,Loan Type,Vendor,Draws,Documents Folder,Statements Folder');
+    // Largest balance first: F&M 1,252,000, Chase 400,000, the intercompany loan 20,000; Golden 1 filtered out.
+    expect(lines[1].startsWith('F&M Bank,')).toBe(true);
+    expect(lines[2].startsWith('Chase,')).toBe(true);
+    expect(lines[3].startsWith('"Greens Global, Inc.",')).toBe(true);
+    expect(text).not.toContain('Golden 1');
+    // F&M's details are in the file though no detail column is on screen.
+    expect(lines[1]).toContain('27100,71100');
+    expect(lines[1]).toContain('/Shared/Loans/F&M');
   });
 
   it('filters by Internal / External and by text, and reads again for the entities picked', async () => {

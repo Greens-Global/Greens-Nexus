@@ -889,7 +889,7 @@ function RentRoll({ view, rows, span, figures, year, thisMonth, py, onCell, onLe
   return (
     <div style={{ ...card, padding: 10 }}>
       <div ref={wrapRef} className="acct-lines-wrap" style={{ maxHeight: fitHeight || '74vh' }}>
-        <table className="acct-lines acct-roll" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
+        <table className="acct-lines acct-roll acct-sticky-head" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
           <thead>
             <tr>{view.columns.map(head)}</tr>
           </thead>
@@ -1028,7 +1028,7 @@ function Outstanding({ view, rows, year, py, pageSize = 0, pageKey = '' }) {
   return (
     <div style={{ ...card, padding: 10 }}>
       <div ref={wrapRef} className="acct-lines-wrap" data-testid="mri-outstanding-box" style={fitHeight ? { maxHeight: fitHeight } : undefined}>
-        <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
+        <table className="acct-lines acct-sticky-head" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
           <thead>
             <tr>{view.columns.map((c) => (c.key === 'write' ? <th key={c.key} scope="col" aria-label="Write" />
               : <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={c.type === 'amount' ? 'acct-num' : undefined} style={headStyle(view.manualWidth(c.key))} />))}</tr>
@@ -1082,7 +1082,7 @@ function Tenants({ view, rows, py, canEdit, onEdit, onReplace, pageSize = 0, pag
   return (
     <div style={{ ...card, padding: 10 }}>
       <div ref={wrapRef} className="acct-lines-wrap" data-testid="mri-tenants-box" style={fitHeight ? { maxHeight: fitHeight } : undefined}>
-        <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
+        <table className="acct-lines acct-sticky-head" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
           <thead>
             <tr>{view.columns.map((c) => (c.key === 'change' ? <th key={c.key} scope="col" aria-label="Change" />
               : <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={c.type === 'amount' ? 'acct-num' : undefined} style={headStyle(view.manualWidth(c.key))} />))}</tr>

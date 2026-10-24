@@ -87,7 +87,7 @@ function RecordsTable({ tableKey, title, about, columns, rows, loading, error, n
       {rows && (
         <div style={{ ...card, padding: 0, overflow: 'hidden', opacity: syncing ? 0.6 : 1 }}>
           <div className="req-table-wrapper acct-scroll-box" ref={setBox} data-testid="records-box" style={fit}>
-            <table className="req-table">
+            <table className="req-table acct-sticky-head">
               <thead>
                 <tr>{view.columns.map((c) => <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={c.type === 'number' ? 'acct-num' : undefined} style={headStyle(c.width)} />)}</tr>
               </thead>

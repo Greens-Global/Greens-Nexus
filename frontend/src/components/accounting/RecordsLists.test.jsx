@@ -36,6 +36,7 @@ describe('Records lists', () => {
   it('lists the chart of accounts, hides inactive ones until asked, and searches', async () => {
     render(<GlAccountsTab />);
     expect(await screen.findByText('Chase Checking')).toBeTruthy();
+    expect(screen.getByTestId('records-box').querySelector('table').classList.contains('acct-sticky-head')).toBe(true);   // headings pinned (item 05, round 3)
     expect(screen.queryByText('Old Suspense')).toBeNull();
     fireEvent.click(screen.getByRole('checkbox', { name: /Show inactive/ }));
     expect(screen.getByText('Old Suspense')).toBeTruthy();
