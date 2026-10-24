@@ -546,6 +546,12 @@ class BuildNotesToolsTest(unittest.TestCase):
         self.assertEqual(cli.latest_human_answer(answered["thread"])[2], "The one in the Updates card.")
         self.assertIsNone(cli.latest_human_answer(answered["thread"][:1]))
         self.assertIsNone(cli.latest_human_answer([{"by": "neil@greensglobal.com", "kind": "progress", "text": "x"}]))
+        # The claim appends its own progress entry AFTER the answer - the answer must still be found.
+        picked = answered["thread"] + [{"by": "claude", "kind": "progress", "text": "Picked up by Claude Code"}]
+        self.assertEqual(cli.latest_human_answer(picked)[2], "The one in the Updates card.")
+        # A newer question from Claude resets it: only comments after the last question count.
+        asked_again = picked + [{"by": "claude", "kind": "claude", "text": "And the color?"}]
+        self.assertIsNone(cli.latest_human_answer(asked_again))
         brief = cli.render_brief(answered, [])
         self.assertIn("Author's latest answer (neil@greensglobal.com, ", brief)
         self.assertIn("): The one in the Updates card.", brief)

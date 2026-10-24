@@ -273,15 +273,21 @@ def describe_actions(actions):
 
 
 def latest_human_answer(thread):
-    """(by, at, text) when the thread's LAST entry is a person's comment - the
-    author answered a question and the pin came back through the watcher."""
+    """(by, at, text) of the author's answer to Claude's latest question: the
+    newest person's comment that comes AFTER the last `claude` entry (the
+    question). Progress and system lines are skipped - the claim itself adds a
+    "Picked up by Claude Code" progress entry after the answer, so looking
+    only at the final entry would hide every answer."""
     entries = [e for e in (thread or []) if isinstance(e, dict)]
-    if not entries:
-        return None
-    last = entries[-1]
-    if str(last.get("kind") or "comment") != "comment" or str(last.get("by") or "").lower() == "claude":
-        return None
-    return (str(last.get("by") or "author"), str(last.get("at") or ""), str(last.get("text") or "").strip())
+    answer = None
+    for e in entries:
+        kind = str(e.get("kind") or "comment")
+        by = str(e.get("by") or "").lower()
+        if kind == "claude":
+            answer = None          # a newer question - only what follows it counts
+        elif kind == "comment" and by != "claude":
+            answer = (str(e.get("by") or "author"), str(e.get("at") or ""), str(e.get("text") or "").strip())
+    return answer
 
 
 def render_brief(note, files, session_title=None):
