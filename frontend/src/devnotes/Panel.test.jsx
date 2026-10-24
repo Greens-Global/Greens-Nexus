@@ -61,7 +61,7 @@ describe('Panel', () => {
 
   it('Send counts only unheld pins and names the held ones afterwards', async () => {
     const { api } = await import('../api');
-    api.devNotesDispatch.mockResolvedValueOnce({ notes: [{ id: 'p1' }], held: [{ id: 'p2', number: 2, ownerName: 'Visesh' }] });
+    api.devNotesDispatch.mockResolvedValueOnce({ notes: [{ id: 'p1' }, { id: 'p3' }], held: [{ id: 'p2', number: 4, ownerName: 'Visesh' }] });
     const base = { kind: 'bug', priority: 'normal', status: 'open', sessionId: 's1', route: 'inventory', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] };
     notes = [{ ...base, id: 'p1', number: 1, comment: 'Ordinary pin' }, { ...base, id: 'p2', number: 2, comment: 'Held pin', held: true, ownerName: 'Visesh', ownerEmail: 'visesh.lodha@greensglobal.com' }];
     const store = await import('./store');
@@ -71,7 +71,7 @@ describe('Panel', () => {
     const btn = screen.getByRole('button', { name: /Send To Claude Code/ });
     await waitFor(() => expect(btn).not.toBeDisabled());
     btn.click();
-    await waitFor(() => expect(store.store.get().toast?.text).toBe('Sent - Pin #2 waits for Visesh'));
+    await waitFor(() => expect(store.store.get().toast?.text).toBe('2 pins sent - Pin #4 waits for Visesh'));
   });
 
   it('Queue: my pins Ready To Check are counted up top and on their session; a click opens the first', async () => {
@@ -103,6 +103,16 @@ describe('Panel', () => {
     await waitFor(() => expect(btn).not.toBeDisabled());
     btn.click();
     await waitFor(() => expect(store.store.get().toast?.text).toBe('No open pins to send - Pin #2 waits for Visesh'));
+  });
+
+  it('my open pins count whatever their session status (a sent session included)', async () => {
+    const base = { kind: 'bug', priority: 'normal', status: 'open', route: 'tasks', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] };
+    notes = [{ ...base, id: 'x1', number: 7, comment: 'In a sent session', sessionId: 'sent-1' }];
+    const { api } = await import('../api');
+    api.devNotesSessions.mockResolvedValueOnce([{ id: 'sent-1', title: 'Earlier Session', status: 'sent', noteCount: 1, createdBy: 'neil@greensglobal.com', createdAt: '2026-10-23T16:00:00Z' }]);
+    render(<Panel {...props} myEmail="neil@greensglobal.com" />);
+    await screen.findByText('In a sent session');
+    expect(screen.getByText(/1 of yours ready to send\./)).toBeTruthy();
   });
 
   it('Sessions tab: per session, how many are Ready To Check and Waiting For Owner', async () => {

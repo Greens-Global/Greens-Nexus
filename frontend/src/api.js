@@ -2988,6 +2988,9 @@ export const api = {
   // or reopened (a note is required to reopen) against its local preview.
   devNotesRelease: (id) => req(`/dev-notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ release: true }) }),
   devNotesPreviewVerdict: (id, { accepted, comment = "" } = {}) => req(`/dev-notes/${encodeURIComponent(id)}/preview-verdict`, { method: "POST", body: JSON.stringify({ accepted: !!accepted, comment }) }),
+  // { owner: {name, email} | null, held } for a source stamp - the composer
+  // asks before saving whether the pin would be held for that owner.
+  devNotesOwnerOf: (path) => req(`/dev-notes/owner-of?${new URLSearchParams({ path: path || "" }).toString()}`),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()

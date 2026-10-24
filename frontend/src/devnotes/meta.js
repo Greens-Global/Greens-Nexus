@@ -43,32 +43,44 @@ const isReady = (pin) => (pin.readyToCheck != null
   ? !!pin.readyToCheck
   : pin.status === 'pr_open' && !!pin.preview?.url && pin.previewVerdict !== 'accepted');
 
+/** Held for the owner of its area, and still open (never sent). */
+export const pinHeld = (p) => !!p?.held && p.status === 'open';
+/** A human answered last and Claude Code has not picked it up again yet. */
+export function pinAwaitsClaude(p) {
+  if (p?.status !== 'building') return false;
+  const t = Array.isArray(p.thread) ? p.thread : [];
+  const last = t[t.length - 1];
+  return !!last && last.kind === 'comment' && last.by !== 'claude';
+}
+/** Reopened on the preview and Claude Code has it again: building, and the
+ *  author's note is no longer the last word waiting for it. A needs_input
+ *  pin is never "on it" - it is waiting for the author. */
+export const pinReopened = (p) => p?.previewVerdict === 'reopened' && p.status === 'building' && !pinAwaitsClaude(p);
+/** Accepted on the preview; the PR has not merged yet. */
+export const pinChecked = (p) => p?.previewVerdict === 'accepted' && p.status === 'pr_open';
+export const pinReady = (pin) => !!pin && isReady(pin);
+
 /** The label a pin shows everywhere (marker, thread, Queue row). */
 export function pinMeta(pin) {
   if (!pin) return statusMeta('open');
-  if (pin.held && pin.status === 'open') {
+  if (pinHeld(pin)) {
     return { label: `Waits For ${pin.ownerName || firstNameOf(pin.ownerEmail) || 'Owner'}`, color: HELD_COLOR, held: true };
   }
   if (isReady(pin)) return READY_META;
-  if (pin.status === 'pr_open' && pin.previewVerdict === 'accepted') return CHECKED_META;
+  if (pinChecked(pin)) return CHECKED_META;
   return statusMeta(pin.status);
 }
-export const pinReady = (pin) => !!pin && isReady(pin);
 
-/** A local preview link (the server allows only these; never an outside link). */
-export const isLocalPreview = (url) => /^http:\/\/(localhost|127\.0\.0\.1):\d+(\/|$)/.test(String(url || ''));
-
-/** What the viewer may do on a v2 pin: release a held pin (the owner or a
- *  Global Admin), judge a preview (the author or a Global Admin). */
-export function pinRights(pin, me = {}) {
-  const email = String(me.email || '').toLowerCase();
-  const is = (who) => !!email && email === String(who || '').toLowerCase();
-  return {
-    release: !!pin?.held && (!!me.isAdmin || is(pin.ownerEmail)),
-    verdict: !!me.isAdmin || is(pin?.createdBy),
-  };
+/** A local preview link - the server's rule: http, localhost or 127.0.0.1,
+ *  a port, no credentials. Never an outside link. */
+export function isLocalPreview(url) {
+  if (!url) return false;
+  try {
+    const u = new URL(String(url));
+    return u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1')
+      && !!u.port && !u.username && !u.password;
+  } catch { return false; }
 }
-
 
 export const SESSION_STATUS = {
   collecting: { label: 'Collecting',     color: '#64748b' },

@@ -7202,3 +7202,4 @@ th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visibl
 .bm-ready-note { order: 3; flex-basis: 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; text-align: left; border: 1px solid color-mix(in srgb, #0d9488 35%, var(--line)); background: color-mix(in srgb, #0d9488 7%, transparent);
   border-radius: 8px; padding: 7px 10px; color: var(--ink); font-family: 'Inter', sans-serif; cursor: pointer; }
 .bm-ready-note:hover { background: color-mix(in srgb, #0d9488 12%, transparent); }
+.bm-regression-text { min-width: 0; overflow-wrap: anywhere; }

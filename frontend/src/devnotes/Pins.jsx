@@ -13,7 +13,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
 import { anchorRect } from './lib/capture';
 import { placeCard } from './lib/anchor';
-import { pinMeta, pinReady, pinRights, isLocalPreview, KIND_META, PRIORITY_META, initialsOf, firstNameOf } from './meta';
+import { pinMeta, pinReady, pinHeld, pinReopened, pinChecked, pinAwaitsClaude, isLocalPreview, KIND_META, PRIORITY_META, initialsOf, firstNameOf } from './meta';
 import { toast } from './store';
 
 const MINE = import.meta.env.VITE_BUILD_ID || 'dev';
@@ -25,12 +25,7 @@ export function fixDeploying(pin) {
 }
 
 /** A human answered and Claude Code has not picked it up again yet. */
-export function waitingForClaude(pin) {
-  if (pin?.status !== 'building') return false;
-  const t = Array.isArray(pin.thread) ? pin.thread : [];
-  const last = t[t.length - 1];
-  return !!last && last.kind === 'comment' && last.by !== 'claude';
-}
+export const waitingForClaude = pinAwaitsClaude;
 
 // Re-measures every pin's anchor on scroll (any scroller), resize, DOM
 // changes and a slow safety tick - pins follow their element.
@@ -201,6 +196,9 @@ function PreviewBlock({ pin }) {
   );
 }
 
+/** The Testing case's title, as the server writes it ("Pin #n - <comment, 80>"). */
+const regressionTitle = (pin) => `Pin #${pin.number} - ${String(pin.comment || pin.edit?.note || '').slice(0, 80)}`;
+
 export function PinThread({ pin, anchor, onClose, onChanged, detached = false, me = {} }) {
   const isMobile = useIsMobile();
   const ref = useRef(null);
@@ -213,13 +211,15 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false, m
   const kind = KIND_META[pin.kind] || KIND_META.bug;
   const prio = PRIORITY_META[pin.priority];
   const deploying = fixDeploying(pin);
-  const reopenedOnPreview = pin.previewVerdict === 'reopened' && ['building', 'dispatched', 'needs_input'].includes(pin.status);
-  const waiting = waitingForClaude(pin) && !reopenedOnPreview;
+  const reopenedOnPreview = pinReopened(pin);
+  const waiting = waitingForClaude(pin);
   const closed = pin.status === 'done' || pin.status === 'dismissed';
-  const rights = pinRights(pin, me);
-  const held = !!pin.held && pin.status === 'open';
+  // The server says what this viewer may do (owner or Global Admin may
+  // release; author or Global Admin may judge the preview). No flag = no button.
+  const rights = { release: pin.canRelease === true, verdict: pin.canVerdict === true };
+  const held = pinHeld(pin);
   const ready = pinReady(pin);
-  const checked = pin.status === 'pr_open' && pin.previewVerdict === 'accepted';
+  const checked = pinChecked(pin);
   const ownerName = pin.ownerName || firstNameOf(pin.ownerEmail);
   // The reply box doubles as the verdict note on a fixed pin, and on a pin
   // Ready To Check for whoever may judge it.
@@ -242,7 +242,15 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false, m
   const accept = () => run('accept', () => api.devNotesVerify(pin.id, true, reply.trim())).then((n) => n && toast(`Pin #${pin.number} verified - thank you`));
   const reopen = () => run('reopen', () => api.devNotesVerify(pin.id, false, reply.trim())).then((n) => { if (n) { setConfirm(''); toast(`Pin #${pin.number} reopened`); } });
   const dismiss = () => run('dismiss', () => api.devNotesPatch(pin.id, { status: 'dismissed' })).then((n) => { if (n) { setConfirm(''); toast(`Pin #${pin.number} dismissed`); } });
-  const release = () => run('release', () => api.devNotesRelease(pin.id)).then((n) => n && toast(`Pin #${pin.number} released to Claude Code`));
+  // The release joins the AUTHOR's collecting session (and goes at once if
+  // their Send Instantly is on), so the pin can come back with a new number.
+  const release = () => run('release', () => api.devNotesRelease(pin.id)).then((n) => {
+    if (!n) return;
+    const no = n.number || pin.number;
+    toast(n.status === 'dispatched'
+      ? `Pin #${no} released and sent to Claude Code`
+      : `Pin #${no} released - ${firstNameOf(n.createdBy || pin.createdBy)} sends it with their next Build Session`);
+  });
   const previewAccept = () => run('paccept', () => api.devNotesPreviewVerdict(pin.id, { accepted: true, comment: reply.trim() }))
     .then((n) => { if (n) { setReply(''); toast(`Pin #${pin.number} checked - it is Done when the PR merges`); } });
   const previewReopen = () => { const t = reply.trim(); if (!t) return; run('preopen', () => api.devNotesPreviewVerdict(pin.id, { accepted: false, comment: t }))
@@ -314,9 +322,12 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false, m
         {ready && !rights.verdict && <div className="bm-hint">Waiting for {firstNameOf(pin.createdBy)} to check it on the preview.</div>}
         {checked && <div className="bm-verify" data-testid="bm-checked"><Check size={13} /><span>Checked On The Preview - it is Done when the PR merges.</span></div>}
         {pin.regressionCaseId && (
+          // Testing.jsx reads no case id from navigation, so the link lands on
+          // the module and the line names the case to search for there.
           <div className="bm-regression" data-testid="bm-regression">
-            <FlaskConical size={13} /><span>Regression Test Added</span>
-            <button type="button" className="bm-btn bm-btn-sm bm-push" onClick={openTesting}>Open In Testing</button>
+            <FlaskConical size={13} />
+            <span className="bm-regression-text">Regression Test Added<span className="bm-dim bm-small"> - {regressionTitle(pin)}</span></span>
+            {me.canTesting && <button type="button" className="bm-btn bm-btn-sm bm-push" onClick={openTesting}>Open In Testing</button>}
           </div>
         )}
         <Evidence v={pin.verification} />
@@ -338,7 +349,7 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false, m
             <textarea className="bm-textarea" rows={2} value={reply} onChange={(e) => setReply(e.target.value)}
               placeholder={ready && rights.verdict ? 'What is still wrong? (required to reopen)' : pin.status === 'fixed' ? 'A note with your verdict (optional)' : 'Reply to this pin'}
               aria-label={verdictBox ? 'Verdict note' : 'Reply'}
-              onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !(ready && rights.verdict)) send(); }} />
+              onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !verdictBox) send(); }} />
             {!verdictBox && (
               <button type="button" className="bm-btn bm-btn-primary" onClick={send} disabled={!reply.trim() || !!busy} aria-label="Send reply"><Send size={14} /></button>
             )}

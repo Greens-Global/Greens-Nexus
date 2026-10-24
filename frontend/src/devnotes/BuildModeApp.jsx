@@ -23,8 +23,10 @@ import { setActionContext, pauseActions, snapshotActions } from './lib/actions';
 import { sensitiveRects } from './lib/privacy';
 import { uploadDevNoteFile } from './lib/upload';
 import { installHotkeys } from './lib/hotkeys';
-import { MARKUP_TOOLS } from './meta';
-import { foreignOwner } from './lib/owners';
+import { MARKUP_TOOLS, pinHeld } from './meta';
+import { NAV, isNavItemVisible } from '../components/Sidebar';
+
+const TESTING_NAV = NAV.find((item) => item.view === 'testing');
 
 const BUILD_ID = import.meta.env.VITE_BUILD_ID || 'dev';
 
@@ -39,9 +41,16 @@ export default function BuildModeApp({ view, sub }) {
   // their own open pins for Send To Claude Code. Absent in tests.
   const role = useRole();
   const myEmail = (role?.myEmail || '').toLowerCase();
-  // A Global Admin may release anyone's held pin and judge any preview (v2).
-  const isAdmin = !!role?.can?.('owner');
-  const me = useMemo(() => ({ email: myEmail, isAdmin }), [myEmail, isAdmin]);
+  // Open In Testing (v2 regression link) only for people the sidebar shows
+  // Testing to - the same isNavItemVisible check, with the QA module's switch.
+  const [qaEnabled, setQaEnabled] = useState(false);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(api.qaEnabled?.()).then((r) => { if (live) setQaEnabled(!!r?.enabled); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const canTesting = !!role && !!TESTING_NAV && isNavItemVisible(TESTING_NAV, { isExternal: role.isExternal, can: role.can, myGrantedModules: role.myGrantedModules, qaEnabled });
+  const me = useMemo(() => ({ email: myEmail, canTesting }), [myEmail, canTesting]);
   const blocked = (s.blockedRoutes || []).includes(view);
   const [draft, setDraft] = useState(null);
   const draftRef = useRef(null);
@@ -245,10 +254,9 @@ export default function BuildModeApp({ view, sub }) {
         sessionTitle: `Build Session ${formatDate(new Date())} ${formatTime(new Date())}`,
       };
       const note = await api.devNotesCreate(body);
-      // On someone else's area the server holds the pin for them (v2); the
-      // composer's own reading of the owners map covers an older server.
-      const owner = foreignOwner(target?.source?.file, s.owners, myEmail);
-      const heldFor = note.held ? (note.ownerName || owner?.name || 'its owner') : (note.held == null && owner ? owner.name : '');
+      // On someone else's area the server holds the pin for them (v2) - only
+      // its word counts: no `held` = not held.
+      const heldFor = note.held === true ? (note.ownerName || 'its owner') : '';
       let sent = !!s.settings?.sendInstantly && !heldFor;
       if (sendNow && !sent && !heldFor) {
         try { await api.devNotesDispatch({ noteIds: [note.id] }); sent = true; }
@@ -347,7 +355,7 @@ export default function BuildModeApp({ view, sub }) {
     );
   }
 
-  const queueCount = pins.filter((p) => p.status === 'open' && !p.held).length;
+  const queueCount = pins.filter((p) => p.status === 'open' && !pinHeld(p)).length;
   return (
     <div data-nx-devnotes="1" className="bm-root">
       <Overlay tool={s.tool} color={s.color} interactive={!s.editPick && !s.panelOpen} items={s.markup}
@@ -358,7 +366,7 @@ export default function BuildModeApp({ view, sub }) {
         <Composer pick={s.pick} draft={draft} onChange={updateDraft} onCancel={cancelComposer} onSave={save} saving={saving} settings={s.settings} view={view}
           capture={s.capture} recording={s.recording} onRecord={toggleRecord} onStopRecord={() => stopRecording()} recorded={recorded}
           voiceOn={voiceOn} interim={interim} onVoiceStart={startVoice} onVoiceStop={stopVoice}
-          markupCount={s.markup.length} onClearMarkup={() => store.set({ markup: [] })} owners={s.owners} myEmail={myEmail} />
+          markupCount={s.markup.length} onClearMarkup={() => store.set({ markup: [] })} />
       )}
       {s.editPick && <EditInPlace key={s.editPick.target?.selector} editPick={s.editPick} onSave={onEditSave} onCancel={onEditCancel} />}
       <ToolStrip tool={s.tool} onTool={(id) => store.set({ tool: id })} color={s.color} onColor={() => store.set((st) => ({ color: nextColor(st.color) }))}

@@ -10,7 +10,7 @@ import { formatDateTime, formatDate } from '../lib/datetime';
 import { toViewUrl } from '../lib/storageView';
 import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
-import { pinMeta, pinReady, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND } from './meta';
+import { pinMeta, pinReady, pinHeld, pinReopened, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND } from './meta';
 import { toast } from './store';
 
 const TABS = [{ id: 'queue', label: 'Queue' }, { id: 'sessions', label: 'Sessions' }, { id: 'settings', label: 'Settings' }];
@@ -67,7 +67,7 @@ function PinRow({ pin, onOpen, onChanged }) {
         </button>
         <div className="bm-row-meta">
           <span>{firstNameOf(pin.createdBy)}</span><span className="bm-dot-sep" /><span>{pin.route}{pin.sub ? ` › ${pin.sub}` : ''}</span><span className="bm-dot-sep" /><span>{formatDateTime(pin.createdAt)}</span>
-          {pin.previewVerdict === 'reopened' && ['building', 'dispatched', 'needs_input'].includes(pin.status) && <><span className="bm-dot-sep" /><span>Reopened - Claude Code is on it</span></>}
+          {pinReopened(pin) && <><span className="bm-dot-sep" /><span>Reopened - Claude Code is on it</span></>}
           {pin.progress && <><span className="bm-dot-sep" /><span className="bm-row-progress">{pin.progress}</span></>}
           {(pin.thread || []).length > 0 && <><span className="bm-dot-sep" /><span>{pin.thread.length} in thread</span></>}
         </div>
@@ -93,10 +93,12 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
       if (ac !== bc) return ac - bc;
       return String(b.session?.createdAt || b.pins[0]?.createdAt || '').localeCompare(String(a.session?.createdAt || a.pins[0]?.createdAt || ''));
     });
-  const mineAll = notes.filter((n) => n.status === 'open' && (!myEmail || n.createdBy === myEmail) && sessionOf(n.sessionId)?.status !== 'sent');
-  // A pin on someone else's area waits for them (v2) - never sent from here.
-  const mineOpen = mineAll.filter((n) => !n.held);
-  const mineHeld = mineAll.filter((n) => n.held);
+  // Every open pin of mine, whatever its session's status (v2: dispatch moves
+  // held pins to a new collecting session). A pin on someone else's area
+  // waits for them - never sent from here.
+  const mineAll = notes.filter((n) => n.status === 'open' && (!myEmail || n.createdBy === myEmail));
+  const mineOpen = mineAll.filter((n) => !pinHeld(n));
+  const mineHeld = mineAll.filter(pinHeld);
   const canSend = mineOpen.length > 0;
   // No bell fires when a pin turns Ready To Check (the PR bell is the prompt),
   // so the Queue says it up top: the author's pins waiting on their check.
@@ -108,8 +110,9 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
       const r = await api.devNotesDispatch({});
       const n = Array.isArray(r?.notes) ? r.notes.length : 0;   // the server's count, nothing guessed
       const held = Array.isArray(r?.held) ? r.held : [];
-      const waits = held.map((h) => `Pin #${h.number} waits for ${h.ownerName || 'its owner'}`).join(', ');
-      toast(waits ? `Sent - ${waits}` : n ? `${n} pin${n === 1 ? '' : 's'} sent to Claude Code` : 'Build Session sent to Claude Code');
+      const waits = held.map((h) => `Pin #${h.number} waits for ${h.ownerName || 'its owner'}`).join('; ');
+      const sentLine = `${n} pin${n === 1 ? '' : 's'} sent`;
+      toast(waits ? `${sentLine} - ${waits}` : n ? `${sentLine} to Claude Code` : 'Build Session sent to Claude Code');
       onDispatched?.();
     }
     catch (e) { toast(e?.message || 'Nothing was sent.'); }
@@ -144,7 +147,7 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
                 <StatusLabel label={sm.label} color={sm.color} size="sm" />
                 <span className="bm-dim bm-small">{pins.length} pin{pins.length === 1 ? '' : 's'}</span>
                 {pins.filter(pinReady).length > 0 && <StatusLabel label={`${pins.filter(pinReady).length} Ready To Check`} color={READY_META.color} size="sm" />}
-                {pins.filter((p) => p.held && p.status === 'open').length > 0 && <StatusLabel label={`${pins.filter((p) => p.held && p.status === 'open').length} Waiting For Owner`} color={HELD_COLOR} size="sm" />}
+                {pins.filter(pinHeld).length > 0 && <StatusLabel label={`${pins.filter(pinHeld).length} Waiting For Owner`} color={HELD_COLOR} size="sm" />}
                 {session?.prUrl && <a className="bm-link" href={session.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={11} /> PR #{session.prNumber}</a>}
               </header>
               {pins.sort((a, b) => (a.number || 0) - (b.number || 0)).map((p) => <PinRow key={p.id} pin={p} onOpen={onOpenPin} onChanged={onChanged} />)}
@@ -219,7 +222,7 @@ function SessionsTab({ sessions, notes = [], stats, loading, onChanged }) {
   for (const n of notes) {
     const c = counts[n.sessionId || ''] || (counts[n.sessionId || ''] = { ready: 0, held: 0 });
     if (pinReady(n)) c.ready += 1;
-    else if (n.held && n.status === 'open') c.held += 1;
+    else if (pinHeld(n)) c.held += 1;
   }
   return (
     <>

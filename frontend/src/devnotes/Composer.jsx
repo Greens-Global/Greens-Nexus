@@ -12,7 +12,7 @@ import { KINDS, PRIORITIES } from './meta';
 import { placeCard } from './lib/anchor';
 import { uploadDevNoteFile, storageReady } from './lib/upload';
 import { speechSupported } from './lib/recorder';
-import { foreignOwner } from './lib/owners';
+import { api } from '../api';
 
 const ROUTE_LABEL = Object.fromEntries(MODULES.map((m) => [m.id, m.label]));
 const MOD = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘' : 'Ctrl';
@@ -27,13 +27,37 @@ export function looksLike(target, view) {
   return `Looks like ${what}${where ? ` in ${where}` : ''}${src}`;
 }
 
+// Whose area the pick is on (v2): the server answers { owner, held } for a
+// source stamp (GET /dev-notes/owner-of - the same code_owners.py rule it
+// holds pins by). One lookup per file per page load, after the pick has sat
+// for a moment; a pick that moves on quickly never asks.
+const OWNER_CACHE = new Map();
+const OWNER_DEBOUNCE_MS = 250;
+function useHeldOwner(path) {
+  const [got, setGot] = useState({ path: '', v: null });
+  useEffect(() => {
+    if (!path || OWNER_CACHE.has(path)) return undefined;
+    let live = true;
+    const t = setTimeout(() => {
+      Promise.resolve(api.devNotesOwnerOf?.(path)).then((r) => {
+        const v = { owner: r?.owner || null, held: !!r?.held };
+        OWNER_CACHE.set(path, v);
+        if (live) setGot({ path, v });
+      }).catch(() => { /* no answer = no owner line; the server still decides on save */ });
+    }, OWNER_DEBOUNCE_MS);
+    return () => { live = false; clearTimeout(t); };
+  }, [path]);
+  const v = path ? (OWNER_CACHE.get(path) || (got.path === path ? got.v : null)) : null;
+  return v?.held && v.owner ? { name: v.owner.name || v.owner.email || 'its owner', email: v.owner.email || '' } : null;
+}
+
 const fmtDur = (ms) => { const s = Math.round((ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
 export default function Composer({
   pick, draft, onChange, onCancel, onSave, saving = '', settings,
   capture = 'idle', recording = null, onRecord, onStopRecord, recorded = null,
   voiceOn = false, interim = '', onVoiceStart, onVoiceStop,
-  markupCount = 0, onClearMarkup, view, owners = [], myEmail = '',
+  markupCount = 0, onClearMarkup, view,
 }) {
   const isMobile = useIsMobile();
   const ref = useRef(null);
@@ -70,9 +94,9 @@ export default function Composer({
   };
   const removeAttachment = (url) => set((d) => ({ attachments: (d.attachments || []).filter((u) => u !== url) }));
 
-  // Someone else's area (v2): the pin is held for them, never sent to Claude
-  // Code from here - one button, Save For <Owner>.
-  const owner = foreignOwner(pick?.target?.source?.file, owners, myEmail);
+  // Someone else's area (v2): the server says the pin would be held for them,
+  // so it is never sent to Claude Code from here - one button, Save For <Owner>.
+  const owner = useHeldOwner(pick?.target?.source?.file || '');
   const sendInstantly = !!settings?.sendInstantly && !owner;
   const busy = !!saving || uploading > 0 || !!recording;
   const kindMeta = KINDS.find((k) => k.id === draft.kind) || KINDS[0];
