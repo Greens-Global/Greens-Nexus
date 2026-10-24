@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Render-smoke for Accounting -> Leasing (Neil and Charmi, Sep 25): the rent
@@ -63,6 +63,10 @@ import { dialog as appDialog } from '../../ui/dialog';
 
 beforeEach(() => { vi.clearAllMocks(); try { localStorage.clear(); } catch { /* none */ } resetAccountingPrefs(); });
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('LeasingTab', () => {
   it('shows every month of every lease and what is owed', async () => {
     render(<LeasingTab canEdit />);
@@ -164,6 +168,51 @@ describe('LeasingTab - the 10/04 feedback', () => {
   const gone = { lease: lease({ id: 'L4', propertyName: 'Suite 400, Escondido', tenantName: 'Closed Co', customerId: 'C00101' }), months: months([cell('01', 'paid', 3200)]), balanceToDate: 0, monthsBehind: 0, owed: 0, lateFees: 0, expired: false, customerActive: false };
   const full = { ...roll, rows: [{ ...roll.rows[0], expired: false, customerActive: true, lease: lease({ teamNote: { text: 'Promised by the 15th', by: 'charmi@greensglobal.com', byName: 'Charmi Desai', at: '2026-10-01T16:00:00Z' } }) }, { ...prepaid, expired: false, customerActive: true }, ended, gone], linked: [] };
   beforeEach(() => { api.getLeasingRentRollFor.mockResolvedValue(full); });
+
+  it('has the standard table view on the Income Roll: a rule narrows it, the figures and the Received line follow, Total sorts (10/23, item 01)', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const panel = await screen.findByRole('dialog', { name: 'Filters' });
+    fireEvent.click(within(panel).getByRole('button', { name: /Add Filter/ }));
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 field' }), { target: { value: 'balance' } });
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 condition' }), { target: { value: 'gt' } });
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'Rule 1 value' }), { target: { value: '0' } });
+    expect(screen.queryByText('47385 RCR, Temecula')).toBeNull();
+    const grand = screen.getByText(/Received - 1 source/).closest('tr');
+    expect(within(grand).getByText('8,955.00')).toBeTruthy();
+    expect(screen.getByText('Received').closest('span').textContent).toContain('8,955.00');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Delete rule 1' }));
+    // Total, largest first: Temecula (16,000) above San Clemente (8,955).
+    fireEvent.click(screen.getByRole('button', { name: /^Total - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Total column' })).getByRole('menuitemradio', { name: /Sort Descending/ }));
+    const names = [...document.querySelectorAll('.acct-roll tbody tr')].map((tr) => tr.textContent).filter((t) => /Temecula|San Clemente/.test(t)).map((t) => (t.includes('Temecula') ? 'T' : 'S'));
+    expect(names).toEqual(['T', 'S']);
+    // The property stays pinned first: it neither moves nor hides.
+    fireEvent.click(screen.getByRole('button', { name: /^Property or Source - column menu/ }));
+    const menu = await screen.findByRole('menu', { name: 'Property or Source column' });
+    expect(within(menu).queryByRole('menuitem', { name: /Move Right/ })).toBeNull();
+  });
+
+  it('Outstanding and Payers have their own views (10/23, item 01)', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: /Outstanding/ }));
+    await screen.findByText(/Total Outstanding - 1 tenant/);
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Payer by value' }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Payer values' })).getByRole('checkbox', { name: /Overstie Management/ }));
+    expect(screen.getByText('Nobody behind passes the filters.')).toBeTruthy();
+    // Payers: its own view - the Outstanding filter is not on it.
+    fireEvent.click(screen.getByRole('button', { name: /^Payers/ }));
+    expect(await screen.findByText('47385 RCR, Temecula')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Filters' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Landlord - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Landlord column' })).getByRole('menuitem', { name: /Hide Column/ }));
+    expect(screen.queryByRole('columnheader', { name: 'Landlord' })).toBeNull();
+    // Back on the Income Roll, its view is untouched.
+    fireEvent.click(screen.getByRole('button', { name: /^Income Roll/ }));
+    expect(await screen.findByText(/Received - 2 sources/)).toBeTruthy();
+  });
 
   it('adds a Total column and a Balance, where a prepayment is a credit', async () => {
     render(<LeasingTab canEdit />);

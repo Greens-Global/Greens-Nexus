@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Accounting -> Reporting -> AMA, Ask My Accountant (Neil, 10/15): the screen
@@ -61,6 +61,10 @@ beforeEach(() => {
   api.getAskThread.mockImplementation(async () => detail());
 });
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('AskAccountantTab', () => {
   it('renders the Open lines with the counts per status', async () => {
     render(<AskAccountantTab />);
@@ -90,6 +94,28 @@ describe('AskAccountantTab', () => {
     fireEvent.click(screen.getByRole('tab', { name: /All/ }));
     expect(screen.getByText('Moved yet?')).toBeTruthy();
     expect(api.getAskItems).toHaveBeenCalledWith(expect.objectContaining({ entity: '' }));
+  });
+
+  it('has the standard table view: a rule narrows the lines and the status counts follow it (10/23, item 01)', async () => {
+    render(<AskAccountantTab />);
+    await screen.findByText('Which property is this for?');
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const panel = await screen.findByRole('dialog', { name: 'Filters' });
+    fireEvent.click(within(panel).getByRole('button', { name: /Add Filter/ }));
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 field' }), { target: { value: 'amount' } });
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 condition' }), { target: { value: 'lt' } });
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'Rule 1 value' }), { target: { value: '0' } });
+    expect(screen.queryByText('Which property is this for?')).toBeNull();
+    expect(screen.getByText('Unknown deposit')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Open 1/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Answered 0/ })).toBeTruthy();
+    // Newest first by default; the Date heading's menu turns it around.
+    fireEvent.click(within(panel).getByRole('button', { name: 'Delete rule 1' }));
+    const dates = () => screen.getAllByRole('row').map((r) => r.querySelector('td')?.textContent).filter((t) => /\d{2}\/\d{2}\/\d{4}/.test(t || ''));
+    expect(dates()).toEqual(['09/20/2026', '09/15/2026']);
+    fireEvent.click(screen.getByRole('button', { name: /^Date, sorted descending - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Date column' })).getByRole('menuitemradio', { name: /Sort Ascending/ }));
+    expect(dates()).toEqual(['09/15/2026', '09/20/2026']);
   });
 
   it('opens the thread and sends a reply', async () => {

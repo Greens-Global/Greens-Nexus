@@ -53,7 +53,10 @@ _CONFIG_MAX = 8000     # characters of JSON - filters, never figures
 # groups (a Schedule C Charmi maps herself), so it may run longer.
 _BUILDER_VERSIONS = (1,)
 _BUILDER_MAX = 24000
-_PREFS_MAX = 6000      # characters of JSON - one person's column layout
+# Characters of JSON - one person's layout. Oct 24 (10/23 meeting, item 01):
+# it also holds their saved table views (`tableViews`: filters, sort, column
+# order and widths per Accounting table), so it may run longer than a layout.
+_PREFS_MAX = 120000
 _PACKAGE_MAX = 40      # statements in one package
 
 

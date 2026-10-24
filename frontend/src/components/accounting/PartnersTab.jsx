@@ -9,6 +9,8 @@ import { formatDate, formatDateTime } from '../../lib/datetime';
 import { dialog } from '../../ui/dialog';
 import { useAccountingPrefs } from './prefs';
 import { usePaged } from './tableHooks';
+import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
+import { cellStyle } from './columnStyles';
 import { useTableSync } from './tableSync';
 import { linesFile } from './linesExport';
 import SidePanel, { PanelSection } from './SidePanel';
@@ -116,6 +118,31 @@ export function partnersTable(rows, { kind, fromLedger, note = '' }) {
   return { title, subtitle: [`${rows.length.toLocaleString('en-US')} ${rows.length === 1 ? noun.toLowerCase() : `${noun.toLowerCase()}s`}`, note, `As of ${formatDate(iso(new Date()))}`].filter(Boolean).join(' · '), columns, rows: body, totals: null };
 }
 
+// The list's columns for the standard table view (10/23 meeting, item 01):
+// filters, value lists and the menu on each heading, saved views. The last
+// column holds the row's buttons and always stays where it is.
+const OPEN_COLUMN = { key: 'open', label: 'Open', fixed: true, noFilter: true, noSort: true, exportAs: [], text: () => '' };
+function partnerColumns(kind, fromLedger) {
+  const noun = kind === 'vendor' ? 'Vendor' : 'Customer';
+  const id = { key: 'id', label: `${noun} Number`, width: 110, text: (r) => r.id || '' };
+  const name = { key: 'name', label: 'Name', width: fromLedger ? 260 : 240, text: (r) => r.displayName || r.name || '' };
+  const status = { key: 'status', label: 'Status', width: fromLedger ? 90 : 80, text: (r) => r.status || '' };
+  if (fromLedger) {
+    return [id, name, status, {
+      key: 'lines', label: 'Ledger Lines', width: 90, type: 'number',
+      value: (r) => (Number.isFinite(r.lines) ? r.lines : null), text: (r) => (Number.isFinite(r.lines) ? r.lines.toLocaleString('en-US') : ''),
+    }, OPEN_COLUMN];
+  }
+  return [id, name,
+    { key: 'email', label: 'Email', width: 200, text: (r) => r.email || '' },
+    { key: 'phone', label: 'Phone', width: 120, text: (r) => r.phone || '' },
+    { key: 'city', label: 'City', width: 120, text: (r) => r.address?.city || '' },
+    { key: 'terms', label: 'Terms', width: 90, text: (r) => r.terms || '' },
+    status,
+    { key: 'entity', label: 'Entity', width: 80, text: (r) => r.entity || '' },
+    OPEN_COLUMN];
+}
+
 // Oct 22 (Neil): Records > Vendors / Customers open this screen on that list (`initialKind`).
 export default function PartnersTab({ canApprove = false, initialKind = 'vendor' }) {
   const startKind = KINDS.some((k) => k.key === initialKind) ? initialKind : 'vendor';
@@ -201,7 +228,12 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
   const [syncing, setSyncing] = useState(false);
   const onSync = () => { setSyncing(true); Promise.resolve(ts.sync()).finally(() => setSyncing(false)); };
   const syncButton = <SyncButton onSync={onSync} busy={syncing} syncedAt={ts.syncedAt} what={section === 'requests' ? 'Requests' : ''} />;
-  const paged = usePaged(shown, pageSize, `${kind}|${q.trim().toLowerCase()}|${showInactive}`);
+  // Item 01: the standard view over the list the search and Customize leave.
+  const fromLedger = source === 'ledger';
+  const columns = useMemo(() => partnerColumns(kind, fromLedger), [kind, fromLedger]);
+  const view = useTableView(`partners-${kind}`, columns, shown);
+  const listed = view.rows;
+  const paged = usePaged(listed, pageSize, `${kind}|${q.trim().toLowerCase()}|${showInactive}|${JSON.stringify(view.state)}`);
   const { setPage } = paged;
 
   // Item 07: once the list is back, the parked page, record and scroll.
@@ -251,12 +283,13 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
   }
 
   const kindLabel = kind === 'vendor' ? 'vendor' : 'customer';
-  const fromLedger = source === 'ledger';
 
   async function exportList(format) {
     setBusy(`export-${format}`);
     try {
-      const table = partnersTable(shown, { kind, fromLedger, note: [q.trim() ? `matching "${q.trim()}"` : '', showInactive ? 'inactive included' : 'active only'].filter(Boolean).join(', ') });
+      // Exactly what the view leaves: its rows, order and columns (item 01).
+      const about = partnersTable(listed, { kind, fromLedger, note: [q.trim() ? `matching "${q.trim()}"` : '', view.count ? 'filtered' : '', showInactive ? 'inactive included' : 'active only'].filter(Boolean).join(', ') });
+      const table = viewTable(listed, view.columns, { title: about.title, subtitle: about.subtitle, totals: false });
       const file = await linesFile(table, format, `${table.title} - ${formatDate(iso(new Date())).replace(/\//g, '-')}.${format === 'excel' ? 'xlsx' : 'csv'}`);
       downloadBlob(file.name, file);
     } catch (err) { await dialog.alert(err?.message || 'Could not export.', { title: 'Export' }); }
@@ -308,13 +341,14 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
               <button type="button" onClick={() => { setSearchOpen(true); requestAnimationFrame(() => searchRef.current?.focus()); }} aria-label="Open Search" title="Search (Ctrl+F)"
                 style={{ ...control, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, padding: 0, color: 'var(--text-secondary)' }}><Search size={14} /></button>
             )}
+            <TableViewBar view={view} />
             <div className="acct-bar-end">
               {syncButton}
               <CustomizeButton active={showInactive} pageSize={pageSize} onPageSize={(n) => setPrefs({ partnersPageSize: Math.max(0, Math.floor(Number(n) || 0)) })}>
                 <Toggle checked={showInactive} onChange={(v) => setPrefs({ showInactivePartners: !!v })} label="Show Inactive"
                   hint={`Vendors and customers marked inactive in Intacct are hidden until this is on.`} />
               </CustomizeButton>
-              <ExportMenu disabled={!shown.length} items={[
+              <ExportMenu disabled={!listed.length} items={[
                 { key: 'excel', label: 'Excel', hint: `The ${kindLabel}s listed, every page`, busy: busy === 'export-excel', onPick: () => exportList('excel') },
                 { key: 'csv', label: 'CSV', hint: 'The same list as plain text', busy: busy === 'export-csv', onPick: () => exportList('csv') },
               ]} />
@@ -362,48 +396,63 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
           )}
           <div style={card}>
             <div ref={boxRef} className="acct-partners-box" data-testid="partners-box">
-              {!shown.length ? (
-                <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>No {hiddenInactive && !q ? `active ${kindLabel}s` : `${kindLabel}s`}{q ? ' match' : ' came back from the ledger'}.</p>
-              ) : fromLedger ? (
-                <table className="acct-partners">
-                  <thead><tr><th style={th}>{kind === 'vendor' ? 'Vendor Number' : 'Customer Number'}</th><th style={th}>Name</th><th style={th}>Status</th><th style={{ ...th, textAlign: 'right' }}>Ledger Lines</th><th style={th}></th></tr></thead>
-                  <tbody>
-                    {paged.rows.map((r) => (
-                      <tr key={r.id} {...rowOpen(r)}>
-                        <td style={{ ...td, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{r.id}</td>
-                        <td style={td}><strong>{r.displayName || r.name}</strong></td>
-                        <td style={td}>{r.status || <span style={{ color: 'var(--text-muted)' }} title="The status is on the Intacct record">-</span>}</td>
-                        <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Number.isFinite(r.lines) ? r.lines.toLocaleString('en-US') : ''}</td>
-                        <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          <button type="button" className="secondary-btn" onClick={(e) => { e.stopPropagation(); openLines(r); }} aria-label={`Ledger lines of ${r.displayName || r.name || r.id}`}
-                            style={{ fontSize: '0.72rem', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}><List size={12} /> View Lines</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              {!listed.length ? (
+                <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>
+                  {shown.length ? `No ${kindLabel}s pass the filters. Clear a filter to see more.` : `No ${hiddenInactive && !q ? `active ${kindLabel}s` : `${kindLabel}s`}${q ? ' match' : ' came back from the ledger'}.`}
+                </p>
               ) : (
                 <table className="acct-partners">
-                  <thead><tr><th style={th}>{kind === 'vendor' ? 'Vendor Number' : 'Customer Number'}</th><th style={th}>Name</th><th style={th}>Email</th><th style={th}>Phone</th><th style={th}>City</th><th style={th}>Terms</th><th style={th}>Status</th><th style={th}>Entity</th><th style={th}></th></tr></thead>
+                  <thead>
+                    <tr>
+                      {view.columns.map((c) => (c.key === 'open' ? <th key={c.key} style={th} aria-label="Actions" /> : (
+                        <ViewHead key={c.key} view={view} col={c} aria-label={c.label} style={{ ...th, position: 'sticky', ...(c.type === 'number' ? { textAlign: 'right' } : null), ...cellStyle(view.manualWidth(c.key), { overflow: 'visible' }) }} />
+                      )))}
+                    </tr>
+                  </thead>
                   <tbody>
-                    {paged.rows.map((r) => (
-                      <tr key={r.id} {...rowOpen(r)}>
-                        <td style={{ ...td, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{r.id}</td>
-                        <td style={td}>
-                          <strong>{r.displayName || r.name}</strong>
-                          {r.awaitingIntacct && <span style={{ ...chip(STATUS.approved), marginLeft: 6 }} title={`Approved changes not yet keyed into Intacct: ${Object.keys(r.intacctValues || {}).map((f) => FIELD_LABEL[f] || f).join(', ')}`}>Awaiting Intacct</span>}
-                          {r.pendingChange && <span style={{ ...chip(STATUS.pending), marginLeft: 6 }}>Pending Approval</span>}
-                        </td>
-                        <td style={td}>{r.email}</td><td style={td}>{r.phone}</td><td style={td}>{r.address?.city}</td><td style={td}>{r.terms}</td><td style={td}>{r.status}</td><td style={td}>{r.entity}</td>
-                        <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          <button type="button" aria-label={`Ledger lines of ${r.displayName || r.name || r.id}`} title="Ledger lines" onClick={(e) => { e.stopPropagation(); openLines(r); }}
-                            style={{ border: 'none', background: 'none', padding: 4, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' }}><List size={14} /></button>
-                          <button type="button" aria-label={`Edit ${r.displayName || r.name}`} disabled={r.pendingChange} title={r.pendingChange ? 'A change is already waiting for approval' : 'Edit - the change goes to a manager for approval'}
-                            onClick={(e) => { e.stopPropagation(); setOpened(r, 'details'); }}
-                            style={{ border: 'none', background: 'none', padding: 4, cursor: r.pendingChange ? 'default' : 'pointer', display: 'inline-flex', color: 'var(--text-muted)' }}><Pencil size={14} /></button>
-                        </td>
-                      </tr>
-                    ))}
+                    {paged.rows.map((r) => {
+                      const cell = (k, extra = null) => ({ ...td, ...(extra || {}), ...cellStyle(view.manualWidth(k)) });
+                      return (
+                        <tr key={r.id} {...rowOpen(r)}>
+                          {viewCells(view, fromLedger ? {
+                            id: <td style={cell('id', { whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' })}>{r.id}</td>,
+                            name: <td style={cell('name')}><strong>{r.displayName || r.name}</strong></td>,
+                            status: <td style={cell('status')}>{r.status || <span style={{ color: 'var(--text-muted)' }} title="The status is on the Intacct record">-</span>}</td>,
+                            lines: <td style={cell('lines', { textAlign: 'right', fontVariantNumeric: 'tabular-nums' })}>{Number.isFinite(r.lines) ? r.lines.toLocaleString('en-US') : ''}</td>,
+                            open: (
+                              <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                <button type="button" className="secondary-btn" onClick={(e) => { e.stopPropagation(); openLines(r); }} aria-label={`Ledger lines of ${r.displayName || r.name || r.id}`}
+                                  style={{ fontSize: '0.72rem', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}><List size={12} /> View Lines</button>
+                              </td>
+                            ),
+                          } : {
+                            id: <td style={cell('id', { whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' })}>{r.id}</td>,
+                            name: (
+                              <td style={cell('name')}>
+                                <strong>{r.displayName || r.name}</strong>
+                                {r.awaitingIntacct && <span style={{ ...chip(STATUS.approved), marginLeft: 6 }} title={`Approved changes not yet keyed into Intacct: ${Object.keys(r.intacctValues || {}).map((f) => FIELD_LABEL[f] || f).join(', ')}`}>Awaiting Intacct</span>}
+                                {r.pendingChange && <span style={{ ...chip(STATUS.pending), marginLeft: 6 }}>Pending Approval</span>}
+                              </td>
+                            ),
+                            email: <td style={cell('email')}>{r.email}</td>,
+                            phone: <td style={cell('phone')}>{r.phone}</td>,
+                            city: <td style={cell('city')}>{r.address?.city}</td>,
+                            terms: <td style={cell('terms')}>{r.terms}</td>,
+                            status: <td style={cell('status')}>{r.status}</td>,
+                            entity: <td style={cell('entity')}>{r.entity}</td>,
+                            open: (
+                              <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                <button type="button" aria-label={`Ledger lines of ${r.displayName || r.name || r.id}`} title="Ledger lines" onClick={(e) => { e.stopPropagation(); openLines(r); }}
+                                  style={{ border: 'none', background: 'none', padding: 4, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' }}><List size={14} /></button>
+                                <button type="button" aria-label={`Edit ${r.displayName || r.name}`} disabled={r.pendingChange} title={r.pendingChange ? 'A change is already waiting for approval' : 'Edit - the change goes to a manager for approval'}
+                                  onClick={(e) => { e.stopPropagation(); setOpened(r, 'details'); }}
+                                  style={{ border: 'none', background: 'none', padding: 4, cursor: r.pendingChange ? 'default' : 'pointer', display: 'inline-flex', color: 'var(--text-muted)' }}><Pencil size={14} /></button>
+                              </td>
+                            ),
+                          })}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}

@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
-import { ColumnResizer, ControlBar, ExportMenu, Pager, SyncButton, control } from './reportControls';
-import { useColumnWidths, useFitHeight, usePaged } from './tableHooks';
+import { ControlBar, ExportMenu, Pager, SyncButton, control } from './reportControls';
+import { useFitHeight, usePaged } from './tableHooks';
+import { TableViewBar, ViewHead, useTableView, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
 import { downloadBlob } from './reportModel';
@@ -34,21 +35,24 @@ function matchRows(rows, columns, q) {
 }
 
 // 10/23 meeting: each list has its own Sync (item 13) and scrolls inside its
-// own box under the toolbar, headings pinned (item 05).
+// own box under the toolbar, headings pinned (item 05); the standard table
+// view (item 01): filters, value lists and the menu on each heading, saved
+// views - the search, the count, the pages and Export follow it.
 function RecordsTable({ tableKey, title, about, columns, rows, loading, error, note, extra = null, sync = null, syncing = false }) {
   const [box, setBox] = useState(null);
   const fit = useFitHeight(box);
   const [q, setQ] = useState('');
-  const cw = useColumnWidths(tableKey, Object.fromEntries(columns.map((c) => [c.key, c.width])));
-  const shown = useMemo(() => matchRows(rows || [], columns, q), [rows, columns, q]);
-  const paged = usePaged(shown, PAGE, q);
+  const searched = useMemo(() => matchRows(rows || [], columns, q), [rows, columns, q]);
+  const view = useTableView(tableKey, columns, searched);
+  const shown = view.rows;
+  const paged = usePaged(shown, PAGE, [q, view.state]);
   const [busy, setBusy] = useState('');
   const [failed, setFailed] = useState('');
   const exportAs = async (format) => {
     setBusy(format);
     setFailed('');
     try {
-      const table = { title, subtitle: `${shown.length.toLocaleString('en-US')} rows`, columns: columns.map((c) => ({ label: c.label, num: false, width: cw.width(c.key) || c.width })), rows: shown.map((r) => columns.map((c) => c.text(r))), totals: null };
+      const table = viewTable(shown, view.columns, { title, totals: false });
       const file = await linesFile(table, format);
       downloadBlob(file.name, file);
     } catch (e) {
@@ -66,6 +70,7 @@ function RecordsTable({ tableKey, title, about, columns, rows, loading, error, n
             style={{ ...control, width: '100%', paddingLeft: 28 }} />
         </div>
         {extra}
+        <TableViewBar view={view} />
         <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{rows ? `${shown.length.toLocaleString('en-US')} of ${rows.length.toLocaleString('en-US')}` : ''}</span>
         <div className="acct-bar-end">
           {sync && <SyncButton onSync={sync.sync} busy={syncing} syncedAt={sync.syncedAt} />}
@@ -84,13 +89,13 @@ function RecordsTable({ tableKey, title, about, columns, rows, loading, error, n
           <div className="req-table-wrapper acct-scroll-box" ref={setBox} data-testid="records-box" style={fit}>
             <table className="req-table">
               <thead>
-                <tr>{columns.map((c) => <th key={c.key} aria-label={c.label} style={headStyle(cw.width(c.key))}>{c.label}<ColumnResizer {...cw.resizer(c.key, c.label)} /></th>)}</tr>
+                <tr>{view.columns.map((c) => <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={c.type === 'number' ? 'acct-num' : undefined} style={headStyle(c.width)} />)}</tr>
               </thead>
               <tbody>
-                {!paged.rows.length && <tr><td colSpan={columns.length} style={{ padding: 16, color: 'var(--text-secondary)' }}>{q ? 'Nothing matches the search.' : 'Nothing to list.'}</td></tr>}
+                {!paged.rows.length && <tr><td colSpan={view.columns.length} style={{ padding: 16, color: 'var(--text-secondary)' }}>{q || view.count ? 'Nothing matches the search and filters.' : 'Nothing to list.'}</td></tr>}
                 {paged.rows.map((r) => (
                   <tr key={columns[0].text(r)} style={r.inactive ? { color: 'var(--text-muted)' } : undefined}>
-                    {columns.map((c) => <td key={c.key} style={cellStyle(cw.width(c.key))} title={c.text(r)}>{c.text(r)}</td>)}
+                    {view.columns.map((c) => <td key={c.key} style={cellStyle(c.width, c.type === 'number' ? { textAlign: 'right' } : null)} title={c.text(r)}>{c.text(r)}</td>)}
                   </tr>
                 ))}
               </tbody>
@@ -155,7 +160,7 @@ export function EntitiesTab() {
       { key: 'code', label: 'Entity', width: 110, text: (r) => r.code || '' },
       { key: 'name', label: 'Name', width: 320, text: (r) => r.name || '' },
       { key: 'parent', label: 'Parent Entity', width: 320, text: (r) => (r.parent_code ? `${r.parent_code} ${r.parent_name || nameOf[r.parent_code] || ''}`.trim() : '') },
-      { key: 'lines', label: 'Ledger Lines', width: 120, text: (r) => (r.lines == null ? '' : Number(r.lines).toLocaleString('en-US')) },
+      { key: 'lines', label: 'Ledger Lines', width: 120, type: 'number', value: (r) => r.lines, text: (r) => (r.lines == null ? '' : Number(r.lines).toLocaleString('en-US')) },
     ];
   }, [entities]);
   const rows = useMemo(() => (entities ? [...entities].sort((a, b) => String(a.code).localeCompare(String(b.code), 'en-US', { numeric: true })) : null), [entities]);

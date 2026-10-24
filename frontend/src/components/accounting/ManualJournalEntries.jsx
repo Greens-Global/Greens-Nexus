@@ -3,12 +3,13 @@ import { ExternalLink } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate, formatDateTime } from '../../lib/datetime';
-import Amount from './Amount';
+import Amount, { formatAmount } from './Amount';
 import EntryDetail from './EntryDetail';
-import { BarMore, BarSearch, ColumnResizer, ControlBar, EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, SyncButton, control, fitSelect } from './reportControls';
+import { BarMore, BarSearch, ControlBar, EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, SyncButton, control, fitSelect } from './reportControls';
 import { DIM_KINDS, downloadBlob, resolveConfig } from './reportModel';
 import { linesFile } from './linesExport';
-import { useColumnWidths, useFitHeight } from './tableHooks';
+import { useFitHeight } from './tableHooks';
+import { TableViewBar, ViewHead, useTableView, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
 import { useAccountingPrefs } from './prefs';
@@ -31,19 +32,29 @@ const stamp = (v) => {
   if (!m) return String(v || '');
   return formatDateTime(new Date(Number(m[3]), Number(m[1]) - 1, Number(m[2]), Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0)));
 };
+// Intacct's stamp in an order that sorts (YYYY-MM-DD HH:MM:SS).
+const stampKey = (v) => {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(String(v || ''));
+  return m ? `${m[3]}-${m[1]}-${m[2]} ${m[4] || '00'}:${m[5] || '00'}:${m[6] || '00'}` : '';
+};
+// 10/23 meeting, item 01: the standard table view's columns - the date and
+// the amount typed for the rules, the stamps sorting in time order, the
+// newest entries first (as the header sort always started).
 const MJE_COLUMNS = [
-  { key: 'date', label: 'Date', width: 96, text: (r) => formatDate(r.date) },
+  { key: 'date', label: 'Date', width: 96, type: 'date', value: (r) => r.date || '', text: (r) => formatDate(r.date) },
   { key: 'journal', label: 'Journal', width: 80, text: (r) => r.journal || '' },
   { key: 'entry', label: 'Entry No.', width: 90, text: (r) => String(r.batchNo || '') },
   { key: 'entity', label: 'Entity', width: 130, text: (r) => (r.locations || []).join(', ') },
   { key: 'description', label: 'Description', width: 280, text: (r) => r.title || '' },
-  { key: 'amount', label: 'Amount', width: 110, num: true, text: (r) => Number(r.amount) || 0 },
+  { key: 'amount', label: 'Amount', width: 110, num: true, type: 'amount', total: true, value: (r) => Number(r.amount) || 0, text: (r) => formatAmount(r.amount) },
   { key: 'createdBy', label: 'Created By', width: 130, text: (r) => r.createdBy || '' },
   { key: 'postedBy', label: 'Posted / Changed By', width: 150, text: (r) => r.modifiedBy || '' },
-  { key: 'created', label: 'Created', width: 160, text: (r) => stamp(r.whenCreated) },
-  { key: 'posted', label: 'Posted / Changed', width: 160, text: (r) => stamp(r.whenModified) },
+  { key: 'created', label: 'Created', width: 160, text: (r) => stamp(r.whenCreated), sortBy: (r) => stampKey(r.whenCreated) },
+  { key: 'posted', label: 'Posted / Changed', width: 160, text: (r) => stamp(r.whenModified), sortBy: (r) => stampKey(r.whenModified) },
   { key: 'state', label: 'State', width: 80, text: (r) => r.state || '' },
+  { key: 'open', label: 'Open', width: 70, fixed: true, noFilter: true, noSort: true, exportAs: [], text: () => '' },
 ];
+const MJE_SORT = { col: 'date', dir: 'desc' };
 
 export default function ManualJournalEntries() {
   const [prefs] = useAccountingPrefs();
@@ -55,11 +66,9 @@ export default function ManualJournalEntries() {
   const [edited, setEdited] = useState(true);
   const [grouped, setGrouped] = useState(MANUAL_JE_GROUP_BY_USER);
   const [q, setQ] = useState('');
-  const [sort, setSort] = useState({ key: 'date', dir: -1 });
   const [res, setRes] = useState({ key: '', data: null, error: '' });
   const [opening, setOpening] = useState('');
   const [entry, setEntry] = useState(null);
-  const cw = useColumnWidths('manual-je', Object.fromEntries(MJE_COLUMNS.map((c) => [c.key, c.width])));
 
   useEffect(() => {
     let alive = true;
@@ -82,17 +91,14 @@ export default function ManualJournalEntries() {
   const loading = res.key !== key;
   const data = res.data;
 
-  const rows = useMemo(() => {
+  const searched = useMemo(() => {
     const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const list = (data?.entries || []).filter((r) => !words.length || words.every((w) => MJE_COLUMNS.map((c) => String(c.text(r))).join(' ').toLowerCase().includes(w)));
-    const col = MJE_COLUMNS.find((c) => c.key === sort.key) || MJE_COLUMNS[0];
-    const val = (r) => (sort.key === 'date' ? r.date || '' : col.text(r));
-    return [...list].sort((a, b) => {
-      const x = val(a);
-      const y = val(b);
-      return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y), 'en-US', { numeric: true })) * sort.dir;
-    });
-  }, [data, q, sort]);
+    return (data?.entries || []).filter((r) => !words.length || words.every((w) => MJE_COLUMNS.map((c) => String(c.text(r))).join(' ').toLowerCase().includes(w)));
+  }, [data, q]);
+  // The standard view (item 01): its filters and sort; the groups and their
+  // subtotals, the count, the total and the export follow it.
+  const view = useTableView('manual-je', MJE_COLUMNS, searched, { sort: MJE_SORT });
+  const rows = view.rows;
   const groups = useMemo(() => {
     if (!grouped) return [['', rows]];
     const m = new Map();
@@ -120,26 +126,21 @@ export default function ManualJournalEntries() {
   const exportAs = async (format) => {
     setBusy(format);
     try {
-      const table = {
+      const table = viewTable(rows, view.columns, {
         title: 'Manual Journal Entries', period: `${config.from}_${config.to}`,
         subtitle: [`${formatDate(config.from)} - ${formatDate(config.to)}`, config.entities.length ? config.entities.join(', ') : 'All entities', `${rows.length} entries`].join(' · '),
-        columns: MJE_COLUMNS.map((c) => ({ label: c.label, num: !!c.num, width: cw.width(c.key) || c.width })),
-        rows: rows.map((r) => MJE_COLUMNS.map((c) => c.text(r))),
-        totals: MJE_COLUMNS.map((c, i) => (c.num ? total : i === 0 ? `Totals - ${rows.length} entries` : '')),
-      };
+        totalLabel: 'Totals',
+      });
       const file = await linesFile(table, format);
       downloadBlob(file.name, file);
     } finally {
       setBusy('');
     }
   };
-  const head = (c) => (
-    <th key={c.key} aria-label={c.label} aria-sort={sort.key === c.key ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}
-      style={headStyle(cw.width(c.key), { cursor: 'pointer', ...(c.num ? { textAlign: 'right' } : null) })}
-      onClick={() => setSort((s) => ({ key: c.key, dir: s.key === c.key ? -s.dir : 1 }))} title="Click to sort">
-      {c.label}{sort.key === c.key ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''}<ColumnResizer {...cw.resizer(c.key, c.label)} />
-    </th>
-  );
+  // A heading: the standard menu (sort, filter, width, move, hide) - item 01.
+  const head = (c) => (c.key === 'open'
+    ? <th key={c.key} aria-label="Open" style={{ width: 70 }} />
+    : <ViewHead key={c.key} view={view} col={c} aria-label={c.label} style={headStyle(c.width, c.num ? { textAlign: 'right' } : null)} />);
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 10 }}>
@@ -163,6 +164,7 @@ export default function ManualJournalEntries() {
         </label>
         </BarMore>
         <BarSearch value={q} onChange={setQ} label="Search the entries" placeholder="Search description, entry, user..." width={260} />
+        <TableViewBar view={view} filtersLabel="Row Filters" />
         <div className="acct-bar-end">
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
           <ExportMenu disabled={!rows.length} items={[
@@ -190,27 +192,28 @@ export default function ManualJournalEntries() {
           </div>
           <div className="req-table-wrapper acct-scroll-box" ref={setBox} data-testid="manual-je-box" style={fit}>
             <table className="req-table">
-              <thead><tr>{MJE_COLUMNS.map(head)}<th aria-label="Open" style={{ width: 70 }} /></tr></thead>
+              <thead><tr>{view.columns.map(head)}</tr></thead>
               <tbody>
-                {!rows.length && <tr><td colSpan={MJE_COLUMNS.length + 1} style={{ padding: 16, color: 'var(--text-secondary)' }}>No manual journal entries in this period.</td></tr>}
+                {!rows.length && <tr><td colSpan={view.columns.length} style={{ padding: 16, color: 'var(--text-secondary)' }}>{view.count ? 'No entry passes the filters.' : 'No manual journal entries in this period.'}</td></tr>}
                 {groups.map(([who, list]) => [
                   grouped ? (
-                    <tr key={`g-${who}`} className="acct-section"><td colSpan={MJE_COLUMNS.length + 1} style={{ fontWeight: 700 }}>
+                    <tr key={`g-${who}`} className="acct-section"><td colSpan={view.columns.length} style={{ fontWeight: 700 }}>
                       {who} · {list.length} {list.length === 1 ? 'entry' : 'entries'} · <Amount value={Math.round(list.reduce((s, r) => s + (Number(r.amount) || 0), 0) * 100) / 100} />
                     </td></tr>
                   ) : null,
                   ...list.map((r) => (
                     <tr key={r.recordNo}>
-                      {MJE_COLUMNS.map((c) => (
-                        <td key={c.key} style={cellStyle(cw.width(c.key), c.num ? { textAlign: 'right' } : null)} title={String(c.text(r))}>
-                          {c.num ? <Amount value={c.text(r)} /> : c.text(r)}
+                      {view.columns.map((c) => (c.key === 'open' ? (
+                        <td key={c.key}>
+                          <button type="button" className="secondary-btn" disabled={opening === r.recordNo} onClick={() => open(r)} aria-label={`Open entry ${r.batchNo}`}
+                            style={{ fontSize: '0.72rem', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>Open <ExternalLink size={11} /></button>
+                        </td>
+                      ) : (
+                        <td key={c.key} style={cellStyle(c.width, c.num ? { textAlign: 'right' } : null)} title={c.text(r)}>
+                          {c.num ? <Amount value={c.value(r)} /> : c.text(r)}
                           {c.key === 'postedBy' && r.kind === 'edited' && <span style={{ marginLeft: 6, fontSize: '0.68rem', padding: '1px 6px', borderRadius: 999, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)' }}>Changed by a Person</span>}
                         </td>
-                      ))}
-                      <td>
-                        <button type="button" className="secondary-btn" disabled={opening === r.recordNo} onClick={() => open(r)} aria-label={`Open entry ${r.batchNo}`}
-                          style={{ fontSize: '0.72rem', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>Open <ExternalLink size={11} /></button>
-                      </td>
+                      )))}
                     </tr>
                   )),
                 ])}
