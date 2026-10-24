@@ -2768,6 +2768,71 @@ html { overflow-x: hidden; }
 /* The statement takes the same banding and whole-row hover. */
 .acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td { background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%); }
 .acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td { background: var(--wk-brand-tint, #e8ecfd); }
+/* MRE (Viral, Charmi 10/22): the headings and their filter boxes are one
+   sticky block, so no row shows between them, and the pinned Vendor cell is
+   solid - the hover and banding tints are see-through, so they paint over the
+   card color instead of over the months scrolling under it. */
+.acct-report.mre-grid thead { position: sticky; top: 0; z-index: 3; }
+.acct-report.mre-grid thead th, .acct-report.mre-grid .acct-filter-row td { top: auto; }
+.acct-report.mre-grid tbody tr td.acct-label { background: var(--bg-card); }
+.acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td.acct-label { background: linear-gradient(color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%), color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%)), var(--bg-card); }
+.acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label,
+.acct-report.mre-grid tbody tr.acct-grand td.acct-label { background: linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card); }
+/* The same on every statement (UI test 10/23): the pinned first column keeps
+   the hover and Total tints painted over the card color, so the figures
+   scrolling sideways under it never show through - flagged rows on hover
+   too (the row takes the hover tint there, as the rest of it does). */
+.acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label,
+.acct-report.acct-gl tbody tr.acct-line-link:hover td.acct-label,
+.acct-report tbody tr.acct-grand td.acct-label { background: linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card); }
+/* Oct 23 (Viral, Charmi, item 10: "Header should not be hide when we scroll
+   down"): the header is the column headings. The whole heading block - the
+   names and the filter boxes under them - pins to the top of the table's box
+   as one piece, whatever height the names wrap to, so no row shows above the
+   boxes. Cells inside it only pin sideways (the first column). The class is
+   doubled to outrank the per-cell `top` rules above. */
+.acct-sticky-head.acct-sticky-head thead { position: sticky; top: 0; z-index: 3; }
+.acct-sticky-head.acct-sticky-head thead th,
+.acct-sticky-head.acct-sticky-head thead td { position: relative; top: auto; }
+.acct-sticky-head.acct-sticky-head thead .acct-head { position: sticky; left: 0; z-index: 4; }
+/* Item 18 (Viral: "Need Scroll within table in case of general ledgers"):
+   ledger lines scroll inside a box sized to the window, so the page header
+   and the report controls above it stay where they are. 300px is the floor
+   on a short window (the top bar, the report controls and the title take
+   about 340px; 1366 x 768 leaves a 428px box). The statements' own box
+   takes the same height. */
+.acct-report-wrap.acct-scroll-box { max-height: max(300px, calc(100vh - 340px)); }
+/* The ledger lines have more above them (the drill's title, filters and
+   totals), so LedgerSearch measures where the box starts and sets
+   --acct-lines-h (UI test 10/23); the fixed offset is only the first paint. */
+.acct-lines-wrap.acct-scroll-box { max-height: var(--acct-lines-h, max(300px, calc(100vh - 340px))); }
+
+/* Accounting call 10/23, item 03: a record opens in a panel on the right
+   (SidePanel.jsx), the list still on screen and clickable - no backdrop.
+   Below the popups (z 500) so a dialog from inside it opens on top. The body
+   scrolls; the footer with Save stays at the bottom. Open Full (.is-full)
+   covers the whole screen; a phone always gets the whole screen. */
+.acct-side-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 450;
+  width: min(760px, 52vw); min-width: min(480px, 100vw); max-width: 100vw;
+  display: flex; flex-direction: column; background: var(--bg-card);
+  border-left: 1px solid var(--border-color); box-shadow: -12px 0 32px rgba(15, 23, 42, 0.14);
+  animation: nx-fade-in var(--dur-sm, 120ms) ease-out;
+}
+.acct-side-panel.is-full { width: 100vw; }
+.acct-side-panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 14px 20px 18px; display: grid; gap: 14px; align-content: start; background: var(--bg-secondary); }
+.acct-side-panel > .modal-footer { flex-shrink: 0; padding: 12px 20px 14px; background: var(--bg-card); }
+@media (max-width: 640px) { .acct-side-panel { width: 100vw; min-width: 0; } }
+
+/* Item 06: Vendors & Customers scrolls inside its own box with the headings
+   pinned, rows banded like the ledger lines, the hover filling the row. */
+.acct-partners-box { overflow: auto; max-height: max(300px, calc(100vh - 360px)); }
+.acct-partners { border-collapse: separate; border-spacing: 0; width: 100%; }
+.acct-partners thead th { position: sticky; top: 0; z-index: 2; background: var(--bg-secondary); }
+.acct-partners tbody td { background: var(--bg-card); }
+.acct-partners tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%); }
+.acct-partners tbody tr:hover td,
+.acct-partners tbody tr.is-open td { background: var(--wk-brand-tint, #e8ecfd); }
 
 /* Phone: wide data tables (.req-table - PropertyAsset sections, requisition
    logs) scroll sideways inside their card instead of being cut off. */
@@ -4115,6 +4180,17 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .hdr-tab svg { display: none; }
 }
 @media (max-width: 900px) { .hdr-search { display: none; } }
+/* Accounting's bar (compactGroups, Oct 23): five dropdown tabs must fit the
+   header center with the sidebar open - 498px at 1366 wide, 572px at 1440.
+   The labels are 275px together at 14.5px, so each tab gets 36px around its
+   label (9px padding a side, 2px border, 4px gap, 12px caret): 463px with the
+   gaps. The icons come back from 1600px wide, where the center has ~730px for
+   the 563px they make. Other modules' tabs are untouched. */
+.hdr-tabs--compact .hdr-tab { padding: 9px 9px; gap: 4px; }
+.hdr-tabs--compact .hdr-tab .tab-group-caret { width: 12px; height: 12px; }
+@media (max-width: 1599px) {
+  .hdr-tabs--compact .hdr-tab svg:not(.tab-group-caret) { display: none; }
+}
 
 /* In-page fallback strip: phones only - the header center is hidden ≤900px,
    so <ModuleTabs> renders the classic swipeable strip in the page body. */

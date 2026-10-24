@@ -33,6 +33,7 @@ import { registerTour } from '../lib/tours';
 import { confirmExportReadiness } from '../lib/payrollReadiness';
 import { checkLongShift, checkTypedPunches } from '../lib/longShift';
 import LongShiftWarning from './LongShiftWarning';
+import { readRefresh, saveRefresh } from '../lib/refreshState';
 
 // Launch (Neil, 10/16): the only sign-off is review + Nexus Sign, so the HR
 // "Finalize Without Signatures" override is hidden. Flip to true to show it.
@@ -547,6 +548,7 @@ const _tcKey = (self, email, start, end) => self ? `self:${start}` : (email ? `$
 // Aarav Mehta's time card"): the last employee and period opened, kept for
 // this browser tab. A deep link (?timecard=) still wins over it.
 const _LAST_KEY = 'nexus.payroll.last';
+const _SELF_KEY = 'timeclock.my-time-sheet';
 const _lastOpened = () => { try { return JSON.parse(sessionStorage.getItem(_LAST_KEY) || 'null') || {}; } catch { return {}; } };
 
 // The period anchor for a review's period start (Sep 29): a salaried month
@@ -562,7 +564,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const self = selfMode;   // employee viewing their OWN timecard (from /my-payroll)
   const [people, setPeople] = useState([]);
   const [peopleLoaded, setPeopleLoaded] = useState(false);   // the team list answered (even empty)
-  const last = useMemo(() => (selfMode || initialEmail) ? {} : _lastOpened(), [selfMode, initialEmail]);
+  // My own Time Sheet (Workday > Time Clock) keeps its period across a reload
+  // too (Charmi, 10/22, item 17 - lib/refreshState); HR's card keeps its own above.
+  const last = useMemo(() => initialEmail ? {} : selfMode ? (readRefresh(_SELF_KEY) || {}) : _lastOpened(), [selfMode, initialEmail]);
   const [email, setEmail] = useState(initialEmail || last.email || '');
   // Jump to a specific employee when the caller changes initialEmail (e.g. the
   // "N to review" badge in TimeAdmin opens that person's card).
@@ -571,8 +575,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // link, the card open before a reload): start there, and don't let the
   // first-load snaps move it.
   const seedStart = initialStart || last.start, seedType = initialPayType || last.payType;
-  const seeded = useRef(!selfMode && !!anchorForStart(seedStart, seedType));
-  const [pStart, setPStart] = useState(() => (!selfMode && anchorForStart(seedStart, seedType)) || periodStartFor(new Date()));
+  const selfSeed = selfMode ? anchorForStart(last.start, last.payType) : null;
+  const seeded = useRef(selfMode ? !!selfSeed : !!anchorForStart(seedStart, seedType));
+  const [pStart, setPStart] = useState(() => (selfMode ? selfSeed : anchorForStart(seedStart, seedType)) || periodStartFor(new Date()));
   // A notice about my own Time Sheet opens its period (lib/openTarget.js).
   // Hourly periods start on a Sunday, so any other start is a salaried month.
   useEffect(() => {
@@ -652,6 +657,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     }).catch(() => setPeopleLoaded(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [self, start, end]);
+  useEffect(() => {
+    if (self) saveRefresh(_SELF_KEY, { start: isoDate(pStart), payType: data?.payType || '' });
+  }, [self, pStart, data?.payType]);
   useEffect(() => {
     if (self || !email) return;
     try { sessionStorage.setItem(_LAST_KEY, JSON.stringify({ email, start: isoDate(pStart), payType: data?.payType || '' })); }

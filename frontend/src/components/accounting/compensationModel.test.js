@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compensationTable, currenciesOf, hoursOf, ledgerTable, monthsBetween, viewRows } from './compensationModel';
+import { buildingHint, compensationTable, currenciesOf, emptyReason, hoursOf, ledgerTable, loadErrorMessage, monthsBetween, viewRows } from './compensationModel';
 
 // Employee Compensation (Oct 15): hours, the views and the export tables.
 
@@ -27,7 +27,7 @@ describe('compensationModel', () => {
 
   it('exports people with a live Totals line in one currency', () => {
     const t = compensationTable(one, 'people', { period: '01/01/2026 - 09/30/2026' });
-    expect(t.title).toBe('Employee Compensation - By Employee');
+    expect(t.title).toBe('Compensation - By Employee');
     expect(t.columns.map((c) => c.label)).toContain('Gross Wages');
     expect(t.rows[0].slice(0, 8)).toEqual(['Pat Hourly', 'GG-001', 'Greens Global', 'Maintenance', 'Technician', 'Hourly', 'USD', 26]);
     expect(t.rows[0].slice(8, 11)).toEqual([160, 4, 1]);
@@ -42,10 +42,28 @@ describe('compensationModel', () => {
     expect(t.rows.slice(-2).map((r) => r[0])).toEqual(['Total INR', 'Total USD']);
   });
 
-  it('exports the ledger payroll expense', () => {
-    const t = ledgerTable({ by: 'department', rows: [{ key: '9100', label: 'Maintenance', wages: 1000, taxes: 80, benefits: 0, total: 1080 }], totals: { wages: 1000, taxes: 80, benefits: 0, total: 1080 } });
-    expect(t.columns.map((c) => c.label)).toEqual(['Department', 'Wages', 'Employer Taxes', 'Benefits', 'Total']);
-    expect(t.rows[0]).toEqual(['Maintenance', 1000, 80, 0, 1080]);
-    expect(t.totals).toEqual(['Total', 1000, 80, 0, 1080]);
+  it('exports the ledger payroll expense, split Direct / Indirect (CR-02)', () => {
+    const t = ledgerTable({ by: 'department', rows: [{ key: '9100', label: 'Maintenance', wages: 1000, taxes: 80, benefits: 0, direct: 700, indirect: 380, total: 1080 }],
+      totals: { wages: 1000, taxes: 80, benefits: 0, direct: 700, indirect: 380, total: 1080 } });
+    expect(t.columns.map((c) => c.label)).toEqual(['Department', 'Wages', 'Employer Taxes', 'Benefits', 'Direct', 'Indirect', 'Total']);
+    expect(t.rows[0]).toEqual(['Maintenance', 1000, 80, 0, 700, 380, 1080]);
+    expect(t.totals).toEqual(['Total', 1000, 80, 0, 700, 380, 1080]);
+    // A ledger read from before the split exports zeros, not holes.
+    expect(ledgerTable({ by: 'department', rows: [{ label: 'X', wages: 1, taxes: 0, benefits: 0, total: 1 }], totals: {} }).rows[0]).toEqual(['X', 1, 0, 0, 0, 0, 1]);
+  });
+
+  it('says why a report is empty, from the counts only', () => {
+    expect(emptyReason({ coverage: { roster: 0, punches: 0, ratesSet: 0 } })).toMatch(/No one is on the payroll roster/);
+    expect(emptyReason({ coverage: { roster: 5, punches: 0, ratesSet: 0 } })).toMatch(/no pay rate is set for any of the 5 people/);
+    expect(emptyReason({ coverage: { roster: 1, punches: 0, ratesSet: 1 } })).toMatch(/1 person is on the roster/);
+    expect(emptyReason({ coverage: { roster: 5, punches: 40, ratesSet: 5 } })).toMatch(/There are 40 punches .* zero hours and zero wages/);
+    expect(emptyReason({})).toBe('No hours or wages on any payroll card in these months.');
+  });
+
+  it('words the loading hint and our own timeout', () => {
+    expect(buildingHint(9)).toMatch(/^Building 9 months of payroll cards/);
+    expect(buildingHint(1)).toMatch(/^Building 1 month of/);
+    expect(loadErrorMessage({ isNetworkError: true, name: 'AbortError' }, 9)).toBe('Building 9 months took longer than 3 minutes, so it was stopped. Pick fewer months and run it again.');
+    expect(loadErrorMessage(new Error('Pick fewer months and run it again.'), 9)).toBe('Pick fewer months and run it again.');
   });
 });

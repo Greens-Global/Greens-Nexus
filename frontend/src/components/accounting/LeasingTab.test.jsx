@@ -54,6 +54,7 @@ vi.mock('../../api', () => ({
 import LeasingTab, { leaseTermLabel, parseLeaseTerm } from './LeasingTab';
 import { api } from '../../api';
 import { resetAccountingPrefs } from './prefs';
+import { dialog as appDialog } from '../../ui/dialog';
 
 beforeEach(() => { vi.clearAllMocks(); try { localStorage.clear(); } catch { /* none */ } resetAccountingPrefs(); });
 
@@ -419,12 +420,12 @@ describe('LeasingTab - one list of every income source (10/07)', () => {
     expect(api.setLeasingMonth).not.toHaveBeenCalled();
   });
 
-  it('asks before a changed lease is clicked off', async () => {
+  it('asks before a changed lease is closed', async () => {
     render(<LeasingTab canEdit />);
     fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
     const dialog = screen.getByRole('dialog', { name: 'Change lease' });
     fireEvent.change(within(dialog).getByLabelText('Region'), { target: { value: 'San Diego' } });
-    fireEvent.click(dialog.parentElement);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
     expect(screen.getByRole('alertdialog', { name: 'Unsaved changes' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Discard Edits' }));
     expect(screen.queryByRole('dialog', { name: 'Change lease' })).toBeNull();
@@ -693,5 +694,66 @@ describe('LeasingTab shared controls', () => {
     expect(within(dialog).getByLabelText('Mailing Address').value).toBe('');
     expect(within(dialog).getByLabelText('Phone').value).toBe('949-400-2788');
     expect(within(dialog).getByLabelText('Intacct Customer Code').value).toBe('C00498');
+  });
+});
+
+// Accounting call 10/23, items 03 and 04: a lease opens in a panel on the
+// right with the list still there, its fields in Tenant Info, Lease Info and
+// Comments, Save pinned at the bottom.
+describe('LeasingTab - side panel (10/23)', () => {
+  it('opens the lease on the right in three titled groups, with Open Full and a close', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const panel = screen.getByRole('dialog', { name: 'Change lease' });
+    expect(panel.getAttribute('aria-modal')).toBe('false');
+    expect(panel.className).toContain('acct-side-panel');
+    const groups = within(panel).getAllByRole('region').map((r) => r.getAttribute('aria-label'));
+    expect(groups).toEqual(['Tenant Info', 'Lease Info', 'Comments']);
+    const tenant = within(panel).getByRole('region', { name: 'Tenant Info' });
+    for (const f of ['Tenant Name', 'Intacct Customer Code', 'Primary Contact', 'Phone', 'Email', 'Mailing Address', 'Tenant Is']) expect(within(tenant).getByLabelText(f)).toBeTruthy();
+    const leaseInfo = within(panel).getByRole('region', { name: 'Lease Info' });
+    for (const f of ['Type', 'Property or Space', 'Region', 'Status', 'Lease Term', 'Frequency', 'Security Deposit', 'Late Fee', 'Rent Due on Day', 'Rental Income Accounts']) expect(within(leaseInfo).getByLabelText(f)).toBeTruthy();
+    expect(within(within(panel).getByRole('region', { name: 'Comments' })).getByLabelText('Notes')).toBeTruthy();
+    // The list is still on screen behind it.
+    expect(screen.getByRole('button', { name: '47385 RCR, Temecula' })).toBeTruthy();
+    // Open Full widens it and is kept; Side Panel brings it back.
+    fireEvent.click(within(panel).getByRole('button', { name: /Open Full/ }));
+    expect(panel.className).toContain('is-full');
+    fireEvent.click(within(panel).getByRole('button', { name: /Side Panel/ }));
+    expect(panel.className).not.toContain('is-full');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'Change lease' })).toBeNull();
+  });
+
+  it('saves from the pinned Save as before', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const panel = screen.getByRole('dialog', { name: 'Change lease' });
+    fireEvent.change(within(panel).getByLabelText('Notes'), { target: { value: 'Pays by check' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateLeasingLease).toHaveBeenCalled());
+    expect(api.updateLeasingLease.mock.calls[0][0]).toBe('L1');
+    expect(api.updateLeasingLease.mock.calls[0][1].notes).toBe('Pays by check');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Change lease' })).toBeNull());
+  });
+
+  it('clicking another lease swaps the panel; unsaved edits are asked about first', async () => {
+    const ask = vi.spyOn(appDialog, 'confirm').mockResolvedValue(false);
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    // Unchanged: straight to the next lease.
+    fireEvent.click(screen.getByRole('button', { name: '47385 RCR, Temecula' }));
+    await waitFor(() => expect(within(screen.getByRole('dialog', { name: 'Change lease' })).getByLabelText('Property or Space').value).toBe('47385 RCR, Temecula'));
+    expect(ask).not.toHaveBeenCalled();
+    // Changed: asked, and Keep Editing keeps it.
+    fireEvent.change(within(screen.getByRole('dialog', { name: 'Change lease' })).getByLabelText('Region'), { target: { value: 'San Diego' } });
+    fireEvent.click(screen.getByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
+    expect(within(screen.getByRole('dialog', { name: 'Change lease' })).getByLabelText('Region').value).toBe('San Diego');
+    // Discard: the other lease opens.
+    ask.mockResolvedValueOnce(true);
+    fireEvent.click(screen.getByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    await waitFor(() => expect(within(screen.getByRole('dialog', { name: 'Change lease' })).getByLabelText('Property or Space').value).toBe('910 SECR - Ste 100, San Clemente'));
+    ask.mockRestore();
   });
 });

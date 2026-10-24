@@ -15,6 +15,8 @@ import SendReportDialog from './SendReportDialog';
 import AddMenu from './AddMenu';
 import EntryDetail from './EntryDetail';
 import { DateField } from '../../tasks/components';
+import { dialog } from '../../ui/dialog';
+import SidePanel, { PanelSection } from './SidePanel';
 import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths } from './recurringShared';
 
 // Accounting -> Leasing: leases and monthly recurring income (Neil and
@@ -292,7 +294,19 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const [period, setPeriod] = useState('year');
   const [custom, setCustom] = useState([0, 11]);
   const [states, setStates] = useState([]);           // picked month states ([] = all) - the legend as a filter
-  const [editing, setEditing] = useState(null);       // { lease, replacing? }
+  const [editing, setEditingNow] = useState(null);    // { lease, replacing? }
+  // Item 03 (10/23): the lease opens in a side panel with the list still
+  // clickable, so another lease (or Add) can replace it - unsaved edits are
+  // asked about first, never dropped quietly.
+  const editorDirty = useRef(false);
+  const setEditing = useCallback(async (next) => {
+    if (next && editorDirty.current) {
+      const ok = await dialog.confirm('The lease open on the right has unsaved changes. Discard them and open this one?', { title: 'Unsaved Changes', confirmText: 'Discard Edits', cancelText: 'Keep Editing', danger: true });
+      if (!ok) return;
+    }
+    editorDirty.current = false;
+    setEditingNow(next);
+  }, []);
   const [cell, setCell] = useState(null);             // { row, month }
   const [sending, setSending] = useState(null);       // email | egnyte
   const [sent, setSent] = useState(null);             // { text, url }
@@ -527,7 +541,8 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
         )}
       </div>
       {cell && <MonthDetail cell={cell} canEdit={canEdit} onClose={() => setCell(null)} onSaved={() => { setCell(null); reload(); }} />}
-      {editing && <LeaseEditor lease={editing.lease} replacing={editing.replacing} canDelete={canDelete} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
+      {editing && <LeaseEditor key={`${editing.lease.id || `new-${editing.lease.incomeType}`}|${editing.replacing?.id || ''}`} lease={editing.lease} replacing={editing.replacing} canDelete={canDelete}
+        onDirty={(d) => { editorDirty.current = d; }} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
       {sending && (() => {
         const t = buildTable();
         return (
@@ -1098,7 +1113,7 @@ function LeaveConfirm({ onKeep, onDiscard }) {
   );
 }
 
-function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
+function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty }) {
   const [l, setL] = useState(() => { const t = termOf(lease); return { incomeType: 'lease', ...lease, termType: t.termType, termMonths: t.termMonths, termLegacy: t.termLegacy, rates: (lease.rates || []).map((r) => ({ ...r })) }; });
   const [initial] = useState(() => JSON.stringify(l));
   const isLease = leaseLike(l.incomeType);
@@ -1116,14 +1131,15 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
   const dirty = JSON.stringify(l) !== initial || (!!replacing && movedOut !== initialMoved);
   const [leaving, setLeaving] = useState(false);
   const live = useRef({ unsaved: false, leaving: false });
-  useEffect(() => { live.current = { unsaved: dirty, leaving }; }, [dirty, leaving]);
+  useEffect(() => { live.current = { unsaved: dirty, leaving }; onDirty?.(dirty); }, [dirty, leaving]); // eslint-disable-line react-hooks/exhaustive-deps
   const tryClose = useCallback(() => { if (live.current.unsaved) setLeaving(true); else onClose(); }, [onClose]);
   useEffect(() => {
     api.getLeasingCustomers().then((d) => setCustomers(d?.customers || [])).catch(() => setCustomers([]));
     api.getAccountingLocations().then((d) => setEntities(d?.entities || [])).catch(() => setEntities([]));
   }, []);
   useEffect(() => {
-    const onKey = (e) => { if (e.key !== 'Escape') return; if (live.current.leaving) setLeaving(false); else tryClose(); };
+    // A popup open over the panel (a month's detail) takes its own Escape.
+    const onKey = (e) => { if (e.key !== 'Escape' || document.querySelector('.modal-overlay')) return; if (live.current.leaving) setLeaving(false); else tryClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [tryClose]);
@@ -1172,17 +1188,35 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
     </div>
   );
   const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 };
+  const heading = replacing ? 'New Tenant in This Space' : isCam ? (l.id ? 'Change CAM Charge' : 'New CAM Charge') : !isLease ? (l.id ? 'Change Income Source' : 'New Interest or Loan Payment') : l.id ? 'Change Lease' : 'New Lease';
+  const who = isLease ? 'Tenant' : 'Payer';
+  // Item 04 (Neil, 10/23: "It should be like the tenant info, lease info, and
+  // then comments"): the same fields as before, in three titled groups - no
+  // tabs ("there's not that much on there where you need two tabs").
   return (
-    <div className="modal-overlay" onClick={tryClose} role="presentation">
-      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={replacing ? 'New tenant in this space' : isCam ? (l.id ? 'Change CAM charge' : 'New CAM charge') : !isLease ? (l.id ? 'Change income source' : 'New interest or loan payment') : l.id ? 'Change lease' : 'New lease'} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <div>
-            <h3 style={{ margin: 0 }}>{replacing ? 'New Tenant in This Space' : isCam ? (l.id ? 'Change CAM Charge' : 'New CAM Charge') : !isLease ? (l.id ? 'Change Income Source' : 'New Interest or Loan Payment') : l.id ? 'Change Lease' : 'New Lease'}</h3>
-            {replacing && <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>{replacing.tenantName}'s lease is ended and kept. This starts the next one.</div>}
-          </div>
-          <button type="button" onClick={tryClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+    <SidePanel label={replacing ? 'New tenant in this space' : isCam ? (l.id ? 'Change CAM charge' : 'New CAM charge') : !isLease ? (l.id ? 'Change income source' : 'New interest or loan payment') : l.id ? 'Change lease' : 'New lease'}
+      title={heading}
+      caption={replacing ? `${replacing.tenantName}'s lease is ended and kept. This starts the next one.` : l.id ? [lease.propertyName, lease.tenantName].filter(Boolean).join(' - ') : 'The list stays open beside this while you fill it in.'}
+      onClose={tryClose}
+      footer={leaving ? <LeaveConfirm onKeep={() => setLeaving(false)} onDiscard={onClose} /> : (
+        <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+          <span>
+            {canDelete && l.id && !replacing && (confirm ? (
+              <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: '0.8rem' }}>
+                Entered by mistake?
+                <button type="button" className="secondary-btn" style={{ color: 'var(--bad-fg, #dc2626)' }} onClick={() => api.deleteLeasingLease(l.id).then(onSaved).catch((e) => setError(e?.message || 'Could not delete.'))}>Delete Lease</button>
+                <button type="button" className="secondary-btn" onClick={() => setConfirm(false)}>Keep</button>
+              </span>
+            ) : <button type="button" style={{ ...icon, fontSize: '0.78rem', gap: 5, alignItems: 'center' }} onClick={() => setConfirm(true)}><Trash2 size={13} /> Delete</button>)}
+          </span>
+          <span style={{ display: 'inline-flex', gap: 8 }}>
+            <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
+            <button type="button" className="primary-btn" onClick={save} disabled={!ready || busy}>{busy ? 'Saving...' : 'Save'}</button>
+          </span>
         </div>
-        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 14, maxHeight: '72vh', overflowY: 'auto' }}>
+      )}>
+      <PanelSection title={isLease ? 'Tenant Info' : 'Payer Info'} caption={isLease ? 'Who pays the rent, and how to reach them.' : 'Who pays, and how to reach them.'}>
+        <div style={{ display: 'grid', gap: 10 }}>
           {replacing && (
             <div style={{ maxWidth: 240 }}>
               <span style={label}>Last Day of {replacing.tenantName}</span>
@@ -1191,20 +1225,40 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
           )}
           <div style={grid}>
             <div>
+              <label style={label} htmlFor="lease-tenancy">{who} Is</label>
+              <select id="lease-tenancy" value={l.tenancy} onChange={(e) => set({ tenancy: e.target.value })} style={{ ...control, width: '100%' }}>
+                <option value="external">External</option><option value="internal">Internal - a related company</option>
+              </select>
+            </div>
+          </div>
+          {vacant ? (
+            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>The space is vacant - no {who.toLowerCase()} until the status changes.</p>
+          ) : (
+            <div style={grid}>
+              <CustomerCombo id="lease-tenantName" text={isLease ? 'Tenant Name' : 'Payer Name'} value={l.tenantName || ''} customers={customers} picked={l.customerId}
+                onType={(v) => set({ tenantName: v })} onPick={pickCustomer} />
+              {field('customerId', 'Intacct Customer Code', { maxLength: 60 })}
+              {field('contactName', 'Primary Contact', { maxLength: 200 })}
+              {field('phone', 'Phone', { maxLength: 60 })}
+              {field('email', 'Email', { maxLength: 200, type: 'email' })}
+              {field('mailingAddress', 'Mailing Address', { maxLength: 300 })}
+            </div>
+          )}
+        </div>
+      </PanelSection>
+
+      <PanelSection title={isLease ? 'Lease Info' : 'Income Info'} caption="The space, the dates, the rent and where the income posts.">
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div style={grid}>
+            <div>
               <label style={label} htmlFor="lease-type">Type</label>
               <select id="lease-type" value={l.incomeType || 'lease'} onChange={(e) => set({ incomeType: e.target.value })} style={{ ...control, width: '100%' }}>
                 {TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
               </select>
             </div>
-            {field('propertyName', isLease ? 'Property or Space' : 'Source', { maxLength: 200, autoFocus: true, placeholder: isLease ? '910 SECR - Ste 100, San Clemente' : 'Note receivable - Oversite Inv2' })}
+            {field('propertyName', isLease ? 'Property or Space' : 'Source', { maxLength: 200, placeholder: isLease ? '910 SECR - Ste 100, San Clemente' : 'Note receivable - Oversite Inv2' })}
             {field('region', 'Region', { maxLength: 120, placeholder: 'Orange County' })}
             {field('landlord', 'Landlord (the tenant pays)', { maxLength: 200 })}
-            <div>
-              <label style={label} htmlFor="lease-tenancy">Tenant Is</label>
-              <select id="lease-tenancy" value={l.tenancy} onChange={(e) => set({ tenancy: e.target.value })} style={{ ...control, width: '100%' }}>
-                <option value="external">External</option><option value="internal">Internal - a related company</option>
-              </select>
-            </div>
             <div>
               <label style={label} htmlFor="lease-status">Status</label>
               <select id="lease-status" value={l.status} onChange={(e) => set({ status: e.target.value })} style={{ ...control, width: '100%' }}>
@@ -1212,20 +1266,6 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
               </select>
             </div>
           </div>
-
-          {!vacant && (
-            <div style={{ display: 'grid', gap: 10 }}>
-              <div style={grid}>
-                <CustomerCombo id="lease-tenantName" text={isLease ? 'Tenant Name' : 'Payer Name'} value={l.tenantName || ''} customers={customers} picked={l.customerId}
-                  onType={(v) => set({ tenantName: v })} onPick={pickCustomer} />
-                {field('customerId', 'Intacct Customer Code', { maxLength: 60 })}
-                {field('contactName', 'Primary Contact', { maxLength: 200 })}
-                {field('phone', 'Phone', { maxLength: 60 })}
-                {field('email', 'Email', { maxLength: 200, type: 'email' })}
-                {field('mailingAddress', 'Mailing Address', { maxLength: 300 })}
-              </div>
-            </div>
-          )}
 
           <div style={grid}>
             <div>
@@ -1317,7 +1357,6 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
               <span style={label}>Entity the Income Posts To</span>
               <EntityPicker entities={entities} value={l.entityCode || ''} onChange={(code) => set({ entityCode: code })} noneLabel="Not Set"
                 ariaLabel="Entity the Income Posts To" active={false} style={{ width: '100%', maxWidth: 'none' }} />
-
             </div>
             <div>
               <label style={label} htmlFor="lease-accounts">{isLease ? 'Rental Income Accounts' : 'Income Accounts'}</label>
@@ -1325,28 +1364,15 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>GL codes, separated by commas. What posts here for the tenant counts as rent received.</div>
             </div>
           </div>
-          {field('notes', 'Notes', { maxLength: 1000 })}
-          {error && <div style={bad}>{error}</div>}
         </div>
-        {leaving ? <LeaveConfirm onKeep={() => setLeaving(false)} onDiscard={onClose} /> : (
-        <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
-          <span>
-            {canDelete && l.id && !replacing && (confirm ? (
-              <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: '0.8rem' }}>
-                Entered by mistake?
-                <button type="button" className="secondary-btn" style={{ color: 'var(--bad-fg, #dc2626)' }} onClick={() => api.deleteLeasingLease(l.id).then(onSaved).catch((e) => setError(e?.message || 'Could not delete.'))}>Delete Lease</button>
-                <button type="button" className="secondary-btn" onClick={() => setConfirm(false)}>Keep</button>
-              </span>
-            ) : <button type="button" style={{ ...icon, fontSize: '0.78rem', gap: 5, alignItems: 'center' }} onClick={() => setConfirm(true)}><Trash2 size={13} /> Delete</button>)}
-          </span>
-          <span style={{ display: 'inline-flex', gap: 8 }}>
-            <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
-            <button type="button" className="primary-btn" onClick={save} disabled={!ready || busy}>{busy ? 'Saving...' : 'Save'}</button>
-          </span>
-        </div>
-        )}
-      </div>
-    </div>
+      </PanelSection>
+
+      <PanelSection title="Comments" caption="Anything the team should know about this lease.">
+        <label style={label} htmlFor="lease-notes">Notes</label>
+        <textarea id="lease-notes" rows={4} value={l.notes ?? ''} maxLength={1000} onChange={(e) => set({ notes: e.target.value })} style={{ ...control, width: '100%', height: 'auto', minHeight: 84, padding: '6px 8px', resize: 'vertical', fontFamily: 'inherit' }} />
+      </PanelSection>
+      {error && <div style={bad}>{error}</div>}
+    </SidePanel>
   );
 }
 

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 // The header search (Neil, Oct 14 2026): ONE bar, the same size in the same
 // place on every module - with module tabs in the center or without - with
@@ -156,6 +158,30 @@ describe('TopHeader search', () => {
       window.removeEventListener('nexus:contact', contact);
       vi.useRealTimers();
     }
+  });
+
+  // Oct 23: Accounting's five dropdown tabs fit the center at 1366 and 1440
+  // wide with the sidebar open. Only compactGroups opts in; jsdom applies no
+  // CSS, so the rules are pinned and kept behind the opt-in class.
+  it('tightens only a compactGroups strip, keeping the label font size', () => {
+    const items = [{ key: 'x', label: 'X' }];
+    render(
+      <HeaderTabsProvider>
+        <ModuleTabs tabs={[{ key: 'd', label: 'Dashboard', items }, { key: 'r', label: 'Reports', items: [{ key: 'y', label: 'Y' }] }]} active="x" onChange={() => {}} compactGroups />
+        <TopHeader title="Accounting" activeView="accounting" theme="light" onThemeToggle={() => {}} onNavigate={() => {}} />
+      </HeaderTabsProvider>,
+    );
+    const nav = document.querySelector('.header-center .hdr-tabs');
+    expect(nav.classList.contains('hdr-tabs--compact')).toBe(true);
+    expect(nav.querySelectorAll('.hdr-tab .tab-group-caret')).toHaveLength(2);
+    cleanup();
+    header({}, true);
+    expect(document.querySelector('.header-center .hdr-tabs').classList.contains('hdr-tabs--compact')).toBe(false);
+    const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
+    const rules = css.split('\n').filter((l) => l.includes('hdr-tabs--compact'));
+    expect(rules.length).toBeGreaterThan(0);
+    rules.forEach((l) => expect(l).not.toMatch(/font/));
+    expect(css).toMatch(/\.hdr-tabs--compact \.hdr-tab \{ padding: 9px 9px; gap: 4px; \}/);
   });
 
   it('Esc clears and closes; the clear button reads Clear', () => {

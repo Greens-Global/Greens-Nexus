@@ -60,6 +60,37 @@ describe('CompensationReport', () => {
     expect(api.getCompensationPeople).toHaveBeenCalledTimes(2);
   });
 
+  it('says how many months it is building while it loads, and asks for one attempt', async () => {
+    let resolve;
+    api.getCompensationPeople.mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
+    render(<CompensationReport />);
+    expect(screen.getByRole('status').textContent).toMatch(/^Building \d+ months? of payroll cards/);
+    expect(api.getCompensationPeople).toHaveBeenCalledWith(expect.any(String), expect.any(String), { timeoutMs: 180_000 });
+    resolve(report);
+    expect(await screen.findByText('Pat Hourly')).toBeTruthy();
+  });
+
+  it('an empty report says why', async () => {
+    api.getCompensationPeople.mockResolvedValueOnce({ ...report, people: [], byCompany: [], byDepartment: [], totals: [], coverage: { roster: 12, punches: 0, ratesSet: 12 } });
+    render(<CompensationReport />);
+    expect(await screen.findByText(/No one punched in Time Clock in these months/)).toBeTruthy();
+    expect(screen.getByText(/12 people are on the roster/)).toBeTruthy();
+  });
+
+  it('a run that ran out of time says so, with what to do', async () => {
+    api.getCompensationPeople.mockRejectedValueOnce(Object.assign(new Error("Can't reach Nexus right now."), { name: 'AbortError', isNetworkError: true }));
+    render(<CompensationReport />);
+    expect(await screen.findByText(/took longer than 3 minutes, so it was stopped\. Pick fewer months/)).toBeTruthy();
+  });
+
+  it('shows the ledger split Direct / Indirect', async () => {
+    api.getCompensationLedger.mockResolvedValueOnce({ ...ledger, rows: [{ ...ledger.rows[0], direct: 700, indirect: 400 }], totals: { ...ledger.totals, direct: 700, indirect: 400 } });
+    render(<CompensationReport />);
+    expect(await screen.findByText('Field Ops')).toBeTruthy();
+    expect(screen.getByText('Direct')).toBeTruthy();
+    expect(screen.getByText('Indirect')).toBeTruthy();
+  });
+
   it('refuses a range longer than a year', async () => {
     render(<CompensationReport />);
     await screen.findByText('Pat Hourly');

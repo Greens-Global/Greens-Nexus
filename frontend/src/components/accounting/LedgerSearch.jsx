@@ -193,7 +193,7 @@ const opText = (label, f) => (f.op === 'between' ? `${label} between ${f.a || '.
 // as soon as the grid mounts - the dashboard's Find a Transaction tile hands
 // it over with the words typed (Oct 1). `onEntryClosed` lets the owner forget
 // it, so closing the modal does not reopen it on the next render.
-export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, onExport, dims = null, dimNames = null, full = false, initialEntry = null, onEntryClosed }) {
+export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, backLabel = '', onBusy, onExport, dims = null, dimNames = null, full = false, initialEntry = null, onEntryClosed }) {
   const entitiesKey = entities.join(',');
   // The report's filters, plus any a drill from another tab brought with it
   // (requestReportDrill's `dims`), less the ones lifted here with a chip's x.
@@ -242,6 +242,41 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
     ro.observe(wrap);
     return () => ro.disconnect();
   }, [wrap]);
+  // UI test 10/23 (item 18): what sits above the lines (the drill's title, the
+  // filters, the totals) wraps to a different height on each screen, so the
+  // box is sized from where it actually starts, leaving room for what the page
+  // still shows under it (the notes below the lines, the card's and the page's
+  // bottom padding), so it ends inside the window with no second page
+  // scrollbar; 300px at least. It re-measures when the window or the area
+  // around it changes size (filters or totals above wrapping after a load).
+  const [boxH, setBoxH] = useState(0);
+  useEffect(() => {
+    if (!wrap || full) return undefined;
+    const px = (v) => parseFloat(v) || 0;
+    const below = () => {
+      let h = 0;
+      for (let el = wrap; el && el.parentElement && el !== document.body; el = el.parentElement) {
+        h += px(getComputedStyle(el).marginBottom);
+        for (let sib = el.nextElementSibling; sib; sib = sib.nextElementSibling) {
+          const cs = getComputedStyle(sib);
+          if (cs.position === 'fixed' || cs.position === 'absolute' || cs.display === 'none') continue;
+          h += sib.getBoundingClientRect().height + px(cs.marginTop) + px(cs.marginBottom);
+        }
+        const pcs = getComputedStyle(el.parentElement);
+        h += px(pcs.paddingBottom) + px(pcs.borderBottomWidth);
+      }
+      return h;
+    };
+    const fit = () => {
+      const top = wrap.getBoundingClientRect().top + (window.scrollY || 0);
+      setBoxH(Math.max(300, Math.floor(window.innerHeight - top - below() - 8)));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
+    if (ro && wrap.parentElement) ro.observe(wrap.parentElement);
+    return () => { window.removeEventListener('resize', fit); ro?.disconnect(); };
+  }, [wrap, full]);
   const natural = shownColumns.reduce((s, c) => s + widthOf(c), 0);
   const fillers = shownColumns.filter((c) => !c.num && !layout.widths?.[c.key] && !['date', 'entry', 'journal'].includes(c.key));
   const spare = fillers.length ? Math.max(0, room - natural - ASK_WIDTH - 2) : 0;
@@ -386,9 +421,12 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   return (
     <div style={card}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <button type="button" className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', padding: '4px 10px' }}>
-          <ArrowLeft size={14} /> Back to Report
-        </button>
+        {/* A journal page (Records > Journals) is the lines themselves: no report to go back to. */}
+        {onClose && (
+          <button type="button" className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', padding: '4px 10px' }}>
+            <ArrowLeft size={14} /> {backLabel || 'Back to Report'}
+          </button>
+        )}
         <div style={{ minWidth: 0 }}>
           <h3 style={{ fontSize: '0.98rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{heading}</h3>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
@@ -481,9 +519,11 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
               {rows.length === 0 && <div style={{ padding: 16, fontSize: '0.84rem', color: 'var(--text-secondary)', textAlign: 'center' }}>No lines on this page.</div>}
             </div>
           ) : (
-          // No box of its own in a window: the page scrolls, and a tall monitor shows that many more lines (Charmi, 10/02).
-          <div className="acct-lines-wrap" ref={setWrap} style={{ opacity: loading ? 0.6 : 1, ...(full ? {} : { maxHeight: 'none' }) }}>
-            <table className="acct-lines" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
+          // Oct 23 (Viral, item 18): the lines scroll inside their own box, sized
+          // to the window (a tall monitor still shows more), with the headings
+          // pinned at its top - the page above them stays put.
+          <div className={`acct-lines-wrap${full ? '' : ' acct-scroll-box'}`} ref={setWrap} data-testid="ledger-lines-box" style={{ opacity: loading ? 0.6 : 1, ...(boxH ? { '--acct-lines-h': `${boxH}px` } : {}) }}>
+            <table className="acct-lines acct-sticky-head" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
               <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}<col style={{ width: ASK_WIDTH }} /></colgroup>
               <thead>
                 <tr>

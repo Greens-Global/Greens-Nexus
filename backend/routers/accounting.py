@@ -22,6 +22,7 @@ import json
 import os
 import re
 import time
+from datetime import date
 
 import httpx
 
@@ -260,6 +261,39 @@ async def list_journals(scope: dict = Depends(entity_scope)):
         out.append({"symbol": symbol, "title": str(r.get("title") or r.get("name") or "").strip(), "kind": kind if kind in _JOURNAL_KINDS else "user"})
     out.sort(key=lambda j: (_JOURNAL_KINDS.index(j["kind"]), j["symbol"]))
     return {"available": True, "journals": out}
+
+
+def _is_404(e: HTTPException) -> bool:
+    return getattr(e, "upstream_status", None) == 404 or "returned 404" in str(e.detail)
+
+
+_ACCOUNT_FIELDS = ("account_no", "title", "section", "account_type", "normal_balance", "category", "group", "active", "statistical", "bank_kind")
+
+
+@router.get("/accounts")
+async def list_accounts(scope: dict = Depends(entity_scope)):
+    """Records > General Ledger Accounts (Charmi, 10/22 call, CR-12: the
+    chart of accounts under that name): every GL account, active or not,
+    read-only. The accounting app's /api/internal/accounts when it has it;
+    until then (a 404) the accounts posted to on the ledger up to today, from
+    a buckets read, with `source: "ledger"` so the screen says so. The chart
+    is the same for every entity, so no entity narrowing applies."""
+    try:
+        data = await _acct_get("/api/internal/accounts", {"status": "all"})
+        raw = data.get("accounts") if isinstance(data.get("accounts"), list) else data.get("rows") or []
+        rows = [{k: r.get(k) for k in _ACCOUNT_FIELDS} for r in raw if isinstance(r, dict) and r.get("account_no")]
+        return {"source": "chart", "accounts": sorted(rows, key=lambda r: str(r["account_no"]))}
+    except HTTPException as e:
+        if not _is_404(e):
+            raise
+    location, locations = await _limit(scope, None, None)
+    data = await _acct_get("/api/internal/reports/buckets", {"to": date.today().isoformat(), "by": "total", "location": location, "locations": locations})
+    seen: dict = {}
+    for r in data.get("rows") or []:
+        code = str(r.get("account_no") or "").strip()
+        if code and code not in seen:
+            seen[code] = {"account_no": code, "title": str(r.get("title") or "").strip(), "section": r.get("section") or "", "active": True}
+    return {"source": "ledger", "accounts": [seen[c] for c in sorted(seen)]}
 
 
 @router.get("/reports/pnl")
