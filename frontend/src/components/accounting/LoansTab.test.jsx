@@ -135,6 +135,33 @@ describe('LoansTab', () => {
     expect(api.getLoansReview.mock.calls[0][0]).toMatchObject({ from: expect.stringMatching(/^\d{4}-\d{2}-01$/), to: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), entities: [] });
   });
 
+  it('has the standard table view: a value list narrows the loans, the totals follow, a hidden detail column can be shown, the export is what shows (10/23, item 01)', async () => {
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:x');
+    globalThis.URL.revokeObjectURL = vi.fn();
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Lender by value' }));
+    const list = await screen.findByRole('dialog', { name: 'Lender values' });
+    fireEvent.click(within(list).getByRole('checkbox', { name: /Golden 1 Credit Union/ }));
+    expect(screen.queryAllByText('Golden 1 Credit Union').filter((el) => el.closest('tbody.loan')).length).toBe(0);
+    const total = screen.getByText('Total').closest('tr');
+    // F&M 1,252,000 + Chase 400,000 + intercompany 20,000.
+    expect(within(total).getByText('1,672,000.00')).toBeTruthy();
+    // The export's detail columns are hidden columns now: Vendor shows from Columns.
+    expect(screen.queryByRole('columnheader', { name: 'Vendor' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show or Hide Columns' }));
+    fireEvent.click(await screen.findByLabelText('Vendor'));
+    expect(screen.getByRole('columnheader', { name: 'Vendor' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
+    const file = URL.createObjectURL.mock.calls[0][0];
+    const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
+    const lines = text.replace(/^\s+/, '').split('\r\n');
+    expect(lines[0]).toBe('Lender,Loan #,GL Code,Entity,Monthly Payment,Original Principal,Balance,Principal Paid,Interest Paid,Debt Service,Rate,Maturity,DSCR,Type,Vendor');
+    expect(text).not.toContain('Golden 1');
+  });
+
   it('filters by Internal / External and by text, and reads again for the entities picked', async () => {
     render(<LoansTab canEdit />);
     await rowOf('F&M Bank');
