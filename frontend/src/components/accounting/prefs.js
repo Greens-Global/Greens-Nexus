@@ -37,15 +37,18 @@ function ensureLoaded() {
     .finally(() => { loaded = true; loading = null; });
 }
 
+// `patch` may be a function of the current prefs (Oct 24, saved table views:
+// several tables update `tableViews` and must not undo each other).
 function setPrefs(patch) {
-  current = { ...(current || read()), ...patch };
+  const base = current || read();
+  current = { ...base, ...(typeof patch === 'function' ? patch(base) : patch) };
   write(current);
   emit();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => { api.saveAccountingPrefs(current).catch(() => { /* kept locally; retried on the next change */ }); }, 800);
 }
 
-/** [prefs, setPrefs(patch)] - patch is merged at the top level. */
+/** [prefs, setPrefs(patch | (prefs) => patch)] - patch is merged at the top level. */
 export function useAccountingPrefs() {
   const [prefs, set] = useState(() => { ensureLoaded(); return current; });
   useEffect(() => {
