@@ -54,10 +54,10 @@ describe('useTableSync', () => {
 
   it('runs a load function with fresh reads', async () => {
     const load = vi.fn(async () => 'done');
-    let api;
-    function Fn() { api = useTableSync(load); return null; }
+    const got = {};
+    function Fn() { const ts = useTableSync(load); useEffect(() => { got.api = ts; }); return null; }
     render(<Fn />);
-    await act(async () => { await api.sync(); });
+    await act(async () => { await got.api.sync(); });
     expect(load).toHaveBeenCalledTimes(1);
     expect(withFreshReads).toHaveBeenCalledWith(load);
   });
