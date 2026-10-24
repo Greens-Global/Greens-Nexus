@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Database, FileText, FolderOpen, FolderUp, Mail, PenLine, Pencil, Search, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Database, FileText, FolderOpen, FolderUp, Mail, PenLine, Pencil, Trash2 } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { Figure, formatAmount, parseAmountInput } from './Amount';
 import { formatDate } from '../../lib/datetime';
-import { ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, Pager, PeriodStepper, SyncButton, control } from './reportControls';
+import { BarMore, BarSearch, BarSummary, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, Pager, PeriodStepper, SyncButton, control, fitSelect } from './reportControls';
 import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
@@ -526,26 +526,36 @@ export default function LoansTab({ canEdit = false }) {
               color: view === k ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', borderBottom: `2px solid ${view === k ? 'var(--wk-brand, #2b45e1)' : 'transparent'}`, marginBottom: -1 }}>{l}</button>
         ))}
       </div>
+      {/* Item 02, round 3 (UI test 10/24: two lines at 1366 / 1440): words fold
+          first, then the summary shortens, then into More - Customize and
+          Columns, the type, the summary, Entities and Sync, then Export. The
+          search is an icon until used. */}
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
+        <BarMore level={4} active={picked.length ? 1 : 0}>
         <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} showHistorical={showHistorical} />
+        </BarMore>
         <PeriodStepper config={period} period="range" onChange={onPeriod} />
         {view === 'loans' && <>
-        <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Internal or External" style={{ ...control, color: type === 'all' ? 'var(--text-primary)' : 'var(--wk-brand, #2b45e1)' }}>
+        <BarMore level={2} active={type !== 'all' ? 1 : 0}>
+        <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Internal or External" style={{ ...control, ...fitSelect(TYPES.find(([k]) => k === type)?.[1]), color: type === 'all' ? 'var(--text-primary)' : 'var(--wk-brand, #2b45e1)' }}>
           {TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
-        <div style={{ position: 'relative' }}>
-          <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
-          <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Filter loans" aria-label="Filter loans" style={{ ...control, width: 170, paddingLeft: 24 }} />
-        </div>
+        </BarMore>
+        <BarSearch value={text} onChange={setText} label="Filter loans" placeholder="Filter loans" width={190} />
         <TableViewBar view={tv} />
         <div className="acct-bar-end">
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+          <BarSummary level={3}>
             Loans <strong>{rows.length}</strong> · Balance <strong><Amount value={totals.balance} /></strong>
-          </span>
+          </BarSummary>
+          <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={loading && !!review} syncedAt={ts.syncedAt} />
+          </BarMore>
+          <BarMore level={1} active={showClosed ? 1 : 0}>
           <CustomizeButton {...custom} active={showClosed}>
             <ClosedToggle checked={showClosed} onChange={(v) => setPrefs({ loansShowClosed: v })} closedCount={closedCount} />
           </CustomizeButton>
+          </BarMore>
+          <BarMore level={5}>
           <ExportMenu disabled={!rows.length} items={[
             { key: 'excel', label: 'Excel', hint: 'The loans shown, totals in bold', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per loan', onPick: () => exportAs('csv'), busy: busy === 'csv' },
@@ -553,6 +563,7 @@ export default function LoansTab({ canEdit = false }) {
             { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, the loans attached', Icon: Mail, onPick: () => setSending('email') },
             { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
           ]} />
+          </BarMore>
           {canEdit && !unavailable && (
             <AddMenu ariaLabel="Add a loan" items={[
               { key: 'ledger', label: 'From the Ledger', hint: 'Liability accounts that look like loans in Intacct', Icon: Database, onPick: () => setDialog('ledger') },

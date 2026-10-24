@@ -585,6 +585,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
 
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
   const select = (active) => ({ ...control, fontWeight: active ? 600 : 400, color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', borderColor: active ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)', maxWidth: 300 });
+  // What the Credit Card / Bank Activity picker reads, for its width (item 02).
+  const activityPick = activity ? (shown?.pickable || []).find((a) => a.code === config.accounts[0]) : null;
+  const activityLabel = activityPick ? `${activityPick.code} ${activityPick.title || ''}` : activity ? `Pick a ${activity.pick}...` : '';
 
   // minmax(0,1fr): an unsized grid track grows to its widest content, which
   // pushed the controls past a phone's edge (QA, Sep 23).
@@ -651,16 +654,18 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             onChange={(dims) => { const mode = columnsForPicks(config, dims); setCollapsed(new Set()); patch({ dims, ...(mode ? { cols: mode } : {}) }); }} />
         )}
         </BarMore>
-        {/* Flux review state (Charmi, 10/15): Open, Answered, Closed, with counts. */}
+        {/* Round 3 (UI test 10/24: Flux Analysis two lines at 1366 / 1440):
+            the review state and the amount filter move into More with
+            Columns and Book. */}
         {config.report === 'flux' && (
+          <BarMore level={2} active={(config.fluxStatus !== 'all' ? 1 : 0) + (fluxAmountOn(config.fluxFilter) ? 1 : 0)}>
+          {/* Flux review state (Charmi, 10/15): Open, Answered, Closed, with counts. */}
           <select value={config.fluxStatus} onChange={(e) => patch({ fluxStatus: e.target.value })} aria-label="Review Status" title="Show the lines in one review state" style={select(config.fluxStatus !== 'all')}>
             {FLUX_STATUS_FILTERS.map((o) => (
               <option key={o.key} value={o.key}>{o.key === 'all' ? 'Review: All Lines' : `${o.label}${fluxCounts ? ` (${(fluxCounts[o.key] || 0).toLocaleString('en-US')})` : ''}`}</option>
             ))}
           </select>
-        )}
-        {/* Flux amount filter (Charmi, 10/15): what to compare, an operator and a value. */}
-        {config.report === 'flux' && (
+          {/* Flux amount filter (Charmi, 10/15): what to compare, an operator and a value. */}
           <span className="acct-flux-amount" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
             <select value={config.fluxFilter.target} onChange={(e) => patch({ fluxFilter: { ...config.fluxFilter, target: e.target.value } })} aria-label="Amount to Filter" title="Which figure the amount filter compares"
               style={{ ...select(fluxAmountOn(config.fluxFilter)), maxWidth: 190 }}>
@@ -668,14 +673,19 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             </select>
             <OpFilter label="Amount" value={config.fluxFilter} onChange={(v) => patch({ fluxFilter: { ...config.fluxFilter, ...v } })} placeholder={config.fluxFilter.target === 'pct' ? '%' : '0.00'} />
           </span>
+          </BarMore>
         )}
-        {/* Credit Card / Bank Activity: one account, picked from that kind only (item 07). */}
+        {/* Credit Card / Bank Activity: one account, picked from that kind only
+            (item 07); as wide as the account picked, and the last to move
+            into More (round 3). */}
         {activity && (
+          <BarMore level={6} active={config.accounts.length ? 1 : 0}>
           <select value={config.accounts[0] || ''} onChange={(e) => { closeSearch(); patch({ accounts: e.target.value ? [e.target.value] : [] }); }} aria-label={activity.pick}
-            style={{ ...select(!!config.accounts.length), maxWidth: 320 }}>
+            style={{ ...select(!!config.accounts.length), ...fitSelect(activityLabel, { max: 320 }) }}>
             <option value="">{`Pick a ${activity.pick}...`}</option>
             {(shown?.pickable || []).map((a) => <option key={a.code} value={a.code}>{a.title ? `${a.code} ${a.title}` : a.code}</option>)}
           </select>
+          </BarMore>
         )}
         {canPickAccounts(config) && (
           <BarMore level={3} active={config.accounts.length ? 1 : 0}>
@@ -700,6 +710,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             {...(shown?.activeKnown ? { showInactiveAccounts: custom.showInactiveAccounts, onShowInactiveAccounts: custom.onShowInactiveAccounts } : {})}
             flux={config.report === 'flux' ? { fluxPct: config.fluxPct, fluxAmount: config.fluxAmount } : null} onFlux={(p) => patch(p)} />
           </BarMore>
+          <BarMore level={5}>
           <ExportMenu disabled={searching ? !linesExport : !shown} items={searching ? [
             { key: 'excel', label: 'Excel', hint: 'Every line, columns as on screen, live totals', onPick: () => exportLines('excel'), busy: linesBusy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => exportLines('csv'), busy: linesBusy === 'csv' },
@@ -714,6 +725,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
             { key: 'share', group: 'send', label: 'Share With a Teammate...', hint: 'Memorized for the team, with a bell notice', Icon: Share2, onPick: () => setSending('share') },
           ]} />
+          </BarMore>
           <BarMore level={1}>
           <button type="button" onClick={() => setFull((v) => !v)} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
             style={{ ...control, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-secondary)' }}>

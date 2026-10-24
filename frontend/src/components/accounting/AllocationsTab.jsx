@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Download, Save, Settings2, Trash2 } from 'lu
 import { api } from '../../api';
 import Amount from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
-import { ControlBar, SyncButton, control } from './reportControls';
+import { BarMore, BarSummary, ControlBar, SyncButton, control } from './reportControls';
 import { useTableSync } from './tableSync';
 import { useFitHeight } from './tableHooks';
 import { downloadBlob } from './reportModel';
@@ -126,18 +126,29 @@ export default function AllocationsTab({ canEdit = false }) {
           <strong style={{ fontSize: '0.86rem', minWidth: 80, textAlign: 'center' }}>{monthLabel(month)}</strong>
           <button type="button" aria-label="Next month" onClick={() => setMonth((m) => shiftMonth(m, 1))} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronRight size={16} /></button>
         </div>
+        {/* Item 02, round 3 (UI test 10/24: two lines at 1366, the summary
+            pushing Sync, the exports and Keep Run down): the summary shortens
+            with "..." (full text in the tooltip); then into More go Account
+            Mapping, the two exports, the summary, then Sync. The warnings
+            stay on the row, never cut short. */}
         {preview && (
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          <BarSummary level={3}>
             {preview.totals.people} people · wages <strong><Amount value={preview.totals.wages} /></strong> · debits <strong><Amount value={preview.totals.debits} /></strong> · credits <strong><Amount value={preview.totals.credits} /></strong>
-            {preview.currencies?.length > 1 && <span style={{ ...warn, marginLeft: 8 }}>Mixed currencies: {preview.currencies.join(', ')}</span>}
-            {unmapped > 0 && <span style={{ ...warn, marginLeft: 8 }}>{unmapped} unmapped</span>}
-          </span>
+          </BarSummary>
         )}
+        {preview?.currencies?.length > 1 && <span style={warn}>Mixed currencies: {preview.currencies.join(', ')}</span>}
+        {preview && unmapped > 0 && <span style={warn}>{unmapped} unmapped</span>}
         <div className="acct-bar-end">
+          <BarMore level={4}>
           <SyncButton onSync={previewSync.sync} busy={state.loading && !!preview} syncedAt={previewSync.syncedAt} what="Preview" />
-          {canEdit && <button type="button" className="secondary-btn" onClick={() => setMapOpen((v) => !v)} aria-expanded={mapOpen} title="Account Mapping" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Settings2 size={13} /> <span className="acct-bar-label">Account Mapping</span></button>}
-          {canEdit && <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('csv')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Intacct CSV</button>}
-          {canEdit && <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('xlsx')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Excel</button>}
+          </BarMore>
+          {canEdit && <BarMore level={1} active={mapOpen ? 1 : 0}><button type="button" className="secondary-btn" onClick={() => setMapOpen((v) => !v)} aria-expanded={mapOpen} title="Account Mapping" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Settings2 size={13} /> <span className="acct-bar-label">Account Mapping</span></button></BarMore>}
+          {canEdit && (
+            <BarMore level={2}>
+            <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('csv')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Intacct CSV</button>
+            <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('xlsx')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Excel</button>
+            </BarMore>
+          )}
           {canEdit && <button type="button" className="primary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={keepRun} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Save size={13} /> {busy === 'run' ? 'Keeping...' : 'Keep Run'}</button>}
         </div>
       </ControlBar>

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
 import { api } from '../../api';
 import LedgerSearch from './LedgerSearch';
-import { ControlBar, EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, SyncButton, control } from './reportControls';
-import { EMPTY_DIMS, POPOVER_DIMS, downloadBlob, resolveConfig } from './reportModel';
+import { BarMore, BarSearch, ControlBar, EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, SyncButton } from './reportControls';
+import { EMPTY_DIMS, POPOVER_DIMS, countDims, downloadBlob, resolveConfig } from './reportModel';
 import { linesFile } from './linesExport';
 import { useAccountingPrefs } from './prefs';
 import { JOURNAL_PAGE_DEFAULT_PRESET } from './assumptions';
@@ -66,20 +65,25 @@ export default function JournalTab({ symbol }) {
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <strong style={{ fontSize: '0.9rem' }}>{symbol}{title ? ` - ${title}` : ''}</strong>
         <PeriodStepper config={config} period="range" onChange={patch} />
+        {/* Item 02, round 3 (UI test 10/24: two lines at 1100): the search is an
+            icon until used; Entities and Filters are the third to move into
+            More, Sync the fourth, Export the fifth. */}
+        <BarMore level={3} active={(config.entities.length ? 1 : 0) + (countDims(config.dims) ? 1 : 0)}>
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
         <FiltersButton dims={config.dims} onChange={(d) => patch({ dims: d })} showHistorical={!!prefs.showHistoricalAccounts} kinds={kinds} />
-        <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 360 }}>
-          <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />
-          <input type="text" value={typed} onChange={(e) => setTyped(e.target.value)} aria-label={`Search the ${symbol} journal`}
-            placeholder="Search vendor, customer, memo, amount..." style={{ ...control, width: '100%', paddingLeft: 28 }} />
-        </div>
+        </BarMore>
+        <BarSearch value={typed} onChange={setTyped} label={`Search the ${symbol} journal`} placeholder="Search vendor, customer, memo, amount..." width={280} />
         <div className="acct-bar-end">
+          <BarMore level={4}>
           <SyncButton onSync={() => { setSyncTick((n) => n + 1); setSyncedAt(new Date()); }} busy={linesBusy && syncTick > 0} syncedAt={syncedAt} />
+          </BarMore>
+          <BarMore level={5}>
           <ExportMenu disabled={!lines} items={[
             { key: 'excel', label: 'Excel', hint: 'Every line, columns as on screen, live totals', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => exportAs('csv'), busy: busy === 'csv' },
             { key: 'pdf', label: 'PDF', hint: 'Landscape, banded, page numbers', onPick: () => exportAs('pdf'), busy: busy === 'pdf' },
           ]} />
+          </BarMore>
         </div>
       </ControlBar>
       {error && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', fontSize: '0.84rem' }}>{error}</div>}

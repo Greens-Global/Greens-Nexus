@@ -6,7 +6,7 @@ import { formatDate, formatDateTime } from '../../lib/datetime';
 import Amount, { formatAmount } from './Amount';
 import EntryDetail from './EntryDetail';
 import { BarMore, BarSearch, ControlBar, EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, SyncButton, control, fitSelect } from './reportControls';
-import { DIM_KINDS, downloadBlob, resolveConfig } from './reportModel';
+import { DIM_KINDS, countDims, downloadBlob, resolveConfig } from './reportModel';
 import { linesFile } from './linesExport';
 import { useFitHeight } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewTable } from './tableView';
@@ -146,8 +146,11 @@ export default function ManualJournalEntries() {
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 10 }}>
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <PeriodStepper config={config} period="range" onChange={patch} />
+        {/* Round 3 (UI test 10/24: two lines at 1100): Entities and the journal filter are the third to move into More, Sync the fourth, Export the fifth. */}
+        <BarMore level={3} active={(config.entities.length ? 1 : 0) + (countDims(config.dims) ? 1 : 0)}>
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
         <FiltersButton dims={config.dims} onChange={(d) => patch({ dims: d })} kinds={JOURNAL_KIND} />
+        </BarMore>
         <BarMore level={2} active={user ? 1 : 0}>
         <select value={user} onChange={(e) => setUser(e.target.value)} aria-label="User" style={{ ...control, ...fitSelect(user || 'All Users', { max: 200 }) }}>
           <option value="">All Users</option>
@@ -166,12 +169,16 @@ export default function ManualJournalEntries() {
         <BarSearch value={q} onChange={setQ} label="Search the entries" placeholder="Search description, entry, user..." width={260} />
         <TableViewBar view={view} filtersLabel="Row Filters" />
         <div className="acct-bar-end">
+          <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
+          </BarMore>
+          <BarMore level={5}>
           <ExportMenu disabled={!rows.length} items={[
             { key: 'excel', label: 'Excel', hint: 'The entries on screen, live totals', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per entry', onPick: () => exportAs('csv'), busy: busy === 'csv' },
             { key: 'pdf', label: 'PDF', hint: 'Landscape, banded, page numbers', onPick: () => exportAs('pdf'), busy: busy === 'pdf' },
           ]} />
+          </BarMore>
         </div>
       </ControlBar>
 

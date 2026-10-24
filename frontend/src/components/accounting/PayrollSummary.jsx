@@ -4,7 +4,7 @@ import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import Amount from './Amount';
-import { ControlBar, EntitiesPicker, ExportMenu, PeriodStepper, SyncButton, control } from './reportControls';
+import { BarMore, ControlBar, EntitiesPicker, ExportMenu, PeriodStepper, SyncButton, control, fitSelect } from './reportControls';
 import { useFitHeight } from './tableHooks';
 import { useTableSync } from './tableSync';
 import { EMPTY_DIMS, downloadBlob, fetchBuckets, resolveConfig } from './reportModel';
@@ -152,19 +152,31 @@ export default function PayrollSummary() {
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 10 }}>
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <PeriodStepper config={config} period="range" onChange={patch} />
+        {/* Item 02, round 3 (UI test 10/24: two lines at 1100): into More go
+            the layout, then the employees, Entities, Sync, then Export. */}
+        <BarMore level={3} active={config.entities.length ? 1 : 0}>
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
+        </BarMore>
+        <BarMore level={2} active={picked.length ? 1 : 0}>
         <EmployeePicker employees={full?.employees || []} value={picked} onChange={setPicked} />
-        <select value={as} onChange={(e) => setAs(e.target.value)} aria-label="Layout" style={control}>
+        </BarMore>
+        <BarMore level={1} active={as !== PAYROLL_SUMMARY_EMPLOYEES_AS ? 1 : 0}>
+        <select value={as} onChange={(e) => setAs(e.target.value)} aria-label="Layout" style={{ ...control, ...fitSelect(as === 'rows' ? 'Employees as Rows' : 'Employees as Columns') }}>
           <option value="columns">Employees as Columns</option>
           <option value="rows">Employees as Rows</option>
         </select>
+        </BarMore>
         <div className="acct-bar-end">
+          <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={loading && !!res.data} syncedAt={ts.syncedAt} />
+          </BarMore>
+          <BarMore level={5}>
           <ExportMenu disabled={!table} items={[
             { key: 'excel', label: 'Excel', hint: 'The summary as on screen', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values', onPick: () => exportAs('csv'), busy: busy === 'csv' },
             { key: 'pdf', label: 'PDF', hint: 'Landscape, banded, page numbers', onPick: () => exportAs('pdf'), busy: busy === 'pdf' },
           ]} />
+          </BarMore>
         </div>
       </ControlBar>
 

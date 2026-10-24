@@ -133,13 +133,18 @@ export default function ProfitabilityReport({ limited = false }) {
             <input type="checkbox" checked={expand} onChange={(e) => setExpand(e.target.checked)} /> Show Sub-Entities
           </label>
         </BarMore>
+        {/* Round 3 (item 02): on a short row Sync is the fourth to move into More, Export the fifth. */}
         <div className="acct-bar-end">
+          <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={!!state.syncing} syncedAt={ts.syncedAt} />
+          </BarMore>
+          <BarMore level={5}>
           <ExportMenu disabled={!data || !rows.length} items={[
             { key: 'excel', label: 'Excel', hint: 'Workbook with the totals as formulas', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'pdf', label: 'PDF', hint: 'Landscape, ready to print', onPick: () => exportAs('pdf'), busy: busy === 'pdf' },
             { key: 'csv', label: 'CSV', onPick: () => exportAs('csv'), busy: busy === 'csv' },
           ]} />
+          </BarMore>
         </div>
       </ControlBar>
 

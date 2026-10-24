@@ -594,8 +594,17 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
         <BarMore level={2} active={entity ? 1 : 0}>
         <EntityPicker entities={entities} value={entity} onChange={setEntity} noneLabel={limited ? 'My Entities' : 'All Entities'} showHistorical={custom.showHistorical} ariaLabel="Entity" />
         </BarMore>
-        <input type="date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} aria-label="From" title="Lines dated from" style={control} />
-        <input type="date" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} aria-label="To" title="Lines dated to" style={control} />
+        {/* Round 3 (UI test 10/24: two lines at 1100): the dates are the third to move into More, Sync the fourth, Export the fifth. */}
+        <BarMore level={3}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          <span className="acct-more-only">From</span>
+          <input type="date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} aria-label="From" title="Lines dated from" style={control} />
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          <span className="acct-more-only">To</span>
+          <input type="date" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} aria-label="To" title="Lines dated to" style={control} />
+        </label>
+        </BarMore>
         {/* 10/23 meeting, item 02 (fix 10/24): the list as wide as the choice, the search an icon until used. */}
         <BarMore level={2} active={mine !== 'all' ? 1 : 0}>
         <select value={mine} onChange={(e) => setMine(e.target.value)} aria-label="Whose" style={{ ...control, ...fitSelect(WHOSE[mine]) }}>
@@ -605,7 +614,9 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
         <BarSearch value={text} onChange={setText} label="Filter questions" placeholder="Filter questions" width={200} />
         <TableViewBar view={view} />
         <div className="acct-bar-end">
+          <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
+          </BarMore>
           <BarMore level={1}>
           <CustomizeButton {...custom} />
           {bookkeeper && reclassMode !== 'new_entry' && awaiting.length > 0 && (
@@ -619,11 +630,13 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
             </button>
           )}
           </BarMore>
+          <BarMore level={5}>
           <ExportMenu disabled={!rows.length} items={[
             { key: 'excel', label: 'Excel', hint: 'The lines on screen, amounts as numbers', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => exportAs('csv'), busy: busy === 'csv' },
             ...(bookkeeper && reclassMode === 'new_entry' ? [{ key: 'intacct', label: 'Intacct Import File', hint: 'The approved GL reclasses recorded for import', onPick: importFile, busy: busy === 'intacct' }] : []),
           ]} />
+          </BarMore>
         </div>
       </ControlBar>
 

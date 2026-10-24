@@ -18,6 +18,8 @@ const btn = (active) => ({
   color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', fontWeight: active ? 600 : 400,
 });
 const count = { fontSize: '0.68rem', fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--wk-brand, #2b45e1)', color: '#fff' };
+// Deeper than any screen's own More levels (they go to 6).
+const LAST_LEVEL = 9;
 
 /**
  * View, Unsaved + Update + Clear (only after a change), Filters (with how many
@@ -44,16 +46,22 @@ export function TableViewBar({ view, columns = true, filtersLabel = 'Filters' })
           <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
         </button>
       </div>
+      {/* Round 3 (UI test 10/24: a bare disk icon and X read as nothing):
+          Update and Clear keep their words. On a row too short even with
+          every other control in More (1100 wide), they are the last to move
+          there, words and all; Unsaved stays on the row. */}
       {view.dirty && (
         <>
           <span className="acct-vh-unsaved" title="The filters, sort or columns differ from the view picked.">Unsaved</span>
+          <BarMore level={LAST_LEVEL} active={1}>
           <button type="button" style={btn(true)} onClick={() => { if (!view.update()) toggle('save'); }}
             title={view.activeId ? `Save these filters, sort and columns into "${view.activeName}"` : 'Save these filters, sort and columns as a view of your own'}>
-            <Save size={14} style={{ flexShrink: 0 }} /> <span className="acct-bar-label">Update</span>
+            <Save size={14} style={{ flexShrink: 0 }} /> <span>Update</span>
           </button>
           <button type="button" style={btn(false)} onClick={view.clear} aria-label="Clear" title={`Back to the saved filters, sort and columns of "${view.activeName}"`}>
-            <X size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} /> <span className="acct-bar-label">Clear</span>
+            <X size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} /> <span>Clear</span>
           </button>
+          </BarMore>
         </>
       )}
       <button ref={filtersRef} type="button" style={btn(n > 0)} onClick={() => toggle('filters')} onPointerEnter={preloadPanels} onFocus={preloadPanels}

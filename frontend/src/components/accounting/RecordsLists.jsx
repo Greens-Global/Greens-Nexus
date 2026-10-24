@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
-import { ControlBar, ExportMenu, Pager, SyncButton, control } from './reportControls';
+import { BarMore, BarSearch, BarSummary, ControlBar, ExportMenu, Pager, SyncButton } from './reportControls';
 import { useFitHeight, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
@@ -63,22 +62,23 @@ function RecordsTable({ tableKey, title, about, columns, rows, loading, error, n
   };
   return (
     <div style={{ display: 'grid', gap: 10 }}>
+      {/* Item 02, round 3: the search is an icon until used, as on every
+          Accounting list; on a short row the count shortens, then Show
+          Inactive and Columns, Sync, then Export move into More. */}
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
-        <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 420 }}>
-          <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />
-          <input type="text" value={q} onChange={(e) => setQ(e.target.value)} aria-label={`Search ${title}`} placeholder={about}
-            style={{ ...control, width: '100%', paddingLeft: 28 }} />
-        </div>
-        {extra}
+        <BarSearch value={q} onChange={setQ} label={`Search ${title}`} placeholder={about} width={300} />
+        {extra && <BarMore level={1}>{extra}</BarMore>}
         <TableViewBar view={view} />
-        <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{rows ? `${shown.length.toLocaleString('en-US')} of ${rows.length.toLocaleString('en-US')}` : ''}</span>
+        {rows && <BarSummary>{`${shown.length.toLocaleString('en-US')} of ${rows.length.toLocaleString('en-US')}`}</BarSummary>}
         <div className="acct-bar-end">
-          {sync && <SyncButton onSync={sync.sync} busy={syncing} syncedAt={sync.syncedAt} />}
+          {sync && <BarMore level={4}><SyncButton onSync={sync.sync} busy={syncing} syncedAt={sync.syncedAt} /></BarMore>}
+          <BarMore level={5}>
           <ExportMenu disabled={!shown.length} items={[
             { key: 'excel', label: 'Excel', hint: 'The rows on screen, as filtered', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => exportAs('csv'), busy: busy === 'csv' },
             { key: 'pdf', label: 'PDF', hint: 'Landscape, banded, page numbers', onPick: () => exportAs('pdf'), busy: busy === 'pdf' },
           ]} />
+          </BarMore>
         </div>
       </ControlBar>
       {note && <div role="note" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', padding: '0 4px' }}>{note}</div>}

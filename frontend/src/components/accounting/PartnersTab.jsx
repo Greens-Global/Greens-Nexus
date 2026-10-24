@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Check, Download, List, Pencil, Search, X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
-import { ControlBar, CustomizeButton, ExportMenu, Pager, SyncButton, Toggle, control } from './reportControls';
+import { BarMore, ControlBar, CustomizeButton, ExportMenu, Pager, SyncButton, Toggle, control } from './reportControls';
 import { downloadBlob, iso } from './reportModel';
 import { parkDrillReturn, requestReportDrill, takeDrillReturn } from './drill';
 import { formatDate, formatDateTime } from '../../lib/datetime';
@@ -342,16 +342,21 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
                 style={{ ...control, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, padding: 0, color: 'var(--text-secondary)' }}><Search size={14} /></button>
             )}
             <TableViewBar view={view} />
+            {/* Round 3 (item 02): on a short row Customize goes into More with Columns, Sync fourth, Export fifth. */}
             <div className="acct-bar-end">
-              {syncButton}
+              <BarMore level={4}>{syncButton}</BarMore>
+              <BarMore level={1} active={showInactive ? 1 : 0}>
               <CustomizeButton active={showInactive} pageSize={pageSize} onPageSize={(n) => setPrefs({ partnersPageSize: Math.max(0, Math.floor(Number(n) || 0)) })}>
                 <Toggle checked={showInactive} onChange={(v) => setPrefs({ showInactivePartners: !!v })} label="Show Inactive"
                   hint={`Vendors and customers marked inactive in Intacct are hidden until this is on.`} />
               </CustomizeButton>
+              </BarMore>
+              <BarMore level={5}>
               <ExportMenu disabled={!listed.length} items={[
                 { key: 'excel', label: 'Excel', hint: `The ${kindLabel}s listed, every page`, busy: busy === 'export-excel', onPick: () => exportList('excel') },
                 { key: 'csv', label: 'CSV', hint: 'The same list as plain text', busy: busy === 'export-csv', onPick: () => exportList('csv') },
               ]} />
+              </BarMore>
             </div>
           </>
         ) : (
@@ -363,7 +368,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
               <option value="">All</option>
             </select>
             <div className="acct-bar-end">
-              {syncButton}
+              <BarMore level={4}>{syncButton}</BarMore>
               <button type="button" className="secondary-btn" disabled={busy === 'export'} onClick={exportApproved} aria-label="Export Approved CSV" title="Export Approved CSV" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> <span className="acct-bar-label">Export Approved CSV</span></button>
             </div>
           </>

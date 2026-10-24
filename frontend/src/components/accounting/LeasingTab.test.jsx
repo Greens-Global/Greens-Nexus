@@ -565,7 +565,8 @@ describe('LeasingTab shared controls', () => {
   it('fits the Income Roll box to what is left of the screen, 74% at most, 320px at least', () => {
     expect(fitRollHeight(330, 768)).toBe(426);         // 1366x768: ends 12px above the bottom
     expect(fitRollHeight(200, 1440)).toBe(1066);       // a tall screen keeps the 74% cap
-    expect(fitRollHeight(600, 700)).toBe(320);         // a short one still shows rows
+    expect(fitRollHeight(600, 700)).toBe(240);         // a short one still shows rows (320 ran past a 1100 x 700 window, item 02 round 3)
+    expect(fitRollHeight(400, 700, 12)).toBe(288);     // 1100 x 700: ends on the screen, the page does not scroll
     // 10/23 meeting, item 05 (UI test 10/24): the pager and the note under the
     // roll are taken off too, so the page itself does not scroll.
     expect(fitRollHeight(330, 768, 110)).toBe(328);

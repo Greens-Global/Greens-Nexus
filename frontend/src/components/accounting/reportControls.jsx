@@ -946,7 +946,23 @@ export function ClearButton({ onClick, label }) {
 // come back out when the row is wide enough again. Nothing gets smaller and
 // nothing is lost: the More menu holds the same live controls, with their
 // words. <BarSearch> is a search that stays an icon until it is used.
+//
+// Round 3 (UI test 10/24: Loans, Management Fees, MRE, Flux Analysis and
+// Allocations still two lines at 1366 / 1440; most list screens wrapping at
+// 1100): the order is now words, then the summary, then the More levels -
+//   1. the action words fold, then the default picker words (as before);
+//   2. a <BarSummary> ("Loans 14 · Balance ...") shortens with "..." down to
+//      SUMMARY_MIN, its full text in the tooltip;
+//   3. the More levels move, as many at once as the row needs (measured on
+//      the row, so the sidebar opening or closing counts), and come back,
+//      as many as fit, when it widens again.
+// While a menu opened from the bar is open nothing moves (a panel never loses
+// the button it hangs from); the bar fits itself again once it closes.
 const FOLDS = ['', '1', '2'];
+const SUMMARY_MIN = 120;   // px a summary keeps before a control moves into More
+const SLACK = 12;          // room a level needs beyond its own width to come back
+const LINE = 46;           // a box taller than this has wrapped inside itself (a control is 30 px)
+const MORE_W = 38;         // the More button and its gap, before it is drawn
 const BarContext = createContext(null);
 /** The boxes on the row, in order (the More menu's own box is not on it). */
 function barBoxes(el) {
@@ -954,7 +970,7 @@ function barBoxes(el) {
   const collect = (node) => {
     for (const kid of node.children) {
       const d = getComputedStyle(kid).display;
-      if (d === 'none' || kid.tagName === 'STYLE' || kid.hidden || kid.classList.contains('acct-bar-more-panel')) continue;
+      if (d === 'none' || kid.tagName === 'STYLE' || kid.hidden || kid.classList.contains('acct-bar-more-panel') || kid.classList.contains('acct-bar-break')) continue;
       if (d === 'contents') collect(kid);
       else if (kid.classList.contains('acct-bar-end')) collect(kid);
       else boxes.push(kid);
@@ -963,29 +979,61 @@ function barBoxes(el) {
   collect(el);
   return boxes;
 }
+const isSummary = (k) => k.classList.contains('acct-bar-summary');
 /** Does the row hold its controls on more than one line? Exported for the tests. */
 export function barWraps(el) {
   const sized = barBoxes(el).map((k) => k.getBoundingClientRect()).filter((b) => b.width > 0 || b.height > 0);
+  // A box twice a control's height has wrapped inside itself (custom dates).
+  if (sized.some((b) => b.height > LINE)) return true;
   if (sized.length < 2) return false;
   const firstBottom = Math.min(...sized.map((b) => b.bottom));
   return sized.some((b) => b.top >= firstBottom - 1);
 }
 const px = (v) => parseFloat(v) || 0;
 const gapOf = (el) => px(getComputedStyle(el).columnGap) || 8;
+/** A box's width; `short`: a summary counted at the most it shortens to. */
+const boxWidth = (k, short) => { const w = k.getBoundingClientRect().width; return short && isSummary(k) ? Math.min(w, SUMMARY_MIN) : w; };
 /** How wide the row would have to be for its boxes on one line. */
-function barNeed(el) {
-  const widths = barBoxes(el).map((k) => k.getBoundingClientRect().width).filter((w) => w > 0);
+function barNeed(el, short = false) {
+  const widths = barBoxes(el).map((k) => boxWidth(k, short)).filter((w) => w > 0);
   const cs = getComputedStyle(el);
   return widths.reduce((s, w) => s + w, 0) + gapOf(el) * Math.max(0, widths.length - 1) + px(cs.paddingLeft) + px(cs.paddingRight);
 }
-/** How much of the row the controls of one More level take while they are on it. */
+/** How much of the row the controls of one More level take while they are on it (a summary at its shortest). */
 function groupWidth(el, level) {
   let sum = 0;
-  el.querySelectorAll(`.acct-bar-more[data-more-level="${level}"]`).forEach((g) => {
-    [...g.children].forEach((k) => { const w = k.getBoundingClientRect().width; if (w > 0) sum += w + gapOf(el); });
-  });
+  const add = (k) => {
+    if (getComputedStyle(k).display === 'contents') { [...k.children].forEach(add); return; }
+    const w = boxWidth(k, true);
+    if (w > 0) sum += w + gapOf(el);
+  };
+  el.querySelectorAll(`.acct-bar-more[data-more-level="${level}"]`).forEach((g) => [...g.children].forEach(add));
   return sum;
 }
+/**
+ * Shortens the summaries on the row (last first, never below SUMMARY_MIN) by
+ * what the row is over. True when the row then holds one line; else the
+ * summaries are put back as they were.
+ */
+function shortenSummaries(el) {
+  const sums = barBoxes(el).filter(isSummary);
+  if (!sums.length) return false;
+  const over = barNeed(el) - el.clientWidth + 2;
+  const room = sums.reduce((s, k) => s + Math.max(0, k.getBoundingClientRect().width - SUMMARY_MIN), 0);
+  if (over > 0 && over <= room) {
+    let left = over;
+    [...sums].reverse().forEach((k) => {
+      const w = k.getBoundingClientRect().width;
+      const take = Math.min(left, Math.max(0, w - SUMMARY_MIN));
+      if (take > 0) { k.style.maxWidth = `${Math.floor(w - take)}px`; left -= take; }
+    });
+    if (!barWraps(el)) return true;
+  }
+  sums.forEach((k) => { k.style.maxWidth = ''; });
+  return false;
+}
+/** A menu opened from the bar (or the More menu itself) is open: leave the row as it is. */
+const menuOpen = (el) => !!el.querySelector('[aria-haspopup][aria-expanded="true"]');
 export function ControlBar({ children, className = '', style = null, ...rest }) {
   const ref = useRef(null);
   const moreRef = useRef(null);
@@ -997,33 +1045,67 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
   const [groupList, setGroupList] = useState([]);   // the same, for drawing the More button
   const groupW = useRef([]);                   // groupW[l]: what level l took on the row
   const flips = useRef(0);                     // fold / unfold turns this frame (a guard, never a loop)
+  const tried = useRef(null);                  // the last unfold: { from, width }
+  const blocked = useRef(new Set());           // `${level}@${width}`: an unfold that did not fit there
   const fit = useCallback(() => {
     const el = ref.current;
-    if (!el || flips.current > 6) return;
+    const width = el?.clientWidth || 0;
+    // Not laid out (a hidden tab, or a test with no layout): nothing to measure.
+    if (!el || !width || flips.current > 8 || menuOpen(el)) return;
     const setLvl = (l) => {
       flips.current += 1;
       if (flips.current === 1) requestAnimationFrame(() => { flips.current = 0; });
       levelRef.current = l;
       setLevel(l);
     };
+    el.querySelectorAll('.acct-bar-summary').forEach((k) => { k.style.maxWidth = ''; });
     const lvl = levelRef.current;
-    // Wide enough again for the last level moved into More? Bring it back.
-    if (lvl > 0) {
+    const top = Math.max(0, ...[...groups.current.values()].map((g) => g.level));
+    // The screen dropped the controls of the deepest levels (another tab).
+    if (lvl > top) { setLvl(top); return; }
+    // 1. Room again for what moved into More? Bring back as many levels as fit.
+    if (lvl > 0 && !blocked.current.has(`${lvl}@${width}`)) {
       el.dataset.fold = '2';
-      const more = moreRef.current ? moreRef.current.getBoundingClientRect().width + gapOf(el) : 0;
-      const need = barNeed(el) + (groupW.current[lvl] || 0) - (lvl === 1 ? more : 0);
-      if (groupW.current[lvl] && need + 12 <= el.clientWidth) { setLvl(lvl - 1); return; }
+      const more = moreRef.current ? moreRef.current.getBoundingClientRect().width + gapOf(el) : MORE_W;
+      let need = barNeed(el, true);
+      let to = lvl;
+      while (to > 0 && groupW.current[to] !== undefined) {
+        const add = groupW.current[to] - (to === 1 ? more : 0);
+        if (need + add + SLACK > width) break;
+        need += add;
+        to -= 1;
+      }
+      if (to < lvl) { tried.current = { from: lvl, width }; setLvl(to); return; }
     }
+    // 2. Fold the words.
     for (const f of FOLDS) {
       if (f) el.dataset.fold = f; else delete el.dataset.fold;
       if (!barWraps(el)) return;
     }
-    const top = Math.max(0, ...[...groups.current.values()].map((g) => g.level));
+    // 3. Shorten the summary.
+    if (shortenSummaries(el)) return;
+    // 4. Move the next levels into More - as many as the row needs.
     if (lvl < top) {
-      groupW.current[lvl + 1] = groupWidth(el, lvl + 1);
-      setLvl(lvl + 1);
+      // An unfold that has to go straight back: not again at this width.
+      if (tried.current && tried.current.width === width && tried.current.from > lvl) blocked.current.add(`${tried.current.from}@${width}`);
+      tried.current = null;
+      let need = barNeed(el, true) + (lvl === 0 ? MORE_W : 0);
+      let to = lvl;
+      while (to < top) {
+        to += 1;
+        groupW.current[to] = groupWidth(el, to);
+        need -= groupW.current[to];
+        if (need <= width) break;
+      }
+      setLvl(to);
+      return;
     }
+    // 5. Nothing left to move (a phone): the summary at its shortest, and the
+    // row wraps as whole controls.
+    barBoxes(el).filter(isSummary).forEach((k) => { k.style.maxWidth = `${SUMMARY_MIN}px`; });
   }, []);
+  // What the screen draws in the bar changed: an unfold that failed may fit now.
+  useLayoutEffect(() => { blocked.current.clear(); }, [children]);
   // After every render (a picker's label or a new button changes the width
   // the row needs) and whenever the row itself is resized.
   useLayoutEffect(fit);
@@ -1035,9 +1117,23 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
     ro.observe(el);
     return () => ro.disconnect();
   }, [fit]);
+  // A control that changes on its own (a menu closing, a label, Syncing...)
+  // without the screen drawing the bar again: fit on the next frame.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof MutationObserver === 'undefined') return undefined;
+    let frame = 0;
+    const mo = new MutationObserver(() => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; fit(); });
+    });
+    mo.observe(el, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-expanded'] });
+    return () => { mo.disconnect(); if (frame) cancelAnimationFrame(frame); };
+  }, [fit]);
   // The More menu closes on a click outside it (a dropdown opened from inside
   // it counts as inside) and on Escape.
-  const shown = open && level > 0;
+  const inMore = level > 0 && groupList.some((g) => g.level <= level);
+  const shown = open && inMore;
   useEffect(() => {
     if (!shown) return undefined;
     const onDown = (e) => {
@@ -1060,13 +1156,15 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
         onClick={(e) => {
           rest.onClick?.(e);
           // In the More menu, a plain action closes it; one that opens its own
-          // dropdown keeps it. (The menu's controls are portaled, so their
+          // dropdown keeps it, and so does a click inside such a dropdown
+          // drawn in place. (The menu's controls are portaled, so their
           // clicks reach this row, not the menu's own box.)
           const b = shown ? e.target.closest?.('button') : null;
-          if (b && b.closest('.acct-bar-more-panel') && !b.hasAttribute('aria-haspopup') && !b.hasAttribute('aria-expanded') && b.getAttribute('role') !== 'switch') setOpen(false);
+          if (b && b.closest('.acct-bar-more-panel') && !b.closest('[role="listbox"], [role="dialog"], [role="menu"]')
+            && !b.hasAttribute('aria-haspopup') && !b.hasAttribute('aria-expanded') && b.getAttribute('role') !== 'switch') setOpen(false);
         }}>
         {children}
-        {level > 0 && (
+        {inMore && (
           <button ref={moreRef} type="button" className="acct-bar-more-btn" onClick={() => setOpen((v) => !v)} aria-haspopup="true" aria-expanded={shown}
             aria-label={changed ? `More (${changed} changed)` : 'More'} title="More controls" style={button(changed > 0)}>
             <MoreHorizontal size={14} style={{ flexShrink: 0 }} />{changed > 0 && <span>{changed}</span>}
@@ -1099,6 +1197,23 @@ export function BarMore({ level = 1, active = 0, children }) {
     return createPortal(<div className="acct-bar-more-group" data-more-level={level}>{children}</div>, bar.panel);
   }
   return <span className="acct-bar-more" data-more-level={level} style={{ display: 'contents' }}>{children}</span>;
+}
+
+/**
+ * The figures a screen sums up in its bar ("Loans 14 · Balance 16,975,000.00",
+ * round 3 of item 02). When the row is short it shortens with "..." before
+ * any control moves into More, the full text in its tooltip; `level` (with
+ * `active`, as BarMore) moves it into the More menu, in full, on a row too
+ * narrow even for that.
+ */
+const fullText = (el) => { if (el) el.title = (el.textContent || '').replace(/\s+/g, ' ').trim(); };
+export function BarSummary({ level = 0, active = 0, children, style = null, ...rest }) {
+  const ref = useRef(null);
+  // The tooltip follows the text, and is there again when the summary moves into More.
+  useLayoutEffect(() => { fullText(ref.current); });
+  const attach = useCallback((el) => { ref.current = el; fullText(el); }, []);
+  const body = <span ref={attach} className="acct-bar-summary" style={style || undefined} {...rest}>{children}</span>;
+  return level ? <BarMore level={level} active={active}>{body}</BarMore> : body;
 }
 
 /**
