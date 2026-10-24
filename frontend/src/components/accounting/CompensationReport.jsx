@@ -4,6 +4,7 @@ import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import Amount from './Amount';
 import { ControlBar, control, ExportMenu, SyncButton } from './reportControls';
 import { useTableSync } from './tableSync';
+import { useFitHeight } from './tableHooks';
 import { downloadBlob } from './reportModel';
 import { linesFile } from './linesExport';
 import { formatDate } from '../../lib/datetime';
@@ -49,6 +50,11 @@ export default function CompensationReport() {
   const [ledger, setLedger] = useState(null);
   const [ledgerState, setLedgerState] = useState({ loading: false, error: '' });
   const [busy, setBusy] = useState('');
+  // Item 05 (fix 10/24): the screen is as tall as the window; the two tables
+  // share what the bar leaves, each scrolling in its own card (style.css
+  // .acct-fit-stack).
+  const [box, setBox] = useState(null);
+  const fit = useFitHeight(box);
 
   const span = monthsBetween(from, to);
   const rangeError = span < 1 ? 'The start month must be on or before the end month.' : span > MAX_MONTHS ? `Pick at most ${MAX_MONTHS} months.` : '';
@@ -98,7 +104,7 @@ export default function CompensationReport() {
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div ref={setBox} className="acct-fit-stack" data-testid="compensation-stack" style={fit}>
       <ControlBar style={{ ...card, padding: 12, alignItems: 'flex-end' }}>
         <label style={label}>From Month
           <input type="month" value={from} onChange={(e) => setRange([e.target.value, to])} style={control} aria-label="From Month" />
@@ -130,7 +136,7 @@ export default function CompensationReport() {
           isEmpty={!!data && !data.people?.length}
           emptyContent={<div style={{ ...card, padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>{emptyReason(data)}</div>}>
           {data && (
-            <div style={{ ...card, overflow: 'auto' }}>
+            <div className="acct-stack-card acct-stack-main" style={card}>
               <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'baseline' }}>
                 <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Compensation</h3>
                 <span style={muted}>{period} · {data.people.length} {data.people.length === 1 ? 'employee' : 'employees'}</span>
@@ -195,7 +201,7 @@ export default function CompensationReport() {
       )}
 
       {data && !state.stepUp && (
-        <div style={{ ...card, overflow: 'auto' }}>
+        <div className="acct-stack-card" style={card}>
           <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
             <h3 style={{ margin: 0, fontSize: '0.95rem', flex: 1 }}>Payroll Expense on the Ledger</h3>
             <div style={{ display: 'flex', gap: 4 }} role="group" aria-label="Ledger Group By">

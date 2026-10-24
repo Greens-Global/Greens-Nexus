@@ -2822,6 +2822,19 @@ html { overflow-x: hidden; }
 .acct-scroll-box:not(.acct-lines-wrap):not(.acct-report-wrap) { max-height: var(--acct-box-h, max(300px, calc(100vh - 340px))); }
 .acct-report-wrap.acct-scroll-box.acct-fit { max-height: var(--acct-box-h, max(300px, calc(100vh - 340px))); }
 .acct-scroll-box > table > thead th { position: sticky; top: 0; z-index: 3; background: var(--bg-secondary); }
+/* Fix 10/24 (item 05; review: Allocations and Compensation still grew the
+   page): a screen with several tables is one column as tall as the rest of
+   the window (useFitHeight sets --acct-box-h). The control bar keeps its
+   height; the tables share the rest - each card takes an equal slice
+   (.acct-stack-main twice as much), never more than its own content - and
+   scrolls inside itself, its headings pinned, a wide table sideways. The page
+   does not scroll. */
+.acct-fit-stack { display: flex; flex-direction: column; gap: 10px; height: var(--acct-box-h, max(300px, calc(100vh - 200px))); }
+.acct-fit-stack > * { flex: 1 1 120px; min-height: 0; max-height: max-content; }
+.acct-fit-stack > .acct-controlbar { flex: 0 0 auto; }
+.acct-fit-stack > .acct-stack-main { flex-grow: 2; }
+.acct-fit-stack > .acct-stack-card { overflow: auto; }
+.acct-fit-stack > .acct-stack-card table > thead th { position: sticky; top: 0; z-index: 2; background: var(--bg-card); }
 
 /* 10/23 meeting, item 02: the control bar on one line (ControlBar in
    reportControls). Words fold away before anything wraps - data-fold 1 hides

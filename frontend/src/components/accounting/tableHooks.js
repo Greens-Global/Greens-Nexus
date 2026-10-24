@@ -121,6 +121,28 @@ export function useCustomizePrefs(features = [], { densityKey = 'density', defau
 }
 
 /**
+ * What the page still shows under `box`, in px: everything after it and after
+ * each box around it (a pager, a note), their margins, and the bottom padding
+ * and border of each box around it. Popups and panels (fixed / absolute) and
+ * hidden parts do not count. useFitHeight and MRI's Income Roll use it.
+ */
+export function spaceBelow(box) {
+  const px = (v) => parseFloat(v) || 0;
+  let sum = 0;
+  for (let el = box; el && el.parentElement && el !== document.body; el = el.parentElement) {
+    sum += px(getComputedStyle(el).marginBottom);
+    for (let sib = el.nextElementSibling; sib; sib = sib.nextElementSibling) {
+      const cs = getComputedStyle(sib);
+      if (cs.position === 'fixed' || cs.position === 'absolute' || cs.display === 'none') continue;
+      sum += sib.getBoundingClientRect().height + px(cs.marginTop) + px(cs.marginBottom);
+    }
+    const pcs = getComputedStyle(el.parentElement);
+    sum += px(pcs.paddingBottom) + px(pcs.borderBottomWidth);
+  }
+  return sum;
+}
+
+/**
  * A table's scroll box sized to the window (10/23 meeting, item 05: "remove
  * Global Scrolling ... mostly on every screen"; Neil in the chat: "remove dual
  * scrolling"). The box starts wherever the toolbar, banners and totals above it
@@ -140,24 +162,9 @@ export function useFitHeight(box, { off = false, min = 300, cssVar = '--acct-box
   const [h, setH] = useState(0);
   useEffect(() => {
     if (!box || off || typeof window === 'undefined') return undefined;
-    const px = (v) => parseFloat(v) || 0;
-    const below = () => {
-      let sum = 0;
-      for (let el = box; el && el.parentElement && el !== document.body; el = el.parentElement) {
-        sum += px(getComputedStyle(el).marginBottom);
-        for (let sib = el.nextElementSibling; sib; sib = sib.nextElementSibling) {
-          const cs = getComputedStyle(sib);
-          if (cs.position === 'fixed' || cs.position === 'absolute' || cs.display === 'none') continue;
-          sum += sib.getBoundingClientRect().height + px(cs.marginTop) + px(cs.marginBottom);
-        }
-        const pcs = getComputedStyle(el.parentElement);
-        sum += px(pcs.paddingBottom) + px(pcs.borderBottomWidth);
-      }
-      return sum;
-    };
     const fit = () => {
       const top = box.getBoundingClientRect().top + (window.scrollY || 0);
-      setH(Math.max(min, Math.floor(window.innerHeight - top - below() - 8)));
+      setH(Math.max(min, Math.floor(window.innerHeight - top - spaceBelow(box) - 8)));
     };
     fit();
     window.addEventListener('resize', fit);

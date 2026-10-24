@@ -514,6 +514,19 @@ describe('LeasingTab shared controls', () => {
     expect(fitRollHeight(330, 768)).toBe(426);         // 1366x768: ends 12px above the bottom
     expect(fitRollHeight(200, 1440)).toBe(1066);       // a tall screen keeps the 74% cap
     expect(fitRollHeight(600, 700)).toBe(320);         // a short one still shows rows
+    // 10/23 meeting, item 05 (UI test 10/24): the pager and the note under the
+    // roll are taken off too, so the page itself does not scroll.
+    expect(fitRollHeight(330, 768, 110)).toBe(328);
+  });
+
+  it('Outstanding and Payers scroll in a box fitted to the window too, like the Income Roll', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    expect(document.querySelector('.acct-roll').closest('.acct-lines-wrap').style.maxHeight).toMatch(/px$/);
+    fireEvent.click(screen.getByRole('button', { name: /Outstanding/ }));
+    await waitFor(() => expect(screen.getByTestId('mri-outstanding-box').style.maxHeight).toMatch(/px$/));
+    fireEvent.click(screen.getByRole('button', { name: /^Payers/ }));
+    await waitFor(() => expect(screen.getByTestId('mri-tenants-box').style.maxHeight).toMatch(/px$/));
   });
 
   it('has a resize handle on the Income Roll columns', async () => {

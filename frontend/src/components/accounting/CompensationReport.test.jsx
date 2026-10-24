@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import fs from 'node:fs';
+import path from 'node:path';
 
 // Accounting > Reporting > Employee Compensation (Oct 15): renders people and
 // the totals views, the ledger payroll expense, and the step-up gate.
@@ -32,6 +34,28 @@ import { api } from '../../api';
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe('CompensationReport', () => {
+  // 10/23 meeting, item 05 (fix 10/24): the page does not scroll; each table scrolls in its own card.
+  it('is as tall as the window, the people and the ledger each scrolling in their own card', async () => {
+    render(<CompensationReport />);
+    await screen.findByText('Field Ops');
+    const stack = screen.getByTestId('compensation-stack');
+    expect(stack.className).toBe('acct-fit-stack');
+    await waitFor(() => expect(stack.style.getPropertyValue('--acct-box-h')).toMatch(/px$/));
+    const people = screen.getByRole('heading', { name: 'Compensation' }).closest('.acct-stack-card');
+    const books = screen.getByRole('heading', { name: 'Payroll Expense on the Ledger' }).closest('.acct-stack-card');
+    expect(people.className).toContain('acct-stack-main');   // the people table gets the larger share
+    expect(people.parentElement).toBe(stack);
+    expect(books.parentElement).toBe(stack);
+    expect(people.style.overflow).toBe('');
+    expect(books.style.overflow).toBe('');
+    // The rules: the cards share the height and scroll, headings pinned; the bar keeps its height.
+    const css = fs.readFileSync(path.join(__dirname, '..', '..', 'style.css'), 'utf8').replace(/\r\n/g, '\n');
+    expect(css).toContain('.acct-fit-stack { display: flex; flex-direction: column; gap: 10px; height: var(--acct-box-h');
+    expect(css).toContain('.acct-fit-stack > .acct-stack-card { overflow: auto; }');
+    expect(css).toContain('.acct-fit-stack > .acct-stack-card table > thead th { position: sticky; top: 0;');
+    expect(css).toContain('.acct-fit-stack > .acct-controlbar { flex: 0 0 auto; }');
+  });
+
   it('renders each person with hours and wages, and the ledger payroll', async () => {
     render(<CompensationReport />);
     expect(await screen.findByText('Pat Hourly')).toBeTruthy();

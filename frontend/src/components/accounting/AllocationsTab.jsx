@@ -5,6 +5,7 @@ import Amount from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { ControlBar, SyncButton, control } from './reportControls';
 import { useTableSync } from './tableSync';
+import { useFitHeight } from './tableHooks';
 import { downloadBlob } from './reportModel';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { dialog } from '../../ui/dialog';
@@ -45,6 +46,11 @@ export default function AllocationsTab({ canEdit = false }) {
   const [draft, setDraft] = useState(null);         // the mapping as edited
   const [runs, setRuns] = useState(null);
   const [busy, setBusy] = useState('');
+  // Item 05 (fix 10/24): the screen is as tall as the window; the mapping,
+  // the basis, the entry preview and the runs kept share what the bar leaves,
+  // each scrolling in its own card (style.css .acct-fit-stack).
+  const [box, setBox] = useState(null);
+  const fit = useFitHeight(box);
 
   const loadMap = useCallback(() => api.getAllocationsMap().then((d) => { setMapData(d); setDraft(d.map); }).catch(() => setMapData({ map: { journal: 'GJ', sites: {}, companies: {}, offsite: {} }, sites: [], companies: [] })), []);
   const loadRuns = useCallback(() => api.getAllocationRuns().then((d) => setRuns(d?.runs || [])).catch(() => setRuns([])), []);
@@ -113,7 +119,7 @@ export default function AllocationsTab({ canEdit = false }) {
   }
 
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
+    <div ref={setBox} className="acct-fit-stack" data-testid="allocations-stack" style={fit}>
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
           <button type="button" aria-label="Previous month" onClick={() => setMonth((m) => shiftMonth(m, -1))} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronLeft size={16} /></button>
@@ -137,7 +143,7 @@ export default function AllocationsTab({ canEdit = false }) {
       </ControlBar>
 
       {mapOpen && draft && (
-        <div style={{ ...card, padding: 14 }}>
+        <div className="acct-stack-card" style={{ ...card, padding: 14 }}>
           <h3 style={{ margin: '0 0 4px', fontSize: '0.95rem' }}>Account Mapping</h3>
           <p style={{ margin: '0 0 10px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Each work site is an Intacct entity and the wage expense account its hours are charged to. Each company pays through an entity: its allocation clearing account takes the credit, and its wage account carries anyone with no site hours that month.</p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -196,7 +202,7 @@ export default function AllocationsTab({ canEdit = false }) {
             </div>
           ) : preview && (
             <>
-              <div style={{ ...card, overflow: 'auto' }}>
+              <div className="acct-stack-card" style={card}>
                 <h3 style={{ margin: 0, padding: '10px 12px 4px', fontSize: '0.9rem' }}>Basis - {formatDate(preview.start)} to {formatDate(preview.end)}</h3>
                 <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                   <thead><tr><th style={th}>Person</th><th style={th}>Company</th><th style={thNum}>Wages</th><th style={th}>Work Site</th><th style={thNum}>Hours</th><th style={thNum}>Share</th><th style={thNum}>Amount</th><th style={th}>Entity</th><th style={th}>Account</th></tr></thead>
@@ -217,7 +223,7 @@ export default function AllocationsTab({ canEdit = false }) {
                   </tbody>
                 </table>
               </div>
-              <div style={{ ...card, overflow: 'auto' }}>
+              <div className="acct-stack-card" style={card}>
                 <h3 style={{ margin: 0, padding: '10px 12px 4px', fontSize: '0.9rem' }}>Entry Preview - {preview.entries.length} {preview.entries.length === 1 ? 'entry' : 'entries'}, dated {formatDate(preview.end)}</h3>
                 <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                   <thead><tr><th style={th}>Entry</th><th style={th}>Account</th><th style={th}>Entity</th><th style={th}>Dept</th><th style={th}>Memo</th><th style={thNum}>Debit</th><th style={thNum}>Credit</th></tr></thead>
@@ -248,7 +254,7 @@ export default function AllocationsTab({ canEdit = false }) {
         </AsyncSection>
       )}
 
-      <div style={{ ...card, overflow: 'auto' }}>
+      <div className="acct-stack-card" style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 4px' }}>
           <h3 style={{ margin: 0, fontSize: '0.9rem', flex: 1 }}>Runs Kept</h3>
           <SyncButton onSync={() => { setRunsBusy(true); Promise.resolve(runsSync.sync()).finally(() => setRunsBusy(false)); }} busy={runsBusy} syncedAt={runsSync.syncedAt} what="Runs" />

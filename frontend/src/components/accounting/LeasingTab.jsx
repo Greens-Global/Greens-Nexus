@@ -5,7 +5,7 @@ import Amount, { formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { ColumnResizer, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, SyncButton, control, usePopover } from './reportControls';
-import { useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
+import { spaceBelow, useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
 import { cellStyle, headStyle } from './columnStyles';
 import { requestReportDrill } from './drill';
 import { downloadBlob, iso } from './reportModel';
@@ -733,9 +733,12 @@ function NoteCell({ lease, canEdit, onSaved, monthNotes = '' }) {
 // The Income Roll box ends on the screen (Viral, 10/22: "Received - 27
 // sources is hide when scroll up"): its height is what is left below its top
 // with the page scrolled up, at most 74% of the screen and at least 320px, so
-// the pinned total row is in view while the rows scroll.
-export function fitRollHeight(top, screenHeight) {
-  return Math.round(Math.max(320, Math.min(screenHeight * 0.74, screenHeight - top - 12)));
+// the pinned total row is in view while the rows scroll. `below` is what the
+// page still shows under the box - the pager and the note under the roll
+// (10/23 meeting, item 05, UI test 10/24: the note pushed the page ~90px past
+// the bottom, so the whole page scrolled). Outstanding and Tenants fit the same way.
+export function fitRollHeight(top, screenHeight, below = 12) {
+  return Math.round(Math.max(320, Math.min(screenHeight * 0.74, screenHeight - top - below)));
 }
 
 function useFitToScreen(ref, active) {
@@ -746,7 +749,7 @@ function useFitToScreen(ref, active) {
     const measure = () => {
       let top = el.getBoundingClientRect().top + window.scrollY;
       for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) top += p.scrollTop;
-      setHeight(fitRollHeight(top, window.innerHeight));
+      setHeight(fitRollHeight(top, window.innerHeight, spaceBelow(el) + 8));
     };
     measure();
     // Re-fit when anything above it moves it: a banner, the toolbar wrapping.
@@ -898,10 +901,12 @@ function reminder(row, year) {
 function Outstanding({ rows, year, py, pageSize = 0, pageKey = '' }) {
   const sorted = useMemo(() => [...rows].sort((a, b) => b.owed - a.owed), [rows]);
   const paged = usePaged(sorted, pageSize, pageKey);
+  const wrapRef = useRef(null);
+  const fitHeight = useFitToScreen(wrapRef, rows.length > 0);
   if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>Nobody is behind for {year}.</div>;
   return (
     <div style={{ ...card, padding: 10 }}>
-      <div className="acct-lines-wrap">
+      <div ref={wrapRef} className="acct-lines-wrap" data-testid="mri-outstanding-box" style={fitHeight ? { maxHeight: fitHeight } : undefined}>
         <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
           <thead>
             <tr><th scope="col">Property or Source</th><th scope="col">Type</th><th scope="col">Payer</th><th scope="col">Months Behind</th><th scope="col" className="acct-num">Balance Due</th><th scope="col" className="acct-num">Late Fees</th><th scope="col">Contact</th><th scope="col" aria-label="Write" /></tr>
@@ -939,10 +944,12 @@ function Outstanding({ rows, year, py, pageSize = 0, pageKey = '' }) {
 
 function Tenants({ rows, py, canEdit, onEdit, onReplace, pageSize = 0, pageKey = '' }) {
   const paged = usePaged(rows, pageSize, pageKey);
+  const wrapRef = useRef(null);
+  const fitHeight = useFitToScreen(wrapRef, rows.length > 0);
   if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>No lease matches.</div>;
   return (
     <div style={{ ...card, padding: 10 }}>
-      <div className="acct-lines-wrap">
+      <div ref={wrapRef} className="acct-lines-wrap" data-testid="mri-tenants-box" style={fitHeight ? { maxHeight: fitHeight } : undefined}>
         <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
           <thead>
             <tr><th scope="col">Property or Source</th><th scope="col">Type</th><th scope="col">Payer</th><th scope="col">Landlord</th><th scope="col">Dates</th><th scope="col" className="acct-num">Amount</th><th scope="col" className="acct-num">CAM</th><th scope="col" className="acct-num">Deposit</th><th scope="col">Status</th><th scope="col" aria-label="Change" /></tr>
