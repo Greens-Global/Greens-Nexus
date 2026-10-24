@@ -941,14 +941,25 @@ def test_dispatch_skips_held_pins_and_names_them():
     b = _held_pin()
     out = _dispatch()
     assert [n["id"] for n in out["notes"]] == [a["id"]]
-    assert out["held"] == [{"id": b["id"], "number": 2, "ownerName": "Visesh"}]
-    assert client.get(f"/dev-notes/{b['id']}").json()["status"] == "open"
-    # nothing unheld left: 400, and the detail names the held pin
+    # the held pin left the sent session for a new collecting one, as its Pin #1
+    assert out["held"] == [{"id": b["id"], "number": 1, "ownerName": "Visesh"}]
+    got = client.get(f"/dev-notes/{b['id']}").json()
+    assert got["status"] == "open" and got["sessionId"] != a["sessionId"] and got["number"] == 1
+    new_s = next(s for s in client.get("/dev-notes/sessions").json() if s["id"] == got["sessionId"])
+    assert new_s["status"] == "collecting"
+    assert got["thread"][-1]["text"] == f"Moved to Build Session '{new_s['title']}' as Pin #1"
+    sent = next(s for s in client.get("/dev-notes/sessions").json() if s["id"] == a["sessionId"])
+    assert sent["status"] == "sent" and sent["noteCount"] == 1
+    # nothing unheld left: 400, and the detail names the held pins
     c = _held_pin()
+    assert c["sessionId"] == got["sessionId"] and c["number"] == 2
     for body in ({}, {"noteIds": [c["id"]]}):
         r = client.post("/dev-notes/dispatch", json=body)
         assert r.status_code == 400, r.text
-        assert r.json()["detail"] == "No open pins to send - Pin #1 waits for Visesh"   # c is #1 of a new session
+    assert client.post("/dev-notes/dispatch", json={}).json()["detail"] == (
+        "No open pins to send - Pin #1 waits for Visesh; Pin #2 waits for Visesh")
+    assert client.post("/dev-notes/dispatch", json={"noteIds": [c["id"]]}).json()["detail"] == (
+        "No open pins to send - Pin #2 waits for Visesh")
 
 
 def test_release_by_owner_or_global_admin_only():
@@ -971,12 +982,19 @@ def test_release_by_owner_or_global_admin_only():
                     if e["text"].startswith("Released")]) == 1
         # the owner cannot edit the author's pin through the same route
         assert client.patch(f"/dev-notes/{b['id']}", json={"comment": "mine now"}).status_code == 403
-        # released by an owner who Sends Instantly: dispatched at once
+        # the RELEASER's Send Instantly does not matter, the author's does
         _as(DEV)
         c = _held_pin()
         _as(VISESH)
         client.put("/dev-notes/settings", json={"sendInstantly": True})
-        assert client.patch(f"/dev-notes/{c['id']}", json={"release": True}).json()["status"] == "dispatched"
+        assert client.patch(f"/dev-notes/{c['id']}", json={"release": True}).json()["status"] == "open"
+        _as(DEV)
+        client.put("/dev-notes/settings", json={"sendInstantly": True})
+        c2 = _held_pin()
+        _as(VISESH)
+        assert client.patch(f"/dev-notes/{c2['id']}", json={"release": True}).json()["status"] == "dispatched"
+        _as(DEV)
+        client.put("/dev-notes/settings", json={"sendInstantly": False})
         # a Global Admin may release too
         _as(DEV)
         d = _held_pin()
@@ -996,6 +1014,42 @@ def test_release_by_owner_or_global_admin_only():
     assert out["notes"][0]["status"] == "dispatched" and out["held"] == []
 
 
+def test_release_moves_a_pin_out_of_a_sent_session_and_follows_the_authors_send_instantly():
+    GRANTS[VISESH["email"]] = {"build-mode": 1}
+    try:
+        # created held under Send Instantly: the next instant pin sends the
+        # session it sits in, so it is left in a sent session
+        client.put("/dev-notes/settings", json={"sendInstantly": True})
+        h = _held_pin()
+        other = _create()
+        assert other["sessionId"] == h["sessionId"] and other["status"] == "dispatched"
+        _as(VISESH)
+        got = client.patch(f"/dev-notes/{h['id']}", json={"release": True}).json()
+        assert got["sessionId"] != h["sessionId"] and got["number"] == 1
+        texts = [e["text"] for e in got["thread"]]
+        assert texts[-2].startswith("Released To Claude Code by ")
+        assert texts[-1].startswith("Moved to Build Session '") and texts[-1].endswith("' as Pin #1")
+        assert got["status"] == "dispatched"                  # the author Sends Instantly, as in create
+        s = next(x for x in client.get("/dev-notes/sessions").json() if x["id"] == got["sessionId"])
+        assert s["status"] == "sent"
+        # author not instant: moved into the existing collecting session and left open
+        _as(DEV)
+        client.put("/dev-notes/settings", json={"sendInstantly": False})
+        k = _held_pin()
+        _create()
+        _dispatch()                                          # k is moved by dispatch already
+        k_now = client.get(f"/dev-notes/{k['id']}").json()
+        collecting = k_now["sessionId"]
+        fresh = _create()
+        assert fresh["sessionId"] == collecting
+        _as(VISESH)
+        got = client.patch(f"/dev-notes/{k['id']}", json={"release": True}).json()
+        assert got["status"] == "open" and got["sessionId"] == collecting       # already collecting: not moved again
+        assert got["thread"][-1]["text"].startswith("Released To Claude Code by ")
+    finally:
+        GRANTS.pop(VISESH["email"], None)
+
+
 def test_claim_skips_held_pins():
     token = _token()["token"]
     a = _create()
@@ -1004,9 +1058,9 @@ def test_claim_skips_held_pins():
     r = client.post("/dev-notes/cli/claim", json={"noteIds": [a["id"], b["id"]]}, headers=_hdr(token))
     assert r.status_code == 200, r.text
     assert [n["id"] for n in r.json()["notes"]] == [a["id"]]
-    assert r.json()["skipped"][0]["reason"] == "Pin #2 waits for Visesh - it is in their area"
+    assert r.json()["skipped"][0]["reason"] == "Pin #1 waits for Visesh - it is in their area"   # moved: #1 of a new session
     r = client.post("/dev-notes/cli/claim", json={"noteIds": [b["id"]]}, headers=_hdr(token))
-    assert r.status_code == 409 and r.json()["detail"] == "Pin #2 waits for Visesh - it is in their area"
+    assert r.status_code == 409 and r.json()["detail"] == "Pin #1 waits for Visesh - it is in their area"
 
 
 # ── v2: Ready To Check ────────────────────────────────────────────────────────
@@ -1076,6 +1130,9 @@ def test_preview_reopen_goes_back_to_claude_on_the_same_branch():
     assert r.status_code == 200, r.text
     got = r.json()
     assert got["status"] == "building" and got["previewVerdict"] == "reopened" and got["readyToCheck"] is False
+    # counts as a reopen, like the post-merge one
+    assert p["reopenCount"] == 0 and p["progress"] == "Picked up by Claude Code"
+    assert got["reopenCount"] == 1 and got["progress"] == "" and got["progressAt"] == ""
     last = got["thread"][-1]
     assert last["kind"] == "comment" and last["by"] == DEV["email"] and last["text"] == "Still 2px off"
     assert got["thread"][-2]["text"] == "Reopened On The Preview"
@@ -1141,7 +1198,8 @@ def test_preview_accept_promotes_the_repro_to_the_regression_suite(monkeypatch):
     _preview(p, token)
     got = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True}).json()
     assert got["regressionCaseId"] == p["id"]
-    assert [e["text"] for e in got["thread"]][-2:] == ["Checked On The Preview", "Added To The Regression Suite"]
+    assert [e["text"] for e in got["thread"]][-2:] == [
+        "Checked On The Preview", "Regression test ready - it joins the suite when the PR merges"]
     cases = _cases()
     assert len(cases) == 1
     c = cases[0]
@@ -1149,9 +1207,15 @@ def test_preview_accept_promotes_the_repro_to_the_regression_suite(monkeypatch):
     assert c.title == f"Pin #{p['number']} - Button is misaligned"
     assert c.steps == ["Click Mark All Read", "Fill Search"]
     assert c.expected == "Fixed by PR #7: Aligned the button"
+    # not merged yet: a draft, which the nightly run (active cases only) skips
     assert (c.priority, c.case_type, c.source, c.status, c.created_by) == (
-        "Medium", "Regression", "build-mode", "active", DEV["email"])
+        "Medium", "Regression", "build-mode", "draft", DEV["email"])
     assert f"[{p['id']}]" in c.e2e_spec
+    # the merge makes it active
+    assert _mark_fixed() == 1
+    assert _cases()[0].status == "active"
+    texts = [e["text"] for e in client.get(f"/dev-notes/{p['id']}").json()["thread"]]
+    assert texts[-2:] == ["Merged To Dev - checked on the preview before merge", "Added To The Regression Suite"]
     _promote_again(p["id"])          # idempotent: a second promotion is a no-op
     assert len(_cases()) == 1
     assert len([e for e in client.get(f"/dev-notes/{p['id']}").json()["thread"]
@@ -1166,8 +1230,10 @@ def test_post_merge_accept_promotes_too(monkeypatch):
     _mark_fixed()
     got = client.post(f"/dev-notes/{p['id']}/verify", json={"accepted": True}).json()
     assert got["status"] == "done" and got["regressionCaseId"] == p["id"]
+    assert got["thread"][-1]["text"] == "Added To The Regression Suite"
     c = _cases()[0]
     assert c.module == "Time Clock" and c.priority == "High" and c.feature == "timeclock > checkouts"
+    assert c.status == "active"                  # merged already: straight into the suite
 
 
 def test_no_case_when_the_testing_module_is_off(monkeypatch):
@@ -1238,3 +1304,152 @@ def test_v2_columns_have_migration_lines_in_both_lists():
         assert f'"ALTER TABLE dev_notes ADD COLUMN {col} ' in sqlite_part, col
         assert f'"ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS {col} ' in pg_part, col
     assert '"http://localhost:5180"' in text and '"http://127.0.0.1:5180"' in text
+
+
+# ── v2 review fixes ───────────────────────────────────────────────────────────
+def _two_pins_on_one_pr(token, pr=7):
+    a = _create()
+    b = _create(comment="Second")
+    _dispatch()
+    client.post("/dev-notes/cli/claim", json={"noteIds": [a["id"], b["id"]]}, headers=_hdr(token))
+    r = client.post("/dev-notes/cli/complete", headers=_hdr(token),
+                    json={"noteIds": [a["id"], b["id"]], "prUrl": f"https://github.com/x/y/pull/{pr}",
+                          "prNumber": pr, "branch": "build/x", "summary": "Fixed both"})
+    assert r.status_code == 200, r.text
+    return r.json()["notes"]
+
+
+def test_pr_merged_mid_rework_keeps_the_pin_and_drops_the_pr():
+    token = _token()["token"]
+    a, b = _two_pins_on_one_pr(token)
+    _preview(a, token)
+    _preview(b, token)
+    client.post(f"/dev-notes/{b['id']}/preview-verdict", json={"accepted": False, "comment": "Still wrong"})
+    assert _mark_fixed() == 2
+    got_a = client.get(f"/dev-notes/{a['id']}").json()
+    assert got_a["status"] == "fixed"
+    got_b = client.get(f"/dev-notes/{b['id']}").json()
+    assert got_b["status"] == "building"
+    assert (got_b["prNumber"], got_b["prUrl"], got_b["branch"], got_b["preview"], got_b["previewVerdict"]) == (0, "", "", {}, "")
+    texts = [e["text"] for e in got_b["thread"]]
+    assert "PR #7 merged while this pin was being reworked - the rework comes in a new PR" in texts
+    assert texts[-1] == "Still wrong"                    # the author's comment stays last ...
+    waiting = client.get("/dev-notes/cli/wait?timeout=0", headers=_hdr(token)).json()["notes"]
+    assert [n["id"] for n in waiting] == [b["id"]]       # ... so Claude Code still picks the rework up
+    bells = _bells("dev_note_rework")
+    assert len(bells) == 1 and bells[0]["recipient"] == DEV["email"] and bells[0]["ref_id"] == b["id"]
+    assert bells[0]["title"] == f"Pin #{b['number']} Needs A New PR"
+    assert _mark_fixed() == 0                            # nothing left on that PR
+    # a pin waiting on the author (needs_input) keeps that status too
+    c = _to_pr_open(token, pr=9)
+    _preview(c, token, prNumber=9)
+    client.post(f"/dev-notes/{c['id']}/preview-verdict", json={"accepted": False, "comment": "No"})
+    client.post("/dev-notes/cli/claim", json={"noteIds": [c["id"]]}, headers=_hdr(token))
+    client.post(f"/dev-notes/cli/reply/{c['id']}", headers=_hdr(token), json={"text": "Which one?", "needsInput": True})
+    assert _mark_fixed(pr=9) == 1
+    got_c = client.get(f"/dev-notes/{c['id']}").json()
+    assert got_c["status"] == "needs_input" and got_c["prNumber"] == 0
+    assert got_c["thread"][-1]["text"].startswith("PR #9 merged while this pin was being reworked")
+
+
+def test_branch_change_resets_accepted_verdicts():
+    token = _token()["token"]
+    a, b = _two_pins_on_one_pr(token)
+    assert _preview(a, token, commit="zzz").status_code == 400                  # not a sha
+    _preview(a, token, commit="abc1234")
+    _preview(b, token, commit="abc1234")
+    acc = client.post(f"/dev-notes/{a['id']}/preview-verdict", json={"accepted": True}).json()
+    assert acc["preview"]["verdictCommit"] == "abc1234" and acc["preview"]["commit"] == "abc1234"
+    client.post(f"/dev-notes/{b['id']}/preview-verdict", json={"accepted": False, "comment": "Fix b"})
+    # b is reworked on the same branch and completed again: a's Accept no longer covers the branch
+    client.post("/dev-notes/cli/claim", json={"noteIds": [b["id"]]}, headers=_hdr(token))
+    client.post("/dev-notes/cli/complete", headers=_hdr(token),
+                json={"noteIds": [b["id"]], "prUrl": "https://github.com/x/y/pull/7", "prNumber": 7, "branch": "build/x"})
+    got_a = client.get(f"/dev-notes/{a['id']}").json()
+    assert got_a["previewVerdict"] == "" and got_a["verifiedBy"] == "" and got_a["readyToCheck"] is True
+    assert got_a["thread"][-1]["text"] == "The branch changed after you checked it - check it again on the preview"
+    # Accept again; the same commit posted again keeps the verdict ...
+    client.post(f"/dev-notes/{a['id']}/preview-verdict", json={"accepted": True})
+    kept = _preview(a, token, commit="abc1234").json()
+    assert kept["previewVerdict"] == "accepted" and kept["preview"]["verdictCommit"] == "abc1234"
+    # ... a different commit resets every Accept on the PR
+    moved = _preview(b, token, commit="def5678").json()
+    assert moved["previewVerdict"] == ""
+    got_a = client.get(f"/dev-notes/{a['id']}").json()
+    assert got_a["previewVerdict"] == "" and got_a["readyToCheck"] is True
+    assert len([e for e in got_a["thread"] if e["text"].startswith("The branch changed")]) == 2
+
+
+def test_per_caller_flags_and_is_global_admin():
+    token = _token()["token"]
+    held = _held_pin()
+    p = _to_pr_open(token, pr=21)
+    _preview(p, token, prNumber=21)
+    mine = {n["id"]: n for n in client.get("/dev-notes").json()}
+    assert mine[held["id"]]["canRelease"] is False                 # the author is not the owner
+    assert mine[p["id"]]["canVerdict"] is True                     # the author, Ready To Check
+    assert mine[held["id"]]["canVerdict"] is False
+    assert client.get("/dev-notes/enabled").json()["isGlobalAdmin"] is False
+    GRANTS[VISESH["email"]] = {"build-mode": 1}
+    GRANTS[DEV2["email"]] = {"build-mode": 1}
+    try:
+        _as(VISESH)
+        assert client.get(f"/dev-notes/{held['id']}").json()["canRelease"] is True
+        _as(DEV2)
+        got = client.get(f"/dev-notes/{p['id']}").json()
+        assert got["canVerdict"] is False and got["canRelease"] is False
+    finally:
+        GRANTS.pop(VISESH["email"], None)
+        GRANTS.pop(DEV2["email"], None)
+    _as(GA)
+    assert client.get("/dev-notes/enabled").json()["isGlobalAdmin"] is True
+    ga_view = client.get(f"/dev-notes/{held['id']}").json()
+    assert ga_view["canRelease"] is True
+    assert client.get(f"/dev-notes/{p['id']}").json()["canVerdict"] is True
+    # Fixed - Verify counts for canVerdict too
+    _as(DEV)
+    _mark_fixed(pr=21)
+    assert client.get(f"/dev-notes/{p['id']}").json()["canVerdict"] is True
+    # the Global Admin check runs once per request, not once per pin
+    for _ in range(3):
+        _create()
+    calls = []
+    real = auth.is_global_admin
+    auth.is_global_admin = lambda user, db: calls.append(1) or real(user, db)
+    try:
+        assert len(client.get("/dev-notes").json()) >= 5
+    finally:
+        auth.is_global_admin = real
+    assert len(calls) == 2           # the access check + the flags
+
+
+def test_owner_of_endpoint():
+    r = client.get("/dev-notes/owner-of", params={"path": "src/views/InventoryManagement.jsx"})
+    assert r.json() == {"owner": {"name": "Visesh", "email": VISESH["email"]}, "held": True}
+    assert client.get("/dev-notes/owner-of", params={"path": "src/tasks/X.jsx"}).json() == {"owner": None, "held": False}
+    GRANTS[NEIL["email"]] = {"build-mode": 1}
+    try:
+        _as(NEIL)
+        got = client.get("/dev-notes/owner-of", params={"path": "./src/asset/lib/sync.js"}).json()
+        assert got == {"owner": {"name": "Neil", "email": NEIL["email"]}, "held": False}
+    finally:
+        GRANTS.pop(NEIL["email"], None)
+    _as(ADMIN)
+    assert client.get("/dev-notes/owner-of", params={"path": "src/x.jsx"}).status_code == 403
+
+
+def test_names_come_from_task_notify_and_lookup_errors_are_not_swallowed(monkeypatch):
+    import task_notify
+    monkeypatch.setattr(task_notify, "_name_of", lambda db, email: f"Name Of {email}")
+    db = database.SessionLocal()
+    try:
+        assert D._name_of(db, "X@Y.com") == "Name Of x@y.com"
+    finally:
+        db.close()
+
+    def broken(email, db):
+        raise RuntimeError("database is down")
+    monkeypatch.setattr(auth, "_role_for", broken)
+    # a swallowed error would leave a Postgres transaction aborted: it must surface
+    with pytest.raises(RuntimeError):
+        client.post("/dev-notes", json={"comment": "x", "route": "inventory", "target": VISESH_FILE})

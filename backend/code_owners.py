@@ -44,14 +44,10 @@ def normalize(path) -> str:
     while p.startswith("./"):
         p = p[2:]
     if p.startswith("/") or (len(p) > 2 and p[1] == ":" and p[2] == "/"):
-        for marker in ("/frontend/", "/backend/"):
-            idx = p.rfind(marker)
-            if idx >= 0:
-                p = p[idx + 1:]
-                break
-        else:
-            idx = p.rfind("/src/")
-            p = p[idx + 1:] if idx >= 0 else p.lstrip("/")
+        # The marker found LAST wins: "/home/frontend/Greens-Nexus/backend/x.py"
+        # is a backend file, whatever folder the checkout itself sits in.
+        idx = max(p.rfind(marker) for marker in ("/frontend/", "/backend/", "/src/"))
+        p = p[idx + 1:] if idx >= 0 else p.lstrip("/")
     while "//" in p:
         p = p.replace("//", "/")
     if p.startswith("src/"):

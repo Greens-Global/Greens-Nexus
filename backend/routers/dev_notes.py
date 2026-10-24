@@ -54,8 +54,7 @@ import code_owners
 import database
 from auth import company_of, get_current_user
 from database import get_db
-from models import (AuditLog, DevNote, DevNoteSession, DevNoteToken, NexusEmployee, NexusNotification, NexusRole,
-                    NexusSetting, QaTestCase)
+from models import AuditLog, DevNote, DevNoteSession, DevNoteToken, NexusNotification, NexusSetting, QaTestCase
 from routers import files as _files
 
 router = APIRouter(prefix="/dev-notes", tags=["Build Mode"])
@@ -117,6 +116,8 @@ QA_MODULE_FOR_ROUTE = {
 }
 QA_PRIORITY = {"blocking": "High", "normal": "Medium", "nice": "Low"}
 REGRESSION_ADDED = "Added To The Regression Suite"
+REGRESSION_READY = "Regression test ready - it joins the suite when the PR merges"
+BRANCH_CHANGED = "The branch changed after you checked it - check it again on the preview"
 REGRESSION_OFF = "Regression test not added - the Testing module is off on this deployment"
 _IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/webp": "webp"}
 
@@ -167,7 +168,19 @@ def _thread_out(thread) -> list:
     return out
 
 
-def _serialize(n: DevNote) -> dict:
+def _viewer(user: Optional[dict], db: Session) -> dict:
+    """Who is reading, for the per-caller flags - the Global Admin check runs
+    ONCE per request here, never once per pin."""
+    if not user:
+        return {"email": "", "ga": False}
+    return {"email": (user.get("email") or "").lower(), "ga": bool(_is_ga(user, db))}
+
+
+def _serialize(n: DevNote, viewer: Optional[dict] = None) -> dict:
+    """The note camelCase, plus `held` / `readyToCheck` and the caller's own
+    `canRelease` (held, and they are the owner or a Global Admin) and
+    `canVerdict` (Ready To Check or Fixed - Verify, and they are the author or
+    a Global Admin). No viewer (a background poll) = both False."""
     out = {}
     for col in DevNote.__table__.columns:
         v = getattr(n, col.name)
@@ -182,6 +195,10 @@ def _serialize(n: DevNote) -> dict:
         out[_camel(col.name)] = v
     out["held"] = _held(n)
     out["readyToCheck"] = _ready_to_check(n)
+    me, ga = (viewer or {}).get("email") or "", bool((viewer or {}).get("ga"))
+    out["canRelease"] = bool(me) and out["held"] and (ga or me == (n.owner_email or "").lower())
+    out["canVerdict"] = (bool(me) and (out["readyToCheck"] or n.status == "fixed")
+                         and (ga or me == (n.created_by or "").lower()))
     return out
 
 
@@ -204,25 +221,11 @@ def _waits_for(n: DevNote) -> str:
 
 
 def _name_of(db: Session, email: str) -> str:
-    """A person's name for thread entries and bells (the way task_notify words
-    them): the employee record, else the role's display name, else the email's
-    local part capitalized."""
-    email = (email or "").lower()
-    if not email:
-        return ""
-    try:
-        emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
-        if emp:
-            full = f"{emp.first_name or ''} {emp.last_name or ''}".strip()
-            if full:
-                return full
-        role = db.query(NexusRole).filter(NexusRole.email == email).first()
-        if role and role.display_name:
-            return role.display_name
-    except Exception:  # noqa: BLE001 - a name is cosmetic; never fail the request for it
-        pass
-    local = email.split("@", 1)[0]
-    return " ".join(p.capitalize() for p in local.replace("_", ".").split(".") if p) or email
+    """A person's name for thread entries and bells - task_notify's helper
+    (employee record, else the role's display name, else the email's local
+    part capitalized). Imported lazily: task_notify is a big module."""
+    from task_notify import _name_of as name_of
+    return name_of(db, (email or "").lower())
 
 
 def _serialize_session(s: DevNoteSession) -> dict:
@@ -568,12 +571,29 @@ def _assign_owner(db: Session, n: DevNote) -> None:
             body=body, ref_id=n.id)
 
 
+def _move_to_collecting(db: Session, n: DevNote) -> None:
+    """Move a pin out of a session that is no longer collecting into its
+    author's collecting session (created when there is none), as its next
+    number, with one "Moved to Build Session" entry. Both sessions resync."""
+    old = _session(db, n.session_id)
+    if old and old.status == "collecting":
+        return
+    s = _collecting_session(db, n.created_by)
+    if old and s.id == old.id:
+        return
+    top = db.query(func.max(DevNote.number)).filter(DevNote.session_id == s.id).scalar() or 0
+    n.session_id, n.number = s.id, int(top) + 1
+    _append(n, _entry("claude", "system", f"Moved to Build Session '{s.title}' as Pin #{n.number}"))
+    db.flush()
+    _sync_session(db, old)
+    _sync_session(db, s)
+
+
 def _owner_has_access(db: Session, email: str) -> bool:
-    try:
-        role, level = auth._role_for(email, db)
-        return _allowed({"email": email, "role": role, "level": level}, db)
-    except Exception:  # noqa: BLE001 - only decides one sentence of a bell
-        return True
+    # No try/except on purpose: a swallowed database error would leave a
+    # Postgres transaction aborted for the rest of the request.
+    role, level = auth._role_for(email, db)
+    return _allowed({"email": email, "role": role, "level": level}, db)
 
 
 # ── sessions ──────────────────────────────────────────────────────────────────
@@ -690,7 +710,7 @@ def enabled(user: dict = Depends(get_current_user), db: Session = Depends(get_db
     if not _allowed(user, db):
         return {"enabled": False}
     return {"enabled": True, "settings": _settings(db, user["email"]), "blockedRoutes": list(BLOCKED_ROUTES),
-            "owners": _owners_out()}
+            "owners": _owners_out(), "isGlobalAdmin": bool(_is_ga(user, db))}
 
 
 @router.get("/settings")
@@ -805,7 +825,7 @@ def create_note(body: dict, user: dict = Depends(require_build_mode), db: Sessio
         _sync_session(db, s)
     db.commit()
     db.refresh(n)
-    return _serialize(n)
+    return _serialize(n, _viewer(user, db))
 
 
 @router.get("")
@@ -826,7 +846,8 @@ def list_notes(status: str = "", sessionId: str = "", route: str = "", mine: int
     if mine:
         q = q.filter(DevNote.created_by == user["email"].lower())
     rows = q.order_by(DevNote.created_at.desc()).limit(limit).all()
-    return [_serialize(n) for n in rows]
+    me = _viewer(user, db)
+    return [_serialize(n, me) for n in rows]
 
 
 @router.get("/pins")
@@ -839,7 +860,8 @@ def pins(route: str = "", sub: str = "", user: dict = Depends(require_build_mode
         q = q.filter(DevNote.route == route)
     if sub:
         q = q.filter(or_(DevNote.sub == sub, DevNote.sub == ""))
-    return [_serialize(n) for n in q.order_by(DevNote.created_at.asc()).all()]
+    me = _viewer(user, db)
+    return [_serialize(n, me) for n in q.order_by(DevNote.created_at.asc()).all()]
 
 
 def _note(db: Session, note_id: str, lock: bool = False) -> DevNote:
@@ -912,16 +934,29 @@ def dispatch(body: Optional[dict] = None, user: dict = Depends(require_build_mod
     # never sent to Claude Code until they release it.
     held = [n for n in notes if _held(n)]
     notes = [n for n in notes if not _held(n)]
-    held_out = [{"id": n.id, "number": n.number or 0, "ownerName": n.owner_name or n.owner_email} for n in held]
     if not notes:
         raise HTTPException(400, "No open pins to send - " + "; ".join(_waits_for(n) for n in held))
     if title and s:
         s.title = str(title).strip()[:200]
     touched = _dispatch_notes(db, notes, email)
+    # Held open pins left behind in a now-sent session move to their author's
+    # collecting session: the sent one can finish, and they stay sendable
+    # once released.
+    db.flush()
+    left = (db.query(DevNote)
+            .filter(DevNote.session_id.in_([t.id for t in touched]), DevNote.status == "open")
+            .order_by(DevNote.number.asc()).with_for_update().all()) if touched else []
+    for n in left:
+        if _held(n):
+            _move_to_collecting(db, n)
+            if n not in held:
+                held.append(n)
+    held_out = [{"id": n.id, "number": n.number or 0, "ownerName": n.owner_name or n.owner_email} for n in held]
     _audit(db, user, "dispatch", s.id if s else "", {"notes": [n.id for n in notes], "held": [n.id for n in held]})
     db.commit()
     s = s or (touched[0] if touched else None)
-    return {"session": _serialize_session(s) if s else None, "notes": [_serialize(n) for n in notes],
+    me = _viewer(user, db)
+    return {"session": _serialize_session(s) if s else None, "notes": [_serialize(n, me) for n in notes],
             "held": held_out}
 
 
@@ -1050,6 +1085,16 @@ def owners(user: dict = Depends(require_build_mode_or_token)):
     return {"owners": _owners_out()}
 
 
+@router.get("/owner-of")
+def owner_of(path: str = "", user: dict = Depends(require_build_mode)):
+    """Who owns the file a source stamp names (code_owners.normalize +
+    owner_of on the server, so the composer needs no copy of them). `held`:
+    a pin there would wait for its owner - the owner is not the caller."""
+    owner = code_owners.owner_of(path)
+    me = (user.get("email") or "").lower()
+    return {"owner": owner, "held": bool(owner) and owner["email"].lower() != me}
+
+
 # ── Build Tokens (before the /{note_id} routes: "/tokens" is one segment too) ──
 @router.post("/tokens", status_code=201)
 def mint_token(body: Optional[dict] = None, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
@@ -1091,7 +1136,7 @@ def revoke_token(token_id: str, user: dict = Depends(require_build_mode), db: Se
 # ── one pin (declared last: "/{note_id}" would otherwise swallow the named routes) ──
 @router.get("/{note_id}")
 def get_note(note_id: str, user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
-    return _serialize(_note(db, note_id))
+    return _serialize(_note(db, note_id), _viewer(user, db))
 
 
 @router.patch("/{note_id}")
@@ -1104,7 +1149,7 @@ def patch_note(note_id: str, body: dict, user: dict = Depends(require_build_mode
             _sync_session(db, _session(db, n.session_id))
             db.commit()
             db.refresh(n)
-            return _serialize(n)
+            return _serialize(n, _viewer(user, db))
     _own_or_admin(n.created_by, user, db, "change this pin")
     fields = _clean_note_input(body, PATCH_FIELDS)
     status = _get(body, "status")
@@ -1129,13 +1174,16 @@ def patch_note(note_id: str, body: dict, user: dict = Depends(require_build_mode
     _sync_session(db, _session(db, n.session_id))
     db.commit()
     db.refresh(n)
-    return _serialize(n)
+    return _serialize(n, _viewer(user, db))
 
 
 def _release(db: Session, n: DevNote, user: dict) -> None:
     """The owner (or a Global Admin) hands a held pin to Claude Code: from now
-    on it is an ordinary pin, dispatched at once when the releaser's settings
-    say Send Instantly. Releasing a pin that is no longer held is a no-op."""
+    on it is an ordinary pin of its AUTHOR's. Still open in a session that was
+    already sent, it moves to the author's collecting session; when the
+    author's settings say Send Instantly it is dispatched at once, the way
+    create_note sends an instant pin. Releasing a pin that is no longer held
+    is a no-op."""
     email = (user.get("email") or "").lower()
     if email != (n.owner_email or "").lower() and not _is_ga(user, db):
         raise HTTPException(403, "Only the owner of this area or a Global Admin can release this pin")
@@ -1148,9 +1196,13 @@ def _release(db: Session, n: DevNote, user: dict) -> None:
     n.owner_released_at = now
     _append(n, _entry(email, "system", f"Released To Claude Code by {_name_of(db, email)}"))
     _audit(db, user, "release", n.id, {"owner": n.owner_email})
-    if n.status == "open" and _settings(db, email).get("sendInstantly"):
+    if n.status != "open":
+        return
+    author = (n.created_by or "").lower()
+    _move_to_collecting(db, n)
+    if _settings(db, author).get("sendInstantly"):
         db.flush()
-        _dispatch_notes(db, [n], email)
+        _dispatch_notes(db, [n], author)
         _audit(db, user, "dispatch", n.id, {"session": n.session_id, "instant": True, "released": True})
 
 
@@ -1168,7 +1220,7 @@ def add_thread(note_id: str, body: dict, user: dict = Depends(require_build_mode
     _sync_session(db, _session(db, n.session_id))
     db.commit()
     db.refresh(n)
-    return _serialize(n)
+    return _serialize(n, _viewer(user, db))
 
 
 @router.post("/{note_id}/verify")
@@ -1206,7 +1258,7 @@ def verify(note_id: str, body: dict, user: dict = Depends(require_build_mode),
     if accepted:
         promote_regression(db, n, user)
     db.refresh(n)
-    return _serialize(n)
+    return _serialize(n, _viewer(user, db))
 
 
 @router.post("/{note_id}/preview-verdict")
@@ -1233,22 +1285,30 @@ def preview_verdict(note_id: str, body: dict, user: dict = Depends(require_build
     now = _now()
     n.preview_verdict = "accepted" if accepted else "reopened"
     n.preview_verdict_at = now
+    # The verdict is about the commit the preview was running.
+    commit = str((n.preview or {}).get("commit") or "")
+    n.preview = {**(n.preview or {}), "verdictCommit": commit}
     if accepted:
         n.verified_by = email
         n.verified_at = now
         _append(n, _entry(email, "system", "Checked On The Preview" + (f": {comment}" if comment else "")))
     else:
+        # Counts as a reopen, like the post-merge one.
+        n.reopen_count = int(n.reopen_count or 0) + 1
+        n.progress = ""
+        n.progress_at = ""
         _append(n, _entry(email, "system", "Reopened On The Preview"))
         _append(n, _entry(email, "comment", comment))   # LAST: /cli/wait's rule
         n.status = "building"
     _audit(db, user, "preview_verdict", n.id,
-           {"accepted": bool(accepted), "pr": n.pr_number, "comment": comment[:200]})
+           {"accepted": bool(accepted), "pr": n.pr_number, "commit": commit, "comment": comment[:200]})
     _sync_session(db, _session(db, n.session_id))
     db.commit()
     if accepted:
-        promote_regression(db, n, user)
+        # Not merged yet: the case waits as a draft until mark_fixed_for_pr.
+        promote_regression(db, n, user, status="draft")
     db.refresh(n)
-    return _serialize(n)
+    return _serialize(n, _viewer(user, db))
 
 
 # ── regression tests ──────────────────────────────────────────────────────────
@@ -1295,21 +1355,30 @@ def _pr_summary(n: DevNote) -> str:
     return ""
 
 
-def promote_regression(db: Session, n: DevNote, user: dict) -> None:
+def promote_regression(db: Session, n: DevNote, user: dict, status: str = "active") -> None:
     """An accepted bug whose e2e repro went failing -> passing joins the
     Testing module's suite: a QaTestCase with id = the pin id, run nightly by
-    the qa-e2e workflow. Called AFTER the verdict is committed, so a failure
-    here rolls back only its own changes - it never raises into the request.
-    Idempotent: a pin that already has its case is left alone."""
+    the qa-e2e workflow (it reads `active` cases only). A preview Accept comes
+    before the merge, so it writes the case as `draft` - the fix is not on dev
+    yet - and mark_fixed_for_pr turns it `active`; the post-merge Accept writes
+    it `active`. Called AFTER the verdict is committed, so a failure here rolls
+    back only its own changes - it never raises into the request. Idempotent:
+    an active (or archived) case is left alone, a draft is refreshed."""
     try:
-        if n.regression_case_id or not _regression_ready(n):
+        if not _regression_ready(n):
             return
+        case = db.query(QaTestCase).filter(QaTestCase.id == n.id).first()
+        if case and case.status != "draft":
+            return
+        if n.regression_case_id and not case:
+            return   # the Testing module removed it: do not bring it back
         from routers import qa as _qa   # module attribute: tests patch _qa._ENABLED
-        if not _qa._ENABLED:
+        if not case and not _qa._ENABLED:
             if not any(isinstance(e, dict) and e.get("text") == REGRESSION_OFF for e in n.thread or []):
                 _append(n, _entry("claude", "system", REGRESSION_OFF))
                 db.commit()
             return
+        new = case is None
         repro = n.verification["repro"]
         comment = " ".join((n.comment or "").split())
         summary = _pr_summary(n)
@@ -1317,8 +1386,7 @@ def promote_regression(db: Session, n: DevNote, user: dict) -> None:
         if summary:
             expected += f": {summary}"
         now = _now()
-        case = db.query(QaTestCase).filter(QaTestCase.id == n.id).first()
-        if not case:
+        if new:
             case = QaTestCase(id=n.id, created_at=now)
             db.add(case)
         case.module = _qa_module(n.route)
@@ -1330,17 +1398,32 @@ def promote_regression(db: Session, n: DevNote, user: dict) -> None:
         case.priority = QA_PRIORITY.get(n.priority or "", "Medium")
         case.case_type = "Regression"
         case.source = "build-mode"
-        case.status = "active"
+        case.status = "active" if status == "active" else "draft"
         case.e2e_spec = str(repro.get("script") or "")[:E2E_SPEC_MAX]
         case.created_by = n.created_by or ""
         case.updated_at = now
         n.regression_case_id = n.id
-        _append(n, _entry("claude", "system", REGRESSION_ADDED))
-        _audit(db, user, "regression", n.id, {"case": n.id, "module": case.module})
+        if case.status == "active":
+            _append(n, _entry("claude", "system", REGRESSION_ADDED))
+        elif new:
+            _append(n, _entry("claude", "system", REGRESSION_READY))
+        _audit(db, user, "regression", n.id, {"case": n.id, "module": case.module, "status": case.status})
         db.commit()
     except Exception as exc:  # noqa: BLE001 - see docstring
         db.rollback()
         print(f"[build-mode] promote_regression({getattr(n, 'id', '?')}) failed: {exc}")
+
+
+def _activate_regression(db: Session, n: DevNote) -> None:
+    """The PR merged: the pin's draft regression case (written at a preview
+    Accept) joins the suite. No commit - mark_fixed_for_pr commits."""
+    if not n.regression_case_id:
+        return
+    case = db.query(QaTestCase).filter(QaTestCase.id == n.regression_case_id).with_for_update().first()
+    if case and case.status == "draft":
+        case.status = "active"
+        case.updated_at = _now()
+        _append(n, _entry("claude", "system", REGRESSION_ADDED))
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -1446,9 +1529,10 @@ def cli_claim(body: dict, user: dict = Depends(require_build_mode_or_token), db:
            {"notes": [n.id for n in notes], "skipped": [x["id"] for x in skipped],
             "token": user.get("token_label") or ""})
     db.commit()
+    me = _viewer(user, db)
     for n in notes:
         db.refresh(n)
-        out.append({**_serialize(n), "media": _media(n)})
+        out.append({**_serialize(n, me), "media": _media(n)})
     return {"notes": out, "sessions": [_serialize_session(s) for s in touched], "skipped": skipped}
 
 
@@ -1493,7 +1577,7 @@ def cli_progress(note_id: str, body: dict, user: dict = Depends(require_build_mo
     _append(n, _entry("claude", "progress", text))
     db.commit()
     db.refresh(n)
-    return _serialize(n)
+    return _serialize(n, _viewer(user, db))
 
 
 @router.post("/cli/reply/{note_id}")
@@ -1527,7 +1611,7 @@ def cli_reply(note_id: str, body: dict, user: dict = Depends(require_build_mode_
     _sync_session(db, _session(db, n.session_id))
     db.commit()
     db.refresh(n)
-    return _serialize(n)
+    return _serialize(n, _viewer(user, db))
 
 
 def _verification_summary(v: dict) -> str:
@@ -1590,7 +1674,7 @@ def cli_verify(note_id: str, body: dict, user: dict = Depends(require_build_mode
     _audit(db, user, "verify", n.id, {"summary": summary})
     db.commit()
     db.refresh(n)
-    return _serialize(n)
+    return _serialize(n, _viewer(user, db))
 
 
 @router.post("/cli/attach/{note_id}")
@@ -1658,13 +1742,41 @@ def cli_complete(body: dict, user: dict = Depends(require_build_mode_or_token), 
                 title=f"PR #{pr_number} Open For Build Session '{s.title or 'Build Session'}'",
                 body=f"Claude Code opened PR #{pr_number} for {len([x for x in notes if x.session_id == s.id])} pin(s). {pr_url}",
                 ref_id=s.id, ref_kind="session")
+    # New commits on the PR branch: an Accept given on the old preview no
+    # longer covers what will merge - on every pin of the PR, not just these.
+    _reset_accepted(db, pr_number, exclude=[n.id for n in notes])
     db.commit()
+    me = _viewer(user, db)
     for n in notes:
         db.refresh(n)
-    return {"notes": [_serialize(n) for n in notes],
+    return {"notes": [_serialize(n, me) for n in notes],
             "session": _serialize_session(touched[0]) if touched else None,
             "sessions": [_serialize_session(s) for s in touched],
             "skipped": skipped}
+
+
+def _reset_accepted(db: Session, pr_number: int, exclude=(), commit: str = "") -> list:
+    """The PR branch changed after an Accept on the preview: every pin of that
+    PR whose verdict is accepted is Ready To Check again (verdict and its
+    verified stamp cleared, one entry saying why). With `commit`, only the
+    Accepts recorded against a different commit are reset (one recorded with
+    no commit cannot be compared and stands). Returns the pins reset."""
+    if not pr_number:
+        return []
+    q = db.query(DevNote).filter(DevNote.pr_number == pr_number, DevNote.status == "pr_open",
+                                 DevNote.preview_verdict == "accepted")
+    if exclude:
+        q = q.filter(DevNote.id.notin_(list(exclude)))
+    rows = q.with_for_update().all()
+    if commit:
+        rows = [n for n in rows if (n.preview or {}).get("verdictCommit") not in ("", None, commit)]
+    for n in rows:
+        n.preview_verdict = ""
+        n.preview_verdict_at = ""
+        n.verified_by = ""
+        n.verified_at = ""
+        _append(n, _entry("claude", "system", BRANCH_CHANGED))
+    return rows
 
 
 def _check_preview_url(url: str) -> str:
@@ -1690,7 +1802,10 @@ def cli_preview(note_id: str, body: dict, user: dict = Depends(require_build_mod
                 db: Session = Depends(get_db)):
     """tools/build_notes/preview.py started the PR branch on this machine:
     the pin turns Ready To Check with an Open Preview link (status stays
-    pr_open). Posting again (a restarted preview) replaces it."""
+    pr_open). Posting again (a restarted preview) replaces it. `commit` (the
+    branch head the preview runs) is optional; a post whose commit differs
+    from the stored one means the branch moved, so every Accept on that PR is
+    reset (`_reset_accepted`) - the author checks the new code again."""
     n = _note(db, note_id, lock=True)
     if n.status != "pr_open":
         raise HTTPException(409, f"Pin #{n.number} is {n.status}, not PR Open - only a pin with an open PR has a preview")
@@ -1700,17 +1815,29 @@ def cli_preview(note_id: str, body: dict, user: dict = Depends(require_build_mod
     except (TypeError, ValueError):
         raise HTTPException(400, "prNumber must be a number")
     host = " ".join(str(_get(body, "host") or "").split())[:200]
-    first = not (n.preview or {}).get("url")
+    commit = str(_get(body, "commit") or "").strip()[:64]
+    if commit and not re.fullmatch(r"[0-9a-fA-F]{7,64}", commit):
+        raise HTTPException(400, "commit must be a git sha")
+    old = dict(n.preview or {})
+    first = not old.get("url")
     n.preview = {"url": url, "branch": str(_get(body, "branch") or n.branch or "").strip()[:200],
-                 "prNumber": pr_number, "host": host, "startedAt": _now()}
+                 "prNumber": pr_number, "host": host, "commit": commit.lower(), "startedAt": _now()}
     n.updated_at = _now()
     if first:
         _append(n, _entry("claude", "system", "Ready To Check" + (f" - runs on {host}" if host else "")))
-    _audit(db, user, "preview", n.id, {"url": url, "host": host, "pr": pr_number,
-                                       "token": user.get("token_label") or ""})
+    commit = commit.lower()
+    if "verdictCommit" in old:
+        n.preview = {**n.preview, "verdictCommit": old["verdictCommit"]}
+    moved = bool(commit) and bool(old.get("commit")) and old.get("commit") != commit
+    if moved:
+        _reset_accepted(db, n.pr_number)            # this pin's preview moved: every Accept on the PR
+    elif commit:
+        _reset_accepted(db, n.pr_number, commit=commit)   # Accepts given on another commit
+    _audit(db, user, "preview", n.id, {"url": url, "host": host, "pr": pr_number, "commit": commit,
+                                       "branchMoved": moved, "token": user.get("token_label") or ""})
     db.commit()
     db.refresh(n)
-    return _serialize(n)
+    return _serialize(n, _viewer(user, db))
 
 
 # ── GitHub webhook hook ───────────────────────────────────────────────────────
@@ -1718,8 +1845,12 @@ def mark_fixed_for_pr(db: Session, pr_number, merge_sha: str = "") -> int:
     """A PR merged into dev: every pr_open pin on it becomes fixed, with the
     merge commit as its fixed build, a "Merged To Dev" entry and a bell to its
     author - except a pin its author already accepted on the Ready To Check
-    preview, which goes straight to done with no bell. Returns how many pins changed. Never raises - the webhook must
-    keep answering GitHub whatever happens here."""
+    preview, which goes straight to done with no bell (and its draft
+    regression case joins the suite). A pin on the PR that was sent back for
+    rework (building / needs_input) keeps its status but loses the PR: its
+    rework comes in a new PR, and its author gets a bell saying so. Returns
+    how many pins changed. Never raises - the webhook must keep answering
+    GitHub whatever happens here."""
     try:
         number = int(pr_number)
     except (TypeError, ValueError):
@@ -1728,20 +1859,47 @@ def mark_fixed_for_pr(db: Session, pr_number, merge_sha: str = "") -> int:
         return 0
     try:
         notes = (db.query(DevNote)
-                 .filter(DevNote.pr_number == number, DevNote.status == "pr_open")
+                 .filter(DevNote.pr_number == number,
+                         DevNote.status.in_(("pr_open", "building", "needs_input")))
                  .with_for_update().all())
         if not notes:
             return 0
         now = _now()
-        sessions = []
+        sessions, rework_sessions = [], []
         for n in notes:
+            n.updated_at = now
+            if n.status != "pr_open":
+                # Merged mid-rework: what merged is not this pin's fix.
+                n.pr_number = 0
+                n.pr_url = ""
+                n.branch = ""
+                n.preview = {}
+                n.preview_verdict = ""
+                n.preview_verdict_at = ""
+                note = _entry("claude", "system",
+                              f"PR #{number} merged while this pin was being reworked - the rework comes in a new PR")
+                thread = list(n.thread or [])
+                if _answered(thread):
+                    # The author's comment must stay LAST: it is what keeps the
+                    # pin in /cli/wait until Claude Code picks the rework up.
+                    n.thread = [*thread[:-1], note, thread[-1]]
+                else:
+                    _append(n, note)
+                _notify(db, type="dev_note_rework", recipient=n.created_by,
+                        title=f"Pin #{n.number} Needs A New PR",
+                        body=(f"PR #{number} merged to dev while Claude Code was reworking Pin #{n.number} "
+                              f"({n.route or 'app'}). The rework comes in a new PR."),
+                        ref_id=n.id)
+                if n.session_id and n.session_id not in rework_sessions:
+                    rework_sessions.append(n.session_id)
+                continue
             n.fixed_build_id = merge_sha or ""
             n.fixed_at = now
-            n.updated_at = now
             if (n.preview_verdict or "") == "accepted":
                 # Checked on the Ready To Check preview: no second check after merge.
                 _close(n, "done")
                 _append(n, _entry("claude", "system", "Merged To Dev - checked on the preview before merge"))
+                _activate_regression(db, n)
                 if n.session_id and n.session_id not in sessions:
                     sessions.append(n.session_id)
                 continue
@@ -1759,6 +1917,9 @@ def mark_fixed_for_pr(db: Session, pr_number, merge_sha: str = "") -> int:
                 s.status = "fixed"
                 s.updated_at = now
                 _sync_session(db, s)
+        for sid in rework_sessions:
+            if sid not in sessions:
+                _sync_session(db, _session(db, sid))
         db.commit()
         return len(notes)
     except Exception as exc:  # noqa: BLE001 - see docstring

@@ -460,7 +460,8 @@ Pieces (one file each, all under `frontend/src/devnotes/`):
   devNotesCreate, devNotesList, devNotesPins, devNotesGet, devNotesPatch,
   devNotesThread, devNotesVerify, devNotesDispatch, devNotesSessions,
   devNotesSessionPatch, devNotesTokens, devNotesTokenCreate,
-  devNotesTokenRevoke`.
+  devNotesTokenRevoke`; v2 (section 7) adds `devNotesRelease`,
+  `devNotesPreviewVerdict` and `devNotesOwnerOf`.
 - Deep link: `/dev-notes?pin=<id>` (from bells and PR bodies) opens the
   app on the pin's route with Build Mode on and that pin's thread open.
   Bells of type `dev_note_*` navigate there.
@@ -485,18 +486,25 @@ lists (SQLite and Postgres).
 | owner_name | String '' | e.g. "Visesh" |
 | owner_released_by | String '' | email of who released a held pin to Claude Code |
 | owner_released_at | String '' | iso |
-| preview | JSON dict | `{url, branch, prNumber, host, startedAt}` written by the CLI; `{}` when none |
+| preview | JSON dict | `{url, branch, prNumber, host, commit, startedAt}` written by the CLI, plus `verdictCommit` (the commit the verdict was given against) once there is a verdict; `{}` when none |
 | preview_verdict | String '' | '' \| accepted \| reopened |
 | preview_verdict_at | String '' | iso |
 | regression_case_id | String '' | QaTestCase id once promoted (equals the pin id) |
 
 Serialized camelCase (`ownerEmail, ownerName, ownerReleasedBy,
 ownerReleasedAt, preview, previewVerdict, previewVerdictAt,
-regressionCaseId`) plus two computed fields on every note:
+regressionCaseId`) plus computed fields on every note:
 
 - `held: bool` - owner set, owner != `createdBy`, not released;
 - `readyToCheck: bool` - status `pr_open`, `preview.url` set and
-  `previewVerdict` != accepted.
+  `previewVerdict` != accepted;
+- per caller: `canRelease: bool` - held, and the caller is the owner or a
+  Global Admin; `canVerdict: bool` - `readyToCheck` or status `fixed`, and
+  the caller is the author or a Global Admin. The Global Admin check runs
+  once per request (`_viewer`), never once per pin; the `/cli/wait` poll
+  carries no caller, so both are false there.
+
+`GET /dev-notes/enabled` also answers `isGlobalAdmin: bool`.
 
 ### 7.2 Ownership routing
 
@@ -504,8 +512,9 @@ regressionCaseId`) plus two computed fields on every note:
 Ownership table (change both together). Stdlib only, no app imports -
 `tools/build_notes/` loads it by file path. `OWNERS = [{name, email, paths}]`
 (a path ending in `/` = the whole folder); `normalize(path)` turns a source
-stamp (`src/...`, `./src/...`, an absolute checkout path, a `:line:col`
-suffix) into a repo path (`frontend/src/...`), backend paths unchanged;
+stamp (`src/...`, `./src/...`, an absolute checkout path - cut at whichever
+of `/frontend/`, `/backend/`, `/src/` appears LAST - a `:line:col` suffix)
+into a repo path (`frontend/src/...`), backend paths unchanged;
 `owner_of(path)` -> `{name, email}` or None; `foreign_files(paths, me_email)`
 -> `[{path, name, email}]` for files owned by someone else.
 
@@ -517,21 +526,33 @@ suffix) into a repo path (`frontend/src/...`), backend paths unchanged;
   when the owner has no Build Mode access), action `{view: dev-notes, sub:
   pin:<id>}`. A held pin is never dispatched by Send Instantly.
 - `POST /dev-notes/dispatch` sends only unheld pins and answers `held: [{id,
-  number, ownerName}]` for the ones it left. 400 when nothing unheld is left;
-  the detail names the held ones: "No open pins to send - Pin #2 waits for
-  Visesh" (several joined with "; ").
+  number, ownerName}]` for the ones it left. Held open pins left in a session
+  that is now sent are MOVED to their author's collecting session (created
+  when needed) as its next number, with the entry "Moved to Build Session
+  '<title>' as Pin #m" - so the sent session can finish and they stay
+  sendable; `held` carries their new numbers. 400 when nothing unheld is
+  left; the detail names the held ones: "No open pins to send - Pin #2 waits
+  for Visesh" (several joined with "; ").
 - `PATCH /dev-notes/{id}` `{release: true}` - the owner or a Global Admin
   only (403 otherwise; the author cannot release it): sets
   `ownerReleasedBy/At`, thread system entry "Released To Claude Code by
-  <name>", audit `dev_note_release`. From then on it is an ordinary pin; it is
-  dispatched at once when the RELEASER's settings say Send Instantly and it is
-  open. Releasing an already-released pin is a no-op (200); a pin that was
-  never held is 409. Other fields in the same body still need the author.
+  <name>", audit `dev_note_release`. From then on it is an ordinary pin of
+  its AUTHOR's: still open in a session that is no longer collecting, it
+  moves to the author's collecting session (same "Moved to Build Session"
+  entry); when the AUTHOR's settings say Send Instantly it is dispatched at
+  once, exactly as `create_note` sends an instant pin (the releaser's own
+  setting does not matter). Releasing an already-released pin is a no-op
+  (200); a pin that was never held is 409. Other fields in the same body
+  still need the author.
 - `/cli/claim` skips a held pin with reason "Pin #n waits for <Owner> - it
   is in their area" (409 with that detail when it is the only pin).
 - `GET /dev-notes/enabled` adds `owners: [{name, email, paths}]`;
   `GET /dev-notes/owners` (Build Mode user or Build Token) returns
   `{owners: [...]}` for the CLI when it cannot load the file.
+- `GET /dev-notes/owner-of?path=<stamp file>` (Build Mode user) ->
+  `{owner: {name, email} | null, held: bool}` - `held` = there is an owner
+  and it is not the caller. The composer asks this instead of keeping its own
+  copy of `normalize()` (`api.js` `devNotesOwnerOf`).
 
 ### 7.3 Ready To Check (local preview before merge)
 
@@ -540,32 +561,53 @@ PR branch's own frontend on :5180 and backend on :8090, a copy of the local
 SQLite, never a shared database) and posts each pin's preview.
 
 - `POST /dev-notes/cli/preview/{id}` (Build Token or user) `{url, branch,
-  prNumber, host}` -> note. Only for `pr_open` pins (409 otherwise). `url`
-  must be `http://localhost:<port>/...` or `http://127.0.0.1:<port>/...`
-  (parsed, so a userinfo trick like `http://localhost:@evil.example` is
-  refused too) - 400 otherwise. Stores `preview = {url, branch, prNumber,
-  host, startedAt}`; the first post after a `complete` adds the system entry
+  prNumber, host, commit?}` -> note. Only for `pr_open` pins (409
+  otherwise). `url` must be `http://localhost:<port>/...` or
+  `http://127.0.0.1:<port>/...` (parsed, so a userinfo trick like
+  `http://localhost:@evil.example` is refused too) - 400 otherwise. `commit`
+  (optional) is the branch head the preview runs, a git sha (7-64 hex, 400
+  otherwise). Stores `preview = {url, branch, prNumber, host, commit,
+  startedAt}`; the first post after a `complete` adds the system entry
   "Ready To Check - runs on <host>"; a restarted preview replaces the object
-  with no second entry. Audit `dev_note_preview`. Status stays `pr_open`;
-  the status label on screen is "Ready To Check" while `readyToCheck`.
+  with no second entry. When the posted commit differs from the one this pin
+  stored, every Accept on that PR is reset (below); otherwise any Accept on
+  the PR recorded against a different commit is reset. Audit
+  `dev_note_preview`. Status stays `pr_open`; the status label on screen is
+  "Ready To Check" while `readyToCheck`.
 - `POST /dev-notes/{id}/preview-verdict` (author or Global Admin) `{accepted:
   bool, comment?}` -> note. 409 unless `readyToCheck`; 400 without
-  `accepted`. Audit `dev_note_preview_verdict`.
+  `accepted`. The verdict records the commit it was given against
+  (`preview.verdictCommit`). Audit `dev_note_preview_verdict`
+  (`api.js` `devNotesPreviewVerdict`).
   - Accept: `previewVerdict` accepted, `previewVerdictAt`, `verifiedBy/At`,
     system entry "Checked On The Preview" (": <comment>" when given), then
-    the regression promotion (7.4). Status stays `pr_open`.
+    the regression promotion as a DRAFT (7.4). Status stays `pr_open`.
   - Reopen: comment required (400 "Say what is still wrong - a comment is
-    required to reopen"); `previewVerdict` reopened, system entry "Reopened
-    On The Preview", then the comment as a human `comment` entry LAST, status
-    -> `building` - so `/cli/wait` returns it and the watcher relaunches
-    Claude Code, which re-claims, fixes on the SAME branch, pushes, calls
-    `complete` again and restarts the preview.
-- `POST /cli/complete` now also clears `preview`, `previewVerdict` and
-  `previewVerdictAt` on every pin it completes (a new round).
+    required to reopen"); counts as a reopen like the post-merge one
+    (`reopenCount` + 1, `progress` / `progressAt` cleared); `previewVerdict`
+    reopened, system entry "Reopened On The Preview", then the comment as a
+    human `comment` entry LAST, status -> `building` - so `/cli/wait` returns
+    it and the watcher relaunches Claude Code, which re-claims, fixes on the
+    SAME branch, pushes, calls `complete` again and restarts the preview.
+- `POST /cli/complete` clears `preview`, `previewVerdict` and
+  `previewVerdictAt` on every pin it completes (a new round), and - the
+  branch changed - resets an accepted verdict on EVERY other `pr_open` pin
+  of that PR number.
+- Reset of an Accept (branch changed): `previewVerdict` / `previewVerdictAt`
+  / `verifiedBy` / `verifiedAt` cleared and the entry "The branch changed
+  after you checked it - check it again on the preview"; the pin is Ready To
+  Check again.
 - Merge (`mark_fixed_for_pr`): a pin whose `previewVerdict` is accepted goes
   straight to `done` (purge date set) with the entry "Merged To Dev - checked
-  on the preview before merge" and NO `dev_note_fixed` bell; every other pin
-  goes to `fixed` as before.
+  on the preview before merge", its draft regression case turns active
+  ("Added To The Regression Suite") and NO `dev_note_fixed` bell; every other
+  `pr_open` pin goes to `fixed` as before. A pin on that PR that was being
+  reworked (`building` / `needs_input`) keeps its status, loses `prNumber`,
+  `prUrl`, `branch`, `preview` and `previewVerdict`, gets the entry "PR #n
+  merged while this pin was being reworked - the rework comes in a new PR"
+  (placed before the author's comment when that comment is last, so the pin
+  stays in `/cli/wait`) and a `dev_note_rework` bell to its author ("Pin #n
+  Needs A New PR"). The skill then opens a new branch and PR for it.
 - CORS: `http://localhost:5180` and `http://127.0.0.1:5180` are in
   `_CORS_ORIGINS` (the preview frontend calls the preview backend on 8090).
 
@@ -573,7 +615,9 @@ State machine additions:
 
     pr_open ──(cli preview)──> pr_open + readyToCheck
     pr_open (readyToCheck) ──(author accepts)──> pr_open, previewVerdict accepted ──(merge)──> done
+    pr_open, accepted ──(branch changed: complete on the PR / preview on a new commit)──> pr_open + readyToCheck
     pr_open (readyToCheck) ──(author reopens with a comment)──> building ──(complete)──> pr_open
+    building / needs_input on PR n ──(PR n merges)──> same status, no PR (rework comes in a new PR)
 
 ### 7.4 Accepted bugs become regression tests
 
@@ -585,8 +629,8 @@ On either Accept (preview Accept or the post-merge `/verify` Accept) of a
 **bug** pin whose `verification.repro` has kind `e2e`, before `failing`,
 after `passing` and a script containing `[<pin id>]`
 (`dev_notes.promote_regression`, run AFTER the verdict is committed, so it
-never raises into the request; idempotent - a pin with `regressionCaseId`
-is left alone):
+never raises into the request; idempotent - an active or archived case is
+left alone, a draft is refreshed):
 
 - Testing module on (`routers.qa._ENABLED`, env `NEXUS_QA_MODULE`): upsert
   `QaTestCase` with `id` = the pin id, `module` from the route
@@ -598,10 +642,15 @@ is left alone):
   All Read", "Fill Search", "Open ...", "Press ...", "Scroll ..."),
   `expected` = "Fixed by PR #<pr>: <the summary given to complete>",
   `priority` blocking -> High, normal -> Medium, nice -> Low, `case_type`
-  Regression, `source` build-mode, `status` active, `e2e_spec` = the script,
-  `created_by` = the author. Sets `regressionCaseId`, system entry "Added To
-  The Regression Suite", audit `dev_note_regression`. The nightly `qa-e2e`
-  workflow picks it up through `/qa/e2e-specs`.
+  Regression, `source` build-mode, `e2e_spec` = the script, `created_by` =
+  the author; sets `regressionCaseId`, audit `dev_note_regression`.
+  `status`: a preview Accept comes BEFORE the merge, so the case is `draft`
+  (entry "Regression test ready - it joins the suite when the PR merges")
+  and `mark_fixed_for_pr` turns it `active` when the PR merges (entry "Added
+  To The Regression Suite"); a closed, unmerged PR leaves it a draft. The
+  post-merge `/verify` Accept writes it `active` straight away ("Added To The
+  Regression Suite"). The nightly `qa-e2e` workflow runs only active cases
+  (`/qa/e2e-specs`).
 - Testing module off: no row; system entry "Regression test not added - the
   Testing module is off on this deployment" (once).
 
@@ -609,15 +658,19 @@ is left alone):
 
 | method | path | who | body -> result |
 |---|---|---|---|
-| GET | /enabled | signed in | adds `owners` |
+| GET | /enabled | signed in | adds `owners`, `isGlobalAdmin` |
 | GET | /owners | Build Mode user or token | `{owners: [{name, email, paths}]}` |
-| PATCH | /{id} | owner or Global Admin | `{release: true}` -> note |
-| POST | /dispatch | Build Mode | response adds `held: [{id, number, ownerName}]` |
-| POST | /{id}/preview-verdict | author or Global Admin | `{accepted, comment?}` -> note |
-| POST | /cli/preview/{id} | token or user | `{url, branch, prNumber, host}` -> note |
-| POST | /cli/complete | token or user | as before; also clears preview + previewVerdict |
+| GET | /owner-of?path= | Build Mode user | `{owner: {name, email} \| null, held}` (`devNotesOwnerOf`) |
+| PATCH | /{id} | owner or Global Admin | `{release: true}` -> note (`devNotesRelease`) |
+| POST | /dispatch | Build Mode | response adds `held: [{id, number, ownerName}]` (numbers after any move) |
+| POST | /{id}/preview-verdict | author or Global Admin | `{accepted, comment?}` -> note (`devNotesPreviewVerdict`) |
+| POST | /cli/preview/{id} | token or user | `{url, branch, prNumber, host, commit?}` -> note |
+| POST | /cli/complete | token or user | as before; also clears preview + previewVerdict, resets the PR's other Accepts |
 | POST | /cli/verify/{id} | token or user | `repro.kind` e2e \| python |
 
-New bell: `dev_note_owner` ("Pin #n On Your Area", recipient = the owner,
-`ref_id` = the pin). New audit actions: `dev_note_release`,
+Every note also carries `held`, `readyToCheck`, `canRelease`, `canVerdict`.
+
+New bells: `dev_note_owner` ("Pin #n On Your Area", recipient = the owner)
+and `dev_note_rework` ("Pin #n Needs A New PR", recipient = the author),
+`ref_id` = the pin. New audit actions: `dev_note_release`,
 `dev_note_preview`, `dev_note_preview_verdict`, `dev_note_regression`.

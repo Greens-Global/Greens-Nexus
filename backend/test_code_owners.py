@@ -21,6 +21,13 @@ def test_normalize_adds_frontend_to_source_stamps():
     assert C.normalize("") == "" and C.normalize(None) == ""
 
 
+def test_normalize_picks_the_last_marker_in_an_absolute_path():
+    assert C.normalize("/home/frontend/Greens-Nexus/backend/routers/items.py") == "backend/routers/items.py"
+    assert C.owner_of("/home/frontend/Greens-Nexus/backend/routers/items.py")["name"] == "Visesh"
+    assert C.normalize("/srv/backend/Greens-Nexus/frontend/src/asset/Map.jsx") == "frontend/src/asset/Map.jsx"
+    assert C.normalize("C:/work/frontend/src/views/AssetModule.jsx") == "frontend/src/views/AssetModule.jsx"
+
+
 def test_owner_of_files_and_folders():
     assert C.owner_of("src/views/InventoryManagement.jsx") == {"name": "Visesh", "email": VISESH}
     assert C.owner_of("backend/routers/items.py") == {"name": "Visesh", "email": VISESH}
@@ -53,5 +60,10 @@ def test_stdlib_only():
 def test_claude_md_table_names_the_same_owners():
     text = (Path(__file__).resolve().parent.parent / "CLAUDE.md").read_text()
     assert "backend/code_owners.py" in text
+    rows = {line.split("|")[2].strip().strip("*"): line.split("|")[3]
+            for line in text.splitlines() if line.startswith("| ") and line.count("|") >= 4}
     for owner in C.OWNERS:
         assert f"**{owner['name']}**" in text
+        # every path code_owners.py lists is in that owner's table row
+        for path in owner["paths"]:
+            assert f"`{path}`" in rows[owner["name"]], (owner["name"], path)
