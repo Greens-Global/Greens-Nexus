@@ -49,6 +49,27 @@ describe('withFreshReads', () => {
     expect(urls(f)[0]).not.toContain('fresh=');
   });
 
+  it('marks Accounting, MRI (leasing) and PFS reads only - other modules keep their caches (review 10/24)', async () => {
+    const f = okFetch();
+    vi.stubGlobal('fetch', f);
+    await api.getTicketSites();
+    await withFreshReads(async () => {
+      await api.getAccountingPartners('vendor');
+      await api.getLeasingRentRoll(2026);
+      await api.getPfsStatement('P1', '2026-09-30');
+      await api.getOpsRates('F1');
+      await api.getTicketSites();
+    });
+    const u = urls(f);
+    expect(u.find((x) => x.includes('/accounting/partners'))).toMatch(/[?&]fresh=1(&|$)/);
+    expect(u.find((x) => x.includes('/leasing/rent-roll'))).toMatch(/[?&]fresh=1(&|$)/);
+    expect(u.find((x) => x.includes('/pfs/profiles/P1/statement'))).toMatch(/[?&]fresh=1(&|$)/);
+    expect(u.find((x) => x.includes('/facility-ops/rates'))).not.toContain('fresh=');
+    // The ticket sites came from the browser's own short cache, not read again.
+    expect(u.filter((x) => x.includes('/ticket-sites'))).toHaveLength(1);
+    expect(u.some((x) => x.includes('/ticket-sites') && x.includes('fresh='))).toBe(false);
+  });
+
   it('a read that throws at once still ends the fresh window', async () => {
     const f = okFetch();
     vi.stubGlobal('fetch', f);

@@ -244,9 +244,13 @@ function _networkError(err) {
 // Every GET started while `withFreshReads(fn)` runs - until the promise fn
 // returns settles, so a report read in several steps is fresh throughout -
 // carries fresh=1; the backend then asks the accounting app again instead of
-// answering from its cache. A read another screen part starts in that moment
-// is fresh too, which costs nothing but one upstream call.
+// answering from its cache. Only Accounting, Leasing (MRI) and PFS reads are
+// marked - the same list as the backend's _FRESH_PREFIXES (review 10/24): a
+// read another module starts in that moment (Facility Operations takes fresh
+// too) keeps its own caches.
 let _freshReads = 0;
+const FRESH_PREFIXES = ['/accounting', '/leasing', '/pfs'];
+const freshScoped = (path) => FRESH_PREFIXES.some((p) => path.startsWith(p));
 export function withFreshReads(fn) {
   _freshReads += 1;
   let out;
@@ -260,7 +264,7 @@ export function withFreshReads(fn) {
 const freshPath = (path) => (/[?&]fresh=/.test(path) ? path : `${path}${path.includes('?') ? '&' : '?'}fresh=1`);
 
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
-  if (_freshReads > 0 && attempt === 1 && !tokenRefreshed && (!options.method || options.method === 'GET')) path = freshPath(path);
+  if (_freshReads > 0 && attempt === 1 && !tokenRefreshed && (!options.method || options.method === 'GET') && freshScoped(path)) path = freshPath(path);
   const authHeader = await getAuthHeader(tokenRefreshed);
   const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
   let res;
@@ -368,7 +372,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
 const _getCache = new Map(); // path → { ts, promise }
 function cachedGet(path, ttlMs = 60_000) {
   const hit = _getCache.get(path);
-  if (hit && !_freshReads && (Date.now() - hit.ts) < ttlMs) return hit.promise;
+  if (hit && !(_freshReads && freshScoped(path)) && (Date.now() - hit.ts) < ttlMs) return hit.promise;
   const promise = req(path).catch(err => { _getCache.delete(path); throw err; });
   _getCache.set(path, { ts: Date.now(), promise });
   return promise;
