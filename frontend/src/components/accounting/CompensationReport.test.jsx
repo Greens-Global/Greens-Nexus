@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,6 +35,10 @@ import { resetAccountingPrefs } from './prefs';
 // The standard table view keeps a person's filters (10/23 item 01): each test starts clean.
 beforeEach(() => { vi.clearAllMocks(); resetAccountingPrefs(); try { localStorage.clear(); } catch { /* private mode */ } });
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('CompensationReport', () => {
   // 10/23 meeting, item 05 (fix 10/24): the page does not scroll; each table scrolls in its own card.
   it('is as tall as the window, the people and the ledger each scrolling in their own card', async () => {

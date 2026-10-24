@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Render-smoke for the ledger lines (Neil and Charmi, Sep 25): the grid works
@@ -38,6 +38,10 @@ beforeEach(() => { localStorage.clear(); resetAccountingPrefs(); vi.clearAllMock
 // The first header row only: the filter row under it holds the amount operators.
 const headers = () => within(document.querySelector('.acct-lines thead tr')).getAllByRole('columnheader').map((h) => h.textContent).filter(Boolean);
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('LedgerSearch grid', () => {
   it('shows the working columns, keeps Doc No off until it is asked for', async () => {
     render(<LedgerSearch term="amazon" entities={['12000']} entityName="Greens Global, Inc. (12000)" onClose={() => {}} onClearDrill={() => {}} />);

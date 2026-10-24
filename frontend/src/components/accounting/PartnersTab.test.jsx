@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Accounting -> Vendors & Customers (Oct 2): the records from the accounting
@@ -44,6 +44,10 @@ beforeEach(() => {
   globalThis.URL.revokeObjectURL = vi.fn();
 });
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('PartnersTab', () => {
   it('lists the records with the Awaiting Intacct badge', async () => {
     render(<PartnersTab />);

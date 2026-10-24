@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Render-smoke for Accounting -> Leasing (Neil and Charmi, Sep 25): the rent
@@ -63,6 +63,10 @@ import { dialog as appDialog } from '../../ui/dialog';
 
 beforeEach(() => { vi.clearAllMocks(); try { localStorage.clear(); } catch { /* none */ } resetAccountingPrefs(); });
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('LeasingTab', () => {
   it('shows every month of every lease and what is owed', async () => {
     render(<LeasingTab canEdit />);

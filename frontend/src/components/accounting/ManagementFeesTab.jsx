@@ -337,7 +337,7 @@ const thisYear = () => new Date().getFullYear();
 // The agreements' columns for the standard table view (10/23 meeting, item
 // 01): the figures typed as amounts (the totals line adds up the ones it
 // always did), the next billing as a date, the row's buttons last.
-export function feeColumns(entities, canEdit) {
+function feeColumns(entities, canEdit) {
   const money = (key, label, field, total = false) => ({
     key, label, type: 'amount', total, value: (r) => (r[field] == null ? null : Number(r[field])), text: (r) => (r[field] == null ? '' : formatAmount(r[field])),
   });

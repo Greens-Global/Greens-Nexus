@@ -45,7 +45,7 @@ const hrs = (min) => hoursOf(min).toLocaleString('en-US', { minimumFractionDigit
 // The people table's columns for the standard table view (10/23 meeting,
 // item 01), one set per grouping: hours compare as numbers, rates and wages
 // as amounts. Employee ID and the currency export beside them, as before.
-export function compColumns(grouping) {
+function compColumns(grouping) {
   const hours = HOUR_COLUMNS.map((c) => ({ key: c.key, label: c.label, type: 'number', total: true, value: (r) => hoursOf(r[c.key]), text: (r) => (r[c.key] ? hrs(r[c.key]) : '') }));
   const wages = { key: 'wages', label: 'Gross Wages', type: 'amount', total: true, value: (r) => Number(r.wages) || 0, text: (r) => formatAmount(r.wages) };
   if (grouping === 'people') {
@@ -68,7 +68,7 @@ export function compColumns(grouping) {
 }
 
 /** The totals by currency over some rows (wages in USD and INR never add together). */
-export function totalsOf(rows, grouping) {
+function totalsOf(rows, grouping) {
   const by = new Map();
   rows.forEach((r) => {
     const t = by.get(r.currency) || { currency: r.currency, people: 0, wages: 0, ...Object.fromEntries(HOUR_COLUMNS.map((c) => [c.key, 0])) };

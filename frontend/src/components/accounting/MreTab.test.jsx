@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Accounting -> Reporting -> MRE (Oct 6): the grid renders (a render smoke
@@ -65,6 +65,10 @@ beforeEach(() => {
   api.getMreProposals.mockImplementation(async () => proposals);
 });
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('MreTab', () => {
   it('renders the grid with paid amounts colored against what was expected', async () => {
     render(<MreTab canEdit />);

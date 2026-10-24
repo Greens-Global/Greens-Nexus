@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // The standard table view on a screen (10/23 meeting, item 01): the Filters
@@ -56,6 +56,10 @@ const flushSave = () => act(async () => { await new Promise((r) => setTimeout(r,
 
 beforeEach(() => { vi.clearAllMocks(); resetAccountingPrefs(); localStorage.clear(); lastExport = null; });
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./panels'); }, 30000);
 describe('Filters panel', () => {
   it('adds rules (field, condition, value), matches All or Any, counts them, deletes one', async () => {
     render(<Harness />);

@@ -210,7 +210,7 @@ export function mreFilterColumns(extra = [], span = [0, 11]) {
 // the filter columns above, typed for the rules (amounts) and the value lists,
 // the vendor pinned first and sorting by name (Urmi, 10/22), each with what
 // it exports as - the export is the view's rows and columns.
-export function mreViewColumns(extra = [], span = [0, 11]) {
+function mreViewColumns(extra = [], span = [0, 11]) {
   const money = (c) => ({ ...c, type: 'amount', text: (r) => formatAmount(c.value(r)) });
   return mreFilterColumns(extra, span).map((c) => {
     if (c.key === 'vendor') {
@@ -233,7 +233,7 @@ export function mreViewColumns(extra = [], span = [0, 11]) {
 }
 
 /** The summary over some rows: what the full year's server summary says, added up from them. */
-export function mreSummary(rows, [from, to]) {
+function mreSummary(rows, [from, to]) {
   const r2 = (n) => Math.round(n * 100) / 100;
   if (from === 0 && to === 11) {
     return {

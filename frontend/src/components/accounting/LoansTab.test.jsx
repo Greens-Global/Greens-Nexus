@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -99,6 +99,10 @@ beforeEach(() => {
 
 const rowOf = async (text) => (await screen.findAllByText(text))[0].closest('tr');
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('LoansTab', () => {
   it('lists the open loans with the columns asked for, closed ones hidden', async () => {
     render(<LoansTab canEdit />);

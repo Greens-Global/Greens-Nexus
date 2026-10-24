@@ -196,7 +196,7 @@ export function loansTable(rows, { from, to, entityLabel }) {
 // always did), Rate and DSCR as numbers, Maturity as a date. The details the
 // export always carried (Charmi, 10/06) are columns too, hidden until shown
 // from Columns - the export is exactly the columns shown.
-export function loanColumns(canEdit) {
+function loanColumns(canEdit) {
   const money = (key, label, field, total = true) => ({ key, label, type: 'amount', total, value: (r) => (r[field] == null ? null : Number(r[field])), text: (r) => (r[field] == null ? '' : formatAmount(r[field])) });
   const n = (v) => (v == null ? '' : v);
   return [

@@ -285,7 +285,7 @@ const monthShown = (c) => {
  * as it always did), the notes. Payer and Status export beside the property,
  * as before.
  */
-export function mriRollColumns([from, to], thisMonth) {
+function mriRollColumns([from, to], thisMonth) {
   const money = (v) => (v == null ? '' : whole(v));
   const amountOf = (r) => { if (r.kind === 'account') return null; const rate = rateNow(r.lease, thisMonth); return rate ? rate.rent + rate.cam + rate.other : null; };
   return [
@@ -308,7 +308,7 @@ const contactText = (l) => [l.contactName, l.phone].filter(Boolean).join(' · ')
 const ACTIONS = { fixed: true, noFilter: true, noSort: true, exportAs: [], text: () => '' };
 
 /** Outstanding's columns for the standard table view (item 01): who owes the most first. */
-export const OUTSTANDING_COLUMNS = [
+const OUTSTANDING_COLUMNS = [
   { key: 'property', label: 'Property or Source', fixed: true, text: (r) => r.lease.propertyName || '', exportAs: [{ label: 'Property or Source', width: 220, get: (r) => r.lease.propertyName }] },
   { key: 'type', label: 'Type', text: (r) => TYPE_LABEL[typeOf(r)] || 'Other', exportAs: [{ label: 'Type', width: 90, get: (r) => TYPE_LABEL[typeOf(r)] }] },
   { key: 'payer', label: 'Payer', text: tenantOf, exportAs: [{ label: 'Payer', width: 200, get: tenantOf }] },
@@ -319,10 +319,10 @@ export const OUTSTANDING_COLUMNS = [
   { key: 'contact', label: 'Contact', text: (r) => contactText(r.lease), exportAs: [{ label: 'Contact', width: 200, get: (r) => [r.lease.contactName, r.lease.phone, r.lease.email].filter(Boolean).join(' · ') }] },
   { key: 'write', label: 'Write', ...ACTIONS },
 ];
-export const OUTSTANDING_SORT = { col: 'owed', dir: 'desc' };
+const OUTSTANDING_SORT = { col: 'owed', dir: 'desc' };
 
 /** Payers' columns for the standard table view (item 01). */
-export const PAYER_COLUMNS = [
+const PAYER_COLUMNS = [
   { key: 'property', label: 'Property or Source', fixed: true, text: (r) => r.lease.propertyName || '', exportAs: [{ label: 'Property or Source', width: 220, get: (r) => r.lease.propertyName }] },
   { key: 'type', label: 'Type', text: (r) => TYPE_LABEL[typeOf(r)] || 'Other', exportAs: [{ label: 'Type', width: 90, get: (r) => TYPE_LABEL[typeOf(r)] }] },
   { key: 'payer', label: 'Payer', text: (r) => `${r.lease.customerId ? `${r.lease.customerId} ` : ''}${tenantOf(r)}`, exportAs: [{ label: 'Payer', width: 200, get: tenantOf }, { label: 'Customer', width: 80, get: (r) => r.lease.customerId }] },

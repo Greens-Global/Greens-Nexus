@@ -1,7 +1,7 @@
 import { Suspense, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, Columns3, Funnel, Save, X } from 'lucide-react';
 import { Panels, preloadPanels } from './load';
-import { ColumnResizer } from '../reportControls';
+import { BarMore, ColumnResizer } from '../reportControls';
 
 // The standard table view's bar and headings (10/23 meeting, item 01). These
 // are the parts that draw with the table; the panels and menus they open
@@ -62,11 +62,15 @@ export function TableViewBar({ view, columns = true, filtersLabel = 'Filters' })
         <span className="acct-bar-label-2">{filtersLabel}</span>
         {n > 0 && <span style={count}>{n}</span>}
       </button>
+      {/* On a row that runs out of room (item 02) Columns moves into the bar's
+          More menu first - each heading's menu also hides and shows columns. */}
       {columns && (
-        <button ref={columnsRef} type="button" style={btn(false)} onClick={() => toggle('columns')} onPointerEnter={preloadPanels}
-          aria-haspopup="dialog" aria-expanded={open === 'columns'} aria-label="Show or Hide Columns" title="Show, hide and order the columns">
-          <Columns3 size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} /> <span className="acct-bar-label">Columns</span>
-        </button>
+        <BarMore level={1}>
+          <button ref={columnsRef} type="button" style={btn(false)} onClick={() => toggle('columns')} onPointerEnter={preloadPanels}
+            aria-haspopup="dialog" aria-expanded={open === 'columns'} aria-label="Show or Hide Columns" title="Show, hide and order the columns">
+            <Columns3 size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} /> <span className="acct-bar-label">Columns</span>
+          </button>
+        </BarMore>
       )}
       {open && (
         <Suspense fallback={null}>

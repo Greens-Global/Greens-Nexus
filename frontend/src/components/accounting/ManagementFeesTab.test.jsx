@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Accounting -> Reporting -> Management Fees (Oct 7, renamed from AMA Oct 15): the agreements render (a render
@@ -50,6 +50,10 @@ beforeEach(() => {
   api.getAmaSummary.mockImplementation(async () => summary);
 });
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('ManagementFeesTab', () => {
   it('renders the agreements with fees, figures and the next billing date', async () => {
     render(<ManagementFeesTab canEdit />);
