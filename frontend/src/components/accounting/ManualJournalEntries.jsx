@@ -191,7 +191,7 @@ export default function ManualJournalEntries() {
             {' · '}Not manual: entries created by {(data.excludedUsers || []).join(', ') || 'system'} or by a bank-feed or other rule. Posted / Changed By is the last person to change or post the entry (Intacct&apos;s MODIFIEDBY); a rule&apos;s draft that a person only posted shows here as changed by that person.
           </div>
           <div className="req-table-wrapper acct-scroll-box" ref={setBox} data-testid="manual-je-box" style={fit}>
-            <table className="req-table">
+            <table className="req-table acct-sticky-head">
               <thead><tr>{view.columns.map(head)}</tr></thead>
               <tbody>
                 {!rows.length && <tr><td colSpan={view.columns.length} style={{ padding: 16, color: 'var(--text-secondary)' }}>{view.count ? 'No entry passes the filters.' : 'No manual journal entries in this period.'}</td></tr>}

@@ -271,6 +271,7 @@ describe('ManagementFeesTab, Sync and the scroll box', () => {
     render(<ManagementFeesTab canEdit />);
     await screen.findByText('15000 Greens Escondido, LLC.');
     expect(screen.getByTestId('mgmt-fees-box').className).toContain('acct-scroll-box');
+    expect(screen.getByTestId('mgmt-fees-box').querySelector('table').classList.contains('acct-sticky-head')).toBe(true);   // headings pinned (round 3)
     fireEvent.change(screen.getByLabelText('Filter agreements'), { target: { value: 'Escondido' } });
     fireEvent.click(screen.getByRole('button', { name: /Add Agreement/ }));
     await screen.findByRole('dialog', { name: 'Add Agreement' });

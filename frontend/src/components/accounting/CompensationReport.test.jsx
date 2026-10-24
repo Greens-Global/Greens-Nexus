@@ -60,6 +60,10 @@ describe('CompensationReport', () => {
     expect(css).toContain('.acct-fit-stack > .acct-stack-card { overflow: auto; }');
     expect(css).toContain('.acct-fit-stack > .acct-stack-card table > thead th { position: sticky; top: 0;');
     expect(css).toContain('.acct-fit-stack > .acct-controlbar { flex: 0 0 auto; }');
+    // Round 3: the people table's headings carry position: relative (their drag handle), which stopped
+    // the per-cell rule pinning them; the whole heading block pins instead (acct-sticky-head).
+    expect(people.querySelector('table').classList.contains('acct-sticky-head')).toBe(true);
+    expect(css).toContain('.acct-sticky-head.acct-sticky-head thead { position: sticky; top: 0; z-index: 3; }');
   });
 
   it('renders each person with hours and wages, and the ledger payroll', async () => {

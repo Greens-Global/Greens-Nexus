@@ -35,6 +35,7 @@ describe('Manual Journal Entries', () => {
   it('lists the entries with who created and posted them, grouped by user, with the spec columns', async () => {
     render(<ManualJournalEntries />);
     const table = await screen.findByRole('table');
+    expect(table.classList.contains('acct-sticky-head')).toBe(true);   // headings pinned in the box (item 05, round 3)
     const heads = [...table.querySelectorAll('thead th')].map((th) => th.getAttribute('aria-label'));
     expect(heads).toEqual(['Date', 'Journal', 'Entry No.', 'Entity', 'Description', 'Amount', 'Created By', 'Posted / Changed By', 'Created', 'Posted / Changed', 'State', 'Open']);
     const text = table.textContent;
