@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Accounting -> Reporting -> AMA, Ask My Accountant (Neil, 10/15): the screen
@@ -42,6 +42,8 @@ vi.mock('../../api', () => ({
     getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
     saveAccountingPrefs: vi.fn(async () => ({})),
     getAccountingEntry: vi.fn(async () => ({ entry: {}, lines: [], intacct: [] })),
+    getAskOffsets: vi.fn(async () => ({ offsets: {}, errors: {} })),
+    saveAskNote: vi.fn(async () => ({})),
   },
 }));
 
@@ -59,6 +61,10 @@ beforeEach(() => {
   api.getAskThread.mockImplementation(async () => detail());
 });
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('AskAccountantTab', () => {
   it('renders the Open lines with the counts per status', async () => {
     render(<AskAccountantTab />);
@@ -77,15 +83,39 @@ describe('AskAccountantTab', () => {
     expect(screen.getByRole('tab', { name: /Open 2/ })).toBeTruthy();
     expect(screen.getByRole('tab', { name: /Answered 1/ })).toBeTruthy();
     expect(screen.getByText(/AMA account: 99999 Ask My Accountant \(found by title\)/)).toBeTruthy();
-    for (const h of ['Date', 'Entity', 'Entry', 'Account', 'Description', 'Department', 'Vendor', 'Custom', 'Amount', 'Question', 'Asked By', 'Accountant', 'Status', 'Last Reply']) {
+    // CR-13: Other Side in place of the always-AMA Account column, Notes and GL Reclass.
+    for (const h of ['Date', 'Entity', 'Entry', 'Other Side', 'Description', 'Department', 'Vendor', 'Custom', 'Amount', 'Notes', 'GL Reclass', 'Question', 'Asked By', 'Accountant', 'Status', 'Last Reply']) {
       expect(screen.getByRole('columnheader', { name: h })).toBeTruthy();
     }
+    expect(screen.queryByRole('columnheader', { name: 'Account' })).toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: /Answered/ }));
     expect(await screen.findByText('Capitalize?')).toBeTruthy();
     expect(screen.queryByText('Which property is this for?')).toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: /All/ }));
     expect(screen.getByText('Moved yet?')).toBeTruthy();
     expect(api.getAskItems).toHaveBeenCalledWith(expect.objectContaining({ entity: '' }));
+  });
+
+  it('has the standard table view: a rule narrows the lines and the status counts follow it (10/23, item 01)', async () => {
+    render(<AskAccountantTab />);
+    await screen.findByText('Which property is this for?');
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const panel = await screen.findByRole('dialog', { name: 'Filters' });
+    fireEvent.click(within(panel).getByRole('button', { name: /Add Filter/ }));
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 field' }), { target: { value: 'amount' } });
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 condition' }), { target: { value: 'lt' } });
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'Rule 1 value' }), { target: { value: '0' } });
+    expect(screen.queryByText('Which property is this for?')).toBeNull();
+    expect(screen.getByText('Unknown deposit')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Open 1/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Answered 0/ })).toBeTruthy();
+    // Newest first by default; the Date heading's menu turns it around.
+    fireEvent.click(within(panel).getByRole('button', { name: 'Delete rule 1' }));
+    const dates = () => screen.getAllByRole('row').map((r) => r.querySelector('td')?.textContent).filter((t) => /\d{2}\/\d{2}\/\d{4}/.test(t || ''));
+    expect(dates()).toEqual(['09/20/2026', '09/15/2026']);
+    fireEvent.click(screen.getByRole('button', { name: /^Date, sorted descending - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Date column' })).getByRole('menuitemradio', { name: /Sort Ascending/ }));
+    expect(dates()).toEqual(['09/15/2026', '09/20/2026']);
   });
 
   it('opens the thread and sends a reply', async () => {
@@ -137,8 +167,13 @@ describe('AskAccountantTab', () => {
     expect(visibleRows(rows, { status: 'All', mine: 'assigned', me: ACCT }).map((r) => r.id)).toEqual(['T1', 'T2', 'T3']);
     expect(visibleRows(rows, { status: 'All', text: 'deposit' }).map((r) => r.id)).toEqual(['line:L2']);
     const t = exportTable(rows, { from: '2025-10-15', to: '2026-10-15' });
-    expect(t.columns.map((c) => c.label)).toEqual(['Date', 'Entity', 'Entry', 'Account', 'Description', 'Department', 'Vendor', 'Custom', 'Amount', 'Question', 'Asked By', 'Accountant', 'Status', 'Last Reply']);
-    expect(t.rows[0].slice(0, 9)).toEqual(['09/15/2026', '15000', 'GJ-100', '99999 Ask My Accountant', 'Home Depot card', '', '', '', 125]);
+    expect(t.columns.map((c) => c.label)).toEqual(['Date', 'Entity', 'Entry', 'Other Side', 'Description', 'Department', 'Vendor', 'Custom', 'Amount', 'Notes', 'GL Reclass', 'Question', 'Asked By', 'Accountant', 'Status', 'Last Reply']);
+    expect(t.rows[0].slice(0, 9)).toEqual(['09/15/2026', '15000', 'GJ-100', '', 'Home Depot card', '', '', '', 125]);
+    const withSide = { ...rows[0], note: 'Laborers', otherSide: { shown: [], all: [{ accountNo: '11000', accountTitle: 'Chase Checking', amount: -125 }] }, reclass: { toAccount: '61000', status: 'Awaiting Bookkeeper' } };
+    expect(exportTable([withSide], { from: '2025-10-15', to: '2026-10-15' }).rows[0].slice(3, 11))
+      .toEqual(['11000 Chase Checking', 'Home Depot card', '', '', '', 125, 'Laborers', '61000 Awaiting Bookkeeper']);
+    expect(visibleRows([withSide, rows[1]], { status: 'All', mine: 'awaiting' }).map((r) => r.id)).toEqual(['T1']);
+    expect(visibleRows([withSide, rows[1]], { status: 'All', text: 'chase' }).map((r) => r.id)).toEqual(['T1']);
   });
 
   // Oct 22 (Priyanka): the export and the screen read the ledger LINE memo
@@ -247,6 +282,28 @@ describe('AskAccountantTab', () => {
     expect(screen.queryByText(/Every Entity: Ann Accountant/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.saveAskSettings).toHaveBeenCalled());
-    expect(api.saveAskSettings.mock.calls[0][0]).toEqual({ accounts: ['99999'], accountants: { '': [ACCT], '15000': [OTHER] } });
+    expect(api.saveAskSettings.mock.calls[0][0]).toEqual({ accounts: ['99999'], accountants: { '': [ACCT], '15000': [OTHER] }, bookkeepers: [], closedThrough: '' });
+  });
+
+  // CR-13: the bookkeepers are kept with the settings; the server's own list
+  // shows while none is set here and is never re-sent as if picked.
+  it('keeps the bookkeepers list', async () => {
+    const s = { ...settingsWith(), bookkeepers: [{ email: ACCT, name: 'Ann Accountant' }], bookkeepersFromEnv: false };
+    render(<SettingsDialog settings={s} entities={ents} limited={false} onClose={() => {}} onSaved={() => {}} />);
+    await waitFor(() => expect(screen.getByLabelText('Bookkeeper 1').value).toBe(ACCT));
+    fireEvent.click(screen.getByRole('button', { name: /Add Bookkeeper/ }));
+    fireEvent.change(screen.getByLabelText('Bookkeeper 2'), { target: { value: ME } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.saveAskSettings).toHaveBeenCalled());
+    expect(api.saveAskSettings.mock.calls[0][0].bookkeepers).toEqual([ACCT, ME]);
+  });
+
+  it('shows the server list of bookkeepers without sending it back', async () => {
+    const s = { ...settingsWith(), bookkeepers: [{ email: ACCT, name: 'Ann Accountant' }], bookkeepersFromEnv: true };
+    render(<SettingsDialog settings={s} entities={ents} limited={false} onClose={() => {}} onSaved={() => {}} />);
+    expect(screen.getByText(/From the server's settings: Ann Accountant/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.saveAskSettings).toHaveBeenCalled());
+    expect(api.saveAskSettings.mock.calls[0][0].bookkeepers).toEqual([]);
   });
 });

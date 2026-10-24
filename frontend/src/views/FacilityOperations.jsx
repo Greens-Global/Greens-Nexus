@@ -14,6 +14,7 @@ import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { combine, PERIODS, periodRange } from '../operations/model';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { useRefreshState } from '../lib/refreshState';
 import { Overview, Collections, Units, Worklist } from '../operations/OpsTabs';
 import RateManagement from '../operations/RateManagement';
 import Reports from '../operations/Reports';
@@ -139,7 +140,8 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   const setPicked = useCallback((id) => { setPickedState(id); saveFacility(id); }, []);
   const [usState, setUsStateRaw] = useState(readState);
   const setUsState = useCallback((v) => { setUsStateRaw(v); saveState(v); }, []);
-  const [period, setPeriod] = useState('this-month');
+  // A reload keeps the period picked (Charmi, 10/22, item 17 - lib/refreshState).
+  const [period, setPeriod] = useRefreshState('ops.period', 'this-month', (p) => PERIODS.some((x) => x.key === p));
   // Where the last KPI / chart bar pointed: the card to scroll to and, for the
   // past-due table, what to narrow it to. `n` changes on every click so the
   // same target can be asked for twice.

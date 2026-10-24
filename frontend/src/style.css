@@ -2765,9 +2765,132 @@ html { overflow-x: hidden; }
 .modal-content.acct-entry { resize: both; overflow: auto; min-width: min(720px, 96vw); min-height: 240px; }
 .acct-entry-lines td { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; }
 .acct-entry-lines .acct-grand td { position: static; }
+/* Leasing Income Roll (Viral, 10/22): "Received - N sources" stays pinned at
+   the bottom of the box, above the rows and the pinned property column that
+   scroll under it, and solid in both themes (the dark hover tint is
+   see-through). Its first cell stays on the left, above the month totals
+   sliding under it, so no text draws over another's. */
+.acct-lines.acct-roll tbody tr.acct-grand td { position: sticky; bottom: 0; z-index: 3; background: var(--bg-secondary); }
+.acct-lines.acct-roll tbody tr.acct-grand td.acct-roll-label { left: 0; z-index: 4; }
 /* The statement takes the same banding and whole-row hover. */
 .acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td { background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%); }
 .acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td { background: var(--wk-brand-tint, #e8ecfd); }
+/* MRE (Viral, Charmi 10/22): the headings and their filter boxes are one
+   sticky block, so no row shows between them, and the pinned Vendor cell is
+   solid - the hover and banding tints are see-through, so they paint over the
+   card color instead of over the months scrolling under it. */
+.acct-report.mre-grid thead { position: sticky; top: 0; z-index: 3; }
+.acct-report.mre-grid thead th, .acct-report.mre-grid .acct-filter-row td { top: auto; }
+.acct-report.mre-grid tbody tr td.acct-label { background: var(--bg-card); }
+.acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td.acct-label { background: linear-gradient(color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%), color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%)), var(--bg-card); }
+.acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label,
+.acct-report.mre-grid tbody tr.acct-grand td.acct-label { background: linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card); }
+/* The same on every statement (UI test 10/23): the pinned first column keeps
+   the hover and Total tints painted over the card color, so the figures
+   scrolling sideways under it never show through - flagged rows on hover
+   too (the row takes the hover tint there, as the rest of it does). */
+.acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label,
+.acct-report.acct-gl tbody tr.acct-line-link:hover td.acct-label,
+.acct-report tbody tr.acct-grand td.acct-label { background: linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card); }
+/* Oct 23 (Viral, Charmi, item 10: "Header should not be hide when we scroll
+   down"): the header is the column headings. The whole heading block - the
+   names and the filter boxes under them - pins to the top of the table's box
+   as one piece, whatever height the names wrap to, so no row shows above the
+   boxes. Cells inside it only pin sideways (the first column). The class is
+   doubled to outrank the per-cell `top` rules above. */
+.acct-sticky-head.acct-sticky-head thead { position: sticky; top: 0; z-index: 3; }
+.acct-sticky-head.acct-sticky-head thead th,
+.acct-sticky-head.acct-sticky-head thead td { position: relative; top: auto; }
+.acct-sticky-head.acct-sticky-head thead .acct-head { position: sticky; left: 0; z-index: 4; }
+/* Item 18 (Viral: "Need Scroll within table in case of general ledgers"):
+   ledger lines scroll inside a box sized to the window, so the page header
+   and the report controls above it stay where they are. 300px is the floor
+   on a short window (the top bar, the report controls and the title take
+   about 340px; 1366 x 768 leaves a 428px box). The statements' own box
+   takes the same height. */
+.acct-report-wrap.acct-scroll-box { max-height: max(300px, calc(100vh - 340px)); }
+/* The ledger lines have more above them (the drill's title, filters and
+   totals), so LedgerSearch measures where the box starts and sets
+   --acct-lines-h (UI test 10/23); the fixed offset is only the first paint. */
+.acct-lines-wrap.acct-scroll-box { max-height: var(--acct-lines-h, max(300px, calc(100vh - 340px))); }
+/* 10/23 meeting, item 05 (Viral: "remove Global Scrolling ... mostly on every
+   screen"; Neil: "remove dual scrolling"): every other Accounting table
+   scrolls inside its own box too. useFitHeight (tableHooks) measures where the
+   box starts and sets --acct-box-h so it ends inside the window; the fixed
+   offset is only the first paint. The headings pin to the box's top. */
+.acct-scroll-box { overflow: auto; }
+.acct-scroll-box:not(.acct-lines-wrap):not(.acct-report-wrap) { max-height: var(--acct-box-h, max(300px, calc(100vh - 340px))); }
+.acct-report-wrap.acct-scroll-box.acct-fit { max-height: var(--acct-box-h, max(300px, calc(100vh - 340px))); }
+.acct-scroll-box > table > thead th { position: sticky; top: 0; z-index: 3; background: var(--bg-secondary); }
+/* Fix 10/24 (item 05; review: Allocations and Compensation still grew the
+   page): a screen with several tables is one column as tall as the rest of
+   the window (useFitHeight sets --acct-box-h). The control bar keeps its
+   height; the tables share the rest - each card takes an equal slice
+   (.acct-stack-main twice as much), never more than its own content - and
+   scrolls inside itself, its headings pinned, a wide table sideways. The page
+   does not scroll. */
+.acct-fit-stack { display: flex; flex-direction: column; gap: 10px; height: var(--acct-box-h, max(300px, calc(100vh - 200px))); }
+.acct-fit-stack > * { flex: 1 1 120px; min-height: 0; max-height: max-content; }
+.acct-fit-stack > .acct-controlbar { flex: 0 0 auto; }
+.acct-fit-stack > .acct-stack-main { flex-grow: 2; }
+.acct-fit-stack > .acct-stack-card { overflow: auto; }
+.acct-fit-stack > .acct-stack-card table > thead th { position: sticky; top: 0; z-index: 2; background: var(--bg-card); }
+
+/* 10/23 meeting, item 02: the control bar on one line (ControlBar in
+   reportControls). Words fold away before anything wraps - data-fold 1 hides
+   the action words, 2 also the words of pickers at their default - and only
+   then does the row wrap, as whole controls. */
+.acct-controlbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.acct-controlbar .acct-bar-end { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; min-width: 0; }
+.acct-controlbar[data-fold] .acct-bar-label { display: none; }
+.acct-controlbar[data-fold="2"] .acct-bar-label-2 { display: none; }
+/* Fix 10/24: the More menu (BarMore) - the less used controls, with their
+   words, in a box under the row's right end. */
+.acct-controlbar .acct-bar-more-panel { position: absolute; top: calc(100% + 4px); right: 8px; z-index: 30; display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 200px; max-width: min(360px, 90vw); padding: 8px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 10px; box-shadow: var(--shadow-md, 0 8px 24px rgba(15, 23, 42, 0.14)); }
+.acct-controlbar .acct-bar-more-panel[hidden] { display: none; }
+.acct-controlbar .acct-bar-more-group { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.acct-controlbar[data-fold] .acct-bar-more-panel .acct-bar-label,
+.acct-controlbar[data-fold] .acct-bar-more-panel .acct-bar-label-2 { display: inline; }
+/* A word only the More menu shows (the row has the icon and its tooltip). */
+.acct-controlbar .acct-more-only { display: none; }
+.acct-controlbar .acct-bar-more-panel .acct-more-only { display: inline; }
+/* In the menu every control is as wide as the menu, its words from the left
+   (an icon button's fixed row width does not apply there). */
+.acct-controlbar .acct-bar-more-panel button { width: 100% !important; max-width: none !important; justify-content: flex-start !important; padding: 0 9px !important; }
+.acct-controlbar .acct-bar-more-panel label { justify-content: space-between; }
+/* Round 3 (item 02): a screen's summary figures (BarSummary) shorten with
+   "..." before a control moves into More - ControlBar sets the max-width, the
+   tooltip has the full text. In the More menu they read in full. */
+.acct-controlbar .acct-bar-summary { display: inline-block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.78rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.acct-controlbar .acct-bar-more-panel .acct-bar-summary { white-space: normal; max-width: none !important; overflow: visible; padding: 2px 4px 6px; border-bottom: 1px solid var(--border-color); }
+.acct-controlbar .acct-bar-more-panel .acct-bar-more-group:has(> .acct-bar-summary) { order: -1; }
+
+/* Accounting call 10/23, item 03: a record opens in a panel on the right
+   (SidePanel.jsx), the list still on screen and clickable - no backdrop.
+   Below the popups (z 500) so a dialog from inside it opens on top. The body
+   scrolls; the footer with Save stays at the bottom. Open Full (.is-full)
+   covers the whole screen; a phone always gets the whole screen. */
+.acct-side-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 450;
+  width: min(760px, 52vw); min-width: min(480px, 100vw); max-width: 100vw;
+  display: flex; flex-direction: column; background: var(--bg-card);
+  border-left: 1px solid var(--border-color); box-shadow: -12px 0 32px rgba(15, 23, 42, 0.14);
+  animation: nx-fade-in var(--dur-sm, 120ms) ease-out;
+}
+.acct-side-panel.is-full { width: 100vw; }
+.acct-side-panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 14px 20px 18px; display: grid; gap: 14px; align-content: start; background: var(--bg-secondary); }
+.acct-side-panel > .modal-footer { flex-shrink: 0; padding: 12px 20px 14px; background: var(--bg-card); }
+@media (max-width: 640px) { .acct-side-panel { width: 100vw; min-width: 0; } }
+
+/* Item 06: Vendors & Customers scrolls inside its own box with the headings
+   pinned, rows banded like the ledger lines, the hover filling the row. */
+.acct-partners-box { overflow: auto; max-height: max(300px, calc(100vh - 360px)); }
+.acct-partners { border-collapse: separate; border-spacing: 0; width: 100%; }
+.acct-partners thead th { position: sticky; top: 0; z-index: 2; background: var(--bg-secondary); }
+.acct-partners tbody td { background: var(--bg-card); }
+.acct-partners tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%); }
+.acct-partners tbody tr:hover td,
+.acct-partners tbody tr.is-open td { background: var(--wk-brand-tint, #e8ecfd); }
 
 /* Phone: wide data tables (.req-table - PropertyAsset sections, requisition
    logs) scroll sideways inside their card instead of being cut off. */
@@ -4115,6 +4238,17 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .hdr-tab svg { display: none; }
 }
 @media (max-width: 900px) { .hdr-search { display: none; } }
+/* Accounting's bar (compactGroups, Oct 23): five dropdown tabs must fit the
+   header center with the sidebar open - 498px at 1366 wide, 572px at 1440.
+   The labels are 275px together at 14.5px, so each tab gets 36px around its
+   label (9px padding a side, 2px border, 4px gap, 12px caret): 463px with the
+   gaps. The icons come back from 1600px wide, where the center has ~730px for
+   the 563px they make. Other modules' tabs are untouched. */
+.hdr-tabs--compact .hdr-tab { padding: 9px 9px; gap: 4px; }
+.hdr-tabs--compact .hdr-tab .tab-group-caret { width: 12px; height: 12px; }
+@media (max-width: 1599px) {
+  .hdr-tabs--compact .hdr-tab svg:not(.tab-group-caret) { display: none; }
+}
 
 /* In-page fallback strip: phones only - the header center is hidden ≤900px,
    so <ModuleTabs> renders the classic swipeable strip in the page body. */
@@ -6775,6 +6909,23 @@ body:has(.nx-finish-bar) { overflow-x: clip; }
 .nx-md-bar { transition: width 0.3s ease; }
 @media (prefers-reduced-motion: reduce) { .nx-md-bar { transition: none; } }
 
+/* Accounting: the standard table view (10/23 meeting, item 01) - a heading's
+   name opens its menu, the funnel its value list (shown on hover, or always
+   while that column is filtered); the "Unsaved" mark beside the View. */
+.acct-vh { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; min-width: 0; vertical-align: middle; }
+.acct-vh-label { display: inline-flex; align-items: center; gap: 3px; min-width: 0; border: none; background: none; padding: 0; margin: 0; font: inherit; color: inherit; font-weight: inherit; letter-spacing: inherit; text-transform: inherit; text-align: inherit; cursor: pointer; }
+.acct-vh-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-vh-label:hover .acct-vh-text { text-decoration: underline; text-underline-offset: 2px; }
+.acct-num .acct-vh, th.acct-num .acct-vh { flex-direction: row-reverse; }
+.acct-vh-sort { display: inline-flex; align-items: center; border: none; background: none; padding: 1px; border-radius: 4px; color: var(--wk-brand, #2b45e1); cursor: pointer; flex-shrink: 0; }
+.acct-vh-sort:hover { background: var(--wk-brand-tint, #e8ecfd); }
+.acct-vh-funnel { display: inline-flex; align-items: center; border: none; background: none; padding: 2px; border-radius: 4px; color: var(--text-muted); cursor: pointer; opacity: 0; flex-shrink: 0; }
+th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visible, .acct-vh-funnel[aria-expanded="true"] { opacity: 1; }
+.acct-vh-funnel.on { opacity: 1; color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }
+@media (hover: none) { .acct-vh-funnel { opacity: 0.7; } }
+.acct-vh-unsaved { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; white-space: nowrap; color: #92400e; background: rgba(180, 83, 9, 0.12); }
+.acct-vh-unsaved::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.acct-vh-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; border: 1px solid var(--wk-brand, #2b45e1); color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }
 /* ── Build Mode (Oct 24 2026, src/devnotes) ──────────────────────────────────
    Pins, markup and the composer on the live app for Claude Code. Layers:
    overlay 5900, markup 5905, pins 5940, cards 5950, strip 5960, toast 5970,

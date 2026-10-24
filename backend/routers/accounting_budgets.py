@@ -70,7 +70,7 @@ async def _get(params: dict) -> dict:
     key = "&".join(f"{k}={v}" for k, v in sorted(clean.items()))
     hit = _CACHE.get(key)
     now = time.monotonic()
-    if hit and now - hit[0] < _TTL:
+    if hit and now - hit[0] < acct.fresh_ttl(_TTL):    # a table's Sync reads past the cache
         return hit[1]
     data = await asyncio.to_thread(_get_sync, clean)
     _CACHE[key] = (now, data)

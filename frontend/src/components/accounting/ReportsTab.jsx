@@ -10,17 +10,22 @@ import EntryDetail from './EntryDetail';
 import SavedReportsManager from './SavedReportsManager';
 import SendReportDialog from './SendReportDialog';
 import { linesFile } from './linesExport';
-import { takePendingDrill } from './drill';
+import { clearParkedReport, peekParkedReport, takePendingDrill } from './drill';
+import { isBuilderConfig } from './builderModel';
 import { useAccountingPrefs } from './prefs';
+import { readRefresh, saveRefresh } from '../../lib/refreshState';
+import { TRIAL_BALANCE_DEFAULT_BOOK } from './assumptions';
 import { useColumnWidths, useCustomizePrefs } from './tableHooks';
 import Amount, { Figure } from './Amount';
 import {
-  AccountsPicker, ClearButton, ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, OpFilter, Pager, PeriodStepper,
-  SavedReportsMenu, control,
+  AccountsPicker, BarMore, ClearButton, ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, OpFilter, Pager, PeriodStepper,
+  SavedReportsMenu, control, ControlBar, SyncButton, fitSelect,
 } from './reportControls';
+import { useTableSync } from './tableSync';
 import {
   EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookOptions, canBothBooks, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
   reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
+  viewConfig, periodOf, ACTIVITY_REPORTS, activityConfig, isActivity, needsEntityList, countDims,
 } from './reportModel';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
@@ -76,11 +81,18 @@ import {
 // and Flux Analysis is a report of its own, with an Explanation per account
 // kept in Nexus.
 
+// CR-06 (Charmi / Neil, 23 Oct: "Trial should be for both"): the Trial
+// Balance offers Accrual, Cash and the two side by side; opened from the
+// menu it starts on TRIAL_BALANCE_DEFAULT_BOOK.
+const openingBook = (report) => (report === 'trial-balance' ? { book: TRIAL_BALANCE_DEFAULT_BOOK } : {});
+
 // What a memorized report keeps: the controls, never the figures. A named
 // period is kept by name so it moves with the calendar.
 const storable = (c) => ({
   report: c.report, preset: c.preset, ...(c.preset === 'custom' ? { from: c.from, to: c.to } : {}),
   ...(c.asofToday === false ? { asof: c.asof, asofToday: false } : {}),
+  // A trial balance says which it is: one saved without it is a range (before 10/22).
+  ...(c.report === 'trial-balance' ? { tbPeriod: c.tbPeriod } : {}),
   book: c.book, cols: c.cols, entities: c.entities, dims: c.dims,
   ...(c.accounts?.length ? { accounts: c.accounts } : {}), ...(c.showZero ? { showZero: true } : {}),
   ...(c.report === 'flux' ? { fluxPct: c.fluxPct, fluxAmount: c.fluxAmount, ...(c.fluxStatus && c.fluxStatus !== 'all' ? { fluxStatus: c.fluxStatus } : {}), ...(fluxAmountOn(c.fluxFilter) ? { fluxFilter: c.fluxFilter } : {}) } : {}),
@@ -91,9 +103,24 @@ const VIEW_ONLY = new Set(['fluxStatus', 'fluxFilter']);
 const runnable = (c) => Object.fromEntries(Object.entries(storable(c)).filter(([k]) => !VIEW_ONLY.has(k)));
 const sameView = (a, b) => JSON.stringify(storable(a)) === JSON.stringify(storable(b));
 
-export default function ReportsTab({ canEdit = true, search = null, searchText: outerText = '', onSearchText = null, onWaiting = null, report = null, onReportChange = null }) {
+export default function ReportsTab({ canEdit = true, search = null, searchText: outerText = '', onSearchText = null, onWaiting = null, report = null, view = null, link = null, onReportChange = null }) {
   // Oct 14 (Urmi): `report` opens a statement straight from the Reporting menu.
-  const [config, setConfig] = useState(() => (report ? resolveConfig({ ...defaultConfig(), report }) : defaultConfig()));
+  // Oct 22 (Neil): `view` opens it on a quick view (REPORT_VIEWS) - T12, YTD vs
+  // Prior Year, Budget vs. Actual MTD - with the period and columns set.
+  // Oct 22 (item 07): `link` opens Credit Card / Bank Activity on one account
+  // (parseActivitySub - Dashboard > Overview > Account Reconciliations).
+  // Oct 23 (item 05): a memorized report opened from the Report Center waits
+  // in drill.js and opens here as if picked from Saved Reports.
+  const [parked] = useState(() => peekParkedReport(false));
+  useEffect(() => { if (parked) clearParkedReport(parked); }, [parked]);
+  // Oct 23 (Charmi, item 17): a reload keeps the report, the period, the
+  // filters and the narrowed lines - kept per screen (the menu item's report,
+  // quick view and linked account) for this browser tab (lib/refreshState).
+  const screenKey = `acct.report.${report || ''}|${view || ''}|${link?.account ? JSON.stringify(link) : ''}`;
+  const [kept] = useState(() => (parked ? null : readRefresh(screenKey)));
+  const [config, setConfig] = useState(() => (parked ? resolveConfig(parked.config)
+    : kept?.config ? resolveConfig(kept.config)
+    : report ? resolveConfig({ ...defaultConfig(), report, ...openingBook(report), ...viewConfig(view), ...activityConfig(link) }) : defaultConfig()));
   const [entities, setEntities] = useState([]);
   const [limited, setLimited] = useState(false);
   const [result, setResult] = useState(null);
@@ -121,8 +148,24 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   const patch = useCallback((p) => setConfig((c) => resolveConfig({ ...c, ...p })), []);
   // The menu picked another statement: show it (a new pick, not an edit).
   useEffect(() => {
-    if (report) setConfig((c) => (c.report === report ? c : resolveConfig({ ...c, report, accounts: [] })));
+    if (report) setConfig((c) => (c.report === report ? c : resolveConfig({ ...c, report, ...openingBook(report), accounts: [] })));
   }, [report]);
+  // A quick view picked from the menu: its period and columns, over whatever is set.
+  const shownView = useRef(view);
+  useEffect(() => {
+    if (shownView.current === view) return;
+    shownView.current = view;
+    const v = viewConfig(view);
+    if (v) setConfig((c) => resolveConfig({ ...c, ...v, accounts: [] }));
+  }, [view]);
+  // Another account linked while the tab is open: its account, entity, period and book.
+  const linkKey = link?.account ? JSON.stringify(link) : '';
+  const shownLink = useRef(linkKey);
+  useEffect(() => {
+    if (shownLink.current === linkKey) return;
+    shownLink.current = linkKey;
+    if (linkKey) setConfig((c) => resolveConfig({ ...c, report: link.report || c.report, ...activityConfig(link) }));
+  }, [linkKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // The report on screen changed here (the Report box, a memorized report):
   // tell the bar so the menu lights the right item. Not on the first draw.
   const shownReport = useRef(config.report);
@@ -164,7 +207,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // Names behind the codes picked in Filters, for the chips under the title.
   const [dimNames, setDimNames] = useState({});
   const onNames = useCallback((kind, names) => setDimNames((m) => ({ ...m, [kind]: { ...(m[kind] || {}), ...names } })), []);
-  const [drill, setDrill] = useState(null);   // { account, accountName, from, to, book, entity?, department?, party? }
+  const [drill, setDrill] = useState(() => kept?.drill || null);   // { account, accountName, from, to, book, entity?, department?, party? }
   const [searchBusy, setSearchBusy] = useState(false);
   useEffect(() => {
     // Every search that starts runs to its end on the ledger, even when the
@@ -181,6 +224,25 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   const waiting = (searchText.trim().length >= 2 && searchText.trim() !== term) || (searching && searchBusy);
   useEffect(() => { onWaiting?.(waiting); }, [waiting]); // eslint-disable-line react-hooks/exhaustive-deps
   const closeSearch = () => { setSearchText(''); setTerm(''); setDrill(null); };
+  // Item 07 (10/23): lines opened from another screen (a vendor's record) go
+  // Back to that screen, which reopens as it was (drill.js parkDrillReturn).
+  const backFromDrill = () => {
+    const sub = drill?.back?.sub;
+    closeSearch();
+    if (sub) window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'accounting', sub } }));
+  };
+  // UI test 10/23: another statement or quick view picked from the menu closes
+  // the ledger lines open from the last one (they were kept with the screen,
+  // item 17, and stayed on top of the new report). Not on the first draw, so a
+  // reload still brings the lines back.
+  const menuPick = useRef(`${report || ''}|${view || ''}`);
+  useEffect(() => {
+    const now = `${report || ''}|${view || ''}`;
+    if (menuPick.current === now) return;
+    menuPick.current = now;
+    setDrill(null);
+  }, [report, view]);
+  useEffect(() => { saveRefresh(screenKey, { config: storable(config), drill }); }, [screenKey, config, drill]);
   const toTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
   // A drill-down asked for from another tab (see drill.js) lands here. So
@@ -206,7 +268,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
       }
       if (d.entity !== undefined) patch({ entities: d.entity ? [d.entity] : [] });
       setDrill({ account: d.account || '', accountName: d.accountName || '', from: d.from || '', to: d.to || iso(new Date()), book: d.book || 'accrual',
-        ...(d.party ? { party: d.party } : {}), ...(d.dims ? { dims: d.dims } : {}) });
+        ...(d.party ? { party: d.party } : {}), ...(d.dims ? { dims: d.dims } : {}), ...(d.back?.sub ? { back: { label: d.back.label || '', sub: d.back.sub } } : {}) });
       toTop();
     };
     take(takePendingDrill());
@@ -231,11 +293,26 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   const seq = useRef(0);
   const key = JSON.stringify(runnable(config)) + config.from + config.to + config.asof;
   const started = useRef(false);
+  // The entity list arriving re-reads only a report that uses it (one entity
+  // By Entity). Any other report would read the ledger twice on its first
+  // open and blank its lines for the second read.
+  const entityDep = needsEntityList(config) ? entities.length : 0;
+  // 10/23 meeting, item 13: the toolbar's Sync reads this statement again -
+  // or, while ledger lines are open, those lines - and nothing else. The old
+  // figures stay on screen until the new ones land (the General Ledger too),
+  // so the scroll position, an open popup and the filters stay put.
+  const ts = useTableSync();
+  const lastTick = useRef(ts.tick);
+  const [syncLoad, setSyncLoad] = useState(false);
+  const [linesSync, setLinesSync] = useState(0);
+  const [linesSyncedAt, setLinesSyncedAt] = useState(null);
   useEffect(() => {
     const mine = ++seq.current;
     setLoading(true);
     setError('');
-    const run = () => runReport(api, config, entities)
+    setSyncLoad(ts.tick !== lastTick.current);
+    lastTick.current = ts.tick;
+    const run = () => ts.read(() => runReport(api, config, entities))
       .then((r) => { if (mine === seq.current) setResult(r); })
       .catch((e) => { if (mine === seq.current) { setResult(null); setError(e?.message || 'Could not load the report.'); } })
       .finally(() => { if (mine === seq.current) setLoading(false); });
@@ -245,13 +322,15 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     if (!started.current) { started.current = true; run(); return undefined; }
     const t = setTimeout(run, 250);
     return () => clearTimeout(t);
-  }, [key, entities.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, entityDep, ts.tick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Memorized reports.
   const [saved, setSaved] = useState([]);
   const [savedState, setSavedState] = useState({ loading: true, error: '' });
+  // Report Builder definitions are memorized reports too; they open in the
+  // builder (Report Center), never as a statement here.
   const loadSaved = useCallback(() => api.getAccountingSavedReports()
-    .then((list) => { setSaved(list || []); setSavedState({ loading: false, error: '' }); })
+    .then((list) => { setSaved((list || []).filter((r) => !isBuilderConfig(r.config))); setSavedState({ loading: false, error: '' }); })
     .catch((e) => setSavedState({ loading: false, error: e?.message || 'Could not load the saved reports.' })), []);
   useEffect(() => { loadSaved(); }, [loadSaved]);
   const activeSaved = useMemo(() => saved.find((r) => sameView(resolveConfig(r.config), config)), [saved, config]);
@@ -259,7 +338,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // The memorized report on screen, as it was opened. Once the controls
   // differ from it, a bar offers to keep the changes (Charmi, 09/29 call:
   // "do you want to save your changes?").
-  const [opened, setOpened] = useState(null);   // { id, name, mine, config }
+  const [opened, setOpened] = useState(() => (parked ? { id: parked.id, name: parked.name, mine: parked.mine, config } : null));   // { id, name, mine, config }
   const openSaved = (r) => { closeSearch(); setCollapsed(new Set()); const c = resolveConfig(r.config); setConfig(c); setOpened({ id: r.id, name: r.name, mine: r.mine, config: c }); };
   const changed = !!opened && saved.some((r) => r.id === opened.id) && !sameView(opened.config, config);
   const [saveAs, setSaveAs] = useState(null);   // '' | text - the Save as New name being typed
@@ -361,7 +440,8 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // A column of one entity drills into that entity, whatever the report covers.
   const drillEntities = drill?.entity ? [drill.entity] : config.entities;
   const drillEntityLabel = drill?.entity ? entityText({ entities: [drill.entity] }, entities) : entityLabel;
-  const glBusy = loading && config.report === 'general-ledger';
+  const glBusy = loading && !syncLoad && (config.report === 'general-ledger' || isActivity(config));
+  const activity = ACTIVITY_REPORTS[config.report] || null;
   // What Collapse All folds: statement sections and General Ledger accounts, and the account groups above them.
   const foldKeys = (result?.rows || []).flatMap((r) => (r.kind === 'section' ? [r.section] : r.kind === 'group' ? [`g:${r.group}`] : []));
 
@@ -505,6 +585,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
 
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
   const select = (active) => ({ ...control, fontWeight: active ? 600 : 400, color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', borderColor: active ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)', maxWidth: 300 });
+  // What the Credit Card / Bank Activity picker reads, for its width (item 02).
+  const activityPick = activity ? (shown?.pickable || []).find((a) => a.code === config.accounts[0]) : null;
+  const activityLabel = activityPick ? `${activityPick.code} ${activityPick.title || ''}` : activity ? `Pick a ${activity.pick}...` : '';
 
   // minmax(0,1fr): an unsized grid track grows to its widest content, which
   // pushed the controls past a phone's edge (QA, Sep 23).
@@ -515,7 +598,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   return (
     <div style={shell}>
       {/* One slim row: every control as a dropdown (the search is in the header, top right). */}
-      <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
         {(!headerSearch || full) && <div style={{ position: 'relative', flex: isPhone ? '1 1 100%' : '1 1 240px', minWidth: 0, maxWidth: isPhone ? 'none' : 460 }}>
           {waiting
             ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
@@ -526,7 +609,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
           {searchText && <ClearButton onClick={() => setSearchText('')} label="Clear search" />}
         </div>}
 
-        <select value={config.report} onChange={(e) => { closeSearch(); setCollapsed(new Set()); patch({ report: e.target.value, accounts: [] }); }} aria-label="Report" style={{ ...select(false), fontWeight: 600, flex: isPhone ? '1 1 auto' : undefined, minWidth: 0 }}>
+        <select value={config.report} onChange={(e) => { closeSearch(); setCollapsed(new Set()); patch({ report: e.target.value, accounts: [] }); }} aria-label="Report" style={{ ...select(false), fontWeight: 600, ...(isPhone ? { flex: '1 1 auto', minWidth: 0 } : fitSelect(def.label, { min: 110 })) }}>
           {REPORTS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
         </select>
 
@@ -538,39 +621,51 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         )}
 
         {showControls && (<div id="acct-report-controls" style={{ display: 'contents' }}>
-        <PeriodStepper config={config} period={def.period} onChange={patch} />
+        <PeriodStepper config={config} period={periodOf(config)} onChange={patch} />
 
+        {/* Fix 10/24 (item 02): on a row too narrow even for the icons,
+            Columns and Book are the second to move into the More menu. */}
+        <BarMore level={2} active={(showColumns && cols !== 'total' ? 1 : 0) + (canPickBook(config) && config.book !== 'accrual' ? 1 : 0)}>
         {showColumns && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-            Columns
-            <select value={cols} onChange={(e) => { setCollapsed(new Set()); patch({ cols: e.target.value }); }} aria-label="Columns" style={select(cols !== 'total')}>
+            <span className="acct-bar-label-2">Columns</span>
+            <select value={cols} onChange={(e) => { setCollapsed(new Set()); patch({ cols: e.target.value }); }} aria-label="Columns" style={{ ...select(cols !== 'total'), ...fitSelect(modes.find((m) => m.key === cols)?.label) }}>
               {modes.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
             </select>
           </label>
         )}
 
         {canPickBook(config) && (
-          <select value={config.book} onChange={(e) => patch({ book: e.target.value })} aria-label="Book" style={select(config.book !== 'accrual')}>
-            {books.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
-          </select>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            <span className="acct-more-only">Book</span>
+            <select value={config.book} onChange={(e) => patch({ book: e.target.value })} aria-label="Book" style={{ ...select(config.book !== 'accrual'), ...fitSelect(books.find((b) => b.key === config.book)?.label) }}>
+              {books.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
+            </select>
+          </label>
         )}
+        </BarMore>
 
-        {/* Entities, Filters, then Accounts last (Charmi, 10/02). */}
+        {/* Entities, Filters, then Accounts last (Charmi, 10/02). On a very
+            narrow row (fix 10/24) they are the third to move into More. */}
+        <BarMore level={3} active={(config.entities.length ? 1 : 0) + (canUseDims(config) && countDims(config.dims) ? 1 : 0)}>
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
         {canUseDims(config) && (
           <FiltersButton dims={config.dims} onNames={onNames} showHistorical={!!prefs.showHistoricalAccounts} kinds={filterKinds}
             onChange={(dims) => { const mode = columnsForPicks(config, dims); setCollapsed(new Set()); patch({ dims, ...(mode ? { cols: mode } : {}) }); }} />
         )}
-        {/* Flux review state (Charmi, 10/15): Open, Answered, Closed, with counts. */}
+        </BarMore>
+        {/* Round 3 (UI test 10/24: Flux Analysis two lines at 1366 / 1440):
+            the review state and the amount filter move into More with
+            Columns and Book. */}
         {config.report === 'flux' && (
+          <BarMore level={2} active={(config.fluxStatus !== 'all' ? 1 : 0) + (fluxAmountOn(config.fluxFilter) ? 1 : 0)}>
+          {/* Flux review state (Charmi, 10/15): Open, Answered, Closed, with counts. */}
           <select value={config.fluxStatus} onChange={(e) => patch({ fluxStatus: e.target.value })} aria-label="Review Status" title="Show the lines in one review state" style={select(config.fluxStatus !== 'all')}>
             {FLUX_STATUS_FILTERS.map((o) => (
               <option key={o.key} value={o.key}>{o.key === 'all' ? 'Review: All Lines' : `${o.label}${fluxCounts ? ` (${(fluxCounts[o.key] || 0).toLocaleString('en-US')})` : ''}`}</option>
             ))}
           </select>
-        )}
-        {/* Flux amount filter (Charmi, 10/15): what to compare, an operator and a value. */}
-        {config.report === 'flux' && (
+          {/* Flux amount filter (Charmi, 10/15): what to compare, an operator and a value. */}
           <span className="acct-flux-amount" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
             <select value={config.fluxFilter.target} onChange={(e) => patch({ fluxFilter: { ...config.fluxFilter, target: e.target.value } })} aria-label="Amount to Filter" title="Which figure the amount filter compares"
               style={{ ...select(fluxAmountOn(config.fluxFilter)), maxWidth: 190 }}>
@@ -578,19 +673,44 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             </select>
             <OpFilter label="Amount" value={config.fluxFilter} onChange={(v) => patch({ fluxFilter: { ...config.fluxFilter, ...v } })} placeholder={config.fluxFilter.target === 'pct' ? '%' : '0.00'} />
           </span>
+          </BarMore>
         )}
-        {canPickAccounts(config) && <AccountsPicker accounts={shown?.pickable || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} showHistorical={!!prefs.showHistoricalAccounts} />}
+        {/* Credit Card / Bank Activity: one account, picked from that kind only
+            (item 07); as wide as the account picked, and the last to move
+            into More (round 3). */}
+        {activity && (
+          <BarMore level={6} active={config.accounts.length ? 1 : 0}>
+          <select value={config.accounts[0] || ''} onChange={(e) => { closeSearch(); patch({ accounts: e.target.value ? [e.target.value] : [] }); }} aria-label={activity.pick}
+            style={{ ...select(!!config.accounts.length), ...fitSelect(activityLabel, { max: 320 }) }}>
+            <option value="">{`Pick a ${activity.pick}...`}</option>
+            {(shown?.pickable || []).map((a) => <option key={a.code} value={a.code}>{a.title ? `${a.code} ${a.title}` : a.code}</option>)}
+          </select>
+          </BarMore>
+        )}
+        {canPickAccounts(config) && (
+          <BarMore level={3} active={config.accounts.length ? 1 : 0}>
+            <AccountsPicker accounts={shown?.pickable || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} showHistorical={!!prefs.showHistoricalAccounts} />
+          </BarMore>
+        )}
 
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div className="acct-bar-end">
+          <BarMore level={4}>
+          <SyncButton busy={searching ? searchBusy && linesSync > 0 : loading && syncLoad} syncedAt={searching ? linesSyncedAt : ts.syncedAt}
+            onSync={() => { if (searching) { setLinesSync((n) => n + 1); setLinesSyncedAt(new Date()); } else ts.sync(); }} />
+          </BarMore>
+          {/* Fix 10/24 (item 02): the first to move into the More menu. */}
+          <BarMore level={1}>
           <SavedReportsMenu reports={saved} loading={savedState.loading} error={savedState.error} activeId={activeSaved?.id}
             onOpen={openSaved} onDelete={deleteSaved} onShare={shareSaved} onManage={() => setManaging(true)} nameOf={nameOf} />
-          <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${def.period === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
+          <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${periodOf(config) === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
           <CustomizeButton density={density} onDensity={(d) => setPrefs({ density: d })} showZero={config.showZero} onShowZero={(v) => patch({ showZero: v })}
             showHistorical={!!prefs.showHistoricalEntities} onShowHistorical={(v) => setPrefs({ showHistoricalEntities: v })}
             showHistoricalAccounts={!!prefs.showHistoricalAccounts} onShowHistoricalAccounts={(v) => setPrefs({ showHistoricalAccounts: v })}
             pageSize={custom.pageSize} onPageSize={custom.onPageSize}
             {...(shown?.activeKnown ? { showInactiveAccounts: custom.showInactiveAccounts, onShowInactiveAccounts: custom.onShowInactiveAccounts } : {})}
             flux={config.report === 'flux' ? { fluxPct: config.fluxPct, fluxAmount: config.fluxAmount } : null} onFlux={(p) => patch(p)} />
+          </BarMore>
+          <BarMore level={5}>
           <ExportMenu disabled={searching ? !linesExport : !shown} items={searching ? [
             { key: 'excel', label: 'Excel', hint: 'Every line, columns as on screen, live totals', onPick: () => exportLines('excel'), busy: linesBusy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => exportLines('csv'), busy: linesBusy === 'csv' },
@@ -605,13 +725,16 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
             { key: 'share', group: 'send', label: 'Share With a Teammate...', hint: 'Memorized for the team, with a bell notice', Icon: Share2, onPick: () => setSending('share') },
           ]} />
+          </BarMore>
+          <BarMore level={1}>
           <button type="button" onClick={() => setFull((v) => !v)} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
-            style={{ ...control, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-            {full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            style={{ ...control, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-secondary)' }}>
+            {full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}<span className="acct-more-only">{full ? 'Back to Window Size' : 'Fill the Screen'}</span>
           </button>
+          </BarMore>
         </div>
         </div>)}
-      </div>
+      </ControlBar>
 
       {changed && !searching && (
         <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderColor: 'var(--wk-brand, #2b45e1)', fontSize: '0.82rem' }}>
@@ -658,7 +781,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
 
       {searching && (
         <LedgerSearch term={term.length >= 2 ? term : ''} entities={drillEntities} entityName={drillEntityLabel} full={full}
-          dims={canUseDims(config) ? config.dims : null} dimNames={dimNames} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} onExport={setLinesExport}
+          dims={canUseDims(config) ? config.dims : null} dimNames={dimNames} drill={drill} onClearDrill={() => setDrill(null)} onClose={drill?.back ? backFromDrill : closeSearch} backLabel={drill?.back?.label || ''} onBusy={setSearchBusy} onExport={setLinesExport} syncTick={linesSync}
           initialEntry={initialEntry} onEntryClosed={() => setInitialEntry(null)} />
       )}
 
@@ -677,7 +800,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
               <h3 style={{ fontSize: '0.98rem', margin: 0 }}>{reportTitle(config)}</h3>
               <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                {[shown.org, entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : ''].filter(Boolean).join(' · ')}
+                {[shown.org, shown.activity ? `${shown.activity.account} ${shown.activity.title}`.trim() : '', entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : ''].filter(Boolean).join(' · ')}
                 {loading ? ' · updating' : ''}
               </span>
             </div>
@@ -719,8 +842,10 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             </div>
           )}
 
-          <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }} onCopy={copyRaw}>
-            <table className={`acct-report${shown.glLabel ? ' acct-gl' : ''}`} style={{ '--acct-row-py': DENSITIES.find((d) => d.key === density)?.py || '5px' }}>
+          <div className={`acct-report-wrap${full ? '' : ' acct-scroll-box'}`} data-testid="report-box" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }} onCopy={copyRaw}>
+            {/* Oct 23 (Viral, item 10): the whole heading block - names and filter
+                boxes - pins to the top of the box (acct-sticky-head, style.css). */}
+            <table className={`acct-report acct-sticky-head${shown.glLabel ? ' acct-gl' : ''}`} style={{ '--acct-row-py': DENSITIES.find((d) => d.key === density)?.py || '5px' }}>
               <colgroup>
                 {headCols.map((c) => <col key={c.key} style={widths.width(c.key) ? { width: widths.width(c.key), minWidth: widths.width(c.key) } : undefined} />)}
               </colgroup>
@@ -731,7 +856,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
                     const size = w ? { width: w, minWidth: w, maxWidth: w } : {};
                     return (
                       <th key={c.key} aria-label={c.label} title={c.hint || undefined} className={i === 0 ? 'acct-label acct-head' : c.type === 'date' || c.type === 'text' ? undefined : 'acct-num'}
-                        style={{ position: i === 0 ? 'sticky' : 'relative', ...size, ...(c.emphasis ? EMPHASIS : {}), ...(c.hint ? { cursor: 'help' } : {}) }}>
+                        style={{ ...size, ...(c.emphasis ? EMPHASIS : {}), ...(c.hint ? { cursor: 'help' } : {}) }}>
                         {c.label}
                         <ColumnResizer {...widths.resizer(c.key, c.label)} />
                       </th>

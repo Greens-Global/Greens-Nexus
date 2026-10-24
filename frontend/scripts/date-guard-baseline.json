@@ -41,9 +41,6 @@
   "components/accounting/MreTab.jsx": {
     "type=\"date\"": 2
   },
-  "components/accounting/PayrollImport.jsx": {
-    "type=\"date\"": 1
-  },
   "components/accounting/PfsTab.jsx": {
     "type=\"date\"": 2
   },

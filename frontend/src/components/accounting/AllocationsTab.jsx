@@ -3,7 +3,9 @@ import { ChevronLeft, ChevronRight, Download, Save, Settings2, Trash2 } from 'lu
 import { api } from '../../api';
 import Amount from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
-import { control } from './reportControls';
+import { BarMore, BarSummary, ControlBar, SyncButton, control } from './reportControls';
+import { useTableSync } from './tableSync';
+import { useFitHeight } from './tableHooks';
 import { downloadBlob } from './reportModel';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { dialog } from '../../ui/dialog';
@@ -44,6 +46,11 @@ export default function AllocationsTab({ canEdit = false }) {
   const [draft, setDraft] = useState(null);         // the mapping as edited
   const [runs, setRuns] = useState(null);
   const [busy, setBusy] = useState('');
+  // Item 05 (fix 10/24): the screen is as tall as the window; the mapping,
+  // the basis, the entry preview and the runs kept share what the bar leaves,
+  // each scrolling in its own card (style.css .acct-fit-stack).
+  const [box, setBox] = useState(null);
+  const fit = useFitHeight(box);
 
   const loadMap = useCallback(() => api.getAllocationsMap().then((d) => { setMapData(d); setDraft(d.map); }).catch(() => setMapData({ map: { journal: 'GJ', sites: {}, companies: {}, offsite: {} }, sites: [], companies: [] })), []);
   const loadRuns = useCallback(() => api.getAllocationRuns().then((d) => setRuns(d?.runs || [])).catch(() => setRuns([])), []);
@@ -58,10 +65,15 @@ export default function AllocationsTab({ canEdit = false }) {
   const loadPreview = useCallback((m) => {
     const mine = ++seq.current;
     setState({ loading: true, error: '', stepUp: false });
-    api.previewAllocations(m).then((d) => { if (mine !== seq.current) return; setPreview(d); setState({ loading: false, error: '', stepUp: false }); })
+    return api.previewAllocations(m).then((d) => { if (mine !== seq.current) return; setPreview(d); setState({ loading: false, error: '', stepUp: false }); })
       .catch((e) => { if (mine !== seq.current) return; setPreview(null); setState({ loading: false, error: isStepUpRequired(e) ? '' : (e?.message || 'Could not build the preview.'), stepUp: isStepUpRequired(e) }); });
   }, []);
   useEffect(() => { loadPreview(month); }, [month, loadPreview]);
+  // 10/23 meeting, item 13: the preview and the runs kept each have their own
+  // Sync; the one on screen stays while it reads, the other is not touched.
+  const previewSync = useTableSync(useCallback(() => loadPreview(month), [month, loadPreview]));
+  const runsSync = useTableSync(loadRuns);
+  const [runsBusy, setRunsBusy] = useState(false);
 
   const unmapped = (preview?.unmapped?.sites?.length || 0) + (preview?.unmapped?.companies?.length || 0);
   const lines = useMemo(() => (preview?.entries || []).flatMap((e) => e.lines.map((l) => ({ ...l, entry: e.description }))), [preview]);
@@ -107,30 +119,42 @@ export default function AllocationsTab({ canEdit = false }) {
   }
 
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+    <div ref={setBox} className="acct-fit-stack" data-testid="allocations-stack" style={fit}>
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
           <button type="button" aria-label="Previous month" onClick={() => setMonth((m) => shiftMonth(m, -1))} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronLeft size={16} /></button>
           <strong style={{ fontSize: '0.86rem', minWidth: 80, textAlign: 'center' }}>{monthLabel(month)}</strong>
           <button type="button" aria-label="Next month" onClick={() => setMonth((m) => shiftMonth(m, 1))} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronRight size={16} /></button>
         </div>
+        {/* Item 02, round 3 (UI test 10/24: two lines at 1366, the summary
+            pushing Sync, the exports and Keep Run down): the summary shortens
+            with "..." (full text in the tooltip); then into More go Account
+            Mapping, the two exports, the summary, then Sync. The warnings
+            stay on the row, never cut short. */}
         {preview && (
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          <BarSummary level={3}>
             {preview.totals.people} people · wages <strong><Amount value={preview.totals.wages} /></strong> · debits <strong><Amount value={preview.totals.debits} /></strong> · credits <strong><Amount value={preview.totals.credits} /></strong>
-            {preview.currencies?.length > 1 && <span style={{ ...warn, marginLeft: 8 }}>Mixed currencies: {preview.currencies.join(', ')}</span>}
-            {unmapped > 0 && <span style={{ ...warn, marginLeft: 8 }}>{unmapped} unmapped</span>}
-          </span>
+          </BarSummary>
         )}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          {canEdit && <button type="button" className="secondary-btn" onClick={() => setMapOpen((v) => !v)} aria-expanded={mapOpen} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Settings2 size={13} /> Account Mapping</button>}
-          {canEdit && <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('csv')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Intacct CSV</button>}
-          {canEdit && <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('xlsx')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Excel</button>}
+        {preview?.currencies?.length > 1 && <span style={warn}>Mixed currencies: {preview.currencies.join(', ')}</span>}
+        {preview && unmapped > 0 && <span style={warn}>{unmapped} unmapped</span>}
+        <div className="acct-bar-end">
+          <BarMore level={4}>
+          <SyncButton onSync={previewSync.sync} busy={state.loading && !!preview} syncedAt={previewSync.syncedAt} what="Preview" />
+          </BarMore>
+          {canEdit && <BarMore level={1} active={mapOpen ? 1 : 0}><button type="button" className="secondary-btn" onClick={() => setMapOpen((v) => !v)} aria-expanded={mapOpen} title="Account Mapping" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Settings2 size={13} /> <span className="acct-bar-label">Account Mapping</span></button></BarMore>}
+          {canEdit && (
+            <BarMore level={2}>
+            <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('csv')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Intacct CSV</button>
+            <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('xlsx')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Excel</button>
+            </BarMore>
+          )}
           {canEdit && <button type="button" className="primary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={keepRun} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Save size={13} /> {busy === 'run' ? 'Keeping...' : 'Keep Run'}</button>}
         </div>
-      </div>
+      </ControlBar>
 
       {mapOpen && draft && (
-        <div style={{ ...card, padding: 14 }}>
+        <div className="acct-stack-card" style={{ ...card, padding: 14 }}>
           <h3 style={{ margin: '0 0 4px', fontSize: '0.95rem' }}>Account Mapping</h3>
           <p style={{ margin: '0 0 10px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Each work site is an Intacct entity and the wage expense account its hours are charged to. Each company pays through an entity: its allocation clearing account takes the credit, and its wage account carries anyone with no site hours that month.</p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -189,7 +213,7 @@ export default function AllocationsTab({ canEdit = false }) {
             </div>
           ) : preview && (
             <>
-              <div style={{ ...card, overflow: 'auto' }}>
+              <div className="acct-stack-card" style={card}>
                 <h3 style={{ margin: 0, padding: '10px 12px 4px', fontSize: '0.9rem' }}>Basis - {formatDate(preview.start)} to {formatDate(preview.end)}</h3>
                 <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                   <thead><tr><th style={th}>Person</th><th style={th}>Company</th><th style={thNum}>Wages</th><th style={th}>Work Site</th><th style={thNum}>Hours</th><th style={thNum}>Share</th><th style={thNum}>Amount</th><th style={th}>Entity</th><th style={th}>Account</th></tr></thead>
@@ -210,7 +234,7 @@ export default function AllocationsTab({ canEdit = false }) {
                   </tbody>
                 </table>
               </div>
-              <div style={{ ...card, overflow: 'auto' }}>
+              <div className="acct-stack-card" style={card}>
                 <h3 style={{ margin: 0, padding: '10px 12px 4px', fontSize: '0.9rem' }}>Entry Preview - {preview.entries.length} {preview.entries.length === 1 ? 'entry' : 'entries'}, dated {formatDate(preview.end)}</h3>
                 <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                   <thead><tr><th style={th}>Entry</th><th style={th}>Account</th><th style={th}>Entity</th><th style={th}>Dept</th><th style={th}>Memo</th><th style={thNum}>Debit</th><th style={thNum}>Credit</th></tr></thead>
@@ -241,8 +265,11 @@ export default function AllocationsTab({ canEdit = false }) {
         </AsyncSection>
       )}
 
-      <div style={{ ...card, overflow: 'auto' }}>
-        <h3 style={{ margin: 0, padding: '10px 12px 4px', fontSize: '0.9rem' }}>Runs Kept</h3>
+      <div className="acct-stack-card" style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 4px' }}>
+          <h3 style={{ margin: 0, fontSize: '0.9rem', flex: 1 }}>Runs Kept</h3>
+          <SyncButton onSync={() => { setRunsBusy(true); Promise.resolve(runsSync.sync()).finally(() => setRunsBusy(false)); }} busy={runsBusy} syncedAt={runsSync.syncedAt} what="Runs" />
+        </div>
         <AsyncSection loading={runs === null} skeleton={<SkeletonBlocks count={1} height={60} />}>
           {!runs?.length ? (
             <p style={{ margin: 0, padding: '8px 12px 14px', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>No runs yet. Keep Run saves the preview above so its file can be produced again unchanged.</p>

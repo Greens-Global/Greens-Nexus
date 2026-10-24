@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fmtLong, fmtMD, mEnd, monthLong, MONTH_SHORT, mShort, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
+import { fmtLong, fmtMD, mEnd, monthLong, MONTH_SHORT, mShort, mStart, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
 import { RECON_TYPES } from '../../../accounting/dashboard/model/recon';
 import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, mono, num, toneColor } from './Bits';
@@ -7,6 +7,7 @@ import { useDash } from './DashContext';
 import { useActivity, useCloseState, useDeadlines, useFlux, useIntercompany, useRecon } from './hooks';
 import { TaskViewSwitch, useCloseViews } from './closeViews';
 import { requestReportDrill } from '../drill';
+import { activityReportOf, activitySub } from '../reportModel';
 
 // Close and controls widgets: the close card, reconciliations, activity,
 // intercompany, balance-sheet flux, and the filing calendar.
@@ -66,9 +67,17 @@ export function CloseWidget({ onOpenClose }) {
 // Oct 7 (Neil, comment 5): reconciling is an Intacct function only, so there
 // is no way to mark an account reconciled from Nexus. Marks recorded here
 // before that still show read-only (who and when) under Last Reconciled.
-export function ReconWidget({ compact }) {
-  const { period, m, ix } = useDash();
+//
+// Oct 22 (Charmi and Neil, item 07): every bank and card account here opens
+// Reports > Banking & Credit Cards on itself - Bank Activity or Credit Card
+// Activity, already filtered to the account, its entity, the dashboard's
+// months and book. A loan or brokerage row opens one only when its GL account
+// is a bank or card account on the ledger; the rest stay plain text.
+// `onNavigate` is the dashboard's navigator (DashNav, handed down by WidgetPanel).
+export function ReconWidget({ compact, onNavigate }) {
+  const { period, fromKey, book, scope, reconAccounts, m, ix } = useDash();
   const { rows, reconciled, remaining, isLoading } = useRecon();
+  const linkOf = (r) => (onNavigate ? activityLink(r, { period, fromKey, book, scope, reconAccounts }) : null);
   if (isLoading) return <LoadingBox />;
   if (!rows.length) return <EmptyBox title="No accounts to reconcile" body="Bank and credit card accounts with activity in this scope appear here, plus loans and brokerage accounts from the Data tab." />;
   const byType = RECON_TYPES.map((t) => ({ t, rows: rows.filter((r) => r.type === t) })).filter((g) => g.rows.length);
@@ -88,7 +97,12 @@ export function ReconWidget({ compact }) {
               <GroupRows key={g.t} title={`${g.t} Accounts`} cols={cols}>
                 {g.rows.map((r) => (
                   <tr key={r.key} style={r.nc ? { color: 'var(--text-muted)' } : undefined}>
-                    <td><div>{r.name}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
+                    <td><div>{linkOf(r) ? (
+                      <button type="button" title={`Open ${r.type === 'Credit Card' ? 'Credit Card' : 'Bank'} Activity for this account`} onClick={() => onNavigate(linkOf(r))}
+                        style={{ border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', textAlign: 'left' }}>
+                        {r.name}
+                      </button>
+                    ) : r.name}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
                     {!compact ? <td style={{ fontSize: '0.78rem' }}>{r.entityCode ? (ix.byCode.get(r.entityCode)?.name || r.entityCode) : r.ref || '-'}</td> : null}
                     <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{r.thru ? fmtLong(r.thru) : 'Never'}{r.source === 'intacct' ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }} title={r.intacctAsOf ? `Read from Intacct ${whenTxt(r.intacctAsOf)}` : 'Read from Intacct'}>Intacct{r.intacctRef ? ` · ${r.intacctRef}` : ''}</div> : r.mark ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.mark.marked_by} · {whenTxt(r.mark.marked_at)}</div> : null}</td>
                     <td style={num}>{r.thru ? m(r.stmt, { cents: true }) : '-'}</td>
@@ -110,6 +124,24 @@ export function ReconWidget({ compact }) {
       </div>
     </div>
   );
+}
+
+/**
+ * The Accounting sub key a reconciliation row opens (Bank Activity or Credit
+ * Card Activity on its GL account), or null. Bank and Credit Card rows open by
+ * their type; any other row only when its GL account is on the ledger's bank
+ * and card list (`reconAccounts`, the same list the rows come from). The
+ * account's own entity, else the one entity the dashboard is scoped to; the
+ * dashboard's months; its book when that is Cash.
+ */
+export function activityLink(r, { period, fromKey, book, scope, reconAccounts = [] }) {
+  if (!r?.gl) return null;
+  const kind = r.type === 'Credit Card' ? 'card' : r.type === 'Bank' ? 'bank' : reconAccounts.find((a) => a.gl_code === r.gl)?.kind || null;
+  if (!kind) return null;
+  const oneEntity = scope && !['ALL', 'CTL', 'NC'].includes(scope) ? scope : '';
+  return activitySub(activityReportOf(kind), {
+    account: r.gl, entity: r.entityCode || oneEntity, from: mStart(fromKey || period), to: mEnd(period), book: book === 'cash' ? 'cash' : '',
+  });
 }
 
 function GroupRows({ title, cols, children }) {
