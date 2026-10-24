@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { MessageCircleQuestion, Plus, Send, Settings, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { formatDate, formatDateTime } from '../../lib/datetime';
-import Amount from './Amount';
+import Amount, { formatAmount } from './Amount';
 import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, OpFilter, Pager, SyncButton, control, fitSelect } from './reportControls';
 import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { useTableSync } from './tableSync';
+import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { Chip } from './LoanSetupDialog';
 import { Dialog } from './LoanDialogs';
 import { notAvailable } from './LoansTab';
@@ -86,6 +87,16 @@ export const GRID_COLUMNS = [
   { key: 'lastReply', label: 'Last Reply', text: (r) => (r.lastReplyAt ? formatDateTime(r.lastReplyAt) : '') },
 ];
 export const COLUMNS = GRID_COLUMNS.map((c) => c.label);
+
+// The grid's columns for the standard table view (10/23 meeting, item 01):
+// the date and the amount typed for the rules, the newest lines first.
+const AMA_VIEW_COLUMNS = GRID_COLUMNS.map((c) => {
+  if (c.key === 'date') return { ...c, type: 'date', value: (r) => r.date || '' };
+  if (c.key === 'amount') return { ...c, type: 'amount', value: (r) => Number(r.amount) || 0, text: (r) => formatAmount(r.amount), exportAs: [{ label: 'Amount', num: true, width: 120, get: (r) => Number(r.amount) || 0 }] };
+  if (c.key === 'lastReply') return { ...c, sortBy: (r) => r.lastReplyAt || '' };
+  return { ...c, exportAs: [{ label: c.label, width: c.key === 'question' || c.key === 'description' ? 260 : 120, get: c.text }] };
+});
+const AMA_SORT = { col: 'date', dir: 'desc' };
 
 const MINE = {
   assigned: (r, me) => r.accountant === me,
@@ -502,11 +513,15 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
     reclass: r.id in saved.reclasses ? saved.reclasses[r.id] : (r.reclass || null),
     otherSide: sideFor(r, offsets.map),
   })), [data, saved, offsets.map]);
-  // Whose, the filter box and the column filters narrow the rows; the status
-  // tabs count what they leave, so a count is always what its tab shows.
-  const narrowed = useMemo(() => columnFilter(visibleRows(all, { status: 'All', mine, me, text }), typed), [all, mine, me, text, typed]);
-  const rows = useMemo(() => narrowed.filter((r) => status === 'All' || r.status === status).sort((a, b) => String(b.date).localeCompare(String(a.date))), [narrowed, status]);
-  const paged = usePaged(rows, custom.pageSize, [status, mine, text, entity, from, to, typed]);
+  // Whose, the filter box, the column filters and the standard table view
+  // (10/23 meeting, item 01) narrow the rows; the status tabs count what they
+  // leave, so a count is always what its tab shows. Newest first unless the
+  // view sorts otherwise.
+  const boxed = useMemo(() => columnFilter(visibleRows(all, { status: 'All', mine, me, text }), typed), [all, mine, me, text, typed]);
+  const view = useTableView('ama', AMA_VIEW_COLUMNS, boxed, { sort: AMA_SORT });
+  const narrowed = view.rows;
+  const rows = useMemo(() => narrowed.filter((r) => status === 'All' || r.status === status), [narrowed, status]);
+  const paged = usePaged(rows, custom.pageSize, [status, mine, text, entity, from, to, typed, view.state]);
   // The page on screen asks for its entries' other side (Charmi, 36:07: "on
   // the first page and not with two clicks").
   const pageKey = missingEntries(paged.rows, offsets.map).join(',');
@@ -536,7 +551,10 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
     try {
       // Every exported line carries its Other Side, read now when not yet on screen.
       const map = await offsets.ensure(rows);
-      const file = await linesFile(exportTable(rows.map((r) => ({ ...r, otherSide: sideFor(r, map) })), { from, to }), format);
+      // Exactly what the view leaves: its rows, order and columns (item 01).
+      const sided = rows.map((r) => ({ ...r, otherSide: sideFor(r, map) }));
+      const about = exportTable([], { from, to });
+      const file = await linesFile(viewTable(sided, view.columns, { title: about.title, period: about.period, subtitle: `${sided.length} ${sided.length === 1 ? 'line' : 'lines'} · ${formatDate(from)} - ${formatDate(to)}`, totals: false }), format);
       downloadBlob(file.name, file);
     } finally {
       setBusy('');
@@ -585,6 +603,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
         </select>
         </BarMore>
         <BarSearch value={text} onChange={setText} label="Filter questions" placeholder="Filter questions" width={200} />
+        <TableViewBar view={view} />
         <div className="acct-bar-end">
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
           <BarMore level={1}>
@@ -657,9 +676,9 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
           <div className="req-table-wrapper acct-scroll-box" ref={setBox} data-testid="ama-box" style={fit}>
             <table className="req-table acct-ask acct-sticky-head" style={{ fontVariantNumeric: 'tabular-nums', '--ask-py': py }}>
               <thead>
-                <tr>{GRID_COLUMNS.map((c) => <th key={c.key} style={c.num ? num : undefined}>{c.label}</th>)}</tr>
+                <tr>{view.columns.map((c) => <ViewHead key={c.key} view={view} col={c} aria-label={c.label} style={{ position: 'relative', ...(c.num ? num : null), ...(view.manualWidth(c.key) ? { width: view.manualWidth(c.key), minWidth: view.manualWidth(c.key), maxWidth: view.manualWidth(c.key) } : null) }} />)}</tr>
                 <tr className="acct-filter-row">
-                  {GRID_COLUMNS.map((c) => (
+                  {view.columns.map((c) => (
                     <td key={c.key} style={c.width ? { minWidth: Math.min(c.width, 180) } : undefined}>
                       {c.num
                         ? <OpFilter label={c.label} value={typed[c.key]} onChange={(v) => setFilter(c.key, v)} />
@@ -670,31 +689,38 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
               </thead>
               <tbody>
                 {loading && !data ? Array.from({ length: 5 }, (_x, i) => (
-                  <tr key={`sk${i}`} aria-hidden="true">{GRID_COLUMNS.map((c) => <td key={c.key}><div className="nx-skel" style={{ height: 12, borderRadius: 4, width: '70%' }} /></td>)}</tr>
+                  <tr key={`sk${i}`} aria-hidden="true">{view.columns.map((c) => <td key={c.key}><div className="nx-skel" style={{ height: 12, borderRadius: 4, width: '70%' }} /></td>)}</tr>
                 )) : !rows.length ? (
-                  <tr><td colSpan={GRID_COLUMNS.length} style={{ padding: 18, textAlign: 'center', color: 'var(--text-secondary)', cursor: 'default' }}>Nothing here matches - try another status or clear the filters.</td></tr>
-                ) : paged.rows.map((r) => (
-                  <tr key={r.id} onClick={() => setOpen(r)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(r); }} aria-label={`Open ${r.entryNo || r.accountNo} ${amountText(r)}`}
-                    style={loading ? { opacity: 0.6 } : undefined}>
-                    <td style={{ whiteSpace: 'nowrap' }}>{r.date ? formatDate(r.date) : dash}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{r.entityCode || dash}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{r.entryNo || dash}</td>
-                    {AMA_SHOW_ACCOUNT_COLUMN && <td style={ellipsis} title={`${r.accountNo} ${r.accountTitle}`}><span className="acct-code">{r.accountNo}</span>{r.accountTitle}</td>}
-                    <td style={{ ...ellipsis, maxWidth: 260 }}><OtherSideCell side={r.otherSide} /></td>
-                    <td style={ellipsis} title={[lineText(r), r.memo && r.description && r.description !== r.memo ? `Entry: ${r.description}` : ''].filter(Boolean).join('\n')}>{lineText(r) || dash}</td>
-                    <td style={ellipsis} title={r.department || undefined}>{r.department || dash}</td>
-                    <td style={ellipsis} title={r.vendor || undefined}>{r.vendor || dash}</td>
-                    <td style={ellipsis} title={r.custom || undefined}>{r.custom || dash}</td>
-                    <td style={num}><Amount value={r.amount} /></td>
-                    <td><NoteCell key={`${r.id}:${r.note}`} row={r} onSaved={noteSaved} /></td>
-                    <td>{amaCodes.has(r.accountNo) ? <ReclassCell row={r} onOpen={setReclassing} /> : dash}</td>
-                    <td style={ellipsis} title={r.question}>{r.question || <span style={muted}>Not Asked Yet</span>}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{person(r.askedByName, r.askedBy) || dash}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{person(r.accountantName, r.accountant) || dash}</td>
-                    <td><StatusChips r={r} /></td>
-                    <td style={{ whiteSpace: 'nowrap' }} title={r.lastReplyByName || r.lastReplyBy || undefined}>{r.lastReplyAt ? formatDateTime(r.lastReplyAt) : dash}</td>
-                  </tr>
-                ))}
+                  <tr><td colSpan={view.columns.length} style={{ padding: 18, textAlign: 'center', color: 'var(--text-secondary)', cursor: 'default' }}>Nothing here matches - try another status or clear the filters.</td></tr>
+                ) : paged.rows.map((r) => {
+                  // A width set by hand clips the cell to it (item 01's Manual Width).
+                  const w = (k, base = ellipsis) => { const px = view.manualWidth(k); return px ? { ...base, width: px, minWidth: px, maxWidth: px, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } : base; };
+                  const nowrap = { whiteSpace: 'nowrap' };
+                  return (
+                    <tr key={r.id} onClick={() => setOpen(r)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(r); }} aria-label={`Open ${r.entryNo || r.accountNo} ${amountText(r)}`}
+                      style={loading ? { opacity: 0.6 } : undefined}>
+                      {viewCells(view, {
+                        date: <td style={w('date', nowrap)}>{r.date ? formatDate(r.date) : dash}</td>,
+                        entity: <td style={w('entity', nowrap)}>{r.entityCode || dash}</td>,
+                        entry: <td style={w('entry', nowrap)}>{r.entryNo || dash}</td>,
+                        account: <td style={w('account')} title={`${r.accountNo} ${r.accountTitle}`}><span className="acct-code">{r.accountNo}</span>{r.accountTitle}</td>,
+                        otherSide: <td style={w('otherSide', { ...ellipsis, maxWidth: 260 })}><OtherSideCell side={r.otherSide} /></td>,
+                        description: <td style={w('description')} title={[lineText(r), r.memo && r.description && r.description !== r.memo ? `Entry: ${r.description}` : ''].filter(Boolean).join('\n')}>{lineText(r) || dash}</td>,
+                        department: <td style={w('department')} title={r.department || undefined}>{r.department || dash}</td>,
+                        vendor: <td style={w('vendor')} title={r.vendor || undefined}>{r.vendor || dash}</td>,
+                        custom: <td style={w('custom')} title={r.custom || undefined}>{r.custom || dash}</td>,
+                        amount: <td style={w('amount', num)}><Amount value={r.amount} /></td>,
+                        notes: <td style={w('notes', {})}><NoteCell key={`${r.id}:${r.note}`} row={r} onSaved={noteSaved} /></td>,
+                        reclass: <td style={w('reclass', {})}>{amaCodes.has(r.accountNo) ? <ReclassCell row={r} onOpen={setReclassing} /> : dash}</td>,
+                        question: <td style={w('question')} title={r.question}>{r.question || <span style={muted}>Not Asked Yet</span>}</td>,
+                        askedBy: <td style={w('askedBy', nowrap)}>{person(r.askedByName, r.askedBy) || dash}</td>,
+                        accountant: <td style={w('accountant', nowrap)}>{person(r.accountantName, r.accountant) || dash}</td>,
+                        status: <td style={w('status', {})}><StatusChips r={r} /></td>,
+                        lastReply: <td style={w('lastReply', nowrap)} title={r.lastReplyByName || r.lastReplyBy || undefined}>{r.lastReplyAt ? formatDateTime(r.lastReplyAt) : dash}</td>,
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
