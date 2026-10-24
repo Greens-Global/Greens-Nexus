@@ -50,6 +50,43 @@ describe('Panel', () => {
     expect(screen.getByText('Reopen Rate').previousSibling.textContent).toBe('-');
   });
 
+  it('a held pin shows Waits For <Owner>, is not counted as ready to send, and alone leaves Send disabled', async () => {
+    notes = [{ id: 'p2', number: 2, kind: 'bug', priority: 'normal', status: 'open', comment: 'Bell count is wrong', sessionId: 's1', route: 'inventory', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [], held: true, ownerEmail: 'visesh.lodha@greensglobal.com', ownerName: 'Visesh' }];
+    render(<Panel {...props} myEmail="neil@greensglobal.com" />);
+    await screen.findByText('Bell count is wrong');
+    expect(screen.getByText('Waits For Visesh')).toBeTruthy();
+    expect(screen.getByText(/Pin #2 waits for Visesh/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Send To Claude Code/ })).toBeDisabled();
+  });
+
+  it('Send counts only unheld pins and names the held ones afterwards', async () => {
+    const { api } = await import('../api');
+    api.devNotesDispatch.mockResolvedValueOnce({ notes: [{ id: 'p1' }], held: [{ id: 'p2', number: 2, ownerName: 'Visesh' }] });
+    const base = { kind: 'bug', priority: 'normal', status: 'open', sessionId: 's1', route: 'inventory', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] };
+    notes = [{ ...base, id: 'p1', number: 1, comment: 'Ordinary pin' }, { ...base, id: 'p2', number: 2, comment: 'Held pin', held: true, ownerName: 'Visesh', ownerEmail: 'visesh.lodha@greensglobal.com' }];
+    const store = await import('./store');
+    render(<Panel {...props} myEmail="neil@greensglobal.com" />);
+    await screen.findByText('Held pin');
+    expect(screen.getByText(/1 of yours ready to send\./)).toBeTruthy();
+    const btn = screen.getByRole('button', { name: /Send To Claude Code/ });
+    await waitFor(() => expect(btn).not.toBeDisabled());
+    btn.click();
+    await waitFor(() => expect(store.store.get().toast?.text).toBe('Sent - Pin #2 waits for Visesh'));
+  });
+
+  it('Sessions tab: per session, how many are Ready To Check and Waiting For Owner', async () => {
+    const base = { kind: 'bug', priority: 'normal', sessionId: 's1', route: 'inventory', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] };
+    notes = [
+      { ...base, id: 'a', number: 1, status: 'pr_open', readyToCheck: true, preview: { url: 'http://localhost:5180/' } },
+      { ...base, id: 'b', number: 2, status: 'pr_open', readyToCheck: true, preview: { url: 'http://localhost:5180/' } },
+      { ...base, id: 'c', number: 3, status: 'open', held: true, ownerName: 'Visesh' },
+      { ...base, id: 'd', number: 4, status: 'open' },
+    ];
+    render(<Panel {...props} tab="sessions" />);
+    await screen.findByText('2 Ready To Check');
+    expect(screen.getByText('1 Waiting For Owner')).toBeTruthy();
+  });
+
   it('Settings tab: the GitHub Issue target is disabled and the watcher one-liner is shown', async () => {
     render(<Panel {...props} tab="settings" />);
     expect(screen.getByRole('switch', { name: 'Send Instantly' })).toBeTruthy();

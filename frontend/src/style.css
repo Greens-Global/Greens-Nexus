@@ -7183,3 +7183,17 @@ th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visibl
   .bm-toast { bottom: 24px; }
   .bm-blocked { bottom: 24px; }
 }
+
+/* Build Mode v2 (Oct 24 2026): Ready To Check (the branch's local preview),
+   the "Regression Test Added" line. A pin Ready To Check sits between PR
+   Open's violet and Fixed's green, so its marker carries both. */
+.bm-pin.is-ready { background: linear-gradient(135deg, #7c3aed, #16a34a); }
+.bm-preview { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-radius: 8px; border: 1px solid color-mix(in srgb, #0d9488 35%, var(--line)); background: color-mix(in srgb, #0d9488 7%, transparent); }
+.bm-preview-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bm-preview-title { font-size: 13px; font-weight: 700; color: #0f766e; margin-right: auto; }
+[data-theme="dark"] .bm-preview-title { color: #5eead4; }
+.bm-preview .bm-small { display: flex; align-items: center; gap: 5px; }
+.bm-preview-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.bm-preview-meta code { font-size: 11.5px; background: var(--mist); padding: 1px 6px; border-radius: 5px; }
+.bm-regression { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: #6d28d9; background: color-mix(in srgb, #7c3aed 8%, transparent); border-radius: 8px; padding: 6px 8px 6px 10px; }
+[data-theme="dark"] .bm-regression { color: #c4b5fd; }

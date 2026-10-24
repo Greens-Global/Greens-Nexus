@@ -31,6 +31,45 @@ export const STATUS_META = {
 };
 export const statusMeta = (s) => STATUS_META[s] || { label: s || 'Open', color: '#64748b' };
 
+// Build Mode v2 labels that sit on top of the status (the status itself does
+// not change): a pin held for the owner of its area, a pin Ready To Check on
+// its local preview (between PR Open's violet and Fixed's green - the marker
+// carries the gradient, `ready`), and a pin checked there that waits to merge.
+export const READY_META = { label: 'Ready To Check', color: '#0d9488', ready: true };
+export const CHECKED_META = { label: 'PR Open - Checked', color: '#059669' };
+export const HELD_COLOR = '#d97706';
+
+const isReady = (pin) => (pin.readyToCheck != null
+  ? !!pin.readyToCheck
+  : pin.status === 'pr_open' && !!pin.preview?.url && pin.previewVerdict !== 'accepted');
+
+/** The label a pin shows everywhere (marker, thread, Queue row). */
+export function pinMeta(pin) {
+  if (!pin) return statusMeta('open');
+  if (pin.held && pin.status === 'open') {
+    return { label: `Waits For ${pin.ownerName || firstNameOf(pin.ownerEmail) || 'Owner'}`, color: HELD_COLOR, held: true };
+  }
+  if (isReady(pin)) return READY_META;
+  if (pin.status === 'pr_open' && pin.previewVerdict === 'accepted') return CHECKED_META;
+  return statusMeta(pin.status);
+}
+export const pinReady = (pin) => !!pin && isReady(pin);
+
+/** A local preview link (the server allows only these; never an outside link). */
+export const isLocalPreview = (url) => /^http:\/\/(localhost|127\.0\.0\.1):\d+(\/|$)/.test(String(url || ''));
+
+/** What the viewer may do on a v2 pin: release a held pin (the owner or a
+ *  Global Admin), judge a preview (the author or a Global Admin). */
+export function pinRights(pin, me = {}) {
+  const email = String(me.email || '').toLowerCase();
+  const is = (who) => !!email && email === String(who || '').toLowerCase();
+  return {
+    release: !!pin?.held && (!!me.isAdmin || is(pin.ownerEmail)),
+    verdict: !!me.isAdmin || is(pin?.createdBy),
+  };
+}
+
+
 export const SESSION_STATUS = {
   collecting: { label: 'Collecting',     color: '#64748b' },
   sent:       { label: 'Sent',           color: '#2563eb' },

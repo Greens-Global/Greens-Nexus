@@ -24,6 +24,7 @@ import { sensitiveRects } from './lib/privacy';
 import { uploadDevNoteFile } from './lib/upload';
 import { installHotkeys } from './lib/hotkeys';
 import { MARKUP_TOOLS } from './meta';
+import { foreignOwner } from './lib/owners';
 
 const BUILD_ID = import.meta.env.VITE_BUILD_ID || 'dev';
 
@@ -36,7 +37,11 @@ export default function BuildModeApp({ view, sub }) {
   const isMobile = useIsMobile();
   // The caller (acting-as identity when one is on): the Queue counts only
   // their own open pins for Send To Claude Code. Absent in tests.
-  const myEmail = useRole()?.myEmail || '';
+  const role = useRole();
+  const myEmail = (role?.myEmail || '').toLowerCase();
+  // A Global Admin may release anyone's held pin and judge any preview (v2).
+  const isAdmin = !!role?.can?.('owner');
+  const me = useMemo(() => ({ email: myEmail, isAdmin }), [myEmail, isAdmin]);
   const blocked = (s.blockedRoutes || []).includes(view);
   const [draft, setDraft] = useState(null);
   const draftRef = useRef(null);
@@ -240,15 +245,20 @@ export default function BuildModeApp({ view, sub }) {
         sessionTitle: `Build Session ${formatDate(new Date())} ${formatTime(new Date())}`,
       };
       const note = await api.devNotesCreate(body);
-      let sent = !!s.settings?.sendInstantly;
-      if (sendNow && !sent) {
+      // On someone else's area the server holds the pin for them (v2); the
+      // composer's own reading of the owners map covers an older server.
+      const owner = foreignOwner(target?.source?.file, s.owners, myEmail);
+      const heldFor = note.held ? (note.ownerName || owner?.name || 'its owner') : (note.held == null && owner ? owner.name : '');
+      let sent = !!s.settings?.sendInstantly && !heldFor;
+      if (sendNow && !sent && !heldFor) {
         try { await api.devNotesDispatch({ noteIds: [note.id] }); sent = true; }
         catch (e) { toast(`Pin #${note.number} saved, but not sent: ${e?.message || 'dispatch failed'}`); }
       }
       removeDraft(draft.id);
       setDraft(null); setRecorded(null);
       store.set((st) => ({ pick: null, markup: [], version: st.version + 1 }));
-      if (sent || !sendNow) toast(sent ? `Pin #${note.number} sent to Claude Code` : `Pin #${note.number} saved to your Build Session`);
+      if (heldFor) toast(`Pin #${note.number} saved - it waits for ${heldFor}`);
+      else if (sent || !sendNow) toast(sent ? `Pin #${note.number} sent to Claude Code` : `Pin #${note.number} saved to your Build Session`);
     } catch (e) {
       toast(e?.message || 'The pin could not be saved');
     } finally { setSaving(''); }
@@ -337,18 +347,18 @@ export default function BuildModeApp({ view, sub }) {
     );
   }
 
-  const queueCount = pins.filter((p) => p.status === 'open').length;
+  const queueCount = pins.filter((p) => p.status === 'open' && !p.held).length;
   return (
     <div data-nx-devnotes="1" className="bm-root">
       <Overlay tool={s.tool} color={s.color} interactive={!s.editPick && !s.panelOpen} items={s.markup}
         onAdd={(item) => store.set((st) => ({ markup: [...st.markup, item] }))} onPick={onPick}
         faintItems={faint.items} faintOffset={faint.offset} />
-      <Pins pins={pins} openPinId={s.openPinId} show={s.showPins} onOpen={(id) => store.set({ openPinId: id, pick: null })} onClose={() => store.set({ openPinId: '' })} onChanged={onPinChanged} />
+      <Pins pins={pins} me={me} openPinId={s.openPinId} show={s.showPins} onOpen={(id) => store.set({ openPinId: id, pick: null })} onClose={() => store.set({ openPinId: '' })} onChanged={onPinChanged} />
       {s.pick && draft && (
         <Composer pick={s.pick} draft={draft} onChange={updateDraft} onCancel={cancelComposer} onSave={save} saving={saving} settings={s.settings} view={view}
           capture={s.capture} recording={s.recording} onRecord={toggleRecord} onStopRecord={() => stopRecording()} recorded={recorded}
           voiceOn={voiceOn} interim={interim} onVoiceStart={startVoice} onVoiceStop={stopVoice}
-          markupCount={s.markup.length} onClearMarkup={() => store.set({ markup: [] })} />
+          markupCount={s.markup.length} onClearMarkup={() => store.set({ markup: [] })} owners={s.owners} myEmail={myEmail} />
       )}
       {s.editPick && <EditInPlace key={s.editPick.target?.selector} editPick={s.editPick} onSave={onEditSave} onCancel={onEditCancel} />}
       <ToolStrip tool={s.tool} onTool={(id) => store.set({ tool: id })} color={s.color} onColor={() => store.set((st) => ({ color: nextColor(st.color) }))}

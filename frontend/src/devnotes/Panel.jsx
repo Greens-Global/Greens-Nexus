@@ -10,7 +10,7 @@ import { formatDateTime, formatDate } from '../lib/datetime';
 import { toViewUrl } from '../lib/storageView';
 import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
-import { statusMeta, sessionMeta, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND } from './meta';
+import { pinMeta, pinReady, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND } from './meta';
 import { toast } from './store';
 
 const TABS = [{ id: 'queue', label: 'Queue' }, { id: 'sessions', label: 'Sessions' }, { id: 'settings', label: 'Settings' }];
@@ -43,7 +43,7 @@ function Switch({ checked, onChange, label, hint, disabled }) {
 
 // ── Queue ────────────────────────────────────────────────────────────────────
 function PinRow({ pin, onOpen, onChanged }) {
-  const m = statusMeta(pin.status);
+  const m = pinMeta(pin);
   const kind = KIND_META[pin.kind] || KIND_META.bug;
   const prio = PRIORITY_META[pin.priority];
   const [busy, setBusy] = useState(false);
@@ -59,6 +59,7 @@ function PinRow({ pin, onOpen, onChanged }) {
           {prio && pin.priority !== 'normal' && <span className="bm-row-prio" style={{ color: prio.color }}>{prio.label}</span>}
           <StatusLabel label={m.label} color={m.color} size="sm" />
           {pin.prUrl && <a className="bm-link" href={pin.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={11} /> PR #{pin.prNumber}</a>}
+          {pinReady(pin) && isLocalPreview(pin.preview?.url) && <a className="bm-link" href={pin.preview.url} target="_blank" rel="noreferrer"><ExternalLink size={11} /> Open Preview</a>}
           {pin.videoUrl && <a className="bm-link" href={toViewUrl(pin.videoUrl)} target="_blank" rel="noreferrer"><ExternalLink size={11} /> Video</a>}
         </div>
         <button type="button" className="bm-row-comment" onClick={() => onOpen?.(pin)} title="Open this pin where it was made">
@@ -66,6 +67,7 @@ function PinRow({ pin, onOpen, onChanged }) {
         </button>
         <div className="bm-row-meta">
           <span>{firstNameOf(pin.createdBy)}</span><span className="bm-dot-sep" /><span>{pin.route}{pin.sub ? ` › ${pin.sub}` : ''}</span><span className="bm-dot-sep" /><span>{formatDateTime(pin.createdAt)}</span>
+          {pin.previewVerdict === 'reopened' && ['building', 'dispatched', 'needs_input'].includes(pin.status) && <><span className="bm-dot-sep" /><span>Reopened - Claude Code is on it</span></>}
           {pin.progress && <><span className="bm-dot-sep" /><span className="bm-row-progress">{pin.progress}</span></>}
           {(pin.thread || []).length > 0 && <><span className="bm-dot-sep" /><span>{pin.thread.length} in thread</span></>}
         </div>
@@ -91,14 +93,20 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
       if (ac !== bc) return ac - bc;
       return String(b.session?.createdAt || b.pins[0]?.createdAt || '').localeCompare(String(a.session?.createdAt || a.pins[0]?.createdAt || ''));
     });
-  const mineOpen = notes.filter((n) => n.status === 'open' && (!myEmail || n.createdBy === myEmail) && sessionOf(n.sessionId)?.status !== 'sent');
+  const mineAll = notes.filter((n) => n.status === 'open' && (!myEmail || n.createdBy === myEmail) && sessionOf(n.sessionId)?.status !== 'sent');
+  // A pin on someone else's area waits for them (v2) - never sent from here.
+  const mineOpen = mineAll.filter((n) => !n.held);
+  const mineHeld = mineAll.filter((n) => n.held);
   const canSend = mineOpen.length > 0;
+  const heldLine = mineHeld.map((n) => `Pin #${n.number} waits for ${n.ownerName || firstNameOf(n.ownerEmail)}`).join(', ');
   const send = async () => {
     setSending(true);
     try {
       const r = await api.devNotesDispatch({});
       const n = Array.isArray(r?.notes) ? r.notes.length : 0;   // the server's count, nothing guessed
-      toast(n ? `${n} pin${n === 1 ? '' : 's'} sent to Claude Code` : 'Build Session sent to Claude Code');
+      const held = Array.isArray(r?.held) ? r.held : [];
+      const waits = held.map((h) => `Pin #${h.number} waits for ${h.ownerName || 'its owner'}`).join(', ');
+      toast(waits ? `Sent - ${waits}` : n ? `${n} pin${n === 1 ? '' : 's'} sent to Claude Code` : 'Build Session sent to Claude Code');
       onDispatched?.();
     }
     catch (e) { toast(e?.message || 'Nothing was sent.'); }
@@ -109,7 +117,7 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
       <div className="bm-queue-head">
         <div>
           <div className="bm-h2">{notes.length} pin{notes.length === 1 ? '' : 's'} in the queue</div>
-          <div className="bm-dim bm-small">{canSend ? `${mineOpen.length} of yours ready to send.` : 'Your collecting session is empty - pin something first.'}</div>
+          <div className="bm-dim bm-small">{canSend ? `${mineOpen.length} of yours ready to send.` : mineHeld.length ? 'Nothing of yours to send to Claude Code.' : 'Your collecting session is empty - pin something first.'}{heldLine ? ` ${heldLine}.` : ''}</div>
         </div>
         <button type="button" className="bm-btn bm-btn-primary" onClick={send} disabled={!canSend || sending} title={canSend ? 'Send your open pins to the watcher in your terminal' : 'Nothing to send yet'}>
           {sending ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Send To Claude Code
@@ -161,7 +169,7 @@ function Stats({ stats }) {
   );
 }
 
-function SessionRow({ s, onChanged }) {
+function SessionRow({ s, onChanged, counts }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(s.title || '');
   const m = sessionMeta(s.status);
@@ -179,6 +187,8 @@ function SessionRow({ s, onChanged }) {
             ? <input className="bm-input" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onBlur={save} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setTitle(s.title || ''); setEditing(false); } }} aria-label="Session title" />
             : <button type="button" className="bm-row-title" onClick={() => setEditing(true)} title="Rename">{s.title || 'Build Session'} <Pencil size={11} /></button>}
           <StatusLabel label={m.label} color={m.color} size="sm" />
+          {counts?.ready > 0 && <StatusLabel label={`${counts.ready} Ready To Check`} color={READY_META.color} size="sm" />}
+          {counts?.held > 0 && <StatusLabel label={`${counts.held} Waiting For Owner`} color={HELD_COLOR} size="sm" />}
         </div>
         <div className="bm-row-meta">
           <span>{s.noteCount ?? 0} pin{(s.noteCount ?? 0) === 1 ? '' : 's'}</span><span className="bm-dot-sep" /><span>{firstNameOf(s.createdBy)}</span><span className="bm-dot-sep" /><span>{formatDateTime(s.createdAt)}</span>
@@ -191,14 +201,22 @@ function SessionRow({ s, onChanged }) {
   );
 }
 
-function SessionsTab({ sessions, stats, loading, onChanged }) {
+function SessionsTab({ sessions, notes = [], stats, loading, onChanged }) {
+  // Per session (v2): how many pins wait on the author's check and how many
+  // on the owner of their area - counted from the pins the Panel loaded.
+  const counts = {};
+  for (const n of notes) {
+    const c = counts[n.sessionId || ''] || (counts[n.sessionId || ''] = { ready: 0, held: 0 });
+    if (pinReady(n)) c.ready += 1;
+    else if (n.held && n.status === 'open') c.held += 1;
+  }
   return (
     <>
       <Stats stats={stats} />
       <div className="bm-list nx-fill">
         {loading && !sessions.length && <div className="bm-dim">Loading…</div>}
         {!loading && !sessions.length && <div className="bm-empty">No Build Sessions yet - the first pin starts one.</div>}
-        {sessions.map((s) => <SessionRow key={s.id} s={s} onChanged={onChanged} />)}
+        {sessions.map((s) => <SessionRow key={s.id} s={s} onChanged={onChanged} counts={counts[s.id]} />)}
       </div>
     </>
   );
@@ -345,7 +363,7 @@ export default function Panel({ open, tab = 'queue', onTab, onClose, settings, o
         </div>
         <div className="bm-sheet-body">
           {tab === 'queue' && <QueueTab notes={notes} dismissed={dismissed} sessions={sessions} loading={loading} onOpenPin={onOpenPin} onChanged={replace} onDispatched={() => { load(); onDispatched?.(); }} myEmail={myEmail} />}
-          {tab === 'sessions' && <SessionsTab sessions={sessions} stats={stats} loading={loading} onChanged={replaceSession} />}
+          {tab === 'sessions' && <SessionsTab sessions={sessions} notes={notes} stats={stats} loading={loading} onChanged={replaceSession} />}
           {tab === 'settings' && <SettingsTab settings={settings || {}} onSettings={onSettings} />}
         </div>
       </div>

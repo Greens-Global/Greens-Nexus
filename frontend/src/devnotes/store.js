@@ -39,6 +39,7 @@ let state = {
   on: typeof window !== 'undefined' && read(sessionStorage, MODE_KEY) === '1',
   pendingPin: pendingPinFromUrl() || (typeof window !== 'undefined' ? (read(sessionStorage, PENDING_PIN_KEY) || '') : ''),
   blockedRoutes: [],             // views where nothing is captured (the server names them: pfs, credvault)
+  owners: [],                    // [{ name, email, paths }] - who owns which files (v2: a pin there is held for them)
   tool: 'pin',
   color: '#ef4444',
   pick: null,                    // { target, rect, mode } - the composer's anchor
@@ -93,7 +94,7 @@ export function ensureEnabled() {
   enabledPromise = api.devNotesEnabled()
     .then((r) => {
       const enabled = !!r?.enabled;
-      store.set({ enabled, settings: { ...DEFAULT_SETTINGS, ...(r?.settings || {}) }, blockedRoutes: Array.isArray(r?.blockedRoutes) ? r.blockedRoutes : [] });
+      store.set({ enabled, settings: { ...DEFAULT_SETTINGS, ...(r?.settings || {}) }, blockedRoutes: Array.isArray(r?.blockedRoutes) ? r.blockedRoutes : [], owners: Array.isArray(r?.owners) ? r.owners : [] });
       // Someone whose grant went away while the mode was on: off, quietly.
       if (!enabled && state.on) turnOff();
       return enabled;
