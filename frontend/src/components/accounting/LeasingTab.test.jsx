@@ -165,6 +165,31 @@ describe('LeasingTab - the 10/04 feedback', () => {
   const full = { ...roll, rows: [{ ...roll.rows[0], expired: false, customerActive: true, lease: lease({ teamNote: { text: 'Promised by the 15th', by: 'charmi@greensglobal.com', byName: 'Charmi Desai', at: '2026-10-01T16:00:00Z' } }) }, { ...prepaid, expired: false, customerActive: true }, ended, gone], linked: [] };
   beforeEach(() => { api.getLeasingRentRollFor.mockResolvedValue(full); });
 
+  it('has the standard table view on the Income Roll: a rule narrows it, the figures and the Received line follow, Total sorts (10/23, item 01)', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const panel = await screen.findByRole('dialog', { name: 'Filters' });
+    fireEvent.click(within(panel).getByRole('button', { name: /Add Filter/ }));
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 field' }), { target: { value: 'balance' } });
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 condition' }), { target: { value: 'gt' } });
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'Rule 1 value' }), { target: { value: '0' } });
+    expect(screen.queryByText('47385 RCR, Temecula')).toBeNull();
+    const grand = screen.getByText(/Received - 1 source/).closest('tr');
+    expect(within(grand).getByText('8,955.00')).toBeTruthy();
+    expect(screen.getByText('Received').closest('span').textContent).toContain('8,955.00');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Delete rule 1' }));
+    // Total, largest first: Temecula (16,000) above San Clemente (8,955).
+    fireEvent.click(screen.getByRole('button', { name: /^Total - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Total column' })).getByRole('menuitemradio', { name: /Sort Descending/ }));
+    const names = [...document.querySelectorAll('.acct-roll tbody tr')].map((tr) => tr.textContent).filter((t) => /Temecula|San Clemente/.test(t)).map((t) => (t.includes('Temecula') ? 'T' : 'S'));
+    expect(names).toEqual(['T', 'S']);
+    // The property stays pinned first: it neither moves nor hides.
+    fireEvent.click(screen.getByRole('button', { name: /^Property or Source - column menu/ }));
+    const menu = await screen.findByRole('menu', { name: 'Property or Source column' });
+    expect(within(menu).queryByRole('menuitem', { name: /Move Right/ })).toBeNull();
+  });
+
   it('adds a Total column and a Balance, where a prepayment is a credit', async () => {
     render(<LeasingTab canEdit />);
     const row = (await screen.findByText('910 SECR - Ste 100, San Clemente')).closest('tr');
