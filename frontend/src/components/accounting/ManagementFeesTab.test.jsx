@@ -34,11 +34,12 @@ vi.mock('../../api', () => ({
     deleteAmaAgreement: vi.fn(async () => null),
     getAmaAccounts: vi.fn(async () => ({ accounts: [{ code: '40500', title: 'Asset Management Fee Income' }, { code: '41000', title: 'Rental Income' }] })),
   },
+  withFreshReads: vi.fn((fn) => fn()),
 }));
 vi.mock('./drill', () => ({ requestReportDrill: vi.fn() }));
 
 import ManagementFeesTab, { calcTitle, feeText, periodOptions, validateAgreement } from './ManagementFeesTab';
-import { api } from '../../api';
+import { api, withFreshReads } from '../../api';
 import { requestReportDrill } from './drill';
 import { resetAccountingPrefs } from './prefs';
 
@@ -236,5 +237,30 @@ describe('ManagementFeesTab', () => {
     expect(periodOptions(2025, new Date(2026, 0, 5))).toHaveLength(1 + 4 + 12);
     expect(periodOptions(2025, new Date(2026, 0, 5))[0][1]).toBe('Full Year');
     expect(calcTitle({ calculatedFee: 0, feeTier: null })).toBe('Not in force in this period');
+  });
+});
+
+// 10/23 Accounting meeting, items 05 and 13.
+describe('ManagementFeesTab, Sync and the scroll box', () => {
+  it('Sync reads the agreements again, fresh, and leaves the filter and an open dialog as they were', async () => {
+    render(<ManagementFeesTab canEdit />);
+    await screen.findByText('15000 Greens Escondido, LLC.');
+    expect(screen.getByTestId('mgmt-fees-box').className).toContain('acct-scroll-box');
+    fireEvent.change(screen.getByLabelText('Filter agreements'), { target: { value: 'Escondido' } });
+    fireEvent.click(screen.getByRole('button', { name: /Add Agreement/ }));
+    await screen.findByRole('dialog', { name: 'Add Agreement' });
+    let release;
+    api.getAmaSummary.mockImplementationOnce(() => new Promise((r) => { release = () => r({ ...summary, rows: [row({ billedYtd: 2000 })] }); }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sync' }));
+    expect(withFreshReads).toHaveBeenCalledTimes(1);
+    // While it reads, the rows on screen stay (no skeleton), and so does the dialog.
+    expect(screen.getByText('15000 Greens Escondido, LLC.')).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Add Agreement' })).toBeTruthy();
+    release();
+    expect((await screen.findAllByText('2,000.00')).length).toBeGreaterThan(0);
+    expect(api.getAmaSummary).toHaveBeenCalledTimes(2);
+    expect(api.getAccountingLocations).toHaveBeenCalledTimes(1);   // only this table was read again
+    expect(screen.getByLabelText('Filter agreements').value).toBe('Escondido');
+    expect(screen.getByRole('dialog', { name: 'Add Agreement' })).toBeTruthy();
   });
 });

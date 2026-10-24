@@ -3,7 +3,9 @@ import { X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import Amount, { Figure } from './Amount';
-import { control, EntitiesPicker, ExportMenu } from './reportControls';
+import { ControlBar, control, EntitiesPicker, ExportMenu, SyncButton } from './reportControls';
+import { useFitHeight } from './tableHooks';
+import { useTableSync } from './tableSync';
 import { downloadBlob, iso, presetRange } from './reportModel';
 import { requestReportDrill } from './drill';
 import { linesFile } from './linesExport';
@@ -56,15 +58,19 @@ export default function ProfitabilityReport({ limited = false }) {
     return () => { alive = false; };
   }, []);
 
-  const load = useCallback(() => {
-    if (!from || !to || from > to) { setState({ loading: false, error: 'The start date must be on or before the end date.' }); return; }
-    setState({ loading: true, error: '' });
-    setOpen(null);
-    api.getProfitability(from, to, { locations: picked, book, expand })
+  // `quiet` (a Sync, 10/23 meeting item 13): the sheet and an open breakdown stay on screen while it reads.
+  const load = useCallback((quiet = false) => {
+    if (!from || !to || from > to) { setState({ loading: false, error: 'The start date must be on or before the end date.' }); return undefined; }
+    if (quiet === true) setState((s) => ({ ...s, syncing: true }));
+    else { setState({ loading: true, error: '' }); setOpen(null); }
+    return api.getProfitability(from, to, { locations: picked, book, expand })
       .then((d) => { setData(d); setState({ loading: false, error: '' }); })
       .catch((e) => { setData(null); setState({ loading: false, error: e?.message || 'Could not build the Profitability Sheet.' }); });
   }, [from, to, picked, book, expand]);
   useEffect(() => { load(); }, [load]);
+  const ts = useTableSync(useCallback(() => load(true), [load]));
+  const [box, setBox] = useState(null);
+  const fit = useFitHeight(box);   // item 05: the sheet scrolls inside its own box
 
   const pickPeriod = (key) => { setPeriod(key); if (key !== 'custom') setRange(rangeOf(key)); };
   const rows = useMemo(() => orderedRows(data), [data]);
@@ -99,7 +105,7 @@ export default function ProfitabilityReport({ limited = false }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ ...card, padding: 12, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
+      <ControlBar style={{ ...card, padding: 12, alignItems: 'flex-end' }}>
         <label style={label}>Period
           <select value={period} onChange={(e) => pickPeriod(e.target.value)} style={control} aria-label="Period">
             {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
@@ -128,20 +134,21 @@ export default function ProfitabilityReport({ limited = false }) {
         <label style={{ ...label, flexDirection: 'row', alignItems: 'center', gap: 6, height: 30, color: 'var(--text-primary)', fontSize: '0.78rem' }}>
           <input type="checkbox" checked={expand} onChange={(e) => setExpand(e.target.checked)} /> Show Sub-Entities
         </label>
-        <div style={{ marginLeft: 'auto' }}>
+        <div className="acct-bar-end">
+          <SyncButton onSync={ts.sync} busy={!!state.syncing} syncedAt={ts.syncedAt} />
           <ExportMenu disabled={!data || !rows.length} items={[
             { key: 'excel', label: 'Excel', hint: 'Workbook with the totals as formulas', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'pdf', label: 'PDF', hint: 'Landscape, ready to print', onPick: () => exportAs('pdf'), busy: busy === 'pdf' },
             { key: 'csv', label: 'CSV', onPick: () => exportAs('csv'), busy: busy === 'csv' },
           ]} />
         </div>
-      </div>
+      </ControlBar>
 
-      <AsyncSection loading={state.loading} error={!!state.error} errorMessage={state.error} onRetry={load} skeleton={<SkeletonBlocks count={2} />}
+      <AsyncSection loading={state.loading} error={!!state.error} errorMessage={state.error} onRetry={() => load()} skeleton={<SkeletonBlocks count={2} />}
         isEmpty={!!data && !rows.length}
         emptyContent={<div style={{ ...card, padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>Nothing posted to income or expense accounts for these entities in this period.</div>}>
         {data && (
-          <div style={{ ...card, overflow: 'auto' }}>
+          <div className="acct-scroll-box" ref={setBox} data-testid="profitability-box" style={{ ...card, ...fit }}>
             <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'baseline' }}>
               <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Profitability Sheet</h3>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{entityLabel} · {periodLine(data)}{withPrior ? ` · compared with ${priorLine(data)}` : ''}</span>

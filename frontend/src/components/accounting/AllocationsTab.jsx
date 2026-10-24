@@ -3,7 +3,8 @@ import { ChevronLeft, ChevronRight, Download, Save, Settings2, Trash2 } from 'lu
 import { api } from '../../api';
 import Amount from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
-import { control } from './reportControls';
+import { ControlBar, SyncButton, control } from './reportControls';
+import { useTableSync } from './tableSync';
 import { downloadBlob } from './reportModel';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { dialog } from '../../ui/dialog';
@@ -58,10 +59,15 @@ export default function AllocationsTab({ canEdit = false }) {
   const loadPreview = useCallback((m) => {
     const mine = ++seq.current;
     setState({ loading: true, error: '', stepUp: false });
-    api.previewAllocations(m).then((d) => { if (mine !== seq.current) return; setPreview(d); setState({ loading: false, error: '', stepUp: false }); })
+    return api.previewAllocations(m).then((d) => { if (mine !== seq.current) return; setPreview(d); setState({ loading: false, error: '', stepUp: false }); })
       .catch((e) => { if (mine !== seq.current) return; setPreview(null); setState({ loading: false, error: isStepUpRequired(e) ? '' : (e?.message || 'Could not build the preview.'), stepUp: isStepUpRequired(e) }); });
   }, []);
   useEffect(() => { loadPreview(month); }, [month, loadPreview]);
+  // 10/23 meeting, item 13: the preview and the runs kept each have their own
+  // Sync; the one on screen stays while it reads, the other is not touched.
+  const previewSync = useTableSync(useCallback(() => loadPreview(month), [month, loadPreview]));
+  const runsSync = useTableSync(loadRuns);
+  const [runsBusy, setRunsBusy] = useState(false);
 
   const unmapped = (preview?.unmapped?.sites?.length || 0) + (preview?.unmapped?.companies?.length || 0);
   const lines = useMemo(() => (preview?.entries || []).flatMap((e) => e.lines.map((l) => ({ ...l, entry: e.description }))), [preview]);
@@ -108,7 +114,7 @@ export default function AllocationsTab({ canEdit = false }) {
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
           <button type="button" aria-label="Previous month" onClick={() => setMonth((m) => shiftMonth(m, -1))} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronLeft size={16} /></button>
           <strong style={{ fontSize: '0.86rem', minWidth: 80, textAlign: 'center' }}>{monthLabel(month)}</strong>
@@ -121,13 +127,14 @@ export default function AllocationsTab({ canEdit = false }) {
             {unmapped > 0 && <span style={{ ...warn, marginLeft: 8 }}>{unmapped} unmapped</span>}
           </span>
         )}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          {canEdit && <button type="button" className="secondary-btn" onClick={() => setMapOpen((v) => !v)} aria-expanded={mapOpen} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Settings2 size={13} /> Account Mapping</button>}
+        <div className="acct-bar-end">
+          <SyncButton onSync={previewSync.sync} busy={state.loading && !!preview} syncedAt={previewSync.syncedAt} what="Preview" />
+          {canEdit && <button type="button" className="secondary-btn" onClick={() => setMapOpen((v) => !v)} aria-expanded={mapOpen} title="Account Mapping" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Settings2 size={13} /> <span className="acct-bar-label">Account Mapping</span></button>}
           {canEdit && <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('csv')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Intacct CSV</button>}
           {canEdit && <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('xlsx')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Excel</button>}
           {canEdit && <button type="button" className="primary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={keepRun} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Save size={13} /> {busy === 'run' ? 'Keeping...' : 'Keep Run'}</button>}
         </div>
-      </div>
+      </ControlBar>
 
       {mapOpen && draft && (
         <div style={{ ...card, padding: 14 }}>
@@ -242,7 +249,10 @@ export default function AllocationsTab({ canEdit = false }) {
       )}
 
       <div style={{ ...card, overflow: 'auto' }}>
-        <h3 style={{ margin: 0, padding: '10px 12px 4px', fontSize: '0.9rem' }}>Runs Kept</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 4px' }}>
+          <h3 style={{ margin: 0, fontSize: '0.9rem', flex: 1 }}>Runs Kept</h3>
+          <SyncButton onSync={() => { setRunsBusy(true); Promise.resolve(runsSync.sync()).finally(() => setRunsBusy(false)); }} busy={runsBusy} syncedAt={runsSync.syncedAt} what="Runs" />
+        </div>
         <AsyncSection loading={runs === null} skeleton={<SkeletonBlocks count={1} height={60} />}>
           {!runs?.length ? (
             <p style={{ margin: 0, padding: '8px 12px 14px', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>No runs yet. Keep Run saves the preview above so its file can be produced again unchanged.</p>

@@ -5,10 +5,11 @@ import { SkeletonBlocks } from '../AsyncState';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import Amount from './Amount';
 import EntryDetail from './EntryDetail';
-import { ColumnResizer, EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, control } from './reportControls';
+import { ColumnResizer, ControlBar, EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, SyncButton, control } from './reportControls';
 import { DIM_KINDS, downloadBlob, resolveConfig } from './reportModel';
 import { linesFile } from './linesExport';
-import { useColumnWidths } from './tableHooks';
+import { useColumnWidths, useFitHeight } from './tableHooks';
+import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
 import { useAccountingPrefs } from './prefs';
 import { MANUAL_JE_DEFAULT_PRESET, MANUAL_JE_GROUP_BY_USER } from './assumptions';
@@ -66,10 +67,14 @@ export default function ManualJournalEntries() {
     return () => { alive = false; };
   }, []);
   const journals = config.dims.journals || [];
-  const key = JSON.stringify([config.from, config.to, config.entities, journals, user, edited]);
+  // 10/23 meeting, item 13: Sync reads the entries from Intacct again (ts.tick), nothing else.
+  const ts = useTableSync();
+  const [box, setBox] = useState(null);
+  const fit = useFitHeight(box);   // item 05: the entries scroll inside their own box
+  const key = JSON.stringify([config.from, config.to, config.entities, journals, user, edited, ts.tick]);
   useEffect(() => {
     let alive = true;
-    api.getManualJournalEntries({ from: config.from, to: config.to, locations: config.entities, journals, user, edited })
+    ts.read(() => api.getManualJournalEntries({ from: config.from, to: config.to, locations: config.entities, journals, user, edited }))
       .then((d) => { if (alive) setRes({ key, data: d, error: '' }); })
       .catch((e) => { if (alive) setRes({ key, data: null, error: e?.message || 'Could not read the manual entries.' }); });
     return () => { alive = false; };
@@ -138,7 +143,7 @@ export default function ManualJournalEntries() {
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 10 }}>
-      <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <PeriodStepper config={config} period="range" onChange={patch} />
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
         <FiltersButton dims={config.dims} onChange={(d) => patch({ dims: d })} kinds={JOURNAL_KIND} />
@@ -156,14 +161,15 @@ export default function ManualJournalEntries() {
           <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />
           <input type="text" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search the entries" placeholder="Search description, entry, user..." style={{ ...control, width: '100%', paddingLeft: 28 }} />
         </div>
-        <div style={{ marginLeft: 'auto' }}>
+        <div className="acct-bar-end">
+          <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
           <ExportMenu disabled={!rows.length} items={[
             { key: 'excel', label: 'Excel', hint: 'The entries on screen, live totals', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per entry', onPick: () => exportAs('csv'), busy: busy === 'csv' },
             { key: 'pdf', label: 'PDF', hint: 'Landscape, banded, page numbers', onPick: () => exportAs('pdf'), busy: busy === 'pdf' },
           ]} />
         </div>
-      </div>
+      </ControlBar>
 
       {data && data.available === false && (
         <div role="note" style={{ ...card, padding: 16, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
@@ -180,7 +186,7 @@ export default function ManualJournalEntries() {
             <strong>{rows.length}</strong> manual {rows.length === 1 ? 'entry' : 'entries'} of {data.scanned} in {formatDate(data.from)} - {formatDate(data.to)} · Amount <strong><Amount value={total} /></strong>
             {' · '}Not manual: entries created by {(data.excludedUsers || []).join(', ') || 'system'} or by a bank-feed or other rule. Posted / Changed By is the last person to change or post the entry (Intacct&apos;s MODIFIEDBY); a rule&apos;s draft that a person only posted shows here as changed by that person.
           </div>
-          <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
+          <div className="req-table-wrapper acct-scroll-box" ref={setBox} data-testid="manual-je-box" style={fit}>
             <table className="req-table">
               <thead><tr>{MJE_COLUMNS.map(head)}<th aria-label="Open" style={{ width: 70 }} /></tr></thead>
               <tbody>

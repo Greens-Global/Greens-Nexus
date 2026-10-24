@@ -3,8 +3,9 @@ import { ChevronDown, ChevronRight, Database, FileText, FolderOpen, FolderUp, Ma
 import { api } from '../../api';
 import Amount, { Figure, formatAmount, parseAmountInput } from './Amount';
 import { formatDate } from '../../lib/datetime';
-import { ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, Pager, PeriodStepper, control } from './reportControls';
-import { useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
+import { ColumnResizer, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, Pager, PeriodStepper, SyncButton, control } from './reportControls';
+import { useColumnWidths, useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
+import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
 import { requestReportDrill } from './drill';
 import AddMenu from './AddMenu';
@@ -392,11 +393,16 @@ export default function LoansTab({ canEdit = false }) {
     api.getAccountingLocations?.().then((d) => { setEntities(d?.entities || []); setLimited(!!d?.limited); }).catch(() => setEntities([]));
   }, []);
 
-  const key = JSON.stringify([period.from, period.to, picked, reloads]);
+  // 10/23 meeting, item 13: Sync reads the loans again (ts.tick), nothing else;
+  // an open loan row, its schedule or a dialog stays open.
+  const ts = useTableSync();
+  const [box, setBox] = useState(null);
+  const fit = useFitHeight(box);   // item 05: the loans scroll inside their own box
+  const key = JSON.stringify([period.from, period.to, picked, reloads, ts.tick]);
   useEffect(() => {
     let alive = true;
     const read = api.getLoansReviewSlow || api.getLoansReview;
-    read({ from: period.from, to: period.to, entities: picked })
+    ts.read(() => read({ from: period.from, to: period.to, entities: picked }))
       .then((d) => { if (alive) setRes({ key, data: d, error: null }); })
       .catch((e) => { if (alive) setRes({ key, data: null, error: e }); });
     return () => { alive = false; };
@@ -475,7 +481,7 @@ export default function LoansTab({ canEdit = false }) {
               color: view === k ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', borderBottom: `2px solid ${view === k ? 'var(--wk-brand, #2b45e1)' : 'transparent'}`, marginBottom: -1 }}>{l}</button>
         ))}
       </div>
-      <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} showHistorical={showHistorical} />
         <PeriodStepper config={period} period="range" onChange={onPeriod} />
         {view === 'loans' && <>
@@ -486,10 +492,11 @@ export default function LoansTab({ canEdit = false }) {
           <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
           <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Filter loans" aria-label="Filter loans" style={{ ...control, width: 170, paddingLeft: 24 }} />
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div className="acct-bar-end">
           <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
             Loans <strong>{rows.length}</strong> · Balance <strong><Amount value={totals.balance} /></strong>
           </span>
+          <SyncButton onSync={ts.sync} busy={loading && !!review} syncedAt={ts.syncedAt} />
           <CustomizeButton {...custom} active={showClosed}>
             <ClosedToggle checked={showClosed} onChange={(v) => setPrefs({ loansShowClosed: v })} closedCount={closedCount} />
           </CustomizeButton>
@@ -510,7 +517,7 @@ export default function LoansTab({ canEdit = false }) {
         </>}
         {view === 'stress' && <span style={{ marginLeft: 'auto', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>NOI (T12) and balances as of {formatDate(to)} - the period picks them</span>}
         {view === 'planning' && <span style={{ marginLeft: 'auto', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Entities filter the planned loans; NOI and existing debt as of {formatDate(to)}</span>}
-      </div>
+      </ControlBar>
 
       {sent && (
         <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: sent.bad ? 'var(--bad-fg, #dc2626)' : 'var(--ok-fg, #15803d)' }}>
@@ -557,8 +564,8 @@ export default function LoansTab({ canEdit = false }) {
 
       {view === 'loans' && !unavailable && (loading || rows.length > 0) && (
         <div style={{ ...card, padding: 0, overflow: 'hidden' }} aria-busy={loading}>
-          <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
-            <table className="req-table acct-loans" style={{ fontVariantNumeric: 'tabular-nums', '--loan-py': py }}>
+          <div className="req-table-wrapper acct-scroll-box" ref={setBox} data-testid="loans-box" style={fit}>
+            <table className="req-table acct-loans acct-sticky-head" style={{ fontVariantNumeric: 'tabular-nums', '--loan-py': py }}>
               <thead>
                 <tr>
                   <th style={{ width: 26 }} />

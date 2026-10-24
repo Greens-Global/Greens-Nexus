@@ -4,7 +4,7 @@ import { monthLong, shiftKey } from '../../../accounting/dashboard/model/months'
 import { SCOPE_LABEL } from '../../../accounting/dashboard/model/scope';
 import { useDash } from './DashContext';
 import { card, input, pill } from './Bits';
-import { EntityPicker } from '../reportControls';
+import { ControlBar, EntityPicker } from '../reportControls';
 import { formatDateTime, formatTime } from '../../../lib/datetime';
 
 // The dashboard's global filter row: scope (consolidation group or one
@@ -110,7 +110,7 @@ export function RefreshButton() {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       {updatedAt || synced ? (
-        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+        <span className="acct-bar-label-2" style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
           {updatedAt ? `Updated ${formatTime(updatedAt)}` : ''}{updatedAt && synced ? ' · ' : ''}{synced ? `Ledger synced from Intacct ${synced}` : ''}
         </span>
       ) : null}
@@ -129,15 +129,16 @@ export function Toolbar({ right, hidePeriod }) {
   const { ix, scope } = useDash();
   const partners = ['ALL', 'CTL', 'NC'].includes(scope) ? '' : ix.byCode.get(scope)?.partners;
   return (
-    <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+    // 10/23 meeting, item 02: the shared one-line control bar (reportControls).
+    <ControlBar style={{ ...card, padding: '8px 10px' }}>
       <ScopeSelect />
       {!hidePeriod ? <MonthStepper /> : null}
       <BookPills />
       {partners ? <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Partner entity · {partners}</span> : null}
-      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div className="acct-bar-end">
         {right}
         <RefreshButton />
       </div>
-    </div>
+    </ControlBar>
   );
 }

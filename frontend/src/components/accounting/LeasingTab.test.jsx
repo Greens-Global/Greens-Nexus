@@ -49,6 +49,7 @@ vi.mock('../../api', () => ({
     searchAccountingLedger: vi.fn(async () => ({ rows: [] })),
     getAccountingEntry: vi.fn(async () => ({ entry: { entry_no: 'JE-1042' }, lines: [], intacct: [] })),
   },
+  withFreshReads: vi.fn((fn) => fn()),
 }));
 
 import LeasingTab, { leaseTermLabel, parseLeaseTerm, fitRollHeight } from './LeasingTab';
@@ -56,7 +57,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const css = fs.readFileSync(path.resolve(__dirname, '../../style.css'), 'utf8');
-import { api } from '../../api';
+import { api, withFreshReads } from '../../api';
 import { resetAccountingPrefs } from './prefs';
 
 beforeEach(() => { vi.clearAllMocks(); try { localStorage.clear(); } catch { /* none */ } resetAccountingPrefs(); });
@@ -261,6 +262,10 @@ describe('LeasingTab - the 10/04 feedback', () => {
     fireEvent.click(screen.getByRole('button', { name: /Sync Now/ }));
     expect(await screen.findByText(/Linked 1 lease to the Intacct customer by name/)).toBeTruthy();
     expect(screen.getByText(/Added 1 new tenant from the ledger: New Tenant Inc. at Greens Escondido/)).toBeTruthy();
+    // 10/23 meeting, item 13: the rent roll is read again past the server's cache, without an error.
+    await waitFor(() => expect(withFreshReads).toHaveBeenCalledTimes(1));
+    expect(api.getLeasingRentRollFor).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/Could not sync with the ledger/)).toBeNull();
   });
 });
 

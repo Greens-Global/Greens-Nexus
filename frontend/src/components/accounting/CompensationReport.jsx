@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import Amount from './Amount';
-import { control, ExportMenu } from './reportControls';
+import { ControlBar, control, ExportMenu, SyncButton } from './reportControls';
+import { useTableSync } from './tableSync';
 import { downloadBlob } from './reportModel';
 import { linesFile } from './linesExport';
 import { formatDate } from '../../lib/datetime';
@@ -52,23 +53,31 @@ export default function CompensationReport() {
   const span = monthsBetween(from, to);
   const rangeError = span < 1 ? 'The start month must be on or before the end month.' : span > MAX_MONTHS ? `Pick at most ${MAX_MONTHS} months.` : '';
 
-  const loadPeople = useCallback(([f, t]) => {
-    setState({ loading: true, error: '', stepUp: false });
+  // `quiet` (a Sync, 10/23 meeting item 13): the table stays on screen while it reads.
+  const loadPeople = useCallback(([f, t], quiet = false) => {
+    if (quiet) setState((s) => ({ ...s, syncing: true }));
+    else setState({ loading: true, error: '', stepUp: false });
     // One attempt (api.js noRetry): the server stops a run that runs long and
     // says why, so a failure is shown at once instead of after silent retries.
-    api.getCompensationPeople(f, t, { timeoutMs: COMP_REQUEST_TIMEOUT_MS })
+    return api.getCompensationPeople(f, t, { timeoutMs: COMP_REQUEST_TIMEOUT_MS })
       .then((d) => { setData(d); setState({ loading: false, error: '', stepUp: false }); })
       .catch((e) => { setData(null); setState({ loading: false, error: isStepUpRequired(e) ? '' : loadErrorMessage(e, monthsBetween(f, t)), stepUp: isStepUpRequired(e) }); });
   }, []);
-  const loadLedger = useCallback(([f, t], b) => {
-    setLedgerState({ loading: true, error: '' });
-    api.getCompensationLedger(f, t, b)
+  const loadLedger = useCallback(([f, t], b, quiet = false) => {
+    setLedgerState(quiet ? (s) => ({ ...s, syncing: true }) : { loading: true, error: '' });
+    return api.getCompensationLedger(f, t, b)
       .then((d) => { setLedger(d); setLedgerState({ loading: false, error: '' }); })
       .catch((e) => { setLedger(null); setLedgerState({ loading: false, error: isStepUpRequired(e) ? 'Verify your identity above to see the ledger figures.' : (e?.message || 'Could not read payroll expense from the ledger.') }); });
   }, []);
   useEffect(() => { loadPeople(asked); }, [asked, loadPeople]);
   // The ledger read waits for the people read: it needs the same identity check.
-  useEffect(() => { if (data) loadLedger(asked, by); }, [data, asked, by, loadLedger]);
+  // (Once there are people: a Sync of the people does not re-read the ledger.)
+  const peopleIn = !!data;
+  useEffect(() => { if (peopleIn) loadLedger(asked, by); }, [peopleIn, asked, by, loadLedger]);
+  // Item 13: each table has its own Sync - the people's re-reads only the
+  // people, the ledger's only the ledger figures.
+  const peopleSync = useTableSync(useCallback(() => loadPeople(asked, true), [asked, loadPeople]));
+  const ledgerSync = useTableSync(useCallback(() => loadLedger(asked, by, true), [asked, by, loadLedger]));
 
   const run = () => { if (!rangeError) setAsked([from, to]); };
   const period = data ? `${formatDate(data.from)} - ${formatDate(data.to)}` : '';
@@ -90,7 +99,7 @@ export default function CompensationReport() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ ...card, padding: 12, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
+      <ControlBar style={{ ...card, padding: 12, alignItems: 'flex-end' }}>
         <label style={label}>From Month
           <input type="month" value={from} onChange={(e) => setRange([e.target.value, to])} style={control} aria-label="From Month" />
         </label>
@@ -101,11 +110,12 @@ export default function CompensationReport() {
         <div style={{ display: 'flex', gap: 4 }} role="group" aria-label="View">
           {VIEWS.map((v) => <button key={v.key} type="button" style={seg(view === v.key)} aria-pressed={view === v.key} onClick={() => setView(v.key)}>{v.label}</button>)}
         </div>
-        <div style={{ marginLeft: 'auto' }}>
+        <div className="acct-bar-end">
+          <SyncButton onSync={peopleSync.sync} busy={!!state.syncing} syncedAt={peopleSync.syncedAt} what="Compensation" />
           <ExportMenu disabled={!data || !rows.length} items={exportItems('people', () => compensationTable(data, view, { period }), !data)} />
         </div>
         {rangeError && <div style={{ width: '100%', fontSize: '0.75rem', color: '#b91c1c' }}>{rangeError}</div>}
-      </div>
+      </ControlBar>
 
       {state.stepUp ? (
         <StepUpNeeded label="Wages and hours by person." onVerified={() => loadPeople(asked)} />
@@ -191,6 +201,7 @@ export default function CompensationReport() {
             <div style={{ display: 'flex', gap: 4 }} role="group" aria-label="Ledger Group By">
               {[['department', 'By Department'], ['employee', 'By Employee']].map(([k, l]) => <button key={k} type="button" style={seg(by === k)} aria-pressed={by === k} onClick={() => setBy(k)}>{l}</button>)}
             </div>
+            <SyncButton onSync={ledgerSync.sync} busy={!!ledgerState.syncing} syncedAt={ledgerSync.syncedAt} what="Ledger" />
             <ExportMenu disabled={!ledger?.rows?.length} items={exportItems('ledger', () => ledgerTable(ledger, { period }), !ledger)} />
           </div>
           <AsyncSection loading={ledgerState.loading} error={!!ledgerState.error} errorMessage={ledgerState.error} onRetry={() => loadLedger(asked, by)} skeleton={<SkeletonBlocks count={1} height={80} />}

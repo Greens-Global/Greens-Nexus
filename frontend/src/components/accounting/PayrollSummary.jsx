@@ -4,7 +4,9 @@ import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import Amount from './Amount';
-import { EntitiesPicker, ExportMenu, PeriodStepper, control } from './reportControls';
+import { ControlBar, EntitiesPicker, ExportMenu, PeriodStepper, SyncButton, control } from './reportControls';
+import { useFitHeight } from './tableHooks';
+import { useTableSync } from './tableSync';
 import { EMPTY_DIMS, downloadBlob, fetchBuckets, resolveConfig } from './reportModel';
 import { linesFile } from './linesExport';
 import { useAccountingPrefs } from './prefs';
@@ -80,7 +82,11 @@ export default function PayrollSummary() {
     return () => { alive = false; };
   }, []);
 
-  const key = JSON.stringify([config.from, config.to, config.entities]);
+  // 10/23 meeting, item 13: Sync reads the payroll journal again (ts.tick), nothing else.
+  const ts = useTableSync();
+  const [box, setBox] = useState(null);
+  const fit = useFitHeight(box);   // item 05: the summary scrolls inside its own box
+  const key = JSON.stringify([config.from, config.to, config.entities, ts.tick]);
   useEffect(() => {
     let alive = true;
     const read = async () => {
@@ -112,7 +118,7 @@ export default function PayrollSummary() {
       }
       return { rows, names, fallback };
     };
-    read().then((d) => { if (alive) setRes({ key, data: d, error: '' }); })
+    ts.read(read).then((d) => { if (alive) setRes({ key, data: d, error: '' }); })
       .catch((e) => { if (alive) setRes({ key, data: null, error: e?.message || 'Could not read the payroll journal.' }); });
     return () => { alive = false; };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -144,7 +150,7 @@ export default function PayrollSummary() {
   const bold = (kind) => kind === 'total' || kind === 'net' || kind === 'grand';
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 10 }}>
-      <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <PeriodStepper config={config} period="range" onChange={patch} />
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
         <EmployeePicker employees={full?.employees || []} value={picked} onChange={setPicked} />
@@ -152,14 +158,15 @@ export default function PayrollSummary() {
           <option value="columns">Employees as Columns</option>
           <option value="rows">Employees as Rows</option>
         </select>
-        <div style={{ marginLeft: 'auto' }}>
+        <div className="acct-bar-end">
+          <SyncButton onSync={ts.sync} busy={loading && !!res.data} syncedAt={ts.syncedAt} />
           <ExportMenu disabled={!table} items={[
             { key: 'excel', label: 'Excel', hint: 'The summary as on screen', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values', onPick: () => exportAs('csv'), busy: busy === 'csv' },
             { key: 'pdf', label: 'PDF', hint: 'Landscape, banded, page numbers', onPick: () => exportAs('pdf'), busy: busy === 'pdf' },
           ]} />
         </div>
-      </div>
+      </ControlBar>
 
       <div role="note" style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', padding: '0 4px' }}>
         From the QuickBooks payroll imported into the {PAYROLL_SUMMARY_JOURNAL} journal, by pay date. Each row is a payroll item&apos;s account; what counts as gross pay, withheld, deducted or employer-paid follows the import&apos;s account mapping until Charmi&apos;s QuickBooks Payroll Summary is matched line by line.
@@ -181,7 +188,7 @@ export default function PayrollSummary() {
           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
             {formatDate(config.from)} - {formatDate(config.to)} · {config.entities.length ? `${config.entities.length} ${config.entities.length === 1 ? 'entity' : 'entities'}` : 'All entities'} · {summary.employees.length} {summary.employees.length === 1 ? 'employee' : 'employees'}
           </div>
-          <div className="acct-report-wrap">
+          <div className="acct-report-wrap acct-scroll-box acct-fit" ref={setBox} data-testid="payroll-summary-box" style={fit}>
             <table className="acct-report">
               <thead>
                 <tr>{table.columns.map((c) => <th key={c.key} className={c.num ? 'acct-num' : 'acct-label acct-head'}>{c.label}</th>)}</tr>

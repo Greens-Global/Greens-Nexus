@@ -3,11 +3,12 @@ import { ExternalLink, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput, formatAmount } from './Amount';
 import { formatDate } from '../../lib/datetime';
-import { ColumnResizer, CustomizeButton, DENSITIES, EntityPicker, GlAccountPicker, Pager, control } from './reportControls';
+import { ColumnResizer, ControlBar, CustomizeButton, DENSITIES, EntityPicker, GlAccountPicker, Pager, SyncButton, control } from './reportControls';
 import {
   MGMT_FEE_DEFAULT_BASIS, MGMT_FEE_DEFAULT_FLAT, MGMT_FEE_DEFAULT_MONTHLY_MINIMUM, MGMT_FEE_DEFAULT_PERIOD, MGMT_FEE_DEFAULT_RATE, MGMT_FEE_DEFAULT_THRESHOLD, MGMT_FEE_DEFAULT_THRESHOLD_BASIS, MGMT_FEE_TIER_FLAT_IS_ANNUAL,
 } from './assumptions';
-import { useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
+import { useColumnWidths, useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
+import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
 import { requestReportDrill } from './drill';
 import { Chip } from './LoanSetupDialog';
@@ -350,15 +351,19 @@ export default function ManagementFeesTab({ canEdit = false }) {
   const [res, setRes] = useState({ key: null, data: null, error: null });
   const [dialog, setDialog] = useState(null);   // 'add' | { edit: row }
   const [sent, setSent] = useState(null);
+  const [box, setBox] = useState(null);
+  const fit = useFitHeight(box);
 
   useEffect(() => {
     api.getAccountingLocations?.().then((x) => setEntities(x?.entities || [])).catch(() => setEntities([]));
   }, []);
 
-  const key = JSON.stringify([year, period, reloads]);
+  // 10/23 meeting, item 13: Sync reads the agreements again (ts.tick), nothing else.
+  const ts = useTableSync();
+  const key = JSON.stringify([year, period, reloads, ts.tick]);
   useEffect(() => {
     let alive = true;
-    api.getAmaSummary(year, period)
+    ts.read(() => api.getAmaSummary(year, period))
       .then((x) => { if (alive) setRes({ key, data: x, error: null }); })
       .catch((e) => { if (alive) setRes({ key, data: null, error: e }); });
     return () => { alive = false; };
@@ -392,7 +397,7 @@ export default function ManagementFeesTab({ canEdit = false }) {
         </p>
       </div>
 
-      <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <select value={year} onChange={(e) => setYear(Number(e.target.value))} aria-label="Year" style={control}>
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
         </select>
@@ -404,10 +409,11 @@ export default function ManagementFeesTab({ canEdit = false }) {
           <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
           <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Filter agreements" aria-label="Filter agreements" style={{ ...control, width: 180, paddingLeft: 24 }} />
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div className="acct-bar-end">
           <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
             Agreements <strong>{rows.length}</strong> · Calculated Fee <strong><Amount value={sum('calculatedFee')} /></strong> · Billed YTD <strong><Amount value={sum('billedYtd')} /></strong>
           </span>
+          <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
           <CustomizeButton {...custom} />
           {canEdit && !unavailable && (
             <button type="button" className="primary-btn" onClick={() => setDialog('add')}
@@ -416,7 +422,7 @@ export default function ManagementFeesTab({ canEdit = false }) {
             </button>
           )}
         </div>
-      </div>
+      </ControlBar>
 
       {sent && (
         <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: sent.bad ? 'var(--bad-fg, #dc2626)' : 'var(--ok-fg, #15803d)' }}>
@@ -448,7 +454,8 @@ export default function ManagementFeesTab({ canEdit = false }) {
 
       {!error && (loading || rows.length > 0) && (
         <div style={{ ...card, padding: 0, overflow: 'hidden' }} aria-busy={loading}>
-          <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
+          {/* 10/23 meeting, item 05: the agreements scroll inside this box, headings pinned. */}
+          <div className="req-table-wrapper acct-scroll-box" ref={setBox} data-testid="mgmt-fees-box" style={fit}>
             <table className="req-table acct-ama" style={{ fontVariantNumeric: 'tabular-nums', '--ama-py': py }}>
               <thead>
                 <tr>

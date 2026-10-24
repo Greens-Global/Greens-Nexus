@@ -3,8 +3,9 @@ import { MessageCircleQuestion, Plus, Search, Send, Settings, Trash2, X } from '
 import { api } from '../../api';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import Amount from './Amount';
-import { CustomizeButton, DENSITIES, EntityPicker, ExportMenu, OpFilter, Pager, control } from './reportControls';
-import { useCustomizePrefs, usePaged } from './tableHooks';
+import { ControlBar, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, OpFilter, Pager, SyncButton, control } from './reportControls';
+import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
+import { useTableSync } from './tableSync';
 import { Chip } from './LoanSetupDialog';
 import { Dialog } from './LoanDialogs';
 import { notAvailable } from './LoansTab';
@@ -475,10 +476,15 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
     window.addEventListener('nexus:open-ama-thread', onOpen);
     return () => window.removeEventListener('nexus:open-ama-thread', onOpen);
   }, []);
-  const key = JSON.stringify([entity, from, to, reloads]);
+  // 10/23 meeting, item 13: Sync reads these lines and questions again
+  // (ts.tick), nothing else; an open thread or dialog stays open.
+  const ts = useTableSync();
+  const [box, setBox] = useState(null);
+  const fit = useFitHeight(box);
+  const key = JSON.stringify([entity, from, to, reloads, ts.tick]);
   useEffect(() => {
     let alive = true;
-    api.getAskItems({ entity, from, to })
+    ts.read(() => api.getAskItems({ entity, from, to }))
       .then((d) => { if (alive) { setRes({ key, data: d, error: null }); setSaved({ notes: {}, reclasses: {} }); } })
       .catch((e) => { if (alive) setRes({ key, data: null, error: e }); });
     return () => { alive = false; };
@@ -557,7 +563,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
         </p>
       </div>
 
-      <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <div role="tablist" aria-label="Status" className="scroll-tabs" style={{ display: 'inline-flex', gap: 4 }}>
           {STATUS_FILTERS.map((s) => (
             <button key={s} type="button" role="tab" aria-selected={status === s} onClick={() => setStatus(s)} className={status === s ? 'primary-btn' : 'secondary-btn'}
@@ -579,16 +585,17 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
           <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
           <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Filter questions" aria-label="Filter questions" style={{ ...control, width: 180, paddingLeft: 24 }} />
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="acct-bar-end">
+          <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
           <CustomizeButton {...custom} />
           {bookkeeper && reclassMode !== 'new_entry' && awaiting.length > 0 && (
-            <button type="button" className="secondary-btn" onClick={() => setPushing(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
-              <Send size={14} /> Push Reclasses ({awaiting.length})
+            <button type="button" className="secondary-btn" onClick={() => setPushing(true)} title="Push Reclasses" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
+              <Send size={14} /> <span className="acct-bar-label">Push Reclasses</span> ({awaiting.length})
             </button>
           )}
           {editor && (
-            <button type="button" className="secondary-btn" onClick={openSettings} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
-              <Settings size={14} /> Settings
+            <button type="button" className="secondary-btn" onClick={openSettings} title="Settings" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
+              <Settings size={14} /> <span className="acct-bar-label">Settings</span>
             </button>
           )}
           <ExportMenu disabled={!rows.length} items={[
@@ -597,7 +604,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
             ...(bookkeeper && reclassMode === 'new_entry' ? [{ key: 'intacct', label: 'Intacct Import File', hint: 'The approved GL reclasses recorded for import', onPick: importFile, busy: busy === 'intacct' }] : []),
           ]} />
         </div>
-      </div>
+      </ControlBar>
 
       {data && (
         <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
@@ -644,8 +651,9 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
 
       {!error && (loading || all.length > 0) && (
         <div style={{ ...card, padding: 0, overflow: 'hidden' }} aria-busy={loading}>
-          <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
-            <table className="req-table acct-ask" style={{ fontVariantNumeric: 'tabular-nums', '--ask-py': py }}>
+          {/* 10/23 meeting, item 05: the lines scroll inside this box; the headings and filter boxes stay pinned. */}
+          <div className="req-table-wrapper acct-scroll-box" ref={setBox} data-testid="ama-box" style={fit}>
+            <table className="req-table acct-ask acct-sticky-head" style={{ fontVariantNumeric: 'tabular-nums', '--ask-py': py }}>
               <thead>
                 <tr>{GRID_COLUMNS.map((c) => <th key={c.key} style={c.num ? num : undefined}>{c.label}</th>)}</tr>
                 <tr className="acct-filter-row">
