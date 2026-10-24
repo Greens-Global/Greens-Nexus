@@ -1,6 +1,6 @@
 ---
 name: build-notes
-description: Work the Build Mode pins sent from Nexus - claim them, read the screenshots, open the stamped source file, fix each pin on one branch per Build Session, run the checks, prove the fix with a repro / style check / before-after evidence, open ONE PR to dev, record it on the pins and attach an after screenshot. Use when the watcher starts a session with `/build-notes <ids>`, when the user says "build notes", "work the pins", "Build Mode pins" or "fix the pins", or pastes pin ids.
+description: Work the Build Mode pins sent from Nexus - claim them, read the screenshots, open the stamped source file, fix each pin on one branch per Build Session (never committing another developer's files), run the checks, prove the fix with an e2e regression spec / style check / before-after evidence, open ONE PR to dev, record it on the pins, start the Ready To Check preview and attach an after screenshot; a pin reopened on the preview is reworked on the same branch. Use when the watcher starts a session with `/build-notes <ids>`, when the user says "build notes", "work the pins", "Build Mode pins" or "fix the pins", or pastes pin ids.
 user-invocable: true
 argument-hint: "[pin ids...]"
 allowed-tools:
@@ -36,7 +36,13 @@ python3 tools/build_notes/cli.py claim <ids...>
 
 With no ids first run `python3 tools/build_notes/cli.py list --status dispatched` and claim every id it prints.
 
-`claim` moves the pins to Building, downloads every media file into `~/.cache/nexus-build-notes/<id>/` and prints one markdown brief per pin (also saved as `brief.md` in that folder, with the raw `pin.json`). Always claim first, even for a pin you have seen before: a pin comes back through the watcher (marked "(answered)") when the author replied to your `--needs-input` question, `claim` is idempotent, and the brief then shows **Author's latest answer** right under the header - read it before touching the pin again. Read the brief top to bottom. The line right under the header is **Where**: `frontend/src/<file>:<line>:<col>` when the pin has a source stamp - that is the authoritative location. The brief's "Files" section lists the local paths. **Open every screenshot, page shot and contact sheet with the Read tool** - you can see images, and the author's markup (rectangles, arrows, labels) is burned into them. The screenshot shows what they pointed at; the page shot shows where on the screen it sits. Read the video's contact sheet when there is one; the transcript is the author's voice note. The **Actions** trace is what the author did right before pinning (newest last); **State** is the element's React props/state at capture; each **Network** entry shows its request and response body - a 500 with its body is often the whole diagnosis. Then post progress on each pin:
+`claim` moves the pins to Building, downloads every media file into `~/.cache/nexus-build-notes/<id>/` and prints one markdown brief per pin (also saved as `brief.md` in that folder, with the raw `pin.json`). Always claim first, even for a pin you have seen before: a pin comes back through the watcher (marked "(answered)") when the author replied to your `--needs-input` question, `claim` is idempotent, and the brief then shows **Author's latest answer** right under the header - read it before touching the pin again.
+
+A pin can also come back marked "(reopened on the preview)": the author tried your fix on the Ready To Check preview (step 10) and reopened it with a note. Its brief shows **Reopened on the preview: <their note>** (while the thread ends with the "Reopened On The Preview" entry and their note) and **Rework it on the SAME branch <branch> (PR #n)** right under the header. If you asked a question after the reopen, their newer comment shows as **Author's latest answer** instead, and the branch line still says where the rework goes. That pin is reworked on its existing branch and PR - do NOT create a new branch or a new PR (step 4 says how) - then pushed, recorded with `complete` again (the server clears the old preview and verdict) and the preview restarted (step 10).
+
+The exception: **the PR merged while the pin was being reworked.** The server then clears the pin's PR and branch and adds "PR #n merged while this pin was being reworked - the rework comes in a new PR", and the brief says **Its PR merged while it was being reworked - rework it on a NEW branch ...**. The same holds when the brief still names a PR but `gh pr view <n> --json state` says `MERGED`. Then the rework goes on a NEW branch from fresh `origin/dev` with the usual name plus `-r2` (step 4), in a NEW PR (step 8), recorded with `complete` against that new PR (step 9).
+
+`claim` never hands you a pin that is **held** for its owner (a pin on another developer's area that they have not released to Claude Code): the server skips it and `claim` prints `Not claimed: ... Pin #n waits for <Owner> - it is in their area`. Leave it alone and mention it in the hand back. A brief line "Waits for <Owner>" means the same. Read the brief top to bottom. The line right under the header is **Where**: `frontend/src/<file>:<line>:<col>` when the pin has a source stamp - that is the authoritative location. The brief's "Files" section lists the local paths. **Open every screenshot, page shot and contact sheet with the Read tool** - you can see images, and the author's markup (rectangles, arrows, labels) is burned into them. The screenshot shows what they pointed at; the page shot shows where on the screen it sits. Read the video's contact sheet when there is one; the transcript is the author's voice note. The **Actions** trace is what the author did right before pinning (newest last); **State** is the element's React props/state at capture; each **Network** entry shows its request and response body - a 500 with its body is often the whole diagnosis. Then post progress on each pin:
 
 ```
 python3 tools/build_notes/cli.py progress <id> "Reading pins"
@@ -61,7 +67,16 @@ git fetch origin dev
 git checkout -B build/<session-slug>-MMDD origin/dev
 ```
 
-`<session-slug>` is the Build Session title lower-cased with hyphens (`tasks-home-polish`), `MMDD` is today (`1024`). Pins from the same session share the branch; if a batch spans two sessions, two branches and two PRs. Never work on `dev` or `main` directly, and never reuse a branch that already has a PR.
+`<session-slug>` is the Build Session title lower-cased with hyphens (`tasks-home-polish`), `MMDD` is today (`1024`). Pins from the same session share the branch; if a batch spans two sessions, two branches and two PRs. Never work on `dev` or `main` directly, and never start NEW work on a branch that already has a PR.
+
+The one exception is a pin **reopened on the preview**: it goes back onto the branch and PR it already has (the brief names them). Check that branch out as it is on GitHub and keep committing to it:
+
+```
+git fetch origin <branch>
+git checkout -B <branch> origin/<branch>
+```
+
+The PR updates itself when you push; there is no second PR. Before reworking, make sure that PR is still open (`gh pr view <n> --json state`). When it says `MERGED` - or the brief says the PR merged while the pin was being reworked - do not touch the old branch: start a new one from fresh `origin/dev` named as usual with `-r2` (`git checkout -B build/<session-slug>-MMDD-r2 origin/dev`; `-r3` if `-r2` is taken), open a new PR for it and `complete` the pin with that PR.
 
 ### 5. Fix the pins in priority order
 
@@ -71,7 +86,14 @@ Blocking first, then Normal, then Nice To Have. For each pin:
 - A **Question** pin gets an answer, not code: `python3 tools/build_notes/cli.py reply <id> "<answer>" --answered`. That closes it.
 - When a pin is ambiguous (two readings, a change that would break something they did not mention, data you cannot see), ask and move on: `python3 tools/build_notes/cli.py reply <id> "<one clear question>" --needs-input`. Do not guess, do not touch that pin again in this run - the author's answer brings it back through the watcher later. Continue with the next pin.
 - One commit per pin, message starting with the pin: `Pin #3 - Title Case on Mark All Read (Tasks Home)`. Several pins fixed by one change may share a commit that names them all.
-- House rules apply to every line you write (from `CLAUDE.md`): American English, dates MM/DD/YYYY through `formatDate` / `us_date`, 12-hour times, Title Case for titles, buttons, tabs and status labels, sentence case for body copy, plain hyphens never em dashes, `DateField` not a native date input, all server calls through `frontend/src/api.js`, popups 60vw. Do not modify another developer's files (the File Ownership table in `CLAUDE.md`) - reply `--needs-input` naming the owner instead.
+- **Before every commit, check ownership:**
+
+  ```
+  python3 tools/build_notes/cli.py owners --check
+  ```
+
+  It looks at everything the commit could carry (the branch's diff against `origin/dev`, staged, unstaged and untracked files) against the File Ownership map (`backend/code_owners.py`, the machine-readable copy of the table in `CLAUDE.md`; without that file it asks the server, `GET /dev-notes/owner-of`, once per path). Exit 0: commit. **Exit 3** means a change touches another developer's file - it lists them. Then, for each listed file: undo your change to it (`git checkout origin/dev -- <file>`; for a file you created, delete it), reply on the pin that needed it - `python3 tools/build_notes/cli.py reply <id> "This needs a change in <file>, which is <Owner>'s area - <what and why>" --needs-input` - leave that pin out of the commit and the PR, and continue with the other pins. Run `owners --check` again until it exits 0. Held pins never reach you, but a fix can still wander into an owned file; never commit one.
+- House rules apply to every line you write (from `CLAUDE.md`): American English, dates MM/DD/YYYY through `formatDate` / `us_date`, 12-hour times, Title Case for titles, buttons, tabs and status labels, sentence case for body copy, plain hyphens never em dashes, `DateField` not a native date input, all server calls through `frontend/src/api.js`, popups 60vw.
 - Post `Fixing` when you start; the screenshot is the spec.
 
 ### 6. Checks
@@ -91,19 +113,30 @@ Neil's rule: the proof that a fix is right must come from something other than C
 
 Evidence files live next to the pin's `pin.json` in `~/.cache/nexus-build-notes/<id>/` - the repro script, the style JSON, the before/after screenshots. Never write them into the repository (a second guard: never `git add` them). `verify` first checks the pin's status (it must be Building, Needs Input or PR Open) and refuses before uploading anything otherwise - claim the pin first.
 
-- **Bug pins with an action trace.** Build the repro skeleton from the pin (it is written to `~/.cache/nexus-build-notes/<id>/repro_pin_<n>.py` by default):
+- **Bug pins (and any pin with an action trace): a regression spec.** The repro is a Playwright Test spec in the repo's `e2e/` format, because once the author accepts the fix the server adds it to the Testing module's suite and the nightly `qa-e2e` workflow runs it from then on. Build the skeleton from the pin (written to `~/.cache/nexus-build-notes/<id>/repro_pin_<n>.spec.mjs` by default; `--e2e` is the default here, `--python` gives the old standalone script):
 
   ```
   python3 tools/build_notes/repro_template.py ~/.cache/nexus-build-notes/<id>/pin.json
   ```
 
-  It replays the author's clicks, inputs, keys and navigations (masked inputs are `TODO`s - fill them with safe test values) and leaves one `TODO` assertion: make it the pin's complaint as a FAILING expectation - the element's text (`expect(target).to_have_text(...)`), its visibility, a computed style, or the absence of a console error. Run it on the before code (`python3 ~/.cache/nexus-build-notes/<id>/repro_pin_<n>.py`, needs `pip install playwright && playwright install chromium`; or translate it to `playwright-cli` commands) - it must print `FAILING`. Run it on your branch - it must print `PASSING`. Then:
+  The spec has exactly the repo's shape: the two imports (`@playwright/test`, and the helpers from `'../helpers.mjs'` - keep that path exactly, the nightly sync rewrites it), ONE test titled `[<pin id>] Pin #<n> - <summary>` (keep the `[<pin id>]` prefix - it is how verdicts map back and it becomes the test case id), the author's actions replayed with the helpers (`openApp`, `go`, `clickByText`, `fillByLabel`, `selectByLabel`, `expectVisible`; a raw `page.locator(...)` only when no helper fits; masked inputs are `TODO`s - fill them with safe test values), and one failing `TODO` assertion. Finish it:
+  - Replace `expect(false, 'TODO: ...')` with the pin's complaint as an expectation - the element's text (`toHaveText`), its visibility (`expectVisible`), a computed style (`toHaveCSS`).
+  - **The nightly run starts from an EMPTY database** (a fresh SQLite, no rows). The spec must create every record it needs itself - through the UI, or `page.request` against the API (`process.env.NEXUS_E2E_API || 'http://localhost:8000'`, auth is skipped there). Never rely on data that exists on your machine.
+
+  Run it the way CI does - a scratch worktree with a fresh SQLite backend (`NEXUS_SKIP_AUTH`, `NEXUS_QA_MODULE`) and the `VITE_E2E=true` frontend build, the spec copied into `e2e/tests/generated/` and run with `npx playwright test`; the helper builds, runs and cleans all of it (a few minutes each, mostly the frontend build):
 
   ```
-  python3 tools/build_notes/cli.py verify <id> --repro-script ~/.cache/nexus-build-notes/<id>/repro_pin_<n>.py --before failing --after passing
+  python3 tools/build_notes/run_e2e.py ~/.cache/nexus-build-notes/<id>/repro_pin_<n>.spec.mjs --ref origin/dev    # must print FAILING
+  python3 tools/build_notes/run_e2e.py ~/.cache/nexus-build-notes/<id>/repro_pin_<n>.spec.mjs --ref <branch>      # must print PASSING
   ```
 
-  `--before` and `--after` always travel together. A repro that PASSES before the fix means the bug was not reproduced: record it as it is (`--before passing`), say so in the PR line and on the pin (`reply <id> "The repro passes on dev before the fix - I could not reproduce it this way; here is what I changed and why"`). Do not fake a failing run. The repro script stays in the cache folder and out of the commit (it belongs to the pin's evidence, not the repo).
+  `--ref <branch>` uses your local branch with its commits, pushed or not. The verdict is read from Playwright's JSON report: FAILING only when the one test ran and an expectation failed. Exit 2 is no verdict - the stack could not be built, the template's `TODO` assertion is still in the spec (it refuses to run it), or **the spec is broken, not the bug** (a syntax, import or reference error, no tests, more than one test, a timeout before any expectation). Read the message, fix the spec or the setup and run again; never record a verdict you did not get. Then:
+
+  ```
+  python3 tools/build_notes/cli.py verify <id> --repro-script ~/.cache/nexus-build-notes/<id>/repro_pin_<n>.spec.mjs --before failing --after passing
+  ```
+
+  `verify` sends it as `kind: "e2e"` (a plain script goes as `"python"`) and warns when the title lacks `[<id>]`; the script must stay under 20 KB. `--before` and `--after` always travel together. A spec that PASSES before the fix means the bug was not reproduced: record it as it is (`--before passing`), say so in the PR line and on the pin (`reply <id> "The repro passes on dev before the fix - I could not reproduce it this way; here is what I changed and why"`). Do not fake a failing run - only a failing -> passing spec becomes a regression test. The spec stays in the cache folder and out of the commit (it travels on the pin, not in the repo).
 
 - **Edit pins.** After the fix, load the route, locate the element by the source stamp / selector, and compare `getComputedStyle` for each `edit.styles[].prop` against `edit.styles[].after` and the text against `edit.text.after`:
 
@@ -165,9 +198,19 @@ One checklist line per pin: `- [x] Pin #n - Kind - one-line summary - <evidence>
 python3 tools/build_notes/cli.py complete <ids...> --pr <pr url> --branch <branch> --summary "<one line>"
 ```
 
-Only the pins you fixed in this PR - not the ones waiting in Needs Input, not the Questions you answered.
+Only the pins you fixed in this PR - not the ones waiting in Needs Input, not the Questions you answered. For a pin reworked after a reopen, run `complete` again with the same PR and branch once the new commits are pushed (it is allowed from Building and clears the old preview and verdict).
 
-### 10. After screenshot
+### 10. Ready To Check (the local preview)
+
+Start the branch on this computer so the author can try the fix before the PR merges:
+
+```
+python3 tools/build_notes/preview.py start --branch <branch> --pins <ids...> --pr <pr number>
+```
+
+It checks the branch out in its own worktree (`~/.cache/nexus-build-notes/preview/<branch-slug>`), runs its backend on http://localhost:8090 on a COPY of the local database (never the original, never the shared dev database) and its frontend on http://localhost:5174 (the port every branch's CORS list allows), waits until both answer, and marks each pin **Ready To Check** with its own link on the preview and the commit it runs (an Accept given on an older commit no longer counts once the branch moves). Push before you start it - the preview runs `origin/<branch>`. One preview per computer: once its checks pass, starting one stops the previous one and clears Ready To Check on that preview's pins; a start that fails a check leaves the old preview running. When port 5174 is taken by something else (often the Knowledge Base standalone workspace), `start` refuses - say so in the hand back rather than freeing it yourself. Pass the pins you just recorded with `complete` - the same list, reworked ones included. Then tell the user, in these words: **"Ready To Check on http://localhost:5174 - open it on this computer"**. The author Accepts (that counts as checked - no second check after the merge) or Reopens with a note, which brings the pin back to you (step 1). If `start` fails (exit 2: a busy port, no virtualenv, a backend that crashed - the message carries its log tail), say so in the hand back; the PR is recorded either way. `preview.py status` shows what runs, `preview.py stop` ends it and clears Ready To Check on its pins (the worktree stays).
+
+### 11. After screenshot
 
 If `playwright-cli` is available and a pin did not already get a before/after pair in step 7, show the author the result on the branch's dev server:
 
@@ -180,9 +223,9 @@ python3 tools/build_notes/cli.py after <id> --image ~/.cache/nexus-build-notes/<
 
 Match the pin's viewport. Skip this step quietly when playwright-cli or the dev server is not available; the PR is already recorded.
 
-### 11. Hand back
+### 12. Hand back
 
-Tell the user: the branch, the PR link, which pins were fixed and what evidence each carries, which are waiting on an answer (Needs Input) and why, which were not reproduced, and which Questions you answered. **Never merge the PR** - Neil merges. Do not edit `dev` or `main`, do not touch `.env` files, do not commit tokens, cache folders, repro scripts or style JSON files.
+Tell the user: the branch, the PR link, which pins were fixed and what evidence each carries, which are **Ready To Check** on http://localhost:5174 (or why the preview did not start), which are waiting on an answer (Needs Input) and why - including any pin parked because its fix needs another developer's file - which were **held for an owner** (the `Not claimed: ... waits for <Owner>` lines), which were not reproduced, and which Questions you answered. For a reopened pin, say it was reworked on the same branch and PR - or on a new `-r2` branch and PR because the first one had merged. **Never merge the PR** - Neil merges. Do not edit `dev` or `main`, do not touch `.env` files, do not commit tokens, cache folders, repro scripts or style JSON files.
 
 ## Quick reference
 
@@ -195,7 +238,12 @@ python3 tools/build_notes/cli.py reply <id> "text" [--needs-input | --answered] 
 python3 tools/build_notes/cli.py verify <id> [--repro-script PATH --before failing|passing|skipped --after failing|passing|skipped] [--style-json PATH] [--before-image PATH --after-image PATH]
 python3 tools/build_notes/cli.py after <id> --image PATH
 python3 tools/build_notes/cli.py complete <id>... --pr URL --branch NAME [--summary "..."]
-python3 tools/build_notes/repro_template.py <pin.json> [--base http://localhost:5173] [--out PATH | --stdout]   # default: ~/.cache/nexus-build-notes/<id>/repro_pin_<n>.py
+python3 tools/build_notes/cli.py owners [--check] [--me EMAIL] [paths...]                         # exit 3 = another developer's file
+python3 tools/build_notes/cli.py preview <id>... --branch NAME [--pr N] [--url http://localhost:5174] [--commit SHA]
+python3 tools/build_notes/repro_template.py <pin.json> [--e2e | --python] [--out PATH | --stdout]   # default: ~/.cache/nexus-build-notes/<id>/repro_pin_<n>.spec.mjs
+python3 tools/build_notes/run_e2e.py <spec.mjs> --ref origin/dev|<branch> [--keep]                # prints FAILING or PASSING
+python3 tools/build_notes/preview.py start --branch NAME --pins <id>... [--pr N] [--db PATH] [--no-post]
+python3 tools/build_notes/preview.py stop | status
 ```
 
-Pin statuses: Open -> Dispatched -> Building -> (Needs Input ->) PR Open -> Fixed - Verify -> Done. `claim` makes Building, `reply --needs-input` makes Needs Input, `complete` makes PR Open, the merge to dev makes Fixed - Verify (the author accepts or reopens in Nexus). Setup and troubleshooting for the watcher and token: `tools/build_notes/README.md`.
+Pin statuses: Open -> Dispatched -> Building -> (Needs Input ->) PR Open (Ready To Check while the preview runs) -> Fixed - Verify -> Done. `claim` makes Building, `reply --needs-input` makes Needs Input, `complete` makes PR Open, `preview.py start` makes it Ready To Check; an Accept on the preview takes it straight to Done when the PR merges, a Reopen brings it back to Building on the same branch; otherwise the merge to dev makes Fixed - Verify (the author accepts or reopens in Nexus). A pin on another developer's area waits (held) until its owner releases it. Setup and troubleshooting for the watcher and token: `tools/build_notes/README.md`.

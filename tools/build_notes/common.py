@@ -191,6 +191,9 @@ class Client:
     def get(self, path, query=None, timeout=60):
         return self.request("GET", path, query=query, timeout=timeout)
 
+    def delete(self, path, timeout=60):
+        return self.request("DELETE", path, timeout=timeout)
+
     def post(self, path, body=None, timeout=60):
         return self.request("POST", path, body=body if body is not None else {}, timeout=timeout)
 
