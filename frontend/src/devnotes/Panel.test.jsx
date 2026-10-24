@@ -74,6 +74,37 @@ describe('Panel', () => {
     await waitFor(() => expect(store.store.get().toast?.text).toBe('Sent - Pin #2 waits for Visesh'));
   });
 
+  it('Queue: my pins Ready To Check are counted up top and on their session; a click opens the first', async () => {
+    const base = { kind: 'bug', priority: 'normal', sessionId: 's1', route: 'inventory', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] };
+    notes = [
+      { ...base, id: 'a', number: 1, status: 'pr_open', readyToCheck: true, preview: { url: 'http://localhost:5180/' }, comment: 'One' },
+      { ...base, id: 'b', number: 2, status: 'pr_open', readyToCheck: false, previewVerdict: 'accepted', comment: 'Two' },
+      { ...base, id: 'c', number: 3, status: 'pr_open', readyToCheck: true, createdBy: 'sagar@greensglobal.com', comment: 'Three' },
+    ];
+    const onOpenPin = vi.fn();
+    render(<Panel {...props} onOpenPin={onOpenPin} myEmail="neil@greensglobal.com" />);
+    const line = await screen.findByTestId('bm-ready-count');
+    expect(line.textContent).toContain('1 Ready To Check');
+    expect(line.textContent).toContain('#1');
+    expect(screen.getByText('2 Ready To Check')).toBeTruthy();       // the session group counts everyone's
+    expect(screen.getByText('PR Open - Checked')).toBeTruthy();
+    line.click();
+    expect(onOpenPin).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }));
+  });
+
+  it('Send with only held pins left shows the server detail', async () => {
+    const { api } = await import('../api');
+    api.devNotesDispatch.mockRejectedValueOnce(new Error('No open pins to send - Pin #2 waits for Visesh'));
+    notes = [{ id: 'p1', number: 1, kind: 'bug', priority: 'normal', status: 'open', comment: 'Ordinary', sessionId: 's1', route: 'tasks', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] }];
+    const store = await import('./store');
+    render(<Panel {...props} myEmail="neil@greensglobal.com" />);
+    await screen.findByText('Ordinary');
+    const btn = screen.getByRole('button', { name: /Send To Claude Code/ });
+    await waitFor(() => expect(btn).not.toBeDisabled());
+    btn.click();
+    await waitFor(() => expect(store.store.get().toast?.text).toBe('No open pins to send - Pin #2 waits for Visesh'));
+  });
+
   it('Sessions tab: per session, how many are Ready To Check and Waiting For Owner', async () => {
     const base = { kind: 'bug', priority: 'normal', sessionId: 's1', route: 'inventory', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] };
     notes = [

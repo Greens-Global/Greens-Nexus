@@ -61,6 +61,13 @@ describe('PinThread - held for the owner', () => {
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
   });
 
+  it('owner fields filled but not held (the author is the owner, or it was released): no line, no Release', () => {
+    render(<PinThread pin={pin({ held: false, ownerEmail: AUTHOR, ownerName: 'Neil' })} me={{ email: AUTHOR, isAdmin: true }} detached />);
+    expect(screen.queryByTestId('bm-held')).toBeNull();
+    expect(screen.getByTestId('bm-thread').textContent).toContain('Open');
+    expect(screen.queryByRole('button', { name: /Release To Claude Code/ })).toBeNull();
+  });
+
   it('a Global Admin gets Release To Claude Code too', () => {
     render(<PinThread pin={heldPin()} me={{ email: OTHER, isAdmin: true }} detached />);
     expect(screen.getByRole('button', { name: /Release To Claude Code/ })).toBeTruthy();

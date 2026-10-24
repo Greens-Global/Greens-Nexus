@@ -98,6 +98,9 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
   const mineOpen = mineAll.filter((n) => !n.held);
   const mineHeld = mineAll.filter((n) => n.held);
   const canSend = mineOpen.length > 0;
+  // No bell fires when a pin turns Ready To Check (the PR bell is the prompt),
+  // so the Queue says it up top: the author's pins waiting on their check.
+  const mineReady = notes.filter((n) => pinReady(n) && (!myEmail || n.createdBy === myEmail));
   const heldLine = mineHeld.map((n) => `Pin #${n.number} waits for ${n.ownerName || firstNameOf(n.ownerEmail)}`).join(', ');
   const send = async () => {
     setSending(true);
@@ -119,6 +122,12 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
           <div className="bm-h2">{notes.length} pin{notes.length === 1 ? '' : 's'} in the queue</div>
           <div className="bm-dim bm-small">{canSend ? `${mineOpen.length} of yours ready to send.` : mineHeld.length ? 'Nothing of yours to send to Claude Code.' : 'Your collecting session is empty - pin something first.'}{heldLine ? ` ${heldLine}.` : ''}</div>
         </div>
+        {mineReady.length > 0 && (
+          <button type="button" className="bm-ready-note" onClick={() => onOpenPin?.(mineReady[0])} data-testid="bm-ready-count" title="Open the first one">
+            <StatusLabel label={`${mineReady.length} Ready To Check`} color={READY_META.color} size="sm" />
+            <span className="bm-small">{mineReady.length === 1 ? 'Pin' : 'Pins'} {mineReady.map((n) => `#${n.number}`).join(', ')} - open on the preview and Accept or Reopen.</span>
+          </button>
+        )}
         <button type="button" className="bm-btn bm-btn-primary" onClick={send} disabled={!canSend || sending} title={canSend ? 'Send your open pins to the watcher in your terminal' : 'Nothing to send yet'}>
           {sending ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Send To Claude Code
         </button>
@@ -134,6 +143,8 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
                 <span className="bm-group-title">{session?.title || 'Build Session'}</span>
                 <StatusLabel label={sm.label} color={sm.color} size="sm" />
                 <span className="bm-dim bm-small">{pins.length} pin{pins.length === 1 ? '' : 's'}</span>
+                {pins.filter(pinReady).length > 0 && <StatusLabel label={`${pins.filter(pinReady).length} Ready To Check`} color={READY_META.color} size="sm" />}
+                {pins.filter((p) => p.held && p.status === 'open').length > 0 && <StatusLabel label={`${pins.filter((p) => p.held && p.status === 'open').length} Waiting For Owner`} color={HELD_COLOR} size="sm" />}
                 {session?.prUrl && <a className="bm-link" href={session.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={11} /> PR #{session.prNumber}</a>}
               </header>
               {pins.sort((a, b) => (a.number || 0) - (b.number || 0)).map((p) => <PinRow key={p.id} pin={p} onOpen={onOpenPin} onChanged={onChanged} />)}
