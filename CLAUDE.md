@@ -46,6 +46,9 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 | Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
 | Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `backend/routers/assets.py`, property models/tables |
 
+Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
+the build-notes skill refuses commits by it) - change both together.
+
 **Do not modify the other developer's files** — ask them instead.
 Shared files (`backend/models.py`, `backend/main.py` migrations list,
 `frontend/src/api.js`, `App.jsx`/`Sidebar`): **append only, never reorder**,

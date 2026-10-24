@@ -71,7 +71,7 @@ def _clean():
     GRANTS[DEV["email"]] = {"build-mode": 1}
     db = database.SessionLocal()
     for m in (models.DevNote, models.DevNoteSession, models.DevNoteToken,
-              models.NexusNotification, models.NexusSetting, models.AuditLog):
+              models.NexusNotification, models.NexusSetting, models.AuditLog, models.QaTestCase):
         db.query(m).delete()
     db.commit()
     db.close()
@@ -119,10 +119,10 @@ def _bells(type_=None):
         db.close()
 
 
-def _to_pr_open(token=None, pr=7):
+def _to_pr_open(token=None, pr=7, **fields):
     """open -> dispatched -> building -> pr_open, returns the note."""
     token = token or _token()["token"]
-    n = _create()
+    n = _create(**fields)
     if n["status"] == "open":        # Send Instantly already dispatched it otherwise
         _dispatch()
     r = client.post("/dev-notes/cli/claim", json={"noteIds": [n["id"]]}, headers=_hdr(token))
@@ -867,3 +867,374 @@ def test_before_shots(monkeypatch):
     assert got["thread"][-1]["imageUrl"] == after                          # after: the "After:" entry
     m = client.post("/dev-notes/cli/claim", json={"noteIds": [n["id"]]}, headers=_hdr(token)).json()["notes"][0]["media"]
     assert m["beforeShots"] == ["signed:" + before] and m["afterShots"] == ["signed:" + after] and m["attachments"] == []
+
+
+# ── v2: ownership (code_owners.py) ────────────────────────────────────────────
+VISESH = {"email": "visesh.lodha@greensglobal.com", "role": "employee", "level": 1}
+NEIL = {"email": "neil@greensglobal.com", "role": "employee", "level": 1}
+DEV2 = {"email": "dev2@greensglobal.com", "role": "employee", "level": 1}
+VISESH_FILE = {"selector": "button", "source": {"file": "src/views/InventoryManagement.jsx", "line": 10, "col": 4}}
+
+
+def _held_pin(**fields):
+    return _create(target=VISESH_FILE, route="inventory", **fields)
+
+
+def _owner_bodies():
+    db = database.SessionLocal()
+    try:
+        return [b.body for b in db.query(models.NexusNotification)
+                .filter(models.NexusNotification.type == "dev_note_owner").all()]
+    finally:
+        db.close()
+
+
+def test_enabled_and_owners_list_the_ownership_map():
+    owners = client.get("/dev-notes/enabled").json()["owners"]
+    assert {o["name"] for o in owners} == {"Visesh", "Neil"}
+    assert "frontend/src/views/InventoryManagement.jsx" in next(o for o in owners if o["name"] == "Visesh")["paths"]
+    token = _token()["token"]
+    assert client.get("/dev-notes/owners", headers=_hdr(token)).json()["owners"] == owners
+    assert client.get("/dev-notes/owners").status_code == 200
+
+
+def test_pin_on_another_developers_file_is_held_and_rings_the_owner():
+    n = _held_pin(ownerEmail="someone@else.com")      # a client value is ignored
+    assert n["held"] is True and n["ownerEmail"] == VISESH["email"] and n["ownerName"] == "Visesh"
+    assert n["ownerReleasedBy"] == "" and n["preview"] == {} and n["readyToCheck"] is False
+    bells = _bells("dev_note_owner")
+    assert len(bells) == 1 and bells[0]["recipient"] == VISESH["email"] and bells[0]["ref_id"] == n["id"]
+    assert bells[0]["title"] == "Pin #1 On Your Area"
+    body = _owner_bodies()[0]
+    assert ("pinned inventory (frontend/src/views/InventoryManagement.jsx). It waits for you - "
+            "release it to Claude Code or handle it yourself.") in body
+    assert "Ask a Global Admin for the Build Mode grant if the link does not open." in body   # Visesh has no grant
+    GRANTS[VISESH["email"]] = {"build-mode": 1}
+    try:
+        _held_pin()
+        bodies = _owner_bodies()
+        assert len(bodies) == 2 and sum("Ask a Global Admin" in b for b in bodies) == 1
+    finally:
+        GRANTS.pop(VISESH["email"], None)
+    # no source file: no owner
+    m = _create(ownerEmail=VISESH["email"])
+    assert m["ownerEmail"] == "" and m["held"] is False
+
+
+def test_not_held_when_the_author_owns_the_file_and_held_skips_send_instantly():
+    GRANTS[NEIL["email"]] = {"build-mode": 1}
+    try:
+        _as(NEIL)
+        n = _create(target={"source": {"file": "src/asset/lib/sync.js"}})
+        assert n["ownerEmail"] == NEIL["email"] and n["held"] is False
+        assert _bells("dev_note_owner") == []
+        client.put("/dev-notes/settings", json={"sendInstantly": True})
+        h = _held_pin()
+        assert h["held"] is True and h["status"] == "open"          # never sent while held
+        assert _create()["status"] == "dispatched"                  # an ordinary pin still is
+    finally:
+        GRANTS.pop(NEIL["email"], None)
+
+
+def test_dispatch_skips_held_pins_and_names_them():
+    a = _create()
+    b = _held_pin()
+    out = _dispatch()
+    assert [n["id"] for n in out["notes"]] == [a["id"]]
+    assert out["held"] == [{"id": b["id"], "number": 2, "ownerName": "Visesh"}]
+    assert client.get(f"/dev-notes/{b['id']}").json()["status"] == "open"
+    # nothing unheld left: 400, and the detail names the held pin
+    c = _held_pin()
+    for body in ({}, {"noteIds": [c["id"]]}):
+        r = client.post("/dev-notes/dispatch", json=body)
+        assert r.status_code == 400, r.text
+        assert r.json()["detail"] == "No open pins to send - Pin #1 waits for Visesh"   # c is #1 of a new session
+
+
+def test_release_by_owner_or_global_admin_only():
+    b = _held_pin()
+    assert client.patch(f"/dev-notes/{b['id']}", json={"release": True}).status_code == 403   # the author
+    GRANTS[DEV2["email"]] = {"build-mode": 1}
+    GRANTS[VISESH["email"]] = {"build-mode": 1}
+    try:
+        _as(DEV2)
+        assert client.patch(f"/dev-notes/{b['id']}", json={"release": True}).status_code == 403
+        _as(VISESH)
+        r = client.patch(f"/dev-notes/{b['id']}", json={"release": True})
+        assert r.status_code == 200, r.text
+        got = r.json()
+        assert got["held"] is False and got["ownerReleasedBy"] == VISESH["email"] and got["ownerReleasedAt"]
+        assert got["thread"][-1]["text"] == "Released To Claude Code by Visesh Lodha"
+        assert got["status"] == "open"                                # Visesh does not Send Instantly
+        assert client.patch(f"/dev-notes/{b['id']}", json={"release": True}).status_code == 200   # no-op again
+        assert len([e for e in client.get(f"/dev-notes/{b['id']}").json()["thread"]
+                    if e["text"].startswith("Released")]) == 1
+        # the owner cannot edit the author's pin through the same route
+        assert client.patch(f"/dev-notes/{b['id']}", json={"comment": "mine now"}).status_code == 403
+        # released by an owner who Sends Instantly: dispatched at once
+        _as(DEV)
+        c = _held_pin()
+        _as(VISESH)
+        client.put("/dev-notes/settings", json={"sendInstantly": True})
+        assert client.patch(f"/dev-notes/{c['id']}", json={"release": True}).json()["status"] == "dispatched"
+        # a Global Admin may release too
+        _as(DEV)
+        d = _held_pin()
+        _as(GA)
+        assert client.patch(f"/dev-notes/{d['id']}", json={"release": True}).json()["held"] is False
+        # a pin that was never held is a 409
+        _as(DEV)
+        e = _create()
+        _as(GA)
+        assert client.patch(f"/dev-notes/{e['id']}", json={"release": True}).status_code == 409
+    finally:
+        GRANTS.pop(DEV2["email"], None)
+        GRANTS.pop(VISESH["email"], None)
+    # the released pin now dispatches like any other
+    _as(DEV)
+    out = _dispatch(noteIds=[b["id"]])
+    assert out["notes"][0]["status"] == "dispatched" and out["held"] == []
+
+
+def test_claim_skips_held_pins():
+    token = _token()["token"]
+    a = _create()
+    b = _held_pin()
+    _dispatch()
+    r = client.post("/dev-notes/cli/claim", json={"noteIds": [a["id"], b["id"]]}, headers=_hdr(token))
+    assert r.status_code == 200, r.text
+    assert [n["id"] for n in r.json()["notes"]] == [a["id"]]
+    assert r.json()["skipped"][0]["reason"] == "Pin #2 waits for Visesh - it is in their area"
+    r = client.post("/dev-notes/cli/claim", json={"noteIds": [b["id"]]}, headers=_hdr(token))
+    assert r.status_code == 409 and r.json()["detail"] == "Pin #2 waits for Visesh - it is in their area"
+
+
+# ── v2: Ready To Check ────────────────────────────────────────────────────────
+def _preview(n, token, url="http://localhost:5180/tasks/home", **extra):
+    body = {"url": url, "branch": "build/tasks-home-1024", "prNumber": 7, "host": "neils-mbp", **extra}
+    return client.post(f"/dev-notes/cli/preview/{n['id']}", headers=_hdr(token), json=body)
+
+
+def test_preview_post_rules():
+    token = _token()["token"]
+    n = _create()
+    assert _preview(n, token).status_code == 409                    # open, not pr_open
+    p = _to_pr_open(token)
+    for bad in ("https://evil.example/x", "http://evil.example:5180/", "http://localhost:@evil.example/x",
+                "http://localhost/no-port", "http://user:pw@localhost:5180/", "javascript:alert(1)", ""):
+        r = _preview(p, token, url=bad)
+        assert r.status_code == 400, (bad, r.text)
+    r = _preview(p, token)
+    assert r.status_code == 200, r.text
+    got = r.json()
+    assert got["readyToCheck"] is True and got["status"] == "pr_open"
+    pv = got["preview"]
+    assert (pv["url"], pv["branch"], pv["prNumber"], pv["host"]) == (
+        "http://localhost:5180/tasks/home", "build/tasks-home-1024", 7, "neils-mbp") and pv["startedAt"]
+    assert got["thread"][-1]["text"] == "Ready To Check - runs on neils-mbp"
+    again = _preview(p, token, url="http://127.0.0.1:5180/tasks/home").json()      # a restart replaces it
+    assert again["preview"]["url"] == "http://127.0.0.1:5180/tasks/home"
+    assert len([e for e in again["thread"] if e["text"].startswith("Ready To Check")]) == 1
+
+
+def test_preview_accept_then_merge_goes_straight_to_done():
+    token = _token()["token"]
+    p = _to_pr_open(token)
+    assert client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True}).status_code == 409   # no preview yet
+    _preview(p, token)
+    GRANTS[DEV2["email"]] = {"build-mode": 1}
+    try:
+        _as(DEV2)
+        assert client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True}).status_code == 403
+    finally:
+        GRANTS.pop(DEV2["email"], None)
+    _as(DEV)
+    assert client.post(f"/dev-notes/{p['id']}/preview-verdict", json={}).status_code == 400
+    r = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True})
+    assert r.status_code == 200, r.text
+    got = r.json()
+    assert got["previewVerdict"] == "accepted" and got["previewVerdictAt"] and got["readyToCheck"] is False
+    assert got["status"] == "pr_open" and got["verifiedBy"] == DEV["email"]
+    assert got["thread"][-1]["text"] == "Checked On The Preview"
+    assert client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True}).status_code == 409
+    assert _mark_fixed() == 1
+    done = client.get(f"/dev-notes/{p['id']}").json()
+    assert done["status"] == "done" and done["purgeAt"] and done["fixedBuildId"] == "abc123"
+    assert done["thread"][-1]["text"] == "Merged To Dev - checked on the preview before merge"
+    assert _bells("dev_note_fixed") == []
+    s = client.get("/dev-notes/sessions").json()
+    assert next(x for x in s if x["id"] == done["sessionId"])["status"] == "done"
+
+
+def test_preview_reopen_goes_back_to_claude_on_the_same_branch():
+    token = _token()["token"]
+    p = _to_pr_open(token)
+    _preview(p, token)
+    r = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": False})
+    assert r.status_code == 400
+    r = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": False, "comment": "Still 2px off"})
+    assert r.status_code == 200, r.text
+    got = r.json()
+    assert got["status"] == "building" and got["previewVerdict"] == "reopened" and got["readyToCheck"] is False
+    last = got["thread"][-1]
+    assert last["kind"] == "comment" and last["by"] == DEV["email"] and last["text"] == "Still 2px off"
+    assert got["thread"][-2]["text"] == "Reopened On The Preview"
+    waiting = client.get("/dev-notes/cli/wait?timeout=0", headers=_hdr(token)).json()["notes"]
+    assert [n["id"] for n in waiting] == [p["id"]] and waiting[0]["previewVerdict"] == "reopened"
+    c = client.post("/dev-notes/cli/claim", json={"noteIds": [p["id"]]}, headers=_hdr(token))
+    assert c.status_code == 200 and c.json()["notes"][0]["status"] == "building"
+    assert client.get("/dev-notes/cli/wait?timeout=0", headers=_hdr(token)).json()["notes"] == []
+    r = client.post("/dev-notes/cli/complete", headers=_hdr(token),
+                    json={"noteIds": [p["id"]], "prUrl": "https://github.com/x/y/pull/7", "prNumber": 7,
+                          "branch": "build/tasks-home-1024"})
+    assert r.status_code == 200, r.text
+    again = r.json()["notes"][0]
+    assert again["status"] == "pr_open" and again["preview"] == {} and again["previewVerdict"] == ""
+    assert again["previewVerdictAt"] == "" and again["readyToCheck"] is False
+    # merged without a new Accept: the ordinary Fixed - Verify path
+    assert _mark_fixed() == 1
+    assert client.get(f"/dev-notes/{p['id']}").json()["status"] == "fixed"
+    assert len(_bells("dev_note_fixed")) == 1
+
+
+# ── v2: regression tests ──────────────────────────────────────────────────────
+ACTIONS = [{"t": 1, "type": "click", "label": "Mark All Read", "selector": "button"},
+           {"t": 2, "type": "input", "label": "Search", "value": "***"},
+           {"t": 3, "type": "scroll", "label": ""}]
+
+
+def _repro_pin(token, repro=None, pr=7, **fields):
+    fields.setdefault("route", "inventory")
+    fields.setdefault("sub", "checkouts")
+    fields.setdefault("actions", ACTIONS)
+    p = _to_pr_open(token, pr=pr, **fields)
+    script = f"test('[{p['id']}] Pin #{p['number']} - Button is misaligned', async ({{ page }}) => {{}});"
+    body = {"script": script, "before": "failing", "after": "passing", "kind": "e2e"}
+    body.update(repro or {})
+    r = client.post(f"/dev-notes/cli/verify/{p['id']}", headers=_hdr(token), json={"repro": body})
+    assert r.status_code == 200, r.text
+    assert r.json()["verification"]["repro"]["kind"] == body["kind"]
+    return p
+
+
+def _cases():
+    db = database.SessionLocal()
+    try:
+        return db.query(models.QaTestCase).all()
+    finally:
+        db.close()
+
+
+def _promote_again(note_id):
+    db = database.SessionLocal()
+    try:
+        D.promote_regression(db, db.query(models.DevNote).filter(models.DevNote.id == note_id).first(), DEV)
+    finally:
+        db.close()
+
+
+def test_preview_accept_promotes_the_repro_to_the_regression_suite(monkeypatch):
+    from routers import qa as Q
+    monkeypatch.setattr(Q, "_ENABLED", True)
+    token = _token()["token"]
+    p = _repro_pin(token)
+    _preview(p, token)
+    got = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True}).json()
+    assert got["regressionCaseId"] == p["id"]
+    assert [e["text"] for e in got["thread"]][-2:] == ["Checked On The Preview", "Added To The Regression Suite"]
+    cases = _cases()
+    assert len(cases) == 1
+    c = cases[0]
+    assert c.id == p["id"] and c.module == "Item Management" and c.feature == "inventory > checkouts"
+    assert c.title == f"Pin #{p['number']} - Button is misaligned"
+    assert c.steps == ["Click Mark All Read", "Fill Search"]
+    assert c.expected == "Fixed by PR #7: Aligned the button"
+    assert (c.priority, c.case_type, c.source, c.status, c.created_by) == (
+        "Medium", "Regression", "build-mode", "active", DEV["email"])
+    assert f"[{p['id']}]" in c.e2e_spec
+    _promote_again(p["id"])          # idempotent: a second promotion is a no-op
+    assert len(_cases()) == 1
+    assert len([e for e in client.get(f"/dev-notes/{p['id']}").json()["thread"]
+                if e["text"] == "Added To The Regression Suite"]) == 1
+
+
+def test_post_merge_accept_promotes_too(monkeypatch):
+    from routers import qa as Q
+    monkeypatch.setattr(Q, "_ENABLED", True)
+    token = _token()["token"]
+    p = _repro_pin(token, route="timeclock", priority="blocking")
+    _mark_fixed()
+    got = client.post(f"/dev-notes/{p['id']}/verify", json={"accepted": True}).json()
+    assert got["status"] == "done" and got["regressionCaseId"] == p["id"]
+    c = _cases()[0]
+    assert c.module == "Time Clock" and c.priority == "High" and c.feature == "timeclock > checkouts"
+
+
+def test_no_case_when_the_testing_module_is_off(monkeypatch):
+    from routers import qa as Q
+    monkeypatch.setattr(Q, "_ENABLED", False)
+    token = _token()["token"]
+    p = _repro_pin(token)
+    _preview(p, token)
+    got = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True}).json()
+    assert got["regressionCaseId"] == "" and _cases() == []
+    assert got["thread"][-1]["text"] == "Regression test not added - the Testing module is off on this deployment"
+    _promote_again(p["id"])          # a second Accept path: still one entry
+    assert len([e for e in client.get(f"/dev-notes/{p['id']}").json()["thread"]
+                if e["text"].startswith("Regression test not added")]) == 1
+
+
+def test_no_case_for_python_repros_unfixed_repros_non_bugs_or_unstamped_specs(monkeypatch):
+    from routers import qa as Q
+    monkeypatch.setattr(Q, "_ENABLED", True)
+    token = _token()["token"]
+    pins = [
+        _repro_pin(token, pr=11, repro={"kind": "python"}),
+        _repro_pin(token, pr=12, repro={"before": "passing"}),
+        _repro_pin(token, pr=13, repro={"after": "skipped"}),
+        _repro_pin(token, pr=14, kind="change"),
+        _repro_pin(token, pr=15, repro={"script": "test('Pin #1 - no id', async () => {});"}),
+    ]
+    for p in pins:
+        _preview(p, token, prNumber=p["prNumber"])
+        got = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True}).json()
+        assert got["previewVerdict"] == "accepted" and got["regressionCaseId"] == "", p
+        assert not any("Regression" in e["text"] for e in got["thread"])
+    assert _cases() == []
+    # the repro kind is validated; an old client without it stores "python"
+    p = pins[0]
+    assert client.post(f"/dev-notes/cli/verify/{p['id']}", headers=_hdr(token),
+                       json={"repro": {"before": "failing", "after": "passing", "kind": "ruby"}}).status_code == 400
+    r = client.post(f"/dev-notes/cli/verify/{p['id']}", headers=_hdr(token),
+                    json={"repro": {"before": "failing", "after": "passing"}})
+    assert r.json()["verification"]["repro"]["kind"] == "python"
+
+
+def test_promotion_failure_never_breaks_the_verdict(monkeypatch):
+    from routers import qa as Q
+    monkeypatch.setattr(Q, "_ENABLED", True)
+
+    def boom(n):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(D, "_steps", boom)
+    token = _token()["token"]
+    p = _repro_pin(token)
+    _preview(p, token)
+    r = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["previewVerdict"] == "accepted" and r.json()["regressionCaseId"] == ""
+    assert _cases() == []
+
+
+def test_v2_columns_have_migration_lines_in_both_lists():
+    from pathlib import Path
+    text = (Path(__file__).resolve().parent / "main.py").read_text()
+    split = text.index("    migrations = [")
+    sqlite_part, pg_part = text[:split], text[split:]
+    cols = ("owner_email", "owner_name", "owner_released_by", "owner_released_at", "preview",
+            "preview_verdict", "preview_verdict_at", "regression_case_id")
+    for col in cols:
+        assert col in models.DevNote.__table__.columns
+        assert f'"ALTER TABLE dev_notes ADD COLUMN {col} ' in sqlite_part, col
+        assert f'"ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS {col} ' in pg_part, col
+    assert '"http://localhost:5180"' in text and '"http://127.0.0.1:5180"' in text

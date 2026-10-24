@@ -1309,6 +1309,15 @@ def _run_migrations():
             "ALTER TABLE accounting_ama_settings ADD COLUMN bookkeepers JSON DEFAULT '[]'",
             # AMA push edits the original (CR-13 rework) - see the Postgres list.
             "ALTER TABLE accounting_ama_settings ADD COLUMN closed_through VARCHAR DEFAULT ''",
+            # Build Mode v2 (Oct 24 2026) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN owner_email VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN owner_name VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN owner_released_by VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN owner_released_at VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN preview JSON DEFAULT '{}'",
+            "ALTER TABLE dev_notes ADD COLUMN preview_verdict VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN preview_verdict_at VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN regression_case_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3029,6 +3038,18 @@ def _run_migrations():
         "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS closed_through VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_ama_push_previews ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_ama_push_log ENABLE ROW LEVEL SECURITY",
+        # Build Mode v2 (Neil, Oct 24 2026, docs/Build-Mode.md "v2"): the owner a
+        # pin is held for (code_owners.py), who released it to Claude Code, the
+        # Ready To Check local preview and its verdict, and the regression test
+        # an accepted bug became. models.DevNote. Additive only.
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_email VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_name VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_released_by VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_released_at VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview JSON DEFAULT '{}'",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict_at VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS regression_case_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4233,6 +4254,8 @@ _CORS_ORIGINS = [
     "http://127.0.0.1:5174",
     "https://nexus.greensglobal.com",
     "https://dev.nexus.greensglobal.com",
+    "http://localhost:5180",   # Build Mode Ready To Check preview (tools/build_notes/preview.py)
+    "http://127.0.0.1:5180",
 ]
 app.add_middleware(
     CORSMiddleware,
