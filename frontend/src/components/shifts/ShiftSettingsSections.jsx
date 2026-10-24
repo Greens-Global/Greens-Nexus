@@ -8,6 +8,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, X, Check, MessageSquare, Search, ChevronUp, ChevronDown, Pencil, Hash, CloudRain, CalendarDays } from 'lucide-react';
 import { api } from '../../api';
+import { useDraft } from '../../lib/useDraft';
+import { useGroupDirty } from '../../lib/groupDirty';
+import SaveRow from '../../components/SaveRow';
 import TeamsTargetPicker from '../TeamsTargetPicker';
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../UnsavedChangesPrompt';
@@ -156,8 +159,14 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
   // Sticky across reloads so the picker stays put while a company loads.
   const [canPick, setCanPick] = useState(false);
   const [companies, setCompanies] = useState([]);
-  const [graceDraft, setGraceDraft] = useState(null);   // null = not being typed
   const failed = useRef('');
+  // The typed numbers are one form (the Settings save pattern, Oct 23): a
+  // draft beside the saved values, one Save row at the foot, and only the
+  // keys that changed go to the API. The switches and selects still save
+  // the moment they change.
+  const { draft: nums, patch: patchNum, dirty: numsDirty, reset: resetNums } = useDraft(cfg ? numbersOf(cfg) : null);
+  useGroupDirty(numsDirty);
+  const [savingNums, setSavingNums] = useState(false);
   useEffect(() => {
     let live = true;
     setError(null);
@@ -176,7 +185,6 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
       .catch((e) => { if (live && (locked || !dropFailedCompany(company, setCompany, failed))) setError(e?.message || 'Could not load the settings.'); });
     return () => { live = false; };
   }, [tick, company]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const graceShown = graceDraft ?? String(cfg?.defaultGraceMin ?? 10);
   const companyName = companyNameOf(companies, company);
   // Only the key(s) that changed go to the API: a company's override stays
   // sparse (the server stores what differs from the tenant and says whether
@@ -191,16 +199,22 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
       toastOk?.(company ? `Shift settings saved for ${companyName}.` : 'Shift settings saved.');
     } catch (e) { toastErr?.(e.message || 'Could not save the settings.'); setCfg(before); }
   }
-  function saveGrace() {
-    if (graceDraft === null) return;
-    const typed = Number(graceDraft);
-    setGraceDraft(null);
-    if (graceDraft.trim() === '' || !Number.isFinite(typed)) return;
-    const n = Math.max(0, Math.min(120, Math.round(typed)));
-    if (n !== (cfg.defaultGraceMin ?? 10)) save({ defaultGraceMin: n });
+  async function saveNums() {
+    const patch = {};
+    for (const k of NUM_KEYS) {
+      const typed = String(nums?.[k] ?? '').trim();
+      if (typed === numbersOf(cfg)[k]) continue;
+      const n = Number(typed);
+      if (typed === '' || !Number.isFinite(n)) continue;
+      patch[k] = Math.max(0, Math.min(NUM_MAX[k], Math.round(n)));
+    }
+    if (!Object.keys(patch).length) { resetNums(); return; }
+    setSavingNums(true);
+    await save(patch);
+    setSavingNums(false);
   }
   async function useDefaults() {
-    const ok = await dialog.confirm(`Drop the shift settings ${companyName} has of its own? It then follows the default settings, and whatever changes there.`, { title: 'Use the Defaults', confirmText: 'Use the Defaults' });
+    const ok = await dialog.confirm(`Drop the shift settings ${companyName} has of its own? It then follows the default settings, and whatever changes there.`, { title: 'Use the Default', confirmText: 'Use the Default' });
     if (!ok) return;
     try { await api.shiftRequestSettingsReset(company); toastOk?.(`${companyName} now uses the default settings.`); setTick((t) => t + 1); }
     catch (e) { toastErr?.(e?.message || 'Could not drop the settings.'); }
@@ -218,7 +232,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                     ? `${companyName} has its own settings. Changes here apply to ${companyName} only.`
                     : `Using the default settings. Changing anything here saves settings for ${companyName} only.`}
                 </span>
-                {cfg.hasOverride && <button type="button" className="link-btn" onClick={useDefaults} style={{ marginTop: 0, color: 'var(--wk-brand)' }}>Use the Defaults</button>}
+                {cfg.hasOverride && <button type="button" className="link-btn" onClick={useDefaults} style={{ marginTop: 0, color: 'var(--wk-brand)' }}>Use the Default</button>}
               </div>
             )}
             <div>
@@ -230,11 +244,11 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Every request still needs a manager's approval. Turning one off stops new requests of that kind. A confidential time-off reason is never shown to teammates.</div>
               {/* Shifts Phase 3b (Oct 15): staff move their own work. */}
               <div style={{ marginTop: 10 }}>
-                <label style={CHECK}><input type="checkbox" checked={cfg.releaseShifts === true} onChange={(e) => save({ ...cfg, releaseShifts: e.target.checked })} /> People can release a shift to the open pool</label>
+                <label style={CHECK}><input type="checkbox" checked={cfg.releaseShifts === true} onChange={(e) => save({ releaseShifts: e.target.checked })} /> People can release a shift to the open pool</label>
                 <label style={{ ...CHECK, paddingLeft: 24, color: cfg.releaseShifts === true ? 'var(--ink)' : 'var(--muted)', cursor: cfg.releaseShifts === true ? 'pointer' : 'default' }}>
-                  <input type="checkbox" disabled={cfg.releaseShifts !== true} checked={cfg.releaseNeedsApproval !== false} onChange={(e) => save({ ...cfg, releaseNeedsApproval: e.target.checked })} /> A manager approves a release
+                  <input type="checkbox" disabled={cfg.releaseShifts !== true} checked={cfg.releaseNeedsApproval !== false} onChange={(e) => save({ releaseNeedsApproval: e.target.checked })} /> A manager approves a release
                 </label>
-                <label style={CHECK}><input type="checkbox" checked={cfg.openShiftsAcrossTeams === true} onChange={(e) => save({ ...cfg, openShiftsAcrossTeams: e.target.checked })} /> Open shifts can be claimed across teams</label>
+                <label style={CHECK}><input type="checkbox" checked={cfg.openShiftsAcrossTeams === true} onChange={(e) => save({ openShiftsAcrossTeams: e.target.checked })} /> Open shifts can be claimed across teams</label>
                 <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off by default. Turn on per company. With approval off, a released shift goes to the open pool right away.</div>
               </div>
             </div>
@@ -252,8 +266,8 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
               </label>
               <label style={{ display: 'grid', gap: 4, maxWidth: 300 }}><span style={LBL}>Default Grace</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <input type="number" min="0" max="120" step="1" className="form-input" aria-label="Default grace" value={graceShown}
-                    onChange={(e) => setGraceDraft(e.target.value)} onBlur={saveGrace} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                  <input type="number" min="0" max="120" step="1" className="form-input" aria-label="Default grace" value={nums?.defaultGraceMin ?? ''}
+                    onChange={(e) => patchNum({ defaultGraceMin: e.target.value })}
                     style={{ width: 80, fontSize: 12.5, padding: '4px 8px' }} />
                   <span style={{ fontSize: 12.5 }}>minutes</span>
                 </span>
@@ -263,21 +277,21 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
             <div>
               <div style={LBL}>Attendance</div>
               <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-                <MinutesField label="No-Show Alert" aria="No-show alert" value={cfg.noShowAlertMin} fallback={10} onSave={(n) => save({ ...cfg, noShowAlertMin: n })}
+                <MinutesField label="No-Show Alert" aria="No-show alert" value={nums?.noShowAlertMin} fallback={10} onChange={(v) => patchNum({ noShowAlertMin: v })}
                   hint="Tells the person's manager, their backup manager and the team's schedulers when a shared shift has started, the grace has passed, and this many minutes have gone by with no clock-in. The alert always lands inside the six hours after the start. 0 turns it off." />
-                <MinutesField label="Left Early" aria="Left early" value={cfg.leftEarlyMin} fallback={15} onSave={(n) => save({ ...cfg, leftEarlyMin: n })}
+                <MinutesField label="Left Early" aria="Left early" value={nums?.leftEarlyMin} fallback={15} onChange={(v) => patchNum({ leftEarlyMin: v })}
                   hint="Clocking out this many minutes before the shift's end counts as leaving early on the schedule." />
                 {/* Stalled Time Sheet escalation (Oct 19 2026, timesheet_alerts.py). */}
                 <MinutesField label="Escalate Unapproved Time Sheets After (Days)" aria="Escalate unapproved time sheets after" unit="days" max={30}
-                  value={cfg.timesheetEscalateDays} fallback={2} onSave={(n) => save({ timesheetEscalateDays: n })}
+                  value={nums?.timesheetEscalateDays} fallback={2} onChange={(v) => patchNum({ timesheetEscalateDays: v })}
                   hint="Days after a pay period ends before a time sheet still waiting on its approver is sent up to the approver's own manager, or else the company's HR contact. 0 turns it off." />
                 {/* A break that never ended (Oct 20 2026, break_watch.py). */}
                 <MinutesField label="Still on Break Reminder" aria="Still on break reminder" max={240}
-                  value={cfg.breakNudgeMin} fallback={60} onSave={(n) => save({ breakNudgeMin: n })}
+                  value={nums?.breakNudgeMin} fallback={60} onChange={(v) => patchNum({ breakNudgeMin: v })}
                   hint="Minutes on a break that has not ended before the person is asked if they are still on break. Their manager hears at twice this. 0 turns it off." />
                 {/* California meal reminder (Charmi + Neil, Oct 20 2026, meal_watch.py). */}
                 <MinutesField label={`Meal Reminder: Send at ${mealHours(cfg.mealReminderMin ?? 270)}`} aria="Meal reminder" max={295}
-                  value={cfg.mealReminderMin} fallback={270} onSave={(n) => save({ mealReminderMin: n })}
+                  value={nums?.mealReminderMin} fallback={270} onChange={(v) => patchNum({ mealReminderMin: v })}
                   hint="Minutes of work in a day before people who work in California (hourly and salaried, with time tracking) are reminded to take their 30-minute meal break before the 5th hour. Not sent once they have taken a 30-minute meal, are on a break or have clocked out. 0 turns it off." />
               </div>
               <label style={{ ...CHECK, marginTop: 8 }}><input type="checkbox" checked={cfg.noShowOnUsualHours === true} onChange={(e) => save({ noShowOnUsualHours: e.target.checked })} /> Alert for usual hours too</label>
@@ -286,9 +300,9 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
               <label style={{ ...CHECK, marginTop: 10 }}><input type="checkbox" checked={cfg.otAlertOn === true} onChange={(e) => save({ otAlertOn: e.target.checked })} /> Alert managers before overtime</label>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off unless turned on here. Tells the person's manager and their backup manager once, from the actual punches, when someone clocked in is about to reach overtime.</div>
               <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 8, opacity: cfg.otAlertOn === true ? 1 : 0.6 }}>
-                <MinutesField label="Daily Overtime Warning" aria="Daily overtime warning" value={cfg.otAlertDailyLeadMin} fallback={30} onSave={(n) => save({ otAlertDailyLeadMin: n })}
+                <MinutesField label="Daily Overtime Warning" aria="Daily overtime warning" value={nums?.otAlertDailyLeadMin} fallback={30} onChange={(v) => patchNum({ otAlertDailyLeadMin: v })}
                   hint="Minutes before 8 worked hours in a day. People on the California overtime rule only. 0 turns it off." />
-                <MinutesField label="Weekly Overtime Warning" aria="Weekly overtime warning" max={480} value={cfg.otAlertWeeklyLeadMin} fallback={120} onSave={(n) => save({ otAlertWeeklyLeadMin: n })}
+                <MinutesField label="Weekly Overtime Warning" aria="Weekly overtime warning" max={480} value={nums?.otAlertWeeklyLeadMin} fallback={120} onChange={(v) => patchNum({ otAlertWeeklyLeadMin: v })}
                   hint="Minutes before 40 hours of regular time in a payroll week (Sunday to Saturday). 0 turns it off." />
               </div>
               {/* Location Trail While Clocked In (Oct 20 2026, routers/location_trail.py). */}
@@ -299,15 +313,15 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
               <div style={LBL}>Rules</div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 8 }}>0 turns a rule off. Rules warn on the schedule; they never block.</div>
               <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-                <MinutesField label="Minimum Rest Between Shifts" aria="Minimum rest between shifts" unit="hours" max={24} value={cfg.ruleMinRestHours} fallback={0} onSave={(n) => save({ ...cfg, ruleMinRestHours: n })}
+                <MinutesField label="Minimum Rest Between Shifts" aria="Minimum rest between shifts" unit="hours" max={24} value={nums?.ruleMinRestHours} fallback={0} onChange={(v) => patchNum({ ruleMinRestHours: v })}
                   hint="Warns when someone's next shift starts sooner than this after their last one ends." />
-                <MinutesField label="Most Days In A Row" aria="Most days in a row" unit="days" max={14} value={cfg.ruleMaxDaysInRow} fallback={0} onSave={(n) => save({ ...cfg, ruleMaxDaysInRow: n })}
+                <MinutesField label="Most Days In A Row" aria="Most days in a row" unit="days" max={14} value={nums?.ruleMaxDaysInRow} fallback={0} onChange={(v) => patchNum({ ruleMaxDaysInRow: v })}
                   hint="Warns when someone is scheduled more days in a row than this." />
-                <MinutesField label="Daily Overtime After" aria="Daily overtime after" unit="hours" max={24} value={cfg.ruleDailyOtHours} fallback={0} onSave={(n) => save({ ...cfg, ruleDailyOtHours: n })}
+                <MinutesField label="Daily Overtime After" aria="Daily overtime after" unit="hours" max={24} value={nums?.ruleDailyOtHours} fallback={0} onChange={(v) => patchNum({ ruleDailyOtHours: v })}
                   hint="California daily overtime; applies to people on the California overtime rule. Someone with no payroll rate follows their country: US people get the California rule, everyone else has no overtime rules." />
-                <MinutesField label="Weekly Overtime After" aria="Weekly overtime after" unit="hours" max={80} value={cfg.ruleWeeklyOtHours} fallback={0} onSave={(n) => save({ ...cfg, ruleWeeklyOtHours: n })}
+                <MinutesField label="Weekly Overtime After" aria="Weekly overtime after" unit="hours" max={80} value={nums?.ruleWeeklyOtHours} fallback={0} onChange={(v) => patchNum({ ruleWeeklyOtHours: v })}
                   hint="Warns when the hours scheduled in the payroll week, Sunday to Saturday, pass this - whatever day the grid starts on." />
-                <MinutesField label="Most Hours Per Week" aria="Most hours per week" unit="hours" max={100} value={cfg.ruleMaxWeekHours} fallback={0} onSave={(n) => save({ ...cfg, ruleMaxWeekHours: n })}
+                <MinutesField label="Most Hours Per Week" aria="Most hours per week" unit="hours" max={100} value={nums?.ruleMaxWeekHours} fallback={0} onChange={(v) => patchNum({ ruleMaxWeekHours: v })}
                   hint="Warns when the hours scheduled in the week shown on the grid pass this. Applies to everyone." />
               </div>
               <label style={{ ...CHECK, marginTop: 8 }}><input type="checkbox" checked={cfg.publishReasonRequired === true} onChange={(e) => save({ publishReasonRequired: e.target.checked })} /> Require a reason to share a schedule that has warnings</label>
@@ -315,19 +329,21 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
             </div>
             <div>
               <div style={LBL}>Sharing</div>
-              <label style={CHECK}><input type="checkbox" checked={cfg.outlookCalendarOn === true} onChange={(e) => save({ ...cfg, outlookCalendarOn: e.target.checked })} /> Add shared shifts to people's Outlook calendars</label>
+              <label style={CHECK}><input type="checkbox" checked={cfg.outlookCalendarOn === true} onChange={(e) => save({ outlookCalendarOn: e.target.checked })} /> Add shared shifts to people's Outlook calendars</label>
               <label style={{ display: 'grid', gap: 4, maxWidth: 300, margin: '4px 0 6px' }}><span style={{ fontSize: 12.5, fontWeight: 600, color: cfg.outlookCalendarOn !== true ? 'var(--muted)' : 'var(--ink)' }}>Show In Outlook As</span>
-                <select className="form-input" aria-label="Show in Outlook as" disabled={cfg.outlookCalendarOn !== true} value={cfg.outlookShowAs === 'busy' ? 'busy' : 'free'} onChange={(e) => save({ ...cfg, outlookShowAs: e.target.value })} style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px' }}>
+                <select className="form-input" aria-label="Show in Outlook as" disabled={cfg.outlookCalendarOn !== true} value={cfg.outlookShowAs === 'busy' ? 'busy' : 'free'} onChange={(e) => save({ outlookShowAs: e.target.value })} style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px' }}>
                   <option value="free">Free</option>
                   <option value="busy">Busy</option>
                 </select>
                 <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Off unless a company turns it on. Free keeps people bookable during a shift; Busy blocks the time. Each person can keep shifts out of their own calendar from My Shifts. Turning it off takes the events already added back off people's calendars.</span>
               </label>
-              <label style={CHECK}><input type="checkbox" checked={cfg.confirmRequests !== false} onChange={(e) => save({ ...cfg, confirmRequests: e.target.checked })} /> Ask people to confirm a shared schedule</label>
+              <label style={CHECK}><input type="checkbox" checked={cfg.confirmRequests !== false} onChange={(e) => save({ confirmRequests: e.target.checked })} /> Ask people to confirm a shared schedule</label>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>A share then asks each person to confirm in My Shifts; the schedule shows who has, and a manager can nudge the rest.</div>
               <CalendarSyncStatus />
             </div>
             {!company && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Time-off reasons are under Time &amp; Pay &gt; Time-Off Reasons.</div>}
+            <SaveRow dirty={numsDirty} busy={savingNums} onSave={saveNums} onDiscard={resetNums} style={{ marginTop: 2 }}
+              note="Switches and lists save as you go; the numbers above save together." />
           </div>
         )}
       </AsyncSection>
@@ -371,9 +387,8 @@ export function CalendarSyncStatus() {
   );
 }
 
-// A minutes field that saves on blur or Enter, clamped to 0-`max` - the
-// Default Grace idiom (Shifts Phase 1: the attendance thresholds; Phase 2:
-// the rules, in hours or days).
+// A minutes field of the numbers form, clamped to 0-`max` on Save (Shifts
+// Phase 1: the attendance thresholds; Phase 2: the rules, in hours or days).
 // 270 -> "4.5 Hours", 240 -> "4 Hours", 0 -> "Off" (the meal reminder's label).
 function mealHours(min) {
   const n = Number(min) || 0;
@@ -382,22 +397,29 @@ function mealHours(min) {
   return `${h} ${h === 1 ? 'Hour' : 'Hours'}`;
 }
 
-function MinutesField({ label, aria, value, fallback, max = 240, unit = 'minutes', hint, onSave }) {
-  const [draft, setDraft] = useState(null);   // null = not being typed
-  const current = value ?? fallback;
-  function commit() {
-    if (draft === null) return;
-    const typed = Number(draft);
-    setDraft(null);
-    if (draft.trim() === '' || !Number.isFinite(typed)) return;
-    const n = Math.max(0, Math.min(max, Math.round(typed)));
-    if (n !== current) onSave(n);
-  }
+// The numeric keys of the shift settings, with the most each accepts - one
+// form, saved together by the Save row (Oct 23; each used to save on blur).
+const NUM_MAX = {
+  defaultGraceMin: 120, noShowAlertMin: 240, leftEarlyMin: 240, timesheetEscalateDays: 30, breakNudgeMin: 240, mealReminderMin: 295,
+  otAlertDailyLeadMin: 240, otAlertWeeklyLeadMin: 480,
+  ruleMinRestHours: 24, ruleMaxDaysInRow: 14, ruleDailyOtHours: 24, ruleWeeklyOtHours: 80, ruleMaxWeekHours: 100,
+};
+const NUM_DEFAULT = {
+  defaultGraceMin: 10, noShowAlertMin: 10, leftEarlyMin: 15, timesheetEscalateDays: 2, breakNudgeMin: 60, mealReminderMin: 270,
+  otAlertDailyLeadMin: 30, otAlertWeeklyLeadMin: 120,
+  ruleMinRestHours: 0, ruleMaxDaysInRow: 0, ruleDailyOtHours: 0, ruleWeeklyOtHours: 0, ruleMaxWeekHours: 0,
+};
+const NUM_KEYS = Object.keys(NUM_MAX);
+// What the boxes show, as text: the saved value, else the default - so a
+// default typed back in is no change, and a blank box saves nothing.
+const numbersOf = (cfg) => Object.fromEntries(NUM_KEYS.map((k) => [k, String(cfg?.[k] ?? NUM_DEFAULT[k])]));
+
+function MinutesField({ label, aria, value, fallback, max = 240, unit = 'minutes', hint, onChange }) {
   return (
     <label style={{ display: 'grid', gap: 4, maxWidth: 300 }}><span style={{ fontSize: 12.5, fontWeight: 600 }}>{label}</span>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <input type="number" min="0" max={max} step="1" className="form-input" aria-label={aria} value={draft ?? String(current)}
-          onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+        <input type="number" min="0" max={max} step="1" className="form-input" aria-label={aria} value={value ?? fallback}
+          onChange={(e) => onChange(e.target.value)}
           style={{ width: 80, fontSize: 12.5, padding: '4px 8px' }} />
         <span style={{ fontSize: 12.5 }}>{unit}</span>
       </span>
