@@ -240,7 +240,7 @@ describe('PartnersTab - the 10/23 call', () => {
     await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
     const file = URL.createObjectURL.mock.calls[0][0];
     const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(fr.result); fr.readAsText(file); });
-    const csv = text.replace(/^﻿/, '').split('\r\n');
+    const csv = text.replace(/^\s+/, '').split('\r\n');
     expect(csv[0]).toBe('Vendor Number,Name,Phone,City,Terms,Status,Entity');
     expect(csv[1]).toMatch(/^V00013,Bay Electric,/);
   });

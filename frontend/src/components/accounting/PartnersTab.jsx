@@ -122,7 +122,7 @@ export function partnersTable(rows, { kind, fromLedger, note = '' }) {
 // filters, value lists and the menu on each heading, saved views. The last
 // column holds the row's buttons and always stays where it is.
 const OPEN_COLUMN = { key: 'open', label: 'Open', fixed: true, noFilter: true, noSort: true, exportAs: [], text: () => '' };
-export function partnerColumns(kind, fromLedger) {
+function partnerColumns(kind, fromLedger) {
   const noun = kind === 'vendor' ? 'Vendor' : 'Customer';
   const id = { key: 'id', label: `${noun} Number`, width: 110, text: (r) => r.id || '' };
   const name = { key: 'name', label: 'Name', width: fromLedger ? 260 : 240, text: (r) => r.displayName || r.name || '' };
