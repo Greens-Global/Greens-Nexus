@@ -26,7 +26,9 @@ const emit = () => listeners.forEach((fn) => fn(current));
 function ensureLoaded() {
   if (current === null) current = read();
   if (loaded || loading) return;
-  loading = api.getAccountingPrefs()
+  // Through a promise: a read that throws at once (no network layer yet) is
+  // a failed read, never a crash of the screen that asked.
+  loading = Promise.resolve().then(() => api.getAccountingPrefs())
     .then((d) => {
       const server = d?.prefs && typeof d.prefs === 'object' ? d.prefs : {};
       // The server wins where it has something; a layout made before this
@@ -37,15 +39,65 @@ function ensureLoaded() {
     .finally(() => { loaded = true; loading = null; });
 }
 
+// `patch` may be a function of the current prefs (Oct 24, saved table views:
+// several tables update `tableViews` and must not undo each other).
 function setPrefs(patch) {
-  current = { ...(current || read()), ...patch };
+  const base = current || read();
+  current = { ...base, ...(typeof patch === 'function' ? patch(base) : patch) };
+  if (current.tableViews !== base.tableViews) viewsWaiting = true;
   write(current);
   emit();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { api.saveAccountingPrefs(current).catch(() => { /* kept locally; retried on the next change */ }); }, 800);
+  saveTimer = setTimeout(() => {
+    const sent = current;
+    const views = viewsWaiting;
+    // Over the server's limit it would only be refused: say so without sending it.
+    const tooLarge = (() => { try { return JSON.stringify(sent).length > PREFS_MAX; } catch { return false; } })();
+    (tooLarge ? Promise.reject(Object.assign(new Error('too large'), { tooLarge: true })) : Promise.resolve().then(() => api.saveAccountingPrefs(sent)))
+      .then(() => { if (current === sent) viewsWaiting = false; setSaveFailure(null); })
+      // Kept locally and retried on the next change; a saved view that did
+      // not reach the account says so (round 3: it used to fail silently).
+      .catch((e) => { if (views) setSaveFailure(failureOf(e)); });
+  }, 800);
 }
 
-/** [prefs, setPrefs(patch)] - patch is merged at the top level. */
+// ── A saved view that did not reach the person's account (round 3, fix 6) ──
+// The server keeps one person's layout up to 120,000 characters of JSON
+// (_PREFS_MAX in routers/accounting_saved.py); it refuses anything longer.
+export const PREFS_MAX = 120000;
+let viewsWaiting = false;    // a change to the saved views is not on the server yet
+let saveFailure = null;      // { reason: 'too-large' | 'offline' | 'refused' } | null
+const failureListeners = new Set();
+function setSaveFailure(f) {
+  if (!f && !saveFailure) return;
+  saveFailure = f;
+  failureListeners.forEach((fn) => fn(saveFailure));
+}
+function failureOf(e) {
+  const status = Number(e?.status) || 0;
+  if (e?.tooLarge || status === 413 || (status === 400 && /too large/i.test(String(e?.message || '')))) return { reason: 'too-large' };
+  if (!status || status >= 500) return { reason: 'offline' };
+  return { reason: 'refused' };
+}
+const FAILURE_TEXT = {
+  'too-large': "Couldn't save your view to your account. It's kept on this computer only. Try removing some saved views.",
+  offline: "Couldn't save your view to your account - the server could not be reached. It's kept on this computer only and is saved again with your next change.",
+  refused: "Couldn't save your view to your account. It's kept on this computer only.",
+};
+export const saveFailureText = (f) => (f ? FAILURE_TEXT[f.reason] || FAILURE_TEXT.refused : '');
+
+/** [failure | null, dismiss()] - the last save of a saved view that failed. */
+export function usePrefsSaveFailure() {
+  const [f, set] = useState(saveFailure);
+  useEffect(() => {
+    failureListeners.add(set);
+    set(saveFailure);
+    return () => { failureListeners.delete(set); };
+  }, []);
+  return [f, () => setSaveFailure(null)];
+}
+
+/** [prefs, setPrefs(patch | (prefs) => patch)] - patch is merged at the top level. */
 export function useAccountingPrefs() {
   const [prefs, set] = useState(() => { ensureLoaded(); return current; });
   useEffect(() => {
@@ -75,4 +127,6 @@ export function resetAccountingPrefs() {
   loaded = false;
   loading = null;
   clearTimeout(saveTimer);
+  viewsWaiting = false;
+  saveFailure = null;
 }

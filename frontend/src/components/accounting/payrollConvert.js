@@ -6,10 +6,13 @@
 //     hours file) as a QuickBooks Desktop time import (IIF TIMEACT rows, the
 //     same layout as /timeclock/export.iif) and as Intacct's statistical
 //     hours journal (STAT, the "OSM Payroll Hours Template" layout).
-//  2. QuickBooks Payroll to Intacct - a QuickBooks Desktop Payroll Summary
-//     (the wide report: one column block per employee) or a long payroll
-//     detail export, turned into the Intacct payroll journal (PYRJ, the "OSM
-//     Payroll" layout): one balanced entry per employee, plus the STAT hours.
+//  2. QuickBooks Payroll to Intacct - a QuickBooks Desktop or QuickBooks
+//     Online Payroll Summary (the wide report: one column block per employee)
+//     or a long payroll detail export, turned into the Intacct payroll journal
+//     (PYRJ, the "OSM Payroll" layout): one balanced entry per employee, plus
+//     the STAT hours. QuickBooks Online (Priyanka, 10/22) heads the Amount
+//     column with the pay period ("Oct 10 - 23, 26"), names its items Hourly /
+//     Overtime and saves an empty "Export Tips" sheet first.
 //
 // Ported from the stand-alone Import Hub (src/lib/payroll.server.ts): the
 // two Intacct column orders, the default payroll item -> GL rules (earnings
@@ -18,7 +21,7 @@
 // Payroll Liability 23700), the P.REG / P.OHR / P.SHR / P.VHR hour buckets
 // and the hours-file item classifier. Everything runs in the browser.
 
-import { parseAmount, parseDate, usDate } from './statementImport';
+import { parseAmount, parseDate, readSheetFile, usDate } from './statementImport';
 
 /** Intacct GL journal entry import, the full 28-column sheet ("OSM Payroll.csv",
  * backend intacct_gl.py). Its first 15 columns are the statement converter's. */
@@ -57,6 +60,9 @@ export const ITEM_KINDS = [
 export const DEFAULT_PAYROLL_MAPPING = [
   { item: 'Hourly Wages', kind: 'earning', debit: '61905', credit: '', memo: 'Hourly', hours: 'P.REG' },
   { item: 'Overtime Wages', kind: 'earning', debit: '61909', credit: '', memo: 'Overtime', hours: 'P.OHR' },
+  // QuickBooks Online's names for the same pay (10/23): same accounts and memos as Desktop.
+  { item: 'Hourly', kind: 'earning', debit: '61905', credit: '', memo: 'Hourly', hours: 'P.REG' },
+  { item: 'Overtime', kind: 'earning', debit: '61909', credit: '', memo: 'Overtime', hours: 'P.OHR' },
   { item: 'Double Time Wages', kind: 'earning', debit: '61909', credit: '', memo: 'Double Time', hours: 'P.OHR' },
   { item: 'Bonus', kind: 'earning', debit: '61908', credit: '', memo: 'Bonus', hours: '' },
   { item: 'Sick', kind: 'earning', debit: '61906', credit: '', memo: 'Sick', hours: 'P.SHR' },
@@ -90,7 +96,14 @@ export const DEFAULT_PAYROLL_MAPPING = [
   { item: 'CA - Federal Unemployment', kind: 'employer', debit: '62105', credit: '23803', memo: 'CA - Federal Unemployment', hours: '' },
   { item: 'CA - Employment Training Tax', kind: 'employer', debit: '62106', credit: '23810', memo: 'CA - Employment Training Tax', hours: '' },
   { item: 'Health Insurance (company contribution)', kind: 'employer', debit: '61903', credit: '23700', memo: 'Health Insurance (company contribution)', hours: '' },
+  // QuickBooks Online lists the qualified overtime premium under employer
+  // taxes for W-2 reporting only - no money moves, so nothing posts.
+  { item: 'Qualified OT Tracking', kind: 'ignore', debit: '', credit: '', memo: 'Qualified OT Tracking', hours: '' },
 ];
+
+// Default rows added after browsers had saved their own mapping: a saved
+// mapping gets them once (savePayrollPrefs then records every default as seen).
+const ADDED_DEFAULTS = ['Hourly', 'Overtime', 'Qualified OT Tracking'];
 
 export const DEFAULT_PAYROLL_SETTINGS = { journal: 'PYRJ', hoursJournal: 'STAT', location: '', department: '', netPayAccount: '23700', payDate: '', periodStart: '', periodEnd: '', prefix: '' };
 
@@ -126,10 +139,42 @@ const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 export function parseQbPayroll(rows) {
   const clean = (rows || []).map((r) => (r || []).map((c) => String(c ?? '').trim()));
   const wide = parseWide(clean);
-  if (wide) return wide;
+  if (wide?.employees.length) return wide;
   const long = parseLong(clean);
   if (long) return long;
-  return { format: 'unknown', employees: [], items: [], company: '', period: '' };
+  return { format: 'unknown', employees: [], items: [], company: '', period: '', source: '', missing: wide ? wide.missing : missingLongColumns(clean) };
+}
+
+/** Every sheet's rows (a CSV is one sheet), blank rows dropped. */
+export async function readPayrollSheets(file) {
+  let sheets;
+  if (/\.(xlsx|xls)$/i.test(file?.name || '')) {
+    const XLSX = await import('xlsx');
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+    sheets = wb.SheetNames.map((n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '' }).map((r) => r.map((c) => String(c ?? '').trim())));
+  } else {
+    sheets = [await readSheetFile(file)];
+  }
+  return sheets.map((rows) => rows.filter((r) => r.some((c) => c !== '')));
+}
+
+/** The first sheet that reads as a payroll report; otherwise the first non-empty sheet's result, with its `missing` columns. */
+export function parsePayrollSheets(sheets) {
+  let first = null;
+  for (const rows of sheets || []) {
+    if (!rows.length) continue;
+    const report = parseQbPayroll(rows);
+    if (report.employees.length) return report;
+    first = first || report;
+  }
+  return first || parseQbPayroll([]);
+}
+
+/** The message for a file with no employees, naming the column(s) it lacks. */
+export function payrollFileProblem(report) {
+  const missing = report?.missing?.length ? report.missing : LONG_LABELS.map((l) => l[1]);
+  const list = missing.length > 1 ? `${missing.slice(0, -1).join(', ')} and ${missing[missing.length - 1]}` : missing[0];
+  return `No ${list} column${missing.length > 1 ? 's' : ''} found. Upload the QuickBooks Payroll Summary from QuickBooks Desktop or Online (employees across the top, an Amount column under each) or a payroll detail export with Employee, Payroll Item and Amount columns.`;
 }
 
 function parseWide(rows) {
@@ -155,10 +200,18 @@ function parseWide(rows) {
       amount: hasSub ? find(/^amount$|^amt$/) : col + 4,
     };
     if (block.amount < 0 && !hasSub) block.amount = col + 4;
+    // QuickBooks Online heads the amount with the pay period: the block's last
+    // sub-header that is not Hours or Rate.
+    if (block.amount < 0 && hasSub) {
+      for (let i = end - 1; i >= col; i -= 1) {
+        if (sub[i] && !/^(hours?|hrs|qty|rate)$/.test(sub[i])) { block.amount = i; block.periodHead = rows[nameRow + 1][i]; break; }
+      }
+    }
     blocks.push(block);
   });
   const people = blocks.filter((b) => b.name.toUpperCase() !== 'TOTAL' && b.amount >= 0);
-  if (!people.length) return null;
+  if (!people.length) return { format: 'unknown', employees: [], items: [], company: '', period: '', source: '', missing: ['Amount'] };
+  const periodHead = people.find((b) => b.periodHead)?.periodHead || '';
   const firstCol = Math.min(...blocks.map((b) => b.col));
   const employees = people.map((b) => ({ name: b.name, code: codeFromName(b.name), items: [], netPay: null }));
   const items = [];
@@ -182,7 +235,15 @@ function parseWide(rows) {
     });
     if (any && !items.includes(label)) items.push(label);
   }
-  return { format: 'summary', employees, items, company: rows[0]?.find(Boolean) || '', period: findPeriod(rows.slice(0, nameRow)) };
+  return {
+    format: 'summary',
+    employees,
+    items,
+    company: nameRow > 0 ? rows[0].find(Boolean) || '' : '',
+    period: findPeriod(rows.slice(0, nameRow)) || periodHead,
+    source: periodHead ? 'online' : 'desktop',
+    missing: [],
+  };
 }
 
 function findPeriod(rows) {
@@ -197,6 +258,18 @@ const LONG = {
   amount: ['amount', 'amt', 'total', 'current'],
 };
 const normHead = (h) => String(h || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+const LONG_LABELS = [['name', 'Employee'], ['item', 'Payroll Item'], ['amount', 'Amount']];
+
+/** The detail export's required columns absent from its likeliest header row (the one naming the most of them). */
+function missingLongColumns(rows) {
+  let best = [];
+  for (let r = 0; r < Math.min(rows.length, 30); r += 1) {
+    const cells = rows[r].map(normHead);
+    const found = LONG_LABELS.filter(([k]) => LONG[k].some((n) => cells.includes(n)));
+    if (found.length > best.length) best = found;
+  }
+  return LONG_LABELS.filter((l) => !best.includes(l)).map((l) => l[1]);
+}
 
 function guessHeader(rows, need, spec) {
   for (let r = 0; r < Math.min(rows.length, 30); r += 1) {
@@ -234,7 +307,7 @@ function parseLong(rows) {
     if (!items.includes(item)) items.push(item);
   }
   if (!byName.size) return null;
-  return { format: 'detail', employees: [...byName.values()], items, company: '', period: '' };
+  return { format: 'detail', employees: [...byName.values()], items, company: '', period: '', source: '', missing: [] };
 }
 
 /** The mapping row for a payroll item (case and spacing ignored), or null. */
@@ -547,8 +620,12 @@ const STORE = 'nexus.importhub.payroll.v1';
 export function loadPayrollPrefs() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE) || '{}');
+    let mapping = Array.isArray(saved.mapping) && saved.mapping.length ? saved.mapping : DEFAULT_PAYROLL_MAPPING.map((m) => ({ ...m }));
+    const seen = new Set(Array.isArray(saved.seen) ? saved.seen : DEFAULT_PAYROLL_MAPPING.map((m) => key(m.item)).filter((k) => !ADDED_DEFAULTS.some((a) => key(a) === k)));
+    const fresh = DEFAULT_PAYROLL_MAPPING.filter((m) => !seen.has(key(m.item)) && !ruleFor(mapping, m.item));
+    if (fresh.length) mapping = [...mapping, ...fresh.map((m) => ({ ...m }))];
     return {
-      mapping: Array.isArray(saved.mapping) && saved.mapping.length ? saved.mapping : DEFAULT_PAYROLL_MAPPING.map((m) => ({ ...m })),
+      mapping,
       settings: { ...DEFAULT_PAYROLL_SETTINGS, ...(saved.settings || {}), payDate: '', periodStart: '', periodEnd: '' },
       employees: saved.employees && typeof saved.employees === 'object' ? saved.employees : {},
     };
@@ -563,7 +640,7 @@ export function savePayrollPrefs(prefs) {
     delete settings.payDate;
     delete settings.periodStart;
     delete settings.periodEnd;
-    localStorage.setItem(STORE, JSON.stringify({ mapping: prefs.mapping, settings, employees: prefs.employees }));
+    localStorage.setItem(STORE, JSON.stringify({ mapping: prefs.mapping, settings, employees: prefs.employees, seen: DEFAULT_PAYROLL_MAPPING.map((m) => key(m.item)) }));
   } catch { /* a per-browser convenience only */ }
 }
 

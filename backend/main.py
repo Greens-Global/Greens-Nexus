@@ -1302,6 +1302,13 @@ def _run_migrations():
             # Feature requests are tickets (Oct 23 2026) - see the Postgres list.
             "ALTER TABLE changelog_feedback ADD COLUMN ticket_id VARCHAR DEFAULT ''",
             "ALTER TABLE ticket_teams_message ADD COLUMN kind VARCHAR DEFAULT 'dm'",
+            # Management Fees threshold rule (CR-03) - see the Postgres list.
+            "ALTER TABLE accounting_ama_agreements ADD COLUMN threshold_amount FLOAT",
+            "ALTER TABLE accounting_ama_agreements ADD COLUMN threshold_basis VARCHAR DEFAULT ''",
+            # AMA bookkeepers (CR-13, Oct 23) - see the Postgres list.
+            "ALTER TABLE accounting_ama_settings ADD COLUMN bookkeepers JSON DEFAULT '[]'",
+            # AMA push edits the original (CR-13 rework) - see the Postgres list.
+            "ALTER TABLE accounting_ama_settings ADD COLUMN closed_through VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3004,6 +3011,24 @@ def _run_migrations():
         # DM it always held). Additive only.
         "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS ticket_id VARCHAR DEFAULT ''",
         "ALTER TABLE ticket_teams_message ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'dm'",
+        # Management Fees threshold rule (Charmi, Oct 22 call, CR-03): "X% of
+        # gross if gross > threshold, else a flat amount". NULL / '' on every
+        # older agreement = the defaults in accounting_assumptions.py.
+        "ALTER TABLE accounting_ama_agreements ADD COLUMN IF NOT EXISTS threshold_amount DOUBLE PRECISION",
+        "ALTER TABLE accounting_ama_agreements ADD COLUMN IF NOT EXISTS threshold_basis VARCHAR DEFAULT ''",
+        # AMA notes and reclass approval (Charmi, CR-13, Oct 23): who may push
+        # a reclass ('' row; [] = the env fallback), and the per-line Notes /
+        # reclass table - new, so explicit RLS. models.AccountingAmaSetting /
+        # AccountingAmaLineReview.
+        "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS bookkeepers JSON DEFAULT '[]'",
+        "ALTER TABLE accounting_ama_line_reviews ENABLE ROW LEVEL SECURITY",
+        # AMA push edits the original Intacct entry (Neil, 23 Oct, CR-13
+        # rework): the books-closed-through date, the previews a push must
+        # name, and the append-only push log - new tables, so explicit RLS.
+        # models.AccountingAmaSetting / AccountingAmaPushPreview / AccountingAmaPushLog.
+        "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS closed_through VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_ama_push_previews ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_ama_push_log ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4223,6 +4248,8 @@ app.add_middleware(
     # thrown away.
     expose_headers=["Content-Disposition"],
 )
+# Oct 24 (Neil, item 13): a table's own Sync (fresh=1) reads past the accounting cache.
+app.add_middleware(accounting.AccountingFreshReads)
 
 
 @app.exception_handler(Exception)
@@ -4583,3 +4610,7 @@ from routers import task_labels as task_labels_router  # noqa: E402
 app.include_router(task_labels_router.router)      # Tasks: label colors, labels in use, Manage > Labels (Neil, Oct 22 2026)
 from routers import meeting_files as meeting_files_router  # noqa: E402
 app.include_router(meeting_files_router.router)    # Meeting files: Teams transcript/recording of a meeting you were in, whoever recorded it - for Nexus Bots (Visesh, Oct 24 2026)
+from routers import accounting_ask_review  # noqa: E402
+app.include_router(accounting_ask_review.router)   # Accounting > AMA: the other side of each line, Notes, GL reclass approved and pushed by a bookkeeper (Charmi, CR-13, Oct 23 2026)
+from routers import accounting_manual_je  # noqa: E402
+app.include_router(accounting_manual_je.router)    # Accounting > Audit & Insights > Manual Journal Entries: who keyed each entry, read from Intacct (Neil + Charmi, CR-10, Oct 23 2026)

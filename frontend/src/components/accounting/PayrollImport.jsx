@@ -3,12 +3,13 @@ import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Plus, RotateCcw
 import { api } from '../../api';
 import { ensureStepUp, isStepUpRequired } from '../../stepup/StepUp';
 import { formatDate } from '../../lib/datetime';
+import { DateField } from '../../tasks/components';
 import { EntityPicker, control } from './reportControls';
 import { downloadBlob } from './reportModel';
 import { readSheetFile, toCsv } from './statementImport';
 import {
   DEFAULT_PAYROLL_MAPPING, HOUR_BUCKETS, ITEM_KINDS, buildIif, buildPayrollEntries, checkBalance, employeeInfo, employeeKey, hoursFromNexus,
-  hoursFromPayroll, hoursRows, loadPayrollPrefs, netPayMismatches, parseHoursFile, parseQbPayroll, payrollRows, savePayrollPrefs,
+  hoursFromPayroll, hoursRows, loadPayrollPrefs, netPayMismatches, parseHoursFile, parsePayrollSheets, payrollFileProblem, payrollRows, readPayrollSheets, savePayrollPrefs,
   totalsFromHoursFile, unmappedItems,
 } from './payrollConvert';
 
@@ -123,8 +124,10 @@ function IntacctFields({ settings, set, entities, payroll = false }) {
   );
 }
 
-function DateField({ k, t, settings, set }) {
-  return <label style={label}>{t}<input type="date" value={settings[k] || ''} onChange={(e) => set({ [k]: e.target.value })} aria-label={t} style={{ ...control, width: '100%' }} /></label>;
+// UI test 10/23: the shared DateField, never a native date box (that one follows
+// the computer's region and showed dd-mm-yyyy). The value stays YYYY-MM-DD.
+function PayDate({ k, t, settings, set }) {
+  return <label style={label}>{t}<DateField value={settings[k] || ''} onChange={(v) => set({ [k]: v || '' })} placeholder="MM/DD/YYYY" title={t} style={{ ...control, width: '100%', boxSizing: 'border-box' }} /></label>;
 }
 
 /** Employee ID / Vendor ID / Department per person, remembered in this browser. */
@@ -278,8 +281,8 @@ export function PayrollHoursToQb() {
         <div>
           <h3 style={h3}>Pay Period</h3>
           <div style={grid}>
-            <DateField k="periodStart" t="Period Start" settings={s} set={setSettings} />
-            <DateField k="periodEnd" t="Period End" settings={s} set={setSettings} />
+            <PayDate k="periodStart" t="Period Start" settings={s} set={setSettings} />
+            <PayDate k="periodEnd" t="Period End" settings={s} set={setSettings} />
             {source === 'nexus' && (
               <label style={label}>
                 Company
@@ -338,7 +341,7 @@ export function PayrollHoursToQb() {
           <summary style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700 }}>Intacct Hours Import Settings</summary>
           <div style={{ ...grid, marginTop: 10 }}>
             <IntacctFields settings={s} set={setSettings} entities={entities} />
-            <DateField k="payDate" t="Entry Date" settings={s} set={setSettings} />
+            <PayDate k="payDate" t="Entry Date" settings={s} set={setSettings} />
           </div>
           <p style={{ ...small, margin: '8px 0' }}>One statistical entry for the period: a line per person per bucket - P.REG (regular), P.OHR (overtime and double time), P.SHR (sick), P.VHR (vacation and personal). The entry date defaults to the period end.</p>
           <EmployeeTable people={people} employeeMap={prefs.employees} setEmployee={setEmployee} />
@@ -398,8 +401,9 @@ export function QbPayrollToIntacct() {
     if (!f) return;
     setError('');
     try {
-      const report = parseQbPayroll((await readSheetFile(f)).filter((r) => r.some((c) => c !== '')));
-      if (!report.employees.length) { setError('No employees found. Upload the QuickBooks Payroll Summary (employees across the top) or a payroll detail export with Employee, Payroll Item and Amount columns.'); return; }
+      // Every sheet: QuickBooks Online saves an empty "Export Tips" sheet first.
+      const report = parsePayrollSheets(await readPayrollSheets(f));
+      if (!report.employees.length) { setError(payrollFileProblem(report)); return; }
       setFile({ name: f.name, report });
     } catch (e) { setError(e?.message || 'Could not read that file.'); }
   };
@@ -441,7 +445,7 @@ export function QbPayrollToIntacct() {
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-        Upload the QuickBooks Payroll Summary (or a payroll detail export) and download Intacct's payroll journal entry import - one balanced entry per employee - and the statistical hours import. Built in your browser; nothing is sent to QuickBooks or Intacct.
+        Upload the QuickBooks Payroll Summary from QuickBooks Desktop or Online (or a payroll detail export) and download Intacct's payroll journal entry import - one balanced entry per employee - and the statistical hours import. Built in your browser; nothing is sent to QuickBooks or Intacct.
       </div>
 
       {!file ? (
@@ -449,15 +453,15 @@ export function QbPayrollToIntacct() {
       ) : (
         <div style={{ ...card, padding: 14, display: 'grid', gap: 14 }}>
           <FileBar name={file.name}
-            detail={`${file.report.format === 'summary' ? 'Payroll Summary' : 'Payroll Detail'} - ${employees.length} employees${file.report.period ? ` - ${file.report.period}` : ''}`}
+            detail={`${file.report.format === 'summary' ? `Payroll Summary (QuickBooks ${file.report.source === 'online' ? 'Online' : 'Desktop'})` : 'Payroll Detail'} - ${employees.length} employees${file.report.period ? ` - ${file.report.period}` : ''}`}
             onReset={() => setFile(null)} />
 
           <div>
             <h3 style={h3}>Journal Entry</h3>
             <div style={grid}>
-              <DateField k="payDate" t="Pay Date" settings={s} set={setSettings} />
-              <DateField k="periodStart" t="Period Start" settings={s} set={setSettings} />
-              <DateField k="periodEnd" t="Period End" settings={s} set={setSettings} />
+              <PayDate k="payDate" t="Pay Date" settings={s} set={setSettings} />
+              <PayDate k="periodStart" t="Period Start" settings={s} set={setSettings} />
+              <PayDate k="periodEnd" t="Period End" settings={s} set={setSettings} />
               <IntacctFields settings={s} set={setSettings} entities={entities} payroll />
             </div>
             <p style={{ ...small, margin: '8px 0 0' }}>

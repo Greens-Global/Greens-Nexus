@@ -22,11 +22,22 @@ Two reads:
 Who may read it: wages for everyone are payroll figures. The gate is the
 strictest one already used for them (Accounting > Allocations): the FULL level
 on the Accounting grant (administrators bypass, as everywhere), a fresh
-step-up, AND no entity limit (`require_unlimited`) - the roster covers every
-company, so there is no part of it to show a person limited to certain
-entities. The HR record's compensation block (hr_comp grant) is not read;
-rates come from the payroll card like everywhere else in Time Clock.
-No figure is ever logged.
+step-up, AND no entity limit - the roster covers every company, so there is
+no part of it to show a person limited to certain entities (CR-02: the
+policy is `COMP_ENTITY_SCOPED_POLICY` in accounting_assumptions.py). The HR
+record's compensation block (hr_comp grant) is not read; rates come from the
+payroll card like everywhere else in Time Clock. No figure is ever logged.
+
+SPEED (CR-02, Oct 23 2026: Jan-Sep "never finished loading"): the engine is
+built for one card at a time and made ~26 database round trips per person
+per month. The pass now runs inside read_memo.memoized (an identical SELECT
+is answered once) with each month's punches, finalizations, idle frames and
+punch requests preloaded (timeclock.preload_range) and the CA waiver /
+premium rows preloaded (ca_breaks.preload). The cards are still priced by
+the same engine - only the repeated reads are gone. A run is refused up
+front past COMP_MAX_PERSON_MONTHS and stopped past COMP_TIME_BUDGET_SEC,
+both with a 422 that says what to do (a 5xx would be retried by the
+browser and raise the "reconnecting" banner).
 
 LEDGER CLASSIFICATION (cost-section accounts only - cogs, expense,
 other_expense; amount = debits less credits):
@@ -39,25 +50,45 @@ other_expense; amount = debits less credits):
                   commission, overtime, PTO, vacation or sick pay.
   Taxes are tested first ("Payroll Taxes" is a tax, not a wage). Anything
   else is not payroll and is left out. Contract labor is not payroll.
+  Each row's total is also split DIRECT (cost of sales) / INDIRECT
+  (operating and other expense) - CR-02's "direct or indirect expenses",
+  sections in accounting_assumptions.COMP_DIRECT_SECTIONS.
 """
 import re
+import time
 from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
+import accounting_assumptions as A
 import models
+import read_memo
 from auth import require_module_grant
 from database import get_db
 from routers import accounting
-from routers.accounting import _limit, require_unlimited
+from routers.accounting import _limit, entity_scope
 from routers.stepup import require_stepup
+
+SCOPED_REFUSED = ("Your Accounting access is limited to certain entities, and Compensation lists wages for every "
+                  "company's people, so it is not available to you. Ask a Global Admin to remove the entity limit "
+                  "on Accounting > Access if you should see the whole payroll.")
+
+
+def comp_scope(scope: dict = Depends(entity_scope)) -> dict:
+    """require_unlimited, with CR-02's policy for a Full-level person who has
+    entity rows (accounting_assumptions.COMP_ENTITY_SCOPED_POLICY)."""
+    if scope["allowed"] is not None and A.COMP_ENTITY_SCOPED_POLICY != "all":
+        raise HTTPException(status_code=403, detail=SCOPED_REFUSED)
+    return scope
+
 
 router = APIRouter(
     prefix="/accounting/compensation",
     tags=["Accounting"],
-    dependencies=[Depends(require_module_grant("accounting", "full")), Depends(require_unlimited)],
+    dependencies=[Depends(require_module_grant("accounting", "full")), Depends(comp_scope)],
 )
 
 MAX_MONTHS = 12
@@ -163,15 +194,78 @@ def group(rows: list[dict], key) -> list[dict]:
     return sorted(out.values(), key=lambda g: (g["label"].lower(), g["currency"]))
 
 
-def _people_sync(db: Session, months: list[str]) -> dict:
+def _day_after(iso: str) -> str:
+    return (date.fromisoformat(iso) + timedelta(days=1)).isoformat()
+
+
+def _slim(card: dict) -> dict:
+    """What person_month reads - the full card (every segment of every day) is
+    not kept for twelve months of everyone."""
+    return {k: card[k] for k in ("rate", "monthlySalary", "currency", "totals") if k in card}
+
+
+class TooSlow(Exception):
+    pass
+
+
+def _people_sync(db: Session, months: list[str], deadline: Optional[float] = None) -> dict:
+    """Every month's roster and cards (the Allocations engine), added up. The
+    repeated reads are memoized and each month's rows preloaded - see SPEED
+    above. Raises TooSlow when `deadline` (time.monotonic()) passes."""
+    import ca_breaks
+    from routers import timeclock
     from routers.accounting_allocations import _people_and_cards
-    per_month = []
-    for m in months:
-        people, cards = _people_and_cards(db, m)
-        per_month.append((m, people, cards))
-    titles = {(e.work_email or "").lower(): (e.job_title or e.designation or "")
-              for e in db.query(models.NexusEmployee).all() if e.work_email}
-    return summarize(per_month, titles)
+    per_month, roster_max = [], 0
+    stats: dict = {}
+    first, last = f"{months[0]}-01", month_end(months[-1])
+
+    def drop_preloads(session):
+        # A commit mid-pass (Time Clock creates a missing monitoring policy on
+        # first read) expires every loaded row: the readers then go back to
+        # the database instead of refreshing preloaded rows one by one.
+        timeclock.clear_range_preload(session)
+        ca_breaks.clear_preload(session)
+    event.listen(db, "after_commit", drop_preloads)
+    try:
+        with read_memo.memoized(db, deadline=deadline, stats=stats):
+            emails = [(e.work_email or "").lower() for e in db.query(models.NexusEmployee).all() if e.work_email]
+            ca_breaks.preload(db, emails, first, last)
+            try:
+                for m in months:
+                    if deadline is not None and time.monotonic() > deadline:
+                        raise TooSlow()
+                    # One day past the month: the engine borrows the next
+                    # morning's clock-out for an overnight shift.
+                    timeclock.preload_range(db, f"{m}-01", _day_after(month_end(m)))
+                    try:
+                        people, cards = _people_and_cards(db, m)
+                    finally:
+                        timeclock.clear_range_preload(db)
+                    roster_max = max(roster_max, len(people))
+                    per_month.append((m, people, {em: _slim(c) for em, c in cards.items()}))
+            finally:
+                ca_breaks.clear_preload(db)
+            titles = {(e.work_email or "").lower(): (e.job_title or e.designation or "")
+                      for e in db.query(models.NexusEmployee).all() if e.work_email}
+            punches = (db.query(models.TimePunch).filter(models.TimePunch.voided == 0, models.TimePunch.local_date >= first,
+                                                         models.TimePunch.local_date <= last).count())
+            rated = db.query(models.PayrollRate).count()
+    except read_memo.TimeBudgetExceeded as e:
+        raise TooSlow() from e
+    finally:
+        event.remove(db, "after_commit", drop_preloads)
+    if stats.get("tripped"):
+        raise TooSlow()
+    out = summarize(per_month, titles)
+    # Why a report can be empty (CR-02: "a clear 'no data because...'"): the
+    # screen picks its sentence from these counts. Counts only - no figure.
+    out["coverage"] = {"roster": roster_max, "punches": punches, "ratesSet": rated}
+    return out
+
+
+def _too(code: str, message: str) -> HTTPException:
+    # 422, not 5xx: the browser retries a 5xx and shows "reconnecting".
+    return HTTPException(status_code=422, detail={"code": code, "message": message})
 
 
 @router.get("/people")
@@ -181,7 +275,16 @@ def compensation_people(from_: str = Query(alias="from"), to: str = Query(...),
     route on purpose: FastAPI runs it in the threadpool, so the payroll cards
     are never computed on the event loop."""
     months = month_list(from_, to)
-    out = _people_sync(db, months)
+    roster = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email != "").count()
+    if roster * len(months) > A.COMP_MAX_PERSON_MONTHS:
+        raise _too("too_large", f"{roster} people x {len(months)} months is more than this report builds at once "
+                                f"({A.COMP_MAX_PERSON_MONTHS:,} person-months). Pick fewer months and run it again.")
+    try:
+        out = _people_sync(db, months, deadline=time.monotonic() + A.COMP_TIME_BUDGET_SEC)
+    except TooSlow:
+        db.rollback()
+        raise _too("too_slow", f"Building {len(months)} months took longer than {A.COMP_TIME_BUDGET_SEC} seconds, so it "
+                               "was stopped. Pick fewer months and run it again.") from None
     return {"from": f"{months[0]}-01", "to": month_end(months[-1]), "months": months, **out}
 
 
@@ -208,31 +311,42 @@ def payroll_class(section: str, title: str) -> Optional[str]:
     return None
 
 
+def cost_kind(section: str) -> str:
+    """direct / indirect (CR-02's "direct or indirect expenses" - the sections
+    are accounting_assumptions.COMP_DIRECT_SECTIONS / COMP_INDIRECT_SECTIONS)."""
+    return "direct" if section in A.COMP_DIRECT_SECTIONS else "indirect"
+
+
 def ledger_rows(rows: list[dict], labels: dict) -> dict:
     """Bucket rows (one per account per department / employee) -> one row per
-    bucket with wages, taxes, benefits and the accounts behind them. Pure."""
+    bucket with wages, taxes, benefits, the same total split direct /
+    indirect, and the accounts behind them. Pure."""
     out: dict[str, dict] = {}
     for r in rows or []:
-        cls = payroll_class(r.get("section") or "", r.get("title") or "")
+        section = r.get("section") or ""
+        cls = payroll_class(section, r.get("title") or "")
         if not cls:
             continue
         amt = _r2(float(r.get("debit") or 0) - float(r.get("credit") or 0))
         if amt == 0:
             continue
         k = str(r.get("bucket") or "")
-        g = out.setdefault(k, {"key": k, "label": labels.get(k) or k or "Unassigned", "wages": 0.0, "taxes": 0.0, "benefits": 0.0, "total": 0.0, "accounts": []})
+        g = out.setdefault(k, {"key": k, "label": labels.get(k) or k or "Unassigned", "wages": 0.0, "taxes": 0.0, "benefits": 0.0,
+                               "direct": 0.0, "indirect": 0.0, "total": 0.0, "accounts": []})
+        kind = cost_kind(section)
         g[cls] = _r2(g[cls] + amt)
+        g[kind] = _r2(g[kind] + amt)
         g["total"] = _r2(g["total"] + amt)
-        g["accounts"].append({"account": str(r.get("account_no") or ""), "title": r.get("title") or "", "class": cls, "amount": amt})
+        g["accounts"].append({"account": str(r.get("account_no") or ""), "title": r.get("title") or "", "class": cls, "cost": kind, "amount": amt})
     groups = sorted(out.values(), key=lambda g: (g["key"] == "", g["label"].lower()))
-    tot = {k: _r2(sum(g[k] for g in groups)) for k in ("wages", "taxes", "benefits", "total")}
+    tot = {k: _r2(sum(g[k] for g in groups)) for k in ("wages", "taxes", "benefits", "direct", "indirect", "total")}
     return {"rows": groups, "totals": tot}
 
 
 @router.get("/ledger")
 async def compensation_ledger(from_: str = Query(alias="from"), to: str = Query(...), by: str = "department",
                               locations: Optional[str] = None, book: Optional[str] = None,
-                              scope: dict = Depends(require_unlimited), _su: dict = Depends(require_stepup)):
+                              scope: dict = Depends(comp_scope), _su: dict = Depends(require_stepup)):
     """Payroll expense on the ledger for the months [from, to], by department
     or employee (the Intacct dimensions), optionally for some entities."""
     if by not in ("department", "employee"):
