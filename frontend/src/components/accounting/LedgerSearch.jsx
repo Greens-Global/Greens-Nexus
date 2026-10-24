@@ -469,7 +469,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
               .map((b) => <option key={b.key} value={b.key}>{bookTitle(b.key)}</option>)}
           </select>
           {/* 10/23 meeting, item 01: the standard view - View, Filters, Columns. */}
-          <TableViewBar view={view} columns={!isPhone} filtersLabel="Row Filters" />
+          <TableViewBar view={view} columns={!isPhone} />
         </div>
       </div>
 

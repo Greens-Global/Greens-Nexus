@@ -242,6 +242,96 @@ describe('saved views', () => {
   });
 });
 
+describe('round 3 fixes', () => {
+  const saveView = async (name) => {
+    fireEvent.click(screen.getByRole('button', { name: /^Credit - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Credit column' })).getByRole('menuitemradio', { name: /Sort Descending/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Update/ }));
+    const views = await screen.findByRole('menu', { name: 'Views' });
+    fireEvent.change(within(views).getByRole('textbox', { name: 'Save As a New View' }), { target: { value: name } });
+    fireEvent.click(within(views).getByRole('button', { name: 'Save' }));
+  };
+
+  it('fix 3: Manual Width takes any whole number in range, not only multiples of 10', async () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: /^Customer - column menu/ }));
+    const menu = await screen.findByRole('menu', { name: 'Customer column' });
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /Manual Width/ }));
+    const box = within(menu).getByRole('spinbutton', { name: 'Customer width in pixels' });
+    expect(box.getAttribute('step')).toBe('1');
+    expect([box.getAttribute('min'), box.getAttribute('max')]).toEqual(['40', '1200']);
+    fireEvent.change(box, { target: { value: '333' } });
+    expect(box.validity?.stepMismatch ?? false).toBe(false);
+    fireEvent.click(within(menu).getByRole('button', { name: 'Set' }));
+    expect(screen.getByTestId('th-customer').style.width).toBe('333px');
+  });
+
+  it('fix 4: the button, the panel from a heading and the bar panel are all "Filters"; Add a Rule is Title Case', async () => {
+    render(<Harness />);
+    expect(screen.getByRole('button', { name: 'Filters' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Customer - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Customer column' })).getByRole('menuitem', { name: /Filter This Column/ }));
+    const panel = await screen.findByRole('dialog', { name: 'Filters' });
+    expect(within(panel).getByText('Filters')).toBeTruthy();
+    expect(within(panel).getByRole('button', { name: /Add Filter/ }).getAttribute('title')).toBe('Add a Rule');
+    expect(screen.queryByText(/Row Filters/)).toBeNull();
+  });
+
+  it('fix 6: a saved view the server refuses says so, kept on this computer', async () => {
+    api.saveAccountingPrefs.mockRejectedValue(Object.assign(new Error('Forbidden'), { status: 403 }));
+    render(<Harness />);
+    await saveView('Mine');
+    const alert = await screen.findByRole('alert', {}, { timeout: 2000 });
+    expect(alert.textContent).toContain("Couldn't save your view to your account. It's kept on this computer only.");
+    expect(JSON.parse(localStorage.getItem('nexus-accounting-prefs')).tableViews['test-table'].list[0].name).toBe('Mine');
+    fireEvent.click(within(alert).getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    api.saveAccountingPrefs.mockReset();
+    api.saveAccountingPrefs.mockImplementation(async (p) => ({ prefs: p }));
+  });
+
+  it('fix 6: no connection says so too, and the next good save takes the message away', async () => {
+    api.saveAccountingPrefs.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    render(<Harness />);
+    await saveView('Mine');
+    expect((await screen.findByRole('alert', {}, { timeout: 2000 })).textContent).toContain('the server could not be reached');
+    fireEvent.click(screen.getByRole('button', { name: /^Credit, sorted descending - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Credit column' })).getByRole('menuitemradio', { name: /Sort Ascending/ }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull(), { timeout: 2500 });
+  });
+
+  it('fix 6: views over the 120,000-character limit are not sent and the message says to remove some', async () => {
+    // A layout already near the limit (many views ticking long value lists).
+    const big = Array.from({ length: 30 }, (_, i) => ({ id: `v${i}`, name: `View ${i}`, state: { picks: { customer: { in: Array.from({ length: 400 }, (_, j) => `Customer number ${j}`) } } } }));
+    localStorage.setItem('nexus-accounting-prefs', JSON.stringify({ tableViews: { other: { list: big } } }));
+    render(<Harness />);
+    await saveView('One More');
+    expect((await screen.findByRole('alert', {}, { timeout: 2000 })).textContent).toBe("Couldn't save your view to your account. It's kept on this computer only. Try removing some saved views.");
+    expect(api.saveAccountingPrefs).not.toHaveBeenCalled();
+  });
+
+  it('fix 6: two tables on one screen show one message', async () => {
+    api.saveAccountingPrefs.mockRejectedValueOnce(Object.assign(new Error('That layout is too large to save.'), { status: 400 }));
+    render(<><Harness tableKey="a" /><Harness tableKey="b" /></>);
+    const [first] = screen.getAllByRole('button', { name: /^Credit - column menu/ });
+    fireEvent.click(first);
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Credit column' })).getByRole('menuitemradio', { name: /Sort Descending/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Update/ }));
+    const views = await screen.findByRole('menu', { name: 'Views' });
+    fireEvent.change(within(views).getByRole('textbox', { name: 'Save As a New View' }), { target: { value: 'A' } });
+    fireEvent.click(within(views).getByRole('button', { name: 'Save' }));
+    await screen.findByRole('alert', {}, { timeout: 2000 });
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getByRole('alert').textContent).toContain('Try removing some saved views');
+  });
+
+  it('a date rule reads in the shared MM/DD/YYYY format', async () => {
+    const { ruleText } = await import('./model');
+    expect(ruleText({ col: 'date', op: 'gt', a: '2026-09-01' }, COLUMNS[0])).toBe('Date is after 09/01/2026');
+    expect(ruleText({ col: 'date', op: 'between', a: '2026-09-01', b: '2026-12-31' }, COLUMNS[0])).toBe('Date is between 09/01/2026 and 12/31/2026');
+  });
+});
+
 describe('export', () => {
   it('downloads exactly the filtered, sorted, visible columns', async () => {
     render(<Harness />);

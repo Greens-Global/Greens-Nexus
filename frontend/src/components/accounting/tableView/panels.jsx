@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, ChevronDown, ChevronRight, Eye, EyeOff, Funnel, MoveHorizontal, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import AnchoredMenu from '../../AnchoredMenu';
 import { DateField } from '../../../tasks/components';
-import { MAX_RULES, kindOf, opOf, opsFor, ruleText } from './model';
+import { MAX_RULES, MAX_WIDTH, MIN_WIDTH, kindOf, opOf, opsFor, ruleText } from './model';
 
 // The standard table view's panels and menus (10/23 meeting, item 01), loaded
 // the first time one opens (./controls lazy-loads this file):
@@ -35,11 +35,11 @@ const hint = { fontSize: '0.72rem', color: 'var(--text-muted)' };
 const muted = { color: 'var(--text-muted)', flexShrink: 0 };
 const done = (onClick, text = 'Done') => <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={onClick}>{text}</button>;
 
-export default function Panels({ kind, view, col = null, anchor, onClose, onKind, label = 'Filters' }) {
+export default function Panels({ kind, view, col = null, anchor, onClose, onKind }) {
   const common = { anchorRef: anchor, open: true, onClose };
   if (kind === 'menu' && col) return <ColumnMenu {...common} view={view} col={col} onKind={onKind} anchor={anchor} />;
   if (kind === 'values' && col) return <ValueList {...common} view={view} col={col} />;
-  if (kind === 'filters' || (kind === 'filter' && col)) return <FilterPanel {...common} view={view} focusCol={kind === 'filter' ? col : null} label={label} />;
+  if (kind === 'filters' || (kind === 'filter' && col)) return <FilterPanel {...common} view={view} focusCol={kind === 'filter' ? col : null} />;
   if (kind === 'columns') return <ColumnsChooser {...common} view={view} />;
   if (kind === 'views' || kind === 'save') return <ViewsMenu {...common} view={view} saving={kind === 'save'} />;
   return null;
@@ -62,7 +62,8 @@ function RuleValue({ col, value, onChange, label, autoFocus = false }) {
   );
 }
 
-function FilterPanel({ view, focusCol, label = 'Filters', ...menu }) {
+function FilterPanel({ view, focusCol, ...menu }) {
+  const label = 'Filters';
   const cols = view.arranged.filter((c) => !c.noFilter);
   const byKey = new Map(view.allColumns.map((c) => [c.key, c]));
   const rules = view.state.rules;
@@ -121,7 +122,7 @@ function FilterPanel({ view, focusCol, label = 'Filters', ...menu }) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <button type="button" className="secondary-btn" disabled={full || !cols.length} onClick={() => view.addRule(focusCol?.key)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }} title={full ? `Up to ${MAX_RULES} rules` : 'Add a rule'}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }} title={full ? `Up to ${MAX_RULES} rules` : 'Add a Rule'}>
           <Plus size={14} /> Add Filter
         </button>
         <span style={{ flex: 1 }} />
@@ -273,7 +274,8 @@ function ColumnMenu({ view, col, onKind, anchor, ...menu }) {
       </button>
       {widthOpen && (
         <form onSubmit={setWidth} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 8px 6px 30px' }}>
-          <input type="number" min={40} max={1200} step={10} value={w} onChange={(e) => setW(e.target.value)} aria-label={`${col.label} width in pixels`} autoFocus
+          {/* Any whole number of pixels in range (round 3: a step of 10 refused 333). */}
+          <input type="number" min={MIN_WIDTH} max={MAX_WIDTH} step={1} value={w} onChange={(e) => setW(e.target.value)} aria-label={`${col.label} width in pixels`} autoFocus
             className="num" style={{ ...field, width: 80 }} />
           <span style={hint}>px</span>
           <button type="submit" className="primary-btn" style={{ fontSize: '0.74rem', padding: '3px 10px' }}>Set</button>

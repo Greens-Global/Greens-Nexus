@@ -52,8 +52,12 @@ describe('Manual Journal Entries', () => {
     try { localStorage.clear(); } catch { /* private mode */ }
     render(<ManualJournalEntries />);
     const table = await screen.findByRole('table');
-    fireEvent.click(screen.getByRole('button', { name: 'Row Filters' }));
-    const panel = await screen.findByRole('dialog', { name: 'Row Filters' });
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const panel = await screen.findByRole('dialog', { name: 'Filters' });
+    // One name per control (round 3): the journal picker is Journals, the table's rules are Filters.
+    expect(screen.getByRole('button', { name: 'Journals' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /^Filters/ })).toHaveLength(1);
+    expect(screen.queryByText(/Row Filters/)).toBeNull();
     fireEvent.click(within(panel).getByRole('button', { name: /Add Filter/ }));
     fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 field' }), { target: { value: 'amount' } });
     fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 condition' }), { target: { value: 'gt' } });

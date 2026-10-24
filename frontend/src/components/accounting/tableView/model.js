@@ -1,4 +1,5 @@
 import { parseFigure } from '../reportModel';
+import { formatDate } from '../../../lib/datetime';
 
 // The standard table view of every Accounting table (10/23 meeting, item 01).
 // Viral showed his own app (06:05-09:52): "instead of that, can we do filters
@@ -424,7 +425,8 @@ export function ruleText(rule, col) {
   if (op.two) return `${col.label} ${op.label.toLowerCase()} ${show(rule.a) || '...'} and ${show(rule.b) || '...'}`;
   return `${col.label} ${op.label.toLowerCase()} ${show(rule.a)}`;
 }
-const usDay = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : '');
+// The app's shared date format (MM/DD/YYYY; Reviewer, round 2).
+const usDay = (d) => formatDate(d);
 
 let seq = 0;
 /** A new rule id, unique on the page. */

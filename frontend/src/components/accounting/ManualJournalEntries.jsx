@@ -147,7 +147,7 @@ export default function ManualJournalEntries() {
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <PeriodStepper config={config} period="range" onChange={patch} />
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
-        <FiltersButton dims={config.dims} onChange={(d) => patch({ dims: d })} kinds={JOURNAL_KIND} />
+        <FiltersButton dims={config.dims} onChange={(d) => patch({ dims: d })} kinds={JOURNAL_KIND} label="Journals" />
         <BarMore level={2} active={user ? 1 : 0}>
         <select value={user} onChange={(e) => setUser(e.target.value)} aria-label="User" style={{ ...control, ...fitSelect(user || 'All Users', { max: 200 }) }}>
           <option value="">All Users</option>
@@ -164,7 +164,7 @@ export default function ManualJournalEntries() {
         </label>
         </BarMore>
         <BarSearch value={q} onChange={setQ} label="Search the entries" placeholder="Search description, entry, user..." width={260} />
-        <TableViewBar view={view} filtersLabel="Row Filters" />
+        <TableViewBar view={view} />
         <div className="acct-bar-end">
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
           <ExportMenu disabled={!rows.length} items={[
