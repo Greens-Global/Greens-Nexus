@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Copy, Download, Save } from 'lucide-react';
-import { api } from '../../api';
+import { api, withFreshReads } from '../../api';
 import Amount, { Figure, parseAmountInput } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
-import { EntityPicker, control, entityOptions } from './reportControls';
+import { ControlBar, EntityPicker, SyncButton, control, entityOptions } from './reportControls';
+import { useFitHeight } from './tableHooks';
+import { useTableSync } from './tableSync';
 import { useAccountingPrefs } from './prefs';
 import { downloadCsv, iso } from './reportModel';
 import { formatDateTime } from '../../lib/datetime';
@@ -67,7 +69,7 @@ export default function BudgetTab({ canEdit = false }) {
     if (!loc) return;
     const mine = ++seq.current;
     setState({ loading: true, error: '', notReady: false });
-    api.getAccountingBudget(loc, y).then((d) => {
+    return api.getAccountingBudget(loc, y).then((d) => {
       if (mine !== seq.current) return;
       setData(d);
       setRows((d.rows || []).map((r) => ({ ...r, months: [...r.months] })));
@@ -83,15 +85,32 @@ export default function BudgetTab({ canEdit = false }) {
   useEffect(() => { load(location, year); }, [location, year, load]);
 
   // Actuals for the year (Budget vs Actual) - read once per entity and year.
+  // A Sync (actualsTick) reads them again with the table left on screen.
+  const [actualsTick, setActualsTick] = useState(0);
+  const [actualsBusy, setActualsBusy] = useState(false);
+  const lastActualsTick = useRef(0);
   useEffect(() => {
     if (view !== 'bva' || !location) return;
     let alive = true;
-    setActuals(null);
-    api.getAccountingBuckets({ from: `${year}-01-01`, to: `${year}-12-31`, by: 'month', location })
+    const quiet = actualsTick !== lastActualsTick.current;
+    lastActualsTick.current = actualsTick;
+    if (quiet) setActualsBusy(true); else setActuals(null);
+    const read = () => api.getAccountingBuckets({ from: `${year}-01-01`, to: `${year}-12-31`, by: 'month', location });
+    (quiet ? withFreshReads(read) : read())
       .then((d) => { if (alive) setActuals(actualsByAccount(d?.rows || [], year)); })
-      .catch(() => { if (alive) setActuals(new Map()); });
+      .catch(() => { if (alive && !quiet) setActuals(new Map()); })
+      .finally(() => { if (alive) setActualsBusy(false); });
     return () => { alive = false; };
-  }, [view, location, year]);
+  }, [view, location, year, actualsTick]);
+  // 10/23 meeting, item 13: Sync reads the table on screen again - the budget,
+  // or the actuals of Budget vs Actual - and nothing else. Not over unsaved
+  // budget edits: those would be lost, so Save comes first.
+  const ts = useTableSync(useCallback(() => {
+    if (view === 'bva') { setActualsTick((n) => n + 1); return undefined; }
+    return load(location, year);
+  }, [view, location, year, load]));
+  const [box, setBox] = useState(null);
+  const fit = useFitHeight(box);   // item 05: the grid scrolls inside its own box
 
   const totals = useMemo(() => gridTotals(rows), [rows]);
   const bva = useMemo(() => (actuals ? budgetVsActual(rows, actuals, through) : null), [rows, actuals, through]);
@@ -179,7 +198,7 @@ export default function BudgetTab({ canEdit = false }) {
   return (
     <AsyncSection loading={entities === null} skeleton={<SkeletonBlocks count={2} />}>
       <div style={{ display: 'grid', gap: 10 }}>
-        <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        <ControlBar style={{ ...card, padding: '8px 10px' }}>
           <EntityPicker entities={entities || []} value={location} onChange={setLocation} showHistorical={!!prefs.showHistoricalEntities}
             placeholder={entities?.length ? 'Pick an Entity' : 'No Entities'} disabled={!entities?.length} active={false} />
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
@@ -200,26 +219,29 @@ export default function BudgetTab({ canEdit = false }) {
               {MONTHS.map((m, i) => <option key={m} value={i + 1}>Through {m}</option>)}
             </select>
           )}
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div className="acct-bar-end">
             {data && (
-              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+              <span className="acct-bar-label-2" style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
                 {SOURCE[data.source] || data.source}{data.updatedAt ? ` · ${nameOf(data.updatedBy) || ''} ${formatDateTime(data.updatedAt)}` : ''}
               </span>
             )}
             {canEdit && view === 'grid' && (
               <>
-                <button type="button" className="secondary-btn" disabled={!!busy || !location} onClick={copyLastYear} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Copy size={13} /> Copy From Last Year's Actuals</button>
-                <button type="button" className="secondary-btn" disabled={!!busy || !location} onClick={copyIntacct} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Copy size={13} /> Copy From Intacct Budget</button>
+                <button type="button" className="secondary-btn" disabled={!!busy || !location} onClick={copyLastYear} title="Copy From Last Year's Actuals" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Copy size={13} /> <span className="acct-bar-label">Copy From Last Year&apos;s Actuals</span></button>
+                <button type="button" className="secondary-btn" disabled={!!busy || !location} onClick={copyIntacct} title="Copy From Intacct Budget" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Copy size={13} /> <span className="acct-bar-label">Copy From Intacct Budget</span></button>
                 <button type="button" className="primary-btn" disabled={!!busy || !dirty} onClick={save} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Save size={13} /> {busy === 'save' ? 'Saving...' : dirty ? 'Save' : 'Saved'}</button>
               </>
             )}
+            {dirty && view === 'grid'
+              ? <button type="button" className="secondary-btn" disabled title="Save your changes first - a Sync would read the saved budget over them" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }} aria-label="Sync">Sync</button>
+              : <SyncButton onSync={ts.sync} busy={view === 'bva' ? actualsBusy : state.loading && !!data} syncedAt={ts.syncedAt} />}
             <button type="button" className="secondary-btn" disabled={!rows.length} onClick={exportCsv} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
             {view === 'grid' && (
-              <button type="button" className="secondary-btn" disabled={!rows.length} aria-expanded={!!intacct} onClick={() => setIntacct((v) => (v ? null : { problems: [] }))}
-                style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Intacct Import File</button>
+              <button type="button" className="secondary-btn" disabled={!rows.length} aria-expanded={!!intacct} onClick={() => setIntacct((v) => (v ? null : { problems: [] }))} title="Export Intacct Import File"
+                style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> <span className="acct-bar-label">Export Intacct Import File</span></button>
             )}
           </div>
-        </div>
+        </ControlBar>
 
         {intacct && view === 'grid' && (
           <form onSubmit={exportIntacct} aria-label="Export Intacct Import File" style={{ ...card, padding: '10px 12px', display: 'grid', gap: 8 }}>
@@ -248,7 +270,7 @@ export default function BudgetTab({ canEdit = false }) {
 
         <AsyncSection loading={state.loading && !data} skeleton={<SkeletonBlocks count={2} />}>
           {view === 'grid' ? (
-            <div style={{ ...card, overflow: 'auto', maxHeight: '70vh' }}>
+            <div className="acct-scroll-box" ref={setBox} data-testid="budget-box" style={{ ...card, ...fit }}>
               {!rows.length ? (
                 <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>
                   {location ? `No income statement accounts came back for ${entityName}.` : 'Pick an entity to open its budget.'}
@@ -291,7 +313,7 @@ export default function BudgetTab({ canEdit = false }) {
             </div>
           ) : (
             <AsyncSection loading={!bva} skeleton={<SkeletonBlocks count={2} />}>
-              <div style={{ ...card, overflow: 'auto', maxHeight: '70vh' }}>
+              <div className="acct-scroll-box" ref={setBox} data-testid="budget-box" style={{ ...card, ...fit }}>
                 {!bva?.rows.length ? (
                   <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>Nothing budgeted or posted for {entityName} through {MONTHS[(bva?.through || 1) - 1]} {year}.</p>
                 ) : (

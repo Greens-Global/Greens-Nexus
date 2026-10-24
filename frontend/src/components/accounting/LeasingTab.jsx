@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Building2, Check, ChevronDown, ExternalLink, FolderUp, Home, Landmark, Mail, Pencil, Plus, RefreshCw, Search, Tags, Trash2, UserPlus, Users, X } from 'lucide-react';
-import { api } from '../../api';
+import { api, withFreshReads } from '../../api';
 import Amount, { formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate, formatDateTime } from '../../lib/datetime';
-import { ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, control, usePopover } from './reportControls';
+import { ColumnResizer, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, SyncButton, control, usePopover } from './reportControls';
 import { useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
 import { cellStyle, headStyle } from './columnStyles';
 import { requestReportDrill } from './drill';
@@ -439,7 +439,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
     setSyncing(true);
     setSynced(null);
     api.syncLeasingFromLedger()
-      .then((d) => { setSynced(d); reload(); })
+      .then((d) => { setSynced(d); return withFreshReads(reload); })   // item 13 (10/23): past the server's cache
       .catch((e) => setError(e?.message || 'Could not sync with the ledger.'))
       .finally(() => setSyncing(false));
   };
@@ -449,8 +449,10 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
 
   return (
     <AsyncSection loading={roll === null} skeleton={<SkeletonBlocks count={3} />}>
-      <div style={{ display: 'grid', gap: 10 }}>
-        <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      {/* One column no wider than the screen: a wide year scrolls inside the
+          Income Roll box (its property column and total stay pinned), not the page. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10 }}>
+        <ControlBar style={{ ...card, padding: '8px 10px' }}>
           <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
             {SECTIONS.map((s) => (
               <button key={s.key} type="button" onClick={() => setSection(s.key)} aria-pressed={section === s.key}
@@ -468,7 +470,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
             <Search size={13} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--text-muted)' }} />
             <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by property, payer or account" aria-label="Filter by property, payer or account" style={{ ...control, width: '100%', paddingLeft: 28 }} />
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div className="acct-bar-end">
             <CustomizeButton {...cz} active={showInactive}>
               {[['mriShowInactiveLeases', showInactive, 'Show Inactive Leases', 'Ended, expired and vacant leases, and payers inactive in Intacct. The text filter finds them either way.']].map(([k, on, text, hint]) => (
                 <label key={k} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
@@ -485,6 +487,8 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
               { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
             ]} />
             {canDelete && <RecurringSettingsButton onChecked={reload} />}
+            {/* 10/23 meeting, item 13: a viewer's Sync reads this table again; an editor's Sync Now also links the leases first. */}
+            {!canEdit && <SyncButton onSync={() => { setSyncing(true); withFreshReads(reload).finally(() => setSyncing(false)); }} busy={syncing} />}
             {canEdit && (
               <button type="button" className="secondary-btn" onClick={syncNow} disabled={syncing} title="Link every lease to its Intacct customer and add the leases of new tenants" style={btn}>
                 <RefreshCw size={14} className={syncing ? 'spin' : undefined} /> {syncing ? 'Syncing...' : 'Sync Now'}
@@ -498,7 +502,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
               ]} />
             )}
           </div>
-        </div>
+        </ControlBar>
 
         {section === 'roll' && <StateFilter value={states} onChange={setStates} />}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums', padding: '0 4px' }}>
@@ -726,11 +730,41 @@ function NoteCell({ lease, canEdit, onSaved, monthNotes = '' }) {
   );
 }
 
+// The Income Roll box ends on the screen (Viral, 10/22: "Received - 27
+// sources is hide when scroll up"): its height is what is left below its top
+// with the page scrolled up, at most 74% of the screen and at least 320px, so
+// the pinned total row is in view while the rows scroll.
+export function fitRollHeight(top, screenHeight) {
+  return Math.round(Math.max(320, Math.min(screenHeight * 0.74, screenHeight - top - 12)));
+}
+
+function useFitToScreen(ref, active) {
+  const [height, setHeight] = useState(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!active || !el) return undefined;
+    const measure = () => {
+      let top = el.getBoundingClientRect().top + window.scrollY;
+      for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) top += p.scrollTop;
+      setHeight(fitRollHeight(top, window.innerHeight));
+    };
+    measure();
+    // Re-fit when anything above it moves it: a banner, the toolbar wrapping.
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    ro?.observe(document.body);
+    window.addEventListener('resize', measure);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [ref, active]);
+  return height;
+}
+
 // The Income Roll's resizable columns (Oct 7, item 32), saved per viewer:
 // property, type, amount, each month (m0..m11), total, balance, notes.
 function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, any, canEdit, onNote, pageSize = 0, pageKey = '', onDrillAccount = null, onDrillLease = null }) {
   const cw = useColumnWidths('mriRoll');
   const paged = usePaged(rows, pageSize, pageKey);
+  const wrapRef = useRef(null);
+  const fitHeight = useFitToScreen(wrapRef, rows.length > 0);
   if (!rows.length) {
     return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{any ? 'Nothing matches these filters.' : `No leases yet.${canEdit ? ' + Add > New Lease: the tenant, the dates and the rent.' : ''}`}</div>;
   }
@@ -740,7 +774,7 @@ function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, a
   const monthExpected = (i) => rows.reduce((s, r) => { const c = r.months[i]; return s + (c && counts(c) ? c.expected : 0); }, 0);
   return (
     <div style={{ ...card, padding: 10 }}>
-      <div className="acct-lines-wrap" style={{ maxHeight: '74vh' }}>
+      <div ref={wrapRef} className="acct-lines-wrap" style={{ maxHeight: fitHeight || '74vh' }}>
         <table className="acct-lines acct-roll" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
           <thead>
             <tr>
@@ -836,7 +870,7 @@ function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, a
               );
             })}
             <tr className="acct-grand">
-              <td style={{ position: 'sticky', left: 0 }}>Received - {rows.length} {rows.length === 1 ? 'source' : 'sources'}</td><td /><td />
+              <td className="acct-roll-label">Received - {rows.length} {rows.length === 1 ? 'source' : 'sources'}</td><td /><td />
               {idx.map((i) => { const v = monthTotal(i); return <td key={i} className="acct-num" title={`Expected ${money(monthExpected(i))}`}>{v || monthExpected(i) ? whole(v) : '-'}</td>; })}
               <td className="acct-num"><Amount value={figures.received} /></td>
               <td className="acct-num"><Amount value={figures.balance} /></td>

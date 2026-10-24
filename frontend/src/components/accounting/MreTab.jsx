@@ -5,8 +5,9 @@ import Amount, { AmountInput, formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useAccountingPrefs } from './prefs';
-import { ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, OpFilter, Pager, PopoverPanel, control } from './reportControls';
-import { useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
+import { ColumnResizer, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, OpFilter, Pager, PopoverPanel, SyncButton, control } from './reportControls';
+import { useColumnWidths, useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
+import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
 import EntryDetail from './EntryDetail';
 import { downloadBlob, iso, numberFilterHit } from './reportModel';
@@ -333,6 +334,9 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
       .finally(() => { if (mine === seq.current) setLoading(false); });
   }, [year, pickedKey]);
   useEffect(() => { load(); }, [load]);
+  // 10/23 meeting, item 13: Sync reads the grid again past the server's cache;
+  // the rows, the filters, the sort and an open popup stay while it does.
+  const ts = useTableSync(load);
 
   const span = periodMonths(period, year, custom);
   const [spanFrom, spanTo] = span;
@@ -402,7 +406,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   return (
     <AsyncSection loading={data === null} skeleton={<SkeletonBlocks count={4} />}>
       <div style={{ display: 'grid', gap: 10 }}>
-        <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        <ControlBar style={{ ...card, padding: '8px 10px' }}>
           <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} showHistorical={customize.showHistorical} />
           <PeriodPicker year={year} onYear={setYear} period={period} onPeriod={setPeriod} custom={custom} onCustom={setCustom2} />
           <div style={{ position: 'relative', flex: '1 1 200px', maxWidth: 300 }}>
@@ -413,7 +417,8 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
             <option value="">All Categories</option>
             {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div className="acct-bar-end">
+            <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
             <CustomizeButton {...customize} showZero={showZero} onShowZero={setShowZero} active={showEnded || showInactive || !!extra.length}>
               <Toggle checked={showEnded} onChange={(v) => setPrefs({ mreShowEnded: v })} title="Show Ended"
                 hint="Recurring expenses that have stopped. They keep their history; nothing is deleted." />
@@ -438,7 +443,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
               ]} />
             )}
           </div>
-        </div>
+        </ControlBar>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums', padding: '0 4px' }}>
           <span style={{ color: 'var(--text-muted)' }}>{periodLabel}</span>
@@ -517,6 +522,8 @@ function Legend() {
 const MRE_COLUMNS = [['vendor', 'Vendor'], ['entity', 'Entity'], ['category', 'Category'], ['expected', 'Expected', true]];
 
 function Grid({ filterColumns = [], typed = {}, onTyped = null, rows, totals, year, density, loading, canEdit, onEdit, onNotes, pageSize = 0, pageKey = '', onLines = null, extra = [], span = [0, 11], sort = null, onSort = null }) {
+  const [box, setBox] = useState(null);
+  const fit = useFitHeight(box);
   const [from, to] = span;
   const idx = MONTHS.map((_m, i) => i).slice(from, to + 1);
   const range = { from: `${year}-${String(from + 1).padStart(2, '0')}-01`, to: monthRange(`${year}-${String(to + 1).padStart(2, '0')}`).to };
@@ -540,7 +547,8 @@ function Grid({ filterColumns = [], typed = {}, onTyped = null, rows, totals, ye
   };
   const ariaSort = (k) => (sort?.key === k ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined);
   return (
-    <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1 }}>
+    // 10/23 meeting, item 05: the grid scrolls inside a box that ends in the window.
+    <div className="acct-report-wrap acct-scroll-box acct-fit" ref={setBox} data-testid="mre-box" style={{ opacity: loading ? 0.6 : 1, ...fit }}>
       <table className="acct-report mre-grid" style={{ '--acct-row-py': py }} aria-label={`Recurring expenses ${year}`}>
         {/* The headings and the filter boxes stick as one block (mre-grid in
             style.css); the Vendor heading also stays pinned on the left. */}

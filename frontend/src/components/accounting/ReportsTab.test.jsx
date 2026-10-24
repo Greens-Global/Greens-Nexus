@@ -85,6 +85,7 @@ vi.mock('../../api', () => ({
     getRolesDirectory: vi.fn(async () => []),
     getPeopleDirectory: vi.fn(async () => [{ email: 'urmi.gor@greensglobal.com', name: 'Urmi Gor' }]),
   },
+  withFreshReads: vi.fn((fn) => fn()),
 }));
 const LINES_TABLE = {
   title: 'Ledger Lines - 61000 Repairs', period: '01-01-2026 - 08-31-2026', subtitle: 'All entities',
@@ -115,7 +116,7 @@ vi.mock('../../egnyte/EgnyteFolderPick', () => ({
 }));
 
 import ReportsTab from './ReportsTab';
-import { api } from '../../api';
+import { api, withFreshReads } from '../../api';
 import { requestReportDrill, requestLedgerSearch } from './drill';
 import { resetAccountingPrefs } from './prefs';
 import { resetRefreshForTests } from '../../lib/refreshState';
@@ -927,5 +928,40 @@ describe('ReportsTab after a reload (item 17)', () => {
     render(<ReportsTab />);
     await screen.findByText('Rental Income');
     expect(screen.getByLabelText('Book').value).toBe('accrual');
+  });
+});
+
+// 10/23 Accounting meeting: the control bar is the shared one-line ControlBar
+// (item 02), and its Sync reads this statement again - fresh, past the
+// server's cache - and nothing else, with the figures left on screen (item 13).
+describe('ReportsTab control bar and Sync (10/23 items 02, 13)', () => {
+  it('draws the controls in one ControlBar, the actions grouped at its end', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    const bar = document.querySelector('.acct-controlbar');
+    expect(bar).toBeTruthy();
+    const end = bar.querySelector('.acct-bar-end');
+    expect(within(end).getByRole('button', { name: 'Sync' })).toBeTruthy();
+    expect(within(end).getByRole('button', { name: 'Customize' })).toBeTruthy();
+    expect(within(end).getByRole('button', { name: 'Export' })).toBeTruthy();
+    // The period list is as wide as the period picked, not its longest option.
+    expect(screen.getByLabelText('Period').style.width).toMatch(/^clamp\(/);
+  });
+
+  it('Sync reads the statement again, fresh, and keeps it on screen while it does', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    const before = api.getAccountingPnl.mock.calls.length;
+    const locations = api.getAccountingLocations.mock.calls.length;
+    let release;
+    api.getAccountingPnl.mockImplementationOnce(() => new Promise((r) => { release = () => r(pnl); }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sync' }));
+    await waitFor(() => expect(api.getAccountingPnl.mock.calls.length).toBe(before + 1));
+    expect(withFreshReads).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Rental Income')).toBeTruthy();
+    expect(screen.queryByRole('status', { name: 'Loading the report' })).toBeNull();
+    await act(async () => { release(); });
+    expect(screen.getByText('Rental Income')).toBeTruthy();
+    expect(api.getAccountingLocations.mock.calls.length).toBe(locations);
   });
 });

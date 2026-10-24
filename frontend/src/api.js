@@ -239,7 +239,28 @@ function _networkError(err) {
   return out;
 }
 
+// Oct 24 (Neil, 10/23 meeting chat: "sync should be table level and not just
+// overall"): a table's own Sync reads past the server's short accounting cache.
+// Every GET started while `withFreshReads(fn)` runs - until the promise fn
+// returns settles, so a report read in several steps is fresh throughout -
+// carries fresh=1; the backend then asks the accounting app again instead of
+// answering from its cache. A read another screen part starts in that moment
+// is fresh too, which costs nothing but one upstream call.
+let _freshReads = 0;
+export function withFreshReads(fn) {
+  _freshReads += 1;
+  let out;
+  try { out = fn(); } catch (e) { _freshReads -= 1; throw e; }
+  if (out && typeof out.then === 'function') {
+    return Promise.resolve(out).finally(() => { _freshReads -= 1; });
+  }
+  _freshReads -= 1;
+  return out;
+}
+const freshPath = (path) => (/[?&]fresh=/.test(path) ? path : `${path}${path.includes('?') ? '&' : '?'}fresh=1`);
+
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
+  if (_freshReads > 0 && attempt === 1 && !tokenRefreshed && (!options.method || options.method === 'GET')) path = freshPath(path);
   const authHeader = await getAuthHeader(tokenRefreshed);
   const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
   let res;
@@ -347,7 +368,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
 const _getCache = new Map(); // path → { ts, promise }
 function cachedGet(path, ttlMs = 60_000) {
   const hit = _getCache.get(path);
-  if (hit && (Date.now() - hit.ts) < ttlMs) return hit.promise;
+  if (hit && !_freshReads && (Date.now() - hit.ts) < ttlMs) return hit.promise;
   const promise = req(path).catch(err => { _getCache.delete(path); throw err; });
   _getCache.set(path, { ts: Date.now(), promise });
   return promise;

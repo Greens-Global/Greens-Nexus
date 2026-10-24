@@ -19,8 +19,9 @@ import { useColumnWidths, useCustomizePrefs } from './tableHooks';
 import Amount, { Figure } from './Amount';
 import {
   AccountsPicker, ClearButton, ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, OpFilter, Pager, PeriodStepper,
-  SavedReportsMenu, control,
+  SavedReportsMenu, control, ControlBar, SyncButton, fitSelect,
 } from './reportControls';
+import { useTableSync } from './tableSync';
 import {
   EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookOptions, canBothBooks, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
   reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
@@ -296,11 +297,22 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // By Entity). Any other report would read the ledger twice on its first
   // open and blank its lines for the second read.
   const entityDep = needsEntityList(config) ? entities.length : 0;
+  // 10/23 meeting, item 13: the toolbar's Sync reads this statement again -
+  // or, while ledger lines are open, those lines - and nothing else. The old
+  // figures stay on screen until the new ones land (the General Ledger too),
+  // so the scroll position, an open popup and the filters stay put.
+  const ts = useTableSync();
+  const lastTick = useRef(ts.tick);
+  const [syncLoad, setSyncLoad] = useState(false);
+  const [linesSync, setLinesSync] = useState(0);
+  const [linesSyncedAt, setLinesSyncedAt] = useState(null);
   useEffect(() => {
     const mine = ++seq.current;
     setLoading(true);
     setError('');
-    const run = () => runReport(api, config, entities)
+    setSyncLoad(ts.tick !== lastTick.current);
+    lastTick.current = ts.tick;
+    const run = () => ts.read(() => runReport(api, config, entities))
       .then((r) => { if (mine === seq.current) setResult(r); })
       .catch((e) => { if (mine === seq.current) { setResult(null); setError(e?.message || 'Could not load the report.'); } })
       .finally(() => { if (mine === seq.current) setLoading(false); });
@@ -310,7 +322,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     if (!started.current) { started.current = true; run(); return undefined; }
     const t = setTimeout(run, 250);
     return () => clearTimeout(t);
-  }, [key, entityDep]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, entityDep, ts.tick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Memorized reports.
   const [saved, setSaved] = useState([]);
@@ -428,7 +440,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // A column of one entity drills into that entity, whatever the report covers.
   const drillEntities = drill?.entity ? [drill.entity] : config.entities;
   const drillEntityLabel = drill?.entity ? entityText({ entities: [drill.entity] }, entities) : entityLabel;
-  const glBusy = loading && (config.report === 'general-ledger' || isActivity(config));
+  const glBusy = loading && !syncLoad && (config.report === 'general-ledger' || isActivity(config));
   const activity = ACTIVITY_REPORTS[config.report] || null;
   // What Collapse All folds: statement sections and General Ledger accounts, and the account groups above them.
   const foldKeys = (result?.rows || []).flatMap((r) => (r.kind === 'section' ? [r.section] : r.kind === 'group' ? [`g:${r.group}`] : []));
@@ -583,7 +595,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   return (
     <div style={shell}>
       {/* One slim row: every control as a dropdown (the search is in the header, top right). */}
-      <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
         {(!headerSearch || full) && <div style={{ position: 'relative', flex: isPhone ? '1 1 100%' : '1 1 240px', minWidth: 0, maxWidth: isPhone ? 'none' : 460 }}>
           {waiting
             ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
@@ -594,7 +606,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
           {searchText && <ClearButton onClick={() => setSearchText('')} label="Clear search" />}
         </div>}
 
-        <select value={config.report} onChange={(e) => { closeSearch(); setCollapsed(new Set()); patch({ report: e.target.value, accounts: [] }); }} aria-label="Report" style={{ ...select(false), fontWeight: 600, flex: isPhone ? '1 1 auto' : undefined, minWidth: 0 }}>
+        <select value={config.report} onChange={(e) => { closeSearch(); setCollapsed(new Set()); patch({ report: e.target.value, accounts: [] }); }} aria-label="Report" style={{ ...select(false), fontWeight: 600, ...(isPhone ? { flex: '1 1 auto', minWidth: 0 } : fitSelect(def.label, { min: 110 })) }}>
           {REPORTS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
         </select>
 
@@ -610,15 +622,15 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
 
         {showColumns && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-            Columns
-            <select value={cols} onChange={(e) => { setCollapsed(new Set()); patch({ cols: e.target.value }); }} aria-label="Columns" style={select(cols !== 'total')}>
+            <span className="acct-bar-label-2">Columns</span>
+            <select value={cols} onChange={(e) => { setCollapsed(new Set()); patch({ cols: e.target.value }); }} aria-label="Columns" style={{ ...select(cols !== 'total'), ...fitSelect(modes.find((m) => m.key === cols)?.label) }}>
               {modes.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
             </select>
           </label>
         )}
 
         {canPickBook(config) && (
-          <select value={config.book} onChange={(e) => patch({ book: e.target.value })} aria-label="Book" style={select(config.book !== 'accrual')}>
+          <select value={config.book} onChange={(e) => patch({ book: e.target.value })} aria-label="Book" style={{ ...select(config.book !== 'accrual'), ...fitSelect(books.find((b) => b.key === config.book)?.label) }}>
             {books.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
           </select>
         )}
@@ -657,7 +669,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         )}
         {canPickAccounts(config) && <AccountsPicker accounts={shown?.pickable || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} showHistorical={!!prefs.showHistoricalAccounts} />}
 
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div className="acct-bar-end">
+          <SyncButton busy={searching ? searchBusy && linesSync > 0 : loading && syncLoad} syncedAt={searching ? linesSyncedAt : ts.syncedAt}
+            onSync={() => { if (searching) { setLinesSync((n) => n + 1); setLinesSyncedAt(new Date()); } else ts.sync(); }} />
           <SavedReportsMenu reports={saved} loading={savedState.loading} error={savedState.error} activeId={activeSaved?.id}
             onOpen={openSaved} onDelete={deleteSaved} onShare={shareSaved} onManage={() => setManaging(true)} nameOf={nameOf} />
           <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${periodOf(config) === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
@@ -687,7 +701,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
           </button>
         </div>
         </div>)}
-      </div>
+      </ControlBar>
 
       {changed && !searching && (
         <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderColor: 'var(--wk-brand, #2b45e1)', fontSize: '0.82rem' }}>
@@ -734,7 +748,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
 
       {searching && (
         <LedgerSearch term={term.length >= 2 ? term : ''} entities={drillEntities} entityName={drillEntityLabel} full={full}
-          dims={canUseDims(config) ? config.dims : null} dimNames={dimNames} drill={drill} onClearDrill={() => setDrill(null)} onClose={drill?.back ? backFromDrill : closeSearch} backLabel={drill?.back?.label || ''} onBusy={setSearchBusy} onExport={setLinesExport}
+          dims={canUseDims(config) ? config.dims : null} dimNames={dimNames} drill={drill} onClearDrill={() => setDrill(null)} onClose={drill?.back ? backFromDrill : closeSearch} backLabel={drill?.back?.label || ''} onBusy={setSearchBusy} onExport={setLinesExport} syncTick={linesSync}
           initialEntry={initialEntry} onEntryClosed={() => setInitialEntry(null)} />
       )}
 

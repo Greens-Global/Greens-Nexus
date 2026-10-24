@@ -78,7 +78,7 @@ def _read(from_: str, to: str, journals: tuple) -> dict:
     """Intacct's answer for one range (cached), every manual entry kept."""
     key = (from_, to, journals)
     hit = _CACHE.get(key)
-    if hit and time.time() - hit[0] < assume.MANUAL_JE_CACHE_SECONDS:
+    if hit and time.time() - hit[0] < accounting.fresh_ttl(assume.MANUAL_JE_CACHE_SECONDS):    # a table's Sync reads past the cache
         return hit[1]
     excluded = _excluded()
     seen = {"scanned": 0, "withCreator": 0}
