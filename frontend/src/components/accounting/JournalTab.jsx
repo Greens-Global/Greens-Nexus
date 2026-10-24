@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { api } from '../../api';
 import LedgerSearch from './LedgerSearch';
-import { EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, control } from './reportControls';
+import { ControlBar, EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, SyncButton, control } from './reportControls';
 import { EMPTY_DIMS, POPOVER_DIMS, downloadBlob, resolveConfig } from './reportModel';
 import { linesFile } from './linesExport';
 import { useAccountingPrefs } from './prefs';
@@ -41,6 +41,10 @@ export default function JournalTab({ symbol }) {
   const entityName = !config.entities.length ? 'All entities' : config.entities.length > 1 ? `${config.entities.length} entities` : config.entities[0];
 
   const [lines, setLines] = useState(null);
+  // 10/23 meeting, item 13: Sync reads this journal's lines again, nothing else.
+  const [syncTick, setSyncTick] = useState(0);
+  const [syncedAt, setSyncedAt] = useState(null);
+  const [linesBusy, setLinesBusy] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const exportAs = async (format) => {
@@ -59,7 +63,7 @@ export default function JournalTab({ symbol }) {
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 10 }}>
-      <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <strong style={{ fontSize: '0.9rem' }}>{symbol}{title ? ` - ${title}` : ''}</strong>
         <PeriodStepper config={config} period="range" onChange={patch} />
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
@@ -69,17 +73,18 @@ export default function JournalTab({ symbol }) {
           <input type="text" value={typed} onChange={(e) => setTyped(e.target.value)} aria-label={`Search the ${symbol} journal`}
             placeholder="Search vendor, customer, memo, amount..." style={{ ...control, width: '100%', paddingLeft: 28 }} />
         </div>
-        <div style={{ marginLeft: 'auto' }}>
+        <div className="acct-bar-end">
+          <SyncButton onSync={() => { setSyncTick((n) => n + 1); setSyncedAt(new Date()); }} busy={linesBusy && syncTick > 0} syncedAt={syncedAt} />
           <ExportMenu disabled={!lines} items={[
             { key: 'excel', label: 'Excel', hint: 'Every line, columns as on screen, live totals', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => exportAs('csv'), busy: busy === 'csv' },
             { key: 'pdf', label: 'PDF', hint: 'Landscape, banded, page numbers', onPick: () => exportAs('pdf'), busy: busy === 'pdf' },
           ]} />
         </div>
-      </div>
+      </ControlBar>
       {error && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', fontSize: '0.84rem' }}>{error}</div>}
       <LedgerSearch key={symbol} term={term} entities={config.entities} entityName={entityName} drill={drill} onClearDrill={() => {}}
-        dims={dims} onExport={setLines} />
+        dims={dims} onExport={setLines} onBusy={setLinesBusy} syncTick={syncTick} />
     </div>
   );
 }

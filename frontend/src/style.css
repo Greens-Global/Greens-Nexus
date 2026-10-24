@@ -2813,6 +2813,24 @@ html { overflow-x: hidden; }
    totals), so LedgerSearch measures where the box starts and sets
    --acct-lines-h (UI test 10/23); the fixed offset is only the first paint. */
 .acct-lines-wrap.acct-scroll-box { max-height: var(--acct-lines-h, max(300px, calc(100vh - 340px))); }
+/* 10/23 meeting, item 05 (Viral: "remove Global Scrolling ... mostly on every
+   screen"; Neil: "remove dual scrolling"): every other Accounting table
+   scrolls inside its own box too. useFitHeight (tableHooks) measures where the
+   box starts and sets --acct-box-h so it ends inside the window; the fixed
+   offset is only the first paint. The headings pin to the box's top. */
+.acct-scroll-box { overflow: auto; }
+.acct-scroll-box:not(.acct-lines-wrap):not(.acct-report-wrap) { max-height: var(--acct-box-h, max(300px, calc(100vh - 340px))); }
+.acct-report-wrap.acct-scroll-box.acct-fit { max-height: var(--acct-box-h, max(300px, calc(100vh - 340px))); }
+.acct-scroll-box > table > thead th { position: sticky; top: 0; z-index: 3; background: var(--bg-secondary); }
+
+/* 10/23 meeting, item 02: the control bar on one line (ControlBar in
+   reportControls). Words fold away before anything wraps - data-fold 1 hides
+   the action words, 2 also the words of pickers at their default - and only
+   then does the row wrap, as whole controls. */
+.acct-controlbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.acct-controlbar .acct-bar-end { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; min-width: 0; }
+.acct-controlbar[data-fold] .acct-bar-label { display: none; }
+.acct-controlbar[data-fold="2"] .acct-bar-label-2 { display: none; }
 
 /* Phone: wide data tables (.req-table - PropertyAsset sections, requisition
    logs) scroll sideways inside their card instead of being cut off. */

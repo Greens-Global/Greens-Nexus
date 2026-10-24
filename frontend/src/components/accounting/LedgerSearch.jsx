@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronLeft, ChevronRight, Columns3, X } from 'lucide-react';
-import { api } from '../../api';
+import { api, withFreshReads } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useIsMobile } from '../../lib/useIsMobile';
@@ -10,6 +10,7 @@ import Amount from './Amount';
 import { useAccountingPrefs } from './prefs';
 import { OpFilter, PopoverPanel, usePopover } from './reportControls';
 import { linesBaseName } from './linesExport';
+import { useFitHeight } from './tableHooks';
 import { DIM_KINDS, bookOptions, bookTitle, glLineParams, lineMatchesDims, numberFilterHit, parseFigure } from './reportModel';
 
 // Search results and report drill-downs for Accounting -> Reports.
@@ -193,7 +194,7 @@ const opText = (label, f) => (f.op === 'between' ? `${label} between ${f.a || '.
 // as soon as the grid mounts - the dashboard's Find a Transaction tile hands
 // it over with the words typed (Oct 1). `onEntryClosed` lets the owner forget
 // it, so closing the modal does not reopen it on the next render.
-export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, onExport, dims = null, dimNames = null, full = false, initialEntry = null, onEntryClosed }) {
+export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, onExport, dims = null, dimNames = null, full = false, initialEntry = null, onEntryClosed, syncTick = 0 }) {
   const entitiesKey = entities.join(',');
   // The report's filters, plus any a drill from another tab brought with it
   // (requestReportDrill's `dims`), less the ones lifted here with a chip's x.
@@ -249,34 +250,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   // bottom padding), so it ends inside the window with no second page
   // scrollbar; 300px at least. It re-measures when the window or the area
   // around it changes size (filters or totals above wrapping after a load).
-  const [boxH, setBoxH] = useState(0);
-  useEffect(() => {
-    if (!wrap || full) return undefined;
-    const px = (v) => parseFloat(v) || 0;
-    const below = () => {
-      let h = 0;
-      for (let el = wrap; el && el.parentElement && el !== document.body; el = el.parentElement) {
-        h += px(getComputedStyle(el).marginBottom);
-        for (let sib = el.nextElementSibling; sib; sib = sib.nextElementSibling) {
-          const cs = getComputedStyle(sib);
-          if (cs.position === 'fixed' || cs.position === 'absolute' || cs.display === 'none') continue;
-          h += sib.getBoundingClientRect().height + px(cs.marginTop) + px(cs.marginBottom);
-        }
-        const pcs = getComputedStyle(el.parentElement);
-        h += px(pcs.paddingBottom) + px(pcs.borderBottomWidth);
-      }
-      return h;
-    };
-    const fit = () => {
-      const top = wrap.getBoundingClientRect().top + (window.scrollY || 0);
-      setBoxH(Math.max(300, Math.floor(window.innerHeight - top - below() - 8)));
-    };
-    fit();
-    window.addEventListener('resize', fit);
-    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
-    if (ro && wrap.parentElement) ro.observe(wrap.parentElement);
-    return () => { window.removeEventListener('resize', fit); ro?.disconnect(); };
-  }, [wrap, full]);
+  const fitBox = useFitHeight(wrap, { off: full, cssVar: '--acct-lines-h' });   // tableHooks, shared by every table since 10/24
   const natural = shownColumns.reduce((s, c) => s + widthOf(c), 0);
   const fillers = shownColumns.filter((c) => !c.num && !layout.widths?.[c.key] && !['date', 'entry', 'journal'].includes(c.key));
   const spare = fillers.length ? Math.max(0, room - natural - ASK_WIDTH - 2) : 0;
@@ -341,17 +315,23 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const hasCriteria = (term || '').trim().length >= 2 || !!party || !!account || !!journal || !!usePeriod;
 
   useEffect(() => { setPage(0); }, [params]);
+  const lastSync = useRef(syncTick);
 
   useEffect(() => {
     if (!hasCriteria) { setData(null); setError(''); setLoading(false); return; }
     const mine = ++seq.current;
     setLoading(true);
     setError('');
-    api.searchAccountingLedger({ ...params, offset: page * PAGE, limit: PAGE })
+    // 10/23 meeting, item 13: the toolbar's Sync (syncTick) reads these lines
+    // again past the server's cache; the rows on screen stay until they land.
+    const read = () => api.searchAccountingLedger({ ...params, offset: page * PAGE, limit: PAGE });
+    const fresh = syncTick !== lastSync.current;
+    lastSync.current = syncTick;
+    (fresh ? withFreshReads(read) : read())
       .then((d) => { if (mine === seq.current) setData(d); })
       .catch((e) => { if (mine === seq.current) { setData(null); setError(e?.message || 'Could not search the ledger.'); } })
       .finally(() => { if (mine === seq.current) setLoading(false); });
-  }, [params, page, hasCriteria]);
+  }, [params, page, hasCriteria, syncTick]); // eslint-disable-line react-hooks/exhaustive-deps
   // The toolbar's search box shows the spinner while this is working.
   useEffect(() => { onBusy?.(loading); return () => onBusy?.(false); }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -522,7 +502,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           // Oct 23 (Viral, item 18): the lines scroll inside their own box, sized
           // to the window (a tall monitor still shows more), with the headings
           // pinned at its top - the page above them stays put.
-          <div className={`acct-lines-wrap${full ? '' : ' acct-scroll-box'}`} ref={setWrap} data-testid="ledger-lines-box" style={{ opacity: loading ? 0.6 : 1, ...(boxH ? { '--acct-lines-h': `${boxH}px` } : {}) }}>
+          <div className={`acct-lines-wrap${full ? '' : ' acct-scroll-box'}`} ref={setWrap} data-testid="ledger-lines-box" style={{ opacity: loading ? 0.6 : 1, ...fitBox }}>
             <table className="acct-lines acct-sticky-head" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
               <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}<col style={{ width: ASK_WIDTH }} /></colgroup>
               <thead>

@@ -1,9 +1,9 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Download, FileDown, FileSpreadsheet, Funnel, ListFilter, Loader2, Search, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Download, FileDown, FileSpreadsheet, Funnel, ListFilter, Loader2, RefreshCw, Search, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import AnchoredMenu from '../AnchoredMenu';
-import { formatDate } from '../../lib/datetime';
+import { formatDate, formatTime } from '../../lib/datetime';
 import { EMPTY_DIMS, JOURNAL_KINDS, NUM_OPS, POPOVER_DIMS, PRESETS, countDims, isHistorical, isHistoricalEntity, iso, presetRange, stepAsOf, stepRange } from './reportModel';
 
 // The Reports toolbar's controls (Neil and Charmi, Sep 25): everything is a
@@ -242,7 +242,7 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, sho
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label="Entities" title={label}>
         <Building2 size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        <span className={value.length ? undefined : 'acct-bar-label-2'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Entities" aria-multiselectable="true" style={panel(540)}>
@@ -413,9 +413,9 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
   const unavailable = !!lists[kind.kind]?.unavailable;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" style={button(n > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} aria-label="Filters">
+      <button type="button" style={button(n > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} aria-label="Filters" title="Filters">
         <Funnel size={14} style={{ flexShrink: 0, color: n ? 'inherit' : 'var(--text-muted)' }} />
-        Filters
+        <span className="acct-bar-label-2">Filters</span>
         {n > 0 && <span style={count}>{n}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
@@ -482,7 +482,7 @@ export function AccountsPicker({ accounts, value, onChange, showHistorical = fal
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} title={label}>
         <ListFilter size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        <span className={value.length ? undefined : 'acct-bar-label-2'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} aria-multiselectable="true" style={panel(480)}>
@@ -500,6 +500,12 @@ export function AccountsPicker({ accounts, value, onChange, showHistorical = fal
 // The period, with an arrow on each side (the accounting app's stepper): the
 // dropdown names the period, the arrows move one month, quarter or year back
 // or forward. A statement as of a date steps from month-end to month-end.
+const periodLabel = (key) => {
+  const p = PRESETS.find((x) => x.key === key);
+  if (!p || key === 'custom') return 'Custom Dates';
+  const r = presetRange(key).map(iso);
+  return `${p.label} · ${formatDate(r[0])} - ${formatDate(r[1])}`;
+};
 const arrow = { ...control, width: 26, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)' };
 export function PeriodStepper({ config, period, onChange }) {
   const group = { display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' };
@@ -525,11 +531,9 @@ export function PeriodStepper({ config, period, onChange }) {
   return (
     <div role="group" aria-label="Report period" style={custom ? group : { ...group, flexWrap: 'nowrap', minWidth: 0, maxWidth: '100%' }}>
       <button type="button" style={{ ...arrow, flexShrink: 0 }} onClick={() => step(-1)} aria-label="Previous period" title="Previous period"><ChevronLeft size={14} /></button>
-      <select value={config.preset} onChange={(e) => onChange({ preset: e.target.value })} aria-label="Period" style={{ ...control, maxWidth: 300, minWidth: 0 }}>
-        {PRESETS.map((p) => {
-          const r = p.key === 'custom' ? null : presetRange(p.key).map(iso);
-          return <option key={p.key} value={p.key}>{r ? `${p.label} · ${formatDate(r[0])} - ${formatDate(r[1])}` : 'Custom Dates'}</option>;
-        })}
+      {/* Item 02 (10/23): as wide as the period picked - "Custom Dates" no longer holds the width of its longest option. */}
+      <select value={config.preset} onChange={(e) => onChange({ preset: e.target.value })} aria-label="Period" style={{ ...control, ...fitSelect(periodLabel(config.preset), { max: 300 }) }}>
+        {PRESETS.map((p) => <option key={p.key} value={p.key}>{periodLabel(p.key)}</option>)}
       </select>
       {config.preset === 'custom' && (
         <>
@@ -627,8 +631,8 @@ export function CustomizeButton({ density, onDensity, pageSize = 0, onPageSize, 
   const on = !!showZero || !!showHistorical || !!showHistoricalAccounts || !!showInactiveAccounts || !!active;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" style={button(on)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
-        <SlidersHorizontal size={14} style={{ flexShrink: 0, color: on ? 'inherit' : 'var(--text-muted)' }} /> Customize
+      <button type="button" style={button(on)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} title="Customize">
+        <SlidersHorizontal size={14} style={{ flexShrink: 0, color: on ? 'inherit' : 'var(--text-muted)' }} /> <span className="acct-bar-label">Customize</span>
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Customize" style={{ ...panel(340), display: 'grid', gap: 12 }}>
         {onDensity && (
@@ -750,9 +754,9 @@ export function ExportMenu({ items, disabled = false, align = 'right' }) {
   const busy = items.some((i) => i.busy);
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" className="primary-btn" onClick={() => setOpen((v) => !v)} disabled={disabled} aria-haspopup="menu" aria-expanded={open}
+      <button type="button" className="primary-btn" onClick={() => setOpen((v) => !v)} disabled={disabled} aria-haspopup="menu" aria-expanded={open} title="Export"
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-        {busy ? <Loader2 size={14} className="spin" /> : <Download size={14} />} Export <ChevronDown size={13} />
+        {busy ? <Loader2 size={14} className="spin" /> : <Download size={14} />} <span className="acct-bar-label">Export</span> <ChevronDown size={13} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="menu" aria-label="Export" style={{ ...panel(270), padding: 6 }}>
         {items.map((it, i) => {
@@ -797,8 +801,8 @@ export function MemorizeButton({ onSave, suggestion, align = 'right' }) {
   };
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" style={button(false)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
-        <BookmarkPlus size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} /> Memorize
+      <button type="button" style={button(false)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} title="Memorize">
+        <BookmarkPlus size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} /> <span className="acct-bar-label">Memorize</span>
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Memorize this report" style={panel(330)}>
         <form onSubmit={save} style={{ display: 'grid', gap: 8 }}>
@@ -835,7 +839,7 @@ export function SavedReportsMenu({ reports, loading, error, activeId, onOpen, on
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(!!active)} onClick={() => { setOpen((v) => !v); setConfirm(''); }} aria-haspopup="menu" aria-expanded={open} title={active ? active.name : 'Saved Reports'}>
         <Bookmark size={14} style={{ flexShrink: 0, color: active ? 'inherit' : 'var(--text-muted)' }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{active ? active.name : 'Saved Reports'}</span>
+        <span className={active ? undefined : 'acct-bar-label'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{active ? active.name : 'Saved Reports'}</span>
         {!active && reports.length > 0 && <span style={{ ...count, background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>{reports.length}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
@@ -916,6 +920,98 @@ export function ClearButton({ onClick, label }) {
     <button type="button" onClick={onClick} aria-label={label}
       style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}>
       <X size={14} />
+    </button>
+  );
+}
+
+// ── The control bar (10/23 meeting, item 02) ────────────────────────────────
+// Viral: "whenever we select the custom date, actually it became two line
+// control bar"; Neil: "basic responsiveness ... based on the size of the
+// screen". Every Accounting screen's filters, search, Sync, Export and the
+// rest sit in ONE ControlBar. It keeps them on one line by folding words
+// away before anything wraps: first the action words (Saved Reports,
+// Memorize, Customize, Export, Sync - `acct-bar-label`), then the words of
+// pickers still at their default (All entities, Filters, All accounts -
+// `acct-bar-label-2`). The icon, the count and the tooltip stay, so no
+// control is lost. Only on a window too narrow for even that does the row
+// wrap - cleanly, as whole controls, never on top of each other. The fold is
+// measured on the real row (no guessed breakpoints) whenever its width or
+// content changes. Put the right-hand group in `<div className="acct-bar-end">`.
+const FOLDS = ['', '1', '2'];
+/** Does the row hold its controls on more than one line? Exported for the tests. */
+export function barWraps(el) {
+  const boxes = [];
+  const collect = (node) => {
+    for (const kid of node.children) {
+      const d = getComputedStyle(kid).display;
+      if (d === 'none' || kid.tagName === 'STYLE') continue;
+      if (d === 'contents') collect(kid);
+      else if (kid.classList.contains('acct-bar-end')) collect(kid);
+      else boxes.push(kid.getBoundingClientRect());
+    }
+  };
+  collect(el);
+  const sized = boxes.filter((b) => b.width > 0 || b.height > 0);
+  if (sized.length < 2) return false;
+  const firstBottom = Math.min(...sized.map((b) => b.bottom));
+  return sized.some((b) => b.top >= firstBottom - 1);
+}
+export function ControlBar({ children, className = '', style = null, ...rest }) {
+  const ref = useRef(null);
+  const fit = () => {
+    const el = ref.current;
+    if (!el) return;
+    for (const f of FOLDS) {
+      if (f) el.dataset.fold = f; else delete el.dataset.fold;
+      if (!barWraps(el)) return;
+    }
+  };
+  // After every render (a picker's label or a new button changes the width
+  // the row needs) and whenever the row itself is resized.
+  useLayoutEffect(fit);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    let w = el.clientWidth;
+    const ro = new ResizeObserver(() => { if (el.clientWidth !== w) { w = el.clientWidth; fit(); } });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={ref} className={`acct-controlbar${className ? ` ${className}` : ''}`} style={style || undefined} {...rest}>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * A select as wide as the option picked, not its longest option (item 02):
+ * the period list's "This Quarter · 10/01/2026 - 12/31/2026" no longer holds
+ * 280px of the row while it reads "Custom Dates". The list still opens with
+ * every option in full. `label` is the picked option's text.
+ */
+export function fitSelect(label, { min = 64, max = 320 } = {}) {
+  const chars = String(label || '').length;
+  return { width: `clamp(${min}px, calc(${chars}ch + 34px), ${max}px)`, minWidth: 0 };
+}
+
+/**
+ * One table's own Sync (10/23 meeting, item 13; Neil in the chat: "sync should
+ * be table level and not just overall"). Reads only this table again, past the
+ * server's short cache (useTableSync in ./tableSync); what is open - a popup,
+ * a side panel, the filters, the search, the sort, where the table is scrolled
+ * - stays as it is, because the rows are swapped in place, never cleared.
+ * `what` names the table in the tooltip and, when a screen has several tables,
+ * in the button's name ("Sync Runs").
+ */
+export function SyncButton({ onSync, busy = false, syncedAt = null, what = '' }) {
+  const name = what ? `Sync ${what}` : 'Sync';
+  const when = syncedAt ? ` Last synced ${formatTime(syncedAt)}.` : '';
+  return (
+    <button type="button" style={{ ...button(false), cursor: busy ? 'default' : 'pointer' }} onClick={() => { if (!busy) onSync(); }} aria-busy={busy || undefined}
+      aria-label={name} title={`Read ${what ? `the ${what.toLowerCase()}` : 'this table'} again from the ledger. Nothing else on the screen reloads.${when}`}>
+      <RefreshCw size={14} className={busy ? 'spin' : undefined} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+      <span className="acct-bar-label">{busy ? 'Syncing...' : 'Sync'}</span>
     </button>
   );
 }

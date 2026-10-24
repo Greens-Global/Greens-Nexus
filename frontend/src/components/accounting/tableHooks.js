@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAccountingPrefs } from './prefs';
 import { DENSITIES } from './reportControls';
 
@@ -118,4 +118,52 @@ export function useCustomizePrefs(features = [], { densityKey = 'density', defau
     out.onShowInactiveAccounts = (v) => setPrefs({ showInactiveAccounts: !!v });
   }
   return out;
+}
+
+/**
+ * A table's scroll box sized to the window (10/23 meeting, item 05: "remove
+ * Global Scrolling ... mostly on every screen"; Neil in the chat: "remove dual
+ * scrolling"). The box starts wherever the toolbar, banners and totals above it
+ * left it, so its height is measured from there, leaving room for what the page
+ * still shows under it (notes, a pager, the card's and the page's bottom
+ * padding): it ends inside the window and the page itself does not scroll.
+ * `min` px at least, on a short window. Re-measured when the window or the area
+ * around the box changes size. First built for the ledger lines (LedgerSearch,
+ * 10/23); every Accounting table now takes it.
+ *   const [box, setBox] = useState(null);
+ *   const fit = useFitHeight(box);
+ *   <div ref={setBox} className="acct-report-wrap acct-scroll-box" style={fit}>
+ * Returns the style to spread on the box: { [cssVar]: 'NNNpx' } once measured
+ * (style.css reads --acct-box-h on .acct-scroll-box), {} before or when `off`.
+ */
+export function useFitHeight(box, { off = false, min = 300, cssVar = '--acct-box-h' } = {}) {
+  const [h, setH] = useState(0);
+  useEffect(() => {
+    if (!box || off || typeof window === 'undefined') return undefined;
+    const px = (v) => parseFloat(v) || 0;
+    const below = () => {
+      let sum = 0;
+      for (let el = box; el && el.parentElement && el !== document.body; el = el.parentElement) {
+        sum += px(getComputedStyle(el).marginBottom);
+        for (let sib = el.nextElementSibling; sib; sib = sib.nextElementSibling) {
+          const cs = getComputedStyle(sib);
+          if (cs.position === 'fixed' || cs.position === 'absolute' || cs.display === 'none') continue;
+          sum += sib.getBoundingClientRect().height + px(cs.marginTop) + px(cs.marginBottom);
+        }
+        const pcs = getComputedStyle(el.parentElement);
+        sum += px(pcs.paddingBottom) + px(pcs.borderBottomWidth);
+      }
+      return sum;
+    };
+    const fit = () => {
+      const top = box.getBoundingClientRect().top + (window.scrollY || 0);
+      setH(Math.max(min, Math.floor(window.innerHeight - top - below() - 8)));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
+    if (ro && box.parentElement) ro.observe(box.parentElement);
+    return () => { window.removeEventListener('resize', fit); ro?.disconnect(); };
+  }, [box, off, min]);
+  return useMemo(() => (h && !off ? { [cssVar]: `${h}px` } : {}), [h, off, cssVar]);
 }

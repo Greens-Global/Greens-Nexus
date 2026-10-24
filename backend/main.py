@@ -4264,6 +4264,8 @@ app.add_middleware(
     # thrown away.
     expose_headers=["Content-Disposition"],
 )
+# Oct 24 (Neil, item 13): a table's own Sync (fresh=1) reads past the accounting cache.
+app.add_middleware(accounting.AccountingFreshReads)
 
 
 @app.exception_handler(Exception)

@@ -18,6 +18,7 @@ router = APIRouter(prefix="/accounting", tags=["Accounting"], dependencies=[Depe
 # never blocks (see the Aug 2 freeze note in CLAUDE.md). 5-minute cache keyed
 # by the query so a dashboard full of widgets costs one upstream call.
 import asyncio
+import contextvars
 import json
 import os
 import re
@@ -92,13 +93,59 @@ def _acct_get_sync(path: str, params: dict) -> dict:
     return data
 
 
+# Oct 24 (Neil, 10/23 meeting chat: "sync should be table level and not just
+# overall"): a table's own Sync button sends fresh=1 on its reads (api.js
+# withFreshReads). AccountingFreshReads marks such a request, and _acct_get
+# then asks the accounting app again instead of answering from the 5-minute
+# cache, and keeps the new answer for everyone. An answer younger than
+# _FRESH_MIN_AGE is new enough, so a burst of clicks costs one upstream call.
+# Reads only: nothing here writes to the accounting app or Intacct.
+_ACCT_FRESH: contextvars.ContextVar[bool] = contextvars.ContextVar("acct_fresh", default=False)
+_FRESH_MIN_AGE = 5.0
+_FRESH_PREFIXES = ("/accounting", "/leasing", "/pfs")
+
+
+def _asks_fresh(scope) -> bool:
+    """A GET under the accounting routes with fresh=1 (or true) in its query."""
+    if scope.get("type") != "http" or scope.get("method") != "GET":
+        return False
+    if not str(scope.get("path") or "").startswith(_FRESH_PREFIXES):
+        return False
+    from urllib.parse import parse_qs
+    vals = parse_qs((scope.get("query_string") or b"").decode("latin-1")).get("fresh") or []
+    return any(v.lower() in ("1", "true") for v in vals)
+
+
+class AccountingFreshReads:
+    """Pure ASGI middleware (main.py): marks a fresh=1 accounting read for _acct_get."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if not _asks_fresh(scope):
+            await self.app(scope, receive, send)
+            return
+        token = _ACCT_FRESH.set(True)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _ACCT_FRESH.reset(token)
+
+
+def fresh_ttl(ttl: float) -> float:
+    """How old a cached answer may be for this request: `ttl`, or only
+    _FRESH_MIN_AGE when a table's Sync asked for fresh figures."""
+    return _FRESH_MIN_AGE if _ACCT_FRESH.get() else ttl
+
+
 async def _acct_get(path: str, params: dict) -> dict:
     if not _ACCT_BASE or not _ACCT_KEY:
         raise HTTPException(status_code=503, detail="Accounting service is not configured (ACCOUNTING_BASE_URL / ACCOUNTING_INTERNAL_KEY)")
     key = path + "?" + "&".join(f"{k}={v}" for k, v in sorted(params.items()) if v is not None)
     hit = _ACCT_CACHE.get(key)
     now = time.monotonic()
-    if hit and now - hit[0] < _ACCT_TTL:
+    if hit and now - hit[0] < fresh_ttl(_ACCT_TTL):
         _ACCT_CACHE[key] = _ACCT_CACHE.pop(key, hit)      # most recently used goes to the back
         return hit[1]
     data = await asyncio.to_thread(_acct_get_sync, path, {k: v for k, v in params.items() if v is not None})
