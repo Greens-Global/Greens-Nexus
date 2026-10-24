@@ -29,11 +29,12 @@ const SAVE_MS = 400;
 
 // `store` is [prefs, setPrefs] of the person's Accounting layout (../prefs);
 // index.js hands it in, so this folder imports nothing of the screens.
-export function useTableViewWith(store, tableKey, baseColumns, rows, { sort = null, onOpen = null } = {}) {
+export function useTableViewWith(store, tableKey, baseColumns, rows, { sort = null, onOpen = null, widthsKey = tableKey } = {}) {
   const [prefs, setPrefs] = store;
-  // Widths a person dragged before views existed (useColumnWidths, same table
-  // key) are their default widths, so nobody loses a layout.
-  const legacy = prefs.colWidths && typeof prefs.colWidths === 'object' ? prefs.colWidths[tableKey] : null;
+  // Widths a person dragged before views existed (useColumnWidths under
+  // `widthsKey`, the table key unless named) are their default widths, so
+  // nobody loses a layout.
+  const legacy = prefs.colWidths && typeof prefs.colWidths === 'object' && widthsKey ? prefs.colWidths[widthsKey] : null;
   const columns = useMemo(() => (legacy && typeof legacy === 'object'
     ? baseColumns.map((c) => (Number(legacy[c.key]) > 0 ? { ...c, width: Number(legacy[c.key]) } : c))
     : baseColumns), [baseColumns, legacy]);

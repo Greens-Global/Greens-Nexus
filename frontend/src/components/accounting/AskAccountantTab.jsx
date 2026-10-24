@@ -518,7 +518,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
   // leave, so a count is always what its tab shows. Newest first unless the
   // view sorts otherwise.
   const boxed = useMemo(() => columnFilter(visibleRows(all, { status: 'All', mine, me, text }), typed), [all, mine, me, text, typed]);
-  const view = useTableView('ama', AMA_VIEW_COLUMNS, boxed, { sort: AMA_SORT });
+  const view = useTableView('ama-questions', AMA_VIEW_COLUMNS, boxed, { sort: AMA_SORT });
   const narrowed = view.rows;
   const rows = useMemo(() => narrowed.filter((r) => status === 'All' || r.status === status), [narrowed, status]);
   const paged = usePaged(rows, custom.pageSize, [status, mine, text, entity, from, to, typed, view.state]);

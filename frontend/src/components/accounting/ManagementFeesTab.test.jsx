@@ -68,6 +68,27 @@ describe('ManagementFeesTab', () => {
     expect(within(other).getByText('Not Read').getAttribute('title')).toMatch(/did not answer/);
   });
 
+  it('has the standard table view: a value list narrows the agreements and the totals follow (10/23, item 01)', async () => {
+    render(<ManagementFeesTab canEdit />);
+    await screen.findByText('15000 Greens Escondido, LLC.');
+    const total = () => screen.getByText('Total').closest('tr');
+    // Both agreements: 3,500.00 + 3,500.00 calculated.
+    expect(within(total()).getByText('7,000.00')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Status by value' }));
+    const list = await screen.findByRole('dialog', { name: 'Status values' });
+    fireEvent.click(within(list).getByRole('checkbox', { name: /Pending Review/ }));
+    expect(screen.queryByText('56000 MCD Services, Inc.')).toBeNull();
+    expect(within(total()).queryByText('7,000.00')).toBeNull();
+    expect(within(total()).getAllByText('3,500.00')).toHaveLength(2);     // Calculated Fee and Expected YTD of the one left
+    expect(screen.getByText('Unsaved')).toBeTruthy();
+    // Hide Fee from its heading menu.
+    fireEvent.click(screen.getByRole('button', { name: /^Fee - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Fee column' })).getByRole('menuitem', { name: /Hide Column/ }));
+    expect(screen.queryByRole('columnheader', { name: 'Fee' })).toBeNull();
+    // The row's buttons stay last and are not a column to filter.
+    expect(screen.queryByRole('button', { name: 'Filter Actions by value' })).toBeNull();
+  });
+
   it('opens the ledger lines behind Billed YTD', async () => {
     render(<ManagementFeesTab canEdit />);
     fireEvent.click(await screen.findByRole('button', { name: /Ledger lines behind the billed fee/ }));
