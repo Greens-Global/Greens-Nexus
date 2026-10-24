@@ -280,12 +280,14 @@ def latest_human_answer(thread):
     only at the final entry would hide every answer."""
     entries = [e for e in (thread or []) if isinstance(e, dict)]
     answer = None
+    asked = False                  # only a comment AFTER one of Claude's entries is an answer
     for e in entries:
         kind = str(e.get("kind") or "comment")
         by = str(e.get("by") or "").lower()
         if kind == "claude":
+            asked = True
             answer = None          # a newer question - only what follows it counts
-        elif kind == "comment" and by != "claude":
+        elif asked and kind == "comment" and by != "claude":
             answer = (str(e.get("by") or "author"), str(e.get("at") or ""), str(e.get("text") or "").strip())
     return answer
 
@@ -581,28 +583,42 @@ def _snake(camel):
 
 
 def cmd_claim(client, args):
+    """Claim one pin at a time - the server is all-or-nothing per call (404 for
+    an unknown id, 409 for one that cannot be claimed), and one bad id must
+    not block the rest of the batch."""
     ids = list(dict.fromkeys(args.ids))
-    data = client.post("/cli/claim", {"noteIds": ids}, timeout=120) or {}
-    notes = data.get("notes") or []
-    sessions = {s.get("id"): s.get("title") for s in (data.get("sessions") or []) if isinstance(s, dict)}
-    if not notes:
-        print("Nothing claimed - the pins may already be building or were dismissed.")
-        return 1
     out_dir = Path(args.out).expanduser() if args.out else common.CACHE_DIR
     briefs = []
-    for note in notes:
-        folder, files = _download_media(client, note, out_dir, skip=args.no_download)
-        brief = render_brief(note, files, sessions.get(_g(note, "sessionId", "session_id")))
+    failures = []
+    for note_id in ids:
         try:
-            (folder / "brief.md").write_text(brief, encoding="utf-8")
-            (folder / "pin.json").write_text(json.dumps(note, indent=2), encoding="utf-8")
-        except OSError as exc:
-            common.eprint("Warning: could not save the brief in " + str(folder) + ": " + str(exc))
-        briefs.append(brief)
-    print(("\n\n---\n\n").join(briefs))
-    missing = [i for i in ids if i not in {str(_g(n, "id", default="")) for n in notes}]
-    if missing:
-        common.eprint("Not claimed (unknown, not dispatched, or not yours to claim): " + " ".join(missing))
+            data = client.post("/cli/claim", {"noteIds": [note_id]}, timeout=120) or {}
+        except common.ApiError as exc:
+            if exc.status in (401, 403) or exc.status == 0:
+                raise   # the token or the network, not this pin
+            failures.append((note_id, str(exc.detail or exc.message)))
+            continue
+        notes = data.get("notes") or []
+        sessions = {s.get("id"): s.get("title") for s in (data.get("sessions") or []) if isinstance(s, dict)}
+        if not notes:
+            failures.append((note_id, "the server returned no pin"))
+            continue
+        for note in notes:
+            folder, files = _download_media(client, note, out_dir, skip=args.no_download)
+            brief = render_brief(note, files, sessions.get(_g(note, "sessionId", "session_id")))
+            try:
+                (folder / "brief.md").write_text(brief, encoding="utf-8")
+                (folder / "pin.json").write_text(json.dumps(note, indent=2), encoding="utf-8")
+            except OSError as exc:
+                common.eprint("Warning: could not save the brief in " + str(folder) + ": " + str(exc))
+            briefs.append(brief)
+    if briefs:
+        print(("\n\n---\n\n").join(briefs))
+    for note_id, why in failures:
+        common.eprint("Not claimed: Pin " + note_id + " - " + why)
+    if not briefs:
+        common.eprint("Nothing claimed.")
+        return 1
     return 0
 
 
@@ -630,6 +646,18 @@ def _attach(client, note_id, image_path, kind):
     return str(data.get("url") or "")
 
 
+REPLY_FLAG_STATUSES = ("building", "needs_input")             # /cli/reply with --needs-input / --answered
+VERIFY_STATUSES = ("building", "needs_input", "pr_open")      # /cli/verify
+CLOSED_STATUSES = ("done", "dismissed")
+
+
+def _pin_status(client, note_id):
+    """(number, status) of a pin - a dry check before uploading anything, so a
+    refused status change never leaves an orphan image behind."""
+    note = client.get("/" + note_id) or {}
+    return _g(note, "number", default="?"), str(_g(note, "status", default="") or "")
+
+
 def cmd_reply(client, args):
     text = " ".join(args.text).strip()
     if not text and not args.image:
@@ -638,6 +666,15 @@ def cmd_reply(client, args):
     if args.needs_input and args.answered:
         common.eprint("reply takes --needs-input or --answered, not both")
         return 2
+    if args.needs_input or args.answered or args.image:
+        number, status = _pin_status(client, args.id)
+        if (args.needs_input or args.answered) and status not in REPLY_FLAG_STATUSES:
+            common.eprint("Pin #" + str(number) + " is " + status_label(status)
+                          + " - --needs-input / --answered need a pin that is Building or Needs Input (claim it first)")
+            return 1
+        if args.image and status in CLOSED_STATUSES:
+            common.eprint("Pin #" + str(number) + " is " + status_label(status) + " - nothing more can be attached to it")
+            return 1
     body = {"text": text}
     if args.needs_input:
         body["needsInput"] = True
@@ -686,17 +723,21 @@ def cmd_verify(client, args):
     """Record the evidence that a fix is right: a repro script with its
     before/after result, a computed-style check, before/after screenshots."""
     body = {}
-    if args.repro_script or args.before or args.after:
-        if args.repro_script and not (args.before and args.after):
-            common.eprint("verify --repro-script needs --before and --after (failing | passing | skipped)")
-            return 2
+    # --before and --after come together or not at all, with or without a script.
+    if (args.before is None) != (args.after is None):
+        common.eprint("verify takes --before AND --after together (failing | passing | skipped)")
+        return 2
+    if args.repro_script and args.before is None:
+        common.eprint("verify --repro-script needs --before and --after (failing | passing | skipped)")
+        return 2
+    if args.repro_script or args.before:
         script = ""
         if args.repro_script:
             path = Path(args.repro_script).expanduser()
             if not path.is_file():
                 raise common.ConfigError("Repro script not found: " + str(path))
             script = path.read_text(encoding="utf-8", errors="replace")
-        body["repro"] = {"script": script, "before": args.before or "skipped", "after": args.after or "skipped"}
+        body["repro"] = {"script": script, "before": args.before, "after": args.after}
     if args.style_json:
         path = Path(args.style_json).expanduser()
         if not path.is_file():
@@ -705,23 +746,34 @@ def cmd_verify(client, args):
             style = json.loads(path.read_text(encoding="utf-8"))
         except ValueError as exc:
             raise common.ConfigError("Style check JSON does not parse (" + str(exc) + "): " + str(path))
-        if not isinstance(style, dict) or "checks" not in style:
+        if not isinstance(style, dict) or not isinstance(style.get("checks"), list):
             raise common.ConfigError('Style check JSON must be {"passed": bool, "checks": [{prop, expected, actual, ok}]}')
-        checks = style.get("checks") or []
-        if "passed" not in style:
-            style["passed"] = all(bool(c.get("ok")) for c in checks if isinstance(c, dict))
-        body["styleCheck"] = style
-    if args.before_image or args.after_image:
-        if not (args.before_image and args.after_image):
-            common.eprint("verify needs both --before-image and --after-image")
+        checks = [c for c in style["checks"] if isinstance(c, dict)]
+        if not checks:
+            common.eprint("Style check JSON has no checks - a style check with nothing checked proves nothing")
             return 2
-        body["visual"] = {
-            "beforeUrl": _attach(client, args.id, args.before_image, "after"),
-            "afterUrl": _attach(client, args.id, args.after_image, "after"),
-        }
-    if not body:
+        style["checks"] = checks
+        # `passed` is what the checks say, never a bare claim.
+        style["passed"] = all(bool(c.get("ok")) for c in checks)
+        body["styleCheck"] = style
+    if (args.before_image is None) != (args.after_image is None):
+        common.eprint("verify needs both --before-image and --after-image")
+        return 2
+    if not body and not args.before_image:
         common.eprint("verify needs at least one of --repro-script/--before/--after, --style-json, --before-image/--after-image")
         return 2
+    # Dry status check BEFORE any upload: the server records evidence only on a
+    # pin that is Building, Needs Input or PR Open.
+    number, status = _pin_status(client, args.id)
+    if status not in VERIFY_STATUSES:
+        common.eprint("Pin #" + str(number) + " is " + status_label(status)
+                      + " - evidence can be recorded only while it is Building, Needs Input or PR Open")
+        return 1
+    if args.before_image:
+        body["visual"] = {
+            "beforeUrl": _attach(client, args.id, args.before_image, "before"),
+            "afterUrl": _attach(client, args.id, args.after_image, "after"),
+        }
     note = client.post("/cli/verify/" + args.id, body) or {}
     bits = []
     if "repro" in body:

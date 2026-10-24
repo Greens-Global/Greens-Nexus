@@ -55,7 +55,12 @@ in the same terminal with the repository root as the working directory - the
 terminal becomes the Claude Code session, which claims the pins, fixes them,
 opens the PR and writes it back. When Claude exits the watcher goes back to
 waiting. Network trouble is retried with backoff (2 s up to 60 s) and the
-watcher keeps going; a revoked token stops it with the reason.
+watcher keeps going; a revoked token stops it with the reason. If Claude
+exits without claiming (a non-zero exit, or the same pin ids come straight
+back on the next poll) the watcher waits 30 s, then 60 s, 120 s, up to 300 s
+before starting Claude again, and says so; the wait resets when a different
+set of pins arrives. A missing `claude` command (exit 127) stops the watcher
+with the install hint instead of looping.
 
 `watch.sh` uses `backend/.venv/bin/python` when it exists, else `python3`.
 `python3 tools/build_notes/watch.py` works just as well.
@@ -108,7 +113,7 @@ python3 tools/build_notes/cli.py reply <id> "text" [--needs-input | --answered] 
 python3 tools/build_notes/cli.py verify <id> [--repro-script PATH --before failing|passing|skipped --after failing|passing|skipped] [--style-json PATH] [--before-image PATH --after-image PATH]
 python3 tools/build_notes/cli.py after <id> --image PATH
 python3 tools/build_notes/cli.py complete <id>... --pr URL --branch NAME [--summary "..."]
-python3 tools/build_notes/repro_template.py <pin.json> [--base http://localhost:5173] [--out repro_pin_<n>.py]
+python3 tools/build_notes/repro_template.py <pin.json> [--base http://localhost:5173] [--out PATH | --stdout]
 ```
 
 `--api` and `--token` go before the subcommand.
@@ -126,20 +131,31 @@ python3 tools/build_notes/repro_template.py <pin.json> [--base http://localhost:
   with request and response bodies) and the local file paths. The brief is
   also saved as `brief.md` next to the files, with the raw `pin.json`.
 - `list` prints a `Where:` line under each pin that has a source stamp.
+- `claim` works one pin at a time (the server is all-or-nothing per call):
+  each success prints its brief, each failure one line `Not claimed: Pin
+  <id> - <server detail>` (404 unknown, 409 not claimable); exit 0 when at
+  least one pin was claimed, 1 when none.
 - `verify` records the evidence that a fix is right (Neil: proof must come
   from something other than Claude or Neil): a repro script with its result
-  on dev code (`--before`) and on the branch (`--after`), a computed-style
-  check (`--style-json`, `{"passed": bool, "checks": [{"prop", "expected",
-  "actual", "ok"}]}`; `passed` is derived when missing), and/or before/after
-  screenshots (uploaded through `attach` with kind `after`). Use
-  `--before skipped --after skipped` when a repro was not possible.
+  on dev code (`--before`) and on the branch (`--after`, the two always
+  together), a computed-style check (`--style-json`, `{"checks": [{"prop",
+  "expected", "actual", "ok"}]}` with at least one check; `passed` is always
+  computed from the checks), and/or before/after screenshots (the before
+  picture is uploaded with kind `before`, the after picture with kind
+  `after`). It reads the pin first and refuses before uploading anything
+  unless the pin is Building, Needs Input or PR Open. Use `--before skipped
+  --after skipped` when a repro was not possible. `reply --needs-input` /
+  `--answered` do the same dry check (Building or Needs Input).
 - `repro_template.py` turns a pin's action trace (`pin.json` from `claim`,
-  or a bare JSON list) into a Playwright Python script skeleton: it replays
-  the clicks, inputs, keys and navigations against the local dev server
-  (masked inputs become `TODO`s) and leaves one `TODO` assertion for the
-  pin's complaint. The finished script exits 0 (`PASSING`) or 1 (`FAILING`).
-  It needs `pip install playwright` and `playwright install chromium` where
-  it runs; the generator itself is standard library.
+  or a bare JSON list) into a Playwright Python script skeleton written to
+  `~/.cache/nexus-build-notes/<id>/repro_pin_<n>.py` (next to `pin.json`;
+  `--out PATH` or `--stdout` to change that - never into the repository): it
+  replays the clicks, inputs, keys and navigations against the local dev
+  server (masked inputs become `TODO`s) and leaves one `TODO` assertion for
+  the pin's complaint. The pin's comment goes in as a `#` comment line, never
+  into code. The finished script exits 0 (`PASSING`) or 1 (`FAILING`). It
+  needs `pip install playwright` and `playwright install chromium` where it
+  runs; the generator itself is standard library.
 - `progress` is one line the author sees on the pin.
 - `reply` adds a thread entry as Claude; `--needs-input` parks the pin in Needs
   Input and rings the author's bell, `--answered` closes a Question pin;

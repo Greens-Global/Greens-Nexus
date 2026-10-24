@@ -28,6 +28,7 @@ WEBM = b"\x1aE\xdf\xa3" + b"\x01" * 128
 
 NOTE_ID = "6d2d1c1e-0001-4a4a-9b9b-000000000001"
 NOTE_ID_2 = "6d2d1c1e-0002-4a4a-9b9b-000000000002"
+NOTE_ID_3 = "6d2d1c1e-0003-4a4a-9b9b-000000000003"   # exists but cannot be claimed (409)
 SESSION_ID = "9f00aa00-1111-4bbb-8ccc-000000000009"
 
 
@@ -188,6 +189,14 @@ class FakeApi(BaseHTTPRequestHandler):
             if batches:
                 return self._json(200, batches.pop(0))
             return self._json(200, {"notes": [], "sessions": []})
+        m = re.match(r"^/dev-notes/([^/]+)$", path)
+        if m and m.group(1) != "cli":
+            # GET /dev-notes/{id}: the pin, with the status the test set up (default building).
+            if m.group(1) not in (NOTE_ID, NOTE_ID_2, NOTE_ID_3):
+                return self._json(404, {"detail": "Pin not found"})
+            n = sample_note(self._base(), m.group(1), with_media=False)
+            n["status"] = (st.get("statuses") or {}).get(m.group(1), "building")
+            return self._json(200, n)
         if path in ("/dev-notes", "/dev-notes/"):
             if st.get("list_needs_session"):
                 return self._json(401, {"detail": "Not authenticated"})
@@ -214,6 +223,11 @@ class FakeApi(BaseHTTPRequestHandler):
         base = self._base()
         if path == "/dev-notes/cli/claim":
             ids = body.get("noteIds") or []
+            # All-or-nothing per call, like the real server.
+            if any(i not in (NOTE_ID, NOTE_ID_2, NOTE_ID_3) for i in ids):
+                return self._json(404, {"detail": "Pin not found"})
+            if NOTE_ID_3 in ids:
+                return self._json(409, {"detail": "Pin is done and cannot be claimed"})
             notes = []
             if NOTE_ID in ids:
                 n = sample_note(base)
@@ -432,6 +446,75 @@ class BuildNotesToolsTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("Your Build Token was revoked or expired", out.getvalue())
 
+    def _patched_watch(self, run_results):
+        """Run the watcher with run_claude and sleep stubbed; returns (code, output, launches, sleeps)."""
+        launches, sleeps = [], []
+        results = list(run_results)
+
+        def fake_run(ids, claude_args, cwd):
+            launches.append(list(ids))
+            result = results.pop(0)
+            if isinstance(result, BaseException):
+                raise result
+            return result
+
+        real_run, real_sleep = watch.run_claude, watch._sleep
+        watch.run_claude, watch._sleep = fake_run, sleeps.append
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                code = watch.main(["--api", self.server.base, "--timeout", "1"])
+        finally:
+            watch.run_claude, watch._sleep = real_run, real_sleep
+        return code, out.getvalue(), launches, sleeps
+
+    def test_watch_backs_off_when_the_same_pins_come_straight_back(self):
+        batch = {"notes": [sample_note(self.server.base, with_media=False)], "sessions": []}
+        other = {"notes": [sample_note(self.server.base, NOTE_ID_2, 4, with_media=False)], "sessions": []}
+        self.server.state["wait_batches"].extend([dict(batch), dict(batch), dict(batch), dict(other)])
+        # Claude exits 0 three times without claiming (same ids return), then a new id arrives, then Ctrl+C.
+        code, text, launches, sleeps = self._patched_watch([0, 0, 0, KeyboardInterrupt()])
+        self.assertEqual(code, 0)
+        self.assertEqual([set(ids) for ids in launches], [{NOTE_ID}, {NOTE_ID}, {NOTE_ID}, {NOTE_ID_2}])
+        # 2 s settle after each clean exit; 30 then 60 before relaunching the same set; reset for the new id.
+        self.assertEqual(sleeps, [2, 30, 2, 60, 2])
+        self.assertIn("The same pins came back unclaimed - waiting 30s", text)
+        self.assertIn("waiting 60s", text)
+        self.assertIn("Stopped.", text)
+
+    def test_watch_backs_off_after_a_failed_claude_exit(self):
+        batch = {"notes": [sample_note(self.server.base, with_media=False)], "sessions": []}
+        self.server.state["wait_batches"].extend([dict(batch), dict(batch)])
+        code, text, launches, sleeps = self._patched_watch([1, KeyboardInterrupt()])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(launches), 2)
+        # 30 s after the non-zero exit, then 60 s because the same ids came back.
+        self.assertEqual(sleeps, [30, 60])
+        self.assertIn("Claude Code did not exit cleanly - waiting 30s", text)
+        self.assertEqual(watch.RELAUNCH_BACKOFF[-1], 300)
+
+    def test_watch_exits_when_claude_is_missing(self):
+        self.server.state["wait_batches"].append({"notes": [sample_note(self.server.base, with_media=False)], "sessions": []})
+        code, text, launches, sleeps = self._patched_watch([127])
+        self.assertEqual(code, 127)
+        self.assertEqual(len(launches), 1)
+        self.assertEqual(sleeps, [])
+        self.assertIn("Install Claude Code", text)
+        # And the real run_claude answers 127 when `claude` is not on PATH.
+        real_which = watch.shutil.which
+        watch.shutil.which = lambda name: None
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(watch.run_claude(["x"], "", self.tmp.name), 127)
+        finally:
+            watch.shutil.which = real_which
+
+    def test_watch_uses_the_cli_labels(self):
+        self.assertFalse(hasattr(watch, "PRIORITY_LABELS"))
+        line = watch.describe_batch([dict(sample_note("http://x", with_media=False), kind="change", priority="nice")], [])[0]
+        self.assertIn("Pin #3 - Change - Nice To Have", line)
+
     def test_claude_command_shape(self):
         cmd = watch.claude_command(["a", "b"], '--model opus --permission-mode "accept edits"')
         self.assertEqual(cmd, ["claude", "--model", "opus", "--permission-mode", "accept edits", "/build-notes a b"])
@@ -443,8 +526,9 @@ class BuildNotesToolsTest(unittest.TestCase):
         out_dir = Path(self.tmp.name) / "claims"
         code, out, err = run_cli(["--api", self.server.base, "claim", NOTE_ID, NOTE_ID_2, "--out", str(out_dir)])
         self.assertEqual(code, 0, err)
-        claim = self.server.posts("/dev-notes/cli/claim")[0]
-        self.assertEqual(claim[2], {"noteIds": [NOTE_ID, NOTE_ID_2]})
+        # One claim call per id - the server is all-or-nothing per call.
+        self.assertEqual([c[2] for c in self.server.posts("/dev-notes/cli/claim")],
+                         [{"noteIds": [NOTE_ID]}, {"noteIds": [NOTE_ID_2]}])
 
         folder = out_dir / NOTE_ID
         for name, payload in (("screenshot.png", PNG), ("page.png", PNG), ("sheet.png", PNG), ("video.webm", WEBM), ("attachment-1.png", PNG)):
@@ -494,16 +578,26 @@ class BuildNotesToolsTest(unittest.TestCase):
 
     def test_claim_reports_unclaimed_ids(self):
         out_dir = Path(self.tmp.name) / "claims2"
-        code, out, err = run_cli(["--api", self.server.base, "claim", NOTE_ID, "not-a-real-id", "--out", str(out_dir), "--no-download"])
-        self.assertEqual(code, 0)
-        self.assertIn("Not claimed", err)
-        self.assertIn("not-a-real-id", err)
+        code, out, err = run_cli(["--api", self.server.base, "claim", NOTE_ID, "not-a-real-id", NOTE_ID_3, "--out", str(out_dir), "--no-download"])
+        self.assertEqual(code, 0)   # at least one succeeded
+        self.assertIn("Not claimed: Pin not-a-real-id - Pin not found", err)
+        self.assertIn("Not claimed: Pin " + NOTE_ID_3 + " - Pin is done and cannot be claimed", err)
+        self.assertIn("# Pin #3 - Bug - Blocking", out)
         self.assertIn("- Screenshot: " + self.server.base + "/media/screenshot.png", out)
+        self.assertEqual(len(self.server.posts("/dev-notes/cli/claim")), 3)
 
     def test_claim_nothing_returned(self):
-        code, out, err = run_cli(["--api", self.server.base, "claim", "zzz", "--out", self.tmp.name])
+        code, out, err = run_cli(["--api", self.server.base, "claim", "zzz", NOTE_ID_3, "--out", self.tmp.name])
         self.assertEqual(code, 1)
-        self.assertIn("Nothing claimed", out)
+        self.assertIn("Not claimed: Pin zzz - Pin not found", err)
+        self.assertIn("Nothing claimed.", err)
+        self.assertEqual(out, "")
+
+    def test_claim_token_error_stops_the_batch(self):
+        code, out, err = run_cli(["--api", self.server.base, "--token", REVOKED_TOKEN, "claim", NOTE_ID, NOTE_ID_2, "--out", self.tmp.name])
+        self.assertEqual(code, 1)
+        self.assertIn("Your Build Token was revoked or expired", err)
+        self.assertNotIn("Not claimed", err)
 
     def test_describe_markup_words(self):
         rect = {"x": 100, "y": 100, "w": 50, "h": 20}
@@ -546,6 +640,21 @@ class BuildNotesToolsTest(unittest.TestCase):
         self.assertEqual(cli.latest_human_answer(answered["thread"])[2], "The one in the Updates card.")
         self.assertIsNone(cli.latest_human_answer(answered["thread"][:1]))
         self.assertIsNone(cli.latest_human_answer([{"by": "neil@greensglobal.com", "kind": "progress", "text": "x"}]))
+        # A comment with no question from Claude before it is just a thread comment, not an answer.
+        self.assertIsNone(cli.latest_human_answer([{"by": "neil@greensglobal.com", "kind": "comment", "text": "Also the hover color."}]))
+        self.assertIsNone(cli.latest_human_answer([
+            {"by": "neil@greensglobal.com", "kind": "comment", "text": "First thought."},
+            {"by": "claude", "kind": "progress", "text": "Reading pins"},
+        ]))
+        # The claim's own progress entry after the answer does not hide it.
+        self.assertEqual(cli.latest_human_answer(answered["thread"] + [
+            {"by": "claude", "kind": "progress", "text": "Picked up by Claude Code"},
+        ])[2], "The one in the Updates card.")
+        # A newer question resets - only what follows it counts.
+        self.assertIsNone(cli.latest_human_answer(answered["thread"] + [{"by": "claude", "kind": "claude", "text": "And which card?"}]))
+        plain = sample_note(self.server.base, with_media=False)
+        plain["status"] = "building"
+        self.assertNotIn("Author's latest answer", cli.render_brief(plain, []))
         # The claim appends its own progress entry AFTER the answer - the answer must still be found.
         picked = answered["thread"] + [{"by": "claude", "kind": "progress", "text": "Picked up by Claude Code"}]
         self.assertEqual(cli.latest_human_answer(picked)[2], "The one in the Updates card.")
@@ -562,7 +671,9 @@ class BuildNotesToolsTest(unittest.TestCase):
         self.assertNotIn("(answered)", lines[1])
 
     def test_error_hints(self):
-        self.assertIn("claim it first", common._friendly(409, "not building", "POST", "/cli/complete"))
+        hint = common._friendly(409, "not building", "POST", "/cli/claim")
+        self.assertIn("status does not allow this", hint)
+        self.assertNotIn("claim it first", hint)   # a 409 on a claim must not say "claim it first"
         self.assertIn("over 8 MB", common._friendly(413, None, "POST", "/cli/attach/x"))
         self.assertIn("storage is not configured", common._friendly(503, None, "POST", "/cli/attach/x"))
         self.assertEqual(common._friendly(400, "prUrl missing", "POST", "/cli/complete"), "API error 400 on POST /cli/complete: prUrl missing")
@@ -677,10 +788,17 @@ class BuildNotesToolsTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         attaches = self.server.posts("/dev-notes/cli/attach/" + NOTE_ID)
         self.assertEqual(len(attaches), 2)
-        self.assertIn(b'name="kind"\r\n\r\nafter\r\n', attaches[0][2]["_multipart"])
+        # The pre-fix picture is a `before` shot, the post-fix one an `after` shot.
+        self.assertIn(b'name="kind"\r\n\r\nbefore\r\n', attaches[0][2]["_multipart"])
+        self.assertIn(b'name="kind"\r\n\r\nafter\r\n', attaches[1][2]["_multipart"])
+        # The status was checked BEFORE anything was uploaded.
+        calls = self.server.state["calls"]
+        get_idx = next(i for i, c in enumerate(calls) if c[0] == "GET" and c[1] == "/dev-notes/" + NOTE_ID)
+        first_attach = next(i for i, c in enumerate(calls) if c[0] == "POST" and c[1].startswith("/dev-notes/cli/attach/"))
+        self.assertLess(get_idx, first_attach)
         body = self.server.posts("/dev-notes/cli/verify/" + NOTE_ID)[0][2]
         self.assertEqual(body["repro"], {"script": "", "before": "skipped", "after": "skipped"})
-        self.assertEqual(body["styleCheck"]["passed"], False)   # derived when the file leaves it out
+        self.assertEqual(body["styleCheck"]["passed"], False)   # what the checks say, derived when the file leaves it out
         self.assertEqual(len(body["styleCheck"]["checks"]), 2)
         self.assertTrue(body["visual"]["beforeUrl"].endswith("/after-1.png"))
         self.assertTrue(body["visual"]["afterUrl"].endswith("/after-1.png"))
@@ -695,7 +813,10 @@ class BuildNotesToolsTest(unittest.TestCase):
         script.write_text("x = 1\n")
         code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--repro-script", str(script), "--before", "failing"])
         self.assertEqual(code, 2)
-        self.assertIn("--before and --after", err)
+        self.assertIn("--before AND --after", err)
+        code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--repro-script", str(script)])
+        self.assertEqual(code, 2)
+        self.assertIn("--repro-script needs --before and --after", err)
         code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--before-image", str(script)])
         self.assertEqual(code, 2)
         self.assertIn("both --before-image and --after-image", err)
@@ -704,7 +825,71 @@ class BuildNotesToolsTest(unittest.TestCase):
         code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--style-json", str(bad)])
         self.assertEqual(code, 2)
         self.assertIn("checks", err)
-        self.assertEqual(self.server.posts("/dev-notes/cli/verify/"), [])
+        # --before / --after come together, with or without a script.
+        code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--before", "failing"])
+        self.assertEqual(code, 2)
+        self.assertIn("--before AND --after", err)
+        code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--after", "passing", "--style-json", str(bad)])
+        self.assertEqual(code, 2)
+        # A style check with no checks proves nothing - never sent, never passed=true.
+        empty = Path(self.tmp.name) / "empty.json"
+        empty.write_text(json.dumps({"checks": []}))
+        code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--style-json", str(empty)])
+        self.assertEqual(code, 2)
+        self.assertIn("no checks", err)
+        claimed = Path(self.tmp.name) / "claimed.json"
+        claimed.write_text(json.dumps({"passed": True, "checks": []}))
+        code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--style-json", str(claimed)])
+        self.assertEqual(code, 2)
+        # `passed` is recomputed from the checks, never taken from the file.
+        lying = Path(self.tmp.name) / "lying.json"
+        lying.write_text(json.dumps({"passed": True, "checks": [{"prop": "color", "expected": "a", "actual": "b", "ok": False}]}))
+        code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--style-json", str(lying)])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.server.posts("/dev-notes/cli/verify/" + NOTE_ID)[-1][2]["styleCheck"]["passed"], False)
+        self.assertEqual(len(self.server.posts("/dev-notes/cli/verify/")), 1)
+        self.assertEqual(self.server.posts("/dev-notes/cli/attach/"), [])
+
+    def test_verify_refuses_before_uploading_when_status_is_wrong(self):
+        self.server.state["statuses"] = {NOTE_ID: "done"}
+        try:
+            before = Path(self.tmp.name) / "b.png"
+            after = Path(self.tmp.name) / "a.png"
+            before.write_bytes(PNG)
+            after.write_bytes(PNG)
+            code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--before-image", str(before), "--after-image", str(after)])
+            self.assertEqual(code, 1)
+            self.assertIn("Pin #3 is Done", err)
+            self.assertIn("Building, Needs Input or PR Open", err)
+            self.assertEqual(self.server.posts("/dev-notes/cli/attach/"), [])
+            self.assertEqual(self.server.posts("/dev-notes/cli/verify/"), [])
+            self.server.state["statuses"] = {NOTE_ID: "pr_open"}
+            code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--before", "skipped", "--after", "skipped"])
+            self.assertEqual(code, 0, err)
+        finally:
+            self.server.state.pop("statuses", None)
+
+    def test_reply_flags_refused_before_uploading_when_status_is_wrong(self):
+        self.server.state["statuses"] = {NOTE_ID: "dispatched"}
+        try:
+            img = Path(self.tmp.name) / "r.png"
+            img.write_bytes(PNG)
+            code, out, err = run_cli(["--api", self.server.base, "reply", NOTE_ID, "Which one?", "--needs-input", "--image", str(img)])
+            self.assertEqual(code, 1)
+            self.assertIn("Pin #3 is Dispatched", err)
+            self.assertIn("Building or Needs Input", err)
+            self.assertEqual(self.server.posts("/dev-notes/cli/attach/"), [])
+            self.assertEqual(self.server.posts("/dev-notes/cli/reply/"), [])
+            # A plain comment with no flags and no image needs no status check.
+            gets_before = len([c for c in self.server.state["calls"] if c[0] == "GET" and c[1] == "/dev-notes/" + NOTE_ID])
+            self.assertEqual(gets_before, 1)   # the refused call above looked once
+            code, out, err = run_cli(["--api", self.server.base, "reply", NOTE_ID, "Noted."])
+            self.assertEqual(code, 0, err)
+            self.assertEqual(self.server.posts("/dev-notes/cli/reply/" + NOTE_ID)[0][2], {"text": "Noted."})
+            gets_after = len([c for c in self.server.state["calls"] if c[0] == "GET" and c[1] == "/dev-notes/" + NOTE_ID])
+            self.assertEqual(gets_after, gets_before)
+        finally:
+            self.server.state.pop("statuses", None)
 
     def test_repro_template_builds_a_runnable_skeleton(self):
         pin = sample_note("http://x", with_media=False)
@@ -713,8 +898,15 @@ class BuildNotesToolsTest(unittest.TestCase):
         self.assertIn('BASE = "http://localhost:5173"', script)
         self.assertIn('ROUTE = "/tasks/home"', script)
         self.assertIn('VIEWPORT = {"width": 1440, "height": 900}', script)
-        self.assertIn("Repro for Pin #3 - The Mark All Read button", script)
-        self.assertIn("Source stamp: tasks/home/UpdatesCard.jsx:142", script)
+        self.assertIn('"""Repro for Pin #3.', script)
+        self.assertIn("# Pin comment: The Mark All Read button is lowercase and too small.", script)
+        self.assertIn("# Source stamp: tasks/home/UpdatesCard.jsx:142", script)
+        # Pin text never lands inside the docstring or code: a hostile comment still compiles.
+        hostile = dict(pin, comment='Breaks """ the docstring \\\nimport os; os.system("x")\n', target=dict(pin["target"], source={"file": 'a"""b\\', "line": 1}))
+        hostile_script = repro_template.script_from_pin(hostile)
+        compile(hostile_script, "hostile.py", "exec")
+        self.assertNotIn("os.system", [ln for ln in hostile_script.splitlines() if not ln.startswith("#")].__str__())
+        self.assertIn('# Pin comment: Breaks """ the docstring \\ import os; os.system("x")', hostile_script)
         # nav -> goto with the alias-aware path; masked input -> TODO; click by label with the selector as a comment; key press.
         self.assertIn('page.goto(BASE + "/tasks/home")', script)
         self.assertIn("(value was masked at capture)", script)
@@ -743,6 +935,27 @@ class BuildNotesToolsTest(unittest.TestCase):
             code = repro_template.main([str(src), "--out", str(dest), "--base", "http://localhost:4173"])
         self.assertEqual(code, 0)
         self.assertIn('BASE = "http://localhost:4173"', dest.read_text())
+        # Default destination: next to pin.json in the cache folder, never the repo root.
+        real_cache = common.CACHE_DIR
+        common.CACHE_DIR = Path(self.tmp.name) / "cache"
+        try:
+            self.assertEqual(repro_template.default_out_path(pin), common.CACHE_DIR / NOTE_ID / "repro_pin_3.py")
+            self.assertIsNone(repro_template.default_out_path([{"type": "click"}]))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = repro_template.main([str(src)])
+            self.assertEqual(code, 0)
+            written = common.CACHE_DIR / NOTE_ID / "repro_pin_3.py"
+            self.assertTrue(written.is_file())
+            self.assertIn("Wrote " + str(written), out.getvalue())
+            self.assertFalse((Path.cwd() / "repro_pin_3.py").exists())
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = repro_template.main([str(src), "--stdout"])
+            self.assertEqual(code, 0)
+            self.assertIn("def run(page):", out.getvalue())
+        finally:
+            common.CACHE_DIR = real_cache
         self.assertEqual(repro_template.route_path("dashboard"), "/")
         self.assertEqual(repro_template.route_path("dashboard", "links"), "/links")
         self.assertEqual(repro_template.route_path("inventory", "items"), "/itemmanagement/items")

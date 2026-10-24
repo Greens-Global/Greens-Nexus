@@ -107,7 +107,7 @@ def _friendly(status, detail, method, path):
     base = "API error " + str(status) + " on " + method + " " + path
     hint = ""
     if status == 409:
-        hint = " - the pin is not being built (claim it first, or it was dismissed / completed already)"
+        hint = " - the pin's status does not allow this (it may already be building, completed, dismissed or done)"
     elif status == 413:
         hint = " - the image is over 8 MB"
     elif status == 503:

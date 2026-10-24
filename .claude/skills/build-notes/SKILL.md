@@ -89,19 +89,21 @@ Backend tests run ONE FILE PER PROCESS: `cd backend && python -m pytest test_<ar
 
 Neil's rule: the proof that a fix is right must come from something other than Claude or Neil. Every fixed pin gets evidence recorded with `verify` before the PR opens. This stage uses the `playwright-cli` skill and the local dev server (`cd frontend && npm run dev` on http://localhost:5173, with `cd backend && uvicorn main:app --reload --port 8000`; the local backend signs you in through `NEXUS_SKIP_AUTH` in `backend/.env`). "Before" means the `origin/dev` code, "after" means your branch: `git stash`-free switching is `git worktree add /tmp/nexus-dev origin/dev` with its own `npm run dev -- --port 4173`, or simply `git checkout origin/dev -- frontend/src` into a scratch copy; never leave your branch dirty. When playwright-cli or the dev server is not available, record `--before skipped --after skipped` and say why in the PR body - do not silently skip.
 
-- **Bug pins with an action trace.** Build the repro skeleton from the pin:
+Evidence files live next to the pin's `pin.json` in `~/.cache/nexus-build-notes/<id>/` - the repro script, the style JSON, the before/after screenshots. Never write them into the repository (a second guard: never `git add` them). `verify` first checks the pin's status (it must be Building, Needs Input or PR Open) and refuses before uploading anything otherwise - claim the pin first.
+
+- **Bug pins with an action trace.** Build the repro skeleton from the pin (it is written to `~/.cache/nexus-build-notes/<id>/repro_pin_<n>.py` by default):
 
   ```
-  python3 tools/build_notes/repro_template.py ~/.cache/nexus-build-notes/<id>/pin.json --out repro_pin_<n>.py
+  python3 tools/build_notes/repro_template.py ~/.cache/nexus-build-notes/<id>/pin.json
   ```
 
-  It replays the author's clicks, inputs, keys and navigations (masked inputs are `TODO`s - fill them with safe test values) and leaves one `TODO` assertion: make it the pin's complaint as a FAILING expectation - the element's text (`expect(target).to_have_text(...)`), its visibility, a computed style, or the absence of a console error. Run it on the before code (`python3 repro_pin_<n>.py`, needs `pip install playwright && playwright install chromium`; or translate it to `playwright-cli` commands) - it must print `FAILING`. Run it on your branch - it must print `PASSING`. Then:
+  It replays the author's clicks, inputs, keys and navigations (masked inputs are `TODO`s - fill them with safe test values) and leaves one `TODO` assertion: make it the pin's complaint as a FAILING expectation - the element's text (`expect(target).to_have_text(...)`), its visibility, a computed style, or the absence of a console error. Run it on the before code (`python3 ~/.cache/nexus-build-notes/<id>/repro_pin_<n>.py`, needs `pip install playwright && playwright install chromium`; or translate it to `playwright-cli` commands) - it must print `FAILING`. Run it on your branch - it must print `PASSING`. Then:
 
   ```
-  python3 tools/build_notes/cli.py verify <id> --repro-script repro_pin_<n>.py --before failing --after passing
+  python3 tools/build_notes/cli.py verify <id> --repro-script ~/.cache/nexus-build-notes/<id>/repro_pin_<n>.py --before failing --after passing
   ```
 
-  A repro that PASSES before the fix means the bug was not reproduced: record it as it is (`--before passing`), say so in the PR line and on the pin (`reply <id> "The repro passes on dev before the fix - I could not reproduce it this way; here is what I changed and why"`). Do not fake a failing run. Keep `repro_pin_<n>.py` out of the commit (it belongs to the pin's evidence, not the repo).
+  `--before` and `--after` always travel together. A repro that PASSES before the fix means the bug was not reproduced: record it as it is (`--before passing`), say so in the PR line and on the pin (`reply <id> "The repro passes on dev before the fix - I could not reproduce it this way; here is what I changed and why"`). Do not fake a failing run. The repro script stays in the cache folder and out of the commit (it belongs to the pin's evidence, not the repo).
 
 - **Edit pins.** After the fix, load the route, locate the element by the source stamp / selector, and compare `getComputedStyle` for each `edit.styles[].prop` against `edit.styles[].after` and the text against `edit.text.after`:
 
@@ -110,23 +112,25 @@ Neil's rule: the proof that a fix is right must come from something other than C
   playwright-cli eval "el => ({text: el.textContent.trim(), padding: getComputedStyle(el).padding})" "<selector>"
   ```
 
-  Write `style_<n>.json` as `{"passed": true, "checks": [{"prop": "padding", "expected": "12px 16px", "actual": "12px 16px", "ok": true}, ...]}` (one check per style prop plus one `{"prop": "text", ...}` when the text changed) and:
+  Write `~/.cache/nexus-build-notes/<id>/style_<n>.json` as `{"checks": [{"prop": "padding", "expected": "12px 16px", "actual": "12px 16px", "ok": true}, ...]}` - one check per style prop plus one `{"prop": "text", ...}` when the text changed; at least one check, and `passed` is computed from the checks (a bare `"passed": true` counts for nothing) - and:
 
   ```
-  python3 tools/build_notes/cli.py verify <id> --style-json style_<n>.json
+  python3 tools/build_notes/cli.py verify <id> --style-json ~/.cache/nexus-build-notes/<id>/style_<n>.json
   ```
 
 - **Change and visual pins.** Screenshot the pin's route before (dev code) and after (branch) at the pin's viewport (`playwright-cli resize <w> <h>` from the brief's Viewport line, or `open --mobile` for a phone pin):
 
   ```
   playwright-cli open http://localhost:4173/<route path>   # before (dev code)
-  playwright-cli screenshot --filename=/tmp/before-<id>.png
+  playwright-cli screenshot --filename=~/.cache/nexus-build-notes/<id>/before.png
   playwright-cli close
   playwright-cli open http://localhost:5173/<route path>   # after (branch)
-  playwright-cli screenshot --filename=/tmp/after-<id>.png
+  playwright-cli screenshot --filename=~/.cache/nexus-build-notes/<id>/after.png
   playwright-cli close
-  python3 tools/build_notes/cli.py verify <id> --before-image /tmp/before-<id>.png --after-image /tmp/after-<id>.png
+  python3 tools/build_notes/cli.py verify <id> --before-image ~/.cache/nexus-build-notes/<id>/before.png --after-image ~/.cache/nexus-build-notes/<id>/after.png
   ```
+
+  The before picture is stored as a `before` shot and the after picture as an `after` shot (the one the author sees as "After:" on the pin) - pass them in that order.
 
 A pin may take more than one kind of evidence (a Bug with a style change gets a repro and a style check). Post `Evidence recorded` on the pin. Remember the evidence words for the PR line: `repro failing -> passing`, `style check 3/3`, `before/after attached` - `verify` prints them.
 
@@ -169,9 +173,9 @@ If `playwright-cli` is available and a pin did not already get a before/after pa
 
 ```
 playwright-cli open http://localhost:5173/<route path from the pin's URL>
-playwright-cli screenshot --filename=/tmp/after-<id>.png
+playwright-cli screenshot --filename=~/.cache/nexus-build-notes/<id>/after.png
 playwright-cli close
-python3 tools/build_notes/cli.py after <id> --image /tmp/after-<id>.png
+python3 tools/build_notes/cli.py after <id> --image ~/.cache/nexus-build-notes/<id>/after.png
 ```
 
 Match the pin's viewport. Skip this step quietly when playwright-cli or the dev server is not available; the PR is already recorded.
@@ -191,7 +195,7 @@ python3 tools/build_notes/cli.py reply <id> "text" [--needs-input | --answered] 
 python3 tools/build_notes/cli.py verify <id> [--repro-script PATH --before failing|passing|skipped --after failing|passing|skipped] [--style-json PATH] [--before-image PATH --after-image PATH]
 python3 tools/build_notes/cli.py after <id> --image PATH
 python3 tools/build_notes/cli.py complete <id>... --pr URL --branch NAME [--summary "..."]
-python3 tools/build_notes/repro_template.py <pin.json> [--base http://localhost:5173] [--out repro_pin_<n>.py]
+python3 tools/build_notes/repro_template.py <pin.json> [--base http://localhost:5173] [--out PATH | --stdout]   # default: ~/.cache/nexus-build-notes/<id>/repro_pin_<n>.py
 ```
 
 Pin statuses: Open -> Dispatched -> Building -> (Needs Input ->) PR Open -> Fixed - Verify -> Done. `claim` makes Building, `reply --needs-input` makes Needs Input, `complete` makes PR Open, the merge to dev makes Fixed - Verify (the author accepts or reopens in Nexus). Setup and troubleshooting for the watcher and token: `tools/build_notes/README.md`.
