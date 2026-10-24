@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Scale } from "lucide-react";
+import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Scale, Wrench } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
 import { TabGroupButton, useHeaderTabs } from "./ModuleTabs";
@@ -34,6 +34,7 @@ import { useNexusSearch, SEARCH_PLACEHOLDER, SEARCH_HINT, SEARCH_LABEL } from '.
 import SearchResults from './search/SearchResults';
 
 import { isSearchShortcut, isPhone } from '../lib/keys';
+import { useBuildModeMenu, BuildModeChip } from '../devnotes/BuildModeChip';   // Build Mode (Oct 24 2026)
 
 const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘' : 'Ctrl';
 
@@ -98,6 +99,9 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   }, []);
 
   const [open,         setOpen]         = useState(false);
+  // Build Mode (Oct 24 2026): the menu row shows only when the server says the
+  // person has it; the chip beside the profile pill shows while it is on.
+  const buildMode = useBuildModeMenu();
   // What's New is a page in the app now (Neil, Oct 12 2026), not an overlay:
   // every way in navigates to it, and every signed-in user may read it.
   function openChangelog() {
@@ -319,6 +323,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         {/* "?" Help menu: search the guide, help with this page, then Contact
             Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
         <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
+        {buildMode.enabled && buildMode.on && <BuildModeChip onClick={buildMode.toggle} />}
         <NotificationBell onNavigate={onNavigate} />
 
         {/* User profile pill */}
@@ -377,6 +382,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <button className="hud-item" onClick={() => { setOpen(false); setMyProfileOpen(true); }}>
                 <User size={14} /> Profile
               </button>
+              {buildMode.enabled && (
+                <button className="hud-item" onClick={() => { setOpen(false); buildMode.toggle(); }} aria-pressed={buildMode.on}>
+                  <Wrench size={14} /> {buildMode.on ? 'Build Mode Off' : 'Build Mode'}
+                </button>
+              )}
               <button className="hud-item" onClick={() => { setOpen(false); openChangelog(); }}>
                 <Sparkles size={14} /> What's New
               </button>

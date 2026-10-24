@@ -1,5 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { fileURLToPath } from 'node:url'
+import { nxSrcVitePlugin } from './scripts/nxsrc-plugin.mjs'
+
+// Build Mode (Oct 24 2026). Dev builds stamp every host JSX element that has a
+// handler or an aria / role attribute with data-nx-src="<fileId>:line:col"
+// (scripts/nxsrc-plugin.mjs; the file table is /nx-src-files.json), so a pin
+// can say which file and line drew the element it sits on (devnotes/lib/
+// capture.js sourceOf). On for Cloudflare's dev branch build, with
+// VITE_NX_SRC=1|interactive|all locally, and in `vite` dev serve; never on a
+// production build. Component names were the other idea: rolldown's
+// output.keepNames breaks the build (MISSING_EXPORT in underscore, Oct 24
+// 2026) and esbuild.keepNames is a no-op under Vite 8, so the stamps are the
+// one source of truth and componentsFor is best effort.
+const DEV_BRANCH = process.env.CF_PAGES_BRANCH === 'dev';
+const NX_SRC = DEV_BRANCH || !!process.env.VITE_NX_SRC;   // 1 | interactive | all
+const FRONTEND_ROOT = fileURLToPath(new URL('.', import.meta.url));
 
 // Cache namespace (Jul 28, "nx2"): rotates EVERY asset URL past the poisoned
 // cache entries from tonight's deploy races. Vendor chunk hashes are stable
@@ -94,12 +110,26 @@ const stampUnhashedAssets = () => ({
   },
 });
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   define: {
     'import.meta.env.VITE_BUILD_ID': JSON.stringify(BUILD_ID),
     'import.meta.env.VITE_BUILD_TIME': JSON.stringify(BUILD_TIME),
+    'import.meta.env.VITE_NX_SRC': JSON.stringify(NX_SRC || command === 'serve' ? '1' : ''),
   },
-  plugins: [react(), versionManifest(), stampUnhashedAssets()],
+  plugins: [
+    // The stamps run before plugin-react's JSX compile (enforce: 'pre'); never
+    // under vitest, where they would only slow the transforms down.
+    // Measured Oct 24 2026 (plain build 14086 KB, cap 14600): every host
+    // element with a full path = 16005 KB; elements with text / a handler /
+    // aria, full path = 15600 KB; the same with the compact "<fileId>:line:col"
+    // value = 14804 KB; elements with a handler or aria / role only, compact =
+    // 14305 KB (8,491 stamps) - the default, the one that fits the budget. A
+    // pin on plain text resolves to its nearest stamped ancestor (source.self
+    // = false). VITE_NX_SRC=interactive or =all for the bigger modes locally.
+    ...((NX_SRC || command === 'serve') && !process.env.VITEST
+      ? [nxSrcVitePlugin({ root: FRONTEND_ROOT, only: process.env.VITE_NX_SRC === 'all' ? undefined : process.env.VITE_NX_SRC === 'interactive' ? 'interactive' : 'handlers' })] : []),
+    react(), versionManifest(), stampUnhashedAssets(),
+  ],
   base: '/',
   // Automatic JSX runtime for BOTH build and Vitest transforms (source files
   // don't import React; without this, Vitest transforms them classic and every
@@ -158,4 +188,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

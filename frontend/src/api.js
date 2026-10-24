@@ -238,6 +238,7 @@ function _networkError(err) {
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   const authHeader = await getAuthHeader(tokenRefreshed);
   const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
+  const _startedAt = Date.now();   // Build Mode's network buffer (onApiRequest, end of file)
   let res;
   try {
     const controller = new AbortController();
@@ -272,8 +273,10 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
       return req(path, options, attempt + 1, tokenRefreshed);
     }
     _setBackendDown(true);
+    _emitApiRequest(path, options, 0, _startedAt);
     throw _networkError(err);
   }
+  _emitApiRequest(path, options, res.status, _startedAt, _apiBodyCapture ? res.clone() : null);
 
   // BFF mode: a 401 means the session cookie is dead/absent -> server-side login
   // (the replacement for MSAL's token-refresh + interactive reauth).
@@ -2904,7 +2907,53 @@ export const api = {
   deleteTaskLabel: (name, company = "") => req("/task-labels/delete", { method: "POST", body: JSON.stringify({ name, company }) }),
   // The batch bar's Add Label / Remove Label: merged into each task's labels.
   bulkTaskLabels: (ids, { add = [], remove = [] } = {}) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, tags_add: add, tags_remove: remove }) }),
+
+  // Build Mode (Oct 24 2026, frontend/src/devnotes, backend routers/dev_notes.py):
+  // pins on the live app that Claude Code picks up from a terminal. /enabled
+  // answers { enabled: false } for anyone without the grant - never a 403.
+  devNotesEnabled: () => req("/dev-notes/enabled"),
+  devNotesSettings: () => req("/dev-notes/settings"),
+  devNotesSaveSettings: (data) => req("/dev-notes/settings", { method: "PUT", body: JSON.stringify(data) }),
+  devNotesCreate: (data) => req("/dev-notes", { method: "POST", body: JSON.stringify(data) }),
+  devNotesList: (params = {}) => req(`/dev-notes?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null && v !== false))).toString()}`),
+  devNotesPins: (route, sub = "") => req(`/dev-notes/pins?${new URLSearchParams({ route: route || "", sub: sub || "" }).toString()}`),
+  devNotesGet: (id) => req(`/dev-notes/${encodeURIComponent(id)}`),
+  devNotesPatch: (id, data) => req(`/dev-notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  devNotesThread: (id, text, imageUrl = "") => req(`/dev-notes/${encodeURIComponent(id)}/thread`, { method: "POST", body: JSON.stringify({ text, imageUrl }) }),
+  devNotesVerify: (id, accepted, comment = "") => req(`/dev-notes/${encodeURIComponent(id)}/verify`, { method: "POST", body: JSON.stringify({ accepted, comment }) }),
+  devNotesDispatch: (data = {}) => req("/dev-notes/dispatch", { method: "POST", body: JSON.stringify(data) }),
+  devNotesSessions: (params = {}) => req(`/dev-notes/sessions?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))).toString()}`),
+  devNotesSessionPatch: (id, data) => req(`/dev-notes/sessions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  devNotesTokens: () => req("/dev-notes/tokens"),
+  devNotesTokenCreate: (label) => req("/dev-notes/tokens", { method: "POST", body: JSON.stringify({ label }) }),
+  devNotesTokenRevoke: (id) => req(`/dev-notes/tokens/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  // { pins: {...}, medianPinToPrHours, reopenRate, firstClaimHitRate } - the Sessions tab's Stats strip.
+  devNotesStats: () => req("/dev-notes/stats"),
 };
+
+// Build Mode's network buffer (Oct 24 2026): every request through req()
+// reports { method, path, status, ms, at } to the listeners - status 0 when
+// fetch itself failed. Nothing else changes: a listener that throws is
+// swallowed, and with no listener this is one Set lookup per request.
+const _apiRequestListeners = new Set();
+// Bodies travel only while a listener asked for them (setApiBodyCapture):
+// the response is cloned for the listener to read, the request body is the
+// string that was sent. Off (the default) nothing is cloned or kept.
+let _apiBodyCapture = false;
+function _emitApiRequest(path, options, status, startedAt, responseClone = null) {
+  if (!_apiRequestListeners.size) return;
+  const entry = { method: (options?.method || 'GET').toUpperCase(), path, status, ms: Date.now() - startedAt, at: new Date().toISOString() };
+  if (_apiBodyCapture) {
+    entry.requestBody = typeof options?.body === 'string' ? options.body : (options?.body instanceof FormData ? '[multipart form]' : '');
+    entry.response = responseClone;
+  }
+  _apiRequestListeners.forEach((fn) => { try { fn(entry); } catch { /* a listener must never break a request */ } });
+}
+export function onApiRequest(listener) {
+  _apiRequestListeners.add(listener);
+  return () => _apiRequestListeners.delete(listener);
+}
+export function setApiBodyCapture(on) { _apiBodyCapture = !!on; }
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
 // no MSAL involved, the token in the URL is the credential.

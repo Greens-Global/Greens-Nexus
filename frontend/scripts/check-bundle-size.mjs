@@ -273,6 +273,12 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // code only, no new dependency. Deliberate (Neil, who approved the plan
 // knowing the cap would move).
 const TOTAL_KB     = 14600;
+// Oct 24 2026: Build Mode (src/devnotes, a lazy 85 KB chunk) measured 14086 KB
+// on a plain build. Dev builds (CF_PAGES_BRANCH=dev) also carry its source
+// stamps - data-nx-src="<fileId>:<line>:<col>" on every host element with a
+// handler or an aria / role attribute (scripts/nxsrc-plugin.mjs): +219 KB,
+// 14305 KB, inside this cap. The two bigger stamp modes do not fit (text
+// elements too: 14804 KB; every element: 16005 KB) and stay local-only.
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

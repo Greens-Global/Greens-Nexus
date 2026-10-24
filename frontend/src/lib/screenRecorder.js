@@ -207,6 +207,11 @@ function _showPill(onStop, onCancel) {
 
 export function isScreenRecording() { return _recording; }
 
+// Build Mode (Oct 24 2026) stops a recording from its own Stop button, so the
+// current recording's finish is kept here; a no-op when nothing is recording.
+let _finishCurrent = null;
+export function stopScreenRecording() { _finishCurrent?.(); }
+
 /**
  * Starts a screen recording (+ mic if voice=true). `onDone(blob|null)` fires
  * once - Stop, the browser's own "Stop sharing" chip, or Cancel all funnel
@@ -218,14 +223,19 @@ export function isScreenRecording() { return _recording; }
  * is expected to stay quiet on that one, same as the picker-cancel handling
  * in stepRecorder.js's startBugRecording).
  */
-export async function startScreenRecording({ voice = false } = {}, onDone) {
+// `quiet` (Build Mode): no "Recording captured" toast - the caller shows the
+// recording itself; the pill with Stop / Cancel stays.
+// `stream` (Build Mode): a display stream the caller already holds - it is
+// CLONED, so stopping this recording leaves the caller's own stream running
+// and the person is not asked to share twice.
+export async function startScreenRecording({ voice = false, quiet = false, stream: given = null } = {}, onDone) {
   if (_recording) { try { _mediaRec?.stop(); } catch { /* already stopped */ } _cleanupTracks(); _removePill(); _recording = false; }
-  if (!navigator.mediaDevices?.getDisplayMedia) {
+  if (!given && !navigator.mediaDevices?.getDisplayMedia) {
     throw new Error('Screen recording isn\'t supported in this browser.');
   }
   primeReturnCue();   // no-op if the caller already primed on the Record click
   _chunks = [];
-  const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 10 }, audio: false });
+  const stream = given?.clone ? given.clone() : await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 10 }, audio: false });
   _screenStream = stream;
   if (voice) {
     try {
@@ -241,7 +251,7 @@ export async function startScreenRecording({ voice = false } = {}, onDone) {
     if (!_recording) return;
     _recording = false;
     const rec = _mediaRec;
-    const done = (blob) => { _removePill(); _cleanupTracks(); _bringTabBack(); if (blob) _showRecordingToast(blob); onDone?.(blob); };
+    const done = (blob) => { _removePill(); _cleanupTracks(); _finishCurrent = null; _bringTabBack(); if (blob && !quiet) _showRecordingToast(blob); onDone?.(blob); };
     if (!rec || rec.state === 'inactive') { done(_chunks.length ? new Blob(_chunks, { type: 'video/webm' }) : null); return; }
     rec.onstop = () => done(_chunks.length ? new Blob(_chunks, { type: 'video/webm' }) : null);
     try { rec.stop(); } catch { done(null); }
@@ -249,9 +259,10 @@ export async function startScreenRecording({ voice = false } = {}, onDone) {
   const cancel = () => {
     _recording = false;
     try { _mediaRec?.stop(); } catch { /* ignore */ }
-    _removePill(); _cleanupTracks();
+    _removePill(); _cleanupTracks(); _finishCurrent = null;
     onDone?.(null);
   };
+  _finishCurrent = finish;
   // Chrome's own "Stop sharing" chip ends the video track - treat as Stop so
   // nothing is lost even if the tester uses the browser control instead of ours.
   _screenStream.getVideoTracks()[0].addEventListener('ended', finish);
