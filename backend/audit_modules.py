@@ -109,6 +109,7 @@ _RESOURCES: dict[str, str] = {
     "login": "security",
     # System
     "client-errors": "system", "health": "system", "version": "system", "system": "system",
+    "dev-notes": "settings",   # Build Mode pins, sessions, Build Tokens (Oct 24 2026)
 }
 _RESOURCE_PREFIXES: list[tuple[str, str]] = [
     ("task-ticket", "tickets"), ("ticket", "tickets"),

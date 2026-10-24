@@ -148,5 +148,8 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
              f"deploying to {site}.\n{url}",
         ref_id=str(number),
     )
+    if base_ref == "dev":   # Build Mode (Oct 24 2026): pins this PR fixed -> "Fixed - Verify" (off the loop, like the draft)
+        from routers import dev_notes
+        await asyncio.to_thread(dev_notes.mark_fixed_for_pr, db, number, pr.get("merge_commit_sha") or "")
     scheduled = await _schedule_draft(f"PR #{number} merged to {base_ref}")
     return {"ok": True, "branch": base_ref, "scheduled": scheduled}
