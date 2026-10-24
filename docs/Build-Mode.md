@@ -130,8 +130,15 @@ this screen" for a pin whose `route` is one of them.
 | note_count | Integer default 0 | maintained on write |
 
 A user has at most ONE `collecting` session at a time; new pins join it
-(created on first pin). Dispatch moves it to `sent`. Pins created after that
-start a new collecting session.
+(created on first pin; on Postgres the creation takes a per-author advisory
+lock, and a duplicate that slips through is folded into the oldest). Dispatch
+moves it to `sent`. Pins created after that start a new collecting session.
+A session that was never dispatched (`dispatchedAt` '') stays `collecting`
+whatever its pins do - dismissing its only pin does not close it.
+
+Size caps on input (413 naming the field): each JSON object field (`state`,
+`target`, `markup`, `edit`, `viewport`, `verification`) 64 KB serialized;
+`comment` and `transcript` 20 KB.
 
 ### `dev_note_tokens` (model `DevNoteToken`)
 
@@ -230,7 +237,7 @@ accepts `imageUrl` or `image_url` on input.)
 Browser uploads go straight to Supabase Storage, bucket `qa-evidence` (already
 PRIVATE and in both PROTECTED_BUCKETS lists), path
 `dev-notes/<noteId>/<kind>-<timestamp>.<ext>` with `kind` in
-screenshot | page | video | sheet | paste | after. The note stores the
+screenshot | page | video | sheet | paste | before | after. The note stores the
 canonical `.../object/public/qa-evidence/...` URL (api.js rewrites to the
 viewer automatically). The server accepts ONLY URLs inside that bucket and
 prefix (`_valid_media_url`), everything else -> 400. The CLI gets short-lived
@@ -240,7 +247,9 @@ signed URLs from the server (section 4) - never a public URL.
 ## 4. HTTP API (`prefix="/dev-notes"`, tags=["Build Mode"])
 
 All responses are camelCase (`_serialize(note)`); requests may send camelCase
-or snake_case for the note fields (both accepted, stored snake).
+or snake_case for the note fields (both accepted, stored snake). The
+collection lives at `/dev-notes` (no trailing slash, like every other router
+and `api.js`); `/dev-notes/` answers with a 307 to it.
 
 ### Signed-in user (require_build_mode)
 | method | path | body / query | returns |
@@ -268,12 +277,12 @@ or snake_case for the note fields (both accepted, stored snake).
 | method | path | body / query | returns |
 |---|---|---|---|
 | GET | /cli/wait | `?timeout=25` (0..50) | `{notes: [note], sessions: [session]}` for every pin in `dispatched`, plus pins in `needs_input` or `building` whose thread's last entry is a human comment (Claude was waiting and the author answered). Returns at once when non-empty, else polls the DB every 2 s in a thread up to `timeout`, then returns empty lists. `async def`; never a sync sleep on the loop. |
-| POST | /cli/claim | `{noteIds: []}` | `{notes: [note + media], sessions: [session]}` where `media = {screenshot, pageShot, video, contactSheet, attachments: [], afterShots: []}` are absolute SIGNED URLs valid 1 h (`routers/files.py`'s `_sign`; fetched with no auth header) and `sessions` are the claimed pins' Build Sessions (id, title, status, ...). Status -> `building` (from dispatched, needs_input or building), session -> building. The claim writes a `progress` entry "Picked up by Claude Code", which is what takes an answered pin out of `/cli/wait`. |
+| POST | /cli/claim | `{noteIds: []}` | `{notes: [note + media], sessions: [session], skipped: [{id, number, status, reason}]}` where `media = {screenshot, pageShot, video, contactSheet, attachments: [], beforeShots: [], afterShots: []}` are absolute SIGNED URLs valid 1 h (`routers/files.py`'s `_sign`; fetched with no auth header; '' when storage cannot sign) and `sessions` are the claimed pins' Build Sessions (id, title, status, ...). Per pin: eligible pins (dispatched, needs_input, building) go to `building`, the rest are listed in `skipped` with a reason; 404 only when NO id exists, 409 only when NONE is eligible. Session -> building. The first pick-up (from dispatched) sets `progress` to "Picked up by Claude Code"; a re-claim keeps Claude's last progress line. Every claim makes sure a "Picked up by Claude Code" `progress` entry is the last thread entry, which is what takes an answered pin out of `/cli/wait`. |
 | POST | /cli/verify/{id} | `{repro?: {script, before: failing\|passing\|skipped, after: failing\|passing\|skipped}, styleCheck?: {passed: bool, checks: [{prop, expected, actual, ok}]}, visual?: {beforeUrl, afterUrl}}` | note. Merges into `verification` (plus `at`), appends a `system` entry summarizing it ("Repro: failing -> passing. Style check passed 3/3. Before and after shots attached."). Visual URLs must be qa-evidence dev-notes URLs (use `/cli/attach` first). Empty body -> 400. |
 | POST | /cli/progress/{id} | `{text}` | note. Sets `progress`, `progressAt`, appends a `progress` thread entry. One line. |
 | POST | /cli/reply/{id} | `{text, needsInput?: bool, answered?: bool, imageUrl?}` | note. Appends a `claude` entry; `needsInput` -> status `needs_input` and a bell to the author; `answered` (questions) -> `done`. |
-| POST | /cli/attach/{id} | multipart `file` (+ form `kind` = after \| paste), <= 8 MB, png/jpg/webp | `{url}` - the server uploads to `qa-evidence/dev-notes/<id>/<kind>-<ts>.<ext>` with the service key, appends the url to `attachments`; kind after also adds a `claude` thread entry "After:" with the image. |
-| POST | /cli/complete | `{noteIds: [], prUrl, prNumber, branch, summary?}` | `{notes, session}`. Status -> `pr_open` (from building or needs_input), sets the PR fields on pins and session, thread system entry "PR #n Open", a bell to the session author. |
+| POST | /cli/attach/{id} | multipart `file` (+ form `kind` = after \| before \| paste), <= 8 MB, png/jpg/webp | `{url}` - the server uploads to `qa-evidence/dev-notes/<id>/<kind>-<ts>.<ext>` with the service key and appends the url to `attachments`; kind after also adds a `claude` thread entry "After:" with the image; kind before adds no entry (it is the verify shot, listed under `beforeShots`). |
+| POST | /cli/complete | `{noteIds: [], prUrl, prNumber, branch, summary?}` | `{notes, session, sessions, skipped: [{id, number, status, reason}]}`. Per pin like claim: eligible pins (building, needs_input) -> `pr_open` with the PR fields on pins and session, thread system entry "PR #n Open", a bell to the session author; the rest are listed in `skipped`; 404 only when NO id exists, 409 only when NONE is eligible. |
 | GET | /cli/whoami | | `{email, tokenLabel}` - the watcher's health check (`tokenLabel` is '' for a signed-in user) |
 
 ### GitHub webhook hook (`routers/github_webhook.py`)
@@ -301,8 +310,10 @@ A pin that reaches `done` or `dismissed` gets `purge_at` = now + 30 days
 (cleared again if it is reopened). `dev_notes.purge_media(db)` deletes the
 storage objects of every pin past its purge date (service key, the same
 client `/cli/attach` uploads with), blanks the media URL columns, empties
-`attachments` and the verification shots, and appends a `system` entry
-"Media Purged". A delete storage refuses keeps its URL for the next run.
+`attachments` and the verification shots, and appends ONE `system` entry
+"Media Purged" (never a second one on a later run). A delete storage refuses
+keeps its URL and the purge date for the next run; once nothing is left the
+purge date is blanked so the row is never selected again.
 Today it runs only from `POST /dev-notes/purge` (Global Admin); a daily
 loop in `main.py`'s lifespan (in a thread, like `reminders_loop`) is the
 follow-up.

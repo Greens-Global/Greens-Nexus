@@ -86,7 +86,7 @@ def _create(**fields):
     body = {"kind": "bug", "priority": "normal", "comment": "Button is misaligned",
             "route": "tasks", "sub": "home", "screenshotUrl": MEDIA}
     body.update(fields)
-    r = client.post("/dev-notes/", json=body)
+    r = client.post("/dev-notes", json=body)
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -147,8 +147,8 @@ def test_admin_without_grant_is_not_enabled_and_everything_else_is_403():
     _as(ADMIN)
     r = client.get("/dev-notes/enabled")
     assert r.status_code == 200 and r.json() == {"enabled": False}
-    for call in (lambda: client.get("/dev-notes/"), lambda: client.get("/dev-notes/pins"),
-                 lambda: client.post("/dev-notes/", json={"comment": "x"}),
+    for call in (lambda: client.get("/dev-notes"), lambda: client.get("/dev-notes/pins"),
+                 lambda: client.post("/dev-notes", json={"comment": "x"}),
                  lambda: client.get("/dev-notes/settings"), lambda: client.post("/dev-notes/tokens", json={})):
         r = call()
         assert r.status_code == 403, r.text
@@ -161,7 +161,7 @@ def test_grant_holder_and_global_admin_are_enabled():
     assert r.json()["settings"] == {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True}
     _as(GA)
     assert client.get("/dev-notes/enabled").json()["enabled"] is True
-    assert client.get("/dev-notes/").status_code == 200
+    assert client.get("/dev-notes").status_code == 200
 
 
 # ── pins and sessions ─────────────────────────────────────────────────────────
@@ -227,9 +227,9 @@ def test_settings_refuse_github():
 def test_blocked_routes_are_announced_and_refused():
     assert client.get("/dev-notes/enabled").json()["blockedRoutes"] == ["pfs", "credvault"]
     for route in ("pfs", "credvault"):
-        r = client.post("/dev-notes/", json={"comment": "x", "route": route})
+        r = client.post("/dev-notes", json={"comment": "x", "route": route})
         assert r.status_code == 400 and r.json()["detail"] == "Build Mode is off on this screen"
-    assert client.get("/dev-notes/").json() == []
+    assert client.get("/dev-notes").json() == []
 
 
 def test_actions_state_and_network_bodies_are_stored_and_capped():
@@ -251,11 +251,11 @@ def test_bad_media_url_is_400():
                 "https://test.supabase.co/storage/v1/object/public/qa-evidence/other/x.png",
                 "https://test.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/../x.png",
                 "data:image/png;base64,AAAA"):
-        r = client.post("/dev-notes/", json={"comment": "x", "screenshotUrl": bad})
+        r = client.post("/dev-notes", json={"comment": "x", "screenshotUrl": bad})
         assert r.status_code == 400, bad
-    r = client.post("/dev-notes/", json={"comment": "x", "attachments": ["https://evil.example/x.png"]})
+    r = client.post("/dev-notes", json={"comment": "x", "attachments": ["https://evil.example/x.png"]})
     assert r.status_code == 400
-    r = client.post("/dev-notes/", json={"comment": "x", "kind": "nope"})
+    r = client.post("/dev-notes", json={"comment": "x", "kind": "nope"})
     assert r.status_code == 400
 
 
@@ -271,8 +271,8 @@ def test_pins_shows_every_authors_live_pins_on_the_route():
     r = client.patch(f"/dev-notes/{mine['id']}", json={"status": "dismissed"})
     assert r.status_code == 200 and r.json()["status"] == "dismissed"
     assert mine["id"] not in {p["id"] for p in client.get("/dev-notes/pins", params={"route": "tasks"}).json()}
-    assert mine["id"] not in {p["id"] for p in client.get("/dev-notes/").json()}
-    assert mine["id"] in {p["id"] for p in client.get("/dev-notes/", params={"status": "dismissed"}).json()}
+    assert mine["id"] not in {p["id"] for p in client.get("/dev-notes").json()}
+    assert mine["id"] in {p["id"] for p in client.get("/dev-notes", params={"status": "dismissed"}).json()}
     r = client.patch(f"/dev-notes/{mine['id']}", json={"status": "open"})
     assert r.json()["status"] == "open"
 
@@ -323,7 +323,7 @@ def test_token_reads_the_list_and_one_pin():
     token = _token()["token"]
     n = _create()
     _as(ADMIN)   # the browser session is somebody without access; the Bearer token decides
-    r = client.get("/dev-notes/", headers=_hdr(token))
+    r = client.get("/dev-notes", headers=_hdr(token))
     assert r.status_code == 200 and [x["id"] for x in r.json()] == [n["id"]]
     assert client.get(f"/dev-notes/{n['id']}", headers=_hdr(token)).json()["id"] == n["id"]
     assert client.get("/dev-notes/pins", headers=_hdr(token)).status_code == 403   # user routes stay user-only
@@ -359,7 +359,8 @@ def test_wait_claim_progress_reply_thread_complete():
     assert r.json()["sessions"][0]["id"] == n["sessionId"] and r.json()["sessions"][0]["status"] == "building"
     assert r.json()["sessions"][0]["title"].startswith("Build Session ")
     assert "actions" in c and "state" in c and "verification" in c and c["purgeAt"] == ""
-    assert set(c["media"]) == {"screenshot", "pageShot", "video", "contactSheet", "attachments", "afterShots"}
+    assert set(c["media"]) == {"screenshot", "pageShot", "video", "contactSheet", "attachments", "beforeShots", "afterShots"}
+    assert r.json()["skipped"] == []
     assert c["media"]["screenshot"] == "signed:" + MEDIA and c["media"]["video"] == ""
     assert c["media"]["attachments"] == ["signed:" + MEDIA.replace("screenshot-1", "paste-2")]
     assert c["media"]["afterShots"] == ["signed:" + MEDIA.replace("screenshot-1", "after-3")]
@@ -450,7 +451,7 @@ def test_attach_uploads_and_records_the_after_shot(monkeypatch):
                     files={"file": ("x.txt", io.BytesIO(b"hello"), "text/plain")}, data={"kind": "paste"})
     assert r.status_code == 400
     r = client.post(f"/dev-notes/cli/attach/{n['id']}", headers=_hdr(token),
-                    files={"file": ("a.png", io.BytesIO(png), "image/png")}, data={"kind": "before"})
+                    files={"file": ("a.png", io.BytesIO(png), "image/png")}, data={"kind": "sideways"})
     assert r.status_code == 400
     r = client.post(f"/dev-notes/cli/attach/{n['id']}", headers=_hdr(token),
                     files={"file": ("a.png", io.BytesIO(png + b"0" * D.ATTACH_MAX_BYTES), "image/png")},
@@ -681,9 +682,9 @@ def test_client_id_and_bell_actions():
     want = str(_uuid.uuid4())
     n = _create(id=want)
     assert n["id"] == want
-    r = client.post("/dev-notes/", json={"kind": "bug", "comment": "x", "route": "tasks", "id": want})
+    r = client.post("/dev-notes", json={"kind": "bug", "comment": "x", "route": "tasks", "id": want})
     assert r.status_code == 409
-    r = client.post("/dev-notes/", json={"kind": "bug", "comment": "x", "route": "tasks", "id": "not-a-uuid"})
+    r = client.post("/dev-notes", json={"kind": "bug", "comment": "x", "route": "tasks", "id": "not-a-uuid"})
     assert r.status_code == 400
     # bells carry the action the bell navigates by
     note = _to_pr_open(pr=31)
@@ -702,3 +703,167 @@ def test_client_id_and_bell_actions():
     finally:
         db.close()
     assert _json.loads(fixed[-1].action) == {"view": "dev-notes", "sub": f"pin:{note['id']}"}
+
+
+# ── review fixes (Oct 24 2026) ────────────────────────────────────────────────
+def test_routes_live_at_dev_notes_and_the_slash_form_still_works():
+    body = {"kind": "bug", "comment": "x", "route": "tasks"}
+    assert client.post("/dev-notes", json=body).status_code == 201
+    assert len(client.get("/dev-notes").json()) == 1
+    r = client.get("/dev-notes/", follow_redirects=False)
+    assert r.status_code == 307 and r.headers["location"].endswith("/dev-notes")
+    assert client.post("/dev-notes/", json=body).status_code == 201     # 307 replayed by the client
+    assert len(client.get("/dev-notes/").json()) == 2
+
+
+def test_a_never_dispatched_session_stays_collecting_whatever_its_pins_do():
+    n = _create()
+    client.patch(f"/dev-notes/{n['id']}", json={"status": "dismissed"})
+    s = client.get("/dev-notes/sessions").json()[0]
+    assert s["status"] == "collecting" and s["noteCount"] == 1 and s["dispatchedAt"] == ""
+    client.patch(f"/dev-notes/{n['id']}", json={"status": "open"})
+    assert client.get("/dev-notes/sessions").json()[0]["status"] == "collecting"
+    m = _create()                       # joins the same session
+    assert m["sessionId"] == n["sessionId"] and m["number"] == 2
+    out = _dispatch()                   # the Send button finds it
+    assert out["session"]["status"] == "sent" and len(out["notes"]) == 2
+    # after dispatch the pins drive it: dismiss both -> done
+    for x in (n, m):
+        client.patch(f"/dev-notes/{x['id']}", json={"status": "dismissed"})
+    assert client.get("/dev-notes/sessions").json()[0]["status"] == "done"
+
+
+def test_claim_and_complete_are_per_pin():
+    token = _token()["token"]
+    h = _hdr(token)
+    a = _create()
+    b = _create()
+    _dispatch()
+    client.patch(f"/dev-notes/{b['id']}", json={"status": "dismissed"})
+    r = client.post("/dev-notes/cli/claim", json={"noteIds": [a["id"], b["id"], "missing"]}, headers=h)
+    assert r.status_code == 200, r.text
+    assert [x["id"] for x in r.json()["notes"]] == [a["id"]]
+    assert r.json()["skipped"] == [
+        {"id": b["id"], "number": 2, "status": "dismissed", "reason": "Pin #2 is dismissed and cannot be claimed"},
+        {"id": "missing", "number": 0, "status": "", "reason": "Pin not found"},
+    ]
+    assert client.post("/dev-notes/cli/claim", json={"noteIds": [b["id"]]}, headers=h).status_code == 409
+    assert client.post("/dev-notes/cli/claim", json={"noteIds": ["missing", "nope"]}, headers=h).status_code == 404
+    done = {"prUrl": "https://github.com/x/y/pull/9", "prNumber": 9, "branch": "b"}
+    r = client.post("/dev-notes/cli/complete", json={"noteIds": [a["id"], b["id"]], **done}, headers=h)
+    assert r.status_code == 200, r.text
+    assert [x["id"] for x in r.json()["notes"]] == [a["id"]] and r.json()["notes"][0]["status"] == "pr_open"
+    assert r.json()["skipped"][0]["id"] == b["id"] and r.json()["skipped"][0]["status"] == "dismissed"
+    assert r.json()["session"]["prNumber"] == 9 and r.json()["sessions"][0]["id"] == a["sessionId"]
+    assert client.post("/dev-notes/cli/complete", json={"noteIds": [b["id"]], **done}, headers=h).status_code == 409
+    assert client.post("/dev-notes/cli/complete", json={"noteIds": ["missing"], **done}, headers=h).status_code == 404
+
+
+def test_duplicate_collecting_sessions_collapse_to_the_oldest():
+    a = _create()
+    db = database.SessionLocal()
+    try:
+        dup = models.DevNoteSession(id="dup-session", title="Dup", status="collecting", created_by=DEV["email"],
+                                    created_at="2099-01-01T00:00:00+00:00", updated_at="", note_count=1)
+        db.add(dup)
+        db.add(models.DevNote(id="stray", session_id="dup-session", number=1, status="open", comment="stray",
+                              created_by=DEV["email"], created_at=D._now(), updated_at=D._now(),
+                              thread=[], attachments=[], console_log=[], network_log=[], actions=[],
+                              viewport={}, target={}, markup={}, edit={}, state={}, verification={}))
+        db.commit()
+        keep = D._collecting_session(db, DEV["email"])
+        db.commit()
+        assert keep.id == a["sessionId"]
+        assert db.query(models.DevNoteSession).filter(models.DevNoteSession.id == "dup-session").first() is None
+        stray = db.query(models.DevNote).filter(models.DevNote.id == "stray").first()
+        assert stray.session_id == a["sessionId"] and stray.number == 2
+        assert keep.note_count == 2
+    finally:
+        db.close()
+    assert _create()["number"] == 3
+
+
+def test_purge_clears_purge_at_and_writes_one_entry(monkeypatch):
+    n = _create(attachments=[MEDIA.replace("screenshot-1", "paste-2")])
+    client.patch(f"/dev-notes/{n['id']}", json={"status": "dismissed"})
+    db = database.SessionLocal()
+    db.query(models.DevNote).filter(models.DevNote.id == n["id"]).update({"purge_at": "2020-01-01T00:00:00+00:00"})
+    db.commit()
+    db.close()
+    _as(GA)
+    # storage refuses everything: no change, no entry, still due
+    monkeypatch.setattr(D, "_delete_object", lambda u: False)
+    for _ in range(2):
+        assert client.post("/dev-notes/purge").json() == {"purged": 0}
+    got = client.get(f"/dev-notes/{n['id']}").json()
+    assert got["screenshotUrl"] == MEDIA and got["purgeAt"] != "" and "Media Purged" not in got["thread"][-1]["text"]
+    # one of two deleted: one entry, still due; a repeat failing run adds no second entry
+    monkeypatch.setattr(D, "_delete_object", lambda u: u == MEDIA)
+    assert client.post("/dev-notes/purge").json() == {"purged": 1}
+    got = client.get(f"/dev-notes/{n['id']}").json()
+    assert got["screenshotUrl"] == "" and len(got["attachments"]) == 1 and got["purgeAt"] != ""
+    assert got["thread"][-1]["text"] == "Media Purged (1 left for the next run)"
+    assert client.post("/dev-notes/purge").json() == {"purged": 0}
+    assert len([e for e in client.get(f"/dev-notes/{n['id']}").json()["thread"] if e["text"].startswith("Media Purged")]) == 1
+    # the rest goes: purge_at blanked, still one entry, never selected again
+    monkeypatch.setattr(D, "_delete_object", lambda u: True)
+    assert client.post("/dev-notes/purge").json() == {"purged": 1}
+    got = client.get(f"/dev-notes/{n['id']}").json()
+    assert got["attachments"] == [] and got["purgeAt"] == ""
+    assert len([e for e in got["thread"] if e["text"].startswith("Media Purged")]) == 1
+    assert client.post("/dev-notes/purge").json() == {"purged": 0}
+
+
+def test_oversized_fields_are_413():
+    r = client.post("/dev-notes", json={"comment": "x", "state": {"blob": "s" * (64 * 1024 + 1)}})
+    assert r.status_code == 413 and r.json()["detail"] == "state is larger than 64 KB"
+    r = client.post("/dev-notes", json={"comment": "c" * (20 * 1024 + 1)})
+    assert r.status_code == 413 and r.json()["detail"] == "comment is larger than 20 KB"
+    r = client.post("/dev-notes", json={"comment": "x", "transcript": "t" * (20 * 1024 + 1)})
+    assert r.status_code == 413 and r.json()["detail"] == "transcript is larger than 20 KB"
+    n = _create(transcript="t" * (10 * 1024), markup={"items": ["m"] * 1000})
+    r = client.patch(f"/dev-notes/{n['id']}", json={"markup": {"blob": "s" * (64 * 1024 + 1)}})
+    assert r.status_code == 413 and r.json()["detail"] == "markup is larger than 64 KB"
+
+
+def test_reclaim_keeps_claudes_progress():
+    token = _token()["token"]
+    n = _create()
+    _dispatch()
+    c = client.post("/dev-notes/cli/claim", json={"noteIds": [n["id"]]}, headers=_hdr(token)).json()["notes"][0]
+    assert c["progress"] == "Picked up by Claude Code" and c["progressAt"]
+    client.post(f"/dev-notes/cli/progress/{n['id']}", json={"text": "Found Home.jsx"}, headers=_hdr(token))
+    c = client.post("/dev-notes/cli/claim", json={"noteIds": [n["id"]]}, headers=_hdr(token)).json()["notes"][0]
+    assert c["progress"] == "Found Home.jsx"
+
+
+def test_signed_media_is_blank_when_storage_cannot_sign():
+    token = _token()["token"]
+    n = _create()
+    _dispatch()
+    saved = F.fetchable_url
+    F.fetchable_url = lambda u: u          # no service key: fetchable_url hands the input back
+    try:
+        c = client.post("/dev-notes/cli/claim", json={"noteIds": [n["id"]]}, headers=_hdr(token)).json()["notes"][0]
+    finally:
+        F.fetchable_url = saved
+    assert c["media"]["screenshot"] == "" and c["media"]["attachments"] == []
+
+
+def test_before_shots(monkeypatch):
+    token = _token()["token"]
+    monkeypatch.setattr(D, "_upload_bytes", lambda note_id, kind, data, ct:
+                        f"https://test.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/{note_id}/{kind}-1.png")
+    n = _create()
+    _dispatch()
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 10
+    before = client.post(f"/dev-notes/cli/attach/{n['id']}", headers=_hdr(token),
+                         files={"file": ("b.png", io.BytesIO(png), "image/png")}, data={"kind": "before"}).json()["url"]
+    after = client.post(f"/dev-notes/cli/attach/{n['id']}", headers=_hdr(token),
+                        files={"file": ("a.png", io.BytesIO(png), "image/png")}, data={"kind": "after"}).json()["url"]
+    got = client.get(f"/dev-notes/{n['id']}").json()
+    assert got["attachments"] == [before, after]
+    assert not any(e["imageUrl"] == before for e in got["thread"])        # before: no thread entry
+    assert got["thread"][-1]["imageUrl"] == after                          # after: the "After:" entry
+    m = client.post("/dev-notes/cli/claim", json={"noteIds": [n["id"]]}, headers=_hdr(token)).json()["notes"][0]["media"]
+    assert m["beforeShots"] == ["signed:" + before] and m["afterShots"] == ["signed:" + after] and m["attachments"] == []

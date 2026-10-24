@@ -38,7 +38,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text as sa_text
 from sqlalchemy.orm import Session
 
 import auth
@@ -61,7 +61,10 @@ WAIT_MAX_SEC = 50
 ATTACH_MAX_BYTES = 8 * 1024 * 1024
 PURGE_DAYS = 30                 # media of a done / dismissed pin is purged this long after
 ENTRY_STR_MAX = 2048            # any string inside a network_log entry (request / response bodies)
+DICT_FIELD_MAX = 64 * 1024      # serialized size of one JSON dict field (state, target, markup, edit, viewport, verification)
+TEXT_FIELD_MAX = 20 * 1024      # comment / transcript
 STATS_DAYS = 90
+PICKED_UP = "Picked up by Claude Code"
 # Screens Build Mode never captures: the client refuses on these views and the
 # server refuses a pin that names them (the records behind them are the most
 # sensitive in Nexus - CLAUDE.md on PFS and the Credential Vault).
@@ -71,7 +74,7 @@ KINDS = ("bug", "change", "question", "edit")
 PRIORITIES = ("blocking", "normal", "nice")
 STATUSES = ("open", "dispatched", "building", "needs_input", "pr_open", "fixed", "done", "dismissed")
 SESSION_STATUSES = ("collecting", "sent", "building", "pr_open", "fixed", "done")
-ATTACH_KINDS = ("after", "paste")
+ATTACH_KINDS = ("after", "before", "paste")   # before-/after- files are the verify shots, paste- the rest
 DEFAULT_SETTINGS = {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True}
 
 # Note fields the browser may write on create (snake). Everything else on the
@@ -87,6 +90,7 @@ MEDIA_FIELDS = ("screenshot_url", "page_shot_url", "video_url", "contact_sheet_u
 _LIST_FIELDS = ("thread", "attachments", "console_log", "network_log", "actions")
 _DICT_FIELDS = ("viewport", "target", "markup", "edit", "state", "verification")
 _LIST_CAPS = {"console_log": 50, "network_log": 30, "actions": 30}
+_TEXT_CAPPED = ("comment", "transcript")
 REPRO_RESULTS = ("failing", "passing", "skipped")
 _IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/webp": "webp"}
 
@@ -201,14 +205,6 @@ def _audit(db: Session, user: dict, action: str, resource_id: str, details: Opti
     ))
 
 
-def _last_human_comment(n: DevNote) -> bool:
-    thread = n.thread or []
-    if not thread:
-        return False
-    last = thread[-1]
-    return last.get("kind") == "comment" and (last.get("by") or "") != "claude"
-
-
 # ── media URLs ────────────────────────────────────────────────────────────────
 def _storage_base() -> str:
     return os.getenv("SUPABASE_URL", "").strip().rstrip("/")
@@ -225,15 +221,17 @@ def _valid_media_url(u: str) -> bool:
     so a pin can never point evidence at a place the viewer will not serve."""
     if not u or not isinstance(u, str) or len(u) > 1000:
         return False
-    if "?" in u or "#" in u or ".." in u or "\\" in u:
+    if "?" in u or "#" in u:
+        return False   # parse_public_url would strip these; the stored value must be the plain object URL
+    if _files._SUPABASE_URL:
+        p = _files.parse_public_url(u)
+        return bool(p) and p[0] == BUCKET and p[1].startswith(MEDIA_PREFIX) and len(p[1]) > len(MEDIA_PREFIX)
+    # Storage not configured (a local backend without Supabase): parse_public_url
+    # answers None for everything, so check the shape alone - the stored value
+    # must still be one api.js can rewrite.
+    if ".." in u or "\\" in u:
         return False
     marker = f"/storage/v1/object/public/{BUCKET}/{MEDIA_PREFIX}"
-    base = _storage_base()
-    if base:
-        prefix = base + marker
-        return u.startswith(prefix) and len(u) > len(prefix)
-    # Storage not configured (a local backend without Supabase): still only
-    # the right shape, so the stored value is one api.js can rewrite.
     idx = u.find(marker)
     return u.startswith("https://") and idx > 0 and len(u) > idx + len(marker)
 
@@ -252,21 +250,33 @@ def _signed(u: str) -> str:
     if not u:
         return ""
     try:
-        return _files.fetchable_url(u)
+        signed = _files.fetchable_url(u)
     except Exception:  # noqa: BLE001 - a missing object must not fail the claim
         return ""
+    # Unchanged means storage could not sign it (no service key): a public
+    # URL of a private bucket is useless to the CLI, so hand back nothing.
+    return "" if signed == u else signed
+
+
+def _shot_kind(url: str) -> str:
+    """before / after / '' from the object's filename (`<kind>-<ts>.<ext>`)."""
+    name = url.rsplit("/", 1)[-1]
+    for kind in ("before", "after"):
+        if name.startswith(kind + "-"):
+            return kind
+    return ""
 
 
 def _media(n: DevNote) -> dict:
     attachments = [a for a in (n.attachments or []) if isinstance(a, str) and a]
-    after = [a for a in attachments if a.rsplit("/", 1)[-1].startswith("after-")]
     return {
         "screenshot": _signed(n.screenshot_url or ""),
         "pageShot": _signed(n.page_shot_url or ""),
         "video": _signed(n.video_url or ""),
         "contactSheet": _signed(n.contact_sheet_url or ""),
-        "attachments": [_signed(a) for a in attachments if a not in after],
-        "afterShots": [_signed(a) for a in after],
+        "attachments": [_signed(a) for a in attachments if not _shot_kind(a)],
+        "beforeShots": [_signed(a) for a in attachments if _shot_kind(a) == "before"],
+        "afterShots": [_signed(a) for a in attachments if _shot_kind(a) == "after"],
     }
 
 
@@ -473,10 +483,12 @@ def _collecting_session(db: Session, email: str, create: bool = True,
     (the browser's "Build Session MM/DD/YYYY h:mm AM" in the author's local
     time) names a NEW session only - the server clock is UTC."""
     email = email.lower()
-    s = (db.query(DevNoteSession)
-         .filter(DevNoteSession.created_by == email, DevNoteSession.status == "collecting")
-         .order_by(DevNoteSession.created_at.desc())
-         .with_for_update().first())
+    if create and db.bind is not None and db.bind.dialect.name == "postgresql":
+        # Two first pins at once would both find no session and both insert
+        # one. The row lock below cannot guard a row that does not exist yet,
+        # so serialize per author for this transaction (SQLite: single writer).
+        db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:email))"), {"email": email})
+    s = _oldest_collecting(db, email)
     if s or not create:
         return s
     now = _now()
@@ -484,7 +496,32 @@ def _collecting_session(db: Session, email: str, create: bool = True,
                        created_by=email, created_at=now, updated_at=now, note_count=0)
     db.add(s)
     db.flush()
-    return s
+    return _oldest_collecting(db, email) or s
+
+
+def _oldest_collecting(db: Session, email: str) -> Optional[DevNoteSession]:
+    """The author's collecting session - and should more than one exist (a
+    race that slipped past the lock), the oldest, with the others' pins moved
+    onto it (renumbered after its last pin) and the emptied duplicates removed."""
+    rows = (db.query(DevNoteSession)
+            .filter(DevNoteSession.created_by == email, DevNoteSession.status == "collecting")
+            .order_by(DevNoteSession.created_at.asc(), DevNoteSession.id.asc())
+            .with_for_update().all())
+    if not rows:
+        return None
+    keep, extra = rows[0], rows[1:]
+    if extra:
+        top = db.query(func.max(DevNote.number)).filter(DevNote.session_id == keep.id).scalar() or 0
+        strays = (db.query(DevNote).filter(DevNote.session_id.in_([e.id for e in extra]))
+                  .order_by(DevNote.created_at.asc()).all())
+        for n in strays:
+            top += 1
+            n.session_id, n.number = keep.id, top
+        for e in extra:
+            db.delete(e)
+        db.flush()
+        _sync_session(db, keep)
+    return keep
 
 
 def _session(db: Session, session_id: str) -> Optional[DevNoteSession]:
@@ -494,22 +531,28 @@ def _session(db: Session, session_id: str) -> Optional[DevNoteSession]:
 
 
 def _sync_session(db: Session, s: Optional[DevNoteSession]) -> None:
-    """note_count and the statuses that follow the pins: done when every pin
-    is done or dismissed, building when any pin is being worked on. sent,
-    pr_open and fixed are set by the step that causes them."""
+    """note_count and the statuses that follow the pins. A session that was
+    never dispatched (dispatched_at == '') stays `collecting` whatever its pins
+    do - dismissing the only pin must not close it, or the next pin and the
+    Send button would not find it. After dispatch: done when every pin is done
+    or dismissed, building when any pin is being worked on; sent, pr_open and
+    fixed are set by the step that causes them."""
     if not s:
         return
     db.flush()   # autoflush is off: count what this request just wrote too
     rows = db.query(DevNote.status).filter(DevNote.session_id == s.id).all()
     statuses = [r[0] for r in rows]
     s.note_count = len(statuses)
+    s.updated_at = _now()
+    if not s.dispatched_at:
+        s.status = "collecting"
+        return
     if statuses and all(x in ("done", "dismissed") for x in statuses):
         s.status = "done"
     elif s.status == "done":
         s.status = "fixed" if any(x == "fixed" for x in statuses) else "sent"
-    if any(x in ("building", "needs_input") for x in statuses) and s.status not in ("collecting",):
+    if any(x in ("building", "needs_input") for x in statuses):
         s.status = "building"
-    s.updated_at = _now()
 
 
 def _dispatch_notes(db: Session, notes: list, by: str) -> list:
@@ -590,6 +633,12 @@ def _clean_note_input(body: dict, allowed: tuple) -> dict:
                 v = {}
             if not isinstance(v, dict):
                 raise HTTPException(400, f"{_camel(sk)} must be an object")
+            if len(json.dumps(v)) > DICT_FIELD_MAX:
+                raise HTTPException(413, f"{_camel(sk)} is larger than 64 KB")
+        elif sk in _TEXT_CAPPED:
+            v = "" if v is None else str(v)
+            if len(v.encode("utf-8")) > TEXT_FIELD_MAX:
+                raise HTTPException(413, f"{_camel(sk)} is larger than 20 KB")
         elif sk in MEDIA_FIELDS:
             v = _check_media(sk, v)
         elif sk == "kind":
@@ -606,7 +655,9 @@ def _clean_note_input(body: dict, allowed: tuple) -> dict:
     return out
 
 
-@router.post("/", status_code=201)
+# "" not "/": the route lives at /dev-notes like every other router and api.js
+# path; FastAPI still answers /dev-notes/ with a 307 to it.
+@router.post("", status_code=201)
 def create_note(body: dict, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
     email = user["email"].lower()
     fields = _clean_note_input(body, CREATE_FIELDS)
@@ -649,7 +700,7 @@ def create_note(body: dict, user: dict = Depends(require_build_mode), db: Sessio
     return _serialize(n)
 
 
-@router.get("/")
+@router.get("")
 def list_notes(status: str = "", sessionId: str = "", route: str = "", mine: int = 0,
                limit: int = Query(500, ge=1, le=2000),
                user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
@@ -768,10 +819,12 @@ def _media_urls(n: DevNote) -> list:
 
 def purge_media(db: Session) -> int:
     """Pins past their purge date (done / dismissed + 30 days): delete every
-    media object from storage and blank the URL columns, with a "Media Purged"
-    entry. A URL storage would not delete stays for the next run. Returns the
-    number of pins purged. No background loop yet - POST /dev-notes/purge
-    runs it (a daily loop in main.py's lifespan is the follow-up)."""
+    media object from storage and blank the URL columns, with one "Media
+    Purged" entry. A URL storage would not delete stays for the next run (the
+    pin keeps its purge date until nothing is left, then it is blanked so the
+    row is never selected again). Returns the number of pins something was
+    deleted from. No background loop yet - POST /dev-notes/purge runs it (a
+    daily loop in main.py's lifespan is the follow-up)."""
     now = _now()
     rows = (db.query(DevNote)
             .filter(DevNote.purge_at != "", DevNote.purge_at <= now,
@@ -779,10 +832,13 @@ def purge_media(db: Session) -> int:
             .with_for_update().all())
     purged = 0
     for n in rows:
-        urls = _media_urls(n)
+        urls = list(dict.fromkeys(_media_urls(n)))
         if not urls:
+            n.purge_at = ""   # nothing to purge (a pin with no media): done with it
             continue
         kept = {u for u in urls if not _delete_object(u)}
+        if len(kept) == len(urls):
+            continue      # storage refused everything this run: no change, no entry, try again later
         for col in MEDIA_FIELDS:
             if getattr(n, col) and getattr(n, col) not in kept:
                 setattr(n, col, "")
@@ -792,9 +848,12 @@ def purge_media(db: Session) -> int:
         if visual:
             v["visual"] = {k: (u if u in kept else "") for k, u in visual.items()}
             n.verification = v
-        if len(kept) < len(set(urls)):
+        last = (n.thread or [{}])[-1]
+        if not str(last.get("text", "")).startswith("Media Purged"):
             _append(n, _entry("claude", "system", "Media Purged" if not kept else f"Media Purged ({len(kept)} left for the next run)"))
-            purged += 1
+        if not kept:
+            n.purge_at = ""
+        purged += 1
     db.commit()
     return purged
 
@@ -996,18 +1055,41 @@ def verify(note_id: str, body: dict, user: dict = Depends(require_build_mode),
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
-def _pending(db: Session) -> list:
-    """Pins Claude Code should pick up: dispatched ones, plus pins Claude was
-    waiting on whose author has answered (the last thread entry is a human
-    comment). A claim clears the second kind by appending its own entry."""
-    rows = (db.query(DevNote)
+def _answered(thread) -> bool:
+    """The last thread entry is a human comment (the author answered Claude)."""
+    if not thread:
+        return False
+    last = thread[-1] if isinstance(thread[-1], dict) else {}
+    return last.get("kind") == "comment" and (last.get("by") or "") != "claude"
+
+
+def _last_human_comment(n: DevNote) -> bool:
+    return _answered(n.thread or [])
+
+
+def _pending_ids(db: Session) -> list:
+    """Ids of the pins Claude Code should pick up: dispatched ones, plus pins
+    Claude was waiting on whose author has answered. A claim clears the second
+    kind by appending its own entry. Cheap on purpose - this runs every 2 s
+    per waiting watcher - so only id, status and thread are read."""
+    rows = (db.query(DevNote.id, DevNote.status, DevNote.thread)
             .filter(DevNote.status.in_(("dispatched", "needs_input", "building")))
             .order_by(DevNote.created_at.asc()).all())
-    return [n for n in rows if n.status == "dispatched" or _last_human_comment(n)]
+    return [r.id for r in rows if r.status == "dispatched" or _answered(r.thread or [])]
+
+
+def _pending(db: Session) -> list:
+    ids = _pending_ids(db)
+    if not ids:
+        return []
+    rows = db.query(DevNote).filter(DevNote.id.in_(ids)).all()
+    order = {i: k for k, i in enumerate(ids)}
+    return sorted(rows, key=lambda n: order.get(n.id, 0))
 
 
 def _poll_pending() -> tuple:
-    """One poll on its own short-lived session (called in a thread)."""
+    """One poll on its own short-lived session (called in a thread); the full
+    rows are loaded and serialized only on a hit."""
     db = database.SessionLocal()
     try:
         notes = _pending(db)
@@ -1047,25 +1129,24 @@ def cli_claim(body: dict, user: dict = Depends(require_build_mode_or_token), db:
     ids = _ids(body)
     if not ids:
         raise HTTPException(400, "noteIds is required")
-    notes = db.query(DevNote).filter(DevNote.id.in_(ids)).with_for_update().all()
-    if len(notes) != len(set(ids)):
-        raise HTTPException(404, "Pin not found")
+    notes, skipped = _batch(db, ids, ("dispatched", "needs_input", "building"), "cannot be claimed")
     now = _now()
     out = []
     touched = []
     for n in notes:
-        if n.status not in ("dispatched", "needs_input", "building"):
-            raise HTTPException(409, f"Pin #{n.number} is {n.status} and cannot be claimed")
+        if n.status == "dispatched":
+            # Only the first pick-up sets the progress line; a re-claim of a
+            # building or answered pin keeps whatever Claude last reported.
+            n.progress = PICKED_UP
+            n.progress_at = now
         n.status = "building"
-        n.progress = "Picked up by Claude Code"
-        n.progress_at = now
         n.updated_at = now
         # The entry is what takes the pin out of the wait set (the last entry
         # is no longer the author's comment) - one is enough; a re-claim right
         # after another must not stack them.
         last = (n.thread or [{}])[-1]
-        if not (last.get("kind") == "progress" and last.get("text") == n.progress):
-            _append(n, _entry("claude", "progress", n.progress))
+        if not (last.get("kind") == "progress" and last.get("text") == PICKED_UP):
+            _append(n, _entry("claude", "progress", PICKED_UP))
         s = _session(db, n.session_id)
         if s and s not in touched:
             touched.append(s)
@@ -1073,12 +1154,38 @@ def cli_claim(body: dict, user: dict = Depends(require_build_mode_or_token), db:
         s.status = "building"
         _sync_session(db, s)
     _audit(db, user, "claim", ",".join(n.id for n in notes)[:200],
-           {"notes": [n.id for n in notes], "token": user.get("token_label") or ""})
+           {"notes": [n.id for n in notes], "skipped": [x["id"] for x in skipped],
+            "token": user.get("token_label") or ""})
     db.commit()
     for n in notes:
         db.refresh(n)
         out.append({**_serialize(n), "media": _media(n)})
-    return {"notes": out, "sessions": [_serialize_session(s) for s in touched]}
+    return {"notes": out, "sessions": [_serialize_session(s) for s in touched], "skipped": skipped}
+
+
+def _batch(db: Session, ids: list, eligible: tuple, verb: str) -> tuple:
+    """The pins of a CLI batch that can take the step, plus `skipped`
+    [{id, number, status, reason}] for the rest. Per pin on purpose: one
+    dismissed pin in a batch must not stop the PR being recorded on the others.
+    404 only when NO id exists, 409 only when NONE is eligible."""
+    wanted = list(dict.fromkeys(ids))
+    rows = {n.id: n for n in db.query(DevNote).filter(DevNote.id.in_(wanted)).with_for_update().all()}
+    if not rows:
+        raise HTTPException(404, "Pin not found")
+    notes, skipped = [], []
+    for i in wanted:
+        n = rows.get(i)
+        if n is None:
+            skipped.append({"id": i, "number": 0, "status": "", "reason": "Pin not found"})
+        elif n.status not in eligible:
+            skipped.append({"id": i, "number": n.number or 0, "status": n.status,
+                            "reason": f"Pin #{n.number} is {n.status} and {verb}"})
+        else:
+            notes.append(n)
+    if not notes:
+        raise HTTPException(409, skipped[0]["reason"] if len(skipped) == 1
+                            else f"None of the {len(skipped)} pins can take this step: " + "; ".join(x["reason"] for x in skipped)[:400])
+    return notes, skipped
 
 
 @router.post("/cli/progress/{note_id}")
@@ -1193,7 +1300,7 @@ def cli_verify(note_id: str, body: dict, user: dict = Depends(require_build_mode
 def cli_attach(note_id: str, file: UploadFile = File(...), kind: str = Form("paste"),
                user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
     if kind not in ATTACH_KINDS:
-        raise HTTPException(400, "kind must be after or paste")
+        raise HTTPException(400, "kind must be after, before or paste")
     n = _note(db, note_id, lock=True)
     data = file.file.read(ATTACH_MAX_BYTES + 1)
     if not data:
@@ -1226,14 +1333,10 @@ def cli_complete(body: dict, user: dict = Depends(require_build_mode_or_token), 
         raise HTTPException(400, "prNumber must be a number")
     if not pr_url or not pr_number:
         raise HTTPException(400, "prUrl and prNumber are required")
-    notes = db.query(DevNote).filter(DevNote.id.in_(ids)).with_for_update().all()
-    if len(notes) != len(set(ids)):
-        raise HTTPException(404, "Pin not found")
+    notes, skipped = _batch(db, ids, ("building", "needs_input"), "cannot be completed - only a pin being built can")
     now = _now()
     touched = []
     for n in notes:
-        if n.status not in ("building", "needs_input"):
-            raise HTTPException(409, f"Pin #{n.number} is {n.status} - only a pin being built can be completed")
         n.status = "pr_open"
         n.pr_url = pr_url
         n.pr_number = pr_number
@@ -1257,7 +1360,9 @@ def cli_complete(body: dict, user: dict = Depends(require_build_mode_or_token), 
     for n in notes:
         db.refresh(n)
     return {"notes": [_serialize(n) for n in notes],
-            "session": _serialize_session(touched[0]) if touched else None}
+            "session": _serialize_session(touched[0]) if touched else None,
+            "sessions": [_serialize_session(s) for s in touched],
+            "skipped": skipped}
 
 
 # ── GitHub webhook hook ───────────────────────────────────────────────────────
