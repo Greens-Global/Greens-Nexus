@@ -175,11 +175,17 @@ export default function CompensationReport() {
         </div>
         </BarMore>
         <TableViewBar key={view} view={tv} />
+        {/* Round 3 (item 02): on a short row Sync is the fourth to move into More, Export the fifth. */}
         <div className="acct-bar-end">
+          <BarMore level={4}>
           <SyncButton onSync={peopleSync.sync} busy={!!state.syncing} syncedAt={peopleSync.syncedAt} what="Compensation" />
+          </BarMore>
+          <BarMore level={5}>
           <ExportMenu disabled={!data || !rows.length} items={exportItems('people', peopleTable, !data)} />
+          </BarMore>
         </div>
-        {rangeError && <div style={{ width: '100%', fontSize: '0.75rem', color: '#b91c1c' }}>{rangeError}</div>}
+        {/* Its own line on purpose: the bar does not count it as wrapping. */}
+        {rangeError && <div className="acct-bar-break" style={{ width: '100%', fontSize: '0.75rem', color: '#b91c1c' }}>{rangeError}</div>}
       </ControlBar>
 
       {state.stepUp ? (

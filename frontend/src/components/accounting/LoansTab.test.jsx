@@ -173,7 +173,8 @@ describe('LoansTab', () => {
     expect(screen.queryByText('F&M Bank')).toBeNull();
     expect(screen.getAllByText('Greens Global, Inc.').length).toBeGreaterThan(0);
     fireEvent.change(screen.getByLabelText('Internal or External'), { target: { value: 'all' } });
-    fireEvent.change(screen.getByLabelText('Filter loans'), { target: { value: 'chase' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Filter loans' }));   // item 02: an icon until used
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter loans' }), { target: { value: 'chase' } });
     expect(screen.queryAllByText('F&M Bank')).toHaveLength(0);
     expect(screen.getAllByText('Chase').length).toBeGreaterThan(0);
     // Entities: the Reports picker; the historical (H) entity is not offered.

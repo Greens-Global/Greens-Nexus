@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ChevronDown, FolderOpen, FolderSearch, FolderUp, Mail, MapPin, Pencil, Phone, Search, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, FolderOpen, FolderSearch, FolderUp, Mail, MapPin, Pencil, Phone, X } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput, formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useAccountingPrefs } from './prefs';
-import { ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, OpFilter, Pager, PopoverPanel, SyncButton, control } from './reportControls';
+import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, OpFilter, Pager, PopoverPanel, SyncButton, control, fitSelect } from './reportControls';
 import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
@@ -451,20 +451,28 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   return (
     <AsyncSection loading={data === null} skeleton={<SkeletonBlocks count={4} />}>
       <div style={{ display: 'grid', gap: 10 }}>
+        {/* Item 02, round 3 (UI test 10/24: two lines at 1366 / 1440 once View
+            and Filters joined): the search is an icon until used, Category
+            as wide as its choice; into More first Customize, Columns and
+            Settings, then Category, then Entities and Sync, then Export. */}
         <ControlBar style={{ ...card, padding: '8px 10px' }}>
+          <BarMore level={4} active={picked.length ? 1 : 0}>
           <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} showHistorical={customize.showHistorical} />
+          </BarMore>
           <PeriodPicker year={year} onYear={setYear} period={period} onPeriod={setPeriod} custom={custom} onCustom={setCustom2} />
-          <div style={{ position: 'relative', flex: '1 1 200px', maxWidth: 300 }}>
-            <Search size={13} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--text-muted)' }} />
-            <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a vendor" aria-label="Search a vendor" style={{ ...control, width: '100%', paddingLeft: 28 }} />
-          </div>
-          <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" style={control}>
+          <BarSearch value={q} onChange={setQ} label="Search a vendor" placeholder="Search a vendor" width={220} />
+          <BarMore level={2} active={category ? 1 : 0}>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" style={{ ...control, ...fitSelect(CATEGORIES.find((c) => c.key === category)?.label || 'All Categories', { max: 220 }) }}>
             <option value="">All Categories</option>
             {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
+          </BarMore>
           <TableViewBar view={view} />
           <div className="acct-bar-end">
+            <BarMore level={4}>
             <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
+            </BarMore>
+            <BarMore level={1} active={showEnded || showInactive || extra.length ? 1 : 0}>
             <CustomizeButton {...customize} showZero={showZero} onShowZero={setShowZero} active={showEnded || showInactive || !!extra.length}>
               <Toggle checked={showEnded} onChange={(v) => setPrefs({ mreShowEnded: v })} title="Show Ended"
                 hint="Recurring expenses that have stopped. They keep their history; nothing is deleted." />
@@ -475,6 +483,8 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
                   hint={k === 'variancePct' ? 'How far a paid month may be from expected and still count as Paid.' : `The ${l.toLowerCase()} kept on each line, as a column.`} />
               ))}
             </CustomizeButton>
+            </BarMore>
+            <BarMore level={5}>
             <ExportMenu disabled={!rows.length} items={[
               { key: 'excel', label: 'Excel', hint: 'Every line, months as columns, live totals', onPick: () => exportAs('excel'), busy: busy === 'excel' },
               { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => exportAs('csv'), busy: busy === 'csv' },
@@ -482,7 +492,8 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
               { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, the grid attached', Icon: Mail, onPick: () => setSending('email') },
               { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
             ]} />
-            {canDelete && <RecurringSettingsButton onChecked={load} />}
+            </BarMore>
+            {canDelete && <BarMore level={1}><RecurringSettingsButton onChecked={load} /></BarMore>}
             {canEdit && (
               <AddMenu ariaLabel="Add a recurring expense" items={[
                 { key: 'manual', label: 'Manual', hint: 'One vendor, accounts and amount by hand', Icon: Pencil, onPick: () => setEditing(blankLine(picked[0], entities)) },

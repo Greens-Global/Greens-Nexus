@@ -93,7 +93,8 @@ describe('MreTab', () => {
   it('filters by vendor and category', async () => {
     render(<MreTab />);
     await screen.findByText('San Diego Gas & Electric');
-    fireEvent.change(screen.getByLabelText('Search a vendor'), { target: { value: 'micro' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search a vendor' }));   // item 02: an icon until used
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search a vendor' }), { target: { value: 'micro' } });
     expect(screen.queryByText('San Diego Gas & Electric')).toBeNull();
     expect(screen.getByText('Microsoft')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Search a vendor'), { target: { value: '' } });
@@ -404,7 +405,8 @@ describe('MreTab column filters', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Operator for Expected' }), { target: { value: '>' } });
     fireEvent.change(screen.getByRole('textbox', { name: 'Filter Expected' }), { target: { value: '100' } });
     expect(screen.queryByText('Microsoft')).toBeNull();
-    fireEvent.change(screen.getByLabelText('Search a vendor'), { target: { value: 'micro' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search a vendor' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search a vendor' }), { target: { value: 'micro' } });
     expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Search a vendor'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: /Export/ }));

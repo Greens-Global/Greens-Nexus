@@ -2858,6 +2858,12 @@ html { overflow-x: hidden; }
    (an icon button's fixed row width does not apply there). */
 .acct-controlbar .acct-bar-more-panel button { width: 100% !important; max-width: none !important; justify-content: flex-start !important; padding: 0 9px !important; }
 .acct-controlbar .acct-bar-more-panel label { justify-content: space-between; }
+/* Round 3 (item 02): a screen's summary figures (BarSummary) shorten with
+   "..." before a control moves into More - ControlBar sets the max-width, the
+   tooltip has the full text. In the More menu they read in full. */
+.acct-controlbar .acct-bar-summary { display: inline-block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.78rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.acct-controlbar .acct-bar-more-panel .acct-bar-summary { white-space: normal; max-width: none !important; overflow: visible; padding: 2px 4px 6px; border-bottom: 1px solid var(--border-color); }
+.acct-controlbar .acct-bar-more-panel .acct-bar-more-group:has(> .acct-bar-summary) { order: -1; }
 
 /* Accounting call 10/23, item 03: a record opens in a panel on the right
    (SidePanel.jsx), the list still on screen and clickable - no backdrop.

@@ -39,6 +39,7 @@ describe('Records lists', () => {
     expect(screen.queryByText('Old Suspense')).toBeNull();
     fireEvent.click(screen.getByRole('checkbox', { name: /Show inactive/ }));
     expect(screen.getByText('Old Suspense')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Search General Ledger Accounts' }));   // item 02: an icon until used
     fireEvent.change(screen.getByRole('textbox', { name: 'Search General Ledger Accounts' }), { target: { value: 'advert' } });
     expect(screen.queryByText('Chase Checking')).toBeNull();
     expect(screen.getByText('Advertising')).toBeTruthy();
@@ -68,6 +69,7 @@ describe('a journal page', () => {
     expect(first.from).toMatch(/^\d{4}-01-01$/);
     expect(await screen.findByText('Payroll 09/30/2026 - E-0185')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Back to Report/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Search the PYRJ journal' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Search the PYRJ journal' }), { target: { value: 'E-0185' } });
     await waitFor(() => expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toMatchObject({ q: 'E-0185', journals: 'PYRJ' }));
   });

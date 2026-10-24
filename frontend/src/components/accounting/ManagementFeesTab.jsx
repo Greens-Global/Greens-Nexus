@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput, formatAmount } from './Amount';
 import { formatDate } from '../../lib/datetime';
-import { ControlBar, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, GlAccountPicker, Pager, SyncButton, control } from './reportControls';
+import { BarMore, BarSearch, BarSummary, ControlBar, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, GlAccountPicker, Pager, SyncButton, control, fitSelect } from './reportControls';
 import {
   MGMT_FEE_DEFAULT_BASIS, MGMT_FEE_DEFAULT_FLAT, MGMT_FEE_DEFAULT_MONTHLY_MINIMUM, MGMT_FEE_DEFAULT_PERIOD, MGMT_FEE_DEFAULT_RATE, MGMT_FEE_DEFAULT_THRESHOLD, MGMT_FEE_DEFAULT_THRESHOLD_BASIS, MGMT_FEE_TIER_FLAT_IS_ANNUAL,
 } from './assumptions';
@@ -435,29 +435,36 @@ export default function ManagementFeesTab({ canEdit = false }) {
         </p>
       </div>
 
+      {/* Item 02, round 3 (UI test 10/24: two lines at 1366 / 1440, the
+          summary pushing it over): the summary shortens with "..." (full
+          text in the tooltip) before Customize and Columns, then the summary,
+          Sync and Export move into More. The search is an icon until used. */}
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <select value={year} onChange={(e) => setYear(Number(e.target.value))} aria-label="Year" style={control}>
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
         </select>
-        <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Period" style={control}
+        <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Period" style={{ ...control, ...fitSelect(periods.find(([k]) => k === period)?.[1]) }}
           title="The period Gross Revenue and Calculated Fee cover. Billed and Expected YTD run from January 1 through its end.">
           {periods.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
-        <div style={{ position: 'relative' }}>
-          <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
-          <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Filter agreements" aria-label="Filter agreements" style={{ ...control, width: 180, paddingLeft: 24 }} />
-        </div>
+        <BarSearch value={text} onChange={setText} label="Filter agreements" placeholder="Filter agreements" width={200} />
         <TableViewBar view={view} />
         <div className="acct-bar-end">
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+          <BarSummary level={3}>
             Agreements <strong>{rows.length}</strong> · Calculated Fee <strong><Amount value={sum('calculatedFee')} /></strong> · Billed YTD <strong><Amount value={sum('billedYtd')} /></strong>
-          </span>
+          </BarSummary>
+          <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
+          </BarMore>
+          <BarMore level={1}>
           <CustomizeButton {...custom} />
+          </BarMore>
+          <BarMore level={5}>
           <ExportMenu disabled={!rows.length} items={[
             { key: 'excel', label: 'Excel', hint: 'The agreements on screen, as filtered', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per agreement', onPick: () => exportAs('csv'), busy: busy === 'csv' },
           ]} />
+          </BarMore>
           {canEdit && !unavailable && (
             <button type="button" className="primary-btn" onClick={() => setDialog('add')}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>

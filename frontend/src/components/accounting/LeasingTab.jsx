@@ -535,7 +535,10 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
             ))}
           </div>
           <PeriodPicker year={year} onYear={setYear} period={period} onPeriod={setPeriod} custom={custom} onCustom={setCustom} />
+          {/* Round 3 (UI test 10/24: two lines at 1100, the page scrolling): Entities and Sync are the fourth to move into More, Export the fifth. */}
+          <BarMore level={4} active={entities.length ? 1 : 0}>
           <EntitiesPicker entities={locations.entities} value={entities} onChange={setEntities} limited={locations.limited} showHistorical={!!prefs.showHistoricalEntities} />
+          </BarMore>
           <BarMore level={2} active={(types.length ? 1 : 0) + (tenants.length ? 1 : 0)}>
           <MultiPicker label="Type filter" allLabel="All Types" noun={['type', 'types']} Icon={Tags} options={TYPES.map((t) => ({ code: t.key, name: t.label }))} value={types} onChange={setTypes} showCodes={false} />
           <MultiPicker label="Payer filter" allLabel="All Payers" noun={['payer', 'payers']} Icon={Users} options={customers} value={tenants} onChange={setTenants}
@@ -554,6 +557,9 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
                 </label>
               ))}
             </CustomizeButton>
+            {canDelete && <RecurringSettingsButton onChecked={reload} />}
+            </BarMore>
+            <BarMore level={5}>
             <ExportMenu disabled={!roll} items={[
               { key: 'excel', label: 'Excel', hint: 'As on screen, live totals', onPick: () => exportAs('excel'), busy: exporting === 'excel' },
               { key: 'csv', label: 'CSV', hint: 'Plain values, one row per source', onPick: () => exportAs('csv'), busy: exporting === 'csv' },
@@ -561,21 +567,25 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
               { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, file attached', Icon: Mail, onPick: () => setSending('email') },
               { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
             ]} />
-            {canDelete && <RecurringSettingsButton onChecked={reload} />}
             </BarMore>
             {/* 10/23 meeting, item 13: a viewer's Sync reads this table again; an editor's Sync Now also links the leases first. */}
+            <BarMore level={4}>
             {!canEdit && <SyncButton onSync={() => { setSyncing(true); withFreshReads(reload).finally(() => setSyncing(false)); }} busy={syncing} />}
             {canEdit && (
               <button type="button" className="secondary-btn" onClick={syncNow} disabled={syncing} aria-label={syncing ? 'Syncing...' : 'Sync Now'} title="Link every lease to its Intacct customer and add the leases of new tenants" style={btn}>
                 <RefreshCw size={14} className={syncing ? 'spin' : undefined} /> <span className="acct-bar-label">{syncing ? 'Syncing...' : 'Sync Now'}</span>
               </button>
             )}
+            </BarMore>
+            {/* The last to move into More, at 1100 with the sidebar open (the three section buttons stay). */}
             {canEdit && (
+              <BarMore level={6}>
               <AddMenu ariaLabel="Add an income source" items={[
                 { key: 'lease', label: 'New Lease', hint: 'A tenant, the dates and the rent', Icon: Home, onPick: () => setEditing({ lease: blank('lease') }) },
                 { key: 'cam', label: 'New CAM Charge', hint: 'Common area maintenance billed to a tenant', Icon: Building2, onPick: () => setEditing({ lease: blank('cam') }) },
                 { key: 'interest', label: 'New Interest or Loan Payment', hint: 'Who pays, how much, from when', Icon: Landmark, onPick: () => setEditing({ lease: blank('interest') }) },
               ]} />
+              </BarMore>
             )}
           </div>
         </ControlBar>
@@ -813,8 +823,11 @@ function NoteCell({ lease, canEdit, onSaved, monthNotes = '' }) {
 // page still shows under the box - the pager and the note under the roll
 // (10/23 meeting, item 05, UI test 10/24: the note pushed the page ~90px past
 // the bottom, so the whole page scrolled). Outstanding and Tenants fit the same way.
+// Item 02, round 3 (UI test 10/24: at 1100 x 700 the page still scrolled):
+// the least it keeps is 240px - a few rows and the total - not 320, which ran
+// past the bottom of a 700px window.
 export function fitRollHeight(top, screenHeight, below = 12) {
-  return Math.round(Math.max(320, Math.min(screenHeight * 0.74, screenHeight - top - below)));
+  return Math.round(Math.max(240, Math.min(screenHeight * 0.74, screenHeight - top - below)));
 }
 
 function useFitToScreen(ref, active) {

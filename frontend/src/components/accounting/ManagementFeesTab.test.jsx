@@ -271,7 +271,8 @@ describe('ManagementFeesTab, Sync and the scroll box', () => {
     render(<ManagementFeesTab canEdit />);
     await screen.findByText('15000 Greens Escondido, LLC.');
     expect(screen.getByTestId('mgmt-fees-box').className).toContain('acct-scroll-box');
-    fireEvent.change(screen.getByLabelText('Filter agreements'), { target: { value: 'Escondido' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Filter agreements' }));   // item 02: an icon until used
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter agreements' }), { target: { value: 'Escondido' } });
     fireEvent.click(screen.getByRole('button', { name: /Add Agreement/ }));
     await screen.findByRole('dialog', { name: 'Add Agreement' });
     let release;

@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Copy, Download, Save } from 'lucide-react';
 import { api, withFreshReads } from '../../api';
 import Amount, { Figure, parseAmountInput } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
-import { ControlBar, EntityPicker, SyncButton, control, entityOptions } from './reportControls';
+import { BarMore, BarSummary, ControlBar, EntityPicker, SyncButton, control, entityOptions } from './reportControls';
 import { useFitHeight } from './tableHooks';
 import { useTableSync } from './tableSync';
 import { useAccountingPrefs } from './prefs';
@@ -219,27 +219,37 @@ export default function BudgetTab({ canEdit = false }) {
               {MONTHS.map((m, i) => <option key={m} value={i + 1}>Through {m}</option>)}
             </select>
           )}
+          {/* Item 02, round 3 (UI test 10/24: two lines at 1100): where the
+              budget came from shortens with "..." (full text in the
+              tooltip); into More go the two Copy buttons, then the Intacct
+              file and CSV, then that note, then Sync. */}
           <div className="acct-bar-end">
             {data && (
-              <span className="acct-bar-label-2" style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+              <BarSummary level={3} style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
                 {SOURCE[data.source] || data.source}{data.updatedAt ? ` · ${nameOf(data.updatedBy) || ''} ${formatDateTime(data.updatedAt)}` : ''}
-              </span>
+              </BarSummary>
             )}
             {canEdit && view === 'grid' && (
               <>
+                <BarMore level={1}>
                 <button type="button" className="secondary-btn" disabled={!!busy || !location} onClick={copyLastYear} title="Copy From Last Year's Actuals" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Copy size={13} /> <span className="acct-bar-label">Copy From Last Year&apos;s Actuals</span></button>
                 <button type="button" className="secondary-btn" disabled={!!busy || !location} onClick={copyIntacct} title="Copy From Intacct Budget" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Copy size={13} /> <span className="acct-bar-label">Copy From Intacct Budget</span></button>
+                </BarMore>
                 <button type="button" className="primary-btn" disabled={!!busy || !dirty} onClick={save} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Save size={13} /> {busy === 'save' ? 'Saving...' : dirty ? 'Save' : 'Saved'}</button>
               </>
             )}
+            <BarMore level={4}>
             {dirty && view === 'grid'
               ? <button type="button" className="secondary-btn" disabled title="Save your changes first - a Sync would read the saved budget over them" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }} aria-label="Sync">Sync</button>
               : <SyncButton onSync={ts.sync} busy={view === 'bva' ? actualsBusy : state.loading && !!data} syncedAt={ts.syncedAt} />}
+            </BarMore>
+            <BarMore level={2}>
             <button type="button" className="secondary-btn" disabled={!rows.length} onClick={exportCsv} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
             {view === 'grid' && (
               <button type="button" className="secondary-btn" disabled={!rows.length} aria-expanded={!!intacct} onClick={() => setIntacct((v) => (v ? null : { problems: [] }))} title="Export Intacct Import File"
                 style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> <span className="acct-bar-label">Export Intacct Import File</span></button>
             )}
+            </BarMore>
           </div>
         </ControlBar>
 
