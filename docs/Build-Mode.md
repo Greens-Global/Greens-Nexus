@@ -559,7 +559,7 @@ into a repo path (`frontend/src/...`), backend paths unchanged;
 ### 7.3 Ready To Check (local preview before merge)
 
 After `complete`, the skill runs `tools/build_notes/preview.py start` (the
-PR branch's own frontend on :5180 and backend on :8090, a copy of the local
+PR branch's own frontend on :5174 and backend on :8090, a copy of the local
 SQLite, never a shared database) and posts each pin's preview.
 
 - `POST /dev-notes/cli/preview/{id}` (Build Token or user) `{url, branch,
@@ -620,8 +620,11 @@ SQLite, never a shared database) and posts each pin's preview.
   (placed before the author's comment when that comment is last, so the pin
   stays in `/cli/wait`) and a `dev_note_rework` bell to its author ("Pin #n
   Needs A New PR"). The skill then opens a new branch and PR for it.
-- CORS: `http://localhost:5180` and `http://127.0.0.1:5180` are in
-  `_CORS_ORIGINS` (the preview frontend calls the preview backend on 8090).
+- CORS: no new origin. The preview frontend runs on :5174, which every
+  branch's `_CORS_ORIGINS` has listed since 06/18/2026 (the Knowledge Base
+  workspace), so a preview of a branch cut before v2 still reaches its own
+  backend on 8090. A :5180 origin added here would only exist on branches
+  cut after this release (found in the live test, 10/24/2026).
 
 State machine additions:
 

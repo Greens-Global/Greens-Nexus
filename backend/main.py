@@ -4254,8 +4254,6 @@ _CORS_ORIGINS = [
     "http://127.0.0.1:5174",
     "https://nexus.greensglobal.com",
     "https://dev.nexus.greensglobal.com",
-    "http://localhost:5180",   # Build Mode Ready To Check preview (tools/build_notes/preview.py)
-    "http://127.0.0.1:5180",
 ]
 app.add_middleware(
     CORSMiddleware,

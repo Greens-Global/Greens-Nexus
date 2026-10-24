@@ -1066,7 +1066,7 @@ def test_claim_skips_held_pins():
 
 
 # ── v2: Ready To Check ────────────────────────────────────────────────────────
-def _preview(n, token, url="http://localhost:5180/tasks/home", **extra):
+def _preview(n, token, url="http://localhost:5174/tasks/home", **extra):
     body = {"url": url, "branch": "build/tasks-home-1024", "prNumber": 7, "host": "neils-mbp", **extra}
     return client.post(f"/dev-notes/cli/preview/{n['id']}", headers=_hdr(token), json=body)
 
@@ -1076,8 +1076,8 @@ def test_preview_post_rules():
     n = _create()
     assert _preview(n, token).status_code == 409                    # open, not pr_open
     p = _to_pr_open(token)
-    for bad in ("https://evil.example/x", "http://evil.example:5180/", "http://localhost:@evil.example/x",
-                "http://localhost/no-port", "http://user:pw@localhost:5180/", "javascript:alert(1)", ""):
+    for bad in ("https://evil.example/x", "http://evil.example:5174/", "http://localhost:@evil.example/x",
+                "http://localhost/no-port", "http://user:pw@localhost:5174/", "javascript:alert(1)", ""):
         r = _preview(p, token, url=bad)
         assert r.status_code == 400, (bad, r.text)
     r = _preview(p, token)
@@ -1086,10 +1086,10 @@ def test_preview_post_rules():
     assert got["readyToCheck"] is True and got["status"] == "pr_open"
     pv = got["preview"]
     assert (pv["url"], pv["branch"], pv["prNumber"], pv["host"]) == (
-        "http://localhost:5180/tasks/home", "build/tasks-home-1024", 7, "neils-mbp") and pv["startedAt"]
+        "http://localhost:5174/tasks/home", "build/tasks-home-1024", 7, "neils-mbp") and pv["startedAt"]
     assert got["thread"][-1]["text"] == "Ready To Check - runs on neils-mbp"
-    again = _preview(p, token, url="http://127.0.0.1:5180/tasks/home").json()      # a restart replaces it
-    assert again["preview"]["url"] == "http://127.0.0.1:5180/tasks/home"
+    again = _preview(p, token, url="http://127.0.0.1:5174/tasks/home").json()      # a restart replaces it
+    assert again["preview"]["url"] == "http://127.0.0.1:5174/tasks/home"
     assert len([e for e in again["thread"] if e["text"].startswith("Ready To Check")]) == 1
 
 
@@ -1305,7 +1305,10 @@ def test_v2_columns_have_migration_lines_in_both_lists():
         assert col in models.DevNote.__table__.columns
         assert f'"ALTER TABLE dev_notes ADD COLUMN {col} ' in sqlite_part, col
         assert f'"ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS {col} ' in pg_part, col
-    assert '"http://localhost:5180"' in text and '"http://127.0.0.1:5180"' in text
+    # The Ready To Check preview frontend runs on :5174, which every branch's
+    # CORS list has carried since 06/18/2026 - so a preview of a branch cut
+    # before Build Mode v2 still reaches its own backend. No new origin.
+    assert '"http://localhost:5174"' in text and ':5180' not in text
 
 
 # ── v2 review fixes ───────────────────────────────────────────────────────────
