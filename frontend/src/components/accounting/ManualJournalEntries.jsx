@@ -149,7 +149,7 @@ export default function ManualJournalEntries() {
         {/* Round 3 (UI test 10/24: two lines at 1100): Entities and the journal filter are the third to move into More, Sync the fourth, Export the fifth. */}
         <BarMore level={3} active={(config.entities.length ? 1 : 0) + (countDims(config.dims) ? 1 : 0)}>
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
-        <FiltersButton dims={config.dims} onChange={(d) => patch({ dims: d })} kinds={JOURNAL_KIND} />
+        <FiltersButton dims={config.dims} onChange={(d) => patch({ dims: d })} kinds={JOURNAL_KIND} label="Journals" />
         </BarMore>
         <BarMore level={2} active={user ? 1 : 0}>
         <select value={user} onChange={(e) => setUser(e.target.value)} aria-label="User" style={{ ...control, ...fitSelect(user || 'All Users', { max: 200 }) }}>
@@ -167,7 +167,7 @@ export default function ManualJournalEntries() {
         </label>
         </BarMore>
         <BarSearch value={q} onChange={setQ} label="Search the entries" placeholder="Search description, entry, user..." width={260} />
-        <TableViewBar view={view} filtersLabel="Row Filters" />
+        <TableViewBar view={view} />
         <div className="acct-bar-end">
           <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />

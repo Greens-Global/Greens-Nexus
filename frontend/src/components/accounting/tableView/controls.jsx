@@ -2,6 +2,7 @@ import { Suspense, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, Columns3, Funnel, Save, X } from 'lucide-react';
 import { Panels, preloadPanels } from './load';
 import { BarMore, ColumnResizer } from '../reportControls';
+import SaveNotice from './saveNotice';
 
 // The standard table view's bar and headings (10/23 meeting, item 01). These
 // are the parts that draw with the table; the panels and menus they open
@@ -25,10 +26,12 @@ const LAST_LEVEL = 9;
  * View, Unsaved + Update + Clear (only after a change), Filters (with how many
  * are on) and Columns - the same controls in the same order on every
  * Accounting table. `columns={false}` leaves out the column chooser.
- * `filtersLabel`: "Row Filters" where the screen already has a report Filters
- * button (journals, departments...), so the two never share a name.
+ * The button and every panel it opens are "Filters" on every table (round 3:
+ * Manual JE and the drill-down said "Row Filters" on the button and "Filters"
+ * on the panel); a screen's report picker beside it has a name of its own.
  */
-export function TableViewBar({ view, columns = true, filtersLabel = 'Filters' }) {
+export function TableViewBar({ view, columns = true }) {
+  const filtersLabel = 'Filters';
   const [open, setOpen] = useState('');
   const viewRef = useRef(null);
   const filtersRef = useRef(null);
@@ -82,9 +85,10 @@ export function TableViewBar({ view, columns = true, filtersLabel = 'Filters' })
       )}
       {open && (
         <Suspense fallback={null}>
-          <Panels kind={open} view={view} anchor={anchor} onClose={() => setOpen('')} onKind={setOpen} label={filtersLabel} />
+          <Panels kind={open} view={view} anchor={anchor} onClose={() => setOpen('')} onKind={setOpen} />
         </Suspense>
       )}
+      <SaveNotice />
     </>
   );
 }

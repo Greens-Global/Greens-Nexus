@@ -373,7 +373,9 @@ export function SelectAllCheckbox({ checked, total, onChange, label = 'Select Al
 // that is open. `kinds` (optional, Oct 7) narrows the list - Reports leaves
 // Journals out while the accounting app lists none. `onNames` hands the names of each list up as it loads, so
 // the chips under the report can say "Vendor: Amazon" instead of a code.
-export function FiltersButton({ dims, onChange, onNames, showHistorical = false, align = 'left', kinds = POPOVER_DIMS }) {
+// `label` (round 3): a screen whose table has its own Filters names this one
+// for what it picks (Manual JE: "Journals"), so the two never share a name.
+export function FiltersButton({ dims, onChange, onNames, showHistorical = false, align = 'left', kinds = POPOVER_DIMS, label = 'Filters' }) {
   const [open, setOpen, ref] = usePopover();
   const [kind, setKind] = useState(kinds[0] || POPOVER_DIMS[0]);
   const [lists, setLists] = useState({});       // kind -> { values } | { error } | { unavailable }
@@ -414,13 +416,13 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
   const unavailable = !!lists[kind.kind]?.unavailable;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" style={button(n > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} aria-label="Filters" title="Filters">
+      <button type="button" style={button(n > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} aria-label={label} title={label}>
         <Funnel size={14} style={{ flexShrink: 0, color: n ? 'inherit' : 'var(--text-muted)' }} />
-        <span className="acct-bar-label-2">Filters</span>
+        <span className="acct-bar-label-2">{label}</span>
         {n > 0 && <span style={count}>{n}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Filters" style={{ ...panel(640), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label={label} style={{ ...panel(640), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
         <div style={{ display: 'grid', gap: 1, alignContent: 'start' }}>
           <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', padding: '2px 8px 6px' }}>Filter this report by</div>
           {kinds.map((k) => {
