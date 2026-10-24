@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -30,8 +30,10 @@ vi.mock('../../stepup/StepUp', () => ({
 
 import CompensationReport from './CompensationReport';
 import { api } from '../../api';
+import { resetAccountingPrefs } from './prefs';
 
-beforeEach(() => { vi.clearAllMocks(); });
+// The standard table view keeps a person's filters (10/23 item 01): each test starts clean.
+beforeEach(() => { vi.clearAllMocks(); resetAccountingPrefs(); try { localStorage.clear(); } catch { /* private mode */ } });
 
 describe('CompensationReport', () => {
   // 10/23 meeting, item 05 (fix 10/24): the page does not scroll; each table scrolls in its own card.
@@ -66,6 +68,20 @@ describe('CompensationReport', () => {
     expect(await screen.findByText('Field Ops')).toBeTruthy();
     expect(screen.getByText('Employer Taxes')).toBeTruthy();
     expect(api.getCompensationLedger).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'department');
+  });
+
+  it('has the standard table view: a value list narrows the people and the Total follows (10/23, item 01)', async () => {
+    const lee = { ...report.people[0], email: 'lee@x.com', name: 'Lee Salaried', employeeId: 'MC-002', company: 'c2', companyName: 'MCD Services', payType: 'salary', rate: 6000, rateChanged: false, regMin: 4800, otMin: 0, dtMin: 0, sickMin: 0, wages: 2000 };
+    api.getCompensationPeople.mockResolvedValueOnce({ ...report, people: [report.people[0], lee], totals: [total({ people: 2, regMin: 14400, wages: 7000 })] });
+    render(<CompensationReport />);
+    await screen.findByText('Lee Salaried');
+    const totalRow = () => within(screen.getByRole('heading', { name: 'Compensation' }).closest('.acct-stack-card')).getByText('Total', { selector: 'td' }).closest('tr');
+    expect(totalRow().textContent).toContain('7,000.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Company by value' }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Company values' })).getByRole('checkbox', { name: /Greens Global/ }));
+    expect(screen.queryByText('Pat Hourly')).toBeNull();
+    expect(totalRow().textContent).toContain('2,000.00');
+    expect(totalRow().textContent).toContain('80.00');     // Lee's 4,800 minutes of regular time
   });
 
   it('switches to the totals by company', async () => {

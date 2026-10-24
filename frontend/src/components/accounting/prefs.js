@@ -26,7 +26,9 @@ const emit = () => listeners.forEach((fn) => fn(current));
 function ensureLoaded() {
   if (current === null) current = read();
   if (loaded || loading) return;
-  loading = api.getAccountingPrefs()
+  // Through a promise: a read that throws at once (no network layer yet) is
+  // a failed read, never a crash of the screen that asked.
+  loading = Promise.resolve().then(() => api.getAccountingPrefs())
     .then((d) => {
       const server = d?.prefs && typeof d.prefs === 'object' ? d.prefs : {};
       // The server wins where it has something; a layout made before this
@@ -45,7 +47,7 @@ function setPrefs(patch) {
   write(current);
   emit();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { api.saveAccountingPrefs(current).catch(() => { /* kept locally; retried on the next change */ }); }, 800);
+  saveTimer = setTimeout(() => { Promise.resolve().then(() => api.saveAccountingPrefs(current)).catch(() => { /* kept locally; retried on the next change */ }); }, 800);
 }
 
 /** [prefs, setPrefs(patch | (prefs) => patch)] - patch is merged at the top level. */

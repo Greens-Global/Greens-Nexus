@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
-import Amount from './Amount';
+import Amount, { formatAmount } from './Amount';
 import { BarMore, ControlBar, control, ExportMenu, SyncButton } from './reportControls';
 import { useTableSync } from './tableSync';
 import { useFitHeight } from './tableHooks';
+import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { downloadBlob } from './reportModel';
 import { linesFile } from './linesExport';
 import { formatDate } from '../../lib/datetime';
@@ -40,6 +41,44 @@ function defaultRange(now = new Date()) {
   return [monthKey(new Date(last.getFullYear(), 0, 1)), monthKey(last)];
 }
 const hrs = (min) => hoursOf(min).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// The people table's columns for the standard table view (10/23 meeting,
+// item 01), one set per grouping: hours compare as numbers, rates and wages
+// as amounts. Employee ID and the currency export beside them, as before.
+export function compColumns(grouping) {
+  const hours = HOUR_COLUMNS.map((c) => ({ key: c.key, label: c.label, type: 'number', total: true, value: (r) => hoursOf(r[c.key]), text: (r) => (r[c.key] ? hrs(r[c.key]) : '') }));
+  const wages = { key: 'wages', label: 'Gross Wages', type: 'amount', total: true, value: (r) => Number(r.wages) || 0, text: (r) => formatAmount(r.wages) };
+  if (grouping === 'people') {
+    return [
+      { key: 'name', label: 'Employee', text: (r) => r.name || '', exportAs: [{ label: 'Employee', width: 160, get: (r) => r.name }, { label: 'Employee ID', width: 80, get: (r) => r.employeeId }] },
+      { key: 'company', label: 'Company', text: (r) => r.companyName || '', exportAs: [{ label: 'Company', width: 140, get: (r) => r.companyName }] },
+      { key: 'department', label: 'Department', text: (r) => r.department || '', exportAs: [{ label: 'Department', width: 110, get: (r) => r.department }] },
+      { key: 'title', label: 'Title', text: (r) => r.title || '', exportAs: [{ label: 'Title', width: 120, get: (r) => r.title }] },
+      { key: 'payType', label: 'Pay Type', text: (r) => payTypeLabel(r.payType), exportAs: [{ label: 'Pay Type', width: 60, get: (r) => payTypeLabel(r.payType) }, { label: 'Currency', width: 55, get: (r) => r.currency }] },
+      { key: 'rate', label: 'Rate', type: 'amount', value: (r) => Number(r.rate) || 0, text: (r) => formatAmount(r.rate) },
+      ...hours, wages,
+    ];
+  }
+  const head = grouping === 'company' ? 'Company' : 'Department';
+  return [
+    { key: 'label', label: head, text: (r) => r.label || '', exportAs: [{ label: head, width: 180, get: (r) => r.label }, { label: 'Currency', width: 60, get: (r) => r.currency }] },
+    { key: 'people', label: 'Employees', type: 'number', total: true, value: (r) => Number(r.people) || 0, text: (r) => String(r.people ?? '') },
+    ...hours, wages,
+  ];
+}
+
+/** The totals by currency over some rows (wages in USD and INR never add together). */
+export function totalsOf(rows, grouping) {
+  const by = new Map();
+  rows.forEach((r) => {
+    const t = by.get(r.currency) || { currency: r.currency, people: 0, wages: 0, ...Object.fromEntries(HOUR_COLUMNS.map((c) => [c.key, 0])) };
+    t.people += grouping === 'people' ? 1 : Number(r.people) || 0;
+    t.wages = Math.round((t.wages + (Number(r.wages) || 0)) * 100) / 100;
+    HOUR_COLUMNS.forEach((c) => { t[c.key] += Number(r[c.key]) || 0; });
+    by.set(r.currency, t);
+  });
+  return [...by.values()];
+}
 
 export default function CompensationReport() {
   const [[from, to], setRange] = useState(() => defaultRange());
@@ -88,8 +127,25 @@ export default function CompensationReport() {
 
   const run = () => { if (!rangeError) setAsked([from, to]); };
   const period = data ? `${formatDate(data.from)} - ${formatDate(data.to)}` : '';
-  const rows = useMemo(() => viewRows(data, view), [data, view]);
-  const totals = data?.totals || [];
+  const all = useMemo(() => viewRows(data, view), [data, view]);
+  // Item 01: the standard view over the rows of the grouping picked (each
+  // grouping keeps its own); the totals follow it once it filters.
+  const columns = useMemo(() => compColumns(view), [view]);
+  const tv = useTableView(`comp-${view}`, columns, all);
+  const rows = tv.rows;
+  const totals = tv.count ? totalsOf(rows, view) : data?.totals || [];
+  // Exactly what the view leaves, with one Total line per currency when there are several.
+  const peopleTable = () => {
+    const base = compensationTable(data, view, { period });
+    const currencies = [...new Set(rows.map((r) => r.currency))];
+    const t = viewTable(rows, tv.columns, { title: base.title, subtitle: base.subtitle, period: base.period, totals: currencies.length <= 1 });
+    if (currencies.length <= 1) return t;
+    const lines = currencies.map((cur) => {
+      const one = viewTable(rows.filter((r) => r.currency === cur), tv.columns, { totals: true });
+      return (one.totals || []).map((v) => (typeof v === 'string' && v.startsWith('Total') ? `Total ${cur}` : v));
+    });
+    return { ...t, rows: [...t.rows, ...lines] };
+  };
 
   const exportFile = async (key, build, format) => {
     setBusy(`${key}-${format}`);
@@ -118,9 +174,10 @@ export default function CompensationReport() {
           {VIEWS.map((v) => <button key={v.key} type="button" style={seg(view === v.key)} aria-pressed={view === v.key} onClick={() => setView(v.key)}>{v.label}</button>)}
         </div>
         </BarMore>
+        <TableViewBar key={view} view={tv} />
         <div className="acct-bar-end">
           <SyncButton onSync={peopleSync.sync} busy={!!state.syncing} syncedAt={peopleSync.syncedAt} what="Compensation" />
-          <ExportMenu disabled={!data || !rows.length} items={exportItems('people', () => compensationTable(data, view, { period }), !data)} />
+          <ExportMenu disabled={!data || !rows.length} items={exportItems('people', peopleTable, !data)} />
         </div>
         {rangeError && <div style={{ width: '100%', fontSize: '0.75rem', color: '#b91c1c' }}>{rangeError}</div>}
       </ControlBar>
@@ -141,53 +198,49 @@ export default function CompensationReport() {
             <div className="acct-stack-card acct-stack-main" style={card}>
               <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'baseline' }}>
                 <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Compensation</h3>
-                <span style={muted}>{period} · {data.people.length} {data.people.length === 1 ? 'employee' : 'employees'}</span>
+                <span style={muted}>{period} · {data.people.length} {data.people.length === 1 ? 'employee' : 'employees'}{tv.count ? ` · ${rows.length} of ${all.length} rows pass the filters` : ''}</span>
               </div>
               <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                 <thead>
                   <tr>
-                    {view === 'people' ? (
-                      <><th style={th}>Employee</th><th style={th}>Company</th><th style={th}>Department</th><th style={th}>Title</th><th style={th}>Pay Type</th><th style={thNum}>Rate</th></>
-                    ) : (
-                      <><th style={th}>{view === 'company' ? 'Company' : 'Department'}</th><th style={thNum}>Employees</th></>
-                    )}
-                    {HOUR_COLUMNS.map((c) => <th key={c.key} style={thNum}>{c.label}</th>)}
-                    <th style={thNum}>Gross Wages</th>
+                    {tv.columns.map((c) => {
+                      const w = tv.manualWidth(c.key);
+                      return <ViewHead key={c.key} view={tv} col={c} aria-label={c.label} style={{ ...(c.type ? thNum : th), position: 'relative', ...(w ? { width: w, minWidth: w, maxWidth: w } : null) }} />;
+                    })}
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => (
                     <tr key={view === 'people' ? r.email : `${r.key}-${r.currency}`}>
-                      {view === 'people' ? (
-                        <>
-                          <td style={td}><strong>{r.name}</strong>{r.employeeId ? <div style={muted}>{r.employeeId}</div> : null}</td>
-                          <td style={td}>{r.companyName || <span style={muted}>No Company</span>}</td>
-                          <td style={td}>{r.department || <span style={muted}>-</span>}</td>
-                          <td style={td}>{r.title || <span style={muted}>-</span>}</td>
-                          <td style={td}>{payTypeLabel(r.payType)}</td>
+                      {viewCells(tv, {
+                        name: <td style={td}><strong>{r.name}</strong>{r.employeeId ? <div style={muted}>{r.employeeId}</div> : null}</td>,
+                        company: <td style={td}>{r.companyName || <span style={muted}>No Company</span>}</td>,
+                        department: <td style={td}>{r.department || <span style={muted}>-</span>}</td>,
+                        title: <td style={td}>{r.title || <span style={muted}>-</span>}</td>,
+                        payType: <td style={td}>{payTypeLabel(r.payType)}</td>,
+                        rate: (
                           <td style={tdNum} title={r.rateChanged ? 'The rate changed in these months; the latest is shown.' : rateLabel(r)}>
                             <Amount value={r.rate} zero="dash" />{r.currency !== 'USD' ? ` ${r.currency}` : ''}{r.rateChanged ? ' *' : ''}
                             <div style={muted}>{rateLabel(r)}</div>
                           </td>
-                        </>
-                      ) : (
-                        <>
-                          <td style={td}><strong>{r.label}</strong>{r.currency !== 'USD' ? <span style={muted}> {r.currency}</span> : null}</td>
-                          <td style={tdNum}>{r.people}</td>
-                        </>
-                      )}
-                      {HOUR_COLUMNS.map((c) => <td key={c.key} style={tdNum}>{r[c.key] ? hrs(r[c.key]) : '-'}</td>)}
-                      <td style={{ ...tdNum, fontWeight: 600 }}><Amount value={r.wages} zero="dash" />{r.currency !== 'USD' ? ` ${r.currency}` : ''}</td>
+                        ),
+                        label: <td style={td}><strong>{r.label}</strong>{r.currency !== 'USD' ? <span style={muted}> {r.currency}</span> : null}</td>,
+                        people: <td style={tdNum}>{r.people}</td>,
+                        ...Object.fromEntries(HOUR_COLUMNS.map((c) => [c.key, <td style={tdNum}>{r[c.key] ? hrs(r[c.key]) : '-'}</td>])),
+                        wages: <td style={{ ...tdNum, fontWeight: 600 }}><Amount value={r.wages} zero="dash" />{r.currency !== 'USD' ? ` ${r.currency}` : ''}</td>,
+                      })}
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   {totals.map((t) => (
                     <tr key={t.currency}>
-                      <td style={{ ...td, fontWeight: 700 }} colSpan={view === 'people' ? 5 : 1}>{totals.length > 1 ? `Total ${t.currency}` : 'Total'}</td>
-                      <td style={{ ...tdNum, fontWeight: 700 }}>{view === 'people' ? '' : t.people}</td>
-                      {HOUR_COLUMNS.map((c) => <td key={c.key} style={{ ...tdNum, fontWeight: 700 }}>{hrs(t[c.key])}</td>)}
-                      <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={t.wages} zero="dash" />{t.currency !== 'USD' ? ` ${t.currency}` : ''}</td>
+                      {viewCells(tv, {
+                        [view === 'people' ? 'name' : 'label']: <td style={{ ...td, fontWeight: 700 }}>{totals.length > 1 ? `Total ${t.currency}` : 'Total'}</td>,
+                        people: <td style={{ ...tdNum, fontWeight: 700 }}>{t.people}</td>,
+                        ...Object.fromEntries(HOUR_COLUMNS.map((c) => [c.key, <td style={{ ...tdNum, fontWeight: 700 }}>{hrs(t[c.key])}</td>])),
+                        wages: <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={t.wages} zero="dash" />{t.currency !== 'USD' ? ` ${t.currency}` : ''}</td>,
+                      }, () => <td style={td} />)}
                     </tr>
                   ))}
                 </tfoot>

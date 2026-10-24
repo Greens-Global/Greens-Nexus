@@ -46,7 +46,7 @@ export function TableViewBar({ view, columns = true, filtersLabel = 'Filters' })
       </div>
       {view.dirty && (
         <>
-          <span className="acct-vh-unsaved" role="status" title="The filters, sort or columns differ from the view picked.">Unsaved</span>
+          <span className="acct-vh-unsaved" title="The filters, sort or columns differ from the view picked.">Unsaved</span>
           <button type="button" style={btn(true)} onClick={() => { if (!view.update()) toggle('save'); }}
             title={view.activeId ? `Save these filters, sort and columns into "${view.activeName}"` : 'Save these filters, sort and columns as a view of your own'}>
             <Save size={14} style={{ flexShrink: 0 }} /> <span className="acct-bar-label">Update</span>
