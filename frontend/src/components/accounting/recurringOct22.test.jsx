@@ -143,17 +143,45 @@ describe('MRE, Oct 22', () => {
     expect(within(screen.getByText('San Diego Gas & Electric').closest('tr')).getByText('1,230.00')).toBeTruthy();
   });
 
-  it('sorts on a header click, the other way on a second click, and remembers it', async () => {
+  it('sorts from the header (10/23 item 01: its menu), the other way with one click on the arrow, and remembers it', async () => {
     render(<MreTab canEdit />);
     await screen.findByText('San Diego Gas & Electric');
     const names = () => screen.getAllByRole('row').map((r) => r.textContent).filter((t) => /AT&T|San Diego/.test(t)).map((t) => (t.includes('AT&T') ? 'ATT' : 'SDGE'));
     expect(names()).toEqual(['SDGE', 'ATT']);
-    fireEvent.click(screen.getByRole('button', { name: 'Sort by Vendor' }));
-    expect(names()).toEqual(['ATT', 'SDGE']);
-    fireEvent.click(screen.getByRole('button', { name: /Sort by Vendor, ascending/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Vendor - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Vendor column' })).getByRole('menuitemradio', { name: /Sort Ascending/ }));
+    expect(names()).toEqual(['ATT', 'SDGE']);                 // by name: AT&T before San Diego
+    fireEvent.click(screen.getByRole('button', { name: 'Sort Vendor descending' }));
     expect(names()).toEqual(['SDGE', 'ATT']);
     expect(screen.getByRole('columnheader', { name: 'Vendor' }).getAttribute('aria-sort')).toBe('descending');
-    await waitFor(() => expect(api.saveAccountingPrefs).toHaveBeenCalled());
+    await waitFor(() => expect(api.saveAccountingPrefs).toHaveBeenCalled(), { timeout: 3000 });
+    expect(api.saveAccountingPrefs.mock.calls.at(-1)[0].tableViews.mre.draft.sort).toEqual({ col: 'vendor', dir: 'desc' });
+  });
+
+  it("keeps a header sort chosen before views existed as the person's default (prefs.mreSort)", async () => {
+    localStorage.setItem('nexus-accounting-prefs', JSON.stringify({ mreSort: { key: 'vendor', dir: 'asc' } }));
+    resetAccountingPrefs();
+    render(<MreTab canEdit />);
+    await screen.findByText('San Diego Gas & Electric');
+    const names = () => screen.getAllByRole('row').map((r) => r.textContent).filter((t) => /AT&T|San Diego/.test(t)).map((t) => (t.includes('AT&T') ? 'ATT' : 'SDGE'));
+    expect(names()).toEqual(['ATT', 'SDGE']);
+    expect(screen.queryByText('Unsaved')).toBeNull();
+  });
+
+  it('the view filters the grid; Total Paid and the summary follow it (10/23 item 01)', async () => {
+    render(<MreTab canEdit />);
+    await screen.findByText('San Diego Gas & Electric');
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const panel = await screen.findByRole('dialog', { name: 'Filters' });
+    fireEvent.click(within(panel).getByRole('button', { name: /Add Filter/ }));
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 field' }), { target: { value: 'vendor' } });
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'Rule 1 value' }), { target: { value: 'san diego' } });
+    expect(screen.queryByText('AT&T')).toBeNull();
+    const grand = screen.getByText('Total Paid').closest('tr');
+    const sdge = screen.getByText('San Diego Gas & Electric').closest('tr');
+    expect(grand.cells[grand.cells.length - 3].textContent).toBe(sdge.cells[sdge.cells.length - 3].textContent);   // Total Paid = that one line's total
+    // The summary over the line left (the server's is for every line: 0.00 here).
+    expect(screen.getByText('Paid to Date').querySelector('strong').textContent).toBe('3,690.00');
   });
 
   it('a saved line refreshes its own row - one row read, never the whole grid', async () => {

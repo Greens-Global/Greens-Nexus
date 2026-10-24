@@ -6911,6 +6911,8 @@ body:has(.nx-finish-bar) { overflow-x: clip; }
 .acct-vh-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acct-vh-label:hover .acct-vh-text { text-decoration: underline; text-underline-offset: 2px; }
 .acct-num .acct-vh, th.acct-num .acct-vh { flex-direction: row-reverse; }
+.acct-vh-sort { display: inline-flex; align-items: center; border: none; background: none; padding: 1px; border-radius: 4px; color: var(--wk-brand, #2b45e1); cursor: pointer; flex-shrink: 0; }
+.acct-vh-sort:hover { background: var(--wk-brand-tint, #e8ecfd); }
 .acct-vh-funnel { display: inline-flex; align-items: center; border: none; background: none; padding: 2px; border-radius: 4px; color: var(--text-muted); cursor: pointer; opacity: 0; flex-shrink: 0; }
 th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visible, .acct-vh-funnel[aria-expanded="true"] { opacity: 1; }
 .acct-vh-funnel.on { opacity: 1; color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }

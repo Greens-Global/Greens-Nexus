@@ -24,6 +24,8 @@ import { parseFigure } from '../reportModel';
 //   off      hidden until the person shows it
 //   fixed    stays where it is: never moved or hidden (a pinned first column)
 //   total    an amount the totals row and the export add up
+//   sortBy(r) what the column sorts on, when not what it shows
+//   exportAs [{ label, num, width, total, get(r) }] the column in an export
 //   noFilter / noSort   the column takes no filter / no sort (an action column)
 //
 // A VIEW'S STATE (what a saved view keeps):
@@ -269,6 +271,13 @@ function passes(rules, match, picks, row) {
 
 /** Compare two cells of a column for sorting: blanks always last. */
 export function compareCells(col, a, b) {
+  if (col.sortBy) {
+    // The column sorts on something else than it shows (a vendor by name, not number).
+    const x = col.sortBy(a);
+    const y = col.sortBy(b);
+    if (typeof x === 'number' && typeof y === 'number') return x - y;
+    return String(x ?? '').localeCompare(String(y ?? ''), 'en-US', { numeric: true, sensitivity: 'base' });
+  }
   const kind = kindOf(col);
   if (kind === 'number') {
     const x = numOf(col, a);

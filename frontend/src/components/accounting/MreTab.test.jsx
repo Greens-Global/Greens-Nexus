@@ -414,6 +414,43 @@ describe('MreTab column filters', () => {
   });
 });
 
+// 10/23 meeting, item 01: the standard table view on the grid.
+describe('MreTab standard table view', () => {
+  it('a value list, a hidden column and a moved column: the grid, its boxes and the export follow the view', async () => {
+    render(<MreTab />);
+    await screen.findByText('San Diego Gas & Electric');
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Vendor by value' }));
+    const list = await screen.findByRole('dialog', { name: 'Vendor values' });
+    fireEvent.click(within(list).getByRole('checkbox', { name: /Microsoft/ }));
+    expect(screen.queryByText('Microsoft')).toBeNull();
+    // Hide Notes, move Category left of Entity: the filter boxes move with their headings.
+    fireEvent.click(screen.getByRole('button', { name: /^Notes - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Notes column' })).getByRole('menuitem', { name: /Hide Column/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Category - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Category column' })).getByRole('menuitem', { name: /Move Left/ }));
+    const table = screen.getByRole('table', { name: /Recurring expenses/ });
+    const heads = within(table.querySelector('thead tr')).getAllByRole('columnheader').map((h) => h.getAttribute('aria-label'));
+    expect(heads.slice(0, 3)).toEqual(['Vendor', 'Category', 'Entity']);
+    expect(heads).not.toContain('Notes');
+    const boxes = table.querySelectorAll('.acct-filter-row td');
+    expect(boxes[1].querySelector('input').getAttribute('aria-label')).toBe('Filter Category');
+    // The Vendor column cannot move or hide: it stays pinned first.
+    fireEvent.click(screen.getByRole('button', { name: /^Vendor - column menu/ }));
+    const menu = await screen.findByRole('menu', { name: 'Vendor column' });
+    expect(within(menu).queryByRole('menuitem', { name: /Hide Column/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalled());
+    const file = downloadBlob.mock.calls[0][1];
+    const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
+    const lines = text.replace(/^\s+/, '').split('\r\n');
+    expect(lines[0].startsWith('Vendor No.,Vendor,Category,Frequency,Entity,Expected,Jan')).toBe(true);
+    expect(lines[0]).not.toContain('Notes');
+    expect(text).toContain('San Diego Gas & Electric');
+    expect(text).not.toContain('Microsoft');
+  });
+});
+
 // Oct 23 (Viral, Charmi): the headings and filter boxes stick as one block,
 // and the pinned Vendor cell stays solid while the months scroll under it.
 describe('MreTab sticky header block', () => {

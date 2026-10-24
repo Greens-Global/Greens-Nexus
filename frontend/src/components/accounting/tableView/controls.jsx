@@ -96,8 +96,15 @@ export function ViewHead({ view, col, children = null, as: Tag = 'th', resize = 
         <button type="button" className="acct-vh-label" onClick={() => toggle('menu')} aria-haspopup="menu" aria-expanded={open === 'menu'}
           aria-label={`${col.label}${dir ? (dir === 'asc' ? ', sorted ascending' : ', sorted descending') : ''} - column menu`} title={`${col.label}: sort, filter, width and position`}>
           <span className="acct-vh-text">{children ?? col.label}</span>
-          {dir && (dir === 'asc' ? <ArrowUp size={11} style={{ flexShrink: 0 }} /> : <ArrowDown size={11} style={{ flexShrink: 0 }} />)}
         </button>
+        {/* The arrow of a sorted column turns it the other way in one click
+            (Urmi, 10/22: "again for the other way"). */}
+        {dir && (
+          <button type="button" className="acct-vh-sort" onClick={() => view.sortBy(col.key, dir === 'asc' ? 'desc' : 'asc')}
+            aria-label={`Sort ${col.label} ${dir === 'asc' ? 'descending' : 'ascending'}`} title={dir === 'asc' ? 'Sorted ascending - click for descending' : 'Sorted descending - click for ascending'}>
+            {dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
+          </button>
+        )}
         {!col.noFilter && (
           <button type="button" className={`acct-vh-funnel${on ? ' on' : ''}`} onClick={() => toggle('values')} aria-haspopup="dialog" aria-expanded={open === 'values'}
             aria-label={`Filter ${col.label} by value${on ? ' (on)' : ''}`} title={on ? `${col.label} is filtered` : `Pick ${col.label} values to show`}>
