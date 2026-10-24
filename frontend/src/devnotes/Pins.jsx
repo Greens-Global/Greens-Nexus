@@ -127,13 +127,15 @@ function ThreadEntry({ e }) {
 function Evidence({ v }) {
   if (!v || typeof v !== 'object') return null;
   const checks = v.styleCheck?.checks || [];
+  const has = !!(v.repro?.before || v.repro?.after || checks.length || v.styleCheck?.passed != null || v.visual?.beforeUrl || v.visual?.afterUrl);
+  if (!has) return null;   // the CLI has not written anything yet - no empty header
   return (
     <section className="bm-evidence" aria-label="Evidence">
       <div className="bm-sec-title">Evidence</div>
       {v.repro && (v.repro.before || v.repro.after) && (
         <div className="bm-repro">
           <div><span className="bm-dim">Before</span><div>{v.repro.before || '-'}</div></div>
-          <div className="bm-repro-arrow" aria-hidden="true">→</div>
+          <div className="bm-repro-arrow" aria-hidden="true">-&gt;</div>
           <div><span className="bm-dim">After</span><div>{v.repro.after || '-'}</div></div>
         </div>
       )}
@@ -241,8 +243,8 @@ export function PinThread({ pin, anchor, onClose, onChanged }) {
         {edit && (
           <section className="bm-edit-block">
             <div className="bm-sec-title">Edit</div>
-            {edit.text && <div className="bm-diff"><s>{edit.text.before}</s> <span aria-hidden="true">→</span> <b>{edit.text.after}</b></div>}
-            {(edit.styles || []).map((s, i) => <div key={i} className="bm-diff"><code>{s.prop}</code> <s>{s.before}</s> <span aria-hidden="true">→</span> <b>{s.after}</b></div>)}
+            {edit.text && <div className="bm-diff"><s>{edit.text.before}</s> <span className="bm-dim">-&gt;</span> <b>{edit.text.after}</b></div>}
+            {(edit.styles || []).map((s, i) => <div key={i} className="bm-diff"><code>{s.prop}</code> <s>{s.before}</s> <span className="bm-dim">-&gt;</span> <b>{s.after}</b></div>)}
           </section>
         )}
         {pin.progress && (

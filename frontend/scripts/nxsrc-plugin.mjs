@@ -24,10 +24,30 @@ function hasHandlerOrAria(opening) {
 }
 // only: 'interactive' = a handler, an aria / role attribute, or text;
 // only: 'handlers' = a handler or an aria / role attribute (no text rule).
-function wanted(only, opening, element) {
+// Both also stamp COMPONENT ROOTS - the outermost host element a function
+// returns (roughly one stamp per component), so a pin on plain text still
+// resolves to the file of the component that drew the area.
+function wanted(only, opening, element, roots) {
   if (!only) return true;
+  if (element && roots?.has(element)) return true;
   if (hasHandlerOrAria(opening)) return true;
   return only === 'interactive' && element ? hasText(element) : false;
+}
+
+// The JSX element(s) a returned expression resolves to: through parentheses,
+// both arms of a conditional, both sides of && / ||, the last of a sequence,
+// and every direct element child of a fragment.
+function collectRoots(node, roots, depth = 0) {
+  if (!node || depth > 8) return;
+  switch (node.type) {
+    case 'JSXElement': roots.add(node); return;
+    case 'JSXFragment': for (const c of node.children) if (c.type === 'JSXElement') roots.add(c); return;
+    case 'ParenthesizedExpression': case 'TSAsExpression': case 'TSNonNullExpression': collectRoots(node.expression, roots, depth + 1); return;
+    case 'ConditionalExpression': collectRoots(node.consequent, roots, depth + 1); collectRoots(node.alternate, roots, depth + 1); return;
+    case 'LogicalExpression': collectRoots(node.left, roots, depth + 1); collectRoots(node.right, roots, depth + 1); return;
+    case 'SequenceExpression': collectRoots(node.expressions[node.expressions.length - 1], roots, depth + 1); return;
+    default:
+  }
 }
 
 // The Vite side. @vitejs/plugin-react 6 (Vite 8, oxc) no longer runs Babel,
@@ -80,7 +100,12 @@ export function nxSrcVitePlugin({ root, only } = {}) {
 export default function nxSrcPlugin({ types: t }) {
   return {
     name: 'nx-src',
+    pre() { this.roots = new WeakSet(); },
     visitor: {
+      // Component roots are collected before their elements are visited
+      // (parents first), so the opening-element visitor below can ask.
+      ReturnStatement(path, state) { collectRoots(path.node.argument, state.roots); },
+      ArrowFunctionExpression(path, state) { if (path.node.body.type !== 'BlockStatement') collectRoots(path.node.body, state.roots); },
       JSXOpeningElement(path, state) {
         const name = path.node.name;
         if (!t.isJSXIdentifier(name)) return;              // Foo.Bar is a component
@@ -88,7 +113,7 @@ export default function nxSrcPlugin({ types: t }) {
         if (path.node.attributes.some((a) => t.isJSXAttribute(a) && a.name?.name === 'data-nx-src')) return;
         const loc = path.node.loc?.start;
         if (!loc) return;
-        if (!wanted(state.opts?.only, path.node, path.parentPath?.node)) return;
+        if (!wanted(state.opts?.only, path.node, path.parentPath?.node, state.roots)) return;
         const root = state.opts?.root || process.cwd();
         const file = state.filename ? relative(root, state.filename).split(sep).join('/') : '';
         // With a file index (the Vite plugin) the value is "<id>:<line>:<col>"; alone, the path itself.

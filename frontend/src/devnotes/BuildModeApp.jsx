@@ -68,7 +68,17 @@ export default function BuildModeApp({ view, sub }) {
     if (blocked) { store.set({ pins: [] }); return; }
     try { const list = await api.devNotesPins(view, sub || ''); store.set({ pins: Array.isArray(list) ? list : [] }); } catch { /* keep the last list */ }
   }, [view, sub, blocked]);
-  useEffect(() => { loadPins(); return pollWhileVisible(loadPins, 20000); }, [loadPins, s.version]);
+  // Every 30 s while visible, on focus, after every thread / verify / dismiss
+  // (onPinChanged bumps `version`) and when the Panel closes - so progress,
+  // Needs Input and Fixed - Verify show up without a reload.
+  useEffect(() => {
+    loadPins();
+    const stop = pollWhileVisible(loadPins, 30000);
+    const onFocus = () => loadPins();
+    window.addEventListener('focus', onFocus);
+    return () => { stop(); window.removeEventListener('focus', onFocus); };
+  }, [loadPins, s.version]);
+  useEffect(() => { if (!s.panelOpen) loadPins(); }, [s.panelOpen]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Deep link: /dev-notes?pin=<id> or a bell ─────────────────────────────
   useEffect(() => {

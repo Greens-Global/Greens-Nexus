@@ -108,16 +108,22 @@ export default function Overlay({ tool, color, interactive = true, items = [], o
     }
   };
 
+  // The pointer's position applied to the item being drawn - used by every
+  // move AND by the release, so a down + up with no move in between (a very
+  // fast flick, some pens and trackpads, automation) still yields the item.
+  const applyPoint = (d, x, y) => {
+    if (!d) return d;
+    if (d.type === 'arrow') return { ...d, x2: x, y2: y };
+    if (d.type === 'path') return { ...d, points: [...d.points, [x, y]] };
+    return { ...d, x: Math.min(d._x0, x), y: Math.min(d._y0, y), w: Math.abs(x - d._x0), h: Math.abs(y - d._y0) };
+  };
+  const rectFrom = (d, x, y) => ({ x: Math.min(d.x, x), y: Math.min(d.y, y), w: Math.abs(x - d.x), h: Math.abs(y - d.y) });
+
   const onPointerMove = (e) => {
     if (!interactive) return;
     const { clientX: x, clientY: y } = e;
     if (draft) {
-      setDraft((d) => {
-        if (!d) return d;
-        if (d.type === 'arrow') return { ...d, x2: x, y2: y };
-        if (d.type === 'path') return { ...d, points: [...d.points, [x, y]] };
-        return { ...d, x: Math.min(d._x0, x), y: Math.min(d._y0, y), w: Math.abs(x - d._x0), h: Math.abs(y - d._y0) };
-      });
+      setDraft((d) => applyPoint(d, x, y));
       return;
     }
     const d = downRef.current;
@@ -142,7 +148,7 @@ export default function Overlay({ tool, color, interactive = true, items = [], o
     const { clientX: x, clientY: y } = e;
     try { ref.current?.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
     if (draft) {
-      const d = draft;
+      const d = applyPoint(draft, x, y);
       setDraft(null);
       const big = d.type === 'arrow' ? Math.hypot(d.x2 - d.x1, d.y2 - d.y1) > 4 : d.type === 'path' ? d.points.length > 1 : (d.w > 3 && d.h > 3);
       if (big) { const { _x0, _y0, ...item } = d; onAdd?.({ ...item, id: `m${Date.now()}` }); }
@@ -152,14 +158,17 @@ export default function Overlay({ tool, color, interactive = true, items = [], o
     downRef.current = null;
     clearPress();
     if (!d) return;
-    if (region && d.moved && !d.touch) {
-      const r = region;
+    // A drag is judged by where the pointer came up, not by whether moves
+    // were delivered in between.
+    const dragged = d.moved || Math.hypot(x - d.x, y - d.y) > DRAG_PX;
+    if (dragged && !d.touch) {
+      const r = rectFrom(d, x, y);
       setRegion(null);
       if (r.w > 8 && r.h > 8) onPick?.(regionTarget(r), { ...r, pageX: Math.round(r.x + window.scrollX), pageY: Math.round(r.y + window.scrollY) }, 'region', null);
       return;
     }
     setRegion(null);
-    if (d.consumed || d.moved) return;
+    if (d.consumed || dragged) return;
     if (d.touch) return;                         // a tap scrolls or does nothing; the long press pins
     pickElement(x, y);
   };

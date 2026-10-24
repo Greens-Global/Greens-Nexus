@@ -43,6 +43,16 @@ describe('capture', () => {
     expect(headingsFor(document.querySelector('.secondary-btn'))).toEqual(['Tasks', 'Home', 'Updates']);
   });
 
+  it('headingsFor never takes a sibling card\'s heading - only ancestors and their header rows', () => {
+    document.querySelector('main').innerHTML = `
+      <div class="grid">
+        <section class="card"><div class="card-head"><h2>Updates</h2><button>Mark All Read</button></div><ul><li>one</li><li>two</li><li>three long update lines here</li></ul></section>
+        <section class="card"><div class="card-head"><h2>Bookmarks</h2><span>3</span></div><ul><li><a id="bm">Payroll calendar</a></li></ul></section>
+      </div>`;
+    expect(headingsFor(document.querySelector('#bm'))).toEqual(['Tasks', 'Home', 'Bookmarks']);
+    expect(headingsFor(document.querySelectorAll('h2')[1])).toEqual(['Tasks', 'Home', 'Bookmarks']);   // the heading itself
+  });
+
   it('sourceOf reads the nearest data-nx-src stamp', () => {
     expect(sourceOf(document.querySelector('.secondary-btn'))).toEqual({ file: 'src/tasks/Home.jsx', line: 142, col: 11, self: true });
     expect(sourceOf(document.querySelector('input'))).toEqual({ file: 'src/tasks/Home.jsx', line: 40, col: 5, self: false });

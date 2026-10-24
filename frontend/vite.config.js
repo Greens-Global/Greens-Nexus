@@ -127,7 +127,8 @@ export default defineConfig(({ command }) => ({
     // pin on plain text resolves to its nearest stamped ancestor (source.self
     // = false). VITE_NX_SRC=interactive or =all for the bigger modes locally.
     ...((NX_SRC || command === 'serve') && !process.env.VITEST
-      ? [nxSrcVitePlugin({ root: FRONTEND_ROOT, only: process.env.VITE_NX_SRC === 'all' ? undefined : process.env.VITE_NX_SRC === 'interactive' ? 'interactive' : 'handlers' })] : []),
+      // Dev serve stamps every element - size is irrelevant locally.
+      ? [nxSrcVitePlugin({ root: FRONTEND_ROOT, only: command === 'serve' || process.env.VITE_NX_SRC === 'all' ? undefined : process.env.VITE_NX_SRC === 'interactive' ? 'interactive' : 'handlers' })] : []),
     react(), versionManifest(), stampUnhashedAssets(),
   ],
   base: '/',

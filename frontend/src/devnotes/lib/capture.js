@@ -100,10 +100,24 @@ export function headingsFor(el) {
   const chain = [];
   let cur = el.parentElement;
   while (cur && cur !== document.body && cur !== document.documentElement) { chain.unshift(cur); cur = cur.parentElement; }
-  for (const container of chain) {
-    const headings = [...container.querySelectorAll(HEADING_SEL)]
-      .filter((h) => !el.contains(h) && !h.contains(el) && (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING));
-    if (headings.length) push(textOf(headings[headings.length - 1], 80));
+  // Per ancestor, the nearest preceding heading that titles THAT ancestor: a
+  // heading in the same branch as the target belongs to a deeper level, and
+  // a heading inside a sibling branch with its own content (another card)
+  // is never ours - only a header row (the heading plus a little) counts.
+  for (let i = 0; i < chain.length; i++) {
+    const container = chain[i];
+    if (container.matches?.(HEADING_SEL)) { push(textOf(container, 80)); continue; }
+    const childOnPath = chain[i + 1] || el;
+    let best = null;
+    for (const h of container.querySelectorAll(HEADING_SEL)) {
+      if (h === el || h.contains(el) || el.contains(h) || !(h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+      let hChild = h;
+      while (hChild.parentElement && hChild.parentElement !== container) hChild = hChild.parentElement;
+      if (hChild === childOnPath) continue;
+      if (hChild !== h && textOf(hChild, 400).length > textOf(h, 80).length + 40) continue;
+      best = h;
+    }
+    if (best) push(textOf(best, 80));
   }
   if (el.matches?.(HEADING_SEL)) push(textOf(el, 80));
   return out.slice(-6);
@@ -123,7 +137,7 @@ export function htmlOf(el, max = 4000) {
 // names - those are dropped, so the list is empty rather than noise.
 const SKIP_NAMES = new Set(['Suspense', 'Fragment', 'Provider', 'Consumer', 'ForwardRef', 'Memo', 'Lazy', 'Profiler', 'StrictMode',
   'WidgetBoundary', 'ViewErrorBoundary', 'ErrorBoundary', 'Boundary', 'QueryClientProvider', 'MsalProvider']);
-export function componentsFor(el, max = 8) {
+export function componentsFor(el, max = 6) {
   if (!el) return [];
   let key = null;
   try { key = Object.keys(el).find((k) => k.startsWith('__reactFiber$')); } catch { return []; }
@@ -136,11 +150,14 @@ export function componentsFor(el, max = 8) {
     let name = '';
     if (typeof t === 'function') name = t.displayName || t.name || '';
     else if (t && typeof t === 'object') name = t.displayName || t.render?.displayName || t.render?.name || t.type?.displayName || t.type?.name || '';
-    if (name && name.length > 2 && !SKIP_NAMES.has(name) && !/^(Styled|Anonymous)/.test(name) && out[0] !== name) out.unshift(name);
+    // Wrappers (providers, boundaries, gates, contexts) say nothing about
+    // where the element is drawn - dropped, like the generic names above.
+    if (name && name.length > 2 && !SKIP_NAMES.has(name) && !/^(Styled|Anonymous)/.test(name) && !WRAPPER_RE.test(name) && out[0] !== name) out.unshift(name);
     fiber = fiber.return;
   }
-  return out;   // top-down, nearest last
+  return out.slice(-max);   // top-down, nearest last; the nearest `max` only
 }
+const WRAPPER_RE = /(Provider|Boundary|Gate|Context|Suspense)$/;
 
 /** data-*-id attributes up the tree and, when the app exposes it, the React Query keys in the cache. */
 export function recordFor(el) {

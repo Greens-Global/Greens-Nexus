@@ -37,6 +37,29 @@ describe('nxsrc-plugin', () => {
     expect(files).toEqual(['src/tasks/Home.jsx']);
   });
 
+  it('only: handlers also stamps component roots - what a function returns, through fragments, conditionals and &&', () => {
+    const out = run([
+      'function Card() { return (<section><h2>Updates</h2><p>text</p></section>); }',
+      'const Row = () => <li><span>x</span></li>;',
+      'function Two({ a }) { return a ? <div className="a"><i /></div> : <span className="b" />; }',
+      'function Frag({ ok }) { return <><header /><main>{ok && <article><b>t</b></article>}</main></>; }',
+      'function Wrapped() { return <Modal><p>inside</p></Modal>; }',
+    ].join('\n'), { only: 'handlers' });
+    expect(out).toMatch(/<section data-nx-src/);          // the root
+    expect(out).not.toMatch(/<h2 data-nx-src/);          // text only, no handler: not in handlers mode
+    expect(out).not.toMatch(/<p data-nx-src/);
+    expect(out).toMatch(/<li data-nx-src/);               // arrow body
+    expect(out).toMatch(/<div className="a" data-nx-src/);
+    expect(out).toMatch(/<span className="b" data-nx-src/);
+    expect(out).toMatch(/<header data-nx-src/);           // fragment children
+    expect(out).toMatch(/<main data-nx-src/);
+    expect(out).not.toMatch(/<article data-nx-src/);      // inside the JSX, not a returned root
+    expect(out).not.toMatch(/<Modal[^>]*data-nx-src/);    // a component root stamps nothing here
+    expect(out).not.toMatch(/<i data-nx-src/);
+    const cond = run('function Or({ a }) { return a || <em>fallback</em>; }', { only: 'handlers' });
+    expect(cond).toMatch(/<em data-nx-src/);              // the right side of a returned ||
+  });
+
   it('only: interactive stamps elements with text, a handler or an aria / role attribute', () => {
     const out = run('const C = () => <div><p>text</p><i /><b onClick={g} /><u role="button" /><em>{v}</em></div>;', { only: 'interactive' });
     expect(out).toMatch(/p\b[^>]*data-nx-src/);
@@ -44,6 +67,8 @@ describe('nxsrc-plugin', () => {
     expect(out).toMatch(/\bu\b[^>]*data-nx-src/);
     expect(out).toMatch(/\bem\b[^>]*data-nx-src/);
     expect(out).not.toMatch(/<i data-nx-src/);
-    expect(out).not.toMatch(/<div data-nx-src/);
+    expect(out).toMatch(/<div data-nx-src/);              // no text of its own, but the component's root
+    const inner = run('const E = () => <div><div><i /></div></div>;', { only: 'interactive' });
+    expect((inner.match(/data-nx-src/g) || []).length).toBe(1);   // only the outer div is a root
   });
 });
