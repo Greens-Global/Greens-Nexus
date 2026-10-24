@@ -4,8 +4,9 @@
 // strip; Settings = Send Instantly, Dispatch Target, Pins On Load, Build
 // Tokens and the watcher one-liner for VS Code.
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { X, Send, ExternalLink, Copy, Check, Loader2, Trash2, Pencil, RotateCcw, KeyRound } from 'lucide-react';
+import { X, Send, ExternalLink, Copy, Check, Loader2, Trash2, Pencil, RotateCcw, KeyRound, MessageSquare, Download } from 'lucide-react';
 import { api } from '../api';
+import { graphTokenSilent, listMyChats } from '../teamsGraph';
 import { formatDateTime, formatDate } from '../lib/datetime';
 import { toViewUrl } from '../lib/storageView';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -79,7 +80,55 @@ function PinRow({ pin, onOpen, onChanged }) {
   );
 }
 
-function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, onDispatched, myEmail }) {
+// Where the Build Session also posts in Teams: any group chat or 1:1 chat the
+// person is in (their own list, loaded through the server's delegated token
+// like TeamsTargetPicker, MSAL only as the fallback), or nowhere. The pick is
+// remembered in their Build Mode settings and sent with the dispatch.
+function TeamsChatPick({ settings, onSettings }) {
+  const [chats, setChats] = useState(null);     // null = not loaded
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const picked = settings?.teamsChatId || '';
+  const load = async () => {
+    if (chats || loading) return;
+    setLoading(true);
+    try {
+      const r = await api.timeMyChats();
+      if (r?.chats?.length) { setChats(r.chats); return; }
+      const tok = await graphTokenSilent();
+      setChats(tok ? await listMyChats(tok) : []);
+      if (!tok) toast(r?.reason ? `Could not load your Teams chats - ${r.reason}` : 'Could not load your Teams chats.');
+    } catch (e) { setChats([]); toast(e?.message || 'Could not load your Teams chats.'); }
+    finally { setLoading(false); }
+  };
+  const pick = async (c) => {
+    setOpen(false);
+    try { await onSettings?.({ teamsChatId: c?.id || '', teamsChatName: c?.name || '' }); }
+    catch (e) { toast(e?.message || 'The chat was not saved.'); }
+  };
+  return (
+    <div className="bm-chat-pick">
+      <button type="button" className="bm-btn bm-btn-sm" onClick={() => { setOpen((o) => !o); load(); }} aria-expanded={open} aria-haspopup="listbox"
+        title="Also post this Build Session to a Teams chat - a group or a person">
+        <MessageSquare size={13} /> {picked ? `Teams: ${settings.teamsChatName || 'chat'}` : 'Also Post To Teams'}
+      </button>
+      {open && (
+        <div className="bm-chat-menu" role="listbox" aria-label="Teams chat">
+          <button type="button" role="option" aria-selected={!picked} className={`bm-chat-opt${!picked ? ' is-on' : ''}`} onClick={() => pick(null)}>Do not post to Teams</button>
+          {loading && <div className="bm-dim bm-small bm-chat-note"><Loader2 size={12} className="bm-spin" /> Loading your chats…</div>}
+          {chats && !chats.length && !loading && <div className="bm-dim bm-small bm-chat-note">No chats found. Sign in to Teams once and try again.</div>}
+          {(chats || []).map((c) => (
+            <button key={c.id} type="button" role="option" aria-selected={picked === c.id} className={`bm-chat-opt${picked === c.id ? ' is-on' : ''}`} onClick={() => pick(c)}>
+              {c.name || 'Chat'} <span className="bm-dim bm-small">{c.chatType === 'group' ? 'group' : c.chatType === 'oneOnOne' ? 'person' : ''}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, onDispatched, myEmail, settings, onSettings }) {
   const [sending, setSending] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
   const bySession = new Map();
@@ -98,7 +147,8 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
     try {
       const r = await api.devNotesDispatch({});
       const n = Array.isArray(r?.notes) ? r.notes.length : 0;   // the server's count, nothing guessed
-      toast(n ? `${n} pin${n === 1 ? '' : 's'} sent to Claude Code` : 'Build Session sent to Claude Code');
+      const chat = r?.session?.teamsChatName ? ` and posted to ${r.session.teamsChatName}` : '';
+      toast(n ? `${n} pin${n === 1 ? '' : 's'} sent to Claude Code${chat}` : `Build Session sent to Claude Code${chat}`);
       onDispatched?.();
     }
     catch (e) { toast(e?.message || 'Nothing was sent.'); }
@@ -111,6 +161,7 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
           <div className="bm-h2">{notes.length} pin{notes.length === 1 ? '' : 's'} in the queue</div>
           <div className="bm-dim bm-small">{canSend ? `${mineOpen.length} of yours ready to send.` : 'Your collecting session is empty - pin something first.'}</div>
         </div>
+        <TeamsChatPick settings={settings} onSettings={onSettings} />
         <button type="button" className="bm-btn bm-btn-primary" onClick={send} disabled={!canSend || sending} title={canSend ? 'Send your open pins to the watcher in your terminal' : 'Nothing to send yet'}>
           {sending ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Send To Claude Code
         </button>
@@ -164,7 +215,21 @@ function Stats({ stats }) {
 function SessionRow({ s, onChanged }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(s.title || '');
+  const [saving, setSaving] = useState(false);
   const m = sessionMeta(s.status);
+  // Save Report: one HTML file with every pin, its module, comment and
+  // marked-up shot - opens anywhere, no login, attaches to an email.
+  const report = async () => {
+    setSaving(true);
+    try {
+      const { blob, filename } = await api.devNotesSessionReport(s.id);
+      const url = URL.createObjectURL(blob);
+      const a = Object.assign(document.createElement('a'), { href: url, download: filename || 'Build Session.html' });
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) { toast(e?.message || 'The report could not be saved.'); }
+    finally { setSaving(false); }
+  };
   const save = async () => {
     const t = title.trim();
     setEditing(false);
@@ -184,8 +249,12 @@ function SessionRow({ s, onChanged }) {
           <span>{s.noteCount ?? 0} pin{(s.noteCount ?? 0) === 1 ? '' : 's'}</span><span className="bm-dot-sep" /><span>{firstNameOf(s.createdBy)}</span><span className="bm-dot-sep" /><span>{formatDateTime(s.createdAt)}</span>
           {s.dispatchedAt && <><span className="bm-dot-sep" /><span>sent {formatDateTime(s.dispatchedAt)}</span></>}
           {s.branch && <><span className="bm-dot-sep" /><code>{s.branch}</code></>}
+          {s.teamsChatName && <><span className="bm-dot-sep" /><span title="Posted to this Teams chat"><MessageSquare size={11} /> {s.teamsChatName}</span></>}
         </div>
       </div>
+      <button type="button" className="bm-btn bm-btn-sm" onClick={report} disabled={saving || !(s.noteCount > 0)} title="Save one HTML file with every pin, comment and screenshot">
+        {saving ? <Loader2 size={13} className="bm-spin" /> : <Download size={13} />} Save Report
+      </button>
       {s.prUrl && <a className="bm-btn bm-btn-sm" href={s.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={13} /> PR #{s.prNumber}</a>}
     </div>
   );
@@ -344,7 +413,7 @@ export default function Panel({ open, tab = 'queue', onTab, onClose, settings, o
           <button type="button" className="bm-icon-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
         <div className="bm-sheet-body">
-          {tab === 'queue' && <QueueTab notes={notes} dismissed={dismissed} sessions={sessions} loading={loading} onOpenPin={onOpenPin} onChanged={replace} onDispatched={() => { load(); onDispatched?.(); }} myEmail={myEmail} />}
+          {tab === 'queue' && <QueueTab notes={notes} dismissed={dismissed} sessions={sessions} loading={loading} onOpenPin={onOpenPin} onChanged={replace} onDispatched={() => { load(); onDispatched?.(); }} myEmail={myEmail} settings={settings || {}} onSettings={onSettings} />}
           {tab === 'sessions' && <SessionsTab sessions={sessions} stats={stats} loading={loading} onChanged={replaceSession} />}
           {tab === 'settings' && <SettingsTab settings={settings || {}} onSettings={onSettings} />}
         </div>

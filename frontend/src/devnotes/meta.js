@@ -44,8 +44,11 @@ export const sessionMeta = (s) => SESSION_STATUS[s] || { label: s || 'Collecting
 // Markup swatches: the strip's Color button cycles through these.
 export const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#111827', '#ffffff'];
 
-// The tools of the strip, in order, with their one-key shortcuts.
+// The tools of the strip, in order, with their one-key shortcuts. Browse
+// (Oct 25) lets clicks through to Nexus so a person can move to another
+// module, open a record or a tab without turning the mode off.
 export const TOOLS = [
+  { id: 'browse',    label: 'Browse',    key: 'B' },
   { id: 'pin',       label: 'Pin',       key: 'P' },
   { id: 'edit',      label: 'Edit',      key: 'E' },
   { id: 'rect',      label: 'Rect',      key: 'R' },

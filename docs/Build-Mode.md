@@ -393,6 +393,35 @@ themselves as it does for every router.
 Status words on screen: Open, Dispatched, Building, Needs Input, PR Open,
 Fixed - Verify, Done, Dismissed.
 
+### Teams mirror, Browse and Save Report (Oct 25 2026)
+
+- **Teams mirror** (`backend/build_mode_chat.py`): the Queue tab's "Also
+  Post To Teams" lists the person's OWN chats (groups and 1:1s, through
+  `/timeclock/my-chats`, MSAL as the fallback) and remembers the pick in
+  their Build Mode settings (`teamsChatId` / `teamsChatName`); Send writes it
+  on the session (`dev_note_sessions.teams_chat_id/_name`) and queues ONE
+  card per session on the ticket Teams queue (`ticket_teams_message`, kind
+  `build_mode`, `ticket_id` = session id): pins grouped by module with kind,
+  comment, Where line, link, and each pin's marked-up element shot inline as
+  Graph `hostedContents` (never the full-page shot; a shot that cannot be
+  read is dropped, the card still goes). Two more posts at most: "Pin #n
+  Needs Your Answer" (`cli reply --needs-input`) and "Fixed - Please Verify"
+  (merge webhook, delivered by the sweep). Posted AS THE AUTHOR with their
+  delegated token - same scopes as feature requests, nothing new to
+  consent. No chat picked = nothing posted. The pin stays the record; the
+  chat only points at it.
+- **Browse** tool (B, first on the strip): the overlay stops taking clicks
+  so the person can move to another module, open a record or a tab with the
+  mode still on; Pin brings the overlay back. The strip shows one plain
+  sentence saying what a click does now, the hover label says `"Mark All
+  Read" button` instead of a selector, and the composer's line reads "You
+  picked ... in Tasks > Home" (the component and source stamp stay in its
+  tooltip and on the pin).
+- **Save Report** (Sessions tab, `GET /sessions/{id}/report`, author or
+  admin): one self-contained HTML file - every pin grouped by module with
+  kind, priority, status, comment, Where line and the marked-up shot embedded
+  as base64 - that opens anywhere with no login.
+
 ---------------------------------------------------------------------------
 ## 6. Frontend - `frontend/src/devnotes/`
 

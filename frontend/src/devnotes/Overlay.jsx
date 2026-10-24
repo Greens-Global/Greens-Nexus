@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   MapPin, Pencil, Square, ArrowUpRight, PenLine, Highlighter, Type, EyeOff, Video, Mic, Undo2,
-  ListChecks, X, GripVertical, Eye, CircleStop, Palette,
+  ListChecks, X, GripVertical, Eye, CircleStop, Palette, Hand,
 } from 'lucide-react';
 import Markup from './Markup';
 import { elementAt, describeTarget, regionTarget, rectOf, textOf } from './lib/capture';
@@ -33,11 +33,14 @@ function forwardScroll(x, y, dx, dy) {
   if (t) t.scrollBy(dx, dy); else window.scrollBy(dx, dy);
 }
 
+// Plain words, not selectors: the person pinning may not be technical
+// (Pranshu, Oct 25) - "Mark All Read" button, not button.secondary-btn.
+const KIND_WORD = { button: 'button', a: 'link', input: 'field', textarea: 'field', select: 'dropdown', img: 'image', svg: 'icon', table: 'table', th: 'column', td: 'cell', tr: 'row', li: 'item', h1: 'heading', h2: 'heading', h3: 'heading', h4: 'heading', label: 'label' };
 const hoverLabel = (el) => {
-  const tag = el.tagName.toLowerCase();
-  const cls = [...el.classList].filter((c) => !/^(is-|has-)/.test(c)).slice(0, 1).join('');
-  const t = textOf(el, 40);
-  return `${tag}${cls ? `.${cls}` : ''}${t ? ` · ${t}` : ''}`;
+  const kind = KIND_WORD[el.tagName.toLowerCase()] || (el.getAttribute('role') === 'button' ? 'button' : '');
+  const t = textOf(el, 40) || el.getAttribute('aria-label') || el.getAttribute('placeholder') || '';
+  if (t && kind) return `"${t}" ${kind}`;
+  return t ? `"${t}"` : kind || 'this area';
 };
 
 export default function Overlay({ tool, color, interactive = true, items = [], onPick, onAdd, faintItems, faintOffset }) {
@@ -221,7 +224,7 @@ export default function Overlay({ tool, color, interactive = true, items = [], o
 }
 
 // ── Tools strip ──────────────────────────────────────────────────────────────
-const ICONS = { pin: MapPin, edit: Pencil, rect: Square, arrow: ArrowUpRight, path: PenLine, highlight: Highlighter, text: Type, redact: EyeOff };
+const ICONS = { browse: Hand, pin: MapPin, edit: Pencil, rect: Square, arrow: ArrowUpRight, path: PenLine, highlight: Highlighter, text: Type, redact: EyeOff };
 
 function ToolButton({ active, onClick, title, hotkey, children, className = '', ariaLabel, isMobile }) {
   return (
@@ -250,8 +253,14 @@ export function ToolStrip({ tool, onTool, color, onColor, canUndo, onUndo, onVid
     window.addEventListener('pointerup', up);
   };
   const style = pos ? { left: pos.x, top: pos.y, bottom: 'auto', transform: 'none' } : undefined;
+  // One line of plain words above the strip saying what a click does now.
+  const hint = tool === 'browse' ? 'Browse: use Nexus as usual - pick Pin when you see something to comment on.'
+    : tool === 'pin' ? 'Click anything to comment on it. Pick Browse (B) to move around Nexus.'
+    : tool === 'edit' ? 'Click text or a style to change it in place.'
+    : 'Draw on the screen, then click Pin and the thing you drew on.';
   return (
     <div ref={stripRef} className="bm-strip" role="toolbar" aria-label="Build Mode tools" style={style}>
+      {!isMobile && <span className="bm-strip-hint" aria-live="polite">{hint}</span>}
       {!isMobile && <span className="bm-strip-grip" onPointerDown={onGripDown} title="Drag to move" aria-hidden="true"><GripVertical size={14} /></span>}
       {TOOLS.map(({ id, label, key }) => { const Icon = ICONS[id]; return (
         <ToolButton isMobile={isMobile} key={id} active={tool === id} onClick={() => onTool(id)} title={label} hotkey={key}><Icon size={17} /></ToolButton>

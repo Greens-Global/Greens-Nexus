@@ -27,7 +27,9 @@ database query in `asyncio.to_thread`, `asyncio.sleep` between polls - a sync
 sleep or query there would freeze the whole worker.
 """
 import asyncio
+import base64
 import hashlib
+import html as _html
 import json
 import os
 import re
@@ -37,7 +39,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
 from sqlalchemy import func, or_, text as sa_text
 from sqlalchemy.orm import Session
 
@@ -47,6 +49,7 @@ from auth import company_of, get_current_user
 from database import get_db
 from models import AuditLog, DevNote, DevNoteSession, DevNoteToken, NexusNotification, NexusSetting
 from routers import files as _files
+import build_mode_chat as _chat
 
 router = APIRouter(prefix="/dev-notes", tags=["Build Mode"])
 
@@ -75,7 +78,10 @@ PRIORITIES = ("blocking", "normal", "nice")
 STATUSES = ("open", "dispatched", "building", "needs_input", "pr_open", "fixed", "done", "dismissed")
 SESSION_STATUSES = ("collecting", "sent", "building", "pr_open", "fixed", "done")
 ATTACH_KINDS = ("after", "before", "paste")   # before-/after- files are the verify shots, paste- the rest
-DEFAULT_SETTINGS = {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True}
+DEFAULT_SETTINGS = {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True,
+                    # The Teams chat the person last posted a Build Session to
+                    # (their pick, any chat they are in); '' = do not post.
+                    "teamsChatId": "", "teamsChatName": ""}
 
 # Note fields the browser may write on create (snake). Everything else on the
 # row is the server's (status, numbering, PR fields, verification).
@@ -555,8 +561,13 @@ def _sync_session(db: Session, s: Optional[DevNoteSession]) -> None:
         s.status = "building"
 
 
-def _dispatch_notes(db: Session, notes: list, by: str) -> list:
-    """Mark pins dispatched and their sessions sent."""
+def _dispatch_notes(db: Session, notes: list, by: str, chat: Optional[dict] = None,
+                    queued: Optional[list] = None) -> list:
+    """Mark pins dispatched and their sessions sent. `chat` = {"id", "name"}
+    of the Teams chat the author picked (or their saved pick): it is written
+    on the session and one card per session is queued for it
+    (build_mode_chat) into `queued`; the caller commits, then hands each row
+    to build_mode_chat.deliver_later."""
     now = _now()
     touched = []
     for n in notes:
@@ -570,12 +581,34 @@ def _dispatch_notes(db: Session, notes: list, by: str) -> list:
         s = _session(db, n.session_id)
         if s and s not in touched:
             touched.append(s)
+    chat_id = str((chat or {}).get("id") or "").strip()[:200]
     for s in touched:
         s.status = "sent"
         s.dispatched_at = now
         s.updated_at = now
+        if chat_id:
+            s.teams_chat_id = chat_id
+            s.teams_chat_name = str((chat or {}).get("name") or "").strip()[:200]
         _sync_session(db, s)
+        mine = [n for n in notes if n.session_id == s.id]
+        row = _chat.queue(db, s, _chat.session_card_html(db, s, mine))
+        if row is not None and queued is not None:
+            queued.append(row)
     return touched
+
+
+def _chat_pick(db: Session, email: str, body: Optional[dict] = None) -> dict:
+    """The chat this send posts to: the one in the request (saved as the
+    person's pick for next time), else their saved pick. {} = none."""
+    settings = _settings(db, email)
+    chat_id = _get(body or {}, "teamsChatId")
+    if chat_id is not None:
+        settings["teamsChatId"] = str(chat_id).strip()[:200]
+        settings["teamsChatName"] = str(_get(body or {}, "teamsChatName") or "").strip()[:200]
+        _save_settings(db, email, settings)
+    if not settings.get("teamsChatId"):
+        return {}
+    return {"id": settings["teamsChatId"], "name": settings.get("teamsChatName") or ""}
 
 
 # ── routes: signed-in user ────────────────────────────────────────────────────
@@ -606,6 +639,10 @@ def put_settings(body: dict, user: dict = Depends(require_build_mode), db: Sessi
         v = _get(body, key)
         if v is not None:
             current[key] = bool(v)
+    for key in ("teamsChatId", "teamsChatName"):
+        v = _get(body, key)
+        if v is not None:
+            current[key] = str(v).strip()[:200]
     out = _save_settings(db, user["email"], current)
     db.commit()
     return out
@@ -658,7 +695,8 @@ def _clean_note_input(body: dict, allowed: tuple) -> dict:
 # "" not "/": the route lives at /dev-notes like every other router and api.js
 # path; FastAPI still answers /dev-notes/ with a 307 to it.
 @router.post("", status_code=201)
-def create_note(body: dict, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+def create_note(body: dict, background_tasks: BackgroundTasks, user: dict = Depends(require_build_mode),
+                db: Session = Depends(get_db)):
     email = user["email"].lower()
     fields = _clean_note_input(body, CREATE_FIELDS)
     if (fields.get("route") or "") in BLOCKED_ROUTES:
@@ -689,13 +727,16 @@ def create_note(body: dict, user: dict = Depends(require_build_mode), db: Sessio
             setattr(n, k, {})
     db.add(n)
     _audit(db, user, "create", n.id, {"kind": n.kind, "route": n.route, "session": s.id}, kind="create")
+    queued = []
     if settings.get("sendInstantly"):
         db.flush()
-        _dispatch_notes(db, [n], email)
+        _dispatch_notes(db, [n], email, _chat_pick(db, email), queued)
         _audit(db, user, "dispatch", n.id, {"session": s.id, "instant": True})
     else:
         _sync_session(db, s)
     db.commit()
+    for row in queued:
+        _chat.deliver_later(background_tasks, row)
     db.refresh(n)
     return _serialize(n)
 
@@ -774,8 +815,60 @@ def patch_session(session_id: str, body: dict, user: dict = Depends(require_buil
     return _serialize_session(s)
 
 
+@router.get("/sessions/{session_id}/report")
+def session_report(session_id: str, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Save Report: one self-contained HTML file of the Build Session - every
+    pin grouped by module with its kind, comment, Where line and the marked-up
+    element shot embedded (base64), so it opens anywhere with no login and
+    can be attached to an email. Author or admin."""
+    s = _session(db, session_id)
+    if not s:
+        raise HTTPException(404, "Build Session not found")
+    _own_or_admin(s.created_by, user, db, "save this report")
+    notes = db.query(DevNote).filter(DevNote.session_id == s.id, DevNote.status != "dismissed").all()
+    notes.sort(key=lambda n: (n.route or "", n.number or 0))
+    e = _html.escape
+    from task_due import us_date
+    made = us_date((s.created_at or "")[:10]) or (s.created_at or "")[:10]
+    parts = [f"<!doctype html><html><head><meta charset='utf-8'><title>{e(s.title or 'Build Session')}</title>"
+             "<style>body{font:14px/1.5 Inter,Arial,sans-serif;color:#111;max-width:860px;margin:32px auto;padding:0 16px}"
+             "h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 8px;border-bottom:1px solid #ddd;padding-bottom:4px}"
+             ".pin{margin:14px 0 22px}.k{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:9px;background:#eee;margin-right:6px}"
+             ".dim{color:#666;font-size:12px}img{max-width:100%;border:1px solid #ddd;border-radius:6px;margin-top:8px}</style></head><body>",
+             f"<h1>{e(s.title or 'Build Session')}</h1>",
+             f"<div class='dim'>{len(notes)} pin{'' if len(notes) == 1 else 's'} · {e(_chat._name(db, s.created_by))} · {e(made)}</div>"]
+    module = None
+    for n in notes:
+        m = _chat._module(n.route, n.sub)
+        if m != module:
+            module = m
+            parts.append(f"<h2>{e(m)}</h2>")
+        parts.append(f"<div class='pin'><span class='k'>#{n.number} {e((n.kind or 'bug').capitalize())}</span>"
+                     f"<span class='k'>{e((n.priority or 'normal').replace('nice', 'Nice To Have').capitalize())}</span>"
+                     f"<span class='k'>{e(_statuses_label(n.status))}</span>"
+                     f"<div>{e(n.comment or '')}</div>")
+        where = _chat.source_location(n.target)
+        if where:
+            parts.append(f"<div class='dim'>Where: {e(where)}</div>")
+        if n.transcript:
+            parts.append(f"<div class='dim'><em>{e(n.transcript)}</em></div>")
+        got = _chat._read_image(n.screenshot_url) if n.screenshot_url else None
+        if got:
+            parts.append(f"<img alt='Pin #{n.number}' src='data:{got[1]};base64,{base64.b64encode(got[0]).decode('ascii')}'>")
+        parts.append("</div>")
+    parts.append("</body></html>")
+    name = re.sub(r"[^A-Za-z0-9 _-]+", "", s.title or "Build Session").strip() or "Build Session"
+    return Response("".join(parts), media_type="text/html",
+                    headers={"Content-Disposition": f'attachment; filename="{name} {made.replace("/", "-")}.html"'})
+
+
+def _statuses_label(status: str) -> str:
+    return {"needs_input": "Needs Input", "pr_open": "PR Open", "fixed": "Fixed - Verify"}.get(status, (status or "open").capitalize())
+
+
 @router.post("/dispatch")
-def dispatch(body: Optional[dict] = None, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+def dispatch(background_tasks: BackgroundTasks, body: Optional[dict] = None,
+             user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
     body = body or {}
     email = user["email"].lower()
     if _settings(db, email).get("dispatchTarget") == "github":
@@ -802,9 +895,12 @@ def dispatch(body: Optional[dict] = None, user: dict = Depends(require_build_mod
         _own_or_admin(n.created_by, user, db, "send this pin")
     if title and s:
         s.title = str(title).strip()[:200]
-    touched = _dispatch_notes(db, notes, email)
+    queued = []
+    touched = _dispatch_notes(db, notes, email, _chat_pick(db, email, body), queued)
     _audit(db, user, "dispatch", s.id if s else "", {"notes": [n.id for n in notes]})
     db.commit()
+    for row in queued:
+        _chat.deliver_later(background_tasks, row)
     s = s or (touched[0] if touched else None)
     return {"session": _serialize_session(s) if s else None, "notes": [_serialize(n) for n in notes]}
 
@@ -1204,8 +1300,8 @@ def cli_progress(note_id: str, body: dict, user: dict = Depends(require_build_mo
 
 
 @router.post("/cli/reply/{note_id}")
-def cli_reply(note_id: str, body: dict, user: dict = Depends(require_build_mode_or_token),
-              db: Session = Depends(get_db)):
+def cli_reply(note_id: str, body: dict, background_tasks: BackgroundTasks,
+              user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
     n = _note(db, note_id, lock=True)
     text = str(_get(body, "text") or "").strip()
     image_url = _check_media("imageUrl", _get(body, "imageUrl") or "")
@@ -1216,6 +1312,7 @@ def cli_reply(note_id: str, body: dict, user: dict = Depends(require_build_mode_
     if needs_input and answered:
         raise HTTPException(400, "A reply is either needsInput or answered, not both")
     _append(n, _entry("claude", "claude", text, image_url))
+    queued = None
     if needs_input:
         if n.status not in ("building", "dispatched", "needs_input"):
             raise HTTPException(409, f"Pin #{n.number} is {n.status} - Claude is not working on it")
@@ -1225,6 +1322,8 @@ def cli_reply(note_id: str, body: dict, user: dict = Depends(require_build_mode_
                 title=f"Claude Replied On Pin #{n.number}",
                 body=f"Claude Code needs your answer on Pin #{n.number} ({n.route or 'app'}): {excerpt}",
                 ref_id=n.id)
+        s = _session(db, n.session_id)
+        queued = _chat.queue(db, s, _chat.question_html(db, n, text)) if s else None
     elif answered:
         if n.status not in ("building", "dispatched", "needs_input"):
             raise HTTPException(409, f"Pin #{n.number} is {n.status} - Claude is not working on it")
@@ -1233,6 +1332,7 @@ def cli_reply(note_id: str, body: dict, user: dict = Depends(require_build_mode_
         n.verified_at = _now()
     _sync_session(db, _session(db, n.session_id))
     db.commit()
+    _chat.deliver_later(background_tasks, queued)
     db.refresh(n)
     return _serialize(n)
 
@@ -1403,6 +1503,10 @@ def mark_fixed_for_pr(db: Session, pr_number, merge_sha: str = "") -> int:
                 s.status = "fixed"
                 s.updated_at = now
                 _sync_session(db, s)
+                # "Fixed - please verify" to the session's Teams chat; the
+                # ticket Teams sweep delivers it within a few minutes.
+                mine = [n for n in notes if n.session_id == sid]
+                _chat.queue(db, s, _chat.fixed_html(db, s, mine, number, mine[0].pr_url or ""))
         db.commit()
         return len(notes)
     except Exception as exc:  # noqa: BLE001 - see docstring

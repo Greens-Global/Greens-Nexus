@@ -158,7 +158,8 @@ def test_admin_without_grant_is_not_enabled_and_everything_else_is_403():
 def test_grant_holder_and_global_admin_are_enabled():
     r = client.get("/dev-notes/enabled")
     assert r.json()["enabled"] is True
-    assert r.json()["settings"] == {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True}
+    assert r.json()["settings"] == {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True,
+                                    "teamsChatId": "", "teamsChatName": ""}
     _as(GA)
     assert client.get("/dev-notes/enabled").json()["enabled"] is True
     assert client.get("/dev-notes").status_code == 200
