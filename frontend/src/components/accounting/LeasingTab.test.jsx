@@ -190,6 +190,26 @@ describe('LeasingTab - the 10/04 feedback', () => {
     expect(within(menu).queryByRole('menuitem', { name: /Move Right/ })).toBeNull();
   });
 
+  it('Outstanding and Payers have their own views (10/23, item 01)', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: /Outstanding/ }));
+    await screen.findByText(/Total Outstanding - 1 tenant/);
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Payer by value' }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Payer values' })).getByRole('checkbox', { name: /Overstie Management/ }));
+    expect(screen.getByText('Nobody behind passes the filters.')).toBeTruthy();
+    // Payers: its own view - the Outstanding filter is not on it.
+    fireEvent.click(screen.getByRole('button', { name: /^Payers/ }));
+    expect(await screen.findByText('47385 RCR, Temecula')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Filters' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Landlord - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Landlord column' })).getByRole('menuitem', { name: /Hide Column/ }));
+    expect(screen.queryByRole('columnheader', { name: 'Landlord' })).toBeNull();
+    // Back on the Income Roll, its view is untouched.
+    fireEvent.click(screen.getByRole('button', { name: /^Income Roll/ }));
+    expect(await screen.findByText(/Received - 2 sources/)).toBeTruthy();
+  });
+
   it('adds a Total column and a Balance, where a prepayment is a credit', async () => {
     render(<LeasingTab canEdit />);
     const row = (await screen.findByText('910 SECR - Ste 100, San Clemente')).closest('tr');

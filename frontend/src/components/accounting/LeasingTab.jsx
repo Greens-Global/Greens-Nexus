@@ -303,6 +303,43 @@ export function mriRollColumns([from, to], thisMonth) {
   ];
 }
 
+const behindMonths = (r) => r.months.filter((c) => ['late', 'short', 'unpaid'].includes(c.status)).map((c) => MONTHS[Number(c.month.slice(5, 7)) - 1]);
+const contactText = (l) => [l.contactName, l.phone].filter(Boolean).join(' · ');
+const ACTIONS = { fixed: true, noFilter: true, noSort: true, exportAs: [], text: () => '' };
+
+/** Outstanding's columns for the standard table view (item 01): who owes the most first. */
+export const OUTSTANDING_COLUMNS = [
+  { key: 'property', label: 'Property or Source', fixed: true, text: (r) => r.lease.propertyName || '', exportAs: [{ label: 'Property or Source', width: 220, get: (r) => r.lease.propertyName }] },
+  { key: 'type', label: 'Type', text: (r) => TYPE_LABEL[typeOf(r)] || 'Other', exportAs: [{ label: 'Type', width: 90, get: (r) => TYPE_LABEL[typeOf(r)] }] },
+  { key: 'payer', label: 'Payer', text: tenantOf, exportAs: [{ label: 'Payer', width: 200, get: tenantOf }] },
+  { key: 'behind', label: 'Months Behind', type: 'number', value: (r) => r.monthsBehind || 0, text: (r) => `${r.monthsBehind} - ${behindMonths(r).join(', ')}`,
+    exportAs: [{ label: 'Months Behind', width: 160, get: (r) => `${r.monthsBehind} - ${behindMonths(r).join(', ')}` }] },
+  { key: 'owed', label: 'Balance Due', type: 'amount', total: true, value: (r) => r.owed || 0, text: (r) => whole(r.owed) },
+  { key: 'lateFees', label: 'Late Fees', type: 'amount', total: true, value: (r) => r.lateFees || 0, text: (r) => (r.lateFees ? whole(r.lateFees) : '') },
+  { key: 'contact', label: 'Contact', text: (r) => contactText(r.lease), exportAs: [{ label: 'Contact', width: 200, get: (r) => [r.lease.contactName, r.lease.phone, r.lease.email].filter(Boolean).join(' · ') }] },
+  { key: 'write', label: 'Write', ...ACTIONS },
+];
+export const OUTSTANDING_SORT = { col: 'owed', dir: 'desc' };
+
+/** Payers' columns for the standard table view (item 01). */
+export const PAYER_COLUMNS = [
+  { key: 'property', label: 'Property or Source', fixed: true, text: (r) => r.lease.propertyName || '', exportAs: [{ label: 'Property or Source', width: 220, get: (r) => r.lease.propertyName }] },
+  { key: 'type', label: 'Type', text: (r) => TYPE_LABEL[typeOf(r)] || 'Other', exportAs: [{ label: 'Type', width: 90, get: (r) => TYPE_LABEL[typeOf(r)] }] },
+  { key: 'payer', label: 'Payer', text: (r) => `${r.lease.customerId ? `${r.lease.customerId} ` : ''}${tenantOf(r)}`, exportAs: [{ label: 'Payer', width: 200, get: tenantOf }, { label: 'Customer', width: 80, get: (r) => r.lease.customerId }] },
+  { key: 'landlord', label: 'Landlord', text: (r) => r.lease.landlord || '', exportAs: [{ label: 'Landlord', width: 160, get: (r) => r.lease.landlord }] },
+  { key: 'dates', label: 'Dates', type: 'date', value: (r) => r.lease.leaseStart || '', text: (r) => `${r.lease.leaseStart ? formatDate(r.lease.leaseStart) : '-'} to ${r.lease.leaseEnd ? formatDate(r.lease.leaseEnd) : 'Month to Month'}`,
+    exportAs: [{ label: 'Start', width: 90, get: (r) => (r.lease.leaseStart ? formatDate(r.lease.leaseStart) : '') }, { label: 'End', width: 90, get: (r) => (r.lease.leaseEnd ? formatDate(r.lease.leaseEnd) : 'Month to Month') }, { label: 'Term', width: 130, get: (r) => leaseTermLabel(r.lease) }] },
+  { key: 'amount', label: 'Amount', type: 'amount', value: (r) => { const x = r.lease.rates[r.lease.rates.length - 1]; return x ? x.rent : null; }, text: (r) => { const x = r.lease.rates[r.lease.rates.length - 1]; return x ? whole(x.rent) : ''; },
+    exportAs: [{ label: 'Amount', num: true, width: 90, get: (r) => { const x = r.lease.rates[r.lease.rates.length - 1]; return x ? x.rent : 0; } }] },
+  { key: 'cam', label: 'CAM', type: 'amount', value: (r) => { const x = r.lease.rates[r.lease.rates.length - 1]; return x?.cam || null; }, text: (r) => { const x = r.lease.rates[r.lease.rates.length - 1]; return x?.cam ? whole(x.cam) : ''; },
+    exportAs: [{ label: 'CAM', num: true, width: 80, get: (r) => { const x = r.lease.rates[r.lease.rates.length - 1]; return x ? x.cam : 0; } }] },
+  { key: 'deposit', label: 'Deposit', type: 'amount', value: (r) => r.lease.securityDeposit || null, text: (r) => (r.lease.securityDeposit ? whole(r.lease.securityDeposit) : ''),
+    exportAs: [{ label: 'Deposit', num: true, width: 90, get: (r) => r.lease.securityDeposit || 0 }] },
+  { key: 'status', label: 'Status', text: (r) => [LEASE_STATUS[r.lease.status] || r.lease.status, standingText(r)].filter(Boolean).join(', '),
+    exportAs: [{ label: 'Status', width: 120, get: (r) => [LEASE_STATUS[r.lease.status] || r.lease.status, standingText(r)].filter(Boolean).join(', ') }] },
+  { key: 'change', label: 'Change', ...ACTIONS },
+];
+
 /** Chips for a row: Expired (an ended lease) and Inactive (the customer is inactive in Intacct). */
 function StandingChips({ row }) {
   return (
@@ -419,8 +456,12 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   }, [roll]);
   const sum = roll?.summary || {};
   const behind = sources.filter((r) => r.monthsBehind);
+  // Outstanding and Payers have their own views (item 01).
+  const outView = useTableView('mri-outstanding', OUTSTANDING_COLUMNS, behind, { sort: OUTSTANDING_SORT });
+  const payersView = useTableView('mri-payers', PAYER_COLUMNS, sources);
+  const sectionView = section === 'outstanding' ? outView : section === 'tenants' ? payersView : rollView;
   // Rows per Page: back to page 1 whenever the filters or the section change.
-  const pageKey = [section, year, entities, tenants, types, period, custom, cz.pageSize, q, showInactive, states, rollView.state];
+  const pageKey = [section, year, entities, tenants, types, period, custom, cz.pageSize, q, showInactive, states, sectionView.state];
   const pageSize = cz.pageSize;
   // A ledger income account's Total opens its lines in Reports for the months shown (item 33).
   const drillWindow = () => {
@@ -449,18 +490,9 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const buildTable = () => {
     const title = section === 'outstanding' ? 'Income Outstanding' : section === 'tenants' ? 'Payers' : 'Monthly Recurring Income';
     const subtitle = `${entityLabel} · ${periodLabel}${types.length ? ` · ${types.map((t) => TYPE_LABEL[t]).join(', ')}` : ''}${tenants.length ? ` · ${tenants.length} ${tenants.length === 1 ? 'payer' : 'payers'}` : ''}${q.trim() ? ` · "${q.trim()}"` : ''}`;
-    const standing = standingText;
-    if (section === 'outstanding') {
-      const list = [...behind].sort((a, b) => b.owed - a.owed);
-      return { title, subtitle, name: `${title} - ${year}`, columns: [{ label: 'Property or Source', width: 220 }, { label: 'Type', width: 90 }, { label: 'Payer', width: 200 }, { label: 'Months Behind', width: 160 }, { label: 'Balance Due', num: true, width: 100 }, { label: 'Late Fees', num: true, width: 90 }, { label: 'Contact', width: 200 }],
-        rows: list.map((r) => [r.lease.propertyName, TYPE_LABEL[typeOf(r)], tenantOf(r), `${r.monthsBehind} - ${r.months.filter((c) => ['late', 'short', 'unpaid'].includes(c.status)).map((c) => MONTHS[Number(c.month.slice(5, 7)) - 1]).join(', ')}`, r.owed, r.lateFees, [r.lease.contactName, r.lease.phone, r.lease.email].filter(Boolean).join(' · ')]),
-        totals: [`Total Outstanding - ${list.length}`, '', '', '', list.reduce((s, r) => s + r.owed, 0), list.reduce((s, r) => s + r.lateFees, 0), ''] };
-    }
-    if (section === 'tenants') {
-      return { title, subtitle, name: `${title} - ${year}`, columns: [{ label: 'Property or Source', width: 220 }, { label: 'Type', width: 90 }, { label: 'Payer', width: 200 }, { label: 'Customer', width: 80 }, { label: 'Landlord', width: 160 }, { label: 'Start', width: 90 }, { label: 'End', width: 90 }, { label: 'Term', width: 130 }, { label: 'Amount', num: true, width: 90 }, { label: 'CAM', num: true, width: 80 }, { label: 'Deposit', num: true, width: 90 }, { label: 'Status', width: 120 }],
-        rows: sources.map((r) => { const l = r.lease; const rate = l.rates[l.rates.length - 1]; return [l.propertyName, TYPE_LABEL[typeOf(r)], tenantOf(r), l.customerId, l.landlord, l.leaseStart ? formatDate(l.leaseStart) : '', l.leaseEnd ? formatDate(l.leaseEnd) : 'Month to Month', leaseTermLabel(l), rate ? rate.rent : 0, rate ? rate.cam : 0, l.securityDeposit || 0, [LEASE_STATUS[l.status] || l.status, standing(r)].filter(Boolean).join(', ')]; }),
-        totals: null };
-    }
+    // Each section: exactly what its view leaves - rows, order and columns (item 01).
+    if (section === 'outstanding') return { ...viewTable(outView.rows, outView.columns, { title, subtitle, totalLabel: 'Total Outstanding' }), name: `${title} - ${year}` };
+    if (section === 'tenants') return { ...viewTable(payersView.rows, payersView.columns, { title, subtitle, totals: false }), name: `${title} - ${year}` };
     // The Income Roll: exactly what its view leaves - rows, order and columns.
     return { ...viewTable(rollRows, rollView.columns, { title, subtitle, totalLabel: 'Total Received' }), name: `${title} - ${periodLabel}` };
   };
@@ -511,7 +543,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
           </BarMore>
           {/* 10/23 meeting, item 02 (fix 10/24): the search is an icon until used; Customize and Settings move into More on a narrow row. */}
           <BarSearch value={q} onChange={setQ} label="Filter by property, payer or account" placeholder="Filter by property, payer or account" width={240} />
-          {section === 'roll' && <TableViewBar view={rollView} />}
+          <TableViewBar key={section} view={sectionView} />
           <div className="acct-bar-end">
             <BarMore level={1} active={showInactive ? 1 : 0}>
             <CustomizeButton {...cz} active={showInactive}>
@@ -583,8 +615,8 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
           <div>
             {section === 'roll' && <RentRoll view={rollView} rows={rollRows} span={span} figures={figures} year={year} thisMonth={thisMonth} py={py} onCell={(row, month) => setCell({ row, month })} onLease={(l) => setEditing({ lease: l })} any={(roll?.rows || []).length + accountRows.length > 0} canEdit={canEdit} onNote={updateNote}
               pageSize={pageSize} pageKey={pageKey} onDrillAccount={drillAccount} onDrillLease={drillLease} />}
-            {section === 'outstanding' && <Outstanding rows={behind} year={year} py={py} pageSize={pageSize} pageKey={pageKey} />}
-            {section === 'tenants' && <Tenants rows={sources} py={py} canEdit={canEdit} pageSize={pageSize} pageKey={pageKey} onEdit={(l) => setEditing({ lease: l })} onReplace={(l) => setEditing({ lease: { ...blank(l.incomeType || 'lease'), propertyName: l.propertyName, region: l.region, tenancy: l.tenancy, landlord: l.landlord, entityCode: l.entityCode, incomeAccounts: l.incomeAccounts, lateFee: l.lateFee, dueDay: l.dueDay, graceDays: l.graceDays }, replacing: l })} />}
+            {section === 'outstanding' && <Outstanding view={outView} rows={outView.rows} year={year} py={py} pageSize={pageSize} pageKey={pageKey} />}
+            {section === 'tenants' && <Tenants view={payersView} rows={payersView.rows} py={py} canEdit={canEdit} pageSize={pageSize} pageKey={pageKey} onEdit={(l) => setEditing({ lease: l })} onReplace={(l) => setEditing({ lease: { ...blank(l.incomeType || 'lease'), propertyName: l.propertyName, region: l.region, tenancy: l.tenancy, landlord: l.landlord, entityCode: l.entityCode, incomeAccounts: l.incomeAccounts, lateFee: l.lateFee, dueDay: l.dueDay, graceDays: l.graceDays }, replacing: l })} />}
           </div>
         )}
       </div>
@@ -973,41 +1005,53 @@ function reminder(row, year) {
   return `mailto:${encodeURIComponent(l.email)}?subject=${encodeURIComponent(`Rent outstanding - ${l.propertyName}`)}&body=${encodeURIComponent(body)}`;
 }
 
-function Outstanding({ rows, year, py, pageSize = 0, pageKey = '' }) {
-  const sorted = useMemo(() => [...rows].sort((a, b) => b.owed - a.owed), [rows]);
+function Outstanding({ view, rows, year, py, pageSize = 0, pageKey = '' }) {
+  // Who owes the most first is the view's built-in sort (item 01).
+  const sorted = rows;
   const paged = usePaged(sorted, pageSize, pageKey);
   const wrapRef = useRef(null);
   const fitHeight = useFitToScreen(wrapRef, rows.length > 0);
-  if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>Nobody is behind for {year}.</div>;
+  if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{view.count ? 'Nobody behind passes the filters.' : `Nobody is behind for ${year}.`}</div>;
   return (
     <div style={{ ...card, padding: 10 }}>
       <div ref={wrapRef} className="acct-lines-wrap" data-testid="mri-outstanding-box" style={fitHeight ? { maxHeight: fitHeight } : undefined}>
         <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
           <thead>
-            <tr><th scope="col">Property or Source</th><th scope="col">Type</th><th scope="col">Payer</th><th scope="col">Months Behind</th><th scope="col" className="acct-num">Balance Due</th><th scope="col" className="acct-num">Late Fees</th><th scope="col">Contact</th><th scope="col" aria-label="Write" /></tr>
+            <tr>{view.columns.map((c) => (c.key === 'write' ? <th key={c.key} scope="col" aria-label="Write" />
+              : <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={c.type === 'amount' ? 'acct-num' : undefined} style={headStyle(view.manualWidth(c.key))} />))}</tr>
           </thead>
           <tbody>
             {paged.rows.map((r) => {
               const l = r.lease;
-              const months = r.months.filter((c) => ['late', 'short', 'unpaid'].includes(c.status)).map((c) => MONTHS[Number(c.month.slice(5, 7)) - 1]);
+              const months = behindMonths(r);
               return (
                 <tr key={l.id}>
-                  <td style={{ fontWeight: 600 }}>{l.propertyName}<StandingChips row={r} /></td>
-                  <td><TypeChip type={typeOf(r)} /></td>
-                  <td><TenantName row={r} /></td>
-                  <td style={{ whiteSpace: 'normal' }}>{r.monthsBehind} - {months.join(', ')}</td>
-                  <td className="acct-num" style={{ fontWeight: 700, color: 'var(--bad-fg, #dc2626)' }}><Amount value={r.owed} /></td>
-                  <td className="acct-num">{r.lateFees ? <Amount value={r.lateFees} /> : '-'}</td>
-                  <td style={{ whiteSpace: 'normal' }}>{[l.contactName, l.phone].filter(Boolean).join(' · ') || '-'}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    {l.email
-                      ? <a className="secondary-btn" href={reminder(r, year)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', padding: '3px 10px', textDecoration: 'none' }}><Mail size={13} /> Write to Tenant</a>
-                      : <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>No email on file</span>}
-                  </td>
+                  {viewCells(view, {
+                    property: <td style={{ fontWeight: 600 }}>{l.propertyName}<StandingChips row={r} /></td>,
+                    type: <td><TypeChip type={typeOf(r)} /></td>,
+                    payer: <td><TenantName row={r} /></td>,
+                    behind: <td style={{ whiteSpace: 'normal' }}>{r.monthsBehind} - {months.join(', ')}</td>,
+                    owed: <td className="acct-num" style={{ fontWeight: 700, color: 'var(--bad-fg, #dc2626)' }}><Amount value={r.owed} /></td>,
+                    lateFees: <td className="acct-num">{r.lateFees ? <Amount value={r.lateFees} /> : '-'}</td>,
+                    contact: <td style={{ whiteSpace: 'normal' }}>{contactText(l) || '-'}</td>,
+                    write: (
+                      <td style={{ textAlign: 'right' }}>
+                        {l.email
+                          ? <a className="secondary-btn" href={reminder(r, year)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', padding: '3px 10px', textDecoration: 'none' }}><Mail size={13} /> Write to Tenant</a>
+                          : <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>No email on file</span>}
+                      </td>
+                    ),
+                  })}
                 </tr>
               );
             })}
-            <tr className="acct-grand"><td colSpan={4}>Total Outstanding - {sorted.length} {sorted.length === 1 ? 'tenant' : 'tenants'}</td><td className="acct-num"><Amount value={sorted.reduce((s, r) => s + r.owed, 0)} /></td><td className="acct-num"><Amount value={sorted.reduce((s, r) => s + r.lateFees, 0)} /></td><td colSpan={2} /></tr>
+            <tr className="acct-grand">
+              {viewCells(view, {
+                property: <td style={{ whiteSpace: 'nowrap' }}>Total Outstanding - {sorted.length} {sorted.length === 1 ? 'tenant' : 'tenants'}</td>,
+                owed: <td className="acct-num"><Amount value={sorted.reduce((s, r) => s + r.owed, 0)} /></td>,
+                lateFees: <td className="acct-num"><Amount value={sorted.reduce((s, r) => s + r.lateFees, 0)} /></td>,
+              })}
+            </tr>
           </tbody>
         </table>
       </div>
@@ -1017,17 +1061,18 @@ function Outstanding({ rows, year, py, pageSize = 0, pageKey = '' }) {
   );
 }
 
-function Tenants({ rows, py, canEdit, onEdit, onReplace, pageSize = 0, pageKey = '' }) {
+function Tenants({ view, rows, py, canEdit, onEdit, onReplace, pageSize = 0, pageKey = '' }) {
   const paged = usePaged(rows, pageSize, pageKey);
   const wrapRef = useRef(null);
   const fitHeight = useFitToScreen(wrapRef, rows.length > 0);
-  if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>No lease matches.</div>;
+  if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{view.count ? 'No lease passes the filters.' : 'No lease matches.'}</div>;
   return (
     <div style={{ ...card, padding: 10 }}>
       <div ref={wrapRef} className="acct-lines-wrap" data-testid="mri-tenants-box" style={fitHeight ? { maxHeight: fitHeight } : undefined}>
         <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
           <thead>
-            <tr><th scope="col">Property or Source</th><th scope="col">Type</th><th scope="col">Payer</th><th scope="col">Landlord</th><th scope="col">Dates</th><th scope="col" className="acct-num">Amount</th><th scope="col" className="acct-num">CAM</th><th scope="col" className="acct-num">Deposit</th><th scope="col">Status</th><th scope="col" aria-label="Change" /></tr>
+            <tr>{view.columns.map((c) => (c.key === 'change' ? <th key={c.key} scope="col" aria-label="Change" />
+              : <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={c.type === 'amount' ? 'acct-num' : undefined} style={headStyle(view.manualWidth(c.key))} />))}</tr>
           </thead>
           <tbody>
             {paged.rows.map((r) => {
@@ -1035,23 +1080,27 @@ function Tenants({ rows, py, canEdit, onEdit, onReplace, pageSize = 0, pageKey =
               const rate = l.rates[l.rates.length - 1];
               return (
                 <tr key={l.id}>
-                  <td style={{ fontWeight: 600, whiteSpace: 'normal' }}>{l.propertyName}{l.region ? <div style={{ fontWeight: 400, fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{l.region}</div> : null}</td>
-                  <td><TypeChip type={typeOf(r)} /></td>
-                  <td style={{ whiteSpace: 'normal' }}>{l.customerId ? <span className="acct-code">{l.customerId}</span> : null}<TenantName row={r} /></td>
-                  <td style={{ whiteSpace: 'normal' }}>{l.landlord || '-'}</td>
-                  <td>{l.leaseStart ? formatDate(l.leaseStart) : '-'} to {l.leaseEnd ? formatDate(l.leaseEnd) : 'Month to Month'}{leaseTermLabel(l) ? <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>Term: {leaseTermLabel(l)}</div> : null}</td>
-                  <td className="acct-num">{rate ? <Amount value={rate.rent} /> : '-'}</td>
-                  <td className="acct-num">{rate?.cam ? <Amount value={rate.cam} /> : '-'}</td>
-                  <td className="acct-num">{l.securityDeposit ? <Amount value={l.securityDeposit} /> : '-'}</td>
-                  <td>{LEASE_STATUS[l.status] || l.status}<StandingChips row={r} /><PossiblyEndedChip flag={l.possiblyEnded} kind="mri" /></td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {canEdit && (
-                      <>
-                        <button type="button" style={icon} aria-label={`Change ${l.propertyName}`} title="Change this lease" onClick={() => onEdit(l)}><Pencil size={14} /></button>
-                        {l.status !== 'ended' && <button type="button" style={icon} aria-label={`New tenant at ${l.propertyName}`} title="New tenant in this space" onClick={() => onReplace(l)}><UserPlus size={14} /></button>}
-                      </>
-                    )}
-                  </td>
+                  {viewCells(view, {
+                    property: <td style={{ fontWeight: 600, whiteSpace: 'normal' }}>{l.propertyName}{l.region ? <div style={{ fontWeight: 400, fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{l.region}</div> : null}</td>,
+                    type: <td><TypeChip type={typeOf(r)} /></td>,
+                    payer: <td style={{ whiteSpace: 'normal' }}>{l.customerId ? <span className="acct-code">{l.customerId}</span> : null}<TenantName row={r} /></td>,
+                    landlord: <td style={{ whiteSpace: 'normal' }}>{l.landlord || '-'}</td>,
+                    dates: <td>{l.leaseStart ? formatDate(l.leaseStart) : '-'} to {l.leaseEnd ? formatDate(l.leaseEnd) : 'Month to Month'}{leaseTermLabel(l) ? <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>Term: {leaseTermLabel(l)}</div> : null}</td>,
+                    amount: <td className="acct-num">{rate ? <Amount value={rate.rent} /> : '-'}</td>,
+                    cam: <td className="acct-num">{rate?.cam ? <Amount value={rate.cam} /> : '-'}</td>,
+                    deposit: <td className="acct-num">{l.securityDeposit ? <Amount value={l.securityDeposit} /> : '-'}</td>,
+                    status: <td>{LEASE_STATUS[l.status] || l.status}<StandingChips row={r} /><PossiblyEndedChip flag={l.possiblyEnded} kind="mri" /></td>,
+                    change: (
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {canEdit && (
+                          <>
+                            <button type="button" style={icon} aria-label={`Change ${l.propertyName}`} title="Change this lease" onClick={() => onEdit(l)}><Pencil size={14} /></button>
+                            {l.status !== 'ended' && <button type="button" style={icon} aria-label={`New tenant at ${l.propertyName}`} title="New tenant in this space" onClick={() => onReplace(l)}><UserPlus size={14} /></button>}
+                          </>
+                        )}
+                      </td>
+                    ),
+                  })}
                 </tr>
               );
             })}
