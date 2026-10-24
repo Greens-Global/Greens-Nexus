@@ -7,10 +7,12 @@ author can try the fix before the PR merges.
     python3 tools/build_notes/preview.py stop
     python3 tools/build_notes/preview.py status
 
-`start` checks the branch out in its own worktree under
-~/.cache/nexus-build-notes/preview/<branch-slug> (reused and hard reset to
-origin/<branch> when it is there), links the main checkout's
-frontend/node_modules, and starts:
+`start` first checks everything it needs (the backend virtualenv, node_modules,
+NEXUS_DEV_EMAIL, the branch's lockfile, free ports) - a start that fails a
+check leaves the running preview alone. Then it stops the running preview
+(clearing Ready To Check on its pins), checks the branch out in its own
+worktree under ~/.cache/nexus-build-notes/preview/<branch-slug> (reused and
+hard reset to origin/<branch> when it is there) and starts:
 
   - the backend on http://localhost:8090 with the main checkout's
     backend/.venv python, NEXUS_SKIP_AUTH=true, NEXUS_DEV_EMAIL from the main
@@ -18,16 +20,20 @@ frontend/node_modules, and starts:
     a COPY of your local backend/greens_nexus.db (never the original, never an
     inherited DATABASE_URL: the branch's migrations must never run against the
     shared dev database). No local database: a fresh, empty SQLite.
-  - the frontend (vite) on http://localhost:5180 --strictPort with
-    VITE_API_BASE=http://localhost:8090, VITE_DEV_SKIP_AUTH=true and
-    VITE_DEV_USER_EMAIL=<the same email>.
+  - the frontend (vite) on http://localhost:5174 --strictPort with
+    VITE_API_BASE=http://localhost:8090, VITE_DEV_SKIP_AUTH=true,
+    VITE_DEV_USER_EMAIL=<the same email> and its own vite cache
+    (NX_VITE_CACHE_DIR). frontend/node_modules is a link to the main
+    checkout's when the branch's package-lock.json is identical; otherwise
+    the worktree gets its own `npm ci`.
 
-Both run detached (pid files and logs in ~/.cache/nexus-build-notes/preview/),
-`start` waits up to 90 s for /health and the vite root, then records the
-preview on each pin (POST /dev-notes/cli/preview/{id} with the pin's own path
-on http://localhost:5180 and the commit the worktree runs - the server drops
-an Accept given on an older commit). One preview per computer: `start` stops the one
-that was running. `stop` ends it and keeps the worktree.
+Both run detached (pid files, logs and state.json in
+~/.cache/nexus-build-notes/preview/); `start` waits up to 90 s for /health and
+the vite root, then records the preview on each pin (POST
+/dev-notes/cli/preview/{id} with the pin's own path on http://localhost:5174
+and the commit the worktree runs). One preview per computer. `stop` ends it,
+clears Ready To Check on its pins (DELETE /dev-notes/cli/preview/{id}) and
+keeps the worktree.
 
 Standard library only.
 """
@@ -36,6 +42,7 @@ import argparse
 import datetime as _dt
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -48,15 +55,14 @@ except ImportError:  # run as a plain script: python3 tools/build_notes/preview.
     import stack
 
 BACKEND_PORT = 8090
-FRONTEND_PORT = 5180
+FRONTEND_PORT = 5174   # in every branch's CORS list since 06/18/2026 (the Knowledge Base workspace port)
+PORTS = {"backend": BACKEND_PORT, "frontend": FRONTEND_PORT}
 API_URL = "http://localhost:" + str(BACKEND_PORT)
 PREVIEW_URL = "http://localhost:" + str(FRONTEND_PORT)
 PREVIEW_DB = "preview.db"
 PREVIEW_DB_URL = "sqlite:///./" + PREVIEW_DB
 HEALTH_TIMEOUT = 90
-# Words that must appear in a pid's command line before `stop` signals it, so
-# a stale pid file (after a reboot) never kills an unrelated process.
-MARKERS = {"backend": "uvicorn", "frontend": "vite"}
+LOCKFILE = "frontend/package-lock.json"
 
 
 def preview_dir():
@@ -74,12 +80,15 @@ def backend_env(base_env, email):
     return env
 
 
-def frontend_env(base_env, email):
+def frontend_env(base_env, email, cache_dir):
     env = dict(base_env)
     env.pop("VITE_E2E", None)
     env["VITE_API_BASE"] = API_URL
     env["VITE_DEV_SKIP_AUTH"] = "true"
     env["VITE_DEV_USER_EMAIL"] = email
+    # Its own optimize-deps cache (vite.config.js cacheDir), so the preview
+    # never rewrites the main checkout's node_modules/.vite.
+    env["NX_VITE_CACHE_DIR"] = str(cache_dir)
     return env
 
 
@@ -92,13 +101,25 @@ def frontend_command(worktree):
             "--port", str(FRONTEND_PORT), "--strictPort"]
 
 
+def is_ours(name, command, worktree=""):
+    """Is this command line the preview's backend / frontend? It must carry
+    the preview worktree's path or the preview's exact port - a bare
+    'uvicorn' or 'vite' could be the developer's own dev server."""
+    command = str(command or "")
+    if not command:
+        return False
+    if worktree and str(worktree) in command:
+        return True
+    return re.search(r"--port[ =]" + str(PORTS[name]) + r"(\s|$)", command) is not None
+
+
 class PreviewError(Exception):
     pass
 
 
 class Preview:
     """start / stop / status. `system` does the processes, git and HTTP (a fake
-    in the tests); `client_factory` builds the API client when pins are posted."""
+    in the tests); `client_factory` builds the API client for the pins."""
 
     def __init__(self, system=None, client_factory=None, out=None, err=None, cwd=None, base_env=None):
         self.system = system or stack.System()
@@ -108,6 +129,7 @@ class Preview:
         self.cwd = Path(cwd or os.getcwd())
         self.base_env = dict(os.environ if base_env is None else base_env)
         self.dir = preview_dir()
+        self._client = None
 
     # -- state ----------------------------------------------------------------
 
@@ -118,7 +140,7 @@ class Preview:
         return self.dir / (name + ".log")
 
     def _state_file(self):
-        return self.dir / "current.json"
+        return self.dir / "state.json"
 
     def _read_state(self):
         try:
@@ -126,64 +148,103 @@ class Preview:
         except (OSError, ValueError):
             return {}
 
+    def _write_state(self, state):
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self._state_file().write_text(json.dumps(state, indent=2), encoding="utf-8")
+
     def _read_pid(self, name):
         try:
             return int(self._pid_file(name).read_text(encoding="utf-8").strip() or 0)
         except (OSError, ValueError):
             return 0
 
+    def _running(self):
+        """{name: pid} of the preview processes that are alive and still ours."""
+        worktree = self._read_state().get("worktree", "")
+        found = {}
+        for name in ("backend", "frontend"):
+            pid = self._read_pid(name)
+            if pid and self.system.alive(pid) and is_ours(name, self.system.command_of(pid), worktree):
+                found[name] = pid
+        return found
+
+    def _api(self):
+        if self._client is None:
+            self._client = self.client_factory()
+        return self._client
+
     # -- stop -----------------------------------------------------------------
 
+    def _clear_pins(self, state):
+        """DELETE /cli/preview/{id} for every pin the stopped preview served,
+        so their Ready To Check link goes away. Never blocks the stop."""
+        pins = [p.get("id") for p in state.get("pins") or [] if isinstance(p, dict) and p.get("id")]
+        if not pins or state.get("pinsCleared"):
+            return
+        try:
+            client = self._api()
+        except common.ConfigError as exc:
+            self.err("Warning: could not clear Ready To Check on the old pins (" + str(exc) + ")")
+            return
+        for note_id in pins:
+            try:
+                client.delete("/cli/preview/" + note_id, timeout=30)
+            except common.ApiError as exc:
+                if exc.status != 404:
+                    self.err("Warning: Ready To Check not cleared on pin " + note_id + " - " + str(exc.detail or exc.message))
+        state["pinsCleared"] = True
+
     def stop(self, quiet=False):
-        """Kill the running preview by its pid files; the worktree stays."""
+        """Kill the running preview by its pid files (only processes that are
+        provably the preview), clear its pins; the worktree stays."""
+        state = self._read_state()
+        worktree = state.get("worktree", "")
         stopped = []
         for name in ("frontend", "backend"):
             pid = self._read_pid(name)
             if pid and self.system.alive(pid):
-                command = self.system.command_of(pid)
-                if MARKERS[name] in command:
+                if is_ours(name, self.system.command_of(pid), worktree):
                     self.system.terminate(pid)
                     stopped.append(name)
                 else:
-                    self.err("Not stopping pid " + str(pid) + " - it is no longer the preview " + name)
+                    self.err("Not stopping pid " + str(pid) + " - it is not the preview " + name + " any more")
             try:
                 self._pid_file(name).unlink()
             except OSError:
                 pass
-        state = self._read_state()
         if state:
+            self._clear_pins(state)
             state["stoppedAt"] = _now_iso()
             self._write_state(state)
         if not quiet:
-            self.out("Preview stopped (" + state.get("branch", "") + ")" if stopped and state.get("branch")
-                     else ("Preview stopped" if stopped else "No preview running"))
+            if stopped:
+                self.out("Preview stopped" + (" (" + state["branch"] + ")" if state.get("branch") else ""))
+            else:
+                self.out("No preview running")
         return 0
 
     # -- status ---------------------------------------------------------------
 
     def status(self):
         state = self._read_state()
-        pids = {name: self._read_pid(name) for name in ("backend", "frontend")}
-        up = {name: bool(pid) and self.system.alive(pid) for name, pid in pids.items()}
-        if not state or not any(up.values()):
+        running = self._running()
+        if not state or not running:
             self.out("No preview running" + (" (last: " + state.get("branch", "") + ", worktree " + state.get("worktree", "") + ")"
                                              if state.get("branch") else ""))
             return 1
-        self.out("Preview of " + state.get("branch", "?") + (" (PR #" + str(state.get("prNumber")) + ")" if state.get("prNumber") else ""))
+        self.out("Preview of " + state.get("branch", "?") + (" at " + state["commit"][:9] if state.get("commit") else "")
+                 + (" (PR #" + str(state.get("prNumber")) + ")" if state.get("prNumber") else ""))
         self.out("  Worktree: " + state.get("worktree", "?"))
         self.out("  Data: " + state.get("db", "?"))
-        self.out("  Frontend: " + PREVIEW_URL + " - pid " + str(pids["frontend"]) + (" (answering)" if self.system.http_ok(PREVIEW_URL + "/") else " (not answering)"))
-        self.out("  Backend: " + API_URL + " - pid " + str(pids["backend"]) + (" (answering)" if self.system.http_ok(API_URL + "/health") else " (not answering)"))
+        for name, url in (("frontend", PREVIEW_URL + "/"), ("backend", API_URL + "/health")):
+            self.out("  " + name.capitalize() + ": " + url.rsplit("/", 1)[0] + " - pid " + str(running.get(name, "-"))
+                     + (" (answering)" if self.system.http_ok(url) else " (not answering)"))
         for pin in state.get("pins") or []:
             self.out("  Pin " + str(pin.get("id")) + ": " + str(pin.get("url") or ""))
         self.out("  Logs: " + str(self._log("backend")) + ", " + str(self._log("frontend")))
         return 0
 
     # -- start ----------------------------------------------------------------
-
-    def _write_state(self, state):
-        self.dir.mkdir(parents=True, exist_ok=True)
-        self._state_file().write_text(json.dumps(state, indent=2), encoding="utf-8")
 
     def _email(self, main_root, explicit):
         if explicit:
@@ -194,11 +255,42 @@ class Preview:
         raise PreviewError("No NEXUS_DEV_EMAIL in " + str(main_root / "backend" / ".env")
                            + " - set it there (see CLAUDE.md, Run locally) or pass --email")
 
+    def _same_lockfile(self, main_root, branch):
+        """Is origin/<branch>'s frontend/package-lock.json the main checkout's?
+        Read from git, so nothing on disk changes before the checks pass."""
+        try:
+            mine = (main_root / LOCKFILE).read_text(encoding="utf-8")
+        except OSError:
+            return False
+        code, theirs = self.system.run(["git", "show", "origin/" + branch + ":" + LOCKFILE], cwd=main_root, check=False, timeout=60)
+        return code == 0 and theirs.strip() == mine.strip()
+
+    def validate(self, branch, db=None, email=None):
+        """Every check, before anything running is touched."""
+        main_root = stack.main_checkout(self.system, self.cwd)
+        python = main_root / "backend" / ".venv" / "bin" / "python"
+        if not python.exists():
+            raise PreviewError("No backend virtualenv at " + str(python) + " - create it in the main checkout first")
+        user = self._email(main_root, email)
+        if db and not Path(db).expanduser().is_file():
+            raise PreviewError("--db " + str(db) + " is not a file")
+        self.system.run(["git", "fetch", "origin", branch], cwd=main_root, timeout=300)
+        same_lock = self._same_lockfile(main_root, branch)
+        if same_lock and not (main_root / "frontend" / "node_modules").is_dir():
+            raise PreviewError("No frontend/node_modules in " + str(main_root) + " - run npm install in frontend first")
+        running = self._running()
+        for name, port in PORTS.items():
+            if self.system.port_busy(port) and name not in running:
+                # Never another port: 5174 is the one every branch's CORS list allows.
+                hint = " (often the Knowledge Base standalone workspace)" if port == FRONTEND_PORT else ""
+                raise PreviewError("Port " + str(port) + " is already in use by something that is not the preview"
+                                   + hint + " - free it and start again")
+        return main_root, python, user, same_lock
+
     def prepare_worktree(self, main_root, branch):
         """origin/<branch> checked out (detached - the branch itself is usually
         checked out in the main checkout) in the preview folder."""
         worktree = self.dir / stack.slug(branch)
-        self.system.run(["git", "fetch", "origin", branch], cwd=main_root, timeout=300)
         ref = "origin/" + branch
         if (worktree / ".git").exists():
             self.system.run(["git", "reset", "--hard", ref], cwd=worktree, timeout=120)
@@ -210,13 +302,22 @@ class Preview:
             self.system.run(["git", "worktree", "add", "--detach", str(worktree), ref], cwd=main_root, timeout=300)
         return worktree
 
+    def prepare_node_modules(self, main_root, worktree, same_lock):
+        modules = worktree / "frontend" / "node_modules"
+        if same_lock:
+            stack.link_node_modules(main_root, worktree, "frontend")
+            return
+        self.out("frontend/package-lock.json on this branch differs from the main checkout's - "
+                 "installing the branch's own node_modules (npm ci)")
+        if modules.is_symlink():
+            modules.unlink()
+        self.system.run(["npm", "ci", "--no-audit", "--no-fund"], cwd=worktree / "frontend", timeout=900)
+
     def prepare_db(self, main_root, worktree, db=None):
         """Copy the developer's local database into the worktree as
         backend/preview.db. Returns a one-line description of the data."""
         dest = worktree / "backend" / PREVIEW_DB
         src = Path(db).expanduser() if db else main_root / "backend" / "greens_nexus.db"
-        if db and not src.is_file():
-            raise PreviewError("--db " + str(src) + " is not a file")
         if src.is_file():
             if src.resolve() == dest.resolve():
                 raise PreviewError("The preview database cannot be the source database itself")
@@ -234,24 +335,16 @@ class Preview:
         branch = str(branch or "").strip()
         if not branch:
             raise PreviewError("start needs --branch")
-        # One preview per computer: whatever was running goes first.
+        # Every check first: a start that cannot run leaves the old preview up.
+        main_root, python, user, same_lock = self.validate(branch, db, email)
+        # One preview per computer: whatever was running goes now (its pins lose Ready To Check).
         self.stop(quiet=True)
-        main_root = stack.main_checkout(self.system, self.cwd)
-        python = main_root / "backend" / ".venv" / "bin" / "python"
-        if not python.exists():
-            raise PreviewError("No backend virtualenv at " + str(python) + " - create it in the main checkout first")
-        if not (main_root / "frontend" / "node_modules").is_dir():
-            raise PreviewError("No frontend/node_modules in " + str(main_root) + " - run npm install in frontend first")
-        user = self._email(main_root, email)
-        for port in (BACKEND_PORT, FRONTEND_PORT):
-            if self.system.port_busy(port):
-                raise PreviewError("Port " + str(port) + " is already in use by something that is not the preview - free it and start again")
 
         self.out("Preparing the preview of " + branch + "...")
         worktree = self.prepare_worktree(main_root, branch)
         _, head = self.system.run(["git", "rev-parse", "HEAD"], cwd=worktree, timeout=30)
         commit = head.strip().splitlines()[-1] if head.strip() else ""
-        stack.link_node_modules(main_root, worktree, "frontend")
+        self.prepare_node_modules(main_root, worktree, same_lock)
         data = self.prepare_db(main_root, worktree, db)
 
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -265,13 +358,13 @@ class Preview:
                                         backend_env(self.base_env, user), logs["backend"])
         self._pid_file("backend").write_text(str(backend_pid), encoding="utf-8")
         frontend_pid = self.system.spawn(frontend_command(worktree), worktree / "frontend",
-                                         frontend_env(self.base_env, user), logs["frontend"])
+                                         frontend_env(self.base_env, user, self.dir / ".vite-cache"), logs["frontend"])
         self._pid_file("frontend").write_text(str(frontend_pid), encoding="utf-8")
         state = {
             "branch": branch, "commit": commit, "worktree": str(worktree), "prNumber": int(pr or 0), "db": data,
             "backend": {"pid": backend_pid, "url": API_URL, "log": str(logs["backend"])},
             "frontend": {"pid": frontend_pid, "url": PREVIEW_URL, "log": str(logs["frontend"])},
-            "startedAt": _now_iso(), "pins": [{"id": p} for p in pins],
+            "startedAt": _now_iso(), "pins": [],
         }
         self._write_state(state)
         try:
@@ -286,10 +379,10 @@ class Preview:
 
         if not post or not pins:
             return 0
-        client = self.client_factory()
+        client = self._api()
         host = self.system.hostname()
         failed = 0
-        for i, note_id in enumerate(pins):
+        for note_id in pins:
             try:
                 note, body = cli.post_preview(client, note_id, PREVIEW_URL, branch, pr, host, commit=commit)
             except common.ApiError as exc:
@@ -298,9 +391,11 @@ class Preview:
                 failed += 1
                 self.err("Preview not recorded on pin " + note_id + " - " + str(exc.detail or exc.message))
                 continue
-            state["pins"][i]["url"] = body["url"]
+            # Only pins that really show Ready To Check go in the state file -
+            # those are the ones `stop` clears.
+            state["pins"].append({"id": note_id, "url": body["url"]})
+            self._write_state(state)
             self.out("  Pin #" + str(note.get("number") or "?") + " Ready To Check: " + body["url"])
-        self._write_state(state)
         return 1 if failed else 0
 
 
@@ -320,7 +415,7 @@ def main(argv=None, preview=None):
     p.add_argument("--db", help="SQLite file to copy (default: the main checkout's backend/greens_nexus.db)")
     p.add_argument("--email", help="who the preview signs in as (default: NEXUS_DEV_EMAIL from backend/.env)")
     p.add_argument("--no-post", action="store_true", help="start the preview without recording it on the pins")
-    sub.add_parser("stop", help="stop the running preview (the worktree stays)")
+    sub.add_parser("stop", help="stop the running preview and clear Ready To Check on its pins (the worktree stays)")
     sub.add_parser("status", help="what is running")
     args = parser.parse_args(argv)
 

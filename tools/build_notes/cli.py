@@ -12,13 +12,13 @@ to work a Build Session's pins.
     python3 tools/build_notes/cli.py verify <id> [--repro-script PATH --before failing --after passing]
                                                [--style-json PATH] [--before-image PATH --after-image PATH]
     python3 tools/build_notes/cli.py owners [--check] [--me EMAIL] [paths...]
-    python3 tools/build_notes/cli.py preview <id> [<id> ...] --branch NAME [--pr N] [--url http://localhost:5180] [--commit SHA]
+    python3 tools/build_notes/cli.py preview <id> [<id> ...] --branch NAME [--pr N] [--url http://localhost:5174] [--commit SHA]
 
 Global flags (before the subcommand): --api URL, --token TOKEN.
 `claim` downloads every media file into ~/.cache/nexus-build-notes/<id>/ and
 prints one markdown brief per pin (also saved as brief.md in that folder).
 `owners --check` exits 3 when the changes touch another developer's files
-(the map is backend/code_owners.py, else GET /dev-notes/owners).
+(the map is backend/code_owners.py, else GET /dev-notes/owner-of per path).
 
 Standard library only.
 """
@@ -299,20 +299,34 @@ def latest_human_answer(thread):
     return answer
 
 
-def latest_human_comment(thread):
-    """(by, at, text) of the newest comment a person left on the thread - on a
-    pin reopened on the preview that is the reopen note, which the server
-    appends as the last human comment."""
-    found = None
+REOPEN_ENTRY = "reopened on the preview"
+MERGED_MEANWHILE = "merged while this pin was being reworked"
+
+
+def reopen_comment(thread):
+    """(by, at, text) of the author's reopen note - only when the thread ENDS
+    with the server's "Reopened On The Preview" system entry followed by the
+    author's comment. Progress lines (the claim's own "Picked up by Claude
+    Code") and the server's "PR #n merged while ..." note are skipped. When
+    Claude asked a question after the reopen, the author's newer comment is an
+    answer (latest_human_answer), not the reopen note."""
+    entries = []
     for e in thread or []:
         if not isinstance(e, dict):
             continue
-        if str(e.get("kind") or "comment") == "comment" and str(e.get("by") or "").lower() != "claude":
-            found = (str(e.get("by") or "author"), str(e.get("at") or ""), str(e.get("text") or "").strip())
-    return found
-
-
-MERGED_MEANWHILE = "merged while this pin was being reworked"
+        kind = str(e.get("kind") or "comment")
+        if kind == "progress" or (kind == "system" and MERGED_MEANWHILE in str(e.get("text") or "").lower()):
+            continue
+        entries.append(e)
+    if len(entries) < 2:
+        return None
+    marker, note = entries[-2], entries[-1]
+    if (str(marker.get("kind") or "") == "system"
+            and str(marker.get("text") or "").strip().lower() == REOPEN_ENTRY
+            and str(note.get("kind") or "comment") == "comment"
+            and str(note.get("by") or "").lower() != "claude"):
+        return (str(note.get("by") or "author"), str(note.get("at") or ""), str(note.get("text") or "").strip())
+    return None
 
 
 def pr_merged_meanwhile(note):
@@ -338,13 +352,15 @@ def is_held(note):
 
 def display_status(note):
     """The status label a person sees: Ready To Check is a PR Open pin with a
-    preview running that has not been accepted yet."""
+    preview running that has not been accepted yet. A preview with no url (the
+    server can keep just {verdictCommit}) is no preview."""
+    preview = _g(note, "preview", default={}) or {}
+    has_url = isinstance(preview, dict) and bool(preview.get("url"))
     ready = _g(note, "readyToCheck", "ready_to_check", default=None)
     if ready is None:
-        preview = _g(note, "preview", default={}) or {}
-        ready = (str(_g(note, "status", default="")) == "pr_open" and isinstance(preview, dict)
-                 and bool(preview.get("url"))
+        ready = (str(_g(note, "status", default="")) == "pr_open"
                  and str(_g(note, "previewVerdict", "preview_verdict", default="") or "") != "accepted")
+    ready = bool(ready) and has_url
     if ready:
         return "Ready To Check"
     return status_label(_g(note, "status"))
@@ -369,13 +385,15 @@ def render_brief(note, files, session_title=None):
     number = _g(n, "number", default="?")
     lines = []
     lines.append("# Pin #" + str(number) + " - " + kind_label(_g(n, "kind")) + " - " + priority_label(_g(n, "priority")))
+    # `reopened` (the verdict) decides where the rework goes; the "Reopened on
+    # the preview" label shows only while the reopen note is the newest thing.
     reopened = str(_g(n, "previewVerdict", "preview_verdict", default="") or "") == "reopened"
     branch = str(_g(n, "branch", default="") or "")
     pr = _g(n, "prNumber", "pr_number", default=0)
     merged = pr_merged_meanwhile(n)
-    if reopened:
-        reopen = latest_human_comment(_g(n, "thread", default=[]) or [])
-        lines.append("Reopened on the preview: " + (reopen[2] if reopen and reopen[2] else "(no comment)"))
+    reopen = reopen_comment(_g(n, "thread", default=[]) or [])
+    if reopen:
+        lines.append("Reopened on the preview: " + (reopen[2] or "(no comment)"))
     # The entry stays on the thread after an -r2 PR exists; it only counts while the PR fields are cleared.
     if (merged or reopened) and not pr and not branch:
         lines.append("Its PR merged while it was being reworked - rework it on a NEW branch from fresh origin/dev "
@@ -404,7 +422,7 @@ def render_brief(note, files, session_title=None):
     # with a fresh human comment) carries an answer; a dispatched pin's own
     # comments are just its thread.
     answer = None
-    if not reopened and str(_g(n, "status", default="")) in ("needs_input", "building"):
+    if not reopen and str(_g(n, "status", default="")) in ("needs_input", "building"):
         answer = latest_human_answer(_g(n, "thread", default=[]) or [])
     if answer:
         lines.append("Author's latest answer (" + answer[0] + ", " + common.us_datetime(answer[1]) + "): " + answer[2])
@@ -693,7 +711,7 @@ def cmd_claim(client, args):
         sessions = {s.get("id"): s.get("title") for s in (data.get("sessions") or []) if isinstance(s, dict)}
         skipped = [k for k in (data.get("skipped") or []) if isinstance(k, dict)]
         for k in skipped:
-            label = ("#" + str(k.get("number"))) if k.get("number") not in (None, "") else str(k.get("id") or note_id)
+            label = ("#" + str(k.get("number"))) if k.get("number") else str(k.get("id") or note_id)
             failures.append((label, str(k.get("reason") or status_label(k.get("status")) or "skipped")))
         if not notes:
             if not skipped:
@@ -908,7 +926,7 @@ def cmd_verify(client, args):
 
 
 # --------------------------------------------------------------------------
-# Ownership (backend/code_owners.py, else GET /dev-notes/owners)
+# Ownership (backend/code_owners.py, else GET /dev-notes/owner-of)
 # --------------------------------------------------------------------------
 
 OWNERS_FILE = None          # None: <repo>/backend/code_owners.py; the tests point it elsewhere
@@ -919,64 +937,61 @@ def owners_file():
     return Path(OWNERS_FILE) if OWNERS_FILE else common.repo_root() / "backend" / "code_owners.py"
 
 
-def normalize_path(path):
-    """'src/tasks/X.jsx' | './src/...' | 'frontend/src/...' -> 'frontend/src/tasks/X.jsx';
-    backend paths unchanged. Mirrors code_owners.normalize for the API fallback."""
-    p = str(path or "").strip().replace("\\", "/")
-    while p.startswith("./"):
-        p = p[2:]
-    p = p.lstrip("/")
-    if p.startswith("src/"):
-        p = "frontend/" + p
-    return p
-
-
 class OwnersMap:
-    """owner_of / foreign_files over the File Ownership map: the module's own
-    functions when backend/code_owners.py loaded, else the same rules over the
-    owners list the API returned."""
+    """owner_of / foreign_files from backend/code_owners.py when it loads; else
+    the server answers each path (GET /dev-notes/owner-of?path=...) - there is
+    no local copy of the rules to drift from the module."""
 
-    def __init__(self, module=None, owners=None, source=""):
+    def __init__(self, module=None, client=None):
         self.module = module
-        self.owners = owners if owners is not None else list(getattr(module, "OWNERS", []) or [])
-        self.source = source
+        self.client = client
+        self.source = "backend/code_owners.py" if module is not None else "GET /dev-notes/owner-of"
+        self._answers = {}
+
+    @property
+    def from_api(self):
+        return self.module is None
 
     def normalize(self, path):
-        if self.module is not None and hasattr(self.module, "normalize"):
+        if self.module is not None:
             return self.module.normalize(path)
-        return normalize_path(path)
+        return str(path or "").strip()
+
+    def _ask(self, path):
+        if path not in self._answers:
+            self._answers[path] = self.client.get("/owner-of", query={"path": path}, timeout=30) or {}
+        return self._answers[path]
 
     def owner_of(self, path):
-        if self.module is not None and hasattr(self.module, "owner_of"):
+        if self.module is not None:
             return self.module.owner_of(path)
-        p = normalize_path(path)
-        for owner in self.owners:
-            for rule in owner.get("paths") or []:
-                rule = normalize_path(rule)
-                if (rule.endswith("/") and p.startswith(rule)) or p == rule:
-                    return {"name": owner.get("name") or "", "email": owner.get("email") or ""}
-        return None
+        owner = self._ask(path).get("owner")
+        return owner if isinstance(owner, dict) and owner else None
 
-    def foreign_files(self, paths, me_email):
-        if self.module is not None and hasattr(self.module, "foreign_files"):
+    def foreign_files(self, paths, me_email=None):
+        """[{path, name, email}] owned by someone other than me. From the API
+        without --me, `held` (relative to the token's user) decides."""
+        if self.module is not None:
             return list(self.module.foreign_files(paths, me_email))
-        # Same contract as code_owners.foreign_files: normalized paths, each once, input order.
         me = str(me_email or "").strip().lower()
         out = []
         seen = set()
         for path in paths:
-            norm = normalize_path(path)
-            owner = self.owner_of(norm)
-            if norm in seen or not owner or str(owner.get("email") or "").lower() == me:
+            if path in seen:
                 continue
-            seen.add(norm)
-            out.append({"path": norm, "name": owner.get("name") or "", "email": owner.get("email") or ""})
+            seen.add(path)
+            owner = self.owner_of(path)
+            if not owner:
+                continue
+            foreign = (str(owner.get("email") or "").lower() != me) if me else bool(self._ask(path).get("held"))
+            if foreign:
+                out.append({"path": path, "name": owner.get("name") or "", "email": owner.get("email") or ""})
         return out
 
 
 def load_owners(client=None):
-    """The owners map: backend/code_owners.py loaded by file path (it imports
-    nothing from the app), else GET /dev-notes/owners."""
+    """backend/code_owners.py loaded by file path (it imports nothing from the
+    app), else the server's GET /dev-notes/owner-of per path."""
     path = owners_file()
     if path.is_file():
         spec = importlib.util.spec_from_file_location("nexus_code_owners", str(path))
@@ -986,13 +1001,11 @@ def load_owners(client=None):
         except Exception as exc:   # noqa: BLE001 - a broken file falls back to the API
             common.eprint("Warning: could not load " + str(path) + " (" + str(exc) + ") - asking the API")
         else:
-            return OwnersMap(module=module, source=str(path))
+            return OwnersMap(module=module)
     if client is None:
         raise common.ConfigError(str(path) + " is not here and there is no Build Token to ask the API "
-                                 "(GET /dev-notes/owners) - " + common.MINT_HINT)
-    data = client.get("/owners", timeout=30) or {}
-    owners = [o for o in (data.get("owners") or []) if isinstance(o, dict)]
-    return OwnersMap(owners=owners, source="GET /dev-notes/owners")
+                                 "(GET /dev-notes/owner-of) - " + common.MINT_HINT)
+    return OwnersMap(client=client)
 
 
 def _git_lines(args):
@@ -1043,21 +1056,22 @@ def cmd_owners(client, args):
         return 2
     owners = load_owners(client)
     paths = list(dict.fromkeys(owners.normalize(p) for p in paths))
-    if owners.source.startswith("GET "):
-        common.eprint("(owners map from " + owners.source + " - backend/code_owners.py is not in this checkout)")
+    if owners.from_api:
+        common.eprint("(owners from " + owners.source + " - backend/code_owners.py is not in this checkout)")
     me = (args.me or "").strip()
-    if not me:
+    if not me and not owners.from_api:
+        # From the API, `held` is already relative to the token's user.
         if client is not None:
             me = str(_g(client.get("/cli/whoami", timeout=30) or {}, "email", default="") or "")
         elif args.check:
             common.eprint("owners --check needs --me EMAIL or a Build Token (whoami) to know who you are")
             return 2
-    width = max(len(owners.normalize(p)) for p in paths)
+    width = max(len(p) for p in paths)
     for path in paths:
         owner = owners.owner_of(path)
         who = (str(owner.get("name") or "") + " (" + str(owner.get("email") or "") + ")") if owner else "no owner"
-        print(owners.normalize(path).ljust(width) + "  " + who)
-    if not me:
+        print(path.ljust(width) + "  " + who)
+    if not me and not owners.from_api:
         return 0
     foreign = owners.foreign_files(paths, me)
     if not foreign:
@@ -1075,7 +1089,7 @@ def cmd_owners(client, args):
 # Ready To Check (the local preview)
 # --------------------------------------------------------------------------
 
-PREVIEW_BASE = "http://localhost:5180"
+PREVIEW_BASE = "http://localhost:5174"
 LOCAL_PREFIXES = ("http://localhost:", "http://127.0.0.1:")
 
 
@@ -1098,8 +1112,16 @@ def pin_path(note):
 
 
 def preview_url(base, note):
-    """base + the pin's pathname: 'http://localhost:5180/tasks/home'."""
-    return str(base or PREVIEW_BASE).rstrip("/") + pin_path(note)
+    """A URL that already names a page ('http://localhost:5174/tasks/home') is
+    used as given; a bare base gets the pin's own pathname appended."""
+    base = str(base or PREVIEW_BASE)
+    try:
+        path = urllib.parse.urlparse(base).path
+    except ValueError:
+        path = ""
+    if path and path != "/":
+        return base
+    return base.rstrip("/") + pin_path(note)
 
 
 def branch_commit(branch, git=None):

@@ -194,6 +194,19 @@ class FakeApi(BaseHTTPRequestHandler):
             return self._json(200, {"notes": [], "sessions": []})
         if path == "/dev-notes/owners":
             return self._json(200, {"owners": st.get("owners") or []})
+        if path == "/dev-notes/owner-of":
+            # The server's answer for one path, relative to the token's user (neil@).
+            p = (q.get("path") or [""])[0].strip()
+            while p.startswith("./"):
+                p = p[2:]
+            if p.startswith("src/"):
+                p = "frontend/" + p
+            owner = None
+            for o in st.get("owners") or []:
+                if any((r.endswith("/") and p.startswith(r)) or p == r for r in o["paths"]):
+                    owner = {"name": o["name"], "email": o["email"]}
+                    break
+            return self._json(200, {"owner": owner, "held": bool(owner) and owner["email"] != "neil@greensglobal.com"})
         m = re.match(r"^/dev-notes/([^/]+)$", path)
         if m and m.group(1) != "cli":
             # GET /dev-notes/{id}: the pin, with the status the test set up (default building).
@@ -210,6 +223,23 @@ class FakeApi(BaseHTTPRequestHandler):
             if status:
                 notes = [n for n in notes if n["status"] == status]
             return self._json(200, notes)
+        return self._json(404, {"detail": "no such route " + path})
+
+    def do_DELETE(self):
+        st = self.__class__.state
+        if not self._auth():
+            return
+        path = urlparse(self.path).path
+        st["calls"].append(("DELETE", path, None))
+        m = re.match(r"^/dev-notes/cli/preview/([^/]+)$", path)
+        if m:
+            if m.group(1) in (st.get("delete_missing") or ()):
+                return self._json(404, {"detail": "Pin not found"})
+            if m.group(1) in (st.get("delete_broken") or ()):
+                return self._json(500, {"detail": "boom"})
+            n = sample_note(self._base(), m.group(1), with_media=False)
+            n.update(status="pr_open", preview={}, readyToCheck=False)
+            return self._json(200, n)
         return self._json(404, {"detail": "no such route " + path})
 
     def do_POST(self):
@@ -1065,8 +1095,8 @@ class _ServerTestBase(unittest.TestCase):
         self.server.state["calls"].clear()
         self.server.state["wait_batches"].clear()
         self.server.state["owners"] = CONTRACT_OWNERS
-        self.server.state.pop("claim_skipped", None)
-        self.server.state.pop("statuses", None)
+        for key in ("claim_skipped", "statuses", "delete_missing", "delete_broken"):
+            self.server.state.pop(key, None)
         self._real_owners_file = cli.OWNERS_FILE
         self._real_git = cli.GIT_LINES
         self._real_cache = common.CACHE_DIR
@@ -1079,68 +1109,80 @@ class _ServerTestBase(unittest.TestCase):
     def gets(self, path):
         return [c for c in self.server.state["calls"] if c[0] == "GET" and c[1] == path]
 
+    def deletes(self):
+        return [c[1] for c in self.server.state["calls"] if c[0] == "DELETE"]
 
-class OwnershipTest(_ServerTestBase):
-    def test_normalize(self):
-        self.assertEqual(cli.normalize_path("src/tasks/X.jsx"), "frontend/src/tasks/X.jsx")
-        self.assertEqual(cli.normalize_path("./src/views/HR.jsx"), "frontend/src/views/HR.jsx")
-        self.assertEqual(cli.normalize_path("frontend/src/App.jsx"), "frontend/src/App.jsx")
-        self.assertEqual(cli.normalize_path("backend/routers/items.py"), "backend/routers/items.py")
-
-    def test_owners_falls_back_to_the_api_when_the_file_is_missing(self):
-        cli.OWNERS_FILE = str(Path(self.tmp.name) / "no-such" / "code_owners.py")
-        code, out, err = run_cli(["--api", self.server.base, "owners", "--me", "neil@greensglobal.com",
-                                  "src/views/InventoryManagement.jsx", "frontend/src/asset/AssetHome.jsx",
-                                  "backend/routers/tasks.py"])
-        self.assertEqual(code, 3, err)
-        self.assertEqual(len(self.gets("/dev-notes/owners")), 1)
-        self.assertIn("GET /dev-notes/owners", err)
-        self.assertRegex(out, r"frontend/src/views/InventoryManagement\.jsx +Visesh \(visesh\.lodha@greensglobal\.com\)")
-        self.assertRegex(out, r"frontend/src/asset/AssetHome\.jsx +Neil \(neil@greensglobal\.com\)")
-        self.assertRegex(out, r"backend/routers/tasks\.py +no owner")
-        self.assertIn("Owned by another developer", err)
-        self.assertIn("frontend/src/views/InventoryManagement.jsx - Visesh's area", err)
-        self.assertNotIn("AssetHome.jsx - ", err)
-        self.assertIn("git checkout origin/dev -- <file>", err)
-
-    def test_owners_own_area_is_not_foreign(self):
-        cli.OWNERS_FILE = str(Path(self.tmp.name) / "no-such" / "code_owners.py")
-        code, out, err = run_cli(["--api", self.server.base, "owners", "--me", "NEIL@greensglobal.com",
-                                  "frontend/src/asset/lib/sync.js", "backend/routers/property_assets.py"])
-        self.assertEqual(code, 0, err)
-        self.assertIn("No files in another developer's area.", out)
-
-    def test_owners_loads_the_module_by_path_without_a_token(self):
+    def module_owners_file(self):
         root = Path(self.tmp.name) / "repo" / "backend"
         root.mkdir(parents=True, exist_ok=True)
         (root / "code_owners.py").write_text(CODE_OWNERS_PY, encoding="utf-8")
-        cli.OWNERS_FILE = str(root / "code_owners.py")
+        return str(root / "code_owners.py")
+
+
+class OwnershipTest(_ServerTestBase):
+    def missing_file(self):
+        cli.OWNERS_FILE = str(Path(self.tmp.name) / "no-such" / "code_owners.py")
+
+    def test_fallback_asks_the_server_per_path(self):
+        self.missing_file()
+        code, out, err = run_cli(["--api", self.server.base, "owners",
+                                  "src/views/InventoryManagement.jsx", "frontend/src/asset/AssetHome.jsx",
+                                  "backend/routers/tasks.py", "src/views/InventoryManagement.jsx"])
+        self.assertEqual(code, 3, err)
+        asked = [c[2]["path"][0] for c in self.gets("/dev-notes/owner-of")]
+        self.assertEqual(asked, ["src/views/InventoryManagement.jsx", "frontend/src/asset/AssetHome.jsx", "backend/routers/tasks.py"])
+        self.assertEqual(self.gets("/dev-notes/owners"), [])
+        self.assertEqual(self.gets("/dev-notes/cli/whoami"), [])    # `held` is already relative to the token's user
+        self.assertIn("GET /dev-notes/owner-of", err)
+        self.assertRegex(out, r"src/views/InventoryManagement\.jsx +Visesh \(visesh\.lodha@greensglobal\.com\)")
+        self.assertRegex(out, r"frontend/src/asset/AssetHome\.jsx +Neil \(neil@greensglobal\.com\)")
+        self.assertRegex(out, r"backend/routers/tasks\.py +no owner")
+        self.assertIn("Owned by another developer", err)
+        self.assertIn("src/views/InventoryManagement.jsx - Visesh's area", err)
+        self.assertNotIn("AssetHome.jsx - ", err)
+        self.assertIn("git checkout origin/dev -- <file>", err)
+        self.assertFalse(hasattr(cli, "normalize_path"))    # no local copy of the rules
+
+    def test_fallback_own_area_and_explicit_me(self):
+        self.missing_file()
+        code, out, err = run_cli(["--api", self.server.base, "owners", "frontend/src/asset/lib/sync.js", "backend/routers/property_assets.py"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("No files in another developer's area.", out)
+        # --me compares the owner's email instead of the token user's `held`.
+        code, out, err = run_cli(["--api", self.server.base, "owners", "--me", "visesh.lodha@greensglobal.com",
+                                  "frontend/src/asset/lib/sync.js", "backend/routers/items.py"])
+        self.assertEqual(code, 3)
+        self.assertIn("frontend/src/asset/lib/sync.js - Neil's area", err)
+        self.assertNotIn("items.py - ", err)
+
+    def test_owners_loads_the_module_by_path_without_a_token(self):
+        cli.OWNERS_FILE = self.module_owners_file()
         saved = os.environ.pop(common.TOKEN_ENV)
         real_token_file = common.TOKEN_FILE
         common.TOKEN_FILE = Path(self.tmp.name) / "missing.token"
         try:
             code, out, err = run_cli(["--api", self.server.base, "owners", "--check", "--me", "neil@greensglobal.com",
                                       "backend/routers/items.py", "src/asset/AssetHome.jsx"])
-        finally:
-            os.environ[common.TOKEN_ENV] = saved
-            common.TOKEN_FILE = real_token_file
-        self.assertEqual(code, 3, err)
-        self.assertIn("Visesh (file)", out)           # the module's own owner_of answered
-        self.assertEqual(self.gets("/dev-notes/owners"), [])
-        self.assertIn("backend/routers/items.py - Visesh (file)'s area", err)
-        # Without a token or --me, --check cannot know who you are.
-        os.environ.pop(common.TOKEN_ENV)
-        common.TOKEN_FILE = Path(self.tmp.name) / "missing.token"
-        try:
+            self.assertEqual(code, 3, err)
+            self.assertIn("Visesh (file)", out)           # the module's own owner_of answered
+            self.assertIn("frontend/src/asset/AssetHome.jsx", out)   # the module's normalize
+            self.assertEqual(self.gets("/dev-notes/owner-of"), [])
+            self.assertIn("backend/routers/items.py - Visesh (file)'s area", err)
+            # Without a token or --me, --check cannot know who you are.
             code, out, err = run_cli(["--api", self.server.base, "owners", "--check", "backend/routers/items.py"])
+            self.assertEqual(code, 2)
+            self.assertIn("--me", err)
+            # And with no file either, there is nothing to ask.
+            self.missing_file()
+            code, out, err = run_cli(["--api", self.server.base, "owners", "backend/routers/items.py"])
+            self.assertEqual(code, 2)
+            self.assertIn("no Build Token", err)
         finally:
             os.environ[common.TOKEN_ENV] = saved
             common.TOKEN_FILE = real_token_file
-        self.assertEqual(code, 2)
-        self.assertIn("--me", err)
 
     def test_owners_check_reads_the_branch_changes_and_whoami(self):
-        cli.OWNERS_FILE = str(Path(self.tmp.name) / "no-such" / "code_owners.py")
+        cli.OWNERS_FILE = self.module_owners_file()
         asked = []
 
         def fake_git(args):
@@ -1159,8 +1201,8 @@ class OwnershipTest(_ServerTestBase):
         self.assertIn(["diff", "--name-only", "--no-renames", "--cached"], asked)
         self.assertIn(["ls-files", "--others", "--exclude-standard"], asked)
         self.assertEqual(len(self.gets("/dev-notes/cli/whoami")), 1)   # me = whoami's email
-        self.assertIn("backend/routers/items.py - Visesh's area", err)
-        self.assertIn("frontend/src/components/NotificationBell.jsx - Visesh's area", err)
+        self.assertIn("backend/routers/items.py - Visesh (file)'s area", err)
+        self.assertIn("frontend/src/components/NotificationBell.jsx - Visesh (file)'s area", err)
         self.assertEqual(out.count("frontend/src/tasks/TasksHome.jsx"), 1)   # de-duplicated
         cli.GIT_LINES = lambda args: []
         code, out, err = run_cli(["--api", self.server.base, "owners", "--check"])
@@ -1168,44 +1210,66 @@ class OwnershipTest(_ServerTestBase):
         self.assertIn("No changed files.", out)
 
 
+def reopened_thread(*tail):
+    return [
+        {"by": "system", "kind": "system", "text": "PR #812 Open"},
+        {"by": "system", "kind": "system", "text": "Reopened On The Preview"},
+        {"by": "neil@greensglobal.com", "kind": "comment", "text": "Still overlaps on phones."},
+    ] + list(tail)
+
+
+PICKED_UP = {"by": "claude", "kind": "progress", "text": "Picked up by Claude Code"}
+
+
 class BriefV2Test(_ServerTestBase):
-    def test_reopened_on_the_preview_is_under_the_header(self):
+    def reopened_note(self, thread, **extra):
         note = sample_note(self.server.base, with_media=False)
         note.update(status="building", previewVerdict="reopened", branch="build/tasks-home-polish-1024", prNumber=812)
-        note["thread"] = [
-            {"by": "claude", "kind": "claude", "text": "Which button?"},
-            {"by": "neil@greensglobal.com", "kind": "comment", "text": "The Updates one."},
-            {"by": "system", "kind": "system", "text": "PR #812 Open"},
-            {"by": "neil@greensglobal.com", "kind": "comment", "text": "Still overlaps on phones."},
-            {"by": "claude", "kind": "progress", "text": "Picked up by Claude Code"},
-        ]
-        brief = cli.render_brief(note, [])
-        lines = brief.splitlines()
+        note.update(extra)
+        note["thread"] = thread
+        return note
+
+    def test_reopened_on_the_preview_is_under_the_header(self):
+        note = self.reopened_note(reopened_thread(PICKED_UP))   # the claim's own progress line comes last
+        lines = cli.render_brief(note, []).splitlines()
         self.assertEqual(lines[1], "Reopened on the preview: Still overlaps on phones.")
         self.assertIn("SAME branch build/tasks-home-polish-1024 (PR #812)", lines[2])
-        self.assertNotIn("Author's latest answer", brief)
+        self.assertNotIn("Author's latest answer", "\n".join(lines))
         self.assertIn("(reopened on the preview)", watch.describe_batch([note], [])[0])
 
+    def test_an_answer_after_a_reopen_is_an_answer(self):
+        thread = reopened_thread(
+            {"by": "claude", "kind": "claude", "text": "Which phone width?"},
+            {"by": "neil@greensglobal.com", "kind": "comment", "text": "390 px, the iPhone."},
+            PICKED_UP,
+        )
+        note = self.reopened_note(thread)
+        brief = cli.render_brief(note, [])
+        self.assertNotIn("Reopened on the preview:", brief)
+        self.assertIn("): 390 px, the iPhone.", brief)
+        self.assertIn("Author's latest answer (neil@greensglobal.com, ", brief)
+        self.assertIn("SAME branch build/tasks-home-polish-1024", brief)   # the rework still goes on that branch
+        tag = watch.describe_batch([note], [])[0]
+        self.assertIn("(answered)", tag)
+        self.assertNotIn("reopened", tag)
+        # A previewVerdict alone (no reopen entry last) is not labeled reopened either.
+        self.assertIsNone(cli.reopen_comment([{"by": "neil@greensglobal.com", "kind": "comment", "text": "x"}]))
+
     def test_pr_merged_while_reworking_means_a_new_branch(self):
-        note = sample_note(self.server.base, with_media=False)
-        note.update(status="building", previewVerdict="reopened", branch="", prNumber=0, prUrl="")
-        note["thread"] = [
-            {"by": "system", "kind": "system", "text": "Reopened On The Preview"},
+        thread = reopened_thread(
             {"by": "system", "kind": "system", "text": "PR #812 merged while this pin was being reworked - the rework comes in a new PR"},
-            {"by": "neil@greensglobal.com", "kind": "comment", "text": "Still overlaps on phones."},
-        ]
+            PICKED_UP,
+        )
+        note = self.reopened_note(thread, branch="", prNumber=0, prUrl="")
         lines = cli.render_brief(note, []).splitlines()
         self.assertEqual(lines[1], "Reopened on the preview: Still overlaps on phones.")
         self.assertIn("NEW branch from fresh origin/dev (the usual name plus -r2)", lines[2])
         self.assertNotIn("SAME branch", "\n".join(lines))
-        # An answered pin whose PR merged meanwhile gets the same line.
         answered = dict(note, previewVerdict="", status="needs_input")
         self.assertIn("NEW branch", cli.render_brief(answered, []))
-        # Once the -r2 PR is recorded the old entry no longer counts.
         r2 = dict(note, branch="build/x-1024-r2", prNumber=820)
         self.assertNotIn("NEW branch", cli.render_brief(r2, []))
         self.assertIn("SAME branch build/x-1024-r2 (PR #820)", cli.render_brief(r2, []))
-        # A plain answered pin that never had a PR says nothing about branches.
         plain = sample_note(self.server.base, with_media=False)
         plain["status"] = "needs_input"
         self.assertNotIn("branch", cli.render_brief(plain, []).split("## Where")[0].lower())
@@ -1216,20 +1280,31 @@ class BriefV2Test(_ServerTestBase):
         self.assertIn("Waits for Visesh", cli.render_brief(note, []))
         note.update(held=False, ownerReleasedBy="visesh.lodha@greensglobal.com")
         self.assertIn("Owner: Visesh - released to Claude Code by visesh.lodha@greensglobal.com", cli.render_brief(note, []))
-        # `held` computed when the server leaves it out.
         self.assertTrue(cli.is_held({"ownerEmail": "visesh.lodha@greensglobal.com", "createdBy": "neil@greensglobal.com"}))
         self.assertFalse(cli.is_held({"ownerEmail": "neil@greensglobal.com", "createdBy": "neil@greensglobal.com"}))
-        ready = dict(sample_note(self.server.base, with_media=False), status="pr_open", preview={"url": "http://localhost:5180/tasks/home"})
+        ready = dict(sample_note(self.server.base, with_media=False), status="pr_open", preview={"url": "http://localhost:5174/tasks/home"})
         self.assertEqual(cli.display_status(ready), "Ready To Check")
         self.assertEqual(cli.display_status(dict(ready, previewVerdict="accepted")), "PR Open")
         self.assertIn("Status: Ready To Check", cli.render_brief(ready, []))
+        # A preview with no url ({verdictCommit} only) is no preview, whatever else says so.
+        kept = dict(ready, preview={"verdictCommit": "abc"})
+        self.assertEqual(cli.display_status(kept), "PR Open")
+        self.assertEqual(cli.display_status(dict(kept, readyToCheck=True)), "PR Open")
 
     def test_claim_prints_skipped_reasons(self):
-        self.server.state["claim_skipped"] = [{"id": NOTE_ID_2, "number": 2, "status": "open",
-                                               "reason": "Pin #2 waits for Visesh - it is in their area"}]
+        self.server.state["claim_skipped"] = [
+            {"id": NOTE_ID_2, "number": 2, "status": "open", "reason": "Pin #2 waits for Visesh - it is in their area"},
+            {"id": "gone-id", "number": 0, "status": "", "reason": "Pin not found"},
+        ]
         code, out, err = run_cli(["--api", self.server.base, "claim", NOTE_ID, "--out", self.tmp.name, "--no-download"])
         self.assertEqual(code, 0, err)
         self.assertIn("Not claimed: Pin #2 - Pin #2 waits for Visesh - it is in their area", err)
+        self.assertIn("Not claimed: Pin gone-id - Pin not found", err)
+        self.assertNotIn("#0", err)
+
+
+TODO_LINE = "expect(false, 'TODO: assert the pin complaint').toBe(true);"
+FINISHED_LINE = "await expectVisible(page, 'Mark All Read');"
 
 
 class E2ESpecTest(_ServerTestBase):
@@ -1246,24 +1321,22 @@ class E2ESpecTest(_ServerTestBase):
         self.assertEqual(len(tests), 1)
         self.assertTrue(tests[0].startswith("test('[" + NOTE_ID + "] Pin #3 - The Mark All Read button is lowercase"), tests[0])
         self.assertTrue(tests[0].endswith("', async ({ page }) => {"))
-        # post-results.mjs reads the case id with this pattern; run_e2e reads it back too.
         title = re.search(r"test\('(.*?)', async", tests[0]).group(1)
-        self.assertRegex(title, r"^\[([0-9a-f-]{36})\]")
+        self.assertRegex(title, r"^\[([0-9a-f-]{36})\]")      # what post-results.mjs reads
         self.assertEqual(run_e2e.pin_id_from_spec(spec), NOTE_ID)
-        # Helpers first, a failing TODO, the empty-database reminder.
         self.assertIn("  await openApp(page);", spec)
         self.assertIn("  await go(page, 'tasks/home');", spec)
         self.assertIn("  await fillByLabel(page, 'Search tasks', 'TODO: the value typed here');", spec)
         self.assertIn("  await clickByText(page, 'Mark all read');", spec)
         self.assertIn("  // or: await page.locator('button.secondary-btn').first().click();", spec)
         self.assertIn("  await page.keyboard.press('Escape');", spec)
-        self.assertIn("  expect(false, 'TODO: assert the pin complaint').toBe(true);", spec)
+        self.assertIn("  " + TODO_LINE, spec)
+        self.assertIn(run_e2e.TODO_ASSERTION, spec)            # run_e2e refuses it until it is replaced
         self.assertIn("EMPTY database", spec)
         self.assertIn("must create every record it needs itself", spec)
         self.assertTrue(spec.rstrip().endswith("});"))
         self.assertEqual(cli.repro_kind(spec, "repro_pin_3.spec.mjs"), "e2e")
         self.assertEqual(cli.repro_kind(repro_template.script_from_pin(pin), "repro_pin_3.py"), "python")
-        # A hostile comment stays inside the escaped title and a comment line.
         hostile = dict(pin, comment="It's \"broken\" '); require('child_process').exec('x'); //\nline two")
         hspec = repro_template.spec_from_pin(hostile)
         htests = [ln for ln in hspec.splitlines() if ln.startswith("test(")]
@@ -1277,7 +1350,8 @@ class E2ESpecTest(_ServerTestBase):
             for name, text in (("ok.spec.mjs", spec), ("hostile.spec.mjs", hspec)):
                 path = Path(self.tmp.name) / name
                 path.write_text(text, encoding="utf-8")
-                res = subprocess.run([node, "--check", str(path)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+                res = subprocess.run([node, "--check", str(path)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     universal_newlines=True, check=False)
                 self.assertEqual(res.returncode, 0, res.stdout)
 
     def test_default_form_and_paths(self):
@@ -1285,8 +1359,7 @@ class E2ESpecTest(_ServerTestBase):
         src = Path(self.tmp.name) / "pin-e2e.json"
         src.write_text(json.dumps(pin))
         common.CACHE_DIR = Path(self.tmp.name) / "cache-e2e"
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
+        with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(repro_template.main([str(src)]), 0)
         written = common.CACHE_DIR / NOTE_ID / "repro_pin_3.spec.mjs"
         self.assertTrue(written.is_file())
@@ -1305,7 +1378,7 @@ class E2ESpecTest(_ServerTestBase):
     def test_verify_sends_repro_kind(self):
         pin = sample_note("http://x", with_media=False)
         spec = Path(self.tmp.name) / "repro_pin_3.spec.mjs"
-        spec.write_text(repro_template.spec_from_pin(pin))
+        spec.write_text(repro_template.spec_from_pin(pin).replace(TODO_LINE, FINISHED_LINE))
         code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--repro-script", str(spec),
                                   "--before", "failing", "--after", "passing"])
         self.assertEqual(code, 0, err)
@@ -1314,14 +1387,12 @@ class E2ESpecTest(_ServerTestBase):
         self.assertEqual(body["repro"]["before"], "failing")
         self.assertIn("[" + NOTE_ID + "]", body["repro"]["script"])
         self.assertNotIn("Warning", err)
-        # A spec whose title lacks the pin id is still recorded, with a warning.
         other = Path(self.tmp.name) / "other.spec.mjs"
         other.write_text(repro_template.spec_from_pin(dict(pin, id=NOTE_ID_2)))
         code, out, err = run_cli(["--api", self.server.base, "verify", NOTE_ID, "--repro-script", str(other),
                                   "--before", "failing", "--after", "passing"])
         self.assertEqual(code, 0, err)
         self.assertIn("does not start with [" + NOTE_ID + "]", err)
-        # Over the server's 20 KB cap: refused before anything is sent.
         big = Path(self.tmp.name) / "big.spec.mjs"
         big.write_text(repro_template.spec_from_pin(pin) + "// " + "x" * (20 * 1024) + "\n")
         sent = len(self.server.posts("/dev-notes/cli/verify/"))
@@ -1331,13 +1402,8 @@ class E2ESpecTest(_ServerTestBase):
         self.assertIn("over 20 KB", err)
         self.assertEqual(len(self.server.posts("/dev-notes/cli/verify/")), sent)
 
-    def test_fallback_foreign_files_matches_the_module_contract(self):
-        owners = cli.OwnersMap(owners=CONTRACT_OWNERS)
-        self.assertEqual(owners.foreign_files(["src/views/InventoryManagement.jsx", "frontend/src/views/InventoryManagement.jsx",
-                                               "backend/routers/items.py", "src/asset/x.js"], "neil@greensglobal.com"), [
-            {"path": "frontend/src/views/InventoryManagement.jsx", "name": "Visesh", "email": "visesh.lodha@greensglobal.com"},
-            {"path": "backend/routers/items.py", "name": "Visesh", "email": "visesh.lodha@greensglobal.com"},
-        ])
+
+LOCK_TEXT = '{"name": "frontend", "lockfileVersion": 3}\n'
 
 
 class FakeSystem:
@@ -1355,6 +1421,8 @@ class FakeSystem:
         self.http_up = True
         self.live_code = 0
         self.live_seen = {}
+        self.report = None
+        self.remote_lock = LOCK_TEXT
         self.clock = 0
 
     def run(self, cmd, cwd=None, env=None, check=True, timeout=None):
@@ -1364,11 +1432,14 @@ class FakeSystem:
             return 0, str(self.main_root / ".git") + "\n"
         if cmd == ["git", "rev-parse", "HEAD"]:
             return 0, PREVIEW_SHA + "\n"
+        if cmd[:2] == ["git", "show"]:
+            return 0, self.remote_lock
         if cmd[:3] == ["git", "worktree", "add"]:
             wt = Path(cmd[4])
             for sub in ("backend", "frontend", "e2e"):
                 (wt / sub).mkdir(parents=True, exist_ok=True)
             (wt / ".git").write_text("gitdir: fake\n")
+            (wt / "frontend" / "package-lock.json").write_text(self.remote_lock)
             (wt / "backend" / "main.py").write_text("_CORS_ORIGINS = [\n" + "".join(
                 '    "http://localhost:%d",\n    "http://127.0.0.1:%d",\n' % (p, p) for p in self.cors_ports) + "]\n")
         return 0, ""
@@ -1378,6 +1449,8 @@ class FakeSystem:
         self.events.append(("live", cmd, str(cwd), env))
         spec = Path(cwd) / cmd[-1]
         self.live_seen = {"spec": spec.read_text() if spec.is_file() else None, "env": env}
+        if self.report is not None:
+            (Path(cwd) / "results.json").write_text(json.dumps(self.report))
         return self.live_code
 
     def spawn(self, cmd, cwd, env, log_path):
@@ -1429,6 +1502,7 @@ def make_main_checkout(root, with_db=True):
     (root / "backend" / ".venv" / "bin").mkdir(parents=True, exist_ok=True)
     (root / "backend" / ".venv" / "bin" / "python").write_text("#!/bin/sh\n")
     (root / "frontend" / "node_modules" / ".bin").mkdir(parents=True, exist_ok=True)
+    (root / "frontend" / "package-lock.json").write_text(LOCK_TEXT)
     (root / "backend" / ".env").write_text("# local\nNEXUS_SKIP_AUTH=true\nNEXUS_DEV_EMAIL=dev.person@greensglobal.com\n")
     db = root / "backend" / "greens_nexus.db"
     if with_db:
@@ -1454,25 +1528,40 @@ class PreviewTest(_ServerTestBase):
         self.main = make_main_checkout(self.root / "main")
         self.fs = FakeSystem(self.main)
         self.lines = []
+        self.wt = common.CACHE_DIR / "preview" / "build-tasks-home-polish-1024"
 
     def make(self, base_env=None):
         env = {"DATABASE_URL": SHARED_DB_URL, "PATH": "/usr/bin"} if base_env is None else base_env
         return preview.Preview(system=self.fs, client_factory=lambda: common.Client(self.server.base, GOOD_TOKEN),
                                out=self.lines.append, err=self.lines.append, cwd=self.main, base_env=env)
 
+    def running_preview(self, pins=()):
+        """A preview that is up right now: pid files, live processes, state.json."""
+        pid_dir = common.CACHE_DIR / "preview"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+        (pid_dir / "backend.pid").write_text("111")
+        (pid_dir / "frontend.pid").write_text("222")
+        self.fs.alive_pids.update({111, 222})
+        self.fs.commands.update({111: "/x/python -m uvicorn main:app --host 127.0.0.1 --port 8090",
+                                 222: "node /old/preview/frontend/node_modules/.bin/vite --port 5174 --strictPort"})
+        (pid_dir / "state.json").write_text(json.dumps({"branch": "build/old-1023", "worktree": "/old/preview",
+                                                        "pins": [{"id": p, "url": "http://localhost:5174/x"} for p in pins]}))
+        return pid_dir
+
     def test_start_builds_the_env_copies_the_db_and_posts_the_pins(self):
         original = self.main / "backend" / "greens_nexus.db"
         before = original.read_bytes()
         code = self.make().start(self.BRANCH, [NOTE_ID, NOTE_ID_2], pr=812)
         self.assertEqual(code, 0, "\n".join(self.lines))
-        wt = common.CACHE_DIR / "preview" / "build-tasks-home-polish-1024"
-        # git: fetch, then a detached worktree at origin/<branch>.
+        wt = self.wt
         self.assertTrue(self.fs.runs(["git", "fetch", "origin", self.BRANCH]))
+        self.assertEqual(self.fs.runs(["git", "show"])[0][1], ["git", "show", "origin/" + self.BRANCH + ":frontend/package-lock.json"])
         self.assertEqual(self.fs.runs(["git", "worktree", "add"])[0][1],
                          ["git", "worktree", "add", "--detach", str(wt), "origin/" + self.BRANCH])
+        # Same lockfile: the main checkout's node_modules, linked.
         self.assertEqual(os.readlink(str(wt / "frontend" / "node_modules")), str(self.main / "frontend" / "node_modules"))
+        self.assertEqual(self.fs.runs(["npm", "ci"]), [])
         backend, frontend = self.fs.spawns
-        # Backend: the worktree's preview.db copy, never the shared DATABASE_URL, never the original file.
         self.assertEqual(backend["cwd"], str(wt / "backend"))
         self.assertEqual(backend["env"]["DATABASE_URL"], "sqlite:///./preview.db")
         self.assertEqual(backend["env"]["NEXUS_SKIP_AUTH"], "true")
@@ -1481,77 +1570,149 @@ class PreviewTest(_ServerTestBase):
         self.assertFalse([v for v in backend["env"].values() if str(original) in str(v) or "greens_nexus.db" in str(v)])
         self.assertEqual(backend["cmd"][:4], [str(self.main / "backend" / ".venv" / "bin" / "python"), "-m", "uvicorn", "main:app"])
         self.assertIn("8090", backend["cmd"])
-        copy = wt / "backend" / "preview.db"
-        conn = sqlite3.connect(str(copy))
+        conn = sqlite3.connect(str(wt / "backend" / "preview.db"))
         self.assertEqual(conn.execute("select name from people").fetchall(), [("Local Row",)])
         conn.close()
         self.assertEqual(original.read_bytes(), before)
-        # Frontend: vite on 5180 --strictPort against the preview backend, dev sign-in as the same person.
+        # Frontend: vite on 5174 (in every branch's CORS list) --strictPort, its own vite cache.
         self.assertEqual(frontend["cwd"], str(wt / "frontend"))
-        self.assertEqual(frontend["cmd"][1:], ["--port", "5180", "--strictPort"])
+        self.assertEqual(frontend["cmd"][1:], ["--port", "5174", "--strictPort"])
         self.assertTrue(frontend["cmd"][0].endswith("node_modules/.bin/vite"))
         self.assertEqual(frontend["env"]["VITE_API_BASE"], "http://localhost:8090")
         self.assertEqual(frontend["env"]["VITE_DEV_SKIP_AUTH"], "true")
         self.assertEqual(frontend["env"]["VITE_DEV_USER_EMAIL"], "dev.person@greensglobal.com")
-        # Waited for both, then posted each pin with its own path on the preview.
+        self.assertEqual(frontend["env"]["NX_VITE_CACHE_DIR"], str(common.CACHE_DIR / "preview" / ".vite-cache"))
         self.assertIn(("http", "http://localhost:8090/health"), self.fs.events)
-        self.assertIn(("http", "http://localhost:5180/"), self.fs.events)
+        self.assertIn(("http", "http://localhost:5174/"), self.fs.events)
         body = self.server.posts("/dev-notes/cli/preview/" + NOTE_ID)[0][2]
-        self.assertEqual(body, {"url": "http://localhost:5180/tasks/home", "branch": self.BRANCH, "prNumber": 812,
+        self.assertEqual(body, {"url": "http://localhost:5174/tasks/home", "branch": self.BRANCH, "prNumber": 812,
                                 "host": "neils-mbp", "commit": PREVIEW_SHA})
-        rev = self.fs.runs(["git", "rev-parse", "HEAD"])[0]
-        self.assertEqual(rev[2], str(wt))   # the sha of the preview worktree, not of this checkout
+        self.assertEqual(self.fs.runs(["git", "rev-parse", "HEAD"])[0][2], str(wt))   # the preview worktree's sha
         self.assertEqual(len(self.server.posts("/dev-notes/cli/preview/" + NOTE_ID_2)), 1)
-        self.assertIn("Ready To Check on http://localhost:5180 - open it on this computer", self.lines)
+        self.assertIn("Ready To Check on http://localhost:5174 - open it on this computer", self.lines)
         pid_dir = common.CACHE_DIR / "preview"
         self.assertEqual((pid_dir / "backend.pid").read_text(), str(backend["pid"]))
         self.assertEqual((pid_dir / "frontend.pid").read_text(), str(frontend["pid"]))
-        state = json.loads((pid_dir / "current.json").read_text())
-        self.assertEqual(state["pins"][0]["url"], "http://localhost:5180/tasks/home")
+        state = json.loads((pid_dir / "state.json").read_text())
+        self.assertEqual(state["branch"], self.BRANCH)
+        self.assertEqual(state["commit"], PREVIEW_SHA)
+        self.assertEqual([p["id"] for p in state["pins"]], [NOTE_ID, NOTE_ID_2])
+        self.assertEqual(state["pins"][0]["url"], "http://localhost:5174/tasks/home")
+        self.assertEqual(self.deletes(), [])
 
-    def test_start_stops_the_running_preview_first(self):
-        pid_dir = common.CACHE_DIR / "preview"
-        pid_dir.mkdir(parents=True)
-        (pid_dir / "backend.pid").write_text("111")
-        (pid_dir / "frontend.pid").write_text("222")
-        self.fs.alive_pids.update({111, 222})
-        self.fs.commands.update({111: "python -m uvicorn main:app --port 8090", 222: "node vite --port 5180 --strictPort"})
+    def test_a_different_lockfile_gets_its_own_npm_ci(self):
+        self.fs.remote_lock = '{"name": "frontend", "lockfileVersion": 3, "changed": true}\n'
+        (self.wt / "frontend").mkdir(parents=True)
+        (self.wt / ".git").write_text("gitdir: x\n")
+        os.symlink(str(self.main / "frontend" / "node_modules"), str(self.wt / "frontend" / "node_modules"))
         self.assertEqual(self.make().start(self.BRANCH, [], post=False), 0)
-        kinds = [e[0] for e in self.fs.events]
-        first_spawn = kinds.index("spawn")
+        ci = self.fs.runs(["npm", "ci"])
+        self.assertEqual(len(ci), 1)
+        self.assertEqual(ci[0][2], str(self.wt / "frontend"))
+        self.assertFalse((self.wt / "frontend" / "node_modules").is_symlink())   # the link is gone, not the main copy
+        self.assertTrue((self.main / "frontend" / "node_modules").is_dir())
+        self.assertTrue([ln for ln in self.lines if "differs from the main checkout's" in ln])
+
+    def test_start_replaces_the_running_preview_and_clears_its_pins(self):
+        self.running_preview(pins=[NOTE_ID_2, NOTE_ID_3])
+        self.server.state["delete_missing"] = [NOTE_ID_3]
+        self.assertEqual(self.make().start(self.BRANCH, [NOTE_ID]), 0, "\n".join(self.lines))
+        first_spawn = [e[0] for e in self.fs.events].index("spawn")
         terminated = [e[1] for e in self.fs.events[:first_spawn] if e[0] == "terminate"]
         self.assertEqual(sorted(terminated), [111, 222])
-        self.assertEqual(self.server.posts("/dev-notes/cli/preview/"), [])
+        self.assertEqual(self.deletes(), ["/dev-notes/cli/preview/" + NOTE_ID_2, "/dev-notes/cli/preview/" + NOTE_ID_3])
+        self.assertFalse([ln for ln in self.lines if "not cleared" in ln])    # a 404 is ignored
+        calls = self.server.state["calls"]
+        last_delete = max(i for i, c in enumerate(calls) if c[0] == "DELETE")
+        first_post = min(i for i, c in enumerate(calls) if c[0] == "POST" and c[1].startswith("/dev-notes/cli/preview/"))
+        self.assertLess(last_delete, first_post)
+        state = json.loads((common.CACHE_DIR / "preview" / "state.json").read_text())
+        self.assertEqual([p["id"] for p in state["pins"]], [NOTE_ID])
 
-    def test_stop_never_kills_a_pid_that_is_not_the_preview(self):
+    def test_stop_clears_pins_and_a_failing_call_does_not_block_it(self):
+        pid_dir = self.running_preview(pins=[NOTE_ID, NOTE_ID_2])
+        self.server.state["delete_broken"] = [NOTE_ID]
+        self.assertEqual(self.make().stop(), 0)
+        self.assertIn(("terminate", 111), self.fs.events)
+        self.assertIn(("terminate", 222), self.fs.events)
+        self.assertEqual(self.deletes(), ["/dev-notes/cli/preview/" + NOTE_ID, "/dev-notes/cli/preview/" + NOTE_ID_2])
+        self.assertTrue([ln for ln in self.lines if "Ready To Check not cleared on pin " + NOTE_ID in ln])
+        self.assertIn("Preview stopped (build/old-1023)", self.lines)
+        self.assertFalse((pid_dir / "backend.pid").exists())
+        # A second stop does not call the API again.
+        self.server.state["calls"].clear()
+        self.assertEqual(self.make().stop(), 0)
+        self.assertEqual(self.deletes(), [])
+        # No token: the processes still stop, with a warning.
+        self.running_preview(pins=[NOTE_ID])
+        p = preview.Preview(system=self.fs, client_factory=lambda: (_ for _ in ()).throw(common.ConfigError("No Build Token found")),
+                            out=self.lines.append, err=self.lines.append, cwd=self.main, base_env={})
+        self.assertEqual(p.stop(), 0)
+        self.assertNotIn(111, self.fs.alive_pids)
+        self.assertTrue([ln for ln in self.lines if "could not clear Ready To Check" in ln])
+
+    def test_stop_only_kills_what_is_provably_the_preview(self):
         pid_dir = common.CACHE_DIR / "preview"
         pid_dir.mkdir(parents=True)
-        (pid_dir / "backend.pid").write_text("333")
-        self.fs.alive_pids.add(333)
-        self.fs.commands[333] = "/Applications/Safari.app/Contents/MacOS/Safari"
+        for name, pid, command in (("backend", 333, "/x/python -m uvicorn main:app --reload --port 8000"),   # the dev backend
+                                   ("frontend", 444, "node /repo/frontend/node_modules/.bin/vite")):          # the dev server
+            (pid_dir / (name + ".pid")).write_text(str(pid))
+            self.fs.alive_pids.add(pid)
+            self.fs.commands[pid] = command
         self.assertEqual(self.make().stop(), 0)
         self.assertNotIn(("terminate", 333), self.fs.events)
+        self.assertNotIn(("terminate", 444), self.fs.events)
         self.assertFalse((pid_dir / "backend.pid").exists())
+        self.assertTrue(preview.is_ours("backend", "python -m uvicorn main:app --port 8090", ""))
+        self.assertTrue(preview.is_ours("frontend", "node /c/preview/x/frontend/node_modules/.bin/vite --port=5174", ""))
+        self.assertTrue(preview.is_ours("frontend", "node /c/preview/x/frontend/node_modules/.bin/vite", "/c/preview/x"))
+        self.assertFalse(preview.is_ours("backend", "python -m uvicorn main:app --port 80901", ""))
+        self.assertFalse(preview.is_ours("frontend", "node vite --port 5173", "/c/preview/x"))
+        self.assertFalse(preview.is_ours("frontend", "", "/c/preview/x"))
+
+    def test_a_failed_check_leaves_the_running_preview_alone(self):
+        self.running_preview(pins=[NOTE_ID_2])
+        (self.main / "backend" / ".venv" / "bin" / "python").unlink()
+        with self.assertRaises(preview.PreviewError) as ctx:
+            self.make().start(self.BRANCH, [NOTE_ID])
+        self.assertIn("virtualenv", str(ctx.exception))
+        self.assertEqual([e for e in self.fs.events if e[0] in ("terminate", "spawn")], [])
+        self.assertEqual(self.deletes(), [])
+        self.assertTrue((common.CACHE_DIR / "preview" / "backend.pid").exists())
+
+    def test_ports_busy_with_our_own_preview_are_fine_anything_else_is_refused(self):
+        self.running_preview()
+        self.fs.busy.update({8090, 5174})
+        self.assertEqual(self.make().start(self.BRANCH, [], post=False), 0, "\n".join(self.lines))
+        # 5174 held by something else (the Knowledge Base workspace): refused, nothing touched, no other port tried.
+        self.fs = FakeSystem(self.main)
+        self.fs.busy.add(5174)
+        self.running_preview()
+        self.fs.commands[222] = "node /repo/kb/node_modules/.bin/vite --port 5175"
+        with self.assertRaises(preview.PreviewError) as ctx:
+            self.make().start(self.BRANCH, [], post=False)
+        self.assertIn("Port 5174", str(ctx.exception))
+        self.assertIn("Knowledge Base", str(ctx.exception))
+        self.assertEqual(self.fs.spawns, [])
+        self.assertEqual([e for e in self.fs.events if e[0] == "terminate"], [])
 
     def test_reuses_and_resets_an_existing_worktree(self):
-        wt = common.CACHE_DIR / "preview" / "build-tasks-home-polish-1024"
-        (wt / "backend").mkdir(parents=True)
-        (wt / "frontend").mkdir(parents=True)
-        (wt / ".git").write_text("gitdir: x\n")
+        (self.wt / "backend").mkdir(parents=True)
+        (self.wt / "frontend").mkdir(parents=True)
+        (self.wt / ".git").write_text("gitdir: x\n")
         self.assertEqual(self.make().start(self.BRANCH, [], post=False), 0)
         resets = self.fs.runs(["git", "reset", "--hard"])
         self.assertEqual(resets[0][1], ["git", "reset", "--hard", "origin/" + self.BRANCH])
-        self.assertEqual(resets[0][2], str(wt))
+        self.assertEqual(resets[0][2], str(self.wt))
         self.assertEqual(self.fs.runs(["git", "worktree", "add"]), [])
 
     def test_no_local_db_starts_fresh_and_says_so(self):
         (self.main / "backend" / "greens_nexus.db").unlink()
-        wt = common.CACHE_DIR / "preview" / "build-tasks-home-polish-1024"
-        (wt / "backend").mkdir(parents=True)
-        (wt / ".git").write_text("gitdir: x\n")
-        (wt / "backend" / "preview.db").write_text("stale")
+        (self.wt / "backend").mkdir(parents=True)
+        (self.wt / ".git").write_text("gitdir: x\n")
+        (self.wt / "backend" / "preview.db").write_text("stale")
         self.assertEqual(self.make(base_env={"DATABASE_URL": SHARED_DB_URL}).start(self.BRANCH, [], post=False), 0)
-        self.assertFalse((wt / "backend" / "preview.db").exists())
+        self.assertFalse((self.wt / "backend" / "preview.db").exists())
         self.assertTrue([ln for ln in self.lines if "fresh, empty SQLite" in ln])
         self.assertEqual(self.fs.spawns[0]["env"]["DATABASE_URL"], "sqlite:///./preview.db")
 
@@ -1564,17 +1725,14 @@ class PreviewTest(_ServerTestBase):
             self.assertIn(("terminate", s["pid"]), self.fs.events)
         self.assertEqual(self.server.posts("/dev-notes/cli/preview/"), [])
 
-    def test_a_busy_port_is_refused_before_anything_starts(self):
-        self.fs.busy.add(5180)
-        with self.assertRaises(preview.PreviewError) as ctx:
-            self.make().start(self.BRANCH, [], post=False)
-        self.assertIn("Port 5180", str(ctx.exception))
-        self.assertEqual(self.fs.spawns, [])
-
     def test_preview_url_and_local_only(self):
-        self.assertEqual(cli.preview_url("http://localhost:5180/", {"url": "https://dev.nexus.greensglobal.com/tasks/home?x=1"}),
-                         "http://localhost:5180/tasks/home")
-        self.assertEqual(cli.preview_url(None, {"route": "myhr", "sub": "timesheet"}), "http://localhost:5180/workday/timesheet")
+        pin = {"url": "https://dev.nexus.greensglobal.com/tasks/home?x=1"}
+        self.assertEqual(cli.preview_url("http://localhost:5174/", pin), "http://localhost:5174/tasks/home")
+        self.assertEqual(cli.preview_url("http://localhost:5174", pin), "http://localhost:5174/tasks/home")
+        # A URL that already names a page is used as given - never /tasks/home/tasks/home.
+        self.assertEqual(cli.preview_url("http://localhost:5174/tasks/home", pin), "http://localhost:5174/tasks/home")
+        self.assertEqual(cli.preview_url("http://127.0.0.1:5174/workday/timesheet", pin), "http://127.0.0.1:5174/workday/timesheet")
+        self.assertEqual(cli.preview_url(None, {"route": "myhr", "sub": "timesheet"}), "http://localhost:5174/workday/timesheet")
         with self.assertRaises(common.ConfigError):
             cli.post_preview(None, NOTE_ID, base="https://example.com")
         self.assertEqual(cli.pr_arg("https://github.com/o/r/pull/812"), 812)
@@ -1592,19 +1750,39 @@ class PreviewTest(_ServerTestBase):
                                   "--pr", "https://github.com/o/r/pull/812", "--host", "studio"])
         self.assertEqual(code, 1)   # NOTE_ID_3 is not PR Open (409)
         self.assertEqual(self.server.posts("/dev-notes/cli/preview/" + NOTE_ID)[0][2],
-                         {"url": "http://localhost:5180/tasks/home", "branch": "b", "prNumber": 812, "host": "studio",
+                         {"url": "http://localhost:5174/tasks/home", "branch": "b", "prNumber": 812, "host": "studio",
                           "commit": "abc123" + "0" * 34})
         self.assertEqual(asked[0], ["rev-parse", "--verify", "--quiet", "origin/b^{commit}"])
-        self.assertIn("Pin #3 Ready To Check: http://localhost:5180/tasks/home", out)
+        self.assertIn("Pin #3 Ready To Check: http://localhost:5174/tasks/home", out)
         self.assertIn("Preview not recorded on pin " + NOTE_ID_3 + " - Pin is not PR Open", err)
-        # --commit wins; an unresolvable branch with no --commit warns and sends none.
-        code, out, err = run_cli(["--api", self.server.base, "preview", NOTE_ID, "--branch", "b", "--commit", "deadbeef"])
-        self.assertEqual(self.server.posts("/dev-notes/cli/preview/" + NOTE_ID)[-1][2]["commit"], "deadbeef")
+        # A full --url is posted as given; --commit wins.
+        code, out, err = run_cli(["--api", self.server.base, "preview", NOTE_ID, "--branch", "b", "--commit", "deadbeef",
+                                  "--url", "http://localhost:5174/tasks/home"])
+        sent = self.server.posts("/dev-notes/cli/preview/" + NOTE_ID)[-1][2]
+        self.assertEqual(sent["url"], "http://localhost:5174/tasks/home")
+        self.assertEqual(sent["commit"], "deadbeef")
+        # A bare --url base gets the pin's path.
+        code, out, err = run_cli(["--api", self.server.base, "preview", NOTE_ID, "--branch", "b", "--url", "http://127.0.0.1:5174/"])
+        self.assertEqual(self.server.posts("/dev-notes/cli/preview/" + NOTE_ID)[-1][2]["url"], "http://127.0.0.1:5174/tasks/home")
         cli.GIT_LINES = lambda args: None
         code, out, err = run_cli(["--api", self.server.base, "preview", NOTE_ID, "--branch", "gone"])
         self.assertEqual(code, 0, err)
         self.assertNotIn("commit", self.server.posts("/dev-notes/cli/preview/" + NOTE_ID)[-1][2])
         self.assertIn("pass --commit", err)
+
+
+def pw_report(*results, extra_tests=0, errors=None):
+    """A Playwright JSON report with one spec (plus `extra_tests` more)."""
+    tests = [{"results": list(results)}] + [{"results": [{"status": "passed"}]} for _ in range(extra_tests)]
+    report = {"suites": [{"title": "generated/x.spec.mjs", "suites": [],
+                          "specs": [{"title": "[" + NOTE_ID + "] Pin #3 - x", "tests": tests}]}]}
+    if errors:
+        report["errors"] = errors
+    return report
+
+
+ASSERTION = {"status": "failed", "errors": [{"message": "Error: expect(locator).toHaveText(expected) failed\n\nExpected: \"Mark All Read\"",
+                                             "stack": "Error: expect(locator).toHaveText(expected) failed\n    at spec.mjs:20:3"}]}
 
 
 class RunE2ETest(_ServerTestBase):
@@ -1616,7 +1794,7 @@ class RunE2ETest(_ServerTestBase):
         self.fs = FakeSystem(self.main)
         self.lines = []
         self.spec = self.root / "repro_pin_3.spec.mjs"
-        self.spec.write_text(repro_template.spec_from_pin(sample_note("http://x", with_media=False)))
+        self.spec.write_text(repro_template.spec_from_pin(sample_note("http://x", with_media=False)).replace(TODO_LINE, FINISHED_LINE))
 
     def make(self):
         return run_e2e.E2ERun(system=self.fs, out=self.lines.append, err=self.lines.append, cwd=self.main,
@@ -1625,15 +1803,16 @@ class RunE2ETest(_ServerTestBase):
     def test_runs_like_ci_and_reports_failing(self):
         self.fs.busy.add(5173)
         self.fs.live_code = 1
+        self.fs.report = pw_report(ASSERTION, ASSERTION)    # failed, then failed on the retry
         self.assertEqual(self.make().run(str(self.spec), "origin/dev"), 1)
         self.assertEqual(self.lines.count("FAILING"), 1)
+        self.assertTrue([ln for ln in self.lines if ln.startswith("Expectation failed: Error: expect(locator).toHaveText")])
         self.assertTrue(self.fs.runs(["git", "fetch", "origin", "dev"]))
         add = self.fs.runs(["git", "worktree", "add"])[0][1]
         self.assertEqual(add[:4], ["git", "worktree", "add", "--detach"])
         self.assertEqual(add[5], "origin/dev")
         wt = Path(add[4])
         self.assertTrue(str(wt).startswith(str(common.CACHE_DIR / "e2e")))
-        # Backend twice (primed, restarted), fresh SQLite, auth skipped, QA module on.
         backends = [s for s in self.fs.spawns if "uvicorn" in s["cmd"]]
         self.assertEqual(len(backends), 2)
         for b in backends:
@@ -1643,34 +1822,102 @@ class RunE2ETest(_ServerTestBase):
             self.assertEqual(b["env"]["NEXUS_DEV_EMAIL"], "ci@greensglobal.com")
             self.assertIn("18123", b["cmd"])
         self.assertIn(("terminate", backends[0]["pid"]), self.fs.events)
-        # The frontend is the VITE_E2E build pointed at that backend, served on a CORS-allowed port.
         build = [e for e in self.fs.events if e[0] == "run" and e[1][-1] == "build"][0]
         self.assertEqual(build[3]["VITE_E2E"], "true")
         self.assertEqual(build[3]["VITE_API_BASE"], "http://localhost:18123")
         served = [s for s in self.fs.spawns if "preview" in s["cmd"]][0]
         self.assertEqual(served["cmd"][-3:], ["--port", "5174", "--strictPort"])
-        # e2e deps installed (the main checkout has none), spec placed and run like CI.
-        self.assertTrue(self.fs.runs(["npm", "ci"]))
-        # The browser is installed (as CI does) before the test runs, so a missing one is never a verdict.
+        # Same lockfile: frontend node_modules linked, and its own vite cache for the build and the server.
+        self.assertTrue((wt / "frontend" / "node_modules").is_symlink())
+        cache = build[3]["NX_VITE_CACHE_DIR"]
+        self.assertTrue(cache.endswith("-logs/.vite-cache"), cache)
+        self.assertEqual(served["env"]["NX_VITE_CACHE_DIR"], cache)
+        self.assertEqual(self.fs.runs(["npm", "ci"])[0][2], str(wt / "e2e"))   # only e2e deps (the main checkout has none)
         install_at = next(i for i, e in enumerate(self.fs.events) if e[0] == "run" and e[1] == ["npx", "playwright", "install", "chromium"])
         live_at = next(i for i, e in enumerate(self.fs.events) if e[0] == "live")
         self.assertLess(install_at, live_at)
-        live = [e for e in self.fs.events if e[0] == "live"][0]
+        live = self.fs.events[live_at]
         self.assertEqual(live[1], ["npx", "playwright", "test", "tests/generated/" + NOTE_ID + ".spec.mjs"])
         self.assertEqual(live[2], str(wt / "e2e"))
         self.assertEqual(self.fs.live_seen["env"]["NEXUS_E2E_URL"], "http://localhost:5174")
         self.assertIn("from '../../helpers.mjs'", self.fs.live_seen["spec"])
         self.assertNotIn("from '../helpers.mjs'", self.fs.live_seen["spec"])
-        # Cleaned up: every process stopped, the scratch worktree removed.
         self.assertEqual(self.fs.alive_pids, set())
         self.assertEqual(self.fs.runs(["git", "worktree", "remove"])[0][1], ["git", "worktree", "remove", "--force", str(wt)])
 
     def test_passing_and_the_branch_ref(self):
         self.fs.live_code = 0
+        self.fs.report = pw_report({"status": "passed"})
         self.assertEqual(self.make().run(str(self.spec), "build/tasks-home-polish-1024"), 0)
         self.assertIn("PASSING", self.lines)
         self.assertEqual(self.fs.runs(["git", "fetch"]), [])   # a local branch is used as it is
         self.assertEqual(self.fs.runs(["git", "worktree", "add"])[0][1][5], "build/tasks-home-polish-1024")
+
+    def test_a_different_lockfile_gets_its_own_npm_ci(self):
+        self.fs.remote_lock = '{"changed": true}\n'
+        self.fs.report = pw_report({"status": "passed"})
+        self.assertEqual(self.make().run(str(self.spec), "origin/dev"), 0)
+        wt = Path(self.fs.runs(["git", "worktree", "add"])[0][1][4])
+        self.assertIn(str(wt / "frontend"), [e[2] for e in self.fs.runs(["npm", "ci"])])
+        self.assertFalse((wt / "frontend" / "node_modules").is_symlink())
+
+    def test_the_template_todo_is_refused_before_anything_is_built(self):
+        raw = self.root / "raw.spec.mjs"
+        raw.write_text(repro_template.spec_from_pin(sample_note("http://x", with_media=False)))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(run_e2e.main([str(raw), "--ref", "origin/dev"], runner=self.make()), 2)
+        self.assertIn("TODO assertion", err.getvalue())
+        self.assertIn("No verdict", err.getvalue())
+        self.assertEqual(self.fs.events, [])
+
+    def test_a_broken_spec_is_no_verdict(self):
+        self.fs.live_code = 1
+        self.fs.report = pw_report({"status": "failed", "errors": [
+            {"message": "ReferenceError: clickByTxt is not defined", "stack": "ReferenceError: clickByTxt is not defined\n    at spec.mjs:9:5"}]})
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(run_e2e.main([str(self.spec), "--ref", "origin/dev"], runner=self.make()), 2)
+        self.assertIn("the spec is broken, not the bug", err.getvalue())
+        self.assertIn("ReferenceError", err.getvalue())
+        self.assertNotIn("FAILING", self.lines)
+        self.assertEqual(self.fs.alive_pids, set())
+        self.assertTrue(self.fs.runs(["git", "worktree", "remove"]))
+
+    def test_classify(self):
+        self.assertEqual(run_e2e.classify(pw_report({"status": "passed"}), 0)[0], "PASSING")
+        self.assertEqual(run_e2e.classify(pw_report({"status": "failed"}, {"status": "passed"}), 0)[0], "PASSING")   # flaky, as CI counts it
+        self.assertEqual(run_e2e.classify(pw_report(ASSERTION), 1)[0], "FAILING")
+        visible = {"status": "failed", "errors": [{"message": "Error: Timed out 15000ms waiting for expect(locator).toBeVisible()"}]}
+        self.assertEqual(run_e2e.classify(pw_report(visible), 1)[0], "FAILING")
+        broken = {
+            "syntax": ({"suites": [], "errors": [{"message": "SyntaxError: Unexpected token '}'"}]}, "could not load"),
+            "import": ({"suites": [], "errors": [{"message": "Error: Cannot find module '../helpers.mjs'"}]}, "could not load"),
+            "none": ({"suites": []}, "no tests found"),
+            "missing": (None, "no JSON report"),
+            "two": (pw_report(ASSERTION, extra_tests=1), "exactly one"),
+            "timeout": (pw_report({"status": "timedOut", "errors": [{"message": "Test timeout of 60000ms exceeded."}]}), "before any expectation"),
+            "reference": (pw_report({"status": "failed", "errors": [{"message": "ReferenceError: x is not defined"}]}), "before any expectation"),
+            "not run": (pw_report(), "did not run"),
+        }
+        # Seen live: Playwright appends a source snippet to the message, and a nearby
+        # `expect(` line of the spec must not make a ReferenceError an assertion.
+        snippet = ("ReferenceError: expectVisibel is not defined\n\n   5 |   await openApp(page);\n"
+                   ">  6 |   await expectVisibel(page, 'Quick actions');\n   7 |   expect(true).toBe(true);\n")
+        broken["snippet"] = (pw_report({"status": "failed", "errors": [{"message": snippet, "stack": snippet}]}), "ReferenceError")
+        ansi = {"status": "failed", "errors": [{"message": "Error: \x1b[2mexpect(\x1b[22m\x1b[31mlocator\x1b[39m\x1b[2m).\x1b[22mtoHaveText failed\n\n   7 |   expect(true)"}]}
+        verdict, why = run_e2e.classify(pw_report(ansi), 1)
+        self.assertEqual(verdict, "FAILING")
+        self.assertEqual(why, "Error: expect(locator).toHaveText failed")
+        matcher = {"status": "failed", "errors": [{"message": "Error: Timed out 5000ms", "matcherResult": {"pass": False}}]}
+        self.assertEqual(run_e2e.classify(pw_report(matcher), 1)[0], "FAILING")
+        timeout_and_expect = {"status": "timedOut", "errors": [{"message": "Test timeout of 60000ms exceeded."},
+                                                               {"message": "Error: expect(locator).toBeVisible() failed"}]}
+        self.assertEqual(run_e2e.classify(pw_report(timeout_and_expect), 1)[0], "FAILING")
+        for name, (report, words) in broken.items():
+            verdict, why = run_e2e.classify(report, 1)
+            self.assertIsNone(verdict, name)
+            self.assertIn(words, why, name)
 
     def test_no_pin_id_or_no_free_cors_port_is_no_verdict(self):
         bare = self.root / "bare.spec.mjs"

@@ -66,9 +66,10 @@ def describe_batch(notes, sessions):
         line = "  Pin #" + str(n.get("number") or "?") + " - " + kind + " - " + prio
         # A pin that is not freshly dispatched came back because the author
         # answered a question on it (needs_input / building with a new comment).
-        # A pin the author reopened on the preview is back in Building with
-        # their note last - it is reworked on the same branch.
-        if str(n.get("previewVerdict") or n.get("preview_verdict") or "") == "reopened":
+        # A pin the author reopened on the preview is back in Building with the
+        # "Reopened On The Preview" entry and their note last (the same rule
+        # as the brief); a later answer to a question is "(answered)".
+        if cli.reopen_comment(n.get("thread") or []):
             line += " (reopened on the preview)"
         elif str(n.get("status") or "dispatched") != "dispatched":
             line += " (answered)"

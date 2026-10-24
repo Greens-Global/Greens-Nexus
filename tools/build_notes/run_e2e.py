@@ -20,8 +20,11 @@ then builds a CI-shaped stack there (.github/workflows/qa-e2e.yml):
     '../helpers.mjs' import rewritten the way e2e/sync.mjs does) and run with
     `npx playwright test` and NEXUS_E2E_URL.
 
-It prints PASSING (exit 0) or FAILING (exit 1); exit 2 means the stack could
-not be built - no verdict. Everything is stopped and the scratch worktree
+It prints PASSING (exit 0) or FAILING (exit 1), read from Playwright's JSON
+report: FAILING only when the one test ran and an expectation (`expect(`)
+failed. Exit 2 is no verdict: the stack could not be built, the spec still has
+the template's TODO assertion, or the spec is broken (a syntax, import or
+reference error, no tests, or a stop before any expectation). Everything is stopped and the scratch worktree
 removed afterwards (--keep leaves it for a look).
 
 Needs Node; the e2e dependencies and the Chromium build matching their
@@ -31,6 +34,7 @@ library only.
 """
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -50,6 +54,10 @@ E2E_DB = "e2e.db"
 TITLE_ID = re.compile(r"""test\(\s*(['"`])\[([0-9a-fA-F-]{36})\]""")
 HELPERS_IMPORT = "from '../helpers.mjs'"
 GENERATED_IMPORT = "from '../../helpers.mjs'"
+TODO_ASSERTION = "expect(false, 'TODO"
+LOCKFILE = "package-lock.json"
+REPORT = "results.json"          # e2e/playwright.config.mjs: the json reporter's outputFile
+BROKEN = "the spec is broken, not the bug"
 BUILD_TIMEOUT = 900
 TEST_TIMEOUT = 900
 BOOT_TIMEOUT = 90
@@ -87,6 +95,80 @@ def build_env(base_env, api_url):
     env["VITE_E2E"] = "true"
     env["VITE_API_BASE"] = api_url
     return env
+
+
+def _report_tests(report):
+    """Every test in a Playwright JSON report: [(title, [results])]."""
+    found = []
+
+    def walk(suite):
+        for child in suite.get("suites") or []:
+            walk(child)
+        for spec in suite.get("specs") or []:
+            for t in spec.get("tests") or []:
+                found.append((spec.get("title") or "", t.get("results") or []))
+
+    for suite in (report or {}).get("suites") or []:
+        walk(suite)
+    return found
+
+
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _first_line(text):
+    for line in ANSI.sub("", str(text or "")).splitlines():
+        if line.strip():
+            return line.strip()
+    return ""
+
+
+def _errors(result):
+    """[(first line, is an assertion)] for a test result's errors. Only the
+    error's own first line counts: Playwright appends a source snippet to the
+    message, and an `expect(` on a nearby line of the spec must not turn a
+    ReferenceError into an assertion."""
+    errors = list(result.get("errors") or [])
+    if result.get("error") and result["error"] not in errors:
+        errors.append(result["error"])
+    out = []
+    for e in errors:
+        if isinstance(e, dict):
+            line = _first_line(e.get("message")) or _first_line(e.get("stack"))
+            assertion = bool(e.get("matcherResult")) or "expect(" in line
+        else:
+            line = _first_line(e)
+            assertion = "expect(" in line
+        out.append((line, assertion))
+    return out
+
+
+def classify(report, exit_code):
+    """('PASSING' | 'FAILING' | None, why). FAILING means the one test ran and
+    an expectation failed; anything else that went wrong is no verdict."""
+    if not isinstance(report, dict):
+        return None, "Playwright wrote no JSON report - " + BROKEN
+    load_errors = [str((e or {}).get("message") or e) for e in report.get("errors") or []]
+    if load_errors:
+        return None, "Playwright could not load the spec (" + load_errors[0].splitlines()[0][:200] + ") - " + BROKEN
+    tests = _report_tests(report)
+    if not tests:
+        return None, "no tests found - " + BROKEN
+    if len(tests) != 1:
+        return None, "the spec holds " + str(len(tests)) + " tests - a regression spec has exactly one"
+    title, results = tests[0]
+    if not results:
+        return None, "the test did not run - " + BROKEN
+    statuses = [str(r.get("status") or "") for r in results]
+    if exit_code == 0 and "passed" in statuses:
+        return "PASSING", "passed"
+    errors = _errors(results[-1])
+    # A test timeout reported next to a pending expect() is still that expectation failing.
+    failed = [line for line, assertion in errors if assertion]
+    if failed:
+        return "FAILING", (failed[0] or "an expectation failed")[:200]
+    first = (errors[0][0] if errors else "") or statuses[-1]
+    return None, "the test stopped before any expectation (" + first[:200] + ") - " + BROKEN
 
 
 def cors_ports(main_py_text):
@@ -140,6 +222,9 @@ class E2ERun:
             raise stack.StackError("The spec's test title must start with [<pin id>] (or pass --pin)")
         if "@playwright/test" not in text:
             raise stack.StackError(str(spec) + " is not a Playwright Test spec (no @playwright/test import)")
+        if TODO_ASSERTION in text:
+            raise stack.StackError(str(spec) + " still has the template's TODO assertion - replace "
+                                   "`expect(false, 'TODO: ...')` with the pin's complaint first")
 
         main_root = stack.main_checkout(self.system, self.cwd)
         python = main_root / "backend" / ".venv" / "bin" / "python"
@@ -170,8 +255,24 @@ class E2ERun:
                 self.system.run(["git", "worktree", "remove", "--force", str(worktree)], cwd=main_root, check=False, timeout=120)
                 shutil.rmtree(str(logs), ignore_errors=True)
 
+    def _frontend_modules(self, main_root, worktree):
+        """Link the main checkout's frontend/node_modules when the ref's lockfile
+        is the same; otherwise the ref gets its own `npm ci`."""
+        try:
+            same = (worktree / "frontend" / LOCKFILE).read_bytes() == (main_root / "frontend" / LOCKFILE).read_bytes()
+        except OSError:
+            same = False
+        if same:
+            stack.link_node_modules(main_root, worktree, "frontend")
+            return
+        self.out("frontend/package-lock.json on " + str(worktree.name) + " differs from the main checkout's - "
+                 "installing its own node_modules (npm ci)")
+        self.system.run(["npm", "ci", "--no-audit", "--no-fund"], cwd=worktree / "frontend", timeout=900)
+
     def _run_in(self, worktree, logs, main_root, python, text, pin_id, ref):
-        stack.link_node_modules(main_root, worktree, "frontend")
+        self._frontend_modules(main_root, worktree)
+        # Its own vite cache (vite.config.js cacheDir), never the main checkout's node_modules/.vite.
+        cache_env = {"NX_VITE_CACHE_DIR": str(logs / ".vite-cache")}
         if not stack.link_node_modules(main_root, worktree, "e2e"):
             self.system.run(["npm", "ci", "--no-audit", "--no-fund"], cwd=worktree / "e2e", timeout=600)
         # The browser build matching this Playwright version, as CI installs it -
@@ -201,11 +302,11 @@ class E2ERun:
         vite = worktree / "frontend" / "node_modules" / ".bin" / "vite"
         self.out("Building the frontend (VITE_E2E=true)...")
         self.system.run([str(vite), "build"], cwd=worktree / "frontend",
-                        env=build_env(self.base_env, "http://localhost:" + str(api_port)), timeout=BUILD_TIMEOUT)
+                        env=dict(build_env(self.base_env, "http://localhost:" + str(api_port)), **cache_env), timeout=BUILD_TIMEOUT)
         port = self._frontend_port(worktree)
         site = "http://localhost:" + str(port)
         fpid = self.system.spawn([str(vite), "preview", "--port", str(port), "--strictPort"],
-                                 worktree / "frontend", dict(self.base_env), logs / "preview.log")
+                                 worktree / "frontend", dict(self.base_env, **cache_env), logs / "preview.log")
         self.pids.append(fpid)
         stack.wait_until_up(self.system, [site + "/"], {"frontend": (fpid, logs / "preview.log")}, BOOT_TIMEOUT,
                             label="The e2e frontend")
@@ -219,6 +320,11 @@ class E2ERun:
         env["NEXUS_E2E_URL"] = site
         # Specs that seed data through the API read this (CI leaves it unset: :8000).
         env["NEXUS_E2E_API"] = api
+        report_path = worktree / "e2e" / REPORT
+        try:
+            report_path.unlink()
+        except OSError:
+            pass
         self.out("Running " + target.name + " against " + ref + " (" + site + ")...")
         code = self.system.run_live(["npx", "playwright", "test", "tests/generated/" + target.name],
                                     cwd=worktree / "e2e", env=env, timeout=TEST_TIMEOUT)
@@ -226,9 +332,17 @@ class E2ERun:
             target.unlink()
         except OSError:
             pass
-        verdict = "PASSING" if code == 0 else "FAILING"
+        try:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            report = None
+        verdict, why = classify(report, code)
+        if verdict is None:
+            raise stack.StackError(why)
+        if verdict == "FAILING":
+            self.out("Expectation failed: " + why)
         self.out(verdict)
-        return 0 if code == 0 else 1
+        return 0 if verdict == "PASSING" else 1
 
 
 def main(argv=None, runner=None):
@@ -243,7 +357,7 @@ def main(argv=None, runner=None):
         return runner.run(args.spec, args.ref, args.pin, keep=args.keep)
     except stack.StackError as exc:
         common.eprint(str(exc))
-        common.eprint("No verdict - the stack could not be built.")
+        common.eprint("No verdict (exit 2) - fix what is named above and run again.")
         return 2
     except KeyboardInterrupt:
         common.eprint("Stopped.")

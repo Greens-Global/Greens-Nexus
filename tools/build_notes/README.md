@@ -114,7 +114,7 @@ python3 tools/build_notes/cli.py verify <id> [--repro-script PATH --before faili
 python3 tools/build_notes/cli.py after <id> --image PATH
 python3 tools/build_notes/cli.py complete <id>... --pr URL --branch NAME [--summary "..."]
 python3 tools/build_notes/cli.py owners [--check] [--me EMAIL] [paths...]
-python3 tools/build_notes/cli.py preview <id>... --branch NAME [--pr N] [--url http://localhost:5180] [--host NAME] [--commit SHA]
+python3 tools/build_notes/cli.py preview <id>... --branch NAME [--pr N] [--url http://localhost:5174] [--host NAME] [--commit SHA]
 python3 tools/build_notes/repro_template.py <pin.json> [--e2e | --python] [--base http://localhost:5173] [--out PATH | --stdout]
 python3 tools/build_notes/run_e2e.py <spec.mjs> --ref origin/dev|<branch> [--pin ID] [--keep]
 python3 tools/build_notes/preview.py start --branch NAME --pins <id>... [--pr N] [--db PATH] [--email EMAIL] [--no-post]
@@ -192,11 +192,16 @@ fix before the merge:
 python3 tools/build_notes/preview.py start --branch build/tasks-home-polish-1024 --pins <id> <id> --pr 812
 ```
 
+- **Checks first:** the backend virtualenv, `NEXUS_DEV_EMAIL`, `--db`, the
+  branch's lockfile and node_modules, and the ports (busy is fine only when
+  it is our own running preview). A start that fails a check leaves the
+  running preview alone; only then is the old one stopped.
 - The branch is checked out (detached, at `origin/<branch>`) in its own
   worktree at `~/.cache/nexus-build-notes/preview/<branch-slug>`; an existing
-  one is reused and hard reset. `frontend/node_modules` is a symlink to the
-  main checkout's, and the backend runs on the main checkout's
-  `backend/.venv` python.
+  one is reused and hard reset. The backend runs on the main checkout's
+  `backend/.venv` python. `frontend/node_modules` is a symlink to the main
+  checkout's when the branch's `frontend/package-lock.json` is identical;
+  when it differs the worktree gets its own `npm ci` (and says so).
 - **Data:** a COPY of your local `backend/greens_nexus.db` (SQLite backup
   API, so a running dev server cannot tear it) as `backend/preview.db` in the
   worktree; `--db PATH` copies another file instead. The backend ALWAYS
@@ -209,26 +214,37 @@ python3 tools/build_notes/preview.py start --branch build/tasks-home-polish-1024
   `VITE_DEV_USER_EMAIL` (the same email) for the frontend. `--email`
   overrides it.
 - Backend `uvicorn main:app` on http://localhost:8090, frontend `vite` on
-  http://localhost:5180 `--strictPort` with `VITE_API_BASE=http://localhost:8090`.
+  http://localhost:5174 `--strictPort` with `VITE_API_BASE=http://localhost:8090`
+  and `NX_VITE_CACHE_DIR=~/.cache/nexus-build-notes/preview/.vite-cache`
+  (its own vite cache - `frontend/vite.config.js` reads it as `cacheDir`).
+  5174 is the frontend port because it has been in every branch's CORS list
+  since 06/18/2026 (the Knowledge Base standalone workspace), so a branch cut
+  before Build Mode v2 still works; when the Knowledge Base workspace (or
+  anything else) holds 5174, `start` refuses rather than pick another port.
   Both run detached; their pid files (`backend.pid`, `frontend.pid`), logs
-  (`backend.log`, `frontend.log`) and `current.json` live in
+  (`backend.log`, `frontend.log`) and `state.json` (branch, commit, worktree
+  and the pins showing Ready To Check) live in
   `~/.cache/nexus-build-notes/preview/`. `start` waits up to 90 s for
   `/health` and the vite root; a process that exits early fails the start with
   its log tail and both are stopped.
-- **One preview per computer:** `start` stops the running one first. A port
-  still busy after that (something else on 8090 or 5180) is refused before
-  anything starts.
+- **One preview per computer:** after its checks, `start` stops the running
+  one, which clears Ready To Check on that preview's pins.
 - Then each pin gets `POST /dev-notes/cli/preview/{id}` with
-  `{url: "http://localhost:5180" + <the pathname of the pin's URL>, branch,
+  `{url: "http://localhost:5174" + <the pathname of the pin's URL>, branch,
   prNumber, host, commit}` (`commit` = `git rev-parse HEAD` in the preview
   worktree; the server drops an Accept given on an older commit) and shows
   **Ready To Check** in Nexus with an Open Preview link and "Runs on <host> -
   open it on that computer". `--no-post` skips this; `cli.py preview <id>...
   --branch B [--pr N] [--commit SHA]` records it by hand (the commit defaults
   to `origin/<branch>`, else the local branch).
-- `preview.py status` shows the branch, data, pids and whether both answer;
-  `preview.py stop` kills them by pid file (only processes that still look
-  like the preview's uvicorn / vite) and keeps the worktree.
+- `preview.py status` shows the branch, commit, data, pids and whether both
+  answer. `preview.py stop` kills them by pid file - only a process whose
+  command line carries the preview worktree's path or the exact port
+  (`--port 8090` / `--port 5174`), never a bare uvicorn or vite that could be
+  your own dev server - calls `DELETE /dev-notes/cli/preview/{id}` for every
+  pin in `state.json` so their Ready To Check link goes away (a 404 is
+  ignored; a failing call warns and never blocks the stop) and keeps the
+  worktree.
 - The author **Accepts** (it counts as checked: when the PR merges the pin goes
   straight to Done) or **Reopens** with a note: the pin returns to Building
   with the note last, the watcher hands it back to Claude Code marked
@@ -238,10 +254,9 @@ python3 tools/build_notes/preview.py start --branch build/tasks-home-polish-1024
   thread; the brief then tells Claude to rework it on a new `-r2` branch
   from fresh origin/dev, in a new PR.
 
-The preview backend's CORS list must include http://localhost:5180 (it does on
-the Build Mode v2 backend). The preview frontend shares the main checkout's
-`node_modules/.vite` cache with your own dev server; both are built from the
-same lockfile, so that is safe.
+A branch whose `frontend/vite.config.js` predates the `cacheDir` line ignores
+`NX_VITE_CACHE_DIR` and uses the shared `node_modules/.vite`; the lockfiles
+are identical in that case, so the cache stays compatible.
 
 ## Ownership
 
@@ -265,8 +280,10 @@ python3 tools/build_notes/cli.py owners --check [--me EMAIL]
   then reverts those files and asks on the pin instead of committing them.
 - The map is loaded from `backend/code_owners.py` by file path (it imports
   nothing from the app, so no virtualenv is needed and no token either when
-  `--me` is given). A checkout without that file asks
-  `GET /dev-notes/owners` with the Build Token.
+  `--me` is given). A checkout without that file asks the server once per
+  path, `GET /dev-notes/owner-of?path=<p>` with the Build Token, which
+  answers `{owner, held}` relative to the token's user - there is no local
+  copy of the rules to drift.
 
 ## Regression tests
 
@@ -284,8 +301,9 @@ python3 tools/build_notes/cli.py verify <id> --repro-script <spec> --before fail
   expect: `import { test, expect } from '@playwright/test';`, the helpers
   from `'../helpers.mjs'` (that exact path - sync rewrites it), one test
   titled `[<pin id>] Pin #<n> - <summary>` (the id maps verdicts back and
-  becomes the test case id), helpers first, and a FAILING `TODO` assertion to
-  replace with the pin's complaint.
+  becomes the test case id), helpers first, and a failing `TODO` assertion to
+  replace with the pin's complaint - `run_e2e.py` refuses a spec that still
+  has it.
 - **The nightly run starts from an empty database** (fresh SQLite). A spec
   must create the data it needs itself, through the UI or `page.request`
   against `process.env.NEXUS_E2E_API || 'http://localhost:8000'` (auth is
@@ -299,8 +317,15 @@ python3 tools/build_notes/cli.py verify <id> --repro-script <spec> --before fail
   `vite preview` on a localhost port the backend's CORS list allows (5173 is
   tried last - your dev server usually holds it), the spec copied to
   `e2e/tests/generated/<pin id>.spec.mjs` and run with `npx playwright test`
-  and `NEXUS_E2E_URL`. It prints `PASSING` (exit 0) or `FAILING` (exit 1);
-  exit 2 means the stack could not be built (no verdict). Everything is
+  and `NEXUS_E2E_URL`. The verdict comes from Playwright's JSON report:
+  `PASSING` (exit 0) when the one test passed, `FAILING` (exit 1) only when
+  exactly one test ran and an expectation failed (`expect(` in its error).
+  Exit 2 is no verdict: the stack could not be built, the template's TODO is
+  still there, or the spec is broken, not the bug (a syntax, import or
+  reference error, no tests found, more than one test, or a stop before any
+  expectation such as a timeout). The frontend gets the main checkout's
+  `node_modules` when the lockfiles match (its own `npm ci` otherwise) and its
+  own `NX_VITE_CACHE_DIR`. Everything is
   stopped and the worktree removed afterwards; `--keep` leaves it. A
   `--ref origin/...` is fetched first; a local branch is used as it is.
 - It needs Node. The e2e dependencies are installed into the scratch

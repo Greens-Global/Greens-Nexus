@@ -132,6 +132,9 @@ export default defineConfig(({ command }) => ({
     react(), versionManifest(), stampUnhashedAssets(),
   ],
   base: '/',
+  // Build Mode's local preview / e2e runs share the main checkout's node_modules
+  // and point this at their own folder so they never rewrite its .vite cache.
+  cacheDir: process.env.NX_VITE_CACHE_DIR || undefined,
   // Automatic JSX runtime for BOTH build and Vitest transforms (source files
   // don't import React; without this, Vitest transforms them classic and every
   // component render throws "React is not defined").
