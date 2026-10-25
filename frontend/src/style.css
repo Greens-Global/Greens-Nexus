@@ -943,7 +943,6 @@ h1,h2,h3,h4,h5,h6,
    The menu widens only when it has Tools or the finder in it. */
 .header-user-dropdown:has(.hud-tools, .hud-actas) { width: min(300px, calc(100vw - 24px)); }
 .hud-sec { padding: 8px 10px 2px; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
-.hud-grp { padding: 6px 10px 2px; font-size: 11px; font-weight: 600; color: var(--muted); }
 .hud-end { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 .hud-kbd { font: 600 10px/1.5 'Inter', sans-serif; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--muted); background: var(--card); white-space: nowrap; }
 .hud-switch { width: 28px; height: 16px; border-radius: 999px; background: var(--line); box-shadow: inset 0 0 0 1px var(--line); position: relative; flex-shrink: 0; transition: background var(--transition-fast); }

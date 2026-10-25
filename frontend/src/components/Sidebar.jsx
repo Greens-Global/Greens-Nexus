@@ -205,7 +205,7 @@ export const NAV = [
   // from their own NAV entry here.
   // Dev-only: the item renders only when the backend says the QA module is
   // enabled (NEXUS_QA_MODULE env on dev; absent on prod). menuOnly (Neil,
-  // Oct 25 2026): opened from the profile menu's Developer Tools, not the
+  // Oct 25 2026): opened from the profile menu's Tools section, not the
   // rail or the phone menu - header search still finds it.
   { view: "testing", code: "QA",        label: "Testing",        icon: FlaskConical, minRole: 'supervisor', qaGated: true, menuOnly: true },
   // Admin - grant-driven per-module extras (Pranshu, Sep 9), separate from the

@@ -59,8 +59,10 @@ describe('Tools section', () => {
     roleState.value = makeRole('manager');
     const open = vi.fn();
     render(<ToolsSection onClose={vi.fn()} onOpenActAs={open} />);
-    expect(screen.getByText('Support Tools')).toBeInTheDocument();
-    expect(screen.queryByText('Developer Tools')).not.toBeInTheDocument();
+    expect(screen.getByText('Tools')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Act As/ })).toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: /Build Mode/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Support Tools')).not.toBeInTheDocument();
     fireEvent.keyDown(document, { key: 'a' });
     expect(open).toHaveBeenCalledTimes(1);
   });

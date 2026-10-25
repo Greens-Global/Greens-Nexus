@@ -428,8 +428,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                 <Scale size={14} /> Legal
               </button>
 
-              {/* Tools (Neil, Oct 25 2026): Support Tools (Act As) and
-                  Developer Tools (Build Mode, Testing), each row only for the
+              {/* Tools (Neil, Oct 25 2026): Act As, Build Mode and Testing
+                  under one label, each row only for the
                   people who can use it - components/ToolsMenu.jsx. The sticky
                   orange banner below still offers Exit Act As everywhere. */}
               <ToolsSection onClose={() => setOpen(false)} onOpenActAs={openActAs} />

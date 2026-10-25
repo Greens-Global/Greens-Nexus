@@ -1,5 +1,5 @@
-// The profile menu's Tools section (Neil, Oct 25 2026): Support Tools (Act
-// As) and Developer Tools (Build Mode, Testing), each row shown only to
+// The profile menu's Tools section (Neil, Oct 25 2026): Act As, then Build
+// Mode and Testing - one "Tools" label, no subheadings - each row shown only to
 // people who can use it - the same checks the server enforces - and the
 // whole section absent for everyone else. Act As is a people finder inside
 // the menu (no modal, no screen): the menu swaps to it, nobody is listed
@@ -187,7 +187,6 @@ export function ToolsSection({ onClose, onOpenActAs }) {
       <div className="hud-sec">Tools</div>
       {support && (
         <>
-          <div className="hud-grp">Support Tools</div>
           {actingAs ? (
             <div className="hud-acting">
               <UserCog size={15} aria-hidden="true" />
@@ -207,7 +206,6 @@ export function ToolsSection({ onClose, onOpenActAs }) {
       )}
       {developer && (
         <>
-          <div className="hud-grp">Developer Tools</div>
           {buildMode.enabled && (
             <button type="button" className="hud-item" role="switch" aria-checked={buildMode.on}
               onClick={() => { onClose(); buildMode.toggle(); }}>
