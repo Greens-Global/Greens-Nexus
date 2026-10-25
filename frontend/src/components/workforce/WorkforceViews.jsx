@@ -3,6 +3,8 @@ import { Users, Plus, Pencil, X, Search, Check, Star, Trash2 } from 'lucide-reac
 import { api } from '../../api';
 import { useWorkforceView } from './viewContext';
 import { Spinner } from '../AsyncState';
+import { findPeople } from '../../lib/peopleSearch';
+import { useListNav } from '../../lib/listNav';
 
 // The picker, the "showing view X" notice and the view editor. State and the
 // filter itself live in viewContext.js.
@@ -126,9 +128,11 @@ function ViewEditor({ view, onClose, onDone }) {
     catch (e) { setErr(e?.message || 'Could not delete the view.'); setBusy(false); }
   };
 
-  const ql = q.trim().toLowerCase();
-  const people = (opts?.people || []).filter(p => !ql || `${p.name} ${p.email} ${p.department} ${p.jobTitle}`.toLowerCase().includes(ql));
+  // Ranked like every people picker (first-name prefix first); every word
+  // typed may also match the department or job title.
+  const people = findPeople(opts?.people || [], q, { fields: ['department', 'jobTitle'] }).list;
   const picked = new Set(criteria.people);
+  const nav = useListNav(people, { open: q.trim() !== '', query: q, onPick: p => toggle('people', p.email) });
 
   return (
     <div role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
@@ -186,13 +190,14 @@ function ViewEditor({ view, onClose, onDone }) {
               <span style={LBL}>People{criteria.people.length ? ` (${criteria.people.length} picked)` : ''}</span>
               <span style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                 <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--muted)' }} />
-                <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search people by name, email or department" style={{ paddingLeft: 32 }} />
+                <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search people by name, email or department" style={{ paddingLeft: 32 }}
+                  {...nav.inputProps} onKeyDown={nav.onKeyDown} />
               </span>
-              <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 10 }}>
+              <div role="listbox" aria-label="People" aria-multiselectable="true" style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 10 }}>
                 {people.length === 0 ? (
                   <div style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>No one matches.</div>
-                ) : people.map(p => (
-                  <label key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 13 }}>
+                ) : people.map((p, i) => (
+                  <label key={p.email} {...nav.optionProps(i)} aria-selected={picked.has(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 13 }}>
                     <input type="checkbox" checked={picked.has(p.email)} onChange={() => toggle('people', p.email)} />
                     <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       <span style={{ fontWeight: 600 }}>{p.name}</span>

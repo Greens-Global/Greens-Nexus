@@ -17,6 +17,7 @@ import { Avatar, Modal, usePeople, useIsMobile } from './components';
 import { LoadingState } from '../components/AsyncState';
 import { formatDateTime, formatFullDate } from './changelogDates';
 import { formatDate } from '../lib/datetime';
+import { matchPeople } from '../lib/peopleSearch';
 import { RequestStatusChip, RequestStatusEditor, RequestThread, REQUEST_STATUSES, TourHost, startTour } from './changelogLifecycle';
 
 export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -128,8 +129,8 @@ function MentionBox({ value, onChange, setMentions, onSubmit, placeholder, autoF
   const [query, setQuery] = useState(null);     // text after "@", or null
   const matches = useMemo(() => {
     if (query === null) return [];
-    const q = query.toLowerCase();
-    return people.filter((p) => p.name.toLowerCase().includes(q) || p.email.includes(q)).slice(0, 6);
+    // First-name matches first, as in every people picker.
+    return matchPeople(people, query, { limit: 6 });
   }, [people, query]);
   const [hi, setHi] = useState(0);
   const onText = (v) => {

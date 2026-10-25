@@ -30,6 +30,7 @@ const timeMyChannels = vi.fn();
 const timeCalendarSyncStatus = vi.fn();
 const role = { current: null };
 vi.mock('../../contexts/RoleContext', () => ({ useRole: () => role.current }));
+vi.mock('../PersonHoverCard', () => ({ default: ({ children }) => children }));
 vi.mock('../../api', () => ({
   api: {
     timeCalendarSyncStatus: (...a) => timeCalendarSyncStatus(...a),
@@ -233,11 +234,24 @@ describe('Groups', () => {
     fireEvent.click(screen.getAllByText('Edit')[1]);                                  // Back Office
     const dlg = await screen.findByRole('dialog', { name: 'Edit Group' });
     fireEvent.change(within(dlg).getByLabelText('Work site'), { target: { value: 's1' } });
-    fireEvent.change(within(dlg).getByLabelText('Add a weather decider'), { target: { value: 'b@x.com' } });
+    fireEvent.click(within(dlg).getByLabelText(/^Add a weather decider:/));
+    fireEvent.click(within(screen.getByRole('listbox')).getByText('Bob Brown'));
     expect(within(dlg).getByRole('button', { name: 'Remove weather decider Bob Brown' })).toBeTruthy();
     fireEvent.click(within(dlg).getByRole('button', { name: /Save/ }));
     await waitFor(() => expect(timeShiftGroupSet).toHaveBeenCalled());
     expect(timeShiftGroupSet.mock.calls[0][1]).toMatchObject({ work_site_id: 's1', weather_deciders: ['b@x.com'], weather_alerts: true });
+  });
+
+  // Schedulers are picked like every person (Oct 25 2026): a search box,
+  // first-name matches first, Enter takes the top row.
+  it('adds a scheduler from a searchable people picker', async () => {
+    render(<ShiftGroupsPanel toastOk={toastOk} toastErr={toastErr} />);
+    fireEvent.click((await screen.findAllByText('Edit'))[1]);
+    const dlg = await screen.findByRole('dialog', { name: 'Edit Group' });
+    fireEvent.click(within(dlg).getByLabelText(/^Add a scheduler:/));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'bo' } });
+    fireEvent.keyDown(screen.getByPlaceholderText('Search people…'), { key: 'Enter' });
+    expect(within(dlg).getByRole('button', { name: 'Remove scheduler Bob Brown' })).toBeTruthy();
   });
 
   it('switching between chat and channel clears the other kind', async () => {

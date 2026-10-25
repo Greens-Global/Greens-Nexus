@@ -29,6 +29,7 @@ const pnl = {
 };
 const cash = { ...pnl, sections: [{ ...pnl.sections[0], total: 1200, accounts: [{ account_no: '41000', title: 'Rental Income', amount: 1200 }] }, pnl.sections[1]] };
 
+vi.mock('../PersonHoverCard', () => ({ default: ({ children }) => children }));
 vi.mock('../../api', () => ({
   api: {
     getAccountingLocations: vi.fn(async () => ({ entities: [
@@ -483,9 +484,10 @@ describe('ReportsTab controls', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Export/ }));
     fireEvent.click(screen.getByRole('menuitem', { name: /Share With a Teammate/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Share With a Teammate' });
-    const who = within(dialog).getByLabelText('Share With');
-    await waitFor(() => expect(who.options.length).toBe(2));
-    fireEvent.change(who, { target: { value: 'urmi.gor@greensglobal.com' } });
+    // Share With is the Tasks people picker: open, type, pick.
+    fireEvent.click(within(dialog).getByLabelText('Share With'));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'urm' } });
+    fireEvent.click(await within(screen.getByRole('listbox')).findByText('Urmi Gor'));
     fireEvent.change(within(dialog).getByLabelText('Saved As'), { target: { value: 'September P&L' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Share' }));
     await waitFor(() => expect(api.shareAccountingReport).toHaveBeenCalled());
