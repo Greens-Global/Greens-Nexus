@@ -12,6 +12,7 @@ import { fmtDate, teamInProject, teamProjectIds } from './lib';
 import { rootZoom } from '../lib/utils';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { matchPeople } from '../lib/peopleSearch';
+import { recentRows, noteRecentPerson } from '../lib/recentPeople';
 import { useListNav, openPickerOnKey, caretToEnd, focusNextField } from '../lib/listNav';
 import { useTasks } from './TasksContext';
 import PersonHover from '../components/PersonHoverCard';
@@ -1162,13 +1163,24 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
   // a search that matches nobody must not make Enter clear the field.
   const typed = q.trim() !== '';
   const noneRow = !typed && !addButton;
-  const items = noneRow ? [UNASSIGNED_ROW, ...filtered] : filtered;
+  // Nothing typed: the people picked lately first, under "Recent" - the same
+  // look as the Collaborators field's Frequent group (lib/recentPeople.js).
+  // Read when the menu opens, so a pick never reshuffles an open list.
+  const [recent, setRecent] = useState([]);
+  const top = typed ? [] : recent;
+  const items = [...(noneRow ? [UNASSIGNED_ROW] : []), ...top, ...filtered];
   const close = (refocus = true) => { setOpen(false); setQ(''); if (refocus) triggerRef.current?.focus(); };
-  const choose = (p) => { onChange(p === UNASSIGNED_ROW ? null : p.email); close(); };
+  const openMenu = (query = '') => { setQ(query); setRecent(recentRows(people)); setOpen(true); };
+  const toggleOpen = () => (open ? setOpen(false) : openMenu());
+  const choose = (p) => {
+    if (p !== UNASSIGNED_ROW) noteRecentPerson(p.email);
+    onChange(p === UNASSIGNED_ROW ? null : p.email); close();
+  };
   const nav = useListNav(items, {
     open, query: q, onPick: choose,
     startAt: items.findIndex((p) => (p === UNASSIGNED_ROW ? !value : p.email === value)),
     onTab: (p, back) => {
+      if (p && p !== UNASSIGNED_ROW) noteRecentPerson(p.email);
       if (p) onChange(p === UNASSIGNED_ROW ? null : p.email);
       close(false);
       focusNextField(triggerRef.current, back);
@@ -1176,8 +1188,8 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
   });
   return (
     <div ref={ref} style={{ position: 'relative', ...(addButton ? { display: 'flex' } : null) }}>
-      <button ref={triggerRef} type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
-        onKeyDown={(e) => { if (!open && !touch) openPickerOnKey(e, (k) => { setQ(k); setOpen(true); }); }}
+      <button ref={triggerRef} type="button" disabled={disabled} onClick={toggleOpen}
+        onKeyDown={(e) => { if (!open && !touch) openPickerOnKey(e, openMenu); }}
         style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer',
           ...(addButton ? { flex: 1, minWidth: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0 } : null) }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
@@ -1188,7 +1200,7 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
       </button>
       {addButton && (
         <button type="button" disabled={disabled} tabIndex={-1} aria-label={placeholder.replace(/…$/, '')} title={placeholder.replace(/…$/, '')}
-          onClick={() => setOpen((o) => !o)}
+          onClick={toggleOpen}
           style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, flexShrink: 0, padding: 0,
             background: NX.green, color: '#fff', border: `1px solid ${NX.green}`, borderRadius: '0 8px 8px 0',
             cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 }}>
@@ -1207,8 +1219,18 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
               <div className="nx-menu-row" {...(typed ? null : nav.optionProps(0))} onClick={() => choose(UNASSIGNED_ROW)}
                 style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer', ...(isMobile ? { display: 'flex', alignItems: 'center', ...menuRowTall(true) } : null) }}>Unassigned</div>
             )}
+            {top.length > 0 && <MenuCaption>Recent</MenuCaption>}
+            {top.map((p, i) => (
+              <div key={'r:' + p.email} className="nx-menu-row" {...nav.optionProps((noneRow ? 1 : 0) + i)} onClick={() => choose(p)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, ...menuRowTall(isMobile) }}>
+                <Avatar email={p.email} name={p.name} size={22} card={false} />
+                <span style={{ flex: 1 }}>{p.name}</span>
+                {p.email === value && <Check size={14} style={{ color: NX.blue }} />}
+              </div>
+            ))}
+            {top.length > 0 && <MenuCaption>All</MenuCaption>}
             {filtered.map((p, i) => (
-              <div key={p.email} className="nx-menu-row" {...nav.optionProps(noneRow ? i + 1 : i)} onClick={() => choose(p)}
+              <div key={p.email} className="nx-menu-row" {...nav.optionProps((noneRow ? 1 : 0) + top.length + i)} onClick={() => choose(p)}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, ...menuRowTall(isMobile) }}>
                 <Avatar email={p.email} name={p.name} size={22} card={false} />
                 <span style={{ flex: 1 }}>{p.name}</span>
@@ -1227,7 +1249,8 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
 // one go. `value` is an array of emails; onChange receives a new array.
 // `frequent` (emails, best first) puts a "Frequent" group above an "All" group
 // while nothing is typed - the Collaborators field passes it; a search is one
-// flat ranked list, as before.
+// flat ranked list, as before. A field without `frequent` shows the people
+// picked lately as "Recent" the same way (Oct 25 2026).
 // `teams` (the module's teams) adds a "Teams" group whose rows add or remove a
 // whole roster at once - see teamPicks.jsx; `onSaveTeam` lets the current
 // selection be kept as a team. Both are for the Collaborators field; an
@@ -1252,7 +1275,13 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   // query to rank against; the alphabetical fallback lives here.
   const filtered = q ? matchPeople(people, q)
     : people.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
-  const top = q ? [] : frequentRows(people, frequent);
+  // Nothing typed: Frequent when the field has it (Collaborators), else the
+  // people picked lately as "Recent" (lib/recentPeople.js) - read when the
+  // menu opens, so a pick never reshuffles the list under the pointer.
+  const [recent, setRecent] = useState([]);
+  const topLabel = frequent ? 'Frequent' : 'Recent';
+  const top = q ? [] : (frequent ? frequentRows(people, frequent) : recent);
+  const openMenu = (query = '') => { setQ(query); setRecent(recentRows(people)); setOpen(true); };
   const teamRows = teams ? pickableTeams(teams, people, q).length : 0;
   const toggle = (em) => onChange(emails.includes(em) ? emails.filter((x) => x !== em) : [...emails, em]);
   // Removing a chip leaves the menu up - you're still editing the list; only
@@ -1267,6 +1296,7 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   };
   const pick = (em) => {
     const adding = !emails.includes(em);
+    if (adding) noteRecentPerson(em);
     toggle(em);
     afterPick(adding);
   };
@@ -1280,7 +1310,7 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
     // Tab only ever ADDS the highlighted person - tabbing past someone
     // already on the list must not take them off.
     onTab: (p, back) => {
-      if (p && !emails.includes(p.email)) onChange([...emails, p.email]);
+      if (p && !emails.includes(p.email)) { noteRecentPerson(p.email); onChange([...emails, p.email]); }
       close(false);
       focusNextField(triggerRef.current, back);
     },
@@ -1303,13 +1333,13 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   };
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button ref={triggerRef} type="button" onClick={() => setOpen((o) => !o)}
+      <button ref={triggerRef} type="button" onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={(e) => {
           if (open || touch) return;
           // Backspace on the closed field takes the last person off - the
           // keyboard's way to the chips' x (which are out of the Tab order).
           if (e.key === 'Backspace' && emails.length) { e.preventDefault(); onChange(emails.slice(0, -1)); return; }
-          openPickerOnKey(e, (k) => { setQ(k); setOpen(true); });
+          openPickerOnKey(e, openMenu);
         }}
         style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px' }}>
         {/* Chips scroll past ~3 rows rather than growing the field without bound -
@@ -1342,8 +1372,8 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
               A span, not a button - it sits inside the dropdown trigger, and
               its click opens that same menu. */}
           <span role="button" tabIndex={-1} title={addTitle} aria-label={addTitle}
-            onClick={(e) => { e.stopPropagation(); setOpen(true); }}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); setOpen(true); } }}
+            onClick={(e) => { e.stopPropagation(); if (!open) openMenu(); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); if (!open) openMenu(); } }}
             style={{
               width: 22, height: 22, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
               color: NX.faint, cursor: 'pointer', flexShrink: 0,
@@ -1369,7 +1399,7 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
             style={menuSearchStyle(touch)} />
           {teams && <TeamPicks teams={teams} people={people} selected={emails} query={q} inset={12} rowPad="8px 12px"
             onSaveTeam={onSaveTeam} onChange={(next, adding) => { onChange(next); afterPick(adding); }} />}
-          {top.length > 0 && <MenuCaption>Frequent</MenuCaption>}
+          {top.length > 0 && <MenuCaption>{topLabel}</MenuCaption>}
           {top.map((p, i) => personRow(p, 'f:', i))}
           {top.length > 0 ? <MenuCaption>All</MenuCaption> : (teamRows > 0 && filtered.length > 0 && <MenuCaption>People</MenuCaption>)}
           {filtered.map((p, i) => personRow(p, '', top.length + i))}
