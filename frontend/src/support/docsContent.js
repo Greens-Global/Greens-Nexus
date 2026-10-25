@@ -1912,7 +1912,7 @@ export const DOCS = [
     tagline: 'Every setting for the organization or for one company, by subject, who can access what, and the audit trail.',
     where: 'Left menu > Settings',
     access: 'IT Admin and Global Admin, or anyone given the Settings grant',
-    purpose: 'Settings is where admins shape Nexus. One Settings tab, a list of subjects on the left (Companies, Locations, People & Access, Security, Branding & Email, Emails & Reminders, Tickets, Time & Pay, Workforce Analytics, Shifts & Scheduling, Hiring & Onboarding, Items & Equipment, Operations) and a Scope box at the top: Every company shows what applies to all, picking a company shows that company\'s own profile, departments, holiday calendar, locations, job roles, checklists and workforce analytics policy. Every setting is on the page, open - nothing to expand. Tools holds actions rather than settings, such as Act As and the Microsoft 365 sync, and Logs record every change.',
+    purpose: 'Settings is where admins shape Nexus. One Settings tab, a list of subjects on the left (Companies, Locations, People & Access, Security, Branding & Email, Emails & Reminders, Tickets, Time & Pay, Workforce Analytics, Shifts & Scheduling, Hiring & Onboarding, Items & Equipment, Operations) and a Scope box at the top: Every company shows what applies to all, picking a company shows that company\'s own profile, departments, holiday calendar, locations, job roles, checklists and workforce analytics policy. Every setting is on the page, open - nothing to expand. Tools holds actions rather than settings, such as the Microsoft 365 sync, and Logs record every change. Act As lives in your profile menu (top right), under Tools.',
     gains: [
       'Change a setting once for the whole organization, or for just one company.',
       'Give someone exactly the access they need, in one place.',
@@ -1948,8 +1948,8 @@ export const DOCS = [
       {
         title: 'See What Someone Else Sees',
         steps: [
-          'Open Settings and click the Tools tab.',
-          'Click Act As and pick the person. Nexus shows their view, with a banner saying who you are acting as.',
+          'Open your profile menu (top right) and click Act As under Tools, or press A with the menu open.',
+          'Type part of a name, title, company or site and pick the person (Up / Down, then Enter). Nexus shows their view, with a banner saying who you are acting as.',
           'Stop acting as them from the banner when you are done.',
         ],
       },
@@ -1960,7 +1960,7 @@ export const DOCS = [
       { name: 'Scope', desc: 'The box at the top of Settings. Every company shows what applies to all of Nexus; a company shows what is set for it alone - its profile, locations, roles, checklists and workforce analytics policy. Subjects with nothing to set for one company sit under For Every Company in the list and switch the scope back.' },
       { name: 'Company Roles', desc: 'Each company\'s job roles, grouped by its departments: the baseline set of modules, seniority tier and default approver. Roles shared across companies are listed there too, and can be moved into a company when everyone holding them works there. A role\'s Checklists tab holds the extra onboarding, promotion, offboarding and leave steps for people in that role (a shared role has a Checklists button).' },
       { name: 'People & Access', desc: 'Each person\'s effective access, Access Groups (extras on top of a job role), the roles shared by every company and the Matrix (everyone\'s access at once). With a company picked: that company\'s job roles.' },
-      { name: 'Tools', desc: 'Actions rather than settings: Act As (search or page through the people you can act as) and the Microsoft 365 directory sync.' },
+      { name: 'Tools', desc: 'Actions rather than settings: the Microsoft 365 directory sync. Act As is in the profile menu.' },
       { name: 'Logs', desc: 'Every access and settings change, with who and when.' },
     ],
     manager: {

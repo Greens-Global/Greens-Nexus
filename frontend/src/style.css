@@ -939,6 +939,46 @@ h1,h2,h3,h4,h5,h6,
 .hud-signout { color: hsl(var(--color-red)); }
 .hud-signout:hover { background: hsla(var(--color-red), 0.08); }
 
+/* Profile menu Tools + the Act As finder (Oct 25 2026, components/ToolsMenu.jsx).
+   The menu widens only when it has Tools or the finder in it. */
+.header-user-dropdown:has(.hud-tools, .hud-actas) { width: min(300px, calc(100vw - 24px)); }
+.hud-sec { padding: 8px 10px 2px; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.hud-grp { padding: 6px 10px 2px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.hud-end { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.hud-kbd { font: 600 10px/1.5 'Inter', sans-serif; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--muted); background: var(--card); white-space: nowrap; }
+.hud-switch { width: 28px; height: 16px; border-radius: 999px; background: var(--line); box-shadow: inset 0 0 0 1px var(--line); position: relative; flex-shrink: 0; transition: background var(--transition-fast); }
+.hud-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: left var(--transition-fast); }
+.hud-switch.is-on { background: hsl(var(--color-purple)); }
+.hud-switch.is-on::after { left: 14px; }
+.hud-acting { margin: 2px 4px 4px; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 9px; border: 1px solid hsla(var(--color-orange), .4); background: hsla(var(--color-orange), .09); color: hsl(var(--color-orange)); }
+.hud-exit { margin-left: auto; background: hsl(var(--color-orange)); color: #fff; border: none; border-radius: 6px; padding: 4px 10px; font: 700 11.5px 'Inter', sans-serif; cursor: pointer; }
+.hud-exit:disabled { cursor: default; opacity: .7; }
+.hud-person-text { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.hud-person-text b { font-size: 12.5px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud-person-text > span { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud-actas-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 4px; font-size: 13px; font-weight: 700; color: var(--ink); }
+.hud-back { width: 26px; height: 26px; border-radius: 7px; border: none; background: var(--mist); color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+.hud-back:hover { color: var(--ink); }
+.hud-actas-count { margin-left: auto; font-size: 11px; font-weight: 500; color: var(--muted); }
+.hud-actas-search { margin: 2px 2px 6px; display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 8px; padding: 0 9px; background: var(--bg); color: var(--muted); }
+.hud-actas-search:focus-within { border-color: hsl(var(--color-blue)); box-shadow: 0 0 0 3px hsla(var(--color-blue), .14); }
+.hud-actas-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; padding: 8px 0; font: 13px 'Inter', sans-serif; color: var(--ink); }
+.hud-actas-zone { display: flex; flex-direction: column; }
+.hud-actas-zone.is-typed { min-height: 268px; }   /* 5 rows + the "more" line: the menu holds its size while typing */
+.hud-person { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 8px; border: none; border-radius: 7px; background: none; text-align: left; cursor: pointer; font-family: 'Inter', sans-serif; }
+.hud-person:hover { background: var(--sidebar-hover-bg); }
+.hud-person:disabled { cursor: default; }
+.hud-person-note { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+.hud-av { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex-shrink: 0; display: block; }
+.hud-av--ini { display: grid; place-items: center; background: var(--mist); color: var(--muted); font-size: 10.5px; font-weight: 700; }
+.hud-hit { background: hsla(45, 95%, 55%, .35); color: inherit; border-radius: 2px; }
+.hud-actas-msg { padding: 12px 10px; font-size: 12px; color: var(--muted); text-align: center; }
+.hud-actas-msg--err { padding: 4px 10px; color: hsl(var(--color-red)); text-align: left; }
+.hud-actas-more { margin-top: auto; padding: 7px 10px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); }
+.hud-actas-more b { color: var(--ink); font-weight: 600; }
+.hud-keys { display: flex; justify-content: center; gap: 10px; padding: 7px 0 3px; margin-top: 4px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--muted); }
+@media (hover: none) { .hud-keys, .hud-end .hud-kbd { display: none; } }   /* no keyboard hints on touch screens */
+
 /* keep old theme-toggle-btn alias */
 .theme-toggle-btn {
   width: 34px; height: 34px;

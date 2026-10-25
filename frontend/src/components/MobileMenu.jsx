@@ -137,7 +137,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   // external (B2B guest) accounts see ONLY their granted modules (Aug 17);
   // an item's `grants` list means any one of them opens it (Oct 10).
   const granted = item => (item.grants || [item.grant || item.view]).some(g => myGrantedModules?.has(g));
-  const visible = orderNav(NAV).filter(item => isExternal
+  const visible = orderNav(NAV).filter(item => !item.menuOnly).filter(item => isExternal
     ? (!item.divider && granted(item))
     : (item.divider || !item.minRole || can?.('administrator') || granted(item)));
   const go = (id, sub = null) => { onNavigate(id, sub); onClose(); };

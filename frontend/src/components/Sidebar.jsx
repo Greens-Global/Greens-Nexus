@@ -1,7 +1,6 @@
-import { forwardRef, useState, useEffect } from "react";
+import { forwardRef } from "react";
 import { orderNav } from './navOrder';
 import { useRole } from "../contexts/RoleContext";
-import { api } from "../api";
 import { useIsMobile } from "../lib/useIsMobile";
 import SidebarClock from "./SidebarClock";
 import NavTip from "./NavTip";
@@ -205,8 +204,10 @@ export const NAV = [
   // to shrink the left nav - both still resolve as views (App.jsx), just not
   // from their own NAV entry here.
   // Dev-only: the item renders only when the backend says the QA module is
-  // enabled (NEXUS_QA_MODULE env on dev; absent on prod).
-  { view: "testing", code: "QA",        label: "Testing",        icon: FlaskConical, minRole: 'supervisor', qaGated: true },
+  // enabled (NEXUS_QA_MODULE env on dev; absent on prod). menuOnly (Neil,
+  // Oct 25 2026): opened from the profile menu's Developer Tools, not the
+  // rail or the phone menu - header search still finds it.
+  { view: "testing", code: "QA",        label: "Testing",        icon: FlaskConical, minRole: 'supervisor', qaGated: true, menuOnly: true },
   // Admin - grant-driven per-module extras (Pranshu, Sep 9), separate from the
   // header's AdminPanel modal and the search-only Nexus Access Manager.
   { view: "admin-console", code: "ADM", label: "Settings",       icon: Settings,     minRole: 'supervisor' },
@@ -216,9 +217,6 @@ export const NAV = [
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
   const { can, myGrantedModules, isExternal } = useRole();
   const counts = useActionCounts();
-  // Dev-only Testing module: ask the backend once whether it's enabled here.
-  const [qaEnabled, setQaEnabled] = useState(false);
-  useEffect(() => { api.qaEnabled().then(r => setQaEnabled(!!r?.enabled)).catch(() => {}); }, []);
   // The time clock (components/SidebarClock.jsx, Oct 14 2026) replaces the
   // user footer, which repeated the top-right block (the role badge lives in
   // the profile menu). Only where the sidebar is a real sidebar - on a phone
@@ -327,7 +325,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
               // no baseline screens (Dashboard/Time Clock/My HR are internal-only).
               // Mirrors the server's path allowlist in auth.apply_external_policy.
               // `grants` (a list) = any one of them opens the item; else the single grant/view key.
-              const visible = orderNav(NAV).filter(item => isNavItemVisible(item, { isExternal, can, myGrantedModules, qaEnabled }));
+              const visible = orderNav(NAV).filter(item => !item.menuOnly && isNavItemVisible(item, { isExternal, can, myGrantedModules }));
               const out = [];
               if (!collapsed && visible.length && !visible[0].divider) {
                 out.push(<li key="k0" className="nav-kicker">{KICKERS[0]}</li>);
