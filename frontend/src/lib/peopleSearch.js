@@ -49,7 +49,7 @@ export function onEnterPickFirst(matches, onPick) {
 // prefix, then another name word, then any name/email hit), with people
 // found only through a context field last. `fields` names the context keys
 // to search; `limit` caps the result. Returns { list, total, words } so a
-// capped list can say how many more matched, and rows can highlight `words`.
+// capped list can say how many more matched.
 export function findPeople(people, query, { fields = [], limit = 0 } = {}) {
   const words = (query || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
   const all = people || [];
@@ -70,26 +70,4 @@ export function findPeople(people, query, { fields = [], limit = 0 } = {}) {
   scored.sort((a, b) => a.rank - b.rank || (a.p.name || '').localeCompare(b.p.name || ''));
   const list = scored.map((s) => s.p);
   return { list: limit ? list.slice(0, limit) : list, total: list.length, words };
-}
-
-// Split `text` into [{ text, hit }] runs around the typed words, for a
-// result row to mark what matched (<mark> on the hit runs).
-export function hitRuns(text, words) {
-  const s = String(text || '');
-  const ws = (words || []).filter(Boolean);
-  if (!s || !ws.length) return [{ text: s, hit: false }];
-  const lower = s.toLowerCase();
-  const on = new Array(s.length).fill(false);
-  for (const w of ws) {
-    for (let i = lower.indexOf(w); i !== -1; i = lower.indexOf(w, i + 1)) {
-      for (let j = i; j < i + w.length; j++) on[j] = true;
-    }
-  }
-  const runs = [];
-  for (let i = 0; i < s.length; i++) {
-    const last = runs[runs.length - 1];
-    if (last && last.hit === on[i]) last.text += s[i];
-    else runs.push({ text: s[i], hit: on[i] });
-  }
-  return runs;
 }
