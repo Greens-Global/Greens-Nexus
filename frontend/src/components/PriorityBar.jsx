@@ -7,6 +7,7 @@ import { ROLES } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import { useIsMobile } from '../lib/useIsMobile';
 import { openNotificationTarget } from '../lib/openTarget';
+import { PersonSelect } from '../tasks/components';
 
 // Priority notices (Neil, call of 09/29; adjusted 10/01): two categories of
 // notification. FYI ones sit in the bell. The ones that need action (a
@@ -255,10 +256,9 @@ export function RaiseNotice({ onClose, myEmail }) {
         <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12 }}>
           <div>
             <label style={label} htmlFor="pn-to">To</label>
-            <select id="pn-to" value={to} onChange={(e) => setTo(e.target.value)} style={input} required>
-              <option value="">Pick a person...</option>
-              {people.map((p) => <option key={p.email} value={p.email}>{p.name || nameOf(p.email) || 'Unnamed'}</option>)}
-            </select>
+            <PersonSelect id="pn-to" value={to || null} onChange={(v) => setTo(v || '')} allowNone={false} placeholder="Pick a person..."
+              people={people.map((p) => ({ email: p.email, name: p.name || nameOf(p.email) || 'Unnamed' }))}
+              style={{ ...input, padding: '0 9px', fontWeight: 400 }} />
           </div>
           <div>
             <label style={label} htmlFor="pn-title">What must be done</label>

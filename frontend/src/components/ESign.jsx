@@ -22,6 +22,7 @@ import AnchoredMenu from './AnchoredMenu';
 import { useRole } from '../contexts/RoleContext';
 import { Spinner, LoadingState } from './AsyncState';
 import BreakAttestModal, { BreakStatement } from './BreakAttestModal';
+import { PersonSelect } from '../tasks/components';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
 // Send wizard (Document → Recipients → Fields → Review) with color-coded
@@ -2411,6 +2412,24 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const [dragOver, setDragOver] = useState(false);
   const [subjectId, setSubjectId] = useState(dr?.subjectId || (prefill?.candidateId ? `c:${prefill.candidateId}` : ''));
   const [candidates, setCandidates] = useState([]);
+  // The About picker's rows: employees then candidates not yet hired, each
+  // keyed for the people picker by work email (so the photo shows) or by its
+  // subject id; `key` is the subject id the envelope saves.
+  const subjectRows = useMemo(() => {
+    const seen = new Set();
+    const rows = [];
+    for (const e of employees) {
+      let email = (e.workEmail || '').toLowerCase();
+      if (!email || seen.has(email)) email = `e:${e.id}`.toLowerCase();
+      seen.add(email);
+      rows.push({ key: `e:${e.id}`, email, name: `${e.firstName || ''} ${e.lastName || ''}`.trim() || email });
+    }
+    for (const c of candidates) {
+      if (c.employeeId) continue;
+      rows.push({ key: `c:${c.id}`, email: `c:${c.id}`.toLowerCase(), name: `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Candidate' });
+    }
+    return rows;
+  }, [employees, candidates]);
   const [entityId, setEntityIdRaw] = useState(() => defaultSendEntityId(entities, employees, myEmail));
   // Entities and employees arrive asynchronously (react-query / a separate
   // fetch), so the first render often has neither. Keep applying the default
@@ -3105,15 +3124,10 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                 <div style={{ marginTop: 18, display: 'grid', gap: 12 }}>
                   <div>
                     <label style={FL}>About (person - fills merge fields)</label>
-                    <select className="form-input" style={{ width: '100%' }} value={subjectId} onChange={e => setSubjectId(e.target.value)}>
-                      <option value="">-</option>
-                      <optgroup label="Employees">
-                        {employees.map(e => <option key={e.id} value={`e:${e.id}`}>{e.firstName} {e.lastName} ({e.employeeCode})</option>)}
-                      </optgroup>
-                      <optgroup label="Candidates">
-                        {candidates.filter(c => !c.employeeId).map(c => <option key={c.id} value={`c:${c.id}`}>{c.firstName} {c.lastName} - {c.roleTitle || 'candidate'}</option>)}
-                      </optgroup>
-                    </select>
+                    <PersonSelect value={subjectRows.find(r => r.key === subjectId)?.email || null}
+                      onChange={v => setSubjectId(subjectRows.find(r => r.email === v)?.key || '')}
+                      people={subjectRows} placeholder="Pick a person" noneLabel="None" ariaLabel="About"
+                      style={{ height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13.5, fontWeight: 400 }} />
                   </div>
                   <div>
                     <label style={FL}>Company</label>

@@ -51,4 +51,15 @@ describe('Payroll Summary', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Layout' }), { target: { value: 'rows' } });
     expect(screen.getByRole('table').querySelector('thead th').textContent).toBe('Employee');
   });
+
+  it('finds an employee by any part of the name and Enter picks the top match', async () => {
+    render(<PayrollSummary />);
+    await screen.findByRole('table');
+    fireEvent.click(screen.getByRole('button', { name: 'Employees' }));
+    const find = screen.getByLabelText('Find an employee');
+    fireEvent.change(find, { target: { value: 'urm' } });
+    expect(screen.getAllByRole('checkbox').map((c) => c.closest('label').textContent.trim())).toEqual(['Shah, Urmi']);
+    fireEvent.keyDown(find, { key: 'Enter' });
+    await waitFor(() => expect([...screen.getByRole('table').querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(['Payroll Item', 'Shah, Urmi', 'Total']));
+  });
 });

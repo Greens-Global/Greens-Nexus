@@ -5,6 +5,7 @@ import { formatDate } from '../../lib/datetime';
 import { formatAmount } from './Amount';
 import { Dialog } from './LoanDialogs';
 import { control } from './reportControls';
+import { PersonSelect as TaskPersonSelect } from '../../tasks/components';
 
 // Accounting -> AMA, Ask My Accountant (Neil, 10/15): the "Ask My Accountant"
 // action on one ledger line - from Ledger Search (and so every report's
@@ -75,13 +76,15 @@ export function usePeople() {
   return people;
 }
 
-export function PersonSelect({ id, people, value, onChange, extra = null, ariaLabel = 'Accountant', placeholder = 'Pick a Person' }) {
-  const list = useMemo(() => (value && !people.some((p) => p.email === value) ? [{ email: value, name: extra || value }, ...people] : people), [people, value, extra]);
+// The Tasks people picker (search, Recent, keyboard), kept under this name
+// and these props so every accounting call site stays as it was. '' is still
+// "nobody picked" to the caller.
+export function PersonSelect({ people, value, onChange, extra = null, ariaLabel = 'Accountant', placeholder = 'Pick a person', id }) {
+  const list = useMemo(() => (value && !people.some((p) => p.email === value) ? [{ email: value, name: extra || value }, ...people] : people)
+    .map((p) => ({ email: p.email, name: p.name || p.email })), [people, value, extra]);
   return (
-    <select id={id} value={value} onChange={(e) => onChange(e.target.value)} aria-label={ariaLabel} style={full}>
-      <option value="">{placeholder}</option>
-      {list.map((p) => <option key={p.email} value={p.email}>{p.name ? `${p.name} (${p.email})` : p.email}</option>)}
-    </select>
+    <TaskPersonSelect id={id} people={list} value={value || null} onChange={(v) => onChange(v || '')} ariaLabel={id ? undefined : ariaLabel} placeholder={placeholder}
+      allowNone={false} style={{ ...control, fontWeight: 400 }} />
   );
 }
 

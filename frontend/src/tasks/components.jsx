@@ -1145,8 +1145,13 @@ const UNASSIGNED_ROW = { email: '', name: 'Unassigned' };
 
 /** `addButton`: for adding someone rather than filling a field - a green
  *  plus button joins the dropdown on its right (either opens the list), and
- *  the list has no Unassigned row. */
-export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned', disabled = false, addButton = false }) {
+ *  the list has no Unassigned row.
+ *  `allowNone` false: a required field - no row that clears it. `noneLabel`
+ *  names that row where "Unassigned" is the wrong word ("No Manager").
+ *  `style` merges into the trigger, so a form can match its other boxes.
+ *  `id` puts the form's <label htmlFor> on the trigger; `ariaLabel` names it
+ *  (with the chosen person) where there is no such label. */
+export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned', disabled = false, addButton = false, allowNone = true, noneLabel = 'Unassigned', style = null, ariaLabel, id, autoFocus = false }) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
   const touch = useTouchUi();
@@ -1162,7 +1167,7 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
   // "Unassigned" is a row the keyboard can reach only while nothing is typed -
   // a search that matches nobody must not make Enter clear the field.
   const typed = q.trim() !== '';
-  const noneRow = !typed && !addButton;
+  const noneRow = !typed && !addButton && allowNone;
   // Nothing typed: the people picked lately first, under "Recent" - the same
   // look as the Collaborators field's Frequent group (lib/recentPeople.js).
   // Read when the menu opens, so a pick never reshuffles an open list.
@@ -1188,10 +1193,11 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
   });
   return (
     <div ref={ref} style={{ position: 'relative', ...(addButton ? { display: 'flex' } : null) }}>
-      <button ref={triggerRef} type="button" disabled={disabled} onClick={toggleOpen}
+      <button ref={triggerRef} id={id} autoFocus={autoFocus} type="button" disabled={disabled} onClick={toggleOpen}
+        aria-label={ariaLabel ? `${ariaLabel}: ${chosen ? chosen.name : placeholder}` : undefined}
         onKeyDown={(e) => { if (!open && !touch) openPickerOnKey(e, openMenu); }}
         style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer',
-          ...(addButton ? { flex: 1, minWidth: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0 } : null) }}>
+          ...(addButton ? { flex: 1, minWidth: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0 } : null), ...style }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
           {chosen ? <Avatar email={chosen.email} name={chosen.name} size={20} card={false} /> : null}
           <span style={{ color: chosen ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis' }}>{chosen ? chosen.name : placeholder}</span>
@@ -1215,9 +1221,9 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
             {...nav.inputProps} onFocus={caretToEnd} onKeyDown={nav.onKeyDown}
             style={menuSearchStyle(touch)} />
           <div role="listbox">
-            {!addButton && (
+            {!addButton && allowNone && (
               <div className="nx-menu-row" {...(typed ? null : nav.optionProps(0))} onClick={() => choose(UNASSIGNED_ROW)}
-                style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer', ...(isMobile ? { display: 'flex', alignItems: 'center', ...menuRowTall(true) } : null) }}>Unassigned</div>
+                style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer', ...(isMobile ? { display: 'flex', alignItems: 'center', ...menuRowTall(true) } : null) }}>{noneLabel}</div>
             )}
             {top.length > 0 && <MenuCaption>Recent</MenuCaption>}
             {top.map((p, i) => (
@@ -1414,6 +1420,16 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   );
 }
 
+// Stable three-tier order for a filtered option list (SearchSelect).
+function rankOptions(list, query) {
+  const tier = (o) => {
+    const label = (o.label || '').toLowerCase();
+    if (label.startsWith(query)) return 0;
+    return label.split(/\s+/).some((w) => w.startsWith(query)) ? 1 : 2;
+  };
+  return list.map((o, i) => ({ o, i, t: tier(o) })).sort((a, b) => a.t - b.t || a.i - b.i).map((x) => x.o);
+}
+
 // A one-shot searchable picker: the trigger always shows its placeholder and
 // picking fires `onPick` rather than storing a value. Built for the bulk-action
 // bar, whose "Assign..." and "Move To..." were native <select>s - fine at ten
@@ -1437,8 +1453,11 @@ export function SearchSelect({
   const [q, setQ] = useState('');
   const ref = useRef(null);
   const query = q.trim().toLowerCase();
+  // A search ranks a label that starts with it, then one with a word that
+  // starts with it, then any other match - "sai" finds Sai before Charmi
+  // Desai (Oct 25 2026, the same order every people picker uses).
   const shown = query
-    ? options.filter((o) => !o.header && `${o.label || ''} ${o.keywords || ''}`.toLowerCase().includes(query))
+    ? rankOptions(options.filter((o) => !o.header && `${o.label || ''} ${o.keywords || ''}`.toLowerCase().includes(query)), query)
     : options;
   const triggerRef = useRef(null);
   const close = (refocus = true) => { setOpen(false); setQ(''); if (refocus) triggerRef.current?.focus(); };
@@ -1791,33 +1810,50 @@ export function PersonDot({ value, people = [], nameOf, onChange, disabled = fal
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const [q, setQ] = useState('');
-  const shown = q ? people.filter((p) => (p.name || '').toLowerCase().includes(q.toLowerCase())) : people;
+  // The same search as every people picker (Oct 25 2026): name or email,
+  // first-name matches first; nothing typed = Recent, then everyone.
+  const typed = q.trim() !== '';
+  const shown = matchPeople(people, q);
+  const [recent, setRecent] = useState([]);
+  const top = typed ? [] : recent;
+  const NOBODY = { email: '' };
+  const items = [...(typed ? [] : [NOBODY]), ...top, ...shown];
   const name = value ? (nameOf?.(value) || value) : '';
+  const close = () => { setOpen(false); setQ(''); };
+  const choose = (p) => { if (p.email) noteRecentPerson(p.email); onChange(p.email); close(); };
+  const nav = useListNav(items, { open, query: q, onPick: choose, startAt: items.findIndex((p) => p.email === (value || '')) });
   const rowBtn = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 8px', borderRadius: 6, fontFamily: FONT, fontSize: 12.5, color: NX.ink, textAlign: 'left' };
+  const personRow = (p, keyPrefix, i) => (
+    <button key={keyPrefix + p.email} type="button" {...nav.optionProps(i)} onClick={() => choose(p)} style={rowBtn}>
+      <Avatar email={p.email} name={p.name} size={16} card={false} />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+      {value === p.email && <Check size={13} style={{ marginLeft: 'auto' }} />}
+    </button>
+  );
   return (
     <div ref={ref} style={{ display: 'inline-flex' }} onClick={(e) => e.stopPropagation()}>
-      <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)} aria-label={name ? `${name} - change` : emptyTitle}
+      <button type="button" disabled={disabled} onClick={() => { if (open) close(); else { setRecent(recentRows(people)); setOpen(true); } }} aria-label={name ? `${name} - change` : emptyTitle}
         title={name ? `${name} - change` : emptyTitle}
         style={{ border: 'none', background: 'transparent', cursor: disabled ? 'default' : 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
         {value
           ? <Avatar email={value} name={name} size={size} />
           : <span style={{ width: size, height: size, borderRadius: '50%', border: `1px dashed ${NX.border}`, display: 'inline-block' }} />}
       </button>
-      <AnchoredMenu anchorRef={ref} open={open} onClose={() => { setOpen(false); setQ(''); }}
+      <AnchoredMenu anchorRef={ref} open={open} onClose={close}
         style={{ width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
         <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people"
+          {...nav.inputProps} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); return; } nav.onKeyDown(e); }}
           style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${NX.border}`, borderRadius: 7, padding: '6px 8px', fontFamily: FONT, fontSize: 12.5, marginBottom: 4 }} />
-        <div style={{ maxHeight: 240, overflowY: 'auto' }}>
-          <button type="button" onClick={() => { onChange(''); setOpen(false); }} style={rowBtn}>
-            {!value ? <Check size={13} /> : <span style={{ width: 13 }} />}<span>{nobodyLabel}</span>
-          </button>
-          {shown.map((p) => (
-            <button key={p.email} type="button" onClick={() => { onChange(p.email); setOpen(false); }} style={rowBtn}>
-              <Avatar email={p.email} name={p.name} size={16} card={false} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-              {value === p.email && <Check size={13} style={{ marginLeft: 'auto' }} />}
+        <div role="listbox" style={{ maxHeight: 240, overflowY: 'auto' }}>
+          {!typed && (
+            <button type="button" {...nav.optionProps(0)} onClick={() => choose(NOBODY)} style={rowBtn}>
+              {!value ? <Check size={13} /> : <span style={{ width: 13 }} />}<span>{nobodyLabel}</span>
             </button>
-          ))}
+          )}
+          {top.length > 0 && <MenuCaption>Recent</MenuCaption>}
+          {top.map((p, i) => personRow(p, 'r:', 1 + i))}
+          {top.length > 0 && <MenuCaption>All</MenuCaption>}
+          {shown.map((p, i) => personRow(p, '', (typed ? 0 : 1) + top.length + i))}
         </div>
       </AnchoredMenu>
     </div>

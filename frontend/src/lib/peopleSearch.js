@@ -17,7 +17,10 @@ export function matchPeople(people, query, { limit } = {}) {
   const scored = [];
   for (const p of people || []) {
     const name = (p.name || '').toLowerCase();
-    const email = (p.email || '').toLowerCase();
+    // A stand-in key ("id:42" for someone with no work email) is not
+    // searchable text - only a real address is.
+    const raw = (p.email || '').toLowerCase();
+    const email = raw.includes('@') ? raw : '';
     if (!name.includes(q) && !email.includes(q)) continue;
     const words = name.split(/\s+/).filter(Boolean);
     const rank = (words[0] || '').startsWith(q) || name.startsWith(q) ? 0
@@ -57,7 +60,8 @@ export function findPeople(people, query, { fields = [], limit = 0 } = {}) {
   const scored = [];
   for (const p of all) {
     const name = (p.name || '').toLowerCase();
-    const email = (p.email || '').toLowerCase();
+    const rawEmail = (p.email || '').toLowerCase();
+    const email = rawEmail.includes('@') ? rawEmail : '';   // stand-in keys are not searchable
     const ctx = fields.map((f) => String(p[f] || '').toLowerCase()).join(' \u0001 ');
     if (!words.every((w) => name.includes(w) || email.includes(w) || ctx.includes(w))) continue;
     const q = words[0];

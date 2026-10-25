@@ -6,6 +6,9 @@ import { NX, FONT, chip, btn, input as inputStyle } from '../tasks/theme';
 import { PersonSelect, PersonMultiSelect, DateField, SearchSelect, SelectMenu, Avatar, useIsMobile } from '../tasks/components';
 import { StatusLabel } from '../components/StatusLabel';
 import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from '../tasks/teamPicks';
+import { matchPeople } from '../lib/peopleSearch';
+import { recentRows, noteRecentPerson } from '../lib/recentPeople';
+import { useListNav, caretToEnd, focusNextField } from '../lib/listNav';
 import {
   TICKET_TYPE_META, TICKET_STATUS_META, SLA_META, slaState, toEmailList, fmtDueAt, fmtMoment,
   firstResponseState,
@@ -82,24 +85,44 @@ export function TicketPeopleMultiSelect({ value, onChange, options, placeholder 
   const picked = Array.isArray(value) ? value : [];
   const nameOf = (id) => options.find((o) => o.id === id)?.label || id;
   const query = q.trim().toLowerCase();
-  const shown = query ? options.filter((o) => `${o.label} ${o.desc || ''}`.toLowerCase().includes(query)) : options;
-  // TeamPicks speaks the people-directory shape.
-  const people = options.map((o) => ({ email: o.id, name: o.label }));
-  const top = query ? [] : (frequent || []).map((em) => options.find((o) => o.id === em)).filter(Boolean).slice(0, 5);
+  // TeamPicks speaks the people-directory shape; `o` carries the option back.
+  const people = options.map((o) => ({ email: o.id, name: o.label, o }));
+  // First-name matches first, as in every people picker (lib/peopleSearch.js).
+  const shown = query ? matchPeople(people, q).map((p) => p.o) : options;
+  // Nothing typed: Frequent when there is any, else the people picked lately
+  // as "Recent" - read when the menu opens, so a pick never reshuffles it.
+  const [recent, setRecent] = useState([]);
+  const freq = (frequent || []).map((em) => options.find((o) => o.id === em)).filter(Boolean).slice(0, 5);
+  const top = query ? [] : (freq.length ? freq : recent);
+  const topLabel = freq.length ? 'Frequent' : 'Recent';
+  const openMenu = () => { setQ(''); setRecent(recentRows(people).map((p) => p.o)); setOpen(true); };
   const teamRows = teams ? pickableTeams(teams, people, q).length : 0;
   // Once a name is ticked the search that found it is done: clear it, so the
   // next name can be typed straight away - as in the task module.
   const toggle = (id) => {
     const adding = !picked.includes(id);
+    if (adding) noteRecentPerson(id);
     onChange(adding ? [...picked, id] : picked.filter((x) => x !== id));
     if (adding && query) { setQ(''); queryRef.current?.focus(); }
   };
+  const triggerRef = useRef(null);
+  // Keyboard order is display order: Frequent / Recent, then everyone.
+  const navItems = [...top, ...shown];
+  const nav = useListNav(navItems, {
+    open, query: q, onPick: (o) => toggle(o.id),
+    // Tab only ever ADDS the highlighted person, then moves on.
+    onTab: (o, back) => {
+      if (o && !picked.includes(o.id)) { noteRecentPerson(o.id); onChange([...picked, o.id]); }
+      setOpen(false); setQ('');
+      focusNextField(triggerRef.current, back);
+    },
+  });
   const pickTeam = (next, adding) => { onChange(next); if (adding) { setQ(''); queryRef.current?.focus(); } };
   const caption = (text) => <div style={{ padding: '9px 12px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint }}>{text}</div>;
-  const row = (o, keyPrefix = '') => {
+  const row = (o, keyPrefix, navIndex) => {
     const on = picked.includes(o.id);
     return (
-      <div key={keyPrefix + o.id} role="option" aria-selected={on} className="nx-menu-row" onClick={() => toggle(o.id)}
+      <div key={keyPrefix + o.id} {...nav.optionProps(navIndex)} aria-selected={on} className="nx-menu-row" onClick={() => toggle(o.id)}
         style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink,
           background: on ? `${NX.blue}12` : undefined, ...(isMobile ? { minHeight: 40, boxSizing: 'border-box' } : null) }}>
         <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -112,7 +135,7 @@ export function TicketPeopleMultiSelect({ value, onChange, options, placeholder 
   };
   return (
     <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
-      <button type="button" aria-label={label} aria-haspopup="listbox" onClick={() => { setOpen((o) => !o); setQ(''); }}
+      <button ref={triggerRef} type="button" aria-label={label} aria-haspopup="listbox" onClick={() => { if (open) { setOpen(false); setQ(''); } else openMenu(); }}
         style={{ ...inputStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, cursor: 'pointer',
           height: 'auto', minHeight: 38, textAlign: 'left', fontWeight: 400, padding: picked.length ? '5px 10px' : undefined }}>
         <span style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minWidth: 0, flex: 1 }}>
@@ -133,24 +156,27 @@ export function TicketPeopleMultiSelect({ value, onChange, options, placeholder 
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => { setOpen(false); setQ(''); }} minWidth={260}>
           <input ref={queryRef} autoFocus={!isMobile} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
+            {...nav.inputProps} onFocus={caretToEnd}
             onKeyDown={(e) => {
               if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); return; }
-              // Enter on a search that names a team and nobody takes the team.
-              if (e.key === 'Enter' && teams) {
+              // Enter takes the highlighted person; on a search that names a
+              // team and nobody it takes the team.
+              if (e.key === 'Enter' && teams && !navItems.length) {
                 e.preventDefault();
-                if (shown.length) { toggle(shown[0].id); return; }
                 const team = firstTeamPick(teams, people, q);
                 if (team) { const r = toggleRoster(picked, team.roster); pickTeam(r.next, r.adding); }
+                return;
               }
+              nav.onKeyDown(e);
             }}
             style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: isMobile ? '11px 12px' : '9px 12px',
               fontSize: isMobile ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
           {teams && <TeamPicks teams={teams} people={people} selected={picked} query={q} inset={12} rowPad="8px 12px"
             onSaveTeam={onSaveTeam} onChange={pickTeam} />}
-          {top.length > 0 && caption('Frequent')}
-          {top.map((o) => row(o, 'f:'))}
+          {top.length > 0 && caption(topLabel)}
+          {top.map((o, i) => row(o, 'f:', i))}
           {top.length > 0 ? caption('All') : (teamRows > 0 && shown.length > 0 && caption('People'))}
-          {shown.map((o) => row(o))}
+          {shown.map((o, i) => row(o, '', top.length + i))}
           {shown.length === 0 && teamRows === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>{query ? `No matches for “${q.trim()}”.` : emptyText}</div>}
         </SelectMenu>
       )}

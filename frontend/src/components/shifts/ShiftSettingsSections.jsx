@@ -17,6 +17,8 @@ import { useNameResolver } from '../../lib/useNameResolver';
 import { useRole } from '../../contexts/RoleContext';
 import { formatHHMM } from '../../lib/datetime';
 import { useListNav } from '../../lib/listNav';
+import { matchPeople } from '../../lib/peopleSearch';
+import { PersonSelect } from '../../tasks/components';
 import AsyncSection, { Spinner, SkeletonBlocks } from '../AsyncState';
 import { Avatar } from '../ShiftScheduleExtras';
 import { SHIFT_COLORS, orderGroups, alpha, DEFAULT_SHIFT_COLOR } from './shiftLib';
@@ -696,7 +698,8 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
         workSiteId: '', weatherDeciders: [], weatherAlerts: true, companyId: company || '' });
   };
   const toggleMember = (em) => setForm((f) => ({ ...f, members: f.members.includes(em) ? f.members.filter((x) => x !== em) : [...f.members, em] }));
-  const listed = directory.filter((p) => !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()));
+  // First-name matches first, as in every people picker (lib/peopleSearch.js).
+  const listed = matchPeople(directory, q);
   // Up / Down / Enter in the member search (lib/listNav.js), once typed.
   const memberNav = useListNav(listed, { open: !!q.trim(), query: q, onPick: (p) => toggleMember(p.email) });
 
@@ -782,11 +785,9 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
                   {(form.schedulers || []).map((em) => (
                     <button key={em} type="button" style={chip(true)} aria-label={`Remove scheduler ${who(em)}`} onClick={() => setForm({ ...form, schedulers: form.schedulers.filter((x) => x !== em) })}>{who(em)} ×</button>
                   ))}
-                  <select className="form-input" value="" aria-label="Add a scheduler" style={{ width: 'auto', fontSize: 12.5 }}
-                    onChange={(e) => { const em = e.target.value; if (em) setForm({ ...form, schedulers: [...(form.schedulers || []), em] }); }}>
-                    <option value="">Add a scheduler…</option>
-                    {directory.filter((p) => !p.external && !(form.schedulers || []).includes(p.email)).map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
-                  </select>
+                  <PersonSelect value={null} allowNone={false} placeholder="Add a scheduler…" ariaLabel="Add a scheduler" style={{ width: 240, fontSize: 12.5 }}
+                    people={directory.filter((p) => !p.external && !(form.schedulers || []).includes(p.email))}
+                    onChange={(em) => { if (em) setForm({ ...form, schedulers: [...(form.schedulers || []), em] }); }} />
                 </div>
               </div>
               <div style={{ marginTop: 14 }}>
@@ -808,11 +809,9 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
                       {(form.weatherDeciders || []).map((em) => (
                         <button key={em} type="button" style={chip(true)} aria-label={`Remove weather decider ${who(em)}`} onClick={() => setForm({ ...form, weatherDeciders: form.weatherDeciders.filter((x) => x !== em) })}>{who(em)} ×</button>
                       ))}
-                      <select className="form-input" value="" aria-label="Add a weather decider" style={{ width: 'auto', fontSize: 12.5 }}
-                        onChange={(e) => { const em = e.target.value; if (em) setForm({ ...form, weatherDeciders: [...(form.weatherDeciders || []), em] }); }}>
-                        <option value="">Add a decider…</option>
-                        {directory.filter((p) => !(form.weatherDeciders || []).includes(p.email)).map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
-                      </select>
+                      <PersonSelect value={null} allowNone={false} placeholder="Add a decider…" ariaLabel="Add a weather decider" style={{ width: 240, fontSize: 12.5 }}
+                        people={directory.filter((p) => !(form.weatherDeciders || []).includes(p.email))}
+                        onChange={(em) => { if (em) setForm({ ...form, weatherDeciders: [...(form.weatherDeciders || []), em] }); }} />
                     </div>
                   </div>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>

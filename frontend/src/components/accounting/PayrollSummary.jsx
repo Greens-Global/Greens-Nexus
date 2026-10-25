@@ -10,6 +10,8 @@ import { useTableSync } from './tableSync';
 import { EMPTY_DIMS, downloadBlob, fetchBuckets, resolveConfig } from './reportModel';
 import { linesFile } from './linesExport';
 import { useAccountingPrefs } from './prefs';
+import { matchPeople } from '../../lib/peopleSearch';
+import { useListNav } from '../../lib/listNav';
 import { NO_EMPLOYEE, pickEmployees, resolveNoEmployee, summarize, tableOf } from './payrollSummaryModel';
 import {
   PAYROLL_SUMMARY_DEFAULT_PRESET, PAYROLL_SUMMARY_EMPLOYEES_AS, PAYROLL_SUMMARY_EMPLOYEE_FROM_DESCRIPTION, PAYROLL_SUMMARY_FALLBACK_MAX_LINES, PAYROLL_SUMMARY_JOURNAL,
@@ -39,9 +41,11 @@ function EmployeePicker({ employees, value, onChange }) {
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [open]);
-  const shown = employees.filter((e) => !q.trim() || e.name.toLowerCase().includes(q.trim().toLowerCase()));
+  // Ranked like every people picker: first-name prefix, then another word, then any hit.
+  const shown = matchPeople(employees, q);
   const label = !value.length ? 'All Employees' : value.length === 1 ? employees.find((e) => e.key === value[0])?.name || '1 employee' : `${value.length} Employees`;
   const toggle = (k) => onChange(value.includes(k) ? value.filter((x) => x !== k) : [...value, k]);
+  const nav = useListNav(shown, { open, query: q, onPick: (e) => toggle(e.key) });
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label="Employees"
@@ -51,13 +55,14 @@ function EmployeePicker({ employees, value, onChange }) {
       {open && (
         <div role="listbox" aria-label="Employees" aria-multiselectable="true"
           style={{ position: 'absolute', zIndex: 30, top: 34, left: 0, width: 300, maxHeight: 360, overflowY: 'auto', ...card, padding: 8, display: 'grid', gap: 4 }}>
-          <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an employee" aria-label="Find an employee" style={{ ...control, width: '100%' }} />
+          <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an employee" aria-label="Find an employee" style={{ ...control, width: '100%' }}
+            {...nav.inputProps} onKeyDown={nav.onKeyDown} />
           <div style={{ display: 'flex', gap: 8, fontSize: '0.74rem' }}>
             <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '2px 8px' }} onClick={() => onChange([])}>All</button>
             <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '2px 8px' }} onClick={() => onChange(shown.map((e) => e.key))}>Only These</button>
           </div>
-          {shown.map((e) => (
-            <label key={e.key || '~none'} role="option" aria-selected={value.includes(e.key)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', cursor: 'pointer' }}>
+          {shown.map((e, i) => (
+            <label key={e.key || '~none'} {...nav.optionProps(i)} aria-selected={value.includes(e.key)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', cursor: 'pointer' }}>
               <input type="checkbox" checked={value.includes(e.key)} onChange={() => toggle(e.key)} /> {e.name}
             </label>
           ))}

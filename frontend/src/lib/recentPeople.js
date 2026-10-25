@@ -17,7 +17,9 @@ export function readRecentPeople() {
 
 export function noteRecentPerson(email) {
   const em = String(email || '').toLowerCase();
-  if (!em) return;
+  // Real addresses only: a picker that keys someone without a work email by
+  // a stand-in ("id:42") must not spend a Recent slot on them.
+  if (!em.includes('@')) return;
   try { localStorage.setItem(KEY, JSON.stringify([em, ...readRecentPeople().filter((e) => e !== em)].slice(0, MAX))); }
   catch { /* storage blocked */ }
 }
