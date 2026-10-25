@@ -578,7 +578,7 @@ export const IMPL_PHASES = [
     summary: 'See Nexus as each kind of person, prove each flow end to end, and fix what is off.',
     why: 'Setup screens show what was configured; only acting as real people shows what they will experience. One person per role and tier, walked through their day, catches the wrong module, the missing manager and the misrouted message before anyone else sees it.',
     steps: [
-      { title: 'Act as each kind of person', where: 'Settings > Tools > Act As', view: 'admin-console', sub: 'actas', items: [
+      { title: 'Act as each kind of person', where: 'Profile menu (top right) > Tools > Act As', items: [
         'Pick one person per job role and tier (an employee, a supervisor, a manager, HR). Check their menu, their Workday, their People view and their approvals.',
       ]},
       { title: 'Prove the flows', items: [

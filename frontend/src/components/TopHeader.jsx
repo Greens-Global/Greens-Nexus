@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Scale, Wrench } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Scale } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
 import { TabGroupButton, useHeaderTabs } from "./ModuleTabs";
@@ -35,6 +35,7 @@ import SearchResults from './search/SearchResults';
 
 import { isSearchShortcut, isPhone } from '../lib/keys';
 import { useBuildModeMenu, BuildModeChip } from '../devnotes/BuildModeChip';   // Build Mode (Oct 24 2026)
+import { ToolsSection, ActAsFinder } from './ToolsMenu';   // profile menu Tools (Oct 25 2026)
 
 const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘' : 'Ctrl';
 
@@ -99,6 +100,15 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   }, []);
 
   const [open,         setOpen]         = useState(false);
+  // '' = the menu, 'actas' = the Act As finder in its place (Oct 25 2026).
+  const [menuView,     setMenuView]     = useState('');
+  const openActAs = useCallback(() => setMenuView('actas'), []);
+  const pillRef = useRef(null);
+  // Back from the finder: focus lands on the Act As row it came from.
+  const backToMenu = useCallback(() => {
+    setMenuView('');
+    requestAnimationFrame(() => dropRef.current?.querySelector('[data-tools-actas]')?.focus());
+  }, []);
   // Build Mode (Oct 24 2026): the menu row shows only when the server says the
   // person has it; the chip beside the profile pill shows while it is on.
   const buildMode = useBuildModeMenu();
@@ -204,6 +214,19 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  // Esc: the Act As finder goes back to the menu, the menu closes.
+  useEffect(() => {
+    if (!open) return undefined;
+    function onKey(e) {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault();
+      if (menuView) backToMenu();
+      else { setOpen(false); pillRef.current?.focus(); }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, menuView, backToMenu]);
 
   // The highlighted row, clamped: a shrinking result set never strands it.
   const activeIdx = search.rows.length ? Math.min(searchIdx, search.rows.length - 1) : 0;
@@ -328,7 +351,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
 
         {/* User profile pill */}
         <div className="header-user-wrap" ref={dropRef}>
-          <button className="header-user-pill" onClick={() => setOpen(o => !o)} title="Account" aria-label="Account menu" aria-haspopup="menu" aria-expanded={open}>
+          <button ref={pillRef} className="header-user-pill" onClick={() => { setMenuView(''); setOpen(o => !o); }} title="Account" aria-label="Account menu" aria-haspopup="menu" aria-expanded={open}>
             <div className="header-avatar">
               {photo
                 ? <img src={photo} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
@@ -341,7 +364,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
             <ChevronDown size={13} style={{ color: 'var(--muted)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
           </button>
 
-          {open && (
+          {open && menuView === 'actas' && (
+            <div className="header-user-dropdown">
+              <ActAsFinder onBack={backToMenu} />
+            </div>
+          )}
+          {open && menuView !== 'actas' && (
             <div className="header-user-dropdown">
 
               {/* ── Profile card ─────────────────────────────────── */}
@@ -382,11 +410,6 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <button className="hud-item" onClick={() => { setOpen(false); setMyProfileOpen(true); }}>
                 <User size={14} /> Profile
               </button>
-              {buildMode.enabled && (
-                <button className="hud-item" onClick={() => { setOpen(false); buildMode.toggle(); }} aria-pressed={buildMode.on}>
-                  <Wrench size={14} /> {buildMode.on ? 'Build Mode Off' : 'Build Mode'}
-                </button>
-              )}
               <button className="hud-item" onClick={() => { setOpen(false); openChangelog(); }}>
                 <Sparkles size={14} /> What's New
               </button>
@@ -405,10 +428,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                 <Scale size={14} /> Legal
               </button>
 
-              {/* Act As and Audit Logs live in Settings (the Tools and Audit
-                  Logs tabs) - neither belongs in this personal menu.
-                  The "Exit Act As" affordance stays available at all times via
-                  the sticky orange banner below, independent of this menu. */}
+              {/* Tools (Neil, Oct 25 2026): Act As, Build Mode and Testing
+                  under one label, each row only for the
+                  people who can use it - components/ToolsMenu.jsx. The sticky
+                  orange banner below still offers Exit Act As everywhere. */}
+              <ToolsSection onClose={() => setOpen(false)} onOpenActAs={openActAs} />
 
               <div className="hud-divider" />
               <button className="hud-item hud-signout" onClick={handleSignOut}>
