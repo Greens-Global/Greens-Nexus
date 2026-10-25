@@ -11,7 +11,7 @@ import { api } from '../api';
 import { useRole, ROLES } from '../contexts/RoleContext';
 import { useBuildModeMenu } from '../devnotes/BuildModeChip';
 import { NAV, isNavItemVisible } from './Sidebar';
-import { findPeople, hitRuns } from '../lib/peopleSearch';
+import { findPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
 import { usePhotoMap } from '../lib/peoplePhotos';
 import { isTypingTarget } from '../lib/keys';
@@ -35,19 +35,6 @@ function readRecent() {
 function saveRecent(email) {
   try { localStorage.setItem(RECENT_KEY, JSON.stringify([email, ...readRecent().filter((e) => e !== email)].slice(0, 3))); }
   catch { /* storage blocked - recents are optional */ }
-}
-
-function Hits({ text, words }) {
-  return hitRuns(text, words).map((r, i) => (r.hit ? <mark key={i} className="hud-hit">{r.text}</mark> : <span key={i}>{r.text}</span>));
-}
-
-// Title (else role), then the one place-ish field worth showing: one a typed
-// word matched if any, else company, else site.
-function subParts(p, words) {
-  const first = p.title || p.roleLabel || '';
-  const rest = [p.site, p.company, p.department].filter((v) => v && v !== first);
-  const hit = rest.find((v) => words.some((w) => v.toLowerCase().includes(w)));
-  return [first, hit || p.company || p.site || ''].filter(Boolean);
 }
 
 function Avatar({ p, photo }) {
@@ -120,12 +107,7 @@ export function ActAsFinder({ onBack }) {
             <button type="button" key={p.email} className="hud-person" {...nav.optionProps(i)} onClick={() => pick(p)}
               disabled={!!starting} style={starting && starting !== p.email ? { opacity: 0.5 } : undefined}>
               <Avatar p={p} photo={p.photoUrl || photos[p.email]} />
-              <span className="hud-person-text">
-                <b><Hits text={p.name} words={found.words} /></b>
-                <span>{subParts(p, found.words).map((s, k) => (
-                  <span key={k}>{k > 0 && ' · '}<Hits text={s} words={found.words} /></span>
-                ))}</span>
-              </span>
+              <span className="hud-person-text"><b>{p.name}</b></span>
               {starting === p.email && <span className="hud-person-note">Starting…</span>}
             </button>
           ))}

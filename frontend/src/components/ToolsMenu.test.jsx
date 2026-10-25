@@ -143,7 +143,8 @@ describe('Act As finder', () => {
     const rows = screen.getAllByRole('option');
     expect(rows).toHaveLength(1);
     expect(rows[0].textContent).toContain('Maria Garcia');
-    expect(rows[0].textContent).toContain('HR Coordinator · Austin');
+    // Names only on the row (Neil, Oct 25 2026) - no title or site line.
+    expect(rows[0].textContent).not.toContain('HR Coordinator');
   });
 
   it('starts on Enter and remembers the person as a recent', async () => {

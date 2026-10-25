@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findPeople, hitRuns } from './peopleSearch';
+import { findPeople } from './peopleSearch';
 
 const P = [
   { name: 'Charmi Desai', email: 'charmi@x.com', title: 'HR Manager', site: 'Escondido' },
@@ -26,13 +26,5 @@ describe('findPeople', () => {
     const r = findPeople(P, 'a', { fields: ['title'], limit: 2 });
     expect(r.list).toHaveLength(2);
     expect(r.total).toBe(3);
-  });
-});
-
-describe('hitRuns', () => {
-  it('marks every typed word, case-insensitively', () => {
-    expect(hitRuns('HR Coordinator', ['hr', 'coord'])).toEqual([
-      { text: 'HR', hit: true }, { text: ' ', hit: false }, { text: 'Coord', hit: true }, { text: 'inator', hit: false },
-    ]);
   });
 });
