@@ -654,6 +654,28 @@ def month_status(expected: float, received: float, lease: dict, year: int, month
     return "short" if received > _PAID_WITHIN else "unpaid"
 
 
+# 10/27 (Charmi, on MRE; the same frequencies here): a quarterly / semi-annual
+# / annual source is settled by a payment anywhere in its calendar quarter /
+# half / year. A payment in another month of the period already settles the
+# due month (apply_credits); until the period is over with nothing received
+# anywhere in it, the due month is not yet Unpaid or Late - it is Upcoming.
+PERIODIC = ("quarterly", "semi_annual", "annual")
+
+
+def period_open(lease: dict, year: int, month: int, received: list[float], in_force: list[bool], today: date) -> bool:
+    """Whether a periodic source's calendar period holding `month` is still
+    running (its last month in force is this month or later) with nothing
+    received in any month of it."""
+    if (lease.get("frequency") or "monthly") not in PERIODIC:
+        return False
+    step = lease_step(lease)
+    first = (month - 1) // step * step + 1
+    block = [m for m in range(first, min(first + step, 13)) if in_force[m - 1]]
+    if not block or (year, block[-1]) < (today.year, today.month):
+        return False
+    return all(received[m - 1] <= _PAID_WITHIN for m in block)
+
+
 def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today: date) -> dict:
     """The year, lease by lease and month by month. `receipts` is
     {(customer_id, 'YYYY-MM'): {gl_code: credit - debit}} for a tenant read
@@ -663,18 +685,25 @@ def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today
     totals = [{"month": f"{year}-{m:02d}", "expected": 0.0, "received": 0.0} for m in range(1, 13)]
     for lease in leases:
         cells, to_date, outside = [], 0.0, []
+        cid = lease["customerId"]
+        ec = lease.get("entityCode", "")
+        bases = [expected_for_month(lease, year, m) for m in range(1, 13)]
+        accounts_by = []
         for m in range(1, 13):
             key = f"{year}-{m:02d}"
-            extra = months.get(f"{lease['id']}:{key}") or {"adjustment": 0, "note": ""}
-            base = expected_for_month(lease, year, m)
-            cid = lease["customerId"]
             # A lease with an entity reads ITS location only, never the customer's
             # consolidated total - that key is there whenever the same customer
             # also has a lease with no entity (item 24 retest, 10/23).
-            ec = lease.get("entityCode", "")
             posted = (receipts.get((ec, cid, key), {}) if ec else receipts.get((cid, key), {})) if cid else {}
-            by_account = {code: _r2(v) for code, v in posted.items() if code in lease["incomeAccounts"]}
-            received = _r2(sum(by_account.values()))
+            accounts_by.append({code: _r2(v) for code, v in posted.items() if code in lease["incomeAccounts"]})
+        received_by = [_r2(sum(a.values())) for a in accounts_by]
+        in_force_by = [b is not None for b in bases]
+        for m in range(1, 13):
+            key = f"{year}-{m:02d}"
+            extra = months.get(f"{lease['id']}:{key}") or {"adjustment": 0, "note": ""}
+            base = bases[m - 1]
+            by_account = accounts_by[m - 1]
+            received = received_by[m - 1]
             if base is None and abs(received) <= _PAID_WITHIN and not extra["note"]:
                 cells.append({"month": key, "inForce": False})
                 continue
@@ -691,6 +720,8 @@ def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today
                 continue
             expected = _r2(max(0.0, (base or 0) - extra["adjustment"]))
             status = month_status(expected, received, lease, year, m, today)
+            if status in ("unpaid", "late") and period_open(lease, year, m, received_by, in_force_by, today):
+                status = "upcoming"
             balance = _r2(expected - received)
             if status not in ("upcoming",):
                 to_date = _r2(to_date + balance)

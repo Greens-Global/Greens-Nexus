@@ -450,7 +450,7 @@ describe('MreTab standard table view', () => {
     const file = downloadBlob.mock.calls[0][1];
     const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
     const lines = text.replace(/^\s+/, '').split('\r\n');
-    expect(lines[0].startsWith('Vendor No.,Vendor,Category,Frequency,Entity,Expected,Jan')).toBe(true);
+    expect(lines[0].startsWith('Vendor No.,Vendor,Status,Category,Frequency,Entity,Expected,Jan')).toBe(true);
     expect(lines[0]).not.toContain('Notes');
     expect(text).toContain('San Diego Gas & Electric');
     expect(text).not.toContain('Microsoft');

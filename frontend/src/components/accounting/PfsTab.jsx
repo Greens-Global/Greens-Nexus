@@ -15,6 +15,7 @@ import PfsAffiliated, { PfsExecutiveProfiles } from './PfsAffiliated';
 import { US_STATES, normalizePfsDetails, zipError } from './pfsAddress';
 import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, usePfsLocks } from './PfsLock';
 import { PersonSelect } from '../../tasks/components';
+import { CompletenessButton, CompletenessPanel, PFS_STALE_DAYS, flashRow, gapCount, pfsGaps, rowSelector } from './completeness';
 
 // Accounting -> PFS: personal financial statements (Neil, Sep 25).
 //
@@ -329,6 +330,18 @@ export default function PfsTab({ canEdit = false }) {
     })
     .catch((e) => setError(e?.message || 'Could not change the lines.'));
   const pickFile = (id) => { setOpenId(id); setSection('statement'); };
+  // 10/27 (Neil, item 07): the completeness check - figures kept by hand not
+  // updated in 90 days before the statement date; a click opens the line's tab
+  // and shows the line.
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [focus, setFocus] = useState(null);
+  const gaps = useMemo(() => (profile && fileOpen ? pfsGaps(profile.lines, asOf, SECTION_LABEL) : []), [profile, fileOpen, asOf]);
+  const pickGap = (g) => { setSection(g.section); setFocus((f) => ({ id: g.id, n: (f?.n || 0) + 1 })); };
+  useEffect(() => {
+    if (!focus) return undefined;
+    const raf = requestAnimationFrame(() => flashRow(rowSelector(focus.id, 'data-line')));
+    return () => cancelAnimationFrame(raf);
+  }, [focus, section]);
   const current = (profiles || []).find((p) => p.id === openId) || null;
 
   return (
@@ -362,6 +375,7 @@ export default function PfsTab({ canEdit = false }) {
             {profile && fileOpen && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 {locks.untilOf(profile.id) && <PfsLockNow fileId={profile.id} until={locks.untilOf(profile.id)} onLocked={locks.markLocked} />}
+                <CompletenessButton count={gapCount(gaps)} open={completeOpen} onClick={() => setCompleteOpen((o) => !o)} />
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>As of</span>
                 <input type="date" value={asOf} aria-label="Statement date" style={control} onChange={(e) => e.target.value && setAsOf(e.target.value)} />
                 <SyncButton onSync={onSync} busy={syncing} syncedAt={ts.syncedAt} what="Statement" />
@@ -455,6 +469,10 @@ export default function PfsTab({ canEdit = false }) {
       {creating && (
         <NewGuarantor onClose={() => setCreating(false)}
           onCreate={(body) => api.createPfsProfile(body).then((p) => loadProfiles().then(() => { locks.markOpen(p.id, new Date(Date.now() + 30 * 60_000).toISOString()); setCreating(false); setOpenId(p.id); setSection('borrower'); }))} />
+      )}
+      {completeOpen && profile && fileOpen && (
+        <CompletenessPanel caption={`PFS · ${profile.displayName || profile.name} · as of ${formatDate(asOf)}`} groups={gaps} onPick={pickGap} onClose={() => setCompleteOpen(false)}
+          rule={`A gap is a figure kept by hand that was not updated in the ${PFS_STALE_DAYS} days before the statement date (As of), or has no date. Figures read from the ledger are always current.`} />
       )}
       {showLog && <PfsAccessLog files={profiles || []} initialFileId={openId} onClose={() => setShowLog(false)} />}
     </AsyncSection>

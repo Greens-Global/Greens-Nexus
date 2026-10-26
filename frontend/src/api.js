@@ -2285,6 +2285,8 @@ export const api = {
   getRecurringSettings:  () => req('/accounting/mre/settings'),
   saveRecurringSettings: (body) => req('/accounting/mre/settings', { method: 'PUT', body: JSON.stringify(body) }),
   runRecurringStaleCheck: () => req('/accounting/mre/stale-check', { method: 'POST' }),
+  // 10/27: whether that check (or the one a new months setting started) has finished.
+  getRecurringStaleCheck: () => req('/accounting/mre/stale-check'),
   suggestMreEgnyteFolder: (vendor) => req(`/accounting/mre/egnyte-suggest?vendor=${encodeURIComponent(vendor)}`),
 
   // PFS file lock + Affiliated Entities + an executive profile per borrower

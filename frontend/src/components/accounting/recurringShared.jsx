@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, ChevronLeft, ChevronRight, Settings, X } from 'lucide-react';
 import { api } from '../../api';
-import { formatDate } from '../../lib/datetime';
+import { formatDate, formatDateTime } from '../../lib/datetime';
 import { control, fitSelect } from './reportControls';
 import { EgnyteField } from './LoanDialogs';
 
@@ -99,21 +99,82 @@ export function PossiblyEndedChip({ flag, kind = 'mre' }) {
 
 const lbl = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 
+const RECHECK_POLL_MS = 3000;
+const RECHECK_GIVE_UP_MS = 10 * 60_000;
+
+/** True when a finished check began at or after `since` (both the server's clock). */
+export function checkFinishedSince(lastCheck, since) {
+  return !!lastCheck?.startedAt && (!since || lastCheck.startedAt >= since);
+}
+
+/** "Last checked 10/27/2026 3:05 PM with 5 months: 33 lines Possibly Ended." */
+export function lastCheckText(last) {
+  if (!last?.at) return 'Not checked yet.';
+  const flagged = ['mri', 'mre'].reduce((s, k) => s + (Number(last.result?.[k]?.possiblyEnded) || 0), 0);
+  const failed = ['mri', 'mre'].some((k) => last.result?.[k]?.error);
+  return `Last checked ${formatDateTime(last.at)} with ${last.months} ${last.months === 1 ? 'month' : 'months'}: ${flagged} ${flagged === 1 ? 'line' : 'lines'} Possibly Ended${failed ? ' (part of the ledger could not be read)' : ''}.`;
+}
+
+/**
+ * 10/27 (Urmi: "possibly ended settings logic is not working"): saving a new
+ * number of months (or Check Now) runs the check on the server right away;
+ * this waits for that run to finish - a finished check newer than `since` -
+ * then calls onDone, and the screen reloads its rows, so the flags, the
+ * counts and the export follow without a reload or a Sync. Kept by the
+ * screen, not the Settings button: the bar's More menu remounts the button.
+ */
+export function useStaleRecheck(onDone) {
+  const [state, setState] = useState({ status: '', last: null });   // status: '' | 'running' | 'done' | 'slow'
+  const timer = useRef(null);
+  const doneRef = useRef(onDone);
+  useEffect(() => { doneRef.current = onDone; }, [onDone]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const start = useCallback((since) => {
+    clearTimeout(timer.current);
+    const began = Date.now();
+    setState((s) => ({ ...s, status: 'running' }));
+    const again = () => {
+      if (Date.now() - began > RECHECK_GIVE_UP_MS) { setState((s) => ({ ...s, status: 'slow' })); return; }
+      timer.current = setTimeout(poll, RECHECK_POLL_MS);
+    };
+    const poll = () => {
+      api.getRecurringStaleCheck()
+        .then((d) => {
+          if (!checkFinishedSince(d?.lastCheck, since)) { again(); return; }
+          setState({ status: 'done', last: d.lastCheck });
+          doneRef.current?.();
+        })
+        .catch(again);
+    };
+    timer.current = setTimeout(poll, RECHECK_POLL_MS);
+  }, []);
+  const dismiss = useCallback(() => setState((s) => ({ ...s, status: '' })), []);
+  return { ...state, start, dismiss };
+}
+
+/** The screen's one line while a re-check runs (and if it takes too long). */
+export function RecheckStatus({ recheck }) {
+  if (recheck?.status === 'running') return <span role="status" style={{ color: 'var(--text-muted)' }}>Re-checking Possibly Ended...</span>;
+  if (recheck?.status === 'slow') return <span role="status" style={{ color: '#92400e' }}>The Possibly Ended check is taking longer than usual; Sync later to see its flags.</span>;
+  return null;
+}
+
 /** Settings for MRI and MRE (full access): Possibly Ended after N months, the Egnyte root of the vendor folders, Check Now. */
-export function RecurringSettingsButton({ onChecked }) {
+export function RecurringSettingsButton({ onChecked, recheck = null }) {
   const [open, setOpen] = useState(false);
+  const own = useStaleRecheck(onChecked);
   return (
     <>
       <button type="button" className="secondary-btn" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-label="Settings" title="Possibly Ended check and vendor folders"
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}><Settings size={14} /> <span className="acct-bar-label">Settings</span></button>
       {/* On the page, not inside the bar: from the bar's More menu (item 02) it
           would sit under the menu's layer and hide when the menu closes. */}
-      {open && createPortal(<RecurringSettingsDialog onClose={() => setOpen(false)} onChecked={onChecked} />, document.body)}
+      {open && createPortal(<RecurringSettingsDialog onClose={() => setOpen(false)} recheck={recheck || own} />, document.body)}
     </>
   );
 }
 
-function RecurringSettingsDialog({ onClose, onChecked }) {
+function RecurringSettingsDialog({ onClose, recheck }) {
   const [s, setS] = useState(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -128,7 +189,13 @@ function RecurringSettingsDialog({ onClose, onChecked }) {
     setBusy('save');
     setError('');
     api.saveRecurringSettings({ staleMonths: Number(s.staleMonths) || 3, egnyteRoot: s.egnyteRoot || '' })
-      .then((d) => { setS(d); setDone('Saved.'); })
+      .then((d) => {
+        setS(d);
+        if (d?.recheck) {
+          recheck.start(d.recheck.since);
+          setDone(`Saved. Every MRI and MRE line is being re-checked with ${d.staleMonths} ${d.staleMonths === 1 ? 'month' : 'months'} now; the Possibly Ended flags on this screen update by themselves when it is done.`);
+        } else setDone('Saved.');
+      })
       .catch((e) => setError(e?.message || 'Could not save.'))
       .finally(() => setBusy(''));
   };
@@ -137,12 +204,13 @@ function RecurringSettingsDialog({ onClose, onChecked }) {
     setError('');
     api.runRecurringStaleCheck()
       .then((d) => {
-        setDone(d?.started ? 'The check is running. It reads the ledger for every line and takes a few minutes; the Possibly Ended flags show when you reload.' : 'A check is already running.');
-        onChecked?.();
+        recheck.start(d?.since);
+        setDone('The check is running. The Possibly Ended flags on this screen update by themselves when it is done.');
       })
       .catch((e) => setError(e?.message || 'Could not run the check.'))
       .finally(() => setBusy(''));
   };
+  const last = recheck.status === 'done' && recheck.last ? recheck.last : s?.lastCheck;
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
       <div className="modal-content" role="dialog" aria-modal="true" aria-label="MRI and MRE settings" onClick={(e) => e.stopPropagation()}
@@ -158,7 +226,10 @@ function RecurringSettingsDialog({ onClose, onChecked }) {
                 <label style={lbl} htmlFor="rs-months">Possibly Ended After (Months)</label>
                 <input id="rs-months" type="number" min={1} max={24} step={1} value={s.staleMonths} onChange={(e) => setS({ ...s, staleMonths: e.target.value })} style={{ ...control, width: 120 }} />
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                  Once a day, an active MRI source or MRE line with nothing posted in this many months (at least one full cycle of its frequency) is flagged Possibly Ended, and one accounting task is opened for it - assigned to the entity&apos;s accountants in Ask My Accountant&apos;s settings. The task closes itself when money posts again or the line is ended. Nothing about the line is changed.
+                  Once a day, and right away when a new number is saved, an active MRI source or MRE line with nothing posted in this many months (at least one full cycle of its frequency) is flagged Possibly Ended, and one accounting task is opened for it - assigned to the entity&apos;s accountants in Ask My Accountant&apos;s settings. The task closes itself when money posts again or the line is ended. Nothing about the line is changed.
+                </div>
+                <div data-testid="last-check" style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                  {recheck.status === 'running' ? 'Checking now...' : lastCheckText(last)}
                 </div>
               </div>
               <EgnyteField id="rs-root" labelText="Vendor Folders Root (Egnyte)" value={s.egnyteRoot || ''} onChange={(v) => setS({ ...s, egnyteRoot: v })} />
@@ -169,7 +240,7 @@ function RecurringSettingsDialog({ onClose, onChecked }) {
           {done && <div role="status" style={{ fontSize: '0.82rem', color: 'var(--ok-fg, #15803d)' }}>{done}</div>}
         </div>
         <div className="modal-footer" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button type="button" className="secondary-btn" onClick={check} disabled={!!busy} title="Run the daily Possibly Ended check now">{busy === 'check' ? 'Checking...' : 'Check Now'}</button>
+          <button type="button" className="secondary-btn" onClick={check} disabled={!!busy || recheck.status === 'running'} title="Run the daily Possibly Ended check now">{busy === 'check' || recheck.status === 'running' ? 'Checking...' : 'Check Now'}</button>
           <span style={{ flex: 1 }} />
           <button type="button" className="secondary-btn" onClick={onClose}>Close</button>
           <button type="button" className="primary-btn" onClick={save} disabled={!s || !!busy}>{busy === 'save' ? 'Saving...' : 'Save'}</button>
