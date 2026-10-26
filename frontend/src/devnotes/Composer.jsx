@@ -67,7 +67,7 @@ export default function Composer({
   pick, draft, onChange, onCancel, onSave, saving = '', settings,
   capture = 'idle', recording = null, onRecord, onStopRecord, recorded = null,
   voiceOn = false, interim = '', onVoiceStart, onVoiceStop,
-  markupCount = 0, onClearMarkup, view,
+  markupCount = 0, onClearMarkup, view, claudeConnected = true,
 }) {
   const isMobile = useIsMobile();
   const ref = useRef(null);
@@ -108,7 +108,10 @@ export default function Composer({
   // Someone else's area (v2): the server says the pin would be held for them,
   // so it is never sent to Claude Code from here - one button, Save For <Owner>.
   const owner = useHeldOwner(pick?.target?.source?.file || '');
-  const sendInstantly = !!settings?.sendInstantly && !owner;
+  // Your Claude Code is not listening: save only - Done > Connect sets it up,
+  // and nothing is sent to wait for a terminal that is not there.
+  const noClaude = !claudeConnected && !owner;
+  const sendInstantly = !!settings?.sendInstantly && !owner && !noClaude;
   const busy = !!saving || uploading > 0 || !!recording;
   const kindMeta = KINDS.find((k) => k.id === draft.kind) || KINDS[0];
   const hint = looksLike(pick?.target, view);
@@ -116,7 +119,7 @@ export default function Composer({
   return (
     <div ref={ref} className="bm-card bm-composer" role="dialog" aria-label="New Pin" data-testid="bm-composer"
       style={pos ? { left: pos.left, top: pos.top } : undefined}
-      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel?.(false); } if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); onSave?.(!owner && !sendInstantly); } }}>
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel?.(false); } if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); onSave?.(!owner && !sendInstantly && !noClaude); } }}>
       <div className="bm-card-head">
         <span className="bm-pin bm-pin-inline" style={{ '--c': kindMeta.color }} aria-hidden="true"><span className="bm-pin-no">+</span></span>
         <div className="bm-card-title">{draft.edit ? 'New Edit Pin' : 'New Pin'}{pick?.mode === 'region' ? <span className="bm-dim bm-small"> · region</span> : null}</div>
@@ -189,6 +192,7 @@ export default function Composer({
             {recorded.transcript && <details className="bm-details"><summary>Transcript</summary><pre className="bm-pre">{recorded.transcript}</pre></details>}
           </div>
         )}
+        {noClaude && <div className="bm-hint bm-small" data-testid="bm-no-claude">Your Claude Code is not connected - this saves the pin; connect it from Done to send.</div>}
         {err && <div className="bm-error" role="alert">{err}</div>}
       </div>
       <div className="bm-card-foot">
@@ -205,7 +209,7 @@ export default function Composer({
             {saving === 'save' ? <Loader2 size={14} className="bm-spin" /> : <Check size={14} />} {sendInstantly ? 'Save And Send' : 'Save Pin'}
           </button>
         )}
-        {!sendInstantly && !owner && (
+        {!sendInstantly && !owner && !noClaude && (
           <button type="button" className="bm-btn bm-btn-primary" onClick={() => onSave?.(true)} disabled={busy} title={`${MOD}+Enter`}>
             {saving === 'send' ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Save And Send
           </button>

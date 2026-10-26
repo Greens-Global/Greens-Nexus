@@ -1321,6 +1321,8 @@ def _run_migrations():
             # Build Mode -> Teams mirror (Oct 25) - see the Postgres list.
             "ALTER TABLE dev_note_sessions ADD COLUMN teams_chat_id VARCHAR DEFAULT ''",
             "ALTER TABLE dev_note_sessions ADD COLUMN teams_chat_name VARCHAR DEFAULT ''",
+            # Build Mode: a sent pin goes to its sender's Claude Code only (Oct 26) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN dispatched_by VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3057,6 +3059,9 @@ def _run_migrations():
         # to, picked by its author (build_mode_chat.py). models.DevNoteSession.
         "ALTER TABLE dev_note_sessions ADD COLUMN IF NOT EXISTS teams_chat_id VARCHAR DEFAULT ''",
         "ALTER TABLE dev_note_sessions ADD COLUMN IF NOT EXISTS teams_chat_name VARCHAR DEFAULT ''",
+        # Build Mode (Oct 26): who sent a pin - only that person's Claude Code
+        # (their Build Token's watcher) sees and claims it. models.DevNote.
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS dispatched_by VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

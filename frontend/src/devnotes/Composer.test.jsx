@@ -122,3 +122,15 @@ describe('guessKind', () => {
     expect(guessKind('Shows the wrong date')).toBe('bug');
   });
 });
+
+describe('Composer - your Claude Code is not connected', () => {
+  it('only Save Pin, with a line saying how to send; Ctrl+Enter only saves', () => {
+    const onSave = vi.fn();
+    render(<Composer pick={pickAt('src/tasks/Home.jsx')} draft={draft} onChange={vi.fn()} onCancel={vi.fn()} onSave={onSave} settings={{ sendInstantly: true }} view="tasks" claudeConnected={false} />);
+    expect(screen.queryByRole('button', { name: /Save And Send/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Save Pin/ })).toBeTruthy();
+    expect(screen.getByTestId('bm-no-claude').textContent).toMatch(/not connected/);
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter', ctrlKey: true });
+    expect(onSave).toHaveBeenLastCalledWith(false);
+  });
+});

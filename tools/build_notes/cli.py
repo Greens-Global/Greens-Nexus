@@ -1194,7 +1194,7 @@ def cmd_preview(client, args):
 
 def build_parser():
     parser = argparse.ArgumentParser(prog="build_notes", description="Build Mode command line for Claude Code.")
-    parser.add_argument("--api", help="API base URL (default: NEXUS_API_BASE or the dev API)")
+    parser.add_argument("--api", help="API base URL (default: the Nexus connect.py connected, else NEXUS_API_BASE, else the dev API)")
     parser.add_argument("--token", help="Build Token (default: NEXUS_BUILD_TOKEN or ~/.config/nexus/build-notes.token)")
     sub = parser.add_subparsers(dest="command", required=True)
 

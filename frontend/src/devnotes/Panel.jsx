@@ -4,8 +4,8 @@
 // strip; Settings = Send Instantly, Dispatch Target, Pins On Load, Build
 // Tokens and the watcher one-liner for VS Code.
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { X, Send, ExternalLink, Copy, Check, Loader2, Trash2, Pencil, RotateCcw, KeyRound, MessageSquare, Download } from 'lucide-react';
-import { api } from '../api';
+import { X, Send, ExternalLink, Copy, Check, Loader2, Trash2, Pencil, RotateCcw, KeyRound, MessageSquare, Download, Plug } from 'lucide-react';
+import { api, API_BASE } from '../api';
 import { graphTokenSilent, listMyChats } from '../teamsGraph';
 import { formatDateTime, formatDate } from '../lib/datetime';
 import { toViewUrl } from '../lib/storageView';
@@ -132,6 +132,62 @@ function TeamsChatPick({ settings, onSettings }) {
   );
 }
 
+// Your own Claude Code (Oct 26 2026): Send To Claude Code goes only to the
+// sender's watcher, so the Queue says whether it is there, and connecting is
+// one button and one line pasted into a VS Code terminal (tools/build_notes/
+// connect.py: saves the token and this Nexus's API, adds the VS Code task that
+// starts the watcher with the folder, starts it in that terminal).
+export function connectCommand(token, apiBase) {
+  const win = typeof navigator !== 'undefined' && /Win/.test(navigator.platform || navigator.userAgent || '');
+  return `${win ? 'python' : 'python3'} tools/build_notes/connect.py ${token} --api ${apiBase}`;
+}
+
+// The API this page itself talks to is the Nexus the person is on, so it
+// wins; the server's own public address (claude.apiBase) only when the page
+// uses a relative /api (cookie mode). The server's answer alone was wrong
+// locally: a laptop's NEXUS_API_BASE points at the dev API.
+function apiBaseFor(claude) {
+  if (API_BASE && /^https?:\/\//.test(API_BASE)) return API_BASE.replace(/\/+$/, '');
+  if (claude?.apiBase) return claude.apiBase.replace(/\/+$/, '');
+  try { return new URL(API_BASE || '', window.location.href).href.replace(/\/+$/, ''); } catch { return ''; }
+}
+
+function ConnectClaude({ claude }) {
+  const [minted, setMinted] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const connect = async () => {
+    setBusy(true);
+    try { setMinted(await api.devNotesTokenCreate(`Claude Code ${formatDate(new Date())}`)); }
+    catch (e) { toast(e?.message || 'Could not start the connection.'); }
+    finally { setBusy(false); }
+  };
+  if (claude?.connected) {
+    return <div className="bm-connect is-ok" data-testid="bm-claude-connected"><span className="bm-claude-dot" /> Your Claude Code is connected - Send To Claude Code starts it in your VS Code terminal.</div>;
+  }
+  const cmd = minted?.token ? connectCommand(minted.token, apiBaseFor(claude)) : '';
+  return (
+    <div className="bm-connect" data-testid="bm-connect">
+      <div className="bm-sec-title"><Plug size={13} /> Connect Your Claude Code - Once</div>
+      {!minted ? (
+        <>
+          <div className="bm-small bm-dim">Send To Claude Code starts Claude Code in YOUR VS Code terminal - nobody else&apos;s. Connect it once on this computer.</div>
+          <button type="button" className="bm-btn bm-btn-primary" onClick={connect} disabled={busy}>{busy ? <Loader2 size={14} className="bm-spin" /> : <Plug size={14} />} Connect My Claude Code</button>
+        </>
+      ) : (
+        <>
+          <ol className="bm-steps bm-small">
+            <li>Open the Nexus folder in VS Code.</li>
+            <li>Open a terminal there (Ctrl+`) and paste this line:</li>
+          </ol>
+          <div className="bm-code-row"><code className="bm-code">{cmd}</code><CopyButton text={cmd} label="Copy" /></div>
+          <div className="bm-small bm-dim">Leave that terminal open. From now on VS Code starts it whenever you open the folder (it asks once to allow that).</div>
+          <div className="bm-small"><Loader2 size={12} className="bm-spin" /> Waiting for your Claude Code…</div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Save Report: one HTML file of a Build Session - every pin, its module,
 // comment and marked-up shot - that opens anywhere, no login, attaches to an email.
 async function downloadReport(sessionId) {
@@ -149,6 +205,8 @@ const ROUTE_LABEL = Object.fromEntries((MODULES || []).map((m) => [m.id, m.label
 function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, onDispatched, myEmail, settings, onSettings }) {
   const [sending, setSending] = useState(false);
   const [reporting, setReporting] = useState(false);
+  const claude = useBuildStore((st) => st.claude);
+  const notConnected = claude?.connected === false;     // null = not known yet: Send as before
   const [showDismissed, setShowDismissed] = useState(false);
   const bySession = new Map();
   for (const n of notes) { const k = n.sessionId || ''; if (!bySession.has(k)) bySession.set(k, []); bySession.get(k).push(n); }
@@ -209,10 +267,18 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
         <button type="button" className="bm-btn bm-btn-sm" onClick={report} disabled={!reportSession || reporting} title="Save one HTML file with every comment and screenshot">
           {reporting ? <Loader2 size={13} className="bm-spin" /> : <Download size={13} />} Save Report
         </button>
-        <button type="button" className="bm-btn bm-btn-primary" onClick={send} disabled={!canSend || sending} title={canSend ? 'Send your open pins to the watcher in your terminal' : 'Nothing to send yet'}>
-          {sending ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Send To Claude Code
-        </button>
+        {notConnected ? (
+          <button type="button" className="bm-btn bm-btn-primary" onClick={() => document.querySelector('[data-testid="bm-connect"]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })}
+            title="Your Claude Code is not listening on this computer - connect it once (below)">
+            <Plug size={14} /> Connect Claude Code First
+          </button>
+        ) : (
+          <button type="button" className="bm-btn bm-btn-primary" onClick={send} disabled={!canSend || sending} title={canSend ? 'Starts Claude Code in your own VS Code terminal' : 'Nothing to send yet'}>
+            {sending ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Send To Claude Code
+          </button>
+        )}
       </div>
+      {claude && <ConnectClaude claude={claude} />}
       <div className="bm-list nx-fill" data-testid="bm-queue">
         {loading && !notes.length && <div className="bm-dim">Loading…</div>}
         {!loading && !notes.length && <div className="bm-empty">No pins yet. Press P, click anything on the page and say what should change.</div>}
@@ -381,12 +447,14 @@ function SettingsTab({ settings, onSettings }) {
   const [busy, setBusy] = useState('');
   const [tabCapture, setTabCapture] = useState(wantsTabCapture);   // per browser, like the draft
   const allTools = useBuildStore((s) => s.allTools);
+  const claude = useBuildStore((s) => s.claude);
   const change = async (patch) => {
     setBusy(Object.keys(patch)[0]);
     try { await onSettings(patch); } catch (e) { toast(e?.message || 'The setting was not saved.'); } finally { setBusy(''); }
   };
   return (
     <div className="bm-settings nx-fill">
+      {claude && <section className="bm-settings-sec"><ConnectClaude claude={claude} /></section>}
       <section className="bm-settings-sec">
         <div className="bm-sec-title">Sending</div>
         <Switch label="Send Instantly" hint="Every pin goes to Claude Code the moment it is saved, instead of collecting into a Build Session." checked={!!settings.sendInstantly} disabled={busy === 'sendInstantly'} onChange={(v) => change({ sendInstantly: v })} />

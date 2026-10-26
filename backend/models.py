@@ -8288,6 +8288,10 @@ class DevNote(Base):
     preview_verdict    = Column(String, default="")              # '' | accepted | reopened
     preview_verdict_at = Column(String, default="")
     regression_case_id = Column(String, default="")              # qa_test_cases.id once promoted (= the pin id)
+    # Who sent it (Oct 26 2026): only THEIR Claude Code picks it up - a Build
+    # Token's watcher sees and claims only the pins its owner sent ('' on rows
+    # sent before this = the author). ALTER lines in both migration lists.
+    dispatched_by      = Column(String, default="")
 
 
 class DevNoteSession(Base):

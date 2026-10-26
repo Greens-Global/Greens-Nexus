@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from tools.build_notes import cli, common, preview, repro_template, run_e2e, watch
+from tools.build_notes import cli, common, connect, preview, repro_template, run_e2e, watch
 
 GOOD_TOKEN = "nxbn_" + "a" * 43
 REVOKED_TOKEN = "nxbn_" + "r" * 43
@@ -1937,6 +1937,66 @@ class RunE2ETest(_ServerTestBase):
     def test_cors_ports_and_import_rewrite(self):
         self.assertEqual(run_e2e.cors_ports('["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5180"]'), [5173, 5180])
         self.assertEqual(run_e2e.generated_spec("import { go } from '../helpers.mjs';"), "import { go } from '../../helpers.mjs';")
+
+
+class ConnectTests(unittest.TestCase):
+    """connect.py (Oct 26 2026): one command links this computer's Claude Code
+    to the person's Nexus and makes VS Code start the watcher with the folder."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_task_is_added_to_a_new_tasks_file(self):
+        f = self.tmp / ".vscode" / "tasks.json"
+        self.assertEqual(connect.upsert_task(f, connect.watcher_task("py")), "added")
+        data = json.loads(f.read_text(encoding="utf-8"))
+        self.assertEqual(data["version"], "2.0.0")
+        (task,) = data["tasks"]
+        self.assertEqual(task["label"], connect.TASK_LABEL)
+        self.assertEqual(task["command"], "py")
+        self.assertEqual(task["args"], ["${workspaceFolder}/tools/build_notes/watch.py"])
+        self.assertEqual(task["runOptions"], {"runOn": "folderOpen"})
+
+    def test_task_replaces_its_old_self_and_keeps_the_rest(self):
+        f = self.tmp / "tasks.json"
+        f.write_text(json.dumps({"version": "2.0.0", "tasks": [{"label": "Mine"}, {"label": connect.TASK_LABEL, "command": "old"}]}), encoding="utf-8")
+        self.assertEqual(connect.upsert_task(f, connect.watcher_task("new")), "updated")
+        tasks = json.loads(f.read_text(encoding="utf-8"))["tasks"]
+        self.assertEqual([t["label"] for t in tasks], ["Mine", connect.TASK_LABEL])
+        self.assertEqual(tasks[1]["command"], "new")
+
+    def test_a_tasks_file_with_comments_is_never_overwritten(self):
+        f = self.tmp / "tasks.json"
+        text = '{\n  // mine\n  "version": "2.0.0", "tasks": []\n}\n'
+        f.write_text(text, encoding="utf-8")
+        self.assertEqual(connect.upsert_task(f, connect.watcher_task()), "skipped")
+        self.assertEqual(f.read_text(encoding="utf-8"), text)
+
+    def test_the_connected_api_beats_the_environment_and_the_flag_beats_both(self):
+        api_file = self.tmp / "build-notes.api"
+        api_file.write_text("https://nexus-api.example/\n", encoding="utf-8")
+        saved, env = common.API_FILE, os.environ.pop(common.API_ENV, None)
+        common.API_FILE = api_file
+        try:
+            self.assertEqual(common.resolve_api_base(), "https://nexus-api.example")
+            self.assertEqual(common.resolve_api_base("http://localhost:8000/"), "http://localhost:8000")
+            os.environ[common.API_ENV] = "https://env.example"     # an old machine-wide setting
+            self.assertEqual(common.resolve_api_base(), "https://nexus-api.example")
+            api_file.unlink()
+            self.assertEqual(common.resolve_api_base(), "https://env.example")
+            del os.environ[common.API_ENV]
+            self.assertEqual(common.resolve_api_base(), common.DEFAULT_API_BASE)
+        finally:
+            common.API_FILE = saved
+            if env is not None:
+                os.environ[common.API_ENV] = env
+
+    def test_a_non_token_is_refused_before_anything_is_written(self):
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(connect.main(["not-a-token", "--no-watch", "--repo", str(self.tmp)]), 2)
+        self.assertIn("not a Build Token", err.getvalue())
+        self.assertFalse((self.tmp / ".vscode").exists())
 
 
 if __name__ == "__main__":
