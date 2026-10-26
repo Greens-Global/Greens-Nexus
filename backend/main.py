@@ -4648,3 +4648,5 @@ from routers import accounting_manual_je  # noqa: E402
 app.include_router(accounting_manual_je.router)    # Accounting > Audit & Insights > Manual Journal Entries: who keyed each entry, read from Intacct (Neil + Charmi, CR-10, Oct 23 2026)
 from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: create_all + _enable_rls_everywhere, no ALTER lines
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
+from routers import health_components as health_components_router  # noqa: E402
+app.include_router(health_components_router.router)  # /health/components: each part of Nexus, for the outside status page (status/) (Sagar, Oct 27 2026)
