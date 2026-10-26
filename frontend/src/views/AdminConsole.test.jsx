@@ -43,13 +43,20 @@ vi.mock('./BrandingPoliciesSettings', () => ({
   SignInPolicyPanel: () => <div>Sign-in policy panel</div>,
 }));
 vi.mock('../components/shifts/ShiftSettingsSections', () => ({
-  ShiftSettingsPanel: ({ company }) => <div>Shift settings panel{company ? ` ${company}` : ''}</div>,
+  ShiftSettingsPanel: ({ company, part }) => <div>Shift settings panel{part ? ` ${part}` : ''}{company ? ` ${company}` : ''}</div>,
   ShiftTypesPanel: () => <div>Shift types panel</div>,
   ShiftGroupsPanel: () => <div>Groups panel</div>,
   TimeOffReasons: () => <div>Time-off reasons panel</div>,
 }));
 vi.mock('../components/shifts/WeatherSettings', () => ({ default: ({ company }) => <div>Weather panel{company ? ` ${company}` : ''}</div> }));
-vi.mock('../components/PayrollExportCodes', () => ({ default: ({ company }) => <div>Export codes panel{company ? ` ${company}` : ''}</div> }));
+// With a company fixed, the export codes say the company has names of its own.
+vi.mock('../components/PayrollExportCodes', async () => {
+  const { useEffect } = await import('react');
+  return { default: function ExportCodes({ company, onOverride }) {
+    useEffect(() => { if (company) onOverride?.(true); }, [company, onOverride]);
+    return <div>Export codes panel{company ? ` ${company}` : ''}</div>;
+  } };
+});
 vi.mock('../components/PayPremiums', () => ({ default: ({ company }) => <div>Premiums panel{company ? ` ${company}` : ''}</div> }));
 vi.mock('../components/DailyBriefingSettings', () => ({ default: () => <div>Briefing panel</div> }));
 vi.mock('../components/WeeklyDigestSettings', () => ({ default: () => <div>Digest panel</div> }));
@@ -93,7 +100,7 @@ describe('AdminConsole', () => {
     render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
     expect(screen.getByRole('heading', { name: 'Companies' })).toBeInTheDocument();
     expect(await find('Company list')).toBeInTheDocument();
-    expect(screen.getByLabelText('Scope')).toHaveValue('');
+    expect(screen.getByLabelText('Applies To')).toHaveValue('');
     const names = within(rail()).getAllByRole('button').map(b => b.textContent);
     expect(names).toEqual(['Companies', 'Locations', 'People & Access', 'Security', 'Branding & Email', 'Emails & Reminders',
       'Tickets', 'Time & Pay', 'Workforce Analytics', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Items & Equipment', 'Operations']);
@@ -114,7 +121,7 @@ describe('AdminConsole', () => {
   it('opens Tools from an old actas link', async () => {
     render(<AdminConsole activeSub="actas" onSubChange={() => {}} />);
     expect(await find('Tools panel')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Scope')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Applies To')).not.toBeInTheDocument();
   });
 
   it('keeps every scheduled email in Emails & Reminders, open, and Ticket Manager under Tickets', async () => {
@@ -122,7 +129,7 @@ describe('AdminConsole', () => {
     render(<AdminConsole activeSub="emails" onSubChange={onSubChange} />);
     expect(screen.getByRole('heading', { name: 'Emails & Reminders' })).toBeInTheDocument();
     for (const t of ['Task Notifications', 'Daily Briefing', 'Weekly Digest', 'Workforce Scorecard', 'HR & Compliance Reminders', 'Equipment Reminders']) {
-      expect(screen.getByText(t)).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
     }
     // Nothing to expand: the panels are already there.
     expect(await find('Briefing panel')).toBeInTheDocument();
@@ -172,33 +179,88 @@ describe('AdminConsole', () => {
   });
 
   it('has Shifts & Scheduling with the settings, shift types, groups and weather, all open (Charmi, 09/30)', async () => {
-    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
     expect(screen.getByRole('heading', { name: 'Shifts & Scheduling' })).toBeInTheDocument();
-    for (const t of ['Shift Settings', 'Shift Types', 'Groups', 'Weather Alerts']) expect(screen.getByText(t)).toBeInTheDocument();
+    // Oct 25: the one long Shift Settings card is six groups, each a slice of the same panel.
+    for (const t of ['Schedule Basics', 'Requests & Visibility', 'Attendance', 'Overtime Alerts', 'Rules', 'Sharing', 'Shift Types', 'Groups', 'Weather Alerts']) {
+      expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
+    }
+    expect(await find('Shift settings panel rules')).toBeInTheDocument();
     expect(await find('Shift types panel')).toBeInTheDocument();
+    // The Location Trail moved to Workforce Analytics.
+    expect(screen.queryByRole('region', { name: 'Location Trail' })).not.toBeInTheDocument();
     // The filter finds them too, from the words a manager would type.
     fireEvent.change(screen.getByLabelText('Filter settings'), { target: { value: 'swap' } });
-    expect(screen.getByText('Shift Settings')).toBeInTheDocument();
-    expect(screen.queryByText('Weather Alerts')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Requests & Visibility' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Weather Alerts' })).not.toBeInTheDocument();
+  });
+
+  it('lands the old shift-settings link on Schedule Basics, and the rail jumps to a group', () => {
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="shifts:shift-settings" onSubChange={onSubChange} />);
+    expect(screen.getByRole('region', { name: 'Schedule Basics' })).toHaveAttribute('data-highlight', 'true');
+    const links = within(rail()).getByLabelText('Shifts & Scheduling settings');
+    expect(within(links).getByRole('button', { name: 'Schedule Basics' })).toHaveAttribute('aria-current', 'location');
+    // A jump scrolls and marks the link; it adds no history entry.
+    fireEvent.click(within(links).getByRole('button', { name: 'Rules' }));
+    expect(within(links).getByRole('button', { name: 'Rules' })).toHaveAttribute('aria-current', 'location');
+    expect(onSubChange).not.toHaveBeenCalled();
+    // A subject with one group lists nothing under it.
+    cleanup();
+    render(<AdminConsole activeSub="items" onSubChange={() => {}} />);
+    expect(within(rail()).queryByLabelText('Items & Equipment settings')).not.toBeInTheDocument();
+  });
+
+  it('puts the Location Trail under Workforce Analytics, for every company and for one', async () => {
+    const { rerender } = render(<AdminConsole activeSub="analytics" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Location Trail' })).toBeInTheDocument();
+    expect(await find('Shift settings panel trail')).toBeInTheDocument();
+    rerender(<AdminConsole activeSub="analytics@c1" onSubChange={() => {}} />);
+    expect(await find('Shift settings panel trail c1')).toBeInTheDocument();
+  });
+
+  it('lists the companies and where each stands for a per-company setting, instead of a select in the panel', async () => {
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="pay" onSubChange={onSubChange} />);
+    const codes = screen.getByRole('region', { name: 'Payroll Export Codes' });
+    expect(within(codes).queryByText('Export codes panel')).not.toBeInTheDocument();
+    expect(await within(codes).findAllByText('Default Codes', {}, { timeout: 5000 })).toHaveLength(2);
+    expect(await within(screen.getByRole('region', { name: /Shift Differentials/ })).findAllByText('Off')).toHaveLength(2);
+    fireEvent.click(within(codes).getByRole('button', { name: /Greens India/ }));
+    expect(onSubChange).toHaveBeenLastCalledWith('pay:payroll-export-codes@c2');
+    // A layered setting keeps its default editor and says who has their own.
+    expect(await within(screen.getByRole('region', { name: 'Pay Rules' })).findByText('Every company follows this default.', {}, { timeout: 5000 })).toBeInTheDocument();
+  });
+
+  it('says what a picked company does differently in the subject, with jump links', async () => {
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="pay@c1" onSubChange={onSubChange} />);
+    const line = (await screen.findByText(/Different for Greens Global/, {}, { timeout: 5000 })).parentElement;
+    fireEvent.click(within(line).getByRole('button', { name: 'Payroll Export Codes' }));
+    expect(within(within(rail()).getByLabelText('Time & Pay settings')).getByRole('button', { name: 'Payroll Export Codes' })).toHaveAttribute('aria-current', 'location');
+    // Its own group's chip says so too: a per-company setting reads Custom, not Overridden.
+    expect(within(screen.getByRole('region', { name: 'Payroll Export Codes' })).getByText('Custom')).toBeInTheDocument();
   });
 
   it('picks a company in the scope box and shows its own faces', async () => {
     const onSubChange = vi.fn();
     const { rerender } = render(<AdminConsole activeSub="hiring" onSubChange={onSubChange} />);
     await screen.findByRole('option', { name: 'Greens Global' }, { timeout: 5000 });
-    fireEvent.change(screen.getByLabelText('Scope'), { target: { value: 'c1' } });
+    fireEvent.change(screen.getByLabelText('Applies To'), { target: { value: 'c1' } });
     expect(onSubChange).toHaveBeenLastCalledWith('hiring@c1');
 
     rerender(<AdminConsole activeSub="hiring@c1" onSubChange={onSubChange} />);
-    expect(screen.getByLabelText('Scope')).toHaveValue('c1');
-    expect(screen.getByRole('heading', { name: /Hiring & Onboarding · Greens Global/ })).toBeInTheDocument();
+    expect(screen.getByLabelText('Applies To')).toHaveValue('c1');
+    expect(screen.getByRole('heading', { name: 'Hiring & Onboarding' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Back to every company' })).toBeInTheDocument();
     expect(await find('Company page c1: checklists')).toBeInTheDocument();
     // The organization-wide groups of the subject are one line of links.
-    expect(screen.getByText('For every company:')).toBeInTheDocument();
+    expect(screen.getByText('Set for every company:')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Checklist Library' }));
     expect(onSubChange).toHaveBeenLastCalledWith('hiring:checklist-library');
-    // Subjects with nothing per company sit under "For every company" and switch the scope back.
-    expect(within(rail()).getByText('For every company')).toBeInTheDocument();
+    // Subjects with nothing per company stay in place, marked, and switch the scope back.
+    expect(within(rail()).getByRole('button', { name: 'Security' })).toHaveAttribute('title', 'Set for every company - opens at Every company');
     fireEvent.click(within(rail()).getByRole('button', { name: 'Security' }));
     expect(onSubChange).toHaveBeenLastCalledWith('security');
   });
@@ -217,8 +279,9 @@ describe('AdminConsole', () => {
 
   it('hands the picked company to the per-company panels: shifts, pay, tickets, signature (phase 2)', async () => {
     const { rerender } = render(<AdminConsole activeSub="shifts@c1" onSubChange={() => {}} />);
-    expect(await find('Shift settings panel c1')).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: /Shifts & Scheduling · Greens Global/ }, { timeout: 5000 })).toBeInTheDocument();
+    expect(await find('Shift settings panel basics c1')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Shifts & Scheduling' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Applies To')).toHaveValue('c1');
     expect(await find('Weather panel c1')).toBeInTheDocument();
 
     rerender(<AdminConsole activeSub="pay@c1" onSubChange={() => {}} />);
@@ -226,11 +289,10 @@ describe('AdminConsole', () => {
     expect(screen.getByRole('heading', { name: 'Pay Rules' })).toBeInTheDocument();
     expect(await find('Export codes panel c1')).toBeInTheDocument();
     expect(await find('Premiums panel c1')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Pay Rules' })).not.toBeInTheDocument();
+    expect(within(screen.getByText('Set for every company:').parentElement).queryByRole('button', { name: 'Pay Rules' })).not.toBeInTheDocument();
 
     rerender(<AdminConsole activeSub="pay" onSubChange={() => {}} />);
-    expect(screen.getByText('Pay Rules')).toBeInTheDocument();
-    expect(await find('Export codes panel')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Pay Rules' })).toBeInTheDocument();
 
     rerender(<AdminConsole activeSub="tickets@c1" onSubChange={() => {}} />);
     expect(screen.getAllByRole('tab')).toHaveLength(1);
@@ -239,7 +301,7 @@ describe('AdminConsole', () => {
 
     rerender(<AdminConsole activeSub="branding@c1" onSubChange={() => {}} />);
     // The signature is the lone group with a company picked, so it renders bare under the subject heading.
-    expect(await screen.findByRole('heading', { name: /Branding & Email · Greens Global/ }, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Branding & Email' }, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Brand Color' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Brand Color' })).toBeInTheDocument();
   });
@@ -307,16 +369,22 @@ describe('AdminConsole', () => {
     expect(screen.getByRole('heading', { name: 'Companies' })).toBeInTheDocument();
   });
 
-  it('swaps the subject rail for a select on phones', () => {
+  it('opens on a list of the subjects on phones, and a subject has a way back', () => {
     vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
       matches: true, media: q, onchange: null,
       addEventListener() {}, removeEventListener() {},
       addListener() {}, removeListener() {}, dispatchEvent() { return false; },
     }));
     const onSubChange = vi.fn();
-    render(<AdminConsole activeSub="companies" onSubChange={onSubChange} />);
+    const { rerender } = render(<AdminConsole activeSub="settings" onSubChange={onSubChange} />);
     expect(screen.queryByRole('navigation', { name: 'Settings subjects' })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'emails' } });
+    for (const sec of ['Organization', 'Communication', 'Workforce', 'Operations']) expect(screen.getByRole('group', { name: sec })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Emails & Reminders/ }));
     expect(onSubChange).toHaveBeenLastCalledWith('emails');
+
+    rerender(<AdminConsole activeSub="emails" onSubChange={onSubChange} />);
+    expect(screen.getByRole('heading', { name: 'Emails & Reminders' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /All Settings/ }));
+    expect(onSubChange).toHaveBeenLastCalledWith('settings');
   });
 });
