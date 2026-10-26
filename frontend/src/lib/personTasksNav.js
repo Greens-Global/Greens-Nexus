@@ -10,10 +10,19 @@ import { setPendingOpen } from './pendingOpen';
 
 export const PERSON_TASKS_KIND = 'task-person';
 
+// Opened from outside the Task module (Sagar, Oct 27): their page then reads
+// as a page of its own - no Home / Tasks / Projects strip - and Back returns
+// to the screen the search was made from (views/Tasks.jsx).
+// Fired by views/Tasks.jsx with { outside } while such a page shows, so the
+// phone bottom bar (components/MobileNav.jsx) drops the module tabs too.
+export const TASKS_PERSON_PAGE = 'nexus:tasks-person-page';
+
+export const inTasksModule = () => /^\/tasks(\/|$)/.test(window.location.pathname || '');
+
 export function openPersonTasks(email, name = '') {
   const em = (email || '').trim().toLowerCase();
   if (!em) return;
-  const who = { email: em, name: name || em };
+  const who = { email: em, name: name || em, fromOutside: !inTasksModule() };
   setPendingOpen(PERSON_TASKS_KIND, who);
   window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tasks', sub: 'home' } }));
   setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:tasks-person', { detail: who })), 0);

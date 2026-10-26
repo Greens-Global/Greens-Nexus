@@ -10,7 +10,7 @@
 // top-level module (views/Tickets.jsx), so this file is Task-only.
 import { useEffect, useState } from 'react';
 import { takePendingOpen } from '../lib/pendingOpen';
-import { PERSON_TASKS_KIND } from '../lib/personTasksNav';
+import { PERSON_TASKS_KIND, TASKS_PERSON_PAGE } from '../lib/personTasksNav';
 import { Home, CheckCircle2, FolderKanban, Briefcase, Users, Settings } from 'lucide-react';
 import TasksWorkspace from '../tasks/TasksWorkspace';
 import HomeView from '../tasks/HomeView';
@@ -160,7 +160,7 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
     const openTask = (e) => { const id = e.detail?.taskId; if (id) setSearchTaskId(id); };
     const openPerson = (e) => {
       const email = e.detail?.email;
-      if (email) { setPerson({ email, name: e.detail?.name || email }); setPersonTasks(false); }
+      if (email) { setPerson({ email, name: e.detail?.name || email, fromOutside: !!e.detail?.fromOutside }); setPersonTasks(false); }
       takePendingOpen(PERSON_TASKS_KIND);   // served live - drop the note for a later mount
     };
     // Header search "and N more": the dropdown caps at 20, so the full result
@@ -177,7 +177,7 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
     // A person picked in the header search before this lazy module mounted
     // (lib/personTasksNav.js).
     const who = takePendingOpen(PERSON_TASKS_KIND);
-    if (who?.email) { setPerson({ email: who.email, name: who.name || who.email }); setPersonTasks(false); }
+    if (who?.email) { setPerson({ email: who.email, name: who.name || who.email, fromOutside: !!who.fromOutside }); setPersonTasks(false); }
     window.addEventListener('nexus:tasks-person', openPerson);
     window.addEventListener('nexus:tasks-search', openSearch);
     window.addEventListener('nexus:tasks-tour', openTour);
@@ -193,6 +193,16 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   }, []);
 
   const onManage = sub === 'manage';
+  // A person opened from search OUTSIDE Tasks reads as their own page: the
+  // module's tab strip stays hidden and Back goes back to where the search
+  // was made (Sagar, Oct 27 - lib/personTasksNav.js). Opened from inside
+  // Tasks it keeps the strip, as before.
+  const personFromOutside = !!person?.fromOutside;
+  // Phones show the module tabs in MobileNav's bottom bar - tell it too.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(TASKS_PERSON_PAGE, { detail: { outside: personFromOutside } }));
+  }, [personFromOutside]);
+  useEffect(() => () => window.dispatchEvent(new CustomEvent(TASKS_PERSON_PAGE, { detail: { outside: false } })), []);
 
   // A task created from the Create menu / floating + inherits the screen's
   // context - scoped to the project you've drilled into, like Asana.
@@ -263,7 +273,7 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
           second one. Create is the floating "+" below, so Manage is all that
           shares the row. Hidden on Manage, which has no module tabs and
           carries its own Exit on its sub-tab strip. */}
-      {!onManage && (
+      {!onManage && !personFromOutside && (
         <div className="nx-primary-bar" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)', flexShrink: 0 }}>
           {/* Phones get the module's tabs from MobileNav's bottom bar instead,
               so the strip is only rendered from ~641px up. */}
@@ -347,7 +357,10 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
           <PersonView
             email={person.email}
             name={person.name}
-            onBack={() => { setPerson(null); go('home'); }}
+            onBack={() => {
+              if (personFromOutside) { setPerson(null); window.history.back(); return; }
+              setPerson(null); go('home');
+            }}
             onViewAllTasks={() => setPersonTasks(true)}
             onOpenProject={(id) => { setPerson(null); subNavigate({ projectId: id }); }}
           />
