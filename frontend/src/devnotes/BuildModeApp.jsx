@@ -14,9 +14,9 @@ import Composer from './Composer';
 import EditInPlace, { restoreAllEdits, restoreEdit } from './EditInPlace';
 import Panel from './Panel';
 import { store, useBuildStore, turnOff, saveSettings, takePendingPin, toast, loadDrafts, saveDraft, removeDraft, newId } from './store';
-import { describeTarget, rectOf, anchorRect, stateOf, preloadSourceFiles } from './lib/capture';
+import { describeTarget, rectOf, regionTarget, anchorRect, stateOf, preloadSourceFiles } from './lib/capture';
 import { startTabCapture, stopTabCapture, grabBestFrame, makeShots, shiftItems, wantsTabCapture, AREA_PAD } from './lib/screenshot';
-import { useRole } from '../contexts/RoleContext';
+import { useRole, MODULES } from '../contexts/RoleContext';
 import { startRecording, stopRecording, isRecording, startSpeech, speechSupported } from './lib/recorder';
 import { startBuffers, stopBuffers, pauseBuffers, snapshotBuffers } from './lib/buffers';
 import { setActionContext, pauseActions, snapshotActions } from './lib/actions';
@@ -29,6 +29,7 @@ import { NAV, isNavItemVisible } from '../components/Sidebar';
 const TESTING_NAV = NAV.find((item) => item.view === 'testing');
 
 const BUILD_ID = import.meta.env.VITE_BUILD_ID || 'dev';
+const ROUTE_LABEL = Object.fromEntries((MODULES || []).map((m) => [m.id, m.label]));
 
 const newDraft = (target, view, sub) => ({
   id: newId(), kind: 'bug', priority: 'normal', comment: '', attachments: [], target, route: view, sub: sub || '', edit: null, transcript: '', markup: [], createdAt: new Date().toISOString(),
@@ -102,6 +103,16 @@ export default function BuildModeApp({ view, sub }) {
   }, [loadPins, s.version]);
   useEffect(() => { if (!s.panelOpen) loadPins(); }, [s.panelOpen]);  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Your open comments on every screen (the strip's Done count) ──────────
+  const [mine, setMine] = useState([]);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(api.devNotesList?.({ status: 'open', mine: 1 }))
+      .then((list) => { if (live) setMine(Array.isArray(list) ? list.filter((p) => !pinHeld(p)) : []); })
+      .catch(() => { /* keep the last count */ });
+    return () => { live = false; };
+  }, [s.version, s.panelOpen]);
+
   // ── Deep link: /dev-notes?pin=<id> or a bell ─────────────────────────────
   useEffect(() => {
     const id = takePendingPin();
@@ -152,6 +163,16 @@ export default function BuildModeApp({ view, sub }) {
     setDraft(next);
     store.set({ pick: { target, rect, mode }, openPinId: '' });
   }, [blocked, view, sub]);
+
+  // A box drawn with nothing being written yet opens the comment box on it
+  // (Pranshu, Oct 27): the box says where, the comment says what. Markup is in
+  // page coordinates; the pick is the box's area on screen now.
+  const addMarkup = (item) => {
+    store.set((st) => ({ markup: [...st.markup, item] }));
+    if (item.type !== 'rect' || store.get().pick) return;
+    const r = { x: item.x - (window.scrollX || 0), y: item.y - (window.scrollY || 0), w: item.w, h: item.h };
+    onPick(regionTarget(r), { ...r, pageX: Math.round(item.x), pageY: Math.round(item.y) }, 'region', null);
+  };
 
   const ensureComposer = () => {
     if (store.get().pick) return;
@@ -356,10 +377,13 @@ export default function BuildModeApp({ view, sub }) {
   }
 
   const queueCount = pins.filter((p) => p.status === 'open' && !pinHeld(p)).length;
+  // Done counts every open comment of yours on every screen, by module.
+  const doneTitle = Object.entries(mine.reduce((m, p) => ({ ...m, [p.route || 'other']: (m[p.route || 'other'] || 0) + 1 }), {}))
+    .map(([r, n]) => `${ROUTE_LABEL[r] || r} ${n}`).join(' · ');
   return (
     <div data-nx-devnotes="1" className="bm-root">
-      <Overlay tool={s.tool} color={s.color} interactive={!s.editPick && !s.panelOpen} items={s.markup}
-        onAdd={(item) => store.set((st) => ({ markup: [...st.markup, item] }))} onPick={onPick}
+      <Overlay tool={s.tool} color={s.color} interactive={!s.editPick && !s.panelOpen && s.tool !== 'browse'} items={s.markup}
+        onAdd={addMarkup} onPick={onPick}
         faintItems={faint.items} faintOffset={faint.offset} />
       <Pins pins={pins} me={me} openPinId={s.openPinId} show={s.showPins} onOpen={(id) => store.set({ openPinId: id, pick: null })} onClose={() => store.set({ openPinId: '' })} onChanged={onPinChanged} />
       {s.pick && draft && (
@@ -373,7 +397,8 @@ export default function BuildModeApp({ view, sub }) {
         canUndo={s.markup.length > 0} onUndo={() => store.set((st) => ({ markup: st.markup.slice(0, -1) }))}
         onVideo={toggleRecord} recording={!!s.recording} onVoice={toggleVoice} voiceOn={voiceOn} voiceSupported={speechSupported()}
         onQueue={() => store.set((st) => ({ panelOpen: !st.panelOpen }))} queueCount={queueCount} onOff={turnOff}
-        showPins={s.showPins} onTogglePins={() => store.set((st) => ({ showPins: !st.showPins }))} isMobile={isMobile} />
+        showPins={s.showPins} onTogglePins={() => store.set((st) => ({ showPins: !st.showPins }))} isMobile={isMobile}
+        allTools={s.allTools} onDone={() => store.set({ panelOpen: true, panelTab: 'queue' })} doneCount={mine.length} doneTitle={doneTitle} />
       {panel}
       {toastEl}
     </div>
