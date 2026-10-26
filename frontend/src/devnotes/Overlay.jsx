@@ -9,11 +9,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   MapPin, Pencil, Square, ArrowUpRight, PenLine, Highlighter, Type, EyeOff, Video, Mic, Undo2,
-  ListChecks, X, GripVertical, Eye, CircleStop, Palette, Hand,
+  ListChecks, X, GripVertical, Eye, CircleStop, Palette, Hand, Send, ChevronLeft, ChevronRight, Shapes,
 } from 'lucide-react';
 import Markup from './Markup';
 import { elementAt, describeTarget, regionTarget, rectOf, textOf } from './lib/capture';
-import { TOOLS, MARKUP_TOOLS, COLORS } from './meta';
+import { TOOLS, MARKUP_TOOLS, SIMPLE_TOOLS, COLORS } from './meta';
 
 const DRAG_PX = 6;
 const LONG_PRESS_MS = 480;
@@ -236,8 +236,15 @@ function ToolButton({ active, onClick, title, hotkey, children, className = '', 
   );
 }
 
-export function ToolStrip({ tool, onTool, color, onColor, canUndo, onUndo, onVideo, recording, onVoice, voiceOn, voiceSupported = true, onQueue, queueCount = 0, onOff, showPins, onTogglePins, isMobile = false }) {
+export function ToolStrip({ tool, onTool, color, onColor, canUndo, onUndo, onVideo, recording, onVoice, voiceOn, voiceSupported = true, onQueue, queueCount = 0, onOff, showPins, onTogglePins, isMobile = false,
+  allTools = true, onDone, doneCount = 0, doneTitle = '' }) {
   const [pos, setPos] = useState(null);            // dragged position { x, y } (desktop)
+  // Simple strip: Draw unfolds Edit and the markup tools in place; it stays
+  // open while one of them is the tool.
+  const [drawOpen, setDrawOpen] = useState(false);
+  // A folded tool picked by its key (R, A...) still shows while it is the tool.
+  const showTool = (id) => allTools || SIMPLE_TOOLS.has(id) || drawOpen || tool === id;
+  const toggleDraw = () => { if (drawOpen && !SIMPLE_TOOLS.has(tool)) onTool('pin'); setDrawOpen((o) => !o); };
   const dragRef = useRef(null);
   const stripRef = useRef(null);
   const onGripDown = (e) => {
@@ -254,36 +261,55 @@ export function ToolStrip({ tool, onTool, color, onColor, canUndo, onUndo, onVid
   };
   const style = pos ? { left: pos.x, top: pos.y, bottom: 'auto', transform: 'none' } : undefined;
   // One line of plain words above the strip saying what a click does now.
-  const hint = tool === 'browse' ? 'Browse: use Nexus as usual - pick Pin when you see something to comment on.'
-    : tool === 'pin' ? 'Click anything to comment on it. Pick Browse (B) to move around Nexus.'
+  const hint = tool === 'browse' ? 'Browse: use Nexus as usual - pick Comment when you see something to comment on.'
+    : tool === 'pin' ? (allTools ? 'Click anything to comment on it. Pick Browse (B) to move around Nexus.'
+      : 'Click anything to comment on it. Browse (B) moves around Nexus; Done sends everything.')
     : tool === 'edit' ? 'Click text or a style to change it in place.'
-    : 'Draw on the screen, then click Pin and the thing you drew on.';
+    : 'Draw on the screen, then click Comment and the thing you drew on.';
+  const label = (id, l) => (id === 'pin' && !allTools ? 'Comment' : l);
   return (
     <div ref={stripRef} className="bm-strip" role="toolbar" aria-label="Build Mode tools" style={style}>
       {!isMobile && <span className="bm-strip-hint" aria-live="polite">{hint}</span>}
       {!isMobile && <span className="bm-strip-grip" onPointerDown={onGripDown} title="Drag to move" aria-hidden="true"><GripVertical size={14} /></span>}
-      {TOOLS.map(({ id, label, key }) => { const Icon = ICONS[id]; return (
-        <ToolButton isMobile={isMobile} key={id} active={tool === id} onClick={() => onTool(id)} title={label} hotkey={key}><Icon size={17} /></ToolButton>
+      {TOOLS.filter(({ id }) => SIMPLE_TOOLS.has(id)).map(({ id, label: l, key }) => { const Icon = ICONS[id]; return (
+        <ToolButton isMobile={isMobile} key={id} active={tool === id} onClick={() => onTool(id)} title={label(id, l)} hotkey={key}><Icon size={17} /></ToolButton>
       ); })}
+      {!allTools && (
+        <ToolButton isMobile={isMobile} active={drawOpen} onClick={toggleDraw} title={drawOpen ? 'Close Draw Tools' : 'Draw'} ariaLabel={drawOpen ? 'Close Draw Tools' : 'Draw'}>
+          <Shapes size={17} />{drawOpen ? <ChevronLeft size={12} /> : <ChevronRight size={12} />}
+        </ToolButton>
+      )}
+      {TOOLS.filter(({ id }) => !SIMPLE_TOOLS.has(id) && showTool(id)).map(({ id, label: l, key }) => { const Icon = ICONS[id]; return (
+        <ToolButton isMobile={isMobile} key={id} active={tool === id} onClick={() => onTool(id)} title={l} hotkey={key}><Icon size={17} /></ToolButton>
+      ); })}
+      {(allTools || drawOpen) && <>
+        <ToolButton isMobile={isMobile} onClick={onUndo} title="Undo" hotkey="Z" className={canUndo ? '' : 'is-dim'}><Undo2 size={17} /></ToolButton>
+        <button type="button" className="bm-tool bm-swatch" onClick={onColor} title="Color (C)" aria-label={`Markup color ${color}`}>
+          <span className="bm-swatch-dot" style={{ background: color, borderColor: color === '#ffffff' ? 'var(--line)' : color }} />
+          <Palette size={11} className="bm-swatch-icon" />
+        </button>
+      </>}
       <span className="bm-sep" aria-hidden="true" />
       <ToolButton isMobile={isMobile} active={!!recording} onClick={onVideo} title={recording ? 'Stop Recording' : 'Record Video'} hotkey="V" className={recording ? 'is-rec' : ''}>
         {recording ? <CircleStop size={17} /> : <Video size={17} />}
       </ToolButton>
       {voiceSupported && (
-        <ToolButton isMobile={isMobile} active={!!voiceOn} onClick={onVoice} title={voiceOn ? 'Stop Voice Note' : 'Voice Note'} hotkey="M"><Mic size={17} /></ToolButton>
+        <ToolButton isMobile={isMobile} active={!!voiceOn} onClick={onVoice} title={voiceOn ? 'Stop Talking' : 'Talk - say your comment'} hotkey="M"><Mic size={17} /></ToolButton>
       )}
-      <ToolButton isMobile={isMobile} onClick={onUndo} title="Undo" hotkey="Z" className={canUndo ? '' : 'is-dim'}><Undo2 size={17} /></ToolButton>
-      <button type="button" className="bm-tool bm-swatch" onClick={onColor} title="Color (C)" aria-label={`Markup color ${color}`}>
-        <span className="bm-swatch-dot" style={{ background: color, borderColor: color === '#ffffff' ? 'var(--line)' : color }} />
-        <Palette size={11} className="bm-swatch-icon" />
-      </button>
       <span className="bm-sep" aria-hidden="true" />
-      <ToolButton isMobile={isMobile} active={!showPins} onClick={onTogglePins} title={showPins ? 'Hide Pins' : 'Show Pins'}>{showPins ? <Eye size={17} /> : <EyeOff size={17} />}</ToolButton>
-      <ToolButton isMobile={isMobile} onClick={onQueue} title="Queue" hotkey="Q">
-        <ListChecks size={17} />
-        {queueCount > 0 && <span className="bm-tool-badge">{queueCount}</span>}
-      </ToolButton>
-      <ToolButton isMobile={isMobile} onClick={onOff} title="Done - Build Mode Off" hotkey="Esc" className="is-off"><X size={17} /></ToolButton>
+      {allTools ? <>
+        <ToolButton isMobile={isMobile} active={!showPins} onClick={onTogglePins} title={showPins ? 'Hide Pins' : 'Show Pins'}>{showPins ? <Eye size={17} /> : <EyeOff size={17} />}</ToolButton>
+        <ToolButton isMobile={isMobile} onClick={onQueue} title="Queue" hotkey="Q">
+          <ListChecks size={17} />
+          {queueCount > 0 && <span className="bm-tool-badge">{queueCount}</span>}
+        </ToolButton>
+      </> : (
+        // Every comment of yours, on every screen, waiting to go: one place to send or save them.
+        <button type="button" className="bm-strip-done" onClick={onDone} title={doneTitle || 'Send or save your comments'} aria-label={`Done - ${doneCount} comment${doneCount === 1 ? '' : 's'}`}>
+          <Send size={14} /> Done{doneCount > 0 && <span className="bm-strip-done-count">{doneCount}</span>}
+        </button>
+      )}
+      <ToolButton isMobile={isMobile} onClick={onOff} title="Build Mode Off" hotkey="Esc" className="is-off"><X size={17} /></ToolButton>
     </div>
   );
 }

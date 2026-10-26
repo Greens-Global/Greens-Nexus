@@ -12,7 +12,8 @@ import { toViewUrl } from '../lib/storageView';
 import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
 import { pinMeta, pinReady, pinHeld, pinReopened, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND } from './meta';
-import { toast } from './store';
+import { toast, useBuildStore, setAllTools } from './store';
+import { MODULES } from '../contexts/RoleContext';
 import { wantsTabCapture, setWantsTabCapture, startTabCapture, stopTabCapture } from './lib/screenshot';
 
 const TABS = [{ id: 'queue', label: 'Queue' }, { id: 'sessions', label: 'Sessions' }, { id: 'settings', label: 'Settings' }];
@@ -131,8 +132,23 @@ function TeamsChatPick({ settings, onSettings }) {
   );
 }
 
+// Save Report: one HTML file of a Build Session - every pin, its module,
+// comment and marked-up shot - that opens anywhere, no login, attaches to an email.
+async function downloadReport(sessionId) {
+  try {
+    const { blob, filename } = await api.devNotesSessionReport(sessionId);
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: url, download: filename || 'Build Session.html' });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch (e) { toast(e?.message || 'The report could not be saved.'); }
+}
+
+const ROUTE_LABEL = Object.fromEntries((MODULES || []).map((m) => [m.id, m.label]));
+
 function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, onDispatched, myEmail, settings, onSettings }) {
   const [sending, setSending] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
   const bySession = new Map();
   for (const n of notes) { const k = n.sessionId || ''; if (!bySession.has(k)) bySession.set(k, []); bySession.get(k).push(n); }
@@ -154,6 +170,12 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
   // so the Queue says it up top: the author's pins waiting on their check.
   const mineReady = notes.filter((n) => pinReady(n) && (!myEmail || n.createdBy === myEmail));
   const heldLine = mineHeld.map((n) => `Pin #${n.number} waits for ${n.ownerName || firstNameOf(n.ownerEmail)}`).join(', ');
+  // Where your comments are, by module ("Tasks 3 · Tickets 2"), and the
+  // session they collect in - Save Report saves that one.
+  const byModule = Object.entries(mineAll.reduce((m, n) => ({ ...m, [n.route || 'other']: (m[n.route || 'other'] || 0) + 1 }), {}))
+    .map(([r, c]) => `${ROUTE_LABEL[r] || r} ${c}`).join(' · ');
+  const reportSession = mineAll[0]?.sessionId || '';
+  const report = async () => { setReporting(true); await downloadReport(reportSession); setReporting(false); };
   const send = async () => {
     setSending(true);
     try {
@@ -175,6 +197,7 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
         <div>
           <div className="bm-h2">{notes.length} pin{notes.length === 1 ? '' : 's'} in the queue</div>
           <div className="bm-dim bm-small">{canSend ? `${mineOpen.length} of yours ready to send.` : mineHeld.length ? 'Nothing of yours to send to Claude Code.' : 'Your collecting session is empty - pin something first.'}{heldLine ? ` ${heldLine}.` : ''}</div>
+          {byModule && <div className="bm-small" data-testid="bm-by-module">{byModule}</div>}
         </div>
         {mineReady.length > 0 && (
           <button type="button" className="bm-ready-note" onClick={() => onOpenPin?.(mineReady[0])} data-testid="bm-ready-count" title="Open the first one">
@@ -183,6 +206,9 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
           </button>
         )}
         <TeamsChatPick settings={settings} onSettings={onSettings} />
+        <button type="button" className="bm-btn bm-btn-sm" onClick={report} disabled={!reportSession || reporting} title="Save one HTML file with every comment and screenshot">
+          {reporting ? <Loader2 size={13} className="bm-spin" /> : <Download size={13} />} Save Report
+        </button>
         <button type="button" className="bm-btn bm-btn-primary" onClick={send} disabled={!canSend || sending} title={canSend ? 'Send your open pins to the watcher in your terminal' : 'Nothing to send yet'}>
           {sending ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Send To Claude Code
         </button>
@@ -240,19 +266,7 @@ function SessionRow({ s, onChanged, counts }) {
   const [title, setTitle] = useState(s.title || '');
   const [saving, setSaving] = useState(false);
   const m = sessionMeta(s.status);
-  // Save Report: one HTML file with every pin, its module, comment and
-  // marked-up shot - opens anywhere, no login, attaches to an email.
-  const report = async () => {
-    setSaving(true);
-    try {
-      const { blob, filename } = await api.devNotesSessionReport(s.id);
-      const url = URL.createObjectURL(blob);
-      const a = Object.assign(document.createElement('a'), { href: url, download: filename || 'Build Session.html' });
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-    } catch (e) { toast(e?.message || 'The report could not be saved.'); }
-    finally { setSaving(false); }
-  };
+  const report = async () => { setSaving(true); await downloadReport(s.id); setSaving(false); };
   const save = async () => {
     const t = title.trim();
     setEditing(false);
@@ -366,6 +380,7 @@ function Tokens() {
 function SettingsTab({ settings, onSettings }) {
   const [busy, setBusy] = useState('');
   const [tabCapture, setTabCapture] = useState(wantsTabCapture);   // per browser, like the draft
+  const allTools = useBuildStore((s) => s.allTools);
   const change = async (patch) => {
     setBusy(Object.keys(patch)[0]);
     try { await onSettings(patch); } catch (e) { toast(e?.message || 'The setting was not saved.'); } finally { setBusy(''); }
@@ -388,6 +403,7 @@ function SettingsTab({ settings, onSettings }) {
         <Switch label="Pins On Load" hint="Show everyone's pins on a screen as soon as Build Mode turns on. Off = toggle them from the strip." checked={settings.pinsOnLoad !== false} disabled={busy === 'pinsOnLoad'} onChange={(v) => change({ pinsOnLoad: v })} />
         <Switch label="Higher Quality Screenshots" hint="Screenshots are taken from the page automatically. On = Chrome asks once to share this tab, for an exact picture (charts, embedded files)." checked={tabCapture}
           onChange={(v) => { setWantsTabCapture(v); setTabCapture(v); if (v) startTabCapture(); else stopTabCapture(); }} />
+        <Switch label="Show All Tools" hint="The whole strip: every drawing tool, Edit, Hide Pins and the Queue. Off = the simple strip - Browse, Comment, Draw, Talk, Record and Done." checked={allTools} onChange={setAllTools} />
       </section>
       <Tokens />
       <section className="bm-settings-sec">

@@ -136,4 +136,30 @@ describe('Panel', () => {
     expect(screen.getAllByText('python3 tools/build_notes/watch.py').length).toBeGreaterThan(0);
     await screen.findByRole('button', { name: /Mint Token/ });
   });
+
+  it('the Queue says where your comments are, by module, and Save Report saves their session', async () => {
+    const row = (id, number, route) => ({ id, number, kind: 'bug', priority: 'normal', status: 'open', comment: `Pin ${number}`, sessionId: 's1', route, sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] });
+    notes = [row('p1', 1, 'tasks'), row('p2', 2, 'tasks'), row('p3', 3, 'tickets')];
+    const { api } = await import('../api');
+    api.devNotesSessionReport = vi.fn(() => Promise.resolve({ blob: new Blob(['<html></html>'], { type: 'text/html' }), filename: 'Build Session.html' }));
+    URL.createObjectURL = vi.fn(() => 'blob:x');
+    URL.revokeObjectURL = vi.fn();
+    render(<Panel {...props} />);
+    const line = await screen.findByTestId('bm-by-module');
+    expect(line.textContent).toMatch(/Tasks.* 2 · .*Tickets.* 1/);
+    const save = screen.getByRole('button', { name: /Save Report/ });
+    await waitFor(() => expect(save).not.toBeDisabled());
+    save.click();
+    await waitFor(() => expect(api.devNotesSessionReport).toHaveBeenCalledWith('s1'));
+  });
+
+  it('Settings has Show All Tools, off by default, remembered in this browser', async () => {
+    localStorage.removeItem('nexus:build-mode:all-tools');
+    render(<Panel {...props} tab="settings" />);
+    const sw = screen.getByRole('switch', { name: 'Show All Tools' });
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+    sw.click();
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Show All Tools' }).getAttribute('aria-checked')).toBe('true'));
+    expect(localStorage.getItem('nexus:build-mode:all-tools')).toBe('1');
+  });
 });

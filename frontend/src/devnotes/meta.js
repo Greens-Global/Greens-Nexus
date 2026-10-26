@@ -104,12 +104,25 @@ export const TOOLS = [
   { id: 'edit',      label: 'Edit',      key: 'E' },
   { id: 'rect',      label: 'Rect',      key: 'R' },
   { id: 'arrow',     label: 'Arrow',     key: 'A' },
-  { id: 'path',      label: 'Draw',      key: 'D' },
+  { id: 'path',      label: 'Pen',       key: 'D' },   // "Draw" is the simple strip's fold
   { id: 'highlight', label: 'Highlight', key: 'H' },
   { id: 'text',      label: 'Text',      key: 'T' },
   { id: 'redact',    label: 'Redact',    key: 'X' },
 ];
 export const MARKUP_TOOLS = new Set(['rect', 'arrow', 'path', 'highlight', 'text', 'redact']);
+// The simple strip (Oct 26 2026, Pranshu: easier for people who are not
+// technical): Browse and Comment up front; Edit and the markup tools fold
+// under Draw. Settings > Show All Tools brings back the whole strip.
+export const SIMPLE_TOOLS = new Set(['browse', 'pin']);
+
+/** Bug / Change / Question from the words, until the person picks one. */
+export function guessKind(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t) return 'bug';
+  if (/\?\s*$/.test(t) || /^(how|what|why|where|when|who|which|is there|are there|can i|do i|does|should i)\b/.test(t)) return 'question';
+  if (/\b(can we|could we|could you|please add|add an?|would be (nice|great|better)|should (be|have|show)|instead of|rename|move (it|this)|make (it|this)|change (it|this|the)|i wish|it would help)\b/.test(t)) return 'change';
+  return 'bug';
+}
 
 export function initialsOf(email = '') {
   const local = String(email).split('@')[0] || '';

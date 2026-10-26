@@ -7,11 +7,12 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 
 let enabled = false;
 let pins = [];
+let mine = [];
 vi.mock('../api', () => ({
   api: {
     devNotesEnabled: vi.fn(() => Promise.resolve(enabled ? { enabled: true, settings: { sendInstantly: false, dispatchTarget: 'local', pinsOnLoad: true }, blockedRoutes: ['pfs', 'credvault'] } : { enabled: false })),
     devNotesPins: vi.fn(() => Promise.resolve(pins)),
-    devNotesList: vi.fn(() => Promise.resolve([])),
+    devNotesList: vi.fn((p = {}) => Promise.resolve(p.mine ? mine : [])),
     devNotesSessions: vi.fn(() => Promise.resolve([])),
     devNotesStats: vi.fn(() => Promise.resolve(null)),
     devNotesGet: vi.fn(() => Promise.reject(new Error('Pin not found'))),
@@ -29,7 +30,7 @@ const pin = (over = {}) => ({
 });
 
 beforeEach(() => { vi.resetModules(); sessionStorage.clear(); localStorage.clear(); document.body.innerHTML = '<main><button id="target">Mark All Read</button></main>'; });
-afterEach(() => { cleanup(); enabled = false; pins = []; });
+afterEach(() => { cleanup(); enabled = false; pins = []; mine = []; });
 
 const mount = async () => {
   const BuildMode = (await import('./BuildMode')).default;
@@ -60,8 +61,13 @@ describe('BuildMode', () => {
     const strip = await screen.findByRole('toolbar', { name: 'Build Mode tools' }, { timeout: 4000 });
     expect(strip).toBeTruthy();
     expect(screen.getByTestId('bm-overlay')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Pin/ })).toBeTruthy();
+    // The simple strip: Comment up front, the drawing tools folded under Draw.
+    expect(screen.getByRole('button', { name: /^Comment/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Redact/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Draw' }));
     expect(screen.getByRole('button', { name: /Redact/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close Draw Tools' }));
+    expect(screen.queryByRole('button', { name: /Redact/ })).toBeNull();
     // Esc inside a Nexus dialog (or a field) is that dialog's - the mode stays on.
     document.body.insertAdjacentHTML('beforeend', '<div role="dialog" id="host-dialog"><input id="host-field" /></div>');
     fireEvent.keyDown(document.getElementById('host-field'), { key: 'Escape' });
@@ -83,8 +89,31 @@ describe('BuildMode', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Browse/ }));
     expect(screen.getByTestId('bm-overlay').style.pointerEvents).toBe('none');
     expect(screen.getByText(/Browse: use Nexus as usual/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /^Pin/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Comment/ }));
     expect(screen.getByTestId('bm-overlay').style.pointerEvents).toBe('auto');
+  });
+
+  it('Done counts my open comments on every screen, by module, and opens the Queue', async () => {
+    enabled = true;
+    mine = [pin({ id: 'a', status: 'open', route: 'tasks' }), pin({ id: 'b', status: 'open', route: 'tasks' }), pin({ id: 'c', status: 'open', route: 'tickets' })];
+    sessionStorage.setItem('nexus:build-mode', '1');
+    await mount();
+    const done = await screen.findByRole('button', { name: 'Done - 3 comments' }, { timeout: 4000 });
+    expect(done.getAttribute('title')).toMatch(/Tasks.* 2 · .*Tickets.* 1|tasks 2 · tickets 1/i);
+    fireEvent.click(done);
+    expect(await screen.findByRole('dialog', {}, { timeout: 4000 })).toBeTruthy();
+  });
+
+  it('Show All Tools (per browser) brings back the whole strip: Pin, Redact and the Queue, no Done', async () => {
+    enabled = true;
+    localStorage.setItem('nexus:build-mode:all-tools', '1');
+    sessionStorage.setItem('nexus:build-mode', '1');
+    await mount();
+    await screen.findByRole('toolbar', { name: 'Build Mode tools' }, { timeout: 4000 });
+    expect(screen.getByRole('button', { name: /^Pin/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Redact/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Queue/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Done/ })).toBeNull();
   });
 
   it('a pin on this screen renders with its number and status; click opens its thread with Accept / Reopen', async () => {

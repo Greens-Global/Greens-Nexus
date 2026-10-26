@@ -1,14 +1,15 @@
-// The card anchored to what was picked: kind, priority, the comment (Ctrl+V
-// pastes a screenshot into it), hold-to-talk, Record, the "Looks like ..."
-// line, and Save Pin / Save And Send. The draft it edits lives in
-// localStorage until the pin is saved (store.js saveDraft).
+// The card anchored to what was picked: the "You picked ..." line, the
+// comment (Ctrl+V pastes a screenshot into it), hold-to-talk, Record, More
+// Options (kind - guessed from the words until picked - and priority), and
+// Save Pin / Save And Send. The draft it edits lives in localStorage until
+// the pin is saved (store.js saveDraft).
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { X, Mic, Video, CircleStop, Loader2, Send, Check, Trash2, Camera } from 'lucide-react';
 import { useIsMobile } from '../lib/useIsMobile';
 import { toViewUrl } from '../lib/storageView';
 import { filesFromPaste } from '../tasks/lib';
 import { MODULES } from '../contexts/RoleContext';
-import { KINDS, PRIORITIES } from './meta';
+import { KINDS, PRIORITIES, guessKind } from './meta';
 import { placeCard } from './lib/anchor';
 import { uploadDevNoteFile, storageReady } from './lib/upload';
 import { speechSupported } from './lib/recorder';
@@ -75,6 +76,7 @@ export default function Composer({
   const [uploading, setUploading] = useState(0);
   const [err, setErr] = useState('');
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const rect = pick?.rect;
 
   useLayoutEffect(() => {
@@ -123,20 +125,13 @@ export default function Composer({
       <div className="bm-card-body">
         {hint && <div className="bm-looks" title={looksLikeDetail(pick?.target)}>{hint}</div>}
         {owner && <div className="bm-hint bm-hint-amber" role="note" data-testid="bm-owner-line">This is {owner.name}&apos;s area - it goes to {owner.name}, not Claude Code.</div>}
-        <div className="bm-pills" role="radiogroup" aria-label="Kind">
-          {KINDS.map((k) => (
-            <button key={k.id} type="button" role="radio" aria-checked={draft.kind === k.id} className={`bm-pill${draft.kind === k.id ? ' is-on' : ''}`} style={{ '--c': k.color }} onClick={() => set({ kind: k.id })}>{k.label}</button>
-          ))}
-        </div>
-        <div className="bm-pills" role="radiogroup" aria-label="Priority">
-          {PRIORITIES.map((p) => (
-            <button key={p.id} type="button" role="radio" aria-checked={draft.priority === p.id} className={`bm-pill bm-pill-sm${draft.priority === p.id ? ' is-on' : ''}`} style={{ '--c': p.color }} onClick={() => set({ priority: p.id })}>{p.label}</button>
-          ))}
-        </div>
         {draft.edit?.note && <div className="bm-edit-note"><b>Edit:</b> {draft.edit.note}</div>}
         <div className="bm-comment-wrap nx-fill">
-          <textarea ref={textRef} className="bm-textarea bm-comment-box" value={draft.comment || ''} onChange={(e) => set({ comment: e.target.value })} onPaste={onPaste}
-            placeholder={draft.kind === 'question' ? 'What do you want to know about this?' : 'What is wrong, or what should change?'} aria-label="Comment" rows={4} />
+          {/* The words come first (Pranshu, Oct 26): type or hold to talk, then save. The
+              kind follows the words (guessKind) until the person picks one under More Options. */}
+          <textarea ref={textRef} className="bm-textarea bm-comment-box" value={draft.comment || ''} onPaste={onPaste}
+            onChange={(e) => { const comment = e.target.value; set(draft.kindSet || draft.edit ? { comment } : { comment, kind: guessKind(comment) }); }}
+            placeholder="What is wrong, what should change, or what do you want to know?" aria-label="Comment" rows={4} />
           {interim && <div className="bm-interim" aria-live="polite">{interim}</div>}
           <div className="bm-paste-hint">or press {MOD}+V to paste a screenshot{uploading > 0 && <> · <Loader2 size={11} className="bm-spin" /> uploading</>}</div>
         </div>
@@ -169,6 +164,19 @@ export default function Composer({
             <Camera size={12} /> Screenshot on save
           </span>
         </div>
+        <details className="bm-details bm-more" open={moreOpen} onToggle={(e) => setMoreOpen(e.currentTarget.open)}>
+          <summary>More Options <span className="bm-dim bm-small">- {kindMeta.label} · {(PRIORITIES.find((p) => p.id === draft.priority) || PRIORITIES[1]).label}</span></summary>
+          <div className="bm-pills" role="radiogroup" aria-label="Kind">
+            {KINDS.map((k) => (
+              <button key={k.id} type="button" role="radio" aria-checked={draft.kind === k.id} className={`bm-pill${draft.kind === k.id ? ' is-on' : ''}`} style={{ '--c': k.color }} onClick={() => set({ kind: k.id, kindSet: true })}>{k.label}</button>
+            ))}
+          </div>
+          <div className="bm-pills" role="radiogroup" aria-label="Priority">
+            {PRIORITIES.map((p) => (
+              <button key={p.id} type="button" role="radio" aria-checked={draft.priority === p.id} className={`bm-pill bm-pill-sm${draft.priority === p.id ? ' is-on' : ''}`} style={{ '--c': p.color }} onClick={() => set({ priority: p.id })}>{p.label}</button>
+            ))}
+          </div>
+        </details>
         {recording && (
           <div className="bm-live" aria-live="polite">
             <div className="bm-live-head"><span className="bm-rec-dot" /> Recording{speechSupported() ? ' - live transcript' : ''}</div>

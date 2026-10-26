@@ -6987,6 +6987,11 @@ th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visibl
   background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-lg); user-select: none; }
 .bm-strip-hint { position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); white-space: nowrap; font: 500 12px 'Inter', sans-serif; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; box-shadow: var(--shadow-sm); pointer-events: none; }
 .bm-strip-grip { display: flex; align-items: center; color: var(--muted); cursor: grab; padding: 0 2px; touch-action: none; }
+.bm-strip-done { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; margin: 0 2px; border-radius: 9px; border: none; background: var(--ink); color: var(--paper); font: 700 13px 'Inter', sans-serif; cursor: pointer; flex-shrink: 0; }
+.bm-strip-done:hover { background: var(--fern); }
+.bm-strip-done-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--paper); color: var(--ink); font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+.bm-more summary { padding: 2px 0; }
+.bm-more[open] summary { margin-bottom: 6px; }
 .bm-strip-grip:active { cursor: grabbing; }
 .bm-sep { width: 1px; height: 22px; background: var(--line); margin: 0 3px; flex-shrink: 0; }
 .bm-tool { position: relative; width: 36px; height: 36px; border-radius: 9px; border: none; background: none; color: var(--muted); display: flex; align-items: center; justify-content: center; cursor: pointer; font-family: 'Inter', sans-serif; flex-shrink: 0; transition: background var(--transition-fast), color var(--transition-fast); }

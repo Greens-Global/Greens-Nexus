@@ -426,6 +426,31 @@ Fixed - Verify, Done, Dismissed.
   kind, priority, status, comment, Where line and the marked-up shot embedded
   as base64 - that opens anywhere with no login.
 
+### The simple strip (Oct 26 2026)
+
+For people who are not technical (Pranshu: "make it as easy as that"):
+
+- The strip is simple by default: **Browse** (B), **Comment** (the Pin
+  tool, P), **Draw ›** (unfolds Edit, the markup tools, Undo and Color in
+  place - the freehand tool is now "Pen", D), **Record** (V), **Talk** (M),
+  **Done (n)** and Off. A markup tool picked by its key shows while it is
+  the tool. Settings > **Show All Tools** (per browser,
+  `nexus:build-mode:all-tools`, `store.setAllTools`) brings back the whole
+  strip (Hide Pins, Queue) for the dev team; `SIMPLE_TOOLS` in `meta.js`.
+- **Done (n)** counts YOUR open, unheld comments on every screen
+  (`GET /dev-notes?status=open&mine=1`, refreshed on every save and when the
+  panel closes); its tooltip says where they are ("Tasks 2 · Tickets 1");
+  it opens the Queue.
+- The Queue says the same by module (`bm-by-module`) and has **Save
+  Report** for the session your comments collect in, next to Also Post To
+  Teams and Send To Claude Code.
+- The composer puts the words first: the comment box, Hold To Talk and
+  Record; **More Options** (folded, its summary shows the current choice)
+  holds Kind and Priority. Kind follows the words (`guessKind`: a question
+  mark or question words = Question; "can we", "please add", "would be
+  nice", "instead of"... = Change; else Bug) until the person picks one
+  there (`kindSet` on the draft). An Edit pin keeps kind Edit.
+
 ---------------------------------------------------------------------------
 ## 6. Frontend - `frontend/src/devnotes/`
 
