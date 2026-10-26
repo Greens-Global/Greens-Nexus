@@ -7460,3 +7460,19 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 @media (prefers-reduced-motion: reduce) { .mobile-toggle-dot { animation: none; } }
 /* Dark mode: the accent dot lightened so it reads on the dark rail (Oct 25). */
 [data-theme="dark"] .nav-count.is-corner, [data-theme="dark"] .mobile-toggle-dot { background: color-mix(in srgb, var(--wk-brand) 55%, #fff); }
+
+/* Popup nudge (Sagar, Oct 27 2026 - lib/usePopupNudge.js): a click outside
+   Ask HR, Reimbursements or Purchase Requests no longer closes it; the popup
+   pulses with a brand ring and its close button lights up instead. Two
+   identical animations so a repeated click replays it. */
+@keyframes nx-nudge-a { 0% { transform: scale(1); } 30% { transform: scale(1.012); box-shadow: 0 0 0 3px var(--wk-brand, #1f7a40), 0 20px 60px rgba(0,0,0,0.3); } 60% { transform: scale(.997); } 100% { transform: scale(1); } }
+@keyframes nx-nudge-b { 0% { transform: scale(1); } 30% { transform: scale(1.012); box-shadow: 0 0 0 3px var(--wk-brand, #1f7a40), 0 20px 60px rgba(0,0,0,0.3); } 60% { transform: scale(.997); } 100% { transform: scale(1); } }
+.nx-nudge-a { animation: nx-nudge-a .45s ease; }
+.nx-nudge-b { animation: nx-nudge-b .45s ease; }
+@keyframes nx-close-nudge-a { 0%, 70% { background: var(--wk-brand-tint, #e8ecfd); color: var(--ink); box-shadow: 0 0 0 2px var(--wk-brand, #1f7a40); } 100% { background: transparent; box-shadow: none; } }
+@keyframes nx-close-nudge-b { 0%, 70% { background: var(--wk-brand-tint, #e8ecfd); color: var(--ink); box-shadow: 0 0 0 2px var(--wk-brand, #1f7a40); } 100% { background: transparent; box-shadow: none; } }
+.nx-close-nudge-a { animation: nx-close-nudge-a 1.4s ease; border-radius: 8px; }
+.nx-close-nudge-b { animation: nx-close-nudge-b 1.4s ease; border-radius: 8px; }
+@media (prefers-reduced-motion: reduce) {
+  .nx-nudge-a, .nx-nudge-b { animation: none; box-shadow: 0 0 0 3px var(--wk-brand, #1f7a40), 0 20px 60px rgba(0,0,0,0.3); }
+}

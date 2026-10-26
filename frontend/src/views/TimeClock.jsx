@@ -32,7 +32,7 @@ import { pairLocalAgent } from '../lib/agentPair';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import DocumentsToSign from '../components/DocumentsToSign';
 import DelegateApprovalsCard from '../components/DelegateApprovals';
-import PurchaseRequests from '../components/PurchaseRequests';
+import { PurchaseRequestsPanel } from '../components/PurchaseRequests';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -67,8 +67,6 @@ const TAB_META = {
   overview:  { title: 'Workday',    label: 'Overview' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet' },
   timeoff:   { title: 'Time Off',   label: 'Time Off' },
-  // Moved here from Item Management (Neil, Oct 22 2026) - next to HR and reimbursements.
-  purchase:  { title: 'Purchase Requests', label: 'Purchase Requests' },
 };
 // The Clock tab folded into Overview (Oct 2), and so did your own shifts
 // (Neil, Oct 13 2026: "the personal shift data should move into your
@@ -78,9 +76,12 @@ const TAB_META = {
 // unlocked) carry for the employee - that is the Time Sheet tab (Oct 16: it
 // used to fall through to Overview).
 // "reimbursements" (a reimbursement bell, Oct 18 2026) is the Overview with its panel open.
-// "purchase:new" (the old Purchase view's New Request, Oct 22 2026) is the Purchase Requests tab with its form open.
-const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
-  : sub === 'timecard' ? 'timesheet' : /^purchase(:|$)/.test(sub || '') ? 'purchase' : sub);
+// "purchase" and "purchase:new" (bells, search, dashboard tiles, the old Purchase view)
+// are the Overview with the Purchase Requests popup open - it is a popup like
+// Reimbursements, not a tab (Sagar, Oct 27); "purchase:new" opens its form too.
+const isPurchaseSub = (sub) => /^purchase(:|$)/.test(sub || '');
+const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || isPurchaseSub(sub) || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
+  : sub === 'timecard' ? 'timesheet' : sub);
 // "shifts:confirm:<publish id>" (Shifts Phase 3a): a schedule to confirm - My Schedule shows its banner.
 const confirmOf = (sub) => (String(sub || '').match(/^shifts:confirm:(.+)$/) || [])[1] || '';
 // "sign:<party id>" (Oct 18): a Nexus Sign document to sign - Documents to Sign opens it.
@@ -515,9 +516,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // "purchase:new" opens the New Purchase Request form (each time it arrives).
   const [purchaseNewKey, setPurchaseNewKey] = useState(() => (activeSub === 'purchase:new' ? 1 : 0));
   const [purchaseSeenSub, setPurchaseSeenSub] = useState(activeSub);
+  // The popup: null, or { newForm } - only a "purchase:new" arrival opens the form.
+  const [purchaseOpen, setPurchaseOpen] = useState(() => (isPurchaseSub(activeSub) ? { newForm: activeSub === 'purchase:new' } : null));
   if (activeSub !== purchaseSeenSub) {
     setPurchaseSeenSub(activeSub);
     if (activeSub === 'purchase:new') setPurchaseNewKey((k) => k + 1);
+    if (isPurchaseSub(activeSub)) setPurchaseOpen({ newForm: activeSub === 'purchase:new' });
   }
   const [tab, setTab] = useState(() => {
     const t = tabFor(activeSub) || tabFor(initialTab);
@@ -1337,8 +1341,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
              a reviewing manager) - never for the badge count alone, which
              once surfaced a stale "sent back" row of an exempt person's own
              old time sheet as a "1" over an empty tab (Neil, Oct 21 2026). */
-          ? ['overview', ...(toSignCount > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff', 'purchase']
-          : ['overview', 'timesheet', 'timeoff', 'purchase']
+          ? ['overview', ...(toSignCount > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
+          : ['overview', 'timesheet', 'timeoff']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title })), counts, 'myhr')}
         active={tab} onChange={setTab} syncTitle />
 
@@ -1355,7 +1359,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Nexus Sign documents waiting on me, signed here (Oct 18) - Documents needs a grant. */}
       {tab === 'overview' && <DocumentsToSign focusParty={signOf(activeSub)} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
       {tab === 'overview' && (
-        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setTab('purchase')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
+        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setPurchaseOpen({ newForm: false })} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
 
       {/* Time sheets waiting on my signature - above my own timesheet. Renders
@@ -1444,9 +1448,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       </>)}
 
 
-      {/* Purchase Requests (moved from Item Management, Neil Oct 22 2026) */}
-      {tab === 'purchase' && (
-        <PurchaseRequests openNewKey={purchaseNewKey} toast={(text, kind) => toast(kind !== 'error', text)} />
+      {/* Purchase Requests (moved from Item Management, Neil Oct 22 2026) - a popup
+          over Workday like Reimbursements, opened from its Overview tile or a link. */}
+      {purchaseOpen && (
+        <PurchaseRequestsPanel onClose={() => setPurchaseOpen(null)} openNewKey={purchaseOpen.newForm ? purchaseNewKey : 0}
+          toast={(text, kind) => toast(kind !== 'error', text)} />
       )}
 
       {/* Time off */}

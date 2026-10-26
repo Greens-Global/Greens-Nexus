@@ -154,6 +154,15 @@ keep the diff minimal.
   table, the preview - carries `className="nx-fill"` (style.css) so it grows
   into the space; never leave a short form floating over an empty bottom
   half.
+  **Exception - the Workday panels are 85%** (Sagar, Oct 27 2026): Ask HR
+  (`views/MyHR.jsx`), Reimbursements (`components/Reimbursements.jsx`) and
+  Purchase Requests (`PurchaseRequestsPanel` in
+  `components/PurchaseRequests.jsx`) are whole workspaces, not single forms -
+  `width: 85vw`, `height: 85vh` (fixed, body scrolling), same 420px floor
+  and phone sheet. Do not "fix" them back to 60%; the forms they open on top
+  (e.g. New Purchase Request) stay on the 60% rule. A click outside these
+  three never closes them - it nudges the popup and lights up its close
+  button (`lib/usePopupNudge.js`); Close, Cancel and Escape close.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 

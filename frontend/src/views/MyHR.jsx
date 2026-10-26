@@ -14,6 +14,7 @@ import { canPreview } from '../egnyte/lib';
 import { MyChecklistSteps } from '../components/HrChecklists';
 import MyShifts from '../components/MyShifts';
 import ReimbursementsTile from '../components/Reimbursements';
+import { usePopupNudge } from '../lib/usePopupNudge';
 import { PurchaseRequestTile } from '../components/PurchaseRequests';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
@@ -157,6 +158,9 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
   const [askOpen, setAskOpen] = useState(false);
   // The Ask HR panel (top-right button) and what was new when it opened.
   const [askPanel, setAskPanel] = useState(false);
+  // A click outside nudges instead of closing (lib/usePopupNudge.js).
+  const { nudge: nudgeAsk, reset: resetAskNudge, popupClass: askPopupClass, closeClass: askCloseClass } = usePopupNudge();
+  useEffect(() => { if (!askPanel) resetAskNudge(); }, [askPanel, resetAskNudge]);
   const [askSeen, setAskSeen] = useState(readAskSeen);
   const [askFresh, setAskFresh] = useState(() => new Set());
   const isAskUnseen = (a) => { const m = askMark(a); return !!m && askSeen[a.id] !== m; };
@@ -487,7 +491,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
             </button>
             {/* Reimbursements (Neil, Oct 18 2026): beside Ask HR, a panel - not a new tab. */}
             <ReimbursementsTile autoOpen={openReimbursements} flash={flash} />
-            {/* Purchase Request (Neil, Oct 22 2026): moved here from Item Management - opens the Purchase Requests tab. */}
+            {/* Purchase Request (Neil, Oct 22 2026): moved here from Item Management - opens the Purchase Requests popup (Sagar, Oct 27), like Reimbursements. */}
             <PurchaseRequestTile onOpen={onOpenPurchase || (() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'purchase' } })))} />
             </div>
           </div>
@@ -718,20 +722,21 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
           HR's answer; what HR changed since the last look is marked. */}
       {askPanel && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-          onClick={() => { setAskPanel(false); setAskOpen(false); }}>
-          <div role="dialog" aria-label="Ask HR" onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--card)', borderRadius: 14, width: '60vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', minHeight: '60vh', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+          onClick={nudgeAsk}>
+          {/* 85%, like Reimbursements and Purchase Requests - the Workday panels' exception in CLAUDE.md (Sagar, Oct 27). */}
+          <div role="dialog" aria-label="Ask HR" className={askPopupClass} onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--card)', borderRadius: 14, width: '85vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '85vh', maxHeight: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
             <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--line)' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Ask HR</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>A document update, a profile change or anything else</div>
               </div>
               {!askOpen && (
-                <button className="primary-btn" onClick={() => setAskOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
-                  <MessageSquarePlus size={13} /> New Request
+                <button className="primary-btn" aria-label="New Request" onClick={() => setAskOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
+                  <MessageSquarePlus size={13} /> New
                 </button>
               )}
-              <button type="button" onClick={() => { setAskPanel(false); setAskOpen(false); }} aria-label="Close"
+              <button type="button" className={askCloseClass} onClick={() => { setAskPanel(false); setAskOpen(false); }} aria-label="Close"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
             <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '14px 18px 18px', display: 'flex', flexDirection: 'column' }}>

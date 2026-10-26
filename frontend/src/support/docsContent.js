@@ -248,7 +248,7 @@ export const DOCS = [
       {
         title: 'Ask the Company to Buy Something',
         steps: [
-          'Click the Purchase Requests tab (or Purchase Request on the Overview).',
+          'On the Workday Overview, click Purchase Request - it opens in a popup, like Reimbursements.',
           'Click New Purchase Request. Pick who it is for, the item, quantity, department, a reason, the manager who should approve it and an optional reference link, then click Submit Request.',
           'It shows under My Requests as Pending Approval, then Approved, Ordered and Fulfilled - or Rejected with the reason. History on a request lists every step.',
         ],
@@ -273,7 +273,7 @@ export const DOCS = [
       { name: 'Location Tag', desc: 'Each punch shows the location you were at when you punched, judged by where the punch was made, even if you move between several locations in a day. A punch inside any of your company locations shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote and Hybrid staff can punch from anywhere (away from a site it shows Remote), and their location is still recorded. Click a location on the time sheet to see the punches of that shift on the map; a manager can also change the location of the punch from there.' },
       { name: 'Location Off at Clock-In', desc: 'A punch never waits for your location. If you clock in with location turned off, a red Needs Attention bar asks you to turn it on, with Turn On and Skip. Turn On asks your browser for your location (or shows the steps to allow it when it is blocked) and adds it to that clock-in. Skip keeps the clock-in as Location Off on your Time Sheet and lets your manager know. Works the same on a phone and a computer. People exempt from screen monitoring are never asked.' },
       { name: 'Clock in the Left Menu', desc: 'The time clock also sits in the left menu: Play punches in (or ends a break), Pause starts a break, Stop punches out. The dial fills toward 8 hours - green on the clock, amber on a break, red off - and clicking it opens the full clock.' },
-      { name: 'Purchase Requests', desc: 'Formal requests for things the company does not have yet (moved here from Item Management on 10/22/2026). My Requests lists yours with their status, reason, reference link and history. Item Management managers also get Approvals: Approve and pick who purchases and fulfills it, or Reject with a reason. The person picked marks it Ordered, then Fulfill Without Adding (consumables, with a note) or Received - Add to Items, which opens the Add Item form prefilled and fulfills the request once the item is saved.' },
+      { name: 'Purchase Requests', desc: 'Formal requests for things the company does not have yet (moved here from Item Management on 10/22/2026), opened as a popup from the Purchase Request tile on the Overview. My Requests lists yours with their status, reason, reference link and history. Item Management managers also get Approvals: Approve and pick who purchases and fulfills it, or Reject with a reason. The person picked marks it Ordered, then Fulfill Without Adding (consumables, with a note) or Received - Add to Items, which opens the Add Item form prefilled and fulfills the request once the item is saved.' },
       { name: 'Delegate My Approvals', desc: 'At the bottom of the Time Off tab, collapsed. Only for days you have approved time off: pick who covers your approvals - your manager or someone above, a peer under the same manager, or someone at your level or above, never your own team - and the dates. Your approvals go to them for those days; you keep yours too.' },
       { name: 'California Meal and Rest Breaks', desc: 'For everyone whose Country or Region is the US, hourly and salaried: the signing screen and the signed time sheet carry the statement "I was provided every meal and rest break California law requires.", and signing confirms it. Hourly staff on the California overtime rule who missed a break click Report a Missed Break instead of signing - pick the days and Meal or Rest; your manager adds the premium pay and sends it back to you.' },
     ],
@@ -1082,7 +1082,7 @@ export const DOCS = [
       {
         title: 'Need Something Not in the Catalog?',
         steps: [
-          'Purchase requests live in Workday now: open Workday > Purchase Requests (or click Purchase Request on the Workday Overview).',
+          'Purchase requests live in Workday now: click Purchase Request on the Workday Overview to open them in a popup.',
           'Click New Purchase Request, fill in the item, quantity, reason and a reference link, then submit for approval.',
         ],
       },
@@ -1322,7 +1322,7 @@ export const DOCS = [
         title: 'File a Reimbursement',
         steps: [
           'Open Workday and click Reimbursements, beside Ask HR.',
-          'Click New Reimbursement. Say what you bought, the category (pick Other and say what it was if none fit), the amount and its currency, when and where, and what it was for.',
+          'Click + New. Say what you bought, the category (pick Other and say what it was if none fit), the amount and its currency, when and where, and what it was for.',
           'Pick who approves it, or leave My Manager.',
           'Attach the receipts. You can paste a screenshot with Ctrl+V. No receipt yet? Send it anyway and add the receipt once you have bought it.',
           'Click Send for Approval. Your approver gets a notification.',
@@ -1339,7 +1339,7 @@ export const DOCS = [
       {
         title: 'Approve and Pay (HR)',
         steps: [
-          'Open Workday > Reimbursements and pick HR. To Approve holds the claims their approver approved.',
+          'Open Workday > Reimbursements and click Manage. To Approve holds the claims their approver approved.',
           'Check the receipts and Approve it - it moves to To Pay. Send Back and Reject work as above.',
           'Once the money has gone out, click Mark Paid and enter the date, the method and a reference.',
         ],
@@ -1348,7 +1348,7 @@ export const DOCS = [
     features: [
       { name: 'Reimbursements (Workday)', desc: 'File one and follow it; fix and resubmit one that was sent back; add receipts later.' },
       { name: 'To Approve', desc: 'The claims waiting on you as their approver.' },
-      { name: 'HR', desc: 'To Approve, To Pay and Paid, for the companies you are HR for.' },
+      { name: 'Manage (HR)', desc: 'To Approve, To Pay and Paid, for the companies you are HR for.' },
       { name: 'Reimbursements (People profile)', desc: 'Every claim one person has filed, with receipts and the history.' },
     ],
     tips: ['A claim is never deleted. Rejected and canceled claims stay on the record.', 'Receipts open through a short private link, only for the employee, the approver, their manager and HR.'],

@@ -6,8 +6,9 @@
 // sheets). The People profile's Reimbursements tab is PersonReimbursements below.
 // Server side: routers/reimbursements.py.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppWindow, ArrowRight, Check, ChevronDown, FileText, Laptop, Package, Plane, Plus, Receipt, Tag, Upload, Utensils, X } from 'lucide-react';
+import { AppWindow, ArrowRight, Check, ChevronDown, FileText, Laptop, Package, Plane, Plus, Receipt, Settings2, Tag, Upload, Utensils, X } from 'lucide-react';
 import { api } from '../api';
+import { usePopupNudge } from '../lib/usePopupNudge';
 import { Spinner } from './AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { currencyOptions } from '../asset/lib/currency';
@@ -369,6 +370,9 @@ const counts = (d) => ({
 export default function ReimbursementsTile({ autoOpen = false, flash = () => {} }) {
   const [data, setData] = useState(null);
   const [open, setOpen] = useState(!!autoOpen);
+  // A click outside nudges instead of closing (lib/usePopupNudge.js).
+  const { nudge, reset: resetNudge, popupClass, closeClass } = usePopupNudge();
+  useEffect(() => { if (!open) resetNudge(); }, [open, resetNudge]);
   const [tab, setTab] = useState('mine');
   const [hrTab, setHrTab] = useState('approver_approved');
   const [form, setForm] = useState(null);       // null | 'new' | the sent-back claim being fixed
@@ -409,9 +413,12 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
     const swap = (list) => (list || []).map((x) => (x.id === u.id ? u : x));
     return { ...d, mine: swap(d.mine), toApprove: swap(d.toApprove), hr: swap(d.hr) };
   });
+  // HR's queue is not a tab beside the person's own claims: it opens from
+  // Manage in the header (Neil, Oct 26), and the tabs below lead back out.
   const tabs = [['mine', 'My Reimbursements', c.mine],
-    ...((data?.toApprove || []).length ? [['approve', 'To Approve', c.approve]] : []),
-    ...(data?.canHr ? [['hr', 'HR', c.hrApprove + c.hrPay]] : [])];
+    ...((data?.toApprove || []).length ? [['approve', 'To Approve', c.approve]] : [])];
+  const managing = tab === 'hr';
+  const hrWaiting = c.hrApprove + c.hrPay;
   const list = tab === 'approve' ? (data?.toApprove || []) : tab === 'hr' ? (data?.hr || []).filter((r) => r.status === hrTab) : (data?.mine || []);
 
   return (<>
@@ -430,21 +437,15 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
     </button>
     {open && (
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-        onClick={() => setOpen(false)}>
-        <div role="dialog" aria-label="Reimbursements" onClick={(e) => e.stopPropagation()}
-          style={{ background: 'var(--card)', borderRadius: 14, width: '60vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', minHeight: '60vh', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+        onClick={nudge}>
+        <div role="dialog" aria-label="Reimbursements" className={popupClass} onClick={(e) => e.stopPropagation()}
+          style={{ background: 'var(--card)', borderRadius: 14, width: '85vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '85vh', maxHeight: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
           <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--line)' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Reimbursements</div>
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>Paid for something yourself? Send it for approval, then HR pays you back.</div>
             </div>
-            {!form && (
-              <button type="button" className="primary-btn" onClick={() => { setForm('new'); setTab('mine'); }}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
-                <Plus size={13} /> New Reimbursement
-              </button>
-            )}
-            <button type="button" onClick={() => setOpen(false)} aria-label="Close"
+            <button type="button" className={closeClass} onClick={() => setOpen(false)} aria-label="Close"
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
           </div>
           <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '14px 18px 18px', display: 'flex', flexDirection: 'column' }}>
@@ -456,36 +457,63 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
                   setData((d) => ({ ...(d || EMPTY), mine: [row, ...((d?.mine || []).filter((x) => x.id !== row.id))] }));
                 }} />
             )}
-            {tabs.length > 1 && (
-              <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                {tabs.map(([k, label, n]) => (
-                  <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
-                    style={{ border: '1px solid var(--line)', borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                      background: tab === k ? 'var(--ink)' : 'var(--card)', color: tab === k ? 'var(--card)' : 'var(--ink)' }}>
-                    {label}{n ? ` (${n})` : ''}
+            {/* One toolbar under the header (Sagar, Oct 27): the tabs on the left, Manage
+                and + New on the right - they used to crowd the title row. */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 0 }}>
+                {managing && (
+                  <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', marginBottom: 2 }}>Manage - HR</div>
+                )}
+                {/* The segmented control Purchase Requests uses (Workday's .wd-seg -
+                    Sagar, Oct 27), for the person's tabs and Manage's alike. */}
+                {tabs.length > 1 && !managing && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div className="wd-seg" role="tablist" aria-label="Reimbursements">
+                      {tabs.map(([k, label, n]) => (
+                        <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
+                          {label}{n ? ` (${n})` : ''}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {tab === 'hr' && (
+                  <div style={{ margin: '6px 0 10px' }}>
+                    <div className="wd-seg" role="tablist" aria-label="HR">
+                      {HR_TABS.map(([k, label]) => {
+                        const n = (data?.hr || []).filter((r) => r.status === k).length;
+                        return (
+                          <button key={k} type="button" role="tab" aria-selected={hrTab === k} className={hrTab === k ? 'on' : ''} onClick={() => setHrTab(k)}>
+                            {label}{n ? ` (${n})` : ''}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginLeft: 'auto', marginBottom: 10 }}>
+                {!form && data?.canHr && (
+                  <button type="button" className="secondary-btn" aria-pressed={managing}
+                    onClick={() => setTab(managing ? 'mine' : 'hr')}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px',
+                      ...(managing ? { background: 'var(--ink)', color: 'var(--card)', borderColor: 'var(--ink)' } : {}) }}>
+                    <Settings2 size={13} /> Manage{hrWaiting ? ` (${hrWaiting})` : ''}
                   </button>
-                ))}
+                )}
+                {!form && (
+                  <button type="button" className="primary-btn" aria-label="New Reimbursement" onClick={() => { setForm('new'); setTab('mine'); }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
+                    <Plus size={13} /> New
+                  </button>
+                )}
               </div>
-            )}
-            {tab === 'hr' && (
-              <div className="scroll-tabs" role="tablist" aria-label="HR" style={{ display: 'flex', gap: 14, margin: '4px 0 2px', borderBottom: '1px solid var(--line)' }}>
-                {HR_TABS.map(([k, label]) => {
-                  const n = (data?.hr || []).filter((r) => r.status === k).length;
-                  return (
-                    <button key={k} type="button" role="tab" aria-selected={hrTab === k} onClick={() => setHrTab(k)}
-                      style={{ background: 'none', border: 'none', borderBottom: `2px solid ${hrTab === k ? 'var(--ink)' : 'transparent'}`, padding: '6px 0', fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
-                        color: hrTab === k ? 'var(--ink)' : 'var(--muted)' }}>
-                      {label}{n ? ` (${n})` : ''}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            </div>
             <div className="nx-fill">
             {!data ? <div style={{ padding: 20, textAlign: 'center' }}><Spinner size={16} /></div>
               : list.length === 0 ? (
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0' }}>
-                  {tab === 'approve' ? 'Nothing waiting on you.' : tab === 'hr' ? 'Nothing here.' : 'Nothing filed yet. Use New Reimbursement to send one.'}
+                  {tab === 'approve' ? 'Nothing waiting on you.' : tab === 'hr' ? 'Nothing here.' : 'Nothing filed yet. Use New to send one.'}
                 </div>
               ) : list.map((r) => (
                 <ClaimRow key={r.id} r={r} as={tab === 'approve' ? 'approve' : tab === 'hr' ? 'hr' : 'mine'} onChanged={replace} flash={flash}
