@@ -3898,6 +3898,17 @@ async def lifespan(app: FastAPI):
                 print("[startup] screenshot retention sweep skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] screenshot retention sweep skipped: {e}")
+        # Build Mode: purge the media of pins closed 30+ days ago (deletes live
+        # storage, so deployed worker only - same gate as the sweep above).
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from routers.dev_notes import purge_media_loop
+                _tasks.append(_a.create_task(purge_media_loop()))
+            else:
+                print("[startup] Build Mode media purge skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Build Mode media purge skipped: {e}")
         try:
             from leader import is_deployed_worker
             if is_deployed_worker():
