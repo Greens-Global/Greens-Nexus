@@ -310,7 +310,9 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <ArrowLeft style={{ width: 15, height: 15 }} />
             </button>
           )}
-          {canGoBack && prevLabel && (
+          {/* Back within one module (Settings > another subject) named the
+              same page twice - "Settings / Settings" (Oct 25); the arrow stays. */}
+          {canGoBack && prevLabel && prevLabel !== displayTitle && (
             <>
               <button className="breadcrumb-prev" onClick={onBack} title={`Back to ${prevLabel}`}>{prevLabel}</button>
               <span style={{ color: "var(--muted)", opacity: 0.4, fontSize: 11, userSelect: "none" }}>/</span>

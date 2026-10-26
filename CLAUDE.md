@@ -331,7 +331,13 @@ keep the diff minimal.
   (`global`, `global-<category>`, `company`, `access`, `actas`) still lands
   (`resolveSub`). A new setting = one `GROUPS` entry (subject, face, scope,
   keywords) + one `renderGroup` case; the panel stays the component its
-  module owns - never a second copy. Settings holds what defines the shape
+  module owns - never a second copy. Panels draw controls with
+  `components/settings/SettingsUI.jsx` (Neil, Oct 25 2026: "world class") -
+  `SwitchRow` / `SettingRow` / `NumberBox`: title and description left,
+  control right, hairline rows; a switch saves on click, a form's Save shows
+  only once something changed; a group made of rows sets `flush: true`.
+  Styles are the `.nx-set-*` rules in style.css; never hand-roll another
+  switch. Settings holds what defines the shape
   of a module or a company and is changed rarely by an administrator; a
   module keeps what its managers maintain daily (Tasks > Manage, KB
   collections, Accounting's own tools stay put). Copy says "Settings >

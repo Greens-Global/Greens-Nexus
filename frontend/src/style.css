@@ -7241,3 +7241,165 @@ th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visibl
   border-radius: 8px; padding: 7px 10px; color: var(--ink); font-family: 'Inter', sans-serif; cursor: pointer; }
 .bm-ready-note:hover { background: color-mix(in srgb, #0d9488 12%, transparent); }
 .bm-regression-text { min-width: 0; overflow-wrap: anywhere; }
+
+/* ── Settings (Oct 25 2026) ─────────────────────────────────────────────────
+   The Settings module's look: a grouped rail that stays put, a subject header
+   that sticks with the scope switch in it, groups as a heading over one card,
+   and rows of title + description on the left, control on the right. The
+   building blocks are components/settings/SettingsUI.jsx. */
+.nx-switch {
+  appearance: none; -webkit-appearance: none; margin: 0; flex-shrink: 0; cursor: pointer;
+  position: relative; width: 36px; height: 20px; border-radius: 999px;
+  background: var(--wk-line2); box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .08);
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+.nx-switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .25); transition: transform var(--transition-fast);
+}
+.nx-switch:checked { background: var(--wk-brand); box-shadow: none; }
+.nx-switch:checked::after { transform: translateX(16px); }
+.nx-switch:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
+.nx-switch:disabled { cursor: default; opacity: .45; }
+@media (prefers-reduced-motion: reduce) { .nx-switch, .nx-switch::after { transition: none; } }
+
+.nx-set-card { border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+.nx-set-card + .nx-set-card { margin-top: 12px; }
+.nx-set-row { padding: 14px 18px; }
+.nx-set-row + .nx-set-row { border-top: 1px solid var(--line); }
+.nx-set-row.is-nested { padding-left: 42px; border-top-style: dashed; }
+.nx-set-row.is-muted .nx-set-row-title { color: var(--muted); }
+.nx-set-row-main { display: flex; align-items: center; gap: 24px; min-width: 0; }
+label.nx-set-row-main { cursor: pointer; }
+.nx-set-row.is-muted label.nx-set-row-main { cursor: default; }
+.nx-set-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nx-set-row-title { font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.4; }
+.nx-set-row-desc { font-size: 12px; color: var(--muted); line-height: 1.5; max-width: 68ch; }
+.nx-set-row-control { flex-shrink: 0; display: inline-flex; align-items: center; gap: 8px; }
+.nx-set-row-more { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+.nx-set-number { display: inline-flex; align-items: center; gap: 8px; }
+.nx-set-number .form-input { flex-shrink: 0; padding: 6px 10px; font-size: 13px; text-align: right; }
+.nx-set-number-unit { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.nx-set-note { padding: 10px 18px; font-size: 12px; color: var(--muted); background: var(--paper); border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Shell */
+.nx-set-shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 32px; align-items: start; }
+.nx-set-rail { position: sticky; top: 0; max-height: calc(100vh - 140px); overflow-y: auto; padding: 2px 4px 24px 0; display: flex; flex-direction: column; gap: 1px; scrollbar-width: thin; }
+.nx-set-rail-section { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--wk-faint, var(--muted)); padding: 16px 10px 6px; }
+.nx-set-rail-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border-radius: 8px; border: none; background: transparent; cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; color: var(--ink); text-align: left; transition: background var(--transition-fast), color var(--transition-fast); }
+.nx-set-rail-item:hover { background: var(--paper); }
+.nx-set-rail-item:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
+.nx-set-rail-item.is-active { background: var(--wk-brand-tint); color: var(--wk-brand); font-weight: 600; }
+.nx-set-rail-item.is-off { color: var(--muted); }
+.nx-set-rail-item .nx-set-rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-set-rail-item .nx-set-rail-meta { font-size: 11px; font-weight: 600; color: var(--muted); }
+.nx-set-rail-links { display: flex; flex-direction: column; margin: 2px 0 8px 18px; padding-left: 10px; border-left: 1px solid var(--line); }
+.nx-set-rail-link { text-align: left; background: none; border: none; padding: 4px 8px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 12px; line-height: 1.35; color: var(--muted); font-weight: 500; }
+.nx-set-rail-link:hover { color: var(--ink); }
+.nx-set-rail-link.is-current { color: var(--wk-brand); font-weight: 600; }
+.nx-set-search { position: relative; margin-bottom: 4px; }
+.nx-set-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.nx-set-search input { width: 100%; padding: 8px 34px 8px 30px; font-size: 13px; box-sizing: border-box; }
+.nx-set-search kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font: 600 10.5px/1 var(--wk-font, inherit); color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; background: var(--card); pointer-events: none; }
+
+.nx-set-main { min-width: 0; }
+.nx-set-main.is-narrow { max-width: 1040px; }
+.nx-set-head { position: sticky; top: 0; z-index: 5; background: var(--wk-bg, var(--paper)); padding: 4px 0 14px; margin-bottom: 18px; border-bottom: 1px solid var(--line); display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.nx-set-head-text { flex: 1 1 280px; min-width: 0; }
+.nx-set-head h3 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.01em; color: var(--ink); display: flex; align-items: center; gap: 10px; }
+.nx-set-head p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.nx-set-scope { display: inline-flex; align-items: center; gap: 8px; padding: 4px 4px 4px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.nx-set-scope-label { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.nx-set-scope select { border: none; background-color: transparent; font-size: 13px; font-weight: 600; padding: 5px 30px 5px 6px; min-width: 0; max-width: 260px; box-shadow: none; }
+.nx-set-scope.is-company { border-color: hsl(var(--color-orange)); background: hsla(var(--color-orange), .06); }
+.nx-set-scope-clear { border: none; background: none; cursor: pointer; color: var(--muted); display: inline-flex; padding: 4px; border-radius: 6px; }
+.nx-set-scope-clear:hover { color: var(--ink); background: var(--paper); }
+
+.nx-set-group { margin-bottom: 32px; scroll-margin-top: 110px; }
+.nx-set-group-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.nx-set-group-head-text { flex: 1 1 260px; min-width: 0; }
+.nx-set-group-head h4 { margin: 0; font-size: 14.5px; font-weight: 650; color: var(--ink); }
+.nx-set-group-head p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; max-width: 78ch; }
+.nx-set-group-body { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 18px; transition: box-shadow var(--transition-fast), border-color var(--transition-fast); }
+.nx-set-group-body.is-flush { padding: 0; overflow: hidden; }
+.nx-set-group.is-highlight .nx-set-group-body { border-color: var(--wk-brand); box-shadow: 0 0 0 3px var(--wk-brand-tint); }
+.nx-set-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--muted); white-space: nowrap; padding: 3px 9px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); }
+.nx-set-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .7; }
+.nx-set-badge.is-own { color: hsl(var(--color-orange)); background: hsla(var(--color-orange), .08); border-color: hsla(var(--color-orange), .35); }
+.nx-set-diff { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); padding: 10px 14px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); margin: -4px 0 24px; }
+.nx-set-diff.is-own { border-left: 3px solid hsl(var(--color-orange)); }
+.nx-set-diff button { background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: hsl(var(--color-orange)); }
+.nx-set-diff button:hover { text-decoration: underline; }
+.nx-set-list { display: flex; flex-direction: column; }
+.nx-set-list-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 18px; border: none; background: transparent; cursor: pointer; font: inherit; text-align: left; color: var(--ink); }
+.nx-set-list-item + .nx-set-list-item { border-top: 1px solid var(--line); }
+.nx-set-list-item:hover { background: var(--paper); }
+.nx-set-list-item:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
+.nx-set-tile { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; background: var(--paper); border: 1px solid var(--line); color: var(--ink); }
+
+/* Phones: the subjects are a list (Settings home), a subject opens on its own. */
+.nx-set-home-section { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 20px 4px 8px; }
+.nx-set-back { display: inline-flex; align-items: center; gap: 4px; border: none; background: none; padding: 6px 0; margin-bottom: 6px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; color: var(--wk-brand); }
+@media (max-width: 900px) {
+  .nx-set-head { position: static; padding-top: 0; }
+  .nx-set-head h3 { font-size: 18px; }
+  .nx-set-scope { width: 100%; }
+  .nx-set-scope select { flex: 1; max-width: none; }
+  .nx-set-row { padding: 14px; }
+  .nx-set-row.is-nested { padding-left: 28px; }
+  .nx-set-row-main { gap: 14px; }
+  .nx-set-group-body { padding: 14px; }
+  .nx-set-group-body.is-flush { padding: 0; }
+  .nx-set-list-item { padding: 12px 14px; }
+}
+/* "This company has its own" - an orange dark enough to read as text (4.5:1). */
+:root { --nx-own: hsl(24, 85%, 34%); }
+[data-theme="dark"] { --nx-own: hsl(32, 92%, 64%); }
+.nx-set-badge.is-own, .nx-set-diff button { color: var(--nx-own); }
+.nx-set-scope.is-company { border-color: var(--nx-own); }
+.nx-set-inline-link { background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: var(--wk-brand); }
+.nx-set-inline-link:hover { text-decoration: underline; }
+.nx-set-diff .nx-set-inline-link { color: var(--wk-brand); }
+.nx-set-group-body:not(.is-flush) > .nx-set-note:last-child { margin: 18px -18px -18px; }
+.nx-set-group-head h4:focus { outline: none; }
+.nx-set-group-head h4:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 3px; border-radius: 4px; }
+@media (max-width: 900px) {
+  .nx-set-group-body:not(.is-flush) > .nx-set-note:last-child { margin: 14px -14px -14px; }
+}
+.nx-set-sync { padding: 0 18px 14px; margin-top: -4px; }
+.nx-set-sync:empty { display: none; }
+.nx-switch { background: #cfd5e1; }
+[data-theme="dark"] .nx-switch { background: rgba(255, 255, 255, .2); }
+.nx-switch:checked { background: var(--wk-brand); }
+@media (min-width: 901px) { .nx-set-pagehead { display: none; } }
+/* Sticky rail and subject header: .viewport is overflow-y: auto but never
+   scrolls itself (the page does), and body's overflow-x: hidden makes it a
+   non-scrolling scroll container - either stops position: sticky. Same fix
+   as Documentation, and only while Settings shows. */
+.viewport:has(.nx-set-shell) { overflow: visible; }
+body:has(.nx-set-shell) { overflow-x: clip; }
+.nx-set-shell { --nx-set-top: calc(var(--nx-announce-h, 0px) + 64px); }
+.nx-set-rail { top: calc(var(--nx-set-top) + 16px); max-height: calc(100vh - var(--nx-set-top) - 32px); }
+.nx-set-head { top: var(--nx-set-top); padding-top: 14px; }
+.nx-set-group { scroll-margin-top: calc(var(--nx-set-top) + 104px); }
+/* A linked group flashes its ring, then settles (Oct 25). */
+@keyframes nx-set-flash { 0%, 55% { border-color: var(--wk-brand); box-shadow: 0 0 0 3px var(--wk-brand-tint); } 100% { border-color: var(--line); box-shadow: none; } }
+.nx-set-group.is-highlight .nx-set-group-body { animation: nx-set-flash 2.6s ease-out forwards; }
+@media (prefers-reduced-motion: reduce) { .nx-set-group.is-highlight .nx-set-group-body { animation: none; } }
+/* A panel that mixes text with rows, in an edge-to-edge group: its text and
+   buttons carry .nx-set-pad, its rows lose their own card. */
+.nx-set-group-body.is-flush .nx-set-pad { padding: 14px 18px; }
+.nx-set-group-body.is-flush .nx-set-pad:empty { display: none; }
+.nx-set-group-body.is-flush .nx-set-card { border: none; border-radius: 0; border-top: 1px solid var(--line); }
+.nx-set-group-body.is-flush .nx-set-card:first-child { border-top: none; }
+@media (max-width: 900px) { .nx-set-group-body.is-flush .nx-set-pad { padding: 12px 14px; } }
+.nx-set-group-body.is-flush > div:not(.nx-set-note) { gap: 0 !important; }
+@media (max-width: 900px) {
+  /* A wide control (the time zone list) goes under its text instead of squeezing it. */
+  .nx-set-row-main { flex-wrap: wrap; row-gap: 10px; }
+  .nx-set-row-text { flex: 1 1 200px; }
+  .nx-set-row-control { max-width: 100%; }
+  .nx-set-row-control select { max-width: 100%; }
+  .nx-set-head { background: transparent; border-bottom: none; margin-bottom: 8px; }
+}
+[data-theme="dark"] .nx-set-scope select, .nx-set-scope select.form-input:focus { background-color: transparent; }
