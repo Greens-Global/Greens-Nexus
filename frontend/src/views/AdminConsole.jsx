@@ -86,6 +86,10 @@ import ModuleTabs from '../components/ModuleTabs';
 import { ModalLoading, SkeletonBlocks, Spinner } from '../components/AsyncState';
 import { useIsMobile } from '../lib/useIsMobile';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
+import SaveRow from '../components/SaveRow';
+import { useDraft } from '../lib/useDraft';
+import { GroupDirtyContext, useGroupDirty } from '../lib/groupDirty';
+import { setInlineDirty } from '../lib/dialogGuard';
 import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
@@ -933,7 +937,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   const [data, setData] = useState(null);       // { templates (with html), template }
   const [selectedTemplate, setSelectedTemplate] = useState('classic');
   const [previewBusy, setPreviewBusy] = useState(false);
-  const [saveBusy, setSaveBusy] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [zoomTemplate, setZoomTemplate] = useState(null);   // { label, html } | null - full-size eye-icon preview
 
   // Sender Template Overrides - global, not per-company (Sep 22, Pranshu:
@@ -943,8 +947,14 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   // company branding to render a sample against, unlike `data.templates`.
   const [overrideTemplates, setOverrideTemplates] = useState([]);
   const [overrides, setOverrides] = useState([]);
+  const [savedOverrides, setSavedOverrides] = useState([]);   // what the server holds; `overrides` is the draft
   const [overrideModal, setOverrideModal] = useState(null);   // 'new' | index into `overrides` | null
-  const [overridesSaveBusy, setOverridesSaveBusy] = useState(false);
+  // One Save for the group (the Settings save pattern, Oct 23): the template
+  // and the overrides are a draft until it is clicked.
+  const templateDirty = !!data && !!companyId && selectedTemplate !== data.template;
+  const overridesDirty = !company && JSON.stringify(overrides) !== JSON.stringify(savedOverrides);
+  const dirty = templateDirty || overridesDirty;
+  useGroupDirty(dirty);
 
   const loadPreview = useCallback((id) => {
     if (!id) return;
@@ -964,7 +974,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
     }).catch(() => {}).finally(() => setLoaded(true));
     if (!company) {
       api.getSignatureSenderOverrides()
-        .then(d => { setOverrideTemplates(d.templates || []); setOverrides(d.senderOverrides || []); })
+        .then(d => { setOverrideTemplates(d.templates || []); setOverrides(d.senderOverrides || []); setSavedOverrides(d.senderOverrides || []); })
         .catch(() => {});
     }
   }, [loadPreview, company]);
@@ -979,26 +989,29 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
     setOverrides(rows => rows.filter((_, i) => i !== idx));
   }
 
-  async function saveTemplate() {
-    if (!companyId || saveBusy) return;
-    setSaveBusy(true);
+  async function save() {
+    if (busy || !dirty) return;
+    setBusy(true);
     try {
-      await api.updateEntity(companyId, { signature_template: selectedTemplate });
-      toastOk('Signature template saved. It applies to every employee at this company.');
+      if (templateDirty) {
+        await api.updateEntity(companyId, { signature_template: selectedTemplate });
+        setData(d => (d ? { ...d, template: selectedTemplate } : d));
+      }
+      if (overridesDirty) {
+        const d = await api.saveSignatureSenderOverrides(overrides);
+        setOverrideTemplates(d.templates || []);
+        setOverrides(d.senderOverrides || []);
+        setSavedOverrides(d.senderOverrides || []);
+      }
+      toastOk(templateDirty && !overridesDirty
+        ? 'Signature template saved. It applies to every employee at this company.'
+        : 'Email signature settings saved.');
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
-    setSaveBusy(false);
+    setBusy(false);
   }
-
-  async function saveOverrides() {
-    if (overridesSaveBusy) return;
-    setOverridesSaveBusy(true);
-    try {
-      const d = await api.saveSignatureSenderOverrides(overrides);
-      setOverrideTemplates(d.templates || []);
-      setOverrides(d.senderOverrides || []);
-      toastOk('Sender template overrides updated.');
-    } catch (e) { toastErr(e?.message || 'Could not save.'); }
-    setOverridesSaveBusy(false);
+  function discard() {
+    if (data) setSelectedTemplate(data.template);
+    setOverrides(savedOverrides);
   }
 
   return (
@@ -1048,11 +1061,6 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
                   );
                 })}
               </div>
-
-              <button className="primary-btn" onClick={saveTemplate} disabled={saveBusy}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: saveBusy ? 0.6 : 1 }}>
-                {saveBusy ? <Spinner size={14} /> : <Check size={14} />} Save
-              </button>
             </>
           )}
         </>
@@ -1100,11 +1108,12 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
             <span style={{ fontSize: 11.5, fontWeight: 600 }}>Add Override</span>
           </div>
         </div>
-        <button className="primary-btn" onClick={saveOverrides} disabled={overridesSaveBusy}
-          style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: overridesSaveBusy ? 0.6 : 1 }}>
-          {overridesSaveBusy ? <Spinner size={14} /> : <Check size={14} />} Save
-        </button>
       </div>}
+
+      {entities.length > 0 && (
+        <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={discard}
+          note={company ? 'The template applies to every employee at this company.' : 'The template applies to every employee at the company picked; overrides apply in every company.'} />
+      )}
 
       {zoomTemplate && (
         <SignatureZoomModal title={zoomTemplate.label} html={zoomTemplate.html} onClose={() => setZoomTemplate(null)} />
@@ -1440,7 +1449,7 @@ const COMPANY_FACE_TABS = {
 // and a subject opens on its own page with a way back. Subject, group and
 // company live in the URL sub (see AdminConsole below); the filter text and
 // the last jump are local (a jump scrolls, it adds no history entry).
-function SettingsBody({ subject, group, company, home = false, onHome, onNavigate, entities, refreshEntities, toast, toastOk, toastErr }) {
+function SettingsBody({ subject, group, company, home = false, onHome, onNavigate, onDirtyChange, entities, refreshEntities, toast, toastOk, toastErr }) {
   const who = useRole();
   const narrow = useIsMobile('(max-width: 900px)');
   const [query, setQuery] = useState('');
@@ -1475,9 +1484,24 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
   const matches = needle ? searchable.filter(g => groupMatches(g, needle)) : null;
   const counts = matches ? matches.reduce((m, g) => ({ ...m, [g.subject]: (m[g.subject] || 0) + 1 }), {}) : null;
 
-  // The Company profile form is the one group with unsaved state of its own;
-  // leaving it mid-edit (another subject, another scope) asks first.
-  const [dirty, setDirty] = useState(false);
+  // Every group with unsaved changes (lib/groupDirty.js: a form says so
+  // through the context its group binds in renderGroup; the Company profile
+  // form through onDirtyChange). Leaving any of them - another subject or
+  // scope here, another top tab or module above - asks first.
+  const [dirtyIds, setDirtyIds] = useState(() => new Set());
+  const reportDirty = useCallback((id, d) => setDirtyIds(prev => {
+    if (prev.has(id) === !!d) return prev;
+    const next = new Set(prev);
+    if (d) next.add(id); else next.delete(id);
+    return next;
+  }), []);
+  const reporters = useRef(new Map());
+  const reporterFor = (id) => {
+    if (!reporters.current.has(id)) reporters.current.set(id, (d) => reportDirty(id, d));
+    return reporters.current.get(id);
+  };
+  const dirty = dirtyIds.size > 0;
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   const [pending, setPending] = useState(null);
   const go = useCallback((target) => { setQuery(''); setPending(null); onNavigate(target); }, [onNavigate]);
   const nav = useCallback((target) => { if (dirty) setPending(target); else go(target); }, [dirty, go]);
@@ -1515,6 +1539,13 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
   const bareId = !matches && sections[0]?.items.length === 1 ? sections[0].items[0].id : '';
 
   function renderGroup(g) {
+    return (
+      <GroupDirtyContext.Provider key={`${g.id}-${company}`} value={reporterFor(g.id)}>
+        {renderGroupBody(g)}
+      </GroupDirtyContext.Provider>
+    );
+  }
+  function renderGroupBody(g) {
     const id = g.id;
     const chrome = { bare: id === bareId, highlight: id === group, company: companyName, flush: !!g.flush };
     const key = `${id}-${company}`;
@@ -1547,7 +1578,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       return (
         <Group key={key} {...g} {...chrome}>
           <CompanyPage entities={entities} refreshEntities={refreshEntities} entityId={company} tabs={COMPANY_FACE_TABS[id]}
-            onDirtyChange={id === 'company-profile' ? setDirty : undefined} toastOk={toastOk} toastErr={toastErr} />
+            onDirtyChange={id === 'company-profile' ? reporterFor(id) : undefined} toastOk={toastOk} toastErr={toastErr} />
         </Group>
       );
     }
@@ -1556,7 +1587,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
         return (
           <Group key={key} {...g} {...chrome}>
             <CompanyPage entities={entities} refreshEntities={refreshEntities} onOpen={cid => nav({ subject: 'companies', group: '', company: cid })}
-              onDirtyChange={setDirty} toastOk={toastOk} toastErr={toastErr} />
+              onDirtyChange={reporterFor(id)} toastOk={toastOk} toastErr={toastErr} />
           </Group>
         );
       case 'email-signature':      return <EmailSignatureSection key={key} chrome={chrome} company={company} toastOk={toastOk} toastErr={toastErr} />;
@@ -1872,8 +1903,16 @@ export default function AdminConsole({ activeSub, onSubChange }) {
 
   const resolved = resolveSub(activeSub);
   const topTab = TOP_TABS.some(t => t.key === resolved.tab) ? resolved.tab : 'settings';
-  const setTopTab = (id) => onSubChange?.(id === 'settings' ? buildSub(resolved) : id);
+  const applyTopTab = (id) => onSubChange?.(id === 'settings' ? buildSub(resolved) : id);
   const navigate = useCallback((target) => onSubChange?.(buildSub(target)), [onSubChange]);
+
+  // A Settings group with unsaved changes: the top tabs ask before moving,
+  // and lib/dialogGuard.js hears about it so the sidebar and the browser
+  // tab ask too.
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [pendingTab, setPendingTab] = useState(null);
+  useEffect(() => { setInlineDirty('settings', settingsDirty); return () => setInlineDirty('settings', false); }, [settingsDirty]);
+  const setTopTab = (id) => { if (settingsDirty && id !== topTab) setPendingTab(id); else applyTopTab(id); };
 
   // The companies, once, for the scope picker and every company page.
   const [entities, setEntities] = useState([]);
@@ -1917,8 +1956,12 @@ export default function AdminConsole({ activeSub, onSubChange }) {
       ) : (
         <SettingsBody subject={resolved.subject} group={resolved.group} company={resolved.company} onNavigate={navigate}
           home={!!resolved.home} onHome={() => onSubChange?.(resolved.company ? `settings@${resolved.company}` : 'settings')}
-          entities={entities} refreshEntities={refreshEntities}
+          onDirtyChange={setSettingsDirty} entities={entities} refreshEntities={refreshEntities}
           toast={showToast} toastOk={toastOk} toastErr={toastErr} />
+      )}
+
+      {pendingTab && (
+        <UnsavedChangesPrompt onKeepEditing={() => setPendingTab(null)} onDiscard={() => { const id = pendingTab; setPendingTab(null); applyTopTab(id); }} />
       )}
 
       {toast && (
@@ -1967,92 +2010,105 @@ function PolicyNumber({ label, value, onChange, min = 0, max = 999, unit = 'min'
 // `company` (Settings' scope picker, Oct 23): that company's own rules over
 // the defaults - each card says whether the company has one of its own and
 // offers the default back; '' edits the defaults for every company.
+const RULE_SETTERS = {
+  rounding: (body, company) => api.timeRoundingSet(body, company),
+  autoLunch: (body, company) => api.timeAutoLunchSet(body, company),
+  breakPolicy: (body, company) => api.timeBreakPolicySet(body, company),
+};
+const RULE_LABELS = { rounding: 'Punch rounding', autoLunch: 'Auto-lunch', breakPolicy: 'CA paid breaks' };
+const num = (v, fallback) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : fallback; };
+// What a save writes: each rule whole, with its numbers clamped (the server
+// echoes the saved rule back).
+const cleanRules = (d) => ({
+  rounding: { enabled: !!d.rounding.enabled, nearestMin: Math.min(30, Math.max(1, num(d.rounding.nearestMin, 5))) },
+  autoLunch: { enabled: !!d.autoLunch.enabled, afterMin: num(d.autoLunch.afterMin, 360), deductMin: num(d.autoLunch.deductMin, 30) },
+  breakPolicy: { enabled: !!d.breakPolicy.enabled, paidBreakMin: num(d.breakPolicy.paidBreakMin, 10), restMaxMin: num(d.breakPolicy.restMaxMin, 20), longBreakMin: num(d.breakPolicy.longBreakMin, 75) },
+});
+
 function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   const [cfg, setCfg] = useState(null);     // { rounding, autoLunch, breakPolicy } | null while loading
-  const [saved, setSaved] = useState(null); // what the server holds - a card's Save shows only when its numbers differ
   // Any rule of the company's own = the group reads Overridden.
   useEffect(() => { if (cfg && company) onOverride?.(['rounding', 'autoLunch', 'breakPolicy'].some(k => cfg[k]?.hasOverride)); }, [cfg, company, onOverride]);
   const [err, setErr] = useState('');
-  const [busy, setBusy] = useState('');     // which card is saving
+  const [busy, setBusy] = useState(false);
+  const [resetting, setResetting] = useState('');   // which card is going back to the default
   const load = useCallback(() => {
     setErr('');
     setCfg(null);
     Promise.all([api.timeRoundingGet(company), api.timeAutoLunchGet(company), api.timeBreakPolicyGet(company)])
-      .then(([rounding, autoLunch, breakPolicy]) => { setCfg({ rounding, autoLunch, breakPolicy }); setSaved({ rounding, autoLunch, breakPolicy }); })
+      .then(([rounding, autoLunch, breakPolicy]) => setCfg({ rounding, autoLunch, breakPolicy }))
       .catch(e => setErr(e?.message || 'Could not load the Time Clock settings.'));
   }, [company]);
   useEffect(() => { load(); }, [load]);
 
-  // Each save writes the whole rule, so a number typed and a switch flipped
-  // never race each other; the server echoes the saved rule back.
-  const save = async (key, next, label) => {
-    setBusy(key);
+  // The three cards are one form (the Settings save pattern, Oct 23): the
+  // switches and numbers are a draft until Save, which writes only the
+  // rules that changed. Use the Default drops a company's own rule at once.
+  const { draft, patch, dirty, reset } = useDraft(cfg);
+  useGroupDirty(dirty);
+  const edit = (key, p) => patch({ [key]: { ...draft[key], ...p } });
+
+  const save = async () => {
+    if (!dirty || busy) return;
+    const next = cleanRules(draft), was = cleanRules(cfg);
+    const changed = Object.keys(next).filter(k => JSON.stringify(next[k]) !== JSON.stringify(was[k]));
+    if (!changed.length) { reset(); return; }
+    setBusy(true);
+    const out = { ...cfg };
     try {
-      const saved = key === 'rounding' ? await api.timeRoundingSet(next, company)
-        : key === 'autoLunch' ? await api.timeAutoLunchSet(next, company)
-        : await api.timeBreakPolicySet(next, company);
-      setCfg(c => ({ ...c, [key]: saved }));
-      setSaved(s => ({ ...s, [key]: saved }));
-      toastOk?.(next.reset ? `${label}: back to the default.` : `${label} saved.`);
-    } catch (e) { toastErr?.(e?.message || `Could not save ${label.toLowerCase()}.`); }
-    setBusy('');
+      for (const k of changed) out[k] = await RULE_SETTERS[k](next[k], company);
+      setCfg(out);
+      toastOk?.(company ? 'Pay rules saved for this company.' : 'Pay rules saved.');
+    } catch (e) {
+      toastErr?.(e?.message || 'Could not save the pay rules.');
+      setCfg(out);   // what did save, saved; the rest stays a draft
+    }
+    setBusy(false);
   };
-  const num = (v, fallback) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : fallback; };
-  // One save pattern (Oct 25): the switch saves on click; a card's Save shows
-  // only once one of its numbers was changed.
-  const changed = (key, fields) => !!saved && fields.some(f => String(cfg[key][f] ?? '') !== String(saved[key][f] ?? ''));
-  // With a company picked: whose rule the card shows, and the way back to the default.
-  // Only a rule the company has of its own says so (the group's badge says
-  // Inherited otherwise), with the way back to the default.
-  const foot = (key, rule, label) => (company && rule.hasOverride ? (
+  const backToDefault = async (key) => {
+    setResetting(key);
+    try {
+      const saved = await RULE_SETTERS[key]({ reset: true }, company);
+      setCfg(c => ({ ...c, [key]: saved }));
+      toastOk?.(`${RULE_LABELS[key]}: back to the default.`);
+    } catch (e) { toastErr?.(e?.message || `Could not reset ${RULE_LABELS[key].toLowerCase()}.`); }
+    setResetting('');
+  };
+  // With a company picked, only a rule the company has of its own says so
+  // (the group's badge says Inherited otherwise), with the way back to the default.
+  const foot = (key, rule) => (company && rule.hasOverride ? (
     <>
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: rule.hasOverride ? 'var(--nx-own)' : 'var(--line)', flexShrink: 0 }} aria-hidden="true" />
-      {rule.hasOverride ? 'This company has a rule of its own.' : 'Using the default; a change here is this company\'s alone.'}
-      {rule.hasOverride && <button type="button" className="secondary-btn" style={{ fontSize: 11.5 }} disabled={busy === key} onClick={() => save(key, { reset: true }, label)}>Use the Default</button>}
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--nx-own)', flexShrink: 0 }} aria-hidden="true" />
+      This company has a rule of its own.
+      <button type="button" className="secondary-btn" style={{ fontSize: 11.5 }} disabled={busy || resetting === key} onClick={() => backToDefault(key)}>Use the Default</button>
     </>
   ) : null);
 
   if (err) return <ErrorLine text={err} onRetry={load} />;
-  if (!cfg) return <SkeletonBlocks count={3} height={64} borderRadius={12} />;
-  const { rounding, autoLunch, breakPolicy } = cfg;
+  if (!cfg || !draft) return <SkeletonBlocks count={3} height={64} borderRadius={12} />;
+  const { rounding, autoLunch, breakPolicy } = draft;
   return (
     <div>
-      <PolicyCard id="rounding" title="Punch Rounding" busy={busy === 'rounding'} enabled={rounding.enabled} foot={foot('rounding', rounding, 'Punch rounding')}
+      <PolicyCard id="rounding" title="Punch Rounding" busy={resetting === 'rounding'} enabled={rounding.enabled} foot={foot('rounding', cfg.rounding)}
         desc={`Round every clock-in and clock-out to the nearest ${rounding.nearestMin || 5} minutes before computing hours (SwipeClock's model; the raw times stay on record and can be shown on the time sheet). Off by default - turn it on only if the company has a rounding policy.`}
-        onToggle={on => save('rounding', { enabled: on, nearestMin: rounding.nearestMin || 5 }, 'Punch rounding')}>
-        <PolicyNumber label="Nearest" min={1} max={30} value={rounding.nearestMin}
-          onChange={v => setCfg(c => ({ ...c, rounding: { ...c.rounding, nearestMin: v } }))} />
-        {changed('rounding', ['nearestMin']) && (
-          <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={busy === 'rounding'}
-            onClick={() => save('rounding', { enabled: true, nearestMin: Math.min(30, Math.max(1, num(rounding.nearestMin, 5))) }, 'Punch rounding')}>Save</button>
-        )}
+        onToggle={on => edit('rounding', { enabled: on })}>
+        <PolicyNumber label="Nearest" min={1} max={30} value={rounding.nearestMin} onChange={v => edit('rounding', { nearestMin: v })} />
       </PolicyCard>
-      <PolicyCard id="auto-lunch" title="Auto-Lunch Deduction" busy={busy === 'autoLunch'} enabled={autoLunch.enabled} foot={foot('autoLunch', autoLunch, 'Auto-lunch')}
+      <PolicyCard id="auto-lunch" title="Auto-Lunch Deduction" busy={resetting === 'autoLunch'} enabled={autoLunch.enabled} foot={foot('autoLunch', cfg.autoLunch)}
         desc={`Deduct ${autoLunch.deductMin} minutes of lunch from any shift longer than ${Math.round((autoLunch.afterMin || 0) / 60 * 10) / 10} hours that has no recorded break (the person forgot to clock lunch).`}
-        onToggle={on => save('autoLunch', { enabled: on, afterMin: num(autoLunch.afterMin, 360), deductMin: num(autoLunch.deductMin, 30) }, 'Auto-lunch')}>
-        <PolicyNumber label="Shifts over" min={0} max={1440} value={autoLunch.afterMin}
-          onChange={v => setCfg(c => ({ ...c, autoLunch: { ...c.autoLunch, afterMin: v } }))} />
-        <PolicyNumber label="Deduct" min={0} max={240} value={autoLunch.deductMin}
-          onChange={v => setCfg(c => ({ ...c, autoLunch: { ...c.autoLunch, deductMin: v } }))} />
-        {changed('autoLunch', ['afterMin', 'deductMin']) && (
-          <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={busy === 'autoLunch'}
-            onClick={() => save('autoLunch', { enabled: true, afterMin: num(autoLunch.afterMin, 360), deductMin: num(autoLunch.deductMin, 30) }, 'Auto-lunch')}>Save</button>
-        )}
+        onToggle={on => edit('autoLunch', { enabled: on })}>
+        <PolicyNumber label="Shifts over" min={0} max={1440} value={autoLunch.afterMin} onChange={v => edit('autoLunch', { afterMin: v })} />
+        <PolicyNumber label="Deduct" min={0} max={240} value={autoLunch.deductMin} onChange={v => edit('autoLunch', { deductMin: v })} />
       </PolicyCard>
-      <PolicyCard id="ca-breaks" title="California Paid Rest Breaks" busy={busy === 'breakPolicy'} enabled={breakPolicy.enabled} foot={foot('breakPolicy', breakPolicy, 'CA paid breaks')}
+      <PolicyCard id="ca-breaks" title="California Paid Rest Breaks" busy={resetting === 'breakPolicy'} enabled={breakPolicy.enabled} foot={foot('breakPolicy', cfg.breakPolicy)}
         desc={`Pay the first ${breakPolicy.paidBreakMin} minutes of each short break (up to ${breakPolicy.restMaxMin} minutes long) - one per 4 hours worked, as California requires. Meal-length breaks stay unpaid. Only employees on the California overtime rule; the long-break flags are always on.`}
-        onToggle={on => save('breakPolicy', { ...breakPolicy, enabled: on, paidBreakMin: num(breakPolicy.paidBreakMin, 10), restMaxMin: num(breakPolicy.restMaxMin, 20), longBreakMin: num(breakPolicy.longBreakMin, 75) }, 'CA paid breaks')}>
-        <PolicyNumber label="Paid per break" min={0} max={60} value={breakPolicy.paidBreakMin}
-          onChange={v => setCfg(c => ({ ...c, breakPolicy: { ...c.breakPolicy, paidBreakMin: v } }))} />
-        <PolicyNumber label="Rest break up to" min={1} max={120} value={breakPolicy.restMaxMin}
-          onChange={v => setCfg(c => ({ ...c, breakPolicy: { ...c.breakPolicy, restMaxMin: v } }))} />
-        <PolicyNumber label="Flag breaks over" min={15} max={600} value={breakPolicy.longBreakMin}
-          onChange={v => setCfg(c => ({ ...c, breakPolicy: { ...c.breakPolicy, longBreakMin: v } }))} />
-        {changed('breakPolicy', ['paidBreakMin', 'restMaxMin', 'longBreakMin']) && (
-          <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={busy === 'breakPolicy'}
-            onClick={() => save('breakPolicy', { enabled: true, paidBreakMin: num(breakPolicy.paidBreakMin, 10), restMaxMin: num(breakPolicy.restMaxMin, 20), longBreakMin: num(breakPolicy.longBreakMin, 75) }, 'CA paid breaks')}>Save</button>
-        )}
+        onToggle={on => edit('breakPolicy', { enabled: on })}>
+        <PolicyNumber label="Paid per break" min={0} max={60} value={breakPolicy.paidBreakMin} onChange={v => edit('breakPolicy', { paidBreakMin: v })} />
+        <PolicyNumber label="Rest break up to" min={1} max={120} value={breakPolicy.restMaxMin} onChange={v => edit('breakPolicy', { restMaxMin: v })} />
+        <PolicyNumber label="Flag breaks over" min={15} max={600} value={breakPolicy.longBreakMin} onChange={v => edit('breakPolicy', { longBreakMin: v })} />
       </PolicyCard>
+      <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} style={{ margin: 0, padding: '12px 18px' }}
+        note={company ? 'A rule saved here is this company\'s own.' : 'Saved rules shape every time sheet from then on.'} />
     </div>
   );
 }

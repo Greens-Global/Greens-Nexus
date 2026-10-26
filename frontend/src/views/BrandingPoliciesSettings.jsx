@@ -13,6 +13,7 @@
 // Administrator only - the category is hidden from everyone else and every
 // write endpoint checks the same level.
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useGroupDirty } from '../lib/groupDirty';
 import { Check, Upload, X, Download, Eye, Send } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, ErrorBanner, Spinner } from '../components/AsyncState';
@@ -60,6 +61,7 @@ export function BrandColorPanel({ toastOk, toastErr }) {
   const [saved, setSaved] = useState(null);
   const [cfg, setCfg] = useState(null);     // { accent, customHex, opacity }
   const [busy, setBusy] = useState(false);
+  useGroupDirty(!!saved && !!cfg && JSON.stringify(cfg) !== JSON.stringify(saved));
   useEffect(() => {
     const def = { accent: 'green', customHex: '', opacity: 100 };
     api.getBrandingConfig()
@@ -188,9 +190,10 @@ export function EmailAppearancePanel({ toastOk, toastErr }) {
     setBusy(false);
   }
 
+  const dirty = !!form && !!data && JSON.stringify(form) !== JSON.stringify(data.theme);
+  useGroupDirty(dirty);
   if (loadErr) return <ErrorBanner message="Email appearance couldn't be loaded right now." onRetry={load} />;
   if (!form) return <SkeletonBlocks count={2} height={60} borderRadius={10} />;
-  const dirty = JSON.stringify(form) !== JSON.stringify(data.theme);
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20, alignItems: 'start' }}>
