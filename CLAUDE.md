@@ -330,8 +330,11 @@ keep the diff minimal.
   sub is `<subject>[:<group>][@<companyId>]`; every pre-merge key
   (`global`, `global-<category>`, `company`, `access`, `actas`) still lands
   (`resolveSub`). A new setting = one `GROUPS` entry (subject, face, scope,
-  keywords) + one `renderGroup` case; the panel stays the component its
-  module owns - never a second copy. Panels draw controls with
+  keywords, and `needs` - who may open it, exactly what its save route
+  demands: the role tier, an Access Group grant, `people` for an /hr route;
+  `mayOpen` is the ONE visibility rule, so never hide a group from inside
+  its panel instead) + one `renderGroup` case; the panel stays the
+  component its module owns - never a second copy. Panels draw controls with
   `components/settings/SettingsUI.jsx` (Neil, Oct 25 2026: "world class") -
   `SwitchRow` / `SettingRow` / `NumberBox`: title and description left,
   control right, hairline rows; a switch saves on click, a form's Save shows

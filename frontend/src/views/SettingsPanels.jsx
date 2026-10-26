@@ -91,7 +91,7 @@ export function TicketPropertyRulesPanel({ toastOk, toastErr }) {
 // load. Managers (level 3) or an Operations editor grant save, as the route
 // requires.
 export function UnitRulesPanel() {
-  const { can } = useRole();
+  const { canAccessModule } = useRole();
   const [rules, setRules] = useState(null);
   const [err, setErr] = useState('');
   const load = useCallback(() => {
@@ -101,7 +101,7 @@ export function UnitRulesPanel() {
   useEffect(() => { load(); }, [load]);
   if (err) return <ErrorBanner message={err} onRetry={load} />;
   if (!rules) return <SkeletonBlocks count={2} height={44} borderRadius={10} />;
-  return <UnitClasses rules={rules} canEdit={can('manager')} onSaved={load} />;
+  return <UnitClasses rules={rules} canEdit={canAccessModule('operations', 'manager', 'editor')} onSaved={load} />;
 }
 
 // ── Workforce Analytics > App & Website Ratings ──────────────────────────────
