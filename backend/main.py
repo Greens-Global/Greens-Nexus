@@ -3050,6 +3050,10 @@ def _run_migrations():
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict VARCHAR DEFAULT ''",
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict_at VARCHAR DEFAULT ''",
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS regression_case_id VARCHAR DEFAULT ''",
+        # Reports > Schedule C (draft) (Neil, Viral, 10/27 triage item 18): the
+        # account-to-tax-line mapping, kept in Nexus only - never written to
+        # Intacct. New table - explicit RLS. models.AccountingTaxLine.
+        "ALTER TABLE accounting_tax_lines ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4544,6 +4548,8 @@ from routers import accounting_loan_plans  # noqa: E402
 app.include_router(accounting_loan_plans.router)   # Accounting > Loans: amortization schedules + rate stress scenarios per loan (Oct 6)
 from routers import accounting_mre  # noqa: E402
 app.include_router(accounting_mre.router)          # Accounting > Reporting > MRE: monthly recurring expenses, paid read from the ledger (Oct 6)
+from routers import accounting_tax_lines  # noqa: E402
+app.include_router(accounting_tax_lines.router)    # Accounting > Reports > Schedule C (draft): account-to-line mapping, Nexus only (10/27 item 18)
 from routers import pfs_access, pfs_affiliates  # noqa: E402
 app.include_router(pfs_access.router)              # Accounting > PFS: one-time code per file, borrower notice, access log (Charmi, 10/04)
 app.include_router(pfs_affiliates.router)          # Accounting > PFS > Affiliated Entities + co-borrower executive profile (Charmi, 10/04)
