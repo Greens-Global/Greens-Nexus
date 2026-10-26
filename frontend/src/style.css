@@ -7161,6 +7161,7 @@ th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visibl
 .bm-pill:hover { border-color: var(--c); color: var(--c); }
 .bm-pill.is-on { border-color: var(--c); color: var(--c); background: color-mix(in srgb, var(--c) 12%, transparent); }
 .bm-tools-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bm-record-ask { display: inline-flex; align-items: center; gap: 6px; }
 .bm-chip-info { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); }
 .bm-chip-info.is-ok { color: #15803d; }
 .bm-live { border: 1px solid hsla(var(--color-red), .4); background: hsla(var(--color-red), .06); border-radius: 10px; padding: 8px 10px; }

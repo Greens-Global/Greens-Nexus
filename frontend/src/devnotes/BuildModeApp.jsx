@@ -17,13 +17,13 @@ import { store, useBuildStore, turnOff, saveSettings, takePendingPin, toast, loa
 import { describeTarget, rectOf, regionTarget, anchorRect, stateOf, preloadSourceFiles } from './lib/capture';
 import { startTabCapture, stopTabCapture, grabBestFrame, makeShots, shiftItems, wantsTabCapture, AREA_PAD } from './lib/screenshot';
 import { useRole, MODULES } from '../contexts/RoleContext';
-import { startRecording, stopRecording, isRecording, startSpeech, speechSupported } from './lib/recorder';
+import { startRecording, stopRecording, isRecording, startSpeech, speechSupported, setRecordAudio, recordAudioOn } from './lib/recorder';
 import { startBuffers, stopBuffers, pauseBuffers, snapshotBuffers } from './lib/buffers';
 import { setActionContext, pauseActions, snapshotActions } from './lib/actions';
 import { sensitiveRects } from './lib/privacy';
 import { uploadDevNoteFile } from './lib/upload';
 import { installHotkeys } from './lib/hotkeys';
-import { MARKUP_TOOLS, pinHeld } from './meta';
+import { MARKUP_TOOLS, pinHeld, CLAUDE_SEND_ON } from './meta';
 import { NAV, isNavItemVisible } from '../components/Sidebar';
 
 const TESTING_NAV = NAV.find((item) => item.view === 'testing');
@@ -184,6 +184,7 @@ export default function BuildModeApp({ view, sub }) {
     if (discard && draft) { removeDraft(draft.id); setDraft(null); setRecorded(null); store.set({ pick: null, markup: [] }); }
     else store.set({ pick: null });
     stopVoice();
+    setAskRecord(false);
   };
 
   // ── Edit In Place ────────────────────────────────────────────────────────
@@ -212,12 +213,27 @@ export default function BuildModeApp({ view, sub }) {
   const toggleVoice = () => (speechStop.current ? stopVoice() : startVoice());
 
   // ── Record (V) ───────────────────────────────────────────────────────────
-  const toggleRecord = async () => {
+  // Video asks With Audio or Without Audio in the comment box first, and the
+  // pick starts it (Pranshu, Oct 27); Mic On / Off switches it while it runs.
+  const [askRecord, setAskRecord] = useState(false);
+  const toggleRecord = () => {
     if (store.get().recording || isRecording()) { stopRecording(); return; }
     if (blocked) return;
     ensureComposer();
+    setAskRecord(true);
+  };
+  const toggleRecordAudio = async () => {
+    const r = store.get().recording;
+    if (!r) return;
+    const on = await setRecordAudio(!r.audio);
+    if (!r.audio && !on) toast('The microphone is not allowed in this browser');
+    store.set((st) => (st.recording ? { recording: { ...st.recording, audio: on } } : null));
+  };
+  const beginRecord = async (audio) => {
+    setAskRecord(false);
     try {
       const ok = await startRecording({
+        audio,
         onTranscript: (t) => store.set((st) => (st.recording ? { recording: { ...st.recording, transcript: t } } : null)),
         onDone: (r) => {
           store.set({ recording: null });
@@ -227,7 +243,7 @@ export default function BuildModeApp({ view, sub }) {
           toast('Recording attached - save the pin to keep it');
         },
       });
-      if (ok) store.set({ recording: { startedAt: Date.now(), transcript: '' } });
+      if (ok) store.set({ recording: { startedAt: Date.now(), transcript: '', audio: recordAudioOn() } });
     } catch (e) { toast(e?.message || 'Recording is not available here'); }
   };
 
@@ -278,8 +294,8 @@ export default function BuildModeApp({ view, sub }) {
       // On someone else's area the server holds the pin for them (v2) - only
       // its word counts: no `held` = not held.
       const heldFor = note.held === true ? (note.ownerName || 'its owner') : '';
-      let sent = !!s.settings?.sendInstantly && !heldFor;
-      if (sendNow && !sent && !heldFor) {
+      let sent = CLAUDE_SEND_ON && !!s.settings?.sendInstantly && !heldFor;
+      if (CLAUDE_SEND_ON && sendNow && !sent && !heldFor) {
         try { await api.devNotesDispatch({ noteIds: [note.id] }); sent = true; }
         catch (e) { toast(`Pin #${note.number} saved, but not sent: ${e?.message || 'dispatch failed'}`); }
       }
@@ -357,7 +373,7 @@ export default function BuildModeApp({ view, sub }) {
   };
 
   const panel = (
-    <Panel open={s.panelOpen} tab={s.panelTab} onTab={(t) => store.set({ panelTab: t })} onClose={() => store.set({ panelOpen: false })}
+    <Panel open={s.panelOpen} tab={s.panelTab} onTab={(t) => store.set({ panelTab: t })} onClose={() => store.set({ panelOpen: false, postFromDone: false })} postFromDone={s.postFromDone}
       settings={s.settings} onSettings={saveSettings} onOpenPin={openFromPanel} version={s.version} onDispatched={() => store.set((st) => ({ version: st.version + 1 }))} myEmail={myEmail} />
   );
   const toastEl = s.toast && <div className="bm-toast" role="status">{s.toast.text}</div>;
@@ -389,6 +405,7 @@ export default function BuildModeApp({ view, sub }) {
       {s.pick && draft && (
         <Composer pick={s.pick} draft={draft} onChange={updateDraft} onCancel={cancelComposer} onSave={save} saving={saving} settings={s.settings} view={view}
           capture={s.capture} recording={s.recording} onRecord={toggleRecord} onStopRecord={() => stopRecording()} recorded={recorded}
+          askRecord={askRecord} onRecordChoice={beginRecord} onRecordAskCancel={() => setAskRecord(false)} onToggleAudio={toggleRecordAudio}
           voiceOn={voiceOn} interim={interim} onVoiceStart={startVoice} onVoiceStop={stopVoice}
           markupCount={s.markup.length} onClearMarkup={() => store.set({ markup: [] })} />
       )}
@@ -398,7 +415,7 @@ export default function BuildModeApp({ view, sub }) {
         onVideo={toggleRecord} recording={!!s.recording} onVoice={toggleVoice} voiceOn={voiceOn} voiceSupported={speechSupported()}
         onQueue={() => store.set((st) => ({ panelOpen: !st.panelOpen }))} queueCount={queueCount} onOff={turnOff}
         showPins={s.showPins} onTogglePins={() => store.set((st) => ({ showPins: !st.showPins }))} isMobile={isMobile}
-        allTools={s.allTools} onDone={() => store.set({ panelOpen: true, panelTab: 'queue' })} doneCount={mine.length} doneTitle={doneTitle} />
+        allTools={s.allTools} onDone={() => store.set({ panelOpen: true, panelTab: 'queue', postFromDone: true })} doneCount={mine.length} doneTitle={doneTitle} />
       {panel}
       {toastEl}
     </div>

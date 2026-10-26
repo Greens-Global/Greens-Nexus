@@ -87,6 +87,12 @@ PRIORITIES = ("blocking", "normal", "nice")
 STATUSES = ("open", "dispatched", "building", "needs_input", "pr_open", "fixed", "done", "dismissed")
 SESSION_STATUSES = ("collecting", "sent", "building", "pr_open", "fixed", "done")
 ATTACH_KINDS = ("after", "before", "paste")   # before-/after- files are the verify shots, paste- the rest
+# Send to Claude Code is on hold (Pranshu, Oct 27 2026): while this is off a
+# stored Send Instantly is read as off, so a saved pin never dispatches on its
+# own. The browser's switch is CLAUDE_SEND_ON in frontend/src/devnotes/meta.js
+# - turn both back on together.
+CLAUDE_SEND_ON = False
+
 DEFAULT_SETTINGS = {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True,
                     # The Teams chat the person last posted their pins to
                     # (their pick, any chat they are in); '' = none picked yet.
@@ -495,6 +501,8 @@ def _settings(db: Session, email: str) -> dict:
                 out.update({k: saved[k] for k in DEFAULT_SETTINGS if k in saved})
         except ValueError:
             pass
+    if not CLAUDE_SEND_ON:
+        out["sendInstantly"] = False
     return out
 
 

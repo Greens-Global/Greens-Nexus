@@ -453,6 +453,20 @@ For people who are not technical (Pranshu: "make it as easy as that"):
   mark or question words = Question; "can we", "please add", "would be
   nice", "instead of"... = Change; else Bug) until the person picks one
   there (`kindSet` on the draft). An Edit pin keeps kind Edit.
+- **Send to Claude Code is on hold** (Pranshu, Oct 27 2026): ONE switch,
+  `CLAUDE_SEND_ON = false` in `frontend/src/devnotes/meta.js` and
+  `backend/routers/dev_notes.py`. Off: the composer has one **Save** (Ctrl+Enter
+  too) that never dispatches, the Queue has no Send To Claude Code and no
+  **Settings** tab, and the server reads a stored Send Instantly as off. Done
+  opens the Queue with **Post To Teams** as the main button - the chat list
+  opens straight away when none is picked. Turning Send to Claude back on
+  brings ALL of it back, the Settings tab included: flip both switches.
+- **Record** asks With Audio / Without Audio in the composer and the pick
+  starts it; **Mic On / Mic Off** switches the voice while it records (the
+  live transcript follows the mic). The recording carries one Web Audio track
+  from the start, silent until the mic is plugged in
+  (`micSwitch` in `lib/screenRecorder.js`, `setRecordingMic`) - a
+  MediaRecorder's tracks are fixed once it starts.
 - A box (Rect) finished with no comment open opens the composer on it
   (Pranshu, Oct 27): the box's area is the pick (`mode: 'region'`) and the
   box stays on the comment (`addMarkup` in `BuildModeApp.jsx`). With a

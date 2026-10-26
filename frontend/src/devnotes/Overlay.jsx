@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import Markup from './Markup';
 import { elementAt, describeTarget, regionTarget, rectOf, textOf } from './lib/capture';
-import { TOOLS, MARKUP_TOOLS, SIMPLE_TOOLS, COLORS } from './meta';
+import { TOOLS, MARKUP_TOOLS, SIMPLE_TOOLS, COLORS, CLAUDE_SEND_ON } from './meta';
 
 const DRAG_PX = 6;
 const LONG_PRESS_MS = 480;
@@ -263,8 +263,9 @@ export function ToolStrip({ tool, onTool, color, onColor, canUndo, onUndo, onVid
   // One line of plain words above the strip saying what a click does now.
   const hint = tool === 'browse' ? 'Browse: use Nexus as usual - pick Comment when you see something to comment on.'
     : tool === 'pin' ? (allTools ? 'Click anything to comment on it. Pick Browse (B) to move around Nexus.'
-      : 'Click anything to comment on it. Browse (B) moves around Nexus; Done sends everything.')
+      : `Click anything to comment on it. Browse (B) moves around Nexus; Done ${CLAUDE_SEND_ON ? 'sends everything' : 'posts your comments to Teams'}.`)
     : tool === 'edit' ? 'Click text or a style to change it in place.'
+    : tool === 'rect' ? 'Draw a box around it - the comment box opens when you let go.'
     : 'Draw on the screen, then click Comment and the thing you drew on.';
   const label = (id, l) => (id === 'pin' && !allTools ? 'Comment' : l);
   return (

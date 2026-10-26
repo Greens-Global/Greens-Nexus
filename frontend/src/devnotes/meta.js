@@ -138,3 +138,10 @@ export function firstNameOf(email = '') {
 }
 
 export const WATCHER_COMMAND = 'python3 tools/build_notes/watch.py';
+
+// Send to Claude Code is on hold (Pranshu, Oct 27 2026: PR #786 and
+// feat/build-mode-own-terminal). Off: no Send To Claude Code or Save And Send,
+// no Settings tab, and a stored Send Instantly is ignored - pins only save,
+// and Done posts them to Teams. Turning Send to Claude back on turns ALL of
+// it back on, the Settings tab included: flip this one switch.
+export const CLAUDE_SEND_ON = false;

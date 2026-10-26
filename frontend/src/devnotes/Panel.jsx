@@ -11,12 +11,13 @@ import { formatDateTime, formatDate } from '../lib/datetime';
 import { toViewUrl } from '../lib/storageView';
 import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
-import { pinMeta, pinReady, pinHeld, pinReopened, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND } from './meta';
+import { pinMeta, pinReady, pinHeld, pinReopened, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND, CLAUDE_SEND_ON } from './meta';
 import { toast, useBuildStore, setAllTools } from './store';
 import { MODULES } from '../contexts/RoleContext';
 import { wantsTabCapture, setWantsTabCapture, startTabCapture, stopTabCapture } from './lib/screenshot';
 
-const TABS = [{ id: 'queue', label: 'Queue' }, { id: 'sessions', label: 'Sessions' }, { id: 'settings', label: 'Settings' }];
+// Settings comes back with Send to Claude Code (meta.CLAUDE_SEND_ON).
+const TABS = [{ id: 'queue', label: 'Queue' }, { id: 'sessions', label: 'Sessions' }, ...(CLAUDE_SEND_ON ? [{ id: 'settings', label: 'Settings' }] : [])];
 
 function useCopy() {
   const [done, setDone] = useState('');
@@ -90,7 +91,7 @@ function PinRow({ pin, onOpen, onChanged }) {
 // TeamsTargetPicker, MSAL only as the fallback), screenshots inline. Nothing
 // goes to Claude Code. The pick is remembered in your Build Mode settings;
 // the first Post opens the list and picking a chat posts.
-function TeamsPost({ settings, onSettings, count = 0, onPosted }) {
+function TeamsPost({ settings, onSettings, count = 0, onPosted, primary = false, autoOpen = false }) {
   const [chats, setChats] = useState(null);     // null = not loaded
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
@@ -127,10 +128,21 @@ function TeamsPost({ settings, onSettings, count = 0, onPosted }) {
     if (postOnPick) { setPostOnPick(false); await post(c.id, c.name || ''); }
   };
   const openList = (thenPost) => { setPostOnPick(thenPost); setOpen((o) => !o); load(); };
+  // Opened from Done (Oct 27): pick a chat and it posts - or, with one picked
+  // already, Post is the button in focus.
+  const postRef = useRef(null);
+  const autoDone = useRef(false);
+  useEffect(() => {
+    if (!autoOpen || !count || autoDone.current) return undefined;   // once, when the pins have loaded
+    autoDone.current = true;
+    if (!picked) { openList(true); return undefined; }
+    const t = setTimeout(() => postRef.current?.focus(), 60);   // after the sheet takes focus on open
+    return () => clearTimeout(t);
+  }, [autoOpen, count > 0]);   // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="bm-chat-pick">
       <span className="bm-split">
-        <button type="button" className="bm-btn bm-btn-sm" disabled={!count || posting}
+        <button ref={postRef} type="button" className={`bm-btn bm-btn-sm${primary ? ' bm-btn-primary' : ''}`} disabled={!count || posting}
           onClick={() => (picked ? post(picked, pickedName) : openList(true))}
           title={count ? 'Post your open pins, with their screenshots, to a Teams chat - a group or a person' : 'Nothing to post yet'}>
           {posting ? <Loader2 size={13} className="bm-spin" /> : <MessageSquare size={13} />} {picked ? `Post To Teams - ${pickedName || 'chat'}` : 'Post To Teams'}
@@ -167,7 +179,7 @@ async function downloadReport(sessionId) {
 
 const ROUTE_LABEL = Object.fromEntries((MODULES || []).map((m) => [m.id, m.label]));
 
-function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, onDispatched, myEmail, settings, onSettings }) {
+function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, onDispatched, myEmail, settings, onSettings, postFromDone = false }) {
   const [sending, setSending] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
@@ -216,7 +228,9 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
       <div className="bm-queue-head">
         <div>
           <div className="bm-h2">{notes.length} pin{notes.length === 1 ? '' : 's'} in the queue</div>
-          <div className="bm-dim bm-small">{canSend ? `${mineOpen.length} of yours ready to send.` : mineHeld.length ? 'Nothing of yours to send to Claude Code.' : 'Your collecting session is empty - pin something first.'}{heldLine ? ` ${heldLine}.` : ''}</div>
+          <div className="bm-dim bm-small">{!CLAUDE_SEND_ON
+            ? (mineAll.length ? `${mineAll.length} of yours ready to post - pick a Teams chat and Post.` : 'Nothing of yours to post yet - comment on something first.')
+            : canSend ? `${mineOpen.length} of yours ready to send.` : mineHeld.length ? 'Nothing of yours to send to Claude Code.' : 'Your collecting session is empty - pin something first.'}{CLAUDE_SEND_ON && heldLine ? ` ${heldLine}.` : ''}</div>
           {byModule && <div className="bm-small" data-testid="bm-by-module">{byModule}</div>}
         </div>
         {mineReady.length > 0 && (
@@ -225,13 +239,15 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
             <span className="bm-small">{mineReady.length === 1 ? 'Pin' : 'Pins'} {mineReady.map((n) => `#${n.number}`).join(', ')} - open on the preview and Accept or Reopen.</span>
           </button>
         )}
-        <TeamsPost settings={settings} onSettings={onSettings} count={mineAll.length} onPosted={onDispatched} />
+        <TeamsPost settings={settings} onSettings={onSettings} count={mineAll.length} onPosted={onDispatched} primary={!CLAUDE_SEND_ON} autoOpen={postFromDone} />
         <button type="button" className="bm-btn bm-btn-sm" onClick={report} disabled={!reportSession || reporting} title="Save one HTML file with every comment and screenshot">
           {reporting ? <Loader2 size={13} className="bm-spin" /> : <Download size={13} />} Save Report
         </button>
-        <button type="button" className="bm-btn bm-btn-primary" onClick={send} disabled={!canSend || sending} title={canSend ? 'Send your open pins to the watcher in your terminal' : 'Nothing to send yet'}>
-          {sending ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Send To Claude Code
-        </button>
+        {CLAUDE_SEND_ON && (
+          <button type="button" className="bm-btn bm-btn-primary" onClick={send} disabled={!canSend || sending} title={canSend ? 'Send your open pins to the watcher in your terminal' : 'Nothing to send yet'}>
+            {sending ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Send To Claude Code
+          </button>
+        )}
       </div>
       <div className="bm-list nx-fill" data-testid="bm-queue">
         {loading && !notes.length && <div className="bm-dim">Loading…</div>}
@@ -435,7 +451,8 @@ function SettingsTab({ settings, onSettings }) {
 }
 
 // ── The sheet ────────────────────────────────────────────────────────────────
-export default function Panel({ open, tab = 'queue', onTab, onClose, settings, onSettings, onOpenPin, version = 0, onDispatched, myEmail = '' }) {
+export default function Panel({ open, tab: asked = 'queue', onTab, onClose, settings, onSettings, onOpenPin, version = 0, onDispatched, myEmail = '', postFromDone = false }) {
+  const tab = TABS.some((t) => t.id === asked) ? asked : 'queue';
   const isMobile = useIsMobile();
   const [notes, setNotes] = useState([]);
   const [dismissed, setDismissed] = useState([]);
@@ -484,7 +501,7 @@ export default function Panel({ open, tab = 'queue', onTab, onClose, settings, o
           <button type="button" className="bm-icon-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
         <div className="bm-sheet-body">
-          {tab === 'queue' && <QueueTab notes={notes} dismissed={dismissed} sessions={sessions} loading={loading} onOpenPin={onOpenPin} onChanged={replace} onDispatched={() => { load(); onDispatched?.(); }} myEmail={myEmail} settings={settings || {}} onSettings={onSettings} />}
+          {tab === 'queue' && <QueueTab notes={notes} dismissed={dismissed} sessions={sessions} loading={loading} onOpenPin={onOpenPin} onChanged={replace} onDispatched={() => { load(); onDispatched?.(); }} myEmail={myEmail} settings={settings || {}} onSettings={onSettings} postFromDone={postFromDone} />}
           {tab === 'sessions' && <SessionsTab sessions={sessions} notes={notes} stats={stats} loading={loading} onChanged={replaceSession} />}
           {tab === 'settings' && <SettingsTab settings={settings || {}} onSettings={onSettings} />}
         </div>

@@ -17,6 +17,11 @@ vi.mock('../api', () => ({
   setApiBodyCapture: vi.fn(),
 }));
 
+// These cover Send To Claude Code and the Settings tab, which are off while
+// Send to Claude is on hold (meta.CLAUDE_SEND_ON) - tested here switched on,
+// as they come back; Panel.claudeOff.test.jsx covers the panel as shipped.
+vi.mock('./meta', async (importOriginal) => ({ ...(await importOriginal()), CLAUDE_SEND_ON: true }));
+
 const Panel = (await import('./Panel')).default;
 
 afterEach(() => { cleanup(); notes = []; });

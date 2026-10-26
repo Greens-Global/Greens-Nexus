@@ -3,7 +3,7 @@
 // speech-to-text through the browser's SpeechRecognition where it exists,
 // and a contact sheet - a grid of frames grabbed every 3 s from the
 // tab-capture stream (screenshot.js) while the recording runs.
-import { startScreenRecording, stopScreenRecording, isScreenRecording } from '../../lib/screenRecorder';
+import { startScreenRecording, stopScreenRecording, isScreenRecording, setRecordingMic, recordingMicOn } from '../../lib/screenRecorder';
 import { grabFrame, thumbnail, tabStream } from './screenshot';
 
 export const speechSupported = () => typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -78,14 +78,29 @@ export const isRecording = () => isScreenRecording();
  * cancelled). Throws when screen capture is unsupported; a declined picker
  * resolves to false quietly.
  */
-export async function startRecording({ onTranscript, onDone } = {}) {
+// `audio` (Oct 27): With Audio or Without Audio, picked when Record is
+// clicked; setRecordAudio switches the mic - and the live transcript with it -
+// while it records.
+let _setAudio = null;
+export const setRecordAudio = (on) => (_setAudio ? _setAudio(on) : Promise.resolve(false));
+export const recordAudioOn = () => recordingMicOn();
+
+export async function startRecording({ audio = true, onTranscript, onDone } = {}) {
   const t0 = Date.now();
   const finals = [];
   let interim = '';
   const emit = () => onTranscript?.([...finals, interim ? `[${mmss(Date.now() - t0)}] ${interim}` : ''].filter(Boolean).join('\n'));
-  const stopSpeech = speechSupported()
+  const listen = () => (speechSupported()
     ? startSpeech({ onFinal: (t) => { finals.push(`[${mmss(Date.now() - t0)}] ${t}`); interim = ''; emit(); }, onInterim: (t) => { interim = t; emit(); } })
-    : () => {};
+    : () => {});
+  let stopListening = audio ? listen() : () => {};
+  const stopSpeech = () => stopListening();
+  _setAudio = async (on) => {
+    const mic = await setRecordingMic(on);
+    stopListening();
+    stopListening = mic ? listen() : () => {};
+    return mic;
+  };
   const frames = [];
   const sheetTimer = setInterval(async () => {
     try {
@@ -98,15 +113,17 @@ export async function startRecording({ onTranscript, onDone } = {}) {
   try {
     // The live tab stream, when there is one, so the person is not asked to
     // share twice; screenRecorder clones it and leaves ours running.
-    ok = await startScreenRecording({ voice: true, quiet: true, stream: tabStream() }, async (blob) => {
+    ok = await startScreenRecording({ voice: audio, micSwitch: true, quiet: true, stream: tabStream() }, async (blob) => {
       clearInterval(sheetTimer);
       stopSpeech();
+      _setAudio = null;
       const sheet = frames.length ? await contactSheet(frames) : null;
       onDone?.({ video: blob, sheet, transcript: finals.join('\n'), durationMs: Date.now() - t0 });
     });
   } catch (err) {
     clearInterval(sheetTimer);
     stopSpeech();
+    _setAudio = null;
     if (err?.name === 'NotAllowedError') return false;
     throw err;
   }

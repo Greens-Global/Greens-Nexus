@@ -4,12 +4,12 @@
 // Save Pin / Save And Send. The draft it edits lives in localStorage until
 // the pin is saved (store.js saveDraft).
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { X, Mic, Video, CircleStop, Loader2, Send, Check, Trash2, Camera } from 'lucide-react';
+import { X, Mic, MicOff, Video, CircleStop, Loader2, Send, Check, Trash2, Camera } from 'lucide-react';
 import { useIsMobile } from '../lib/useIsMobile';
 import { toViewUrl } from '../lib/storageView';
 import { filesFromPaste } from '../tasks/lib';
 import { MODULES } from '../contexts/RoleContext';
-import { KINDS, PRIORITIES, guessKind } from './meta';
+import { KINDS, PRIORITIES, guessKind, CLAUDE_SEND_ON } from './meta';
 import { placeCard } from './lib/anchor';
 import { uploadDevNoteFile, storageReady } from './lib/upload';
 import { speechSupported } from './lib/recorder';
@@ -66,6 +66,7 @@ const fmtDur = (ms) => { const s = Math.round((ms || 0) / 1000); return `${Math.
 export default function Composer({
   pick, draft, onChange, onCancel, onSave, saving = '', settings,
   capture = 'idle', recording = null, onRecord, onStopRecord, recorded = null,
+  askRecord = false, onRecordChoice, onRecordAskCancel, onToggleAudio,
   voiceOn = false, interim = '', onVoiceStart, onVoiceStop,
   markupCount = 0, onClearMarkup, view,
 }) {
@@ -108,7 +109,7 @@ export default function Composer({
   // Someone else's area (v2): the server says the pin would be held for them,
   // so it is never sent to Claude Code from here - one button, Save For <Owner>.
   const owner = useHeldOwner(pick?.target?.source?.file || '');
-  const sendInstantly = !!settings?.sendInstantly && !owner;
+  const sendInstantly = CLAUDE_SEND_ON && !!settings?.sendInstantly && !owner;
   const busy = !!saving || uploading > 0 || !!recording;
   const kindMeta = KINDS.find((k) => k.id === draft.kind) || KINDS[0];
   const hint = looksLike(pick?.target, view);
@@ -116,7 +117,7 @@ export default function Composer({
   return (
     <div ref={ref} className="bm-card bm-composer" role="dialog" aria-label="New Pin" data-testid="bm-composer"
       style={pos ? { left: pos.left, top: pos.top } : undefined}
-      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel?.(false); } if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); onSave?.(!owner && !sendInstantly); } }}>
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel?.(false); } if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); onSave?.(CLAUDE_SEND_ON && !owner && !sendInstantly); } }}>
       <div className="bm-card-head">
         <span className="bm-pin bm-pin-inline" style={{ '--c': kindMeta.color }} aria-hidden="true"><span className="bm-pin-no">+</span></span>
         <div className="bm-card-title">{draft.edit ? 'New Edit Pin' : 'New Pin'}{pick?.mode === 'region' ? <span className="bm-dim bm-small"> · region</span> : null}</div>
@@ -154,9 +155,22 @@ export default function Composer({
               <Mic size={14} /> {voiceOn ? 'Listening…' : 'Hold To Talk'}
             </button>
           )}
-          {recording
-            ? <button type="button" className="bm-btn bm-btn-sm is-rec" onClick={onStopRecord} title="Stop recording (V)"><CircleStop size={14} /> Stop · {fmtDur(Date.now() - recording.startedAt)}</button>
-            : <button type="button" className="bm-btn bm-btn-sm" onClick={onRecord} disabled={!!saving} title="Record the screen with your voice (V)"><Video size={14} /> {recorded ? 'Record Again' : 'Record'}</button>}
+          {recording ? (
+            <>
+              <button type="button" className="bm-btn bm-btn-sm is-rec" onClick={onStopRecord} title="Stop recording (V)"><CircleStop size={14} /> Stop · {fmtDur(Date.now() - recording.startedAt)}</button>
+              <button type="button" className={`bm-btn bm-btn-sm${recording.audio ? ' is-live' : ''}`} onClick={onToggleAudio} aria-pressed={!!recording.audio}
+                title={recording.audio ? 'Your voice is recording - click to mute' : 'No sound - click to record your voice from here on'}>
+                {recording.audio ? <Mic size={14} /> : <MicOff size={14} />} {recording.audio ? 'Mic On' : 'Mic Off'}
+              </button>
+            </>
+          ) : askRecord ? (
+            // Video asks first (Pranshu, Oct 27): the pick starts it, and the mic can be switched while it records.
+            <span className="bm-record-ask" role="group" aria-label="Record the screen">
+              <button type="button" className="bm-btn bm-btn-sm bm-btn-primary" onClick={() => onRecordChoice?.(true)} autoFocus><Mic size={14} /> With Audio</button>
+              <button type="button" className="bm-btn bm-btn-sm" onClick={() => onRecordChoice?.(false)}><MicOff size={14} /> Without Audio</button>
+              <button type="button" className="bm-icon-btn" onClick={onRecordAskCancel} aria-label="Do not record"><X size={14} /></button>
+            </span>
+          ) : <button type="button" className="bm-btn bm-btn-sm" onClick={onRecord} disabled={!!saving} title="Record the screen - with or without your voice (V)"><Video size={14} /> {recorded ? 'Record Again' : 'Record'}</button>}
           {markupCount > 0 && (
             <span className="bm-chip-info">{markupCount} markup item{markupCount === 1 ? '' : 's'} <button type="button" className="bm-link-btn" onClick={onClearMarkup}>clear</button></span>
           )}
@@ -180,7 +194,7 @@ export default function Composer({
         {recording && (
           <div className="bm-live" aria-live="polite">
             <div className="bm-live-head"><span className="bm-rec-dot" /> Recording{speechSupported() ? ' - live transcript' : ''}</div>
-            <div className="bm-live-text">{recording.transcript || (speechSupported() ? 'Say what you see…' : 'Speech-to-text is not available in this browser; the video still records your voice.')}</div>
+            <div className="bm-live-text">{recording.transcript || (!recording.audio ? 'Recording without sound - Mic On records your voice from here on.' : speechSupported() ? 'Say what you see…' : 'Speech-to-text is not available in this browser; the video still records your voice.')}</div>
           </div>
         )}
         {recorded && !recording && (
@@ -201,11 +215,13 @@ export default function Composer({
             {saving === 'save' ? <Loader2 size={14} className="bm-spin" /> : <Check size={14} />} Save For {owner.name}
           </button>
         ) : (
-          <button type="button" className={`bm-btn${sendInstantly ? ' bm-btn-primary' : ''}`} onClick={() => onSave?.(false)} disabled={busy}>
-            {saving === 'save' ? <Loader2 size={14} className="bm-spin" /> : <Check size={14} />} {sendInstantly ? 'Save And Send' : 'Save Pin'}
+          <button type="button" className={`bm-btn${sendInstantly || !CLAUDE_SEND_ON ? ' bm-btn-primary' : ''}`} onClick={() => onSave?.(false)} disabled={busy} title={CLAUDE_SEND_ON ? undefined : `${MOD}+Enter`}>
+            {saving === 'save' ? <Loader2 size={14} className="bm-spin" /> : <Check size={14} />} {!CLAUDE_SEND_ON ? 'Save' : sendInstantly ? 'Save And Send' : 'Save Pin'}
           </button>
         )}
-        {!sendInstantly && !owner && (
+        {/* Save And Send only while Send to Claude Code is on (meta.CLAUDE_SEND_ON):
+            otherwise a pin only saves, and Done posts your comments to Teams. */}
+        {CLAUDE_SEND_ON && !sendInstantly && !owner && (
           <button type="button" className="bm-btn bm-btn-primary" onClick={() => onSave?.(true)} disabled={busy} title={`${MOD}+Enter`}>
             {saving === 'send' ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Save And Send
           </button>
