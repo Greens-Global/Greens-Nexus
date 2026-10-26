@@ -2685,11 +2685,14 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
                 "projectId": _nz(t.project_id),
                 "projectName": project_names.get(t.project_id or "", "")}
 
-    def newest(items, limit=25):
+    def newest(items):
         # Open work first, then nearest due date - a page that opened on
         # something finished last March would bury what the person is on now.
+        # The WHOLE bucket (Oct 27 2026): it used to stop at 25, so someone
+        # with 16 open tasks showed 9 of their 150 completed ones, and the tab
+        # counts said 25. The page shows 25 at a time with Show More instead.
         return [shape(t) for t in sorted(
-            items, key=lambda t: (bool(t.completed), t.due_on or "9999", t.title.lower()))[:limit]]
+            items, key=lambda t: (bool(t.completed), t.due_on or "9999", t.title.lower()))]
 
     me = (user.get("email") or "").strip().lower()
 

@@ -31,6 +31,10 @@ const TABS = [
 // A guest is a real distinction here, not decoration: Asana collaborators sync
 // in as guests long before HR has a record, and "why does this person have no
 // job title" is answered by the badge rather than by asking someone.
+// Rows drawn at a time; Show More adds the next batch (Oct 27 2026 - the
+// server sends each list whole now, it used to stop at 25 silently).
+const PAGE = 25;
+
 const IDENTITY_META = {
   guest:    { label: 'Guest',    color: NX.amber },
   external: { label: 'External', color: NX.dim },
@@ -60,14 +64,15 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
   const today = todayISO();
   const allRows = data?.tasks?.[tab] || [];
   // The rollup cards count the ASSIGNED bucket specifically (backend
-  // person_profile) - clicking one jumps there too, so the number clicked
-  // always matches what's now on screen instead of filtering whatever tab
-  // happened to be open.
-  const rows = !statusFilter ? allRows : allRows.filter((t) => (
-    statusFilter === 'completed' ? t.completed
+  // person_profile) - clicking one jumps to All, so the number clicked is the
+  // number listed. The filter then CASCADES (Sagar, Oct 27): every tab below
+  // shows and counts only the matching tasks, and switching tabs keeps it -
+  // it used to clear on a tab click and leave the counts unfiltered.
+  const matches = (t) => (!statusFilter ? true
+    : statusFilter === 'completed' ? t.completed
       : statusFilter === 'overdue' ? (!t.completed && t.dueOn && t.dueOn < today)
-      : !t.completed // 'open'
-  ));
+        : !t.completed); // 'open'
+  const rows = allRows.filter(matches);
   // Completed work sits in its own collapsed section at the BOTTOM, the way the
   // task list groups it (DEFAULT_COLLAPSED in views/richlist.jsx) - a person
   // with 24 finished tasks was pushing their open ones off the screen with work
@@ -78,6 +83,20 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
   const openRows = showingCompletedOnly ? rows : rows.filter((t) => !t.completed);
   const doneRows = showingCompletedOnly ? [] : rows.filter((t) => t.completed);
   const [doneOpen, setDoneOpen] = useState(false);
+  const [shown, setShown] = useState(PAGE);
+  // A new list starts from its first batch again.
+  useEffect(() => { setShown(PAGE); }, [tab, statusFilter, email]);
+  const listed = [...openRows, ...(doneOpen ? doneRows : [])];
+  const more = listed.length - shown;
+  // The rollup counts the same rows the list shows - the ASSIGNED bucket,
+  // overdue by the viewer's own today - so a number clicked is the number
+  // listed (the server's stats used its own clock and a capped list).
+  const assignedRows = data?.tasks?.assigned;
+  const stats = !assignedRows ? (data?.stats || {}) : {
+    open: assignedRows.filter((t) => !t.completed).length,
+    overdue: assignedRows.filter((t) => !t.completed && t.dueOn && t.dueOn < today).length,
+    completed: assignedRows.filter((t) => t.completed).length,
+  };
 
   const pickStat = (key) => {
     setTab('assigned');
@@ -131,11 +150,11 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
         {data && (
           <div style={{ display: 'flex', gap: isMobile ? 10 : 18, marginTop: 16, flexWrap: 'wrap' }}>
             {[
-              { key: 'open', label: 'Open', value: data.stats.open, color: NX.ink },
-              { key: 'overdue', label: 'Overdue', value: data.stats.overdue, color: data.stats.overdue ? NX.red : NX.ink },
-              { key: 'completed', label: 'Completed', value: data.stats.completed, color: NX.ink },
+              { key: 'open', label: 'Open', value: stats.open, color: NX.ink },
+              { key: 'overdue', label: 'Overdue', value: stats.overdue, color: stats.overdue ? NX.red : NX.ink },
+              { key: 'completed', label: 'Completed', value: stats.completed, color: NX.ink },
             ].map((s) => {
-              const active = tab === 'assigned' && statusFilter === s.key;
+              const active = statusFilter === s.key;
               return (
                 <button key={s.key} onClick={() => pickStat(s.key)} title={`Show ${s.label.toLowerCase()} tasks`} style={{
                   border: `1px solid ${active ? NX.primary : 'transparent'}`,
@@ -175,26 +194,28 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
             </div>
             <div className="scroll-tabs" style={{ display: 'flex', gap: 2, padding: '8px 12px 0', overflowX: 'auto' }}>
               {TABS.map((t) => (
-                <button key={t.key} onClick={() => { setTab(t.key); setStatusFilter(null); }} style={{
+                <button key={t.key} onClick={() => setTab(t.key)} style={{
                   ...btn('ghost'), padding: '6px 10px', borderRadius: 0, whiteSpace: 'nowrap', fontSize: 13,
                   color: tab === t.key ? NX.ink : NX.dim, fontWeight: tab === t.key ? 700 : 500,
                   borderBottom: `2px solid ${tab === t.key ? NX.ink : 'transparent'}`,
                 }}>
                   {t.label}
-                  <span style={{ marginLeft: 6, fontSize: 11.5, color: NX.faint }}>{data?.tasks?.[t.key]?.length ?? 0}</span>
+                  <span style={{ marginLeft: 6, fontSize: 11.5, color: NX.faint }}>{(data?.tasks?.[t.key] || []).filter(matches).length}</span>
                 </button>
               ))}
             </div>
             <div style={{ borderTop: `1px solid ${NX.border}` }}>
               {rows.length === 0 ? (
                 <div style={{ padding: '26px 16px', textAlign: 'center', fontSize: 13, color: NX.faint }}>
-                  Nothing here.
+                  {statusFilter ? `No ${statusFilter} tasks here.` : 'Nothing here.'}
                 </div>
-              ) : [...openRows, ...(doneOpen ? doneRows : [])].map((t) => {
+              ) : listed.slice(0, shown).map((t, i) => {
                 const overdue = !t.completed && t.dueOn && t.dueOn < todayISO();
                 return (
                   <div key={t.id} onClick={() => setOpenId(t.id)} className="stack-table-row nx-row-hover"
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer' }}>
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer',
+                      // Banded like every task list (MyTasksView's NX.zebra) - Sagar, Oct 27.
+                      background: i % 2 === 1 ? NX.zebra : 'transparent' }}>
                     {t.completed
                       ? <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} />
                       : <Circle size={16} style={{ color: NX.faint, flexShrink: 0 }} />}
@@ -203,7 +224,10 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
                       color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none',
                     }}>{t.title}</span>
                     {t.projectName && !isMobile && (
-                      <span style={{ ...chip(NX.dim, NX.border2), flexShrink: 0, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.projectName}</span>
+                      // Room for a full project name (Sagar, Oct 27 - 160px cut them mid-word):
+                      // block display so a really long one ends in a visible '...', the whole
+                      // name on hover, and a gap before the date.
+                      <span title={t.projectName} style={{ ...chip(NX.dim, NX.border2), display: 'inline-block', flexShrink: 0, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 6 }}>{t.projectName}</span>
                     )}
                     {t.dueOn && (
                       <span style={{ fontSize: 12, color: overdue ? NX.red : NX.faint, flexShrink: 0, fontWeight: overdue ? 700 : 500 }}>
@@ -214,6 +238,17 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
                   </div>
                 );
               })}
+              {more > 0 && (
+                <button onClick={() => setShown((n) => n + PAGE)} className="nx-menu-row"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%',
+                    padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer',
+                    fontFamily: FONT, fontSize: 13, fontWeight: 700, color: NX.primary,
+                    borderTop: `1px solid ${NX.border2}`,
+                  }}>
+                  Show {Math.min(more, PAGE)} More <span style={{ fontWeight: 600, color: NX.faint }}>· {more} left</span>
+                </button>
+              )}
               {doneRows.length > 0 && (
                 <button onClick={() => setDoneOpen((o) => !o)} className="nx-menu-row"
                   aria-expanded={doneOpen}
