@@ -15,7 +15,7 @@ vi.mock('../api', () => ({ api: {
   timeSelfPunch: (...a) => timeSelfPunch(...a),
 } }));
 
-const { punchDurable, replayPending, readPending, clearPending } = await import('./punchQueue');
+const { punchDurable, replayPending, readPending, clearPending, holdPunch, signedIn } = await import('./punchQueue');
 
 const netErr = () => new Error('Failed to fetch');                 // no .status - unknown outcome
 const httpErr = (status, message = 'nope') => Object.assign(new Error(message), { status });
@@ -152,5 +152,90 @@ describe('replayPending', () => {
     const [a, b] = await run(() => Promise.all([replayPending(), replayPending()]));
     expect(timePunch).toHaveBeenCalledTimes(1);
     expect(a).toBe(b);
+  });
+});
+
+// Miranda (Oct 19 and 26): the sign-in expired while the tab sat open, the
+// punch got a 401, api.js sent the page to sign in, and the punch was gone -
+// a 401 counted as a refusal, so nothing was parked.
+describe('a sign-in that expired while the tab sat open', () => {
+  it('parks a punch that got a 401, at the pressed time, without retrying', async () => {
+    timePunch.mockRejectedValue(httpErr(401, 'Not signed in'));
+    const r = await run(() => punchDurable({ kind: 'in', tzOffsetMin: 420, clickedAt: '2026-10-26T15:31:00' }));
+    expect(r.ok).toBe(false);
+    expect(r.queued).toBe(true);
+    expect(timePunch).toHaveBeenCalledTimes(1);   // the page is leaving - no retries
+    expect(timeStatus).not.toHaveBeenCalled();    // and no status read before parking
+    expect(readPending()).toMatchObject({ kind: 'in', at: '2026-10-26T15:31:00' });
+  });
+
+  it('replays it after sign-in at the time the button was pressed', async () => {
+    const at = iso(Date.now() - 2 * 60000);
+    timePunch.mockRejectedValue(httpErr(401));
+    await run(() => punchDurable({ kind: 'in', tzOffsetMin: 420, clickedAt: at }));
+    timePunch.mockReset();
+    timeStatus.mockResolvedValue({ allowed: ['in'] });
+    timePunch.mockResolvedValue({ punch: { id: 'p1', at } });
+    const r = await run(() => replayPending());
+    expect(r.restored).toBe(true);
+    expect(timePunch).toHaveBeenCalledWith(expect.objectContaining({ kind: 'in', clicked_at: at }));
+    expect(readPending()).toBeNull();
+  });
+
+  it('keeps a parked punch through a 401 on replay (still signing in)', async () => {
+    const at = iso(Date.now() - 2 * 60000);
+    timePunch.mockRejectedValue(netErr());
+    timeStatus.mockResolvedValue({ allowed: ['in'] });
+    await run(() => punchDurable({ kind: 'in', tzOffsetMin: 420, clickedAt: at }));
+    timePunch.mockReset().mockRejectedValue(httpErr(401));
+    expect(await run(() => replayPending())).toBeNull();
+    expect(readPending()).toMatchObject({ kind: 'in', at });
+  });
+
+  it('holds a committed punch through the location wait, and a new page replays it', async () => {
+    const at = iso(Date.now() - 60000);
+    let finish;
+    // The location wait never ends: the page went to sign in meanwhile.
+    holdPunch({ kind: 'in', clickedAt: at, tzOffsetMin: 420 }, () => new Promise((res) => { finish = res; }));
+    expect(readPending()).toMatchObject({ kind: 'in', at });
+    // This page is still sending it: its own replay leaves it alone.
+    expect(await replayPending()).toBeNull();
+    expect(timePunch).not.toHaveBeenCalled();
+    // The next page load (fresh module) replays it.
+    vi.resetModules();
+    const fresh = await import('./punchQueue');
+    timeStatus.mockResolvedValue({ allowed: ['in'] });
+    timePunch.mockResolvedValue({ punch: { id: 'p2', at } });
+    const r = await run(() => fresh.replayPending());
+    expect(r.restored).toBe(true);
+    expect(timePunch).toHaveBeenCalledWith(expect.objectContaining({ kind: 'in', clicked_at: at }));
+    finish({ ok: true });
+  });
+
+  it('lets go of the hold when the punch lands or is refused', async () => {
+    timePunch.mockResolvedValue({ punch: { id: 'p3' } });
+    await run(() => holdPunch({ kind: 'in', tzOffsetMin: 420 }, () => punchDurable({ kind: 'in', tzOffsetMin: 420 })));
+    expect(readPending()).toBeNull();
+    timePunch.mockReset().mockRejectedValue(httpErr(403, 'Forbidden'));
+    const r = await run(() => holdPunch({ kind: 'in', tzOffsetMin: 420 }, () => punchDurable({ kind: 'in', tzOffsetMin: 420 })));
+    expect(r.ok).toBe(false);
+    expect(readPending()).toBeNull();
+  });
+
+  it('never overwrites a punch that is already parked', async () => {
+    timePunch.mockRejectedValue(netErr());
+    timeStatus.mockResolvedValue({ allowed: ['break_end'] });
+    await run(() => punchDurable({ kind: 'break_end', tzOffsetMin: 420, clickedAt: '2026-10-26T18:00:00' }));
+    await run(() => holdPunch({ kind: 'out', tzOffsetMin: 420 }, async () => ({ ok: false })));
+    expect(readPending()).toMatchObject({ kind: 'break_end', at: '2026-10-26T18:00:00' });
+  });
+
+  it('finds a dead sign-in before a message prompt opens, and lets offline through', async () => {
+    timeStatus.mockRejectedValueOnce(httpErr(401));
+    expect(await signedIn()).toBe(false);
+    timeStatus.mockRejectedValueOnce(netErr());
+    expect(await signedIn()).toBe(true);
+    timeStatus.mockResolvedValueOnce({ allowed: ['in'] });
+    expect(await signedIn()).toBe(true);
   });
 });

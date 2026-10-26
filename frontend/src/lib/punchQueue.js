@@ -23,6 +23,12 @@ import { replayPendingBods } from './bodQueue';
 //
 // A punch the server REFUSED is never parked. That one is not lost, it is wrong,
 // and replaying it later would only make it wrong later.
+//
+// A 401 is not a refusal (Miranda, Oct 19 and 26: no punch, no BOD). The
+// sign-in expired while the tab sat open, so api.js sends the whole page to
+// sign in - and the punch went with it. Now the punch is HELD on the device
+// from the moment it is committed (holdPunch, before the location wait), a
+// 401 keeps it parked, and the replay after sign-in lands it at the pressed time.
 
 const KEY = 'nexus:pendingPunch';
 const ATTEMPTS = 3;
@@ -54,7 +60,8 @@ function writePending(entry) {
 // A network error carries no status; a 5xx may or may not have committed. Both
 // are "unknown", which is what makes a retry worth attempting. A 4xx is a real
 // answer from the server and must be shown to the person as-is.
-const isUnknownOutcome = (e) => !e?.status || e.status >= 500;
+// A 401 (signed out) is unknown too: the server never looked at the punch.
+const isUnknownOutcome = (e) => !e?.status || e.status === 401 || e.status >= 500;
 
 // Did the punch actually land? Asked whenever the outcome is ambiguous, so we
 // never park (and later replay) a punch that already committed.
@@ -96,13 +103,17 @@ export async function punchDurable({ kind, tzOffsetMin, clickedAt = '', pos = nu
         return { ok: false, error: e };
       }
       if (!isUnknownOutcome(e)) return { ok: false, error: e };   // 400/403 - a real refusal
+      if (e?.status === 401) break;   // signed out: the page is off to sign in - park NOW
       if (attempt < ATTEMPTS) await sleep(700 * attempt);
     }
   }
   // Every attempt ended unknown. Confirm once more before parking - a 5xx can
   // arrive after the write committed, and a duplicate is worse than a retry.
-  const s = await landedPunch(kind);
-  if (s) { clearPending(); return { ok: true, punch: s.lastPunch, allowed: s.allowed, recovered: true }; }
+  // Not after a 401: the page is leaving, and nothing committed.
+  if (lastErr?.status !== 401) {
+    const s = await landedPunch(kind);
+    if (s) { clearPending(); return { ok: true, punch: s.lastPunch, allowed: s.allowed, recovered: true }; }
+  }
   const queued = writePending({
     kind, at: clickedAt || utcStamp(), tz_offset_min: tzOffsetMin,
     ...(pos || {}), queued_at: utcStamp(),
@@ -110,6 +121,44 @@ export async function punchDurable({ kind, tzOffsetMin, clickedAt = '', pos = nu
   // `extra` (the shared-PC pair nonce) is deliberately NOT parked: it belongs to
   // this browser's live pairing challenge and is meaningless on a later replay.
   return { ok: false, error: lastErr, unreachable: true, queued };
+}
+
+// Holds still being worked on by THIS page (see holdPunch); the replay leaves
+// them alone. A hold left by a page that went away is not in here, so the next
+// page load replays it.
+const liveHolds = new Set();
+
+/**
+ * Keep a committed punch on the device while `run` gets its location and sends
+ * it, so nothing that happens meanwhile - a sign-in redirect, a closed tab -
+ * can lose it. `run` returns punchDurable's result: a success clears the hold,
+ * an unknown outcome or a 401 re-parks it (with the location), and a refusal
+ * or a throw leaves it to be cleared here. A punch already parked is never
+ * overwritten: the hold is skipped and `run` goes as before.
+ */
+export async function holdPunch({ kind, clickedAt = '', tzOffsetMin }, run) {
+  if (readPending()) return run();
+  const hold = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  liveHolds.add(hold);
+  const at = clickedAt || utcStamp();
+  writePending({ kind, at, tz_offset_min: tzOffsetMin, queued_at: utcStamp(), hold });
+  try {
+    return await run();
+  } finally {
+    liveHolds.delete(hold);
+    if (readPending()?.hold === hold) clearPending();
+  }
+}
+
+/**
+ * Before a day-message prompt opens: a sign-in that expired while the tab sat
+ * open is found now, while nothing is typed yet - api.js sends the page to
+ * sign in, and the person taps again after. Returns false only then; offline
+ * is not signed out (the punch still goes, and parks).
+ */
+export async function signedIn() {
+  try { await api.timeStatus(); return true; }
+  catch (e) { return e?.status !== 401; }
 }
 
 /**
@@ -129,7 +178,7 @@ export function replayPending() {
 
 async function _replayPending() {
   const p = readPending();
-  if (!p) return null;
+  if (!p || (p.hold && liveHolds.has(p.hold))) return null;   // nothing, or this page is still sending it
   let status;
   try { status = await api.timeStatus(); } catch { return null; }   // still offline - keep it parked
   // The state has already moved past it - they redid the punch on another device,
