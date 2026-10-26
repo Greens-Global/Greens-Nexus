@@ -5,6 +5,7 @@ no network (storage signing and uploads are stubbed).
 Run on its own: python -m pytest test_dev_notes.py
 """
 import io
+import json
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -1520,3 +1521,54 @@ def test_names_come_from_task_notify_and_lookup_errors_are_not_swallowed(monkeyp
     # a swallowed error would leave a Postgres transaction aborted: it must surface
     with pytest.raises(RuntimeError):
         client.post("/dev-notes", json={"comment": "x", "route": "inventory", "target": VISESH_FILE})
+
+
+def test_daily_purge_pass_audits_only_when_something_went(monkeypatch):
+    monkeypatch.setattr(D, "_delete_object", lambda u: True)
+    db = database.SessionLocal()
+    db.query(models.AuditLog).filter(models.AuditLog.user_email == "build-mode-purge").delete()
+    db.commit()
+    db.close()
+    _as(DEV)
+    n = _create()
+    assert client.patch(f"/dev-notes/{n['id']}", json={"status": "dismissed"}).json()["purgeAt"] != ""
+    assert D._purge_pass() == 0   # not due yet: no audit row
+    db = database.SessionLocal()
+    assert db.query(models.AuditLog).filter(models.AuditLog.user_email == "build-mode-purge").count() == 0
+    db.query(models.DevNote).filter(models.DevNote.id == n["id"]).update({"purge_at": "2020-01-01T00:00:00+00:00"})
+    db.commit()
+    db.close()
+    assert D._purge_pass() == 1
+    assert client.get(f"/dev-notes/{n['id']}").json()["screenshotUrl"] == ""
+    db = database.SessionLocal()
+    rows = db.query(models.AuditLog).filter(models.AuditLog.user_email == "build-mode-purge").all()
+    assert [(r.action, r.user_role, json.loads(r.details)) for r in rows] == [("dev_note_purge", "system", {"purged": 1, "by": "daily"})]
+    db.close()
+
+
+def test_daily_purge_loop_keeps_going_after_a_failed_run(monkeypatch):
+    import asyncio
+    calls, sleeps = [], []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("storage is down")
+        return 2
+
+    async def fake_sleep(sec):
+        sleeps.append(sec)
+        if len(sleeps) > 2:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(D, "_purge_pass", flaky)
+    monkeypatch.setattr(D.asyncio, "sleep", fake_sleep)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(D.purge_media_loop())
+    assert len(calls) == 2 and sleeps == [600, D.PURGE_LOOP_SEC, D.PURGE_LOOP_SEC]
+
+
+def test_daily_purge_is_wired_for_the_deployed_worker_only():
+    src = open(os.path.join(os.path.dirname(__file__), "main.py")).read()
+    block = src[src.index("from routers.dev_notes import purge_media_loop") - 300:]
+    assert "is_deployed_worker()" in block[:400]

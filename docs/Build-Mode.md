@@ -314,9 +314,13 @@ client `/cli/attach` uploads with), blanks the media URL columns, empties
 "Media Purged" (never a second one on a later run). A delete storage refuses
 keeps its URL and the purge date for the next run; once nothing is left the
 purge date is blanked so the row is never selected again.
-Today it runs only from `POST /dev-notes/purge` (Global Admin); a daily
-loop in `main.py`'s lifespan (in a thread, like `reminders_loop`) is the
-follow-up.
+`purge_media_loop` runs it once a day (first run 10 minutes after startup)
+on the deployed API only - the leader's job set plus `is_deployed_worker()`,
+since it deletes live storage; a laptop never runs it. The work happens in a
+thread (`asyncio.to_thread`), never on the event loop. A run that deleted
+something writes one `dev_note_purge` audit row by "build-mode-purge"
+(role "system"); a quiet day writes nothing. `POST /dev-notes/purge`
+(Global Admin) still runs it on demand.
 
 ### Audit
 Every create, dispatch, claim, CLI verify, accept, reopen, token mint,

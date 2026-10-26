@@ -989,8 +989,8 @@ def purge_media(db: Session) -> int:
     Purged" entry. A URL storage would not delete stays for the next run (the
     pin keeps its purge date until nothing is left, then it is blanked so the
     row is never selected again). Returns the number of pins something was
-    deleted from. No background loop yet - POST /dev-notes/purge runs it (a
-    daily loop in main.py's lifespan is the follow-up)."""
+    deleted from. `purge_media_loop` runs it daily on the deployed API;
+    POST /dev-notes/purge runs it on demand."""
     now = _now()
     rows = (db.query(DevNote)
             .filter(DevNote.purge_at != "", DevNote.purge_at <= now,
@@ -1032,6 +1032,39 @@ def purge(user: dict = Depends(require_build_mode), db: Session = Depends(get_db
     _audit(db, user, "purge", "", {"purged": n}, kind="delete")
     db.commit()
     return {"purged": n}
+
+
+PURGE_LOOP_SEC = 24 * 3600
+PURGE_JOB = {"email": "build-mode-purge", "role": "system"}   # audit author, like m365_profile_sync
+
+
+def _purge_pass() -> int:
+    """One daily run in a worker thread: its own session, an audit row only
+    when something was deleted (a quiet day leaves no trace)."""
+    db = database.SessionLocal()
+    try:
+        n = purge_media(db)
+        if n:
+            _audit(db, PURGE_JOB, "purge", "", {"purged": n, "by": "daily"}, kind="delete")
+            db.commit()
+        return n
+    finally:
+        db.close()
+
+
+async def purge_media_loop():
+    """Daily media purge (main.py lifespan, leader + deployed worker only: it
+    deletes live storage with the service key). The storage calls and queries
+    run in a thread - never on the event loop."""
+    await asyncio.sleep(600)   # let startup settle
+    while True:
+        try:
+            n = await asyncio.to_thread(_purge_pass)
+            if n:
+                print(f"[build-mode-purge] purged media of {n} pins")
+        except Exception as e:
+            print(f"[build-mode-purge] run failed: {e}")
+        await asyncio.sleep(PURGE_LOOP_SEC)
 
 
 # ── stats ─────────────────────────────────────────────────────────────────────
