@@ -14,7 +14,7 @@ import Composer from './Composer';
 import EditInPlace, { restoreAllEdits, restoreEdit } from './EditInPlace';
 import Panel from './Panel';
 import { store, useBuildStore, turnOff, saveSettings, takePendingPin, toast, loadDrafts, saveDraft, removeDraft, newId } from './store';
-import { describeTarget, rectOf, anchorRect, stateOf, preloadSourceFiles } from './lib/capture';
+import { describeTarget, rectOf, regionTarget, anchorRect, stateOf, preloadSourceFiles } from './lib/capture';
 import { startTabCapture, stopTabCapture, grabBestFrame, makeShots, shiftItems, wantsTabCapture, AREA_PAD } from './lib/screenshot';
 import { useRole, MODULES } from '../contexts/RoleContext';
 import { startRecording, stopRecording, isRecording, startSpeech, speechSupported } from './lib/recorder';
@@ -163,6 +163,16 @@ export default function BuildModeApp({ view, sub }) {
     setDraft(next);
     store.set({ pick: { target, rect, mode }, openPinId: '' });
   }, [blocked, view, sub]);
+
+  // A box drawn with nothing being written yet opens the comment box on it
+  // (Pranshu, Oct 27): the box says where, the comment says what. Markup is in
+  // page coordinates; the pick is the box's area on screen now.
+  const addMarkup = (item) => {
+    store.set((st) => ({ markup: [...st.markup, item] }));
+    if (item.type !== 'rect' || store.get().pick) return;
+    const r = { x: item.x - (window.scrollX || 0), y: item.y - (window.scrollY || 0), w: item.w, h: item.h };
+    onPick(regionTarget(r), { ...r, pageX: Math.round(item.x), pageY: Math.round(item.y) }, 'region', null);
+  };
 
   const ensureComposer = () => {
     if (store.get().pick) return;
@@ -373,7 +383,7 @@ export default function BuildModeApp({ view, sub }) {
   return (
     <div data-nx-devnotes="1" className="bm-root">
       <Overlay tool={s.tool} color={s.color} interactive={!s.editPick && !s.panelOpen && s.tool !== 'browse'} items={s.markup}
-        onAdd={(item) => store.set((st) => ({ markup: [...st.markup, item] }))} onPick={onPick}
+        onAdd={addMarkup} onPick={onPick}
         faintItems={faint.items} faintOffset={faint.offset} />
       <Pins pins={pins} me={me} openPinId={s.openPinId} show={s.showPins} onOpen={(id) => store.set({ openPinId: id, pick: null })} onClose={() => store.set({ openPinId: '' })} onChanged={onPinChanged} />
       {s.pick && draft && (

@@ -453,6 +453,11 @@ For people who are not technical (Pranshu: "make it as easy as that"):
   mark or question words = Question; "can we", "please add", "would be
   nice", "instead of"... = Change; else Bug) until the person picks one
   there (`kindSet` on the draft). An Edit pin keeps kind Edit.
+- A box (Rect) finished with no comment open opens the composer on it
+  (Pranshu, Oct 27): the box's area is the pick (`mode: 'region'`) and the
+  box stays on the comment (`addMarkup` in `BuildModeApp.jsx`). With a
+  comment already open, a box is markup on that comment, as before; the
+  other drawing tools never open the composer.
 
 ---------------------------------------------------------------------------
 ## 6. Frontend - `frontend/src/devnotes/`

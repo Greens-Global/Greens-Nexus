@@ -81,6 +81,32 @@ describe('BuildMode', () => {
     expect(sessionStorage.getItem('nexus:build-mode')).toBe('0');
   });
 
+  it('finishing a box opens the comment box on it, and the box stays on the comment (Pranshu, Oct 27)', async () => {
+    enabled = true;
+    sessionStorage.setItem('nexus:build-mode', '1');
+    await mount();
+    await screen.findByRole('toolbar', { name: 'Build Mode tools' }, { timeout: 4000 });
+    fireEvent.click(screen.getByRole('button', { name: 'Draw' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Rect/ }));
+    // jsdom has no PointerEvent - without one the coordinates never reach the
+    // Overlay (same shim as Overlay.test.jsx).
+    if (typeof window.PointerEvent === 'undefined') {
+      window.PointerEvent = class PointerEvent extends window.MouseEvent {
+        constructor(type, init = {}) { super(type, init); this.pointerId = init.pointerId ?? 1; this.pointerType = init.pointerType || 'mouse'; }
+      };
+    }
+    const overlay = screen.getByTestId('bm-overlay');
+    const at = (x, y) => ({ clientX: x, clientY: y, button: 0, pointerId: 1, pointerType: 'mouse' });
+    fireEvent.pointerDown(overlay, at(20, 20));
+    fireEvent.pointerMove(overlay, at(120, 80));
+    fireEvent.pointerUp(overlay, at(120, 80));
+    expect(await screen.findByTestId('bm-composer', {}, { timeout: 4000 })).toBeTruthy();
+    const { store } = await import('./store');
+    expect(store.get().pick.mode).toBe('region');
+    expect(store.get().pick.rect).toMatchObject({ x: 20, y: 20, w: 100, h: 60 });
+    expect(store.get().markup).toHaveLength(1);
+  });
+
   it('Browse lets clicks through to Nexus with the mode still on; Pin takes them back', async () => {
     enabled = true;
     sessionStorage.setItem('nexus:build-mode', '1');
