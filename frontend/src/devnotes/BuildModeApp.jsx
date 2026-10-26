@@ -15,7 +15,7 @@ import EditInPlace, { restoreAllEdits, restoreEdit } from './EditInPlace';
 import Panel from './Panel';
 import { store, useBuildStore, turnOff, saveSettings, takePendingPin, toast, loadDrafts, saveDraft, removeDraft, newId } from './store';
 import { describeTarget, rectOf, anchorRect, stateOf, preloadSourceFiles } from './lib/capture';
-import { startTabCapture, stopTabCapture, captureStatus, grabFrame, withUiHidden, makeShots, shiftItems } from './lib/screenshot';
+import { startTabCapture, stopTabCapture, grabBestFrame, makeShots, shiftItems, wantsTabCapture, AREA_PAD } from './lib/screenshot';
 import { useRole } from '../contexts/RoleContext';
 import { startRecording, stopRecording, isRecording, startSpeech, speechSupported } from './lib/recorder';
 import { startBuffers, stopBuffers, pauseBuffers, snapshotBuffers } from './lib/buffers';
@@ -66,7 +66,9 @@ export default function BuildModeApp({ view, sub }) {
   // ── Lifecycle of one mode-on ─────────────────────────────────────────────
   useEffect(() => {
     startBuffers();
-    startTabCapture();
+    // Screenshots come from the page itself (no prompt); the tab stream only
+    // when the person asked for Higher Quality Screenshots.
+    if (wantsTabCapture()) startTabCapture();
     if (import.meta.env.VITE_NX_SRC) preloadSourceFiles();   // the source-stamp file table (dev builds)
     store.set({ showPins: store.get().settings?.pinsOnLoad !== false });
     return () => {
@@ -224,14 +226,12 @@ export default function BuildModeApp({ view, sub }) {
       const vpItems = shiftItems(items, -scrollAt.x, -scrollAt.y);
       const vp = { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1, ua: navigator.userAgent, phone: isMobile, theme: document.documentElement.getAttribute('data-theme') || 'light' };
       let screenshotUrl = '', pageShotUrl = '';
-      if (captureStatus() === 'live') {
-        const boxes = sensitiveRects();
-        const frame = await withUiHidden(() => grabFrame());
-        if (frame) {
-          const shots = await makeShots({ frame, rect: pick.rect, markup: { items: vpItems }, vp, boxes });
-          if (shots.page) pageShotUrl = await uploadDevNoteFile(draft.id, 'page', shots.page, 'png');
-          if (shots.element) screenshotUrl = await uploadDevNoteFile(draft.id, 'screenshot', shots.element, 'png');
-        }
+      const boxes = sensitiveRects();
+      const { frame, whole } = await grabBestFrame(pickElRef.current, pick.rect);
+      if (frame) {
+        const shots = await makeShots({ frame, rect: pick.rect, markup: { items: vpItems }, vp, boxes, whole, pad: whole ? 24 : AREA_PAD });
+        if (shots.page) pageShotUrl = await uploadDevNoteFile(draft.id, 'page', shots.page, 'png');
+        if (shots.element) screenshotUrl = await uploadDevNoteFile(draft.id, 'screenshot', shots.element, 'png');
       }
       let videoUrl = '', contactSheetUrl = '';
       if (recorded?.video) {

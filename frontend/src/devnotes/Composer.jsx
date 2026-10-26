@@ -3,7 +3,7 @@
 // line, and Save Pin / Save And Send. The draft it edits lives in
 // localStorage until the pin is saved (store.js saveDraft).
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { X, Mic, Video, CircleStop, Loader2, Send, Check, Trash2, Camera, CameraOff } from 'lucide-react';
+import { X, Mic, Video, CircleStop, Loader2, Send, Check, Trash2, Camera } from 'lucide-react';
 import { useIsMobile } from '../lib/useIsMobile';
 import { toViewUrl } from '../lib/storageView';
 import { filesFromPaste } from '../tasks/lib';
@@ -165,8 +165,8 @@ export default function Composer({
           {markupCount > 0 && (
             <span className="bm-chip-info">{markupCount} markup item{markupCount === 1 ? '' : 's'} <button type="button" className="bm-link-btn" onClick={onClearMarkup}>clear</button></span>
           )}
-          <span className={`bm-chip-info bm-push ${capture === 'live' ? 'is-ok' : ''}`} title={capture === 'live' ? 'The screenshot is taken when you save' : 'Screenshots are off'}>
-            {capture === 'live' ? <><Camera size={12} /> Screenshot on save</> : <><CameraOff size={12} /> No screenshot</>}
+          <span className="bm-chip-info bm-push is-ok" title={capture === 'live' ? 'Taken from the shared tab when you save' : 'Taken from the page when you save - nothing to share or allow'}>
+            <Camera size={12} /> Screenshot on save
           </span>
         </div>
         {recording && (
@@ -180,9 +180,6 @@ export default function Composer({
             <Check size={13} /> Video attached ({fmtDur(recorded.durationMs)}){recorded.sheetUrl ? <img className="bm-thumb" src={recorded.sheetUrl} alt="Recording frames" /> : null}
             {recorded.transcript && <details className="bm-details"><summary>Transcript</summary><pre className="bm-pre">{recorded.transcript}</pre></details>}
           </div>
-        )}
-        {capture !== 'live' && capture !== 'idle' && (
-          <div className="bm-hint bm-small">Screenshots are off - turn Build Mode off and on to allow tab capture.</div>
         )}
         {err && <div className="bm-error" role="alert">{err}</div>}
       </div>

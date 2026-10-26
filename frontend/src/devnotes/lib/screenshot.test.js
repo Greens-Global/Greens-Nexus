@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { frameScale, cropRect, burnMarkup, applyRedactions, paintBoxes, shiftItems, startTabCapture, stopTabCapture, captureStatus } from './screenshot';
+import { frameScale, cropRect, burnMarkup, applyRedactions, paintBoxes, shiftItems, startTabCapture, stopTabCapture, captureStatus, wantsTabCapture, setWantsTabCapture, areaAround, areaRoot, pruneAbove, padCopy, makeShots } from './screenshot';
 
 vi.mock('../store', () => ({ store: { set: () => {} } }));
 
@@ -112,5 +112,82 @@ describe('screenshot', () => {
     expect(captureStatus()).not.toBe('live');
     expect(document.querySelector('video')).toBeNull();
     delete navigator.mediaDevices;
+  });
+});
+
+describe('page picture without a prompt', () => {
+  const box = (el, top, h, left = 0, w = 800) => {
+    el.getBoundingClientRect = () => ({ top, bottom: top + h, left, right: left + w, x: left, y: top, width: w, height: h });
+    el.getClientRects = () => (h || w ? [1] : []);
+  };
+
+  it('areaAround grows the element by the pad and stays inside the viewport', () => {
+    expect(areaAround({ x: 300, y: 200, w: 100, h: 40 }, 1000, 800, 96)).toEqual({ x: 204, y: 104, w: 292, h: 232 });
+    expect(areaAround({ x: 10, y: 750, w: 100, h: 40 }, 1000, 800, 96)).toEqual({ x: 0, y: 654, w: 206, h: 146 });
+  });
+
+  it('areaRoot climbs to the smallest ancestor that holds the area', () => {
+    document.body.innerHTML = '<div id="page"><div id="card"><span id="cell">x</span></div></div>';
+    box(document.getElementById('cell'), 300, 20, 300, 60);
+    box(document.getElementById('card'), 250, 120, 200, 400);
+    box(document.getElementById('page'), 0, 1000, 0, 1200);
+    expect(areaRoot(document.getElementById('cell'), { x: 250, y: 280, w: 200, h: 60 }).id).toBe('card');
+    expect(areaRoot(document.getElementById('cell'), { x: 100, y: 200, w: 900, h: 200 }).id).toBe('page');
+  });
+
+  it('pruneAbove cuts the leading rows of a one-column list that end above the area and tags their height; the undo clears it', () => {
+    document.body.innerHTML = '<div id="list"><div id="r1"></div><div id="r2"></div><div id="r3"></div><div id="r4"></div></div>';
+    const list = document.getElementById('list');
+    box(list, -100, 400);
+    ['r1', 'r2', 'r3', 'r4'].forEach((id, i) => box(document.getElementById(id), -100 + i * 100, 100));
+    const { cut, undo } = pruneAbove(list, { x: 0, y: 150, w: 800, h: 100 });
+    expect([...cut].map((n) => n.id)).toEqual(['r1', 'r2']);
+    expect(list.getAttribute('data-bm-pad')).toBe('200');
+    undo();
+    expect(list.hasAttribute('data-bm-pad')).toBe(false);
+  });
+
+  it('pruneAbove leaves multi-column grids and fully-visible lists alone', () => {
+    document.body.innerHTML = '<div id="grid" style="display:grid;grid-template-columns:1fr 1fr"><div id="a"></div><div id="b"></div><div id="c"></div></div>';
+    const grid = document.getElementById('grid');
+    box(grid, -100, 300); box(document.getElementById('a'), -100, 100); box(document.getElementById('b'), -100, 100); box(document.getElementById('c'), 0, 100);
+    expect(pruneAbove(grid, { x: 0, y: 50, w: 800, h: 100 }).cut.size).toBe(0);
+    document.body.innerHTML = '<div id="list"><div id="r1"></div><div id="r2"></div></div>';
+    box(document.getElementById('list'), 100, 200); box(document.getElementById('r1'), 100, 100); box(document.getElementById('r2'), 200, 100);
+    expect(pruneAbove(document.getElementById('list'), { x: 0, y: 50, w: 800, h: 100 }).cut.size).toBe(0);
+  });
+
+  it('padCopy turns the tag into top padding on the copy and removes it', () => {
+    const n = document.createElement('div');
+    n.setAttribute('data-bm-pad', '200');
+    n.style.paddingTop = '8px';
+    padCopy(n);
+    expect(n.style.paddingTop).toMatch(/^calc\((8px \+ 200px|208px)\)$/);   // jsdom folds the sum
+    expect(n.hasAttribute('data-bm-pad')).toBe(false);
+  });
+
+  it('makeShots gives no page shot from an area picture', async () => {
+    const ctx = { drawImage() {}, save() {}, restore() {}, fillRect() {}, clearRect() {} };
+    const proto = HTMLCanvasElement.prototype;
+    const saved = [proto.getContext, proto.toBlob];
+    proto.getContext = () => ctx;
+    proto.toBlob = function (cb) { cb(new Blob(['x'], { type: 'image/png' })); };
+    try {
+      const frame = document.createElement('canvas'); frame.width = 1000; frame.height = 800;
+      const area = await makeShots({ frame, rect: { x: 100, y: 100, w: 50, h: 20 }, vp: { w: 1000, h: 800 }, whole: false, pad: 96 });
+      expect(area.page).toBeNull();
+      expect(area.element).toBeTruthy();
+      const tab = await makeShots({ frame, rect: { x: 100, y: 100, w: 50, h: 20 }, vp: { w: 1000, h: 800 } });
+      expect(tab.page).toBeTruthy();
+    } finally { [proto.getContext, proto.toBlob] = saved; }
+  });
+
+  it('tab capture is off unless the person turned it on in this browser', () => {
+    localStorage.removeItem('nexus:build-mode:tab-capture');
+    expect(wantsTabCapture()).toBe(false);
+    setWantsTabCapture(true);
+    expect(wantsTabCapture()).toBe(true);
+    setWantsTabCapture(false);
+    expect(wantsTabCapture()).toBe(false);
   });
 });
