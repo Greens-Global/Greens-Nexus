@@ -36,6 +36,7 @@ import SearchResults from './search/SearchResults';
 import { isSearchShortcut, isPhone } from '../lib/keys';
 import { useBuildModeMenu, BuildModeChip } from '../devnotes/BuildModeChip';   // Build Mode (Oct 24 2026)
 import { ToolsSection, ActAsFinder } from './ToolsMenu';   // profile menu Tools (Oct 25 2026)
+import { useActionCounts } from '../lib/useActionCounts';
 
 const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘' : 'Ctrl';
 
@@ -47,6 +48,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   // NOT part of that bargain any more: it sits in the right cluster on
   // every module, the same size in the same place (Neil, Oct 14 2026).
   const headerTabs = useHeaderTabs();
+  const actionCounts = useActionCounts();
+  const waiting = Object.values(actionCounts || {}).some((tabs) => Object.values(tabs || {}).some((n) => n > 0));
   // Modules that opt into syncTitle (<ModuleTabs syncTitle>) get the active
   // tab's own name in the breadcrumb instead of the module's fixed name - so
   // switching tabs (e.g. Time Clock's Clock/Time Sheet/Time Off) actually
@@ -284,8 +287,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     <>
     <header className="top-header">
       <div className="header-left">
-        <button className="mobile-toggle" onClick={onMobileToggle} aria-label="Menu" title="Menu">
+        {/* The phone has no rail: the menu button carries a dot when a module
+            has something waiting on me (Oct 25 2026), so it is worth opening.
+            A dot, not a number - some items count in two modules. */}
+        <button className="mobile-toggle" onClick={onMobileToggle} aria-label={waiting ? 'Menu, items waiting on you' : 'Menu'} title="Menu">
           <Menu style={{ width: 18, height: 18 }} />
+          {waiting && <span className="mobile-toggle-dot" aria-hidden="true" />}
         </button>
         {/* Phone-only back button - the breadcrumb (with its back arrow) is
             hidden on mobile, leaving no way to step back to the parent screen

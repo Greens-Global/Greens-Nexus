@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, ChevronRight, ChevronLeft, LogOut, Moon, Sun, CircleHelp, Scale } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { BFF_MODE, bffLogout } from '../bffAuth';
@@ -6,7 +6,10 @@ import { useRole, ROLES, EXTERNAL_ROLE_META } from '../contexts/RoleContext';
 import { usePersonPhoto } from '../lib/peoplePhotos';
 import { NAV } from './Sidebar';
 import { orderNav } from './navOrder';
-import { useActionCounts, moduleCount } from '../lib/useActionCounts';
+import { useActionCounts, moduleCount, countText, countDetail } from '../lib/useActionCounts';
+import NavCount from './NavCount';
+import NavMore from './NavMore';
+import { useOffscreenCounts } from '../lib/useOffscreenCounts';
 
 // Sub-screens per module - the same sub ids the views' tab strips use, so a
 // tap deep-links exactly where the in-page tab would. Modules absent here
@@ -108,6 +111,10 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   const [closing,    setClosing]    = useState(false);
   useEffect(() => { if (!open) { setSubPanel(null); setSubClosing(false); setClosing(false); } }, [open]);
 
+  // A busy module below the fold gets a "3 waiting below" pill (NavMore).
+  // Above the early return: hooks run on every render.
+  const menuRef = useRef(null);
+  const [offscreen, reveal] = useOffscreenCounts(menuRef, [counts, open]);
   if (!open) return null;
 
   // X slides the whole menu back out to the left before unmounting
@@ -152,7 +159,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   };
 
   return (
-    <div className={`mobile-menu${closing ? ' closing' : ''}`} role="dialog" aria-modal="true" aria-label="Menu">
+    <div ref={menuRef} className={`mobile-menu${closing ? ' closing' : ''}`} role="dialog" aria-modal="true" aria-label="Menu">
       <div className="mobile-menu-head">
         <div className="mobile-menu-brand">NEXUS</div>
         <button className="mobile-menu-close" onClick={requestClose} aria-label="Close menu"><X size={22} /></button>
@@ -172,11 +179,14 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         {visible.map((item, i) => {
           if (item.divider) return <div key={`d${i}`} className="mobile-menu-divider" />;
           return (
-            <button key={item.view} className={`mobile-menu-row${activeView === item.view ? ' active' : ''}`} onClick={() => openRow(item)}>
+            <button key={item.view} className={`mobile-menu-row${activeView === item.view ? ' active' : ''}${moduleCount(counts, item.view) ? ' has-count' : ''}`} onClick={() => openRow(item)}
+              data-count={moduleCount(counts, item.view) || undefined}
+              aria-label={moduleCount(counts, item.view) ? `${item.label}, ${countText(moduleCount(counts, item.view))} waiting on you${countDetail(counts, item.view) ? `: ${countDetail(counts, item.view)}` : ''}` : undefined}>
               <span className="mobile-menu-row-label">
-                <span className="nav-ico">{renderIcon(item)}{moduleCount(counts, item.view) > 0 && <span className="nav-dot" role="img" aria-label={`${moduleCount(counts, item.view)} waiting`} />}</span>
+                <span className="nav-ico">{renderIcon(item)}</span>
                 <span>{item.label}</span>
               </span>
+              <NavCount n={moduleCount(counts, item.view)} />
               <ChevronRight size={17} />
             </button>
           );
@@ -202,6 +212,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
           <LogOut size={16} />
         </button>
       </div>
+      <NavMore dir="below" n={offscreen.below} onReveal={reveal} />
 
       {/* Right-slide submenu (criss-cross over the left-slid menu) */}
       {subPanel && (
