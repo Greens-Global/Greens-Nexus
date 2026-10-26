@@ -115,7 +115,11 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
 
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation" style={full ? { padding: 0 } : { padding: 12 }}>
-      <div className="modal-content acct-entry" role="dialog" aria-modal="true" aria-label={`Journal entry ${entryNo || ''}`} onClick={(e) => e.stopPropagation()}
+      {/* Chat 10/26, item 03 (Urmi: "In the entry of any account, header is
+          still not static"): on a computer the window is a column and the
+          lines scroll in their own box, so the heading row (pinned as one
+          block, acct-sticky-head) stays in view. A phone keeps its cards. */}
+      <div className={`modal-content acct-entry${isPhone ? '' : ' acct-entry--box'}`} role="dialog" aria-modal="true" aria-label={`Journal entry ${entryNo || ''}`} onClick={(e) => e.stopPropagation()}
         style={full ? { maxWidth: '100vw', width: '100vw', height: '100vh', maxHeight: '100vh', borderRadius: 0, resize: 'none' } : { maxWidth: '98vw', width: 'min(1720px, 96vw)', maxHeight: '94vh' }}>
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
@@ -136,7 +140,7 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
             </button>
           </div>
         </div>
-        <div style={{ padding: isPhone ? '10px 12px 16px' : '12px 18px 16px', overflow: isPhone ? 'auto' : undefined }}>
+        <div className={isPhone ? undefined : 'acct-entry-body'} style={{ padding: isPhone ? '10px 12px 16px' : '12px 18px 16px', overflow: isPhone ? 'auto' : undefined }}>
           {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', marginBottom: 12 }}>{error}</div>}
           {asked && (
             <div role="status" style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 10px', fontSize: '0.8rem', marginBottom: 10, color: 'var(--ok-fg, #15803d)' }}>
@@ -175,8 +179,8 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
           )}
           {data && (
             <>
-              {!isPhone && <div className="acct-lines-wrap" style={{ maxHeight: 'none' }}>
-                <table className="acct-lines acct-entry-lines" style={{ width: '100%', minWidth: 1180 }}>
+              {!isPhone && <div className="acct-lines-wrap acct-entry-box" data-testid="entry-lines-box" style={{ maxHeight: 'none' }}>
+                <table className="acct-lines acct-entry-lines acct-sticky-head" style={{ width: '100%', minWidth: 1180 }}>
                   <colgroup>{COLUMNS.map((c) => <col key={c.key} style={{ width: c.width }} />)}<col style={{ width: 34 }} /></colgroup>
                   <thead>
                     <tr>{COLUMNS.map((c) => <th key={c.key} scope="col" className={c.num ? 'acct-num' : undefined}>{c.label}</th>)}<th scope="col" aria-label="Ask My Accountant" /></tr>
