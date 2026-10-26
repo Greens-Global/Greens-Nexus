@@ -1,4 +1,4 @@
-import { forwardRef } from "react";
+import { forwardRef, useRef } from "react";
 import { orderNav } from './navOrder';
 import { useRole } from "../contexts/RoleContext";
 import { useIsMobile } from "../lib/useIsMobile";
@@ -21,7 +21,11 @@ import {
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
 import InsightsChart from "./icons/InsightsChart";
-import { useActionCounts, moduleCount } from "../lib/useActionCounts";
+import { useActionCounts, moduleCount, countText, countDetail } from "../lib/useActionCounts";
+import { VIEW_TO_PATH } from "../lib/routes";
+import NavCount from "./NavCount";
+import NavMore from "./NavMore";
+import { useOffscreenCounts } from "../lib/useOffscreenCounts";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
 // Who sees a NAV item - the rail, and the header search's Pages, agree
@@ -223,36 +227,60 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   // it is a drawer and the floating capsule stays.
   const phone = useIsMobile('(max-width: 900px)');   // the drawer breakpoint - style.css's `@media (max-width: 900px) { .sidebar {...} }`
 
+  // A busy module scrolled out of the rail gets a "3 waiting below" pill
+  // (components/NavMore.jsx).
+  const navRef = useRef(null);
+  const [offscreen, reveal] = useOffscreenCounts(navRef, [counts, collapsed]);
+  const morePill = (dir) => <NavMore dir={dir} n={offscreen[dir]} compact={collapsed} onReveal={reveal} />;
+
   function renderIcon(item, size = 17) {
     return item.icon
       ? <item.icon style={{ width: size, height: size, flexShrink: 0 }} />
       : <svg className="material-symbol-svg" viewBox="0 -960 960 960" style={{ width: size, height: size, flexShrink: 0 }}><path d={item.svgPath} /></svg>;
   }
 
-  // A red dot on the module icon when something there waits on me (Oct 18).
-  function iconWithDot(item) {
-    const n = moduleCount(counts, item.view);
-    return (
-      <span className="nav-ico">
-        {renderIcon(item)}
-        {n > 0 && <span className="nav-dot" role="img" aria-label={`${n} waiting`} />}
-      </span>
-    );
+  // A module row is a link (Oct 25 2026): the keyboard reaches it (Enter or
+  // Space opens it), and Ctrl / Cmd / Shift / middle click opens the module
+  // in a new tab, as any enterprise app's navigation does.
+  function rowProps(item, n) {
+    const detail = n ? countDetail(counts, item.view) : '';
+    const href = `/${VIEW_TO_PATH[item.view] || item.view}`;
+    const active = activeView === item.view;
+    return {
+      role: 'link',
+      tabIndex: 0,
+      'aria-current': active ? 'page' : undefined,
+      'aria-label': n ? `${item.label}, ${countText(n)} waiting on you${detail ? `: ${detail}` : ''}` : item.label,
+      onClick: (e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey) { window.open(href, '_blank', 'noopener'); return; }
+        onNavigate(item.view);
+      },
+      onMouseDown: (e) => { if (e.button === 1) e.preventDefault(); },   // no auto-scroll on Windows
+      onAuxClick: (e) => { if (e.button === 1) { e.preventDefault(); window.open(href, '_blank', 'noopener'); } },
+      onKeyDown: (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) window.open(href, '_blank', 'noopener');
+        else onNavigate(item.view);
+      },
+    };
   }
 
   function renderItem(item, i) {
     // ── Collapsed: icon-only rail ──
     // The module's name shows in the sidebar's own large tooltip
     // (components/NavTip.jsx) rather than the browser's small `title` one.
+    const n = moduleCount(counts, item.view);
     if (collapsed) {
+      const detail = countDetail(counts, item.view);
       return (
-        <NavTip key={item.view || i} label={item.label} side="right">
-          <li
-            className={`nav-item nav-item--icon${activeView === item.view ? " active" : ""}`}
-            onClick={() => item.view && onNavigate(item.view)}
-            aria-label={item.label}
-          >
-            {iconWithDot(item)}
+        <NavTip key={item.view || i} label={item.label} side="right"
+          detail={n ? `${countText(n)} waiting on you${detail ? ` - ${detail}` : ''}` : undefined}>
+          <li className={`nav-item nav-item--icon${activeView === item.view ? " active" : ""}${n ? " has-count" : ""}`} data-count={n || undefined} {...rowProps(item, n)}>
+            <span className="nav-ico">
+              {renderIcon(item)}
+              <NavCount n={n} corner />
+            </span>
           </li>
         </NavTip>
       );
@@ -265,14 +293,11 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
     // sub (App.jsx getDefaultSub). Items with a `.sub` array fall through
     // here too - the data is still used by the mobile menu.
     return (
-      <li
-        key={item.view}
-        className={`nav-item${activeView === item.view ? " active" : ""}`}
-        onClick={() => onNavigate(item.view)}
-      >
-        {iconWithDot(item)}
-        <span>{item.label}</span>
+      <li key={item.view} className={`nav-item${activeView === item.view ? " active" : ""}${n ? " has-count" : ""}`} data-count={n || undefined} {...rowProps(item, n)}>
+        <span className="nav-ico">{renderIcon(item)}</span>
+        <span className="nav-label">{item.label}</span>
         {item.badge && <em className="nav-badge">{item.badge}</em>}
+        <NavCount n={n} detail={countDetail(counts, item.view)} />
         {item.code && <span className="nav-code">{item.code}</span>}
       </li>
     );
@@ -310,8 +335,9 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
         </div>
 
         {/* ── Nav ── */}
-        <nav className="sidebar-nav">
-          <ul className="nav-list">
+        <nav className="sidebar-nav" ref={navRef}>
+          {morePill('above')}
+          <ul className="nav-list" role="none">
             {/* Visibility below admin is grant-driven, NOT role-level: a manager
                 only sees baseline screens (no minRole) plus modules an Access
                 Group grants them. IT Admin / Global Admin (administrator+) still
@@ -328,13 +354,13 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
               const visible = orderNav(NAV).filter(item => !item.menuOnly && isNavItemVisible(item, { isExternal, can, myGrantedModules }));
               const out = [];
               if (!collapsed && visible.length && !visible[0].divider) {
-                out.push(<li key="k0" className="nav-kicker">{KICKERS[0]}</li>);
+                out.push(<li key="k0" className="nav-kicker" role="presentation">{KICKERS[0]}</li>);
               }
               visible.forEach((item, i) => {
                 if (item.divider) {
                   group += 1;
-                  out.push(<li key={`d${i}`} className="nav-divider" />);
-                  if (!collapsed && KICKERS[group]) out.push(<li key={`k${group}`} className="nav-kicker">{KICKERS[group]}</li>);
+                  out.push(<li key={`d${i}`} className="nav-divider" role="separator" />);
+                  if (!collapsed && KICKERS[group]) out.push(<li key={`k${group}`} className="nav-kicker" role="presentation">{KICKERS[group]}</li>);
                   return;
                 }
                 out.push(renderItem(item, i));
@@ -342,6 +368,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
               return out;
             })()}
           </ul>
+          {morePill('below')}
         </nav>
 
         {/* ── The time clock, where the user footer was (that footer

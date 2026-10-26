@@ -56,6 +56,25 @@ export function useActionCounts() {
 }
 
 export const moduleCount = (c, view) => Object.values(c?.[view] || {}).reduce((a, n) => a + n, 0);
+// A count as a badge shows it: never wider than "99+".
+export const countText = (n) => (n > 99 ? '99+' : String(n));
+// Where a module's count comes from, in the words of its tabs - for the
+// sidebar's tooltip ("2 in Time, 1 in People"). Keys are the server's
+// (routers/action_counts.py); a tab not listed here just adds to the total.
+const TAB_NAMES = {
+  myhr: { timesheet: 'Time Sheet', overview: 'Overview', timeoff: 'Time Off' },
+  shifts: { requests: 'Requests' },
+  hr: { 'hr-time': 'Time', 'hr-people': 'People' },
+  accounting: { partners: 'Partners' },
+  support: { kb: 'Knowledge Base', open: 'My Tickets' },
+  dashboard: { announcements: 'Announcements' },
+};
+export function countDetail(c, view) {
+  return Object.entries(c?.[view] || {})
+    .filter(([tab, n]) => n > 0 && TAB_NAMES[view]?.[tab])
+    .map(([tab, n]) => `${n} in ${TAB_NAMES[view][tab]}`)
+    .join(', ');
+}
 export const tabCount = (c, view, tab) => c?.[view]?.[tab] || 0;
 // A module's ModuleTabs list with each tab's count as its `badge`.
 export const withBadges = (tabs, c, view) => tabs.map((t) => {
