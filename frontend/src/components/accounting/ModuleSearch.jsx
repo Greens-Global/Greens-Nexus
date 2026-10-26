@@ -15,7 +15,7 @@ import { control } from './reportControls';
 // did (the key is looked at after every other handler has had it). With a
 // popup open (a journal entry, a dialog) the browser keeps its own find.
 
-export const isFindKey = (e) => (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && String(e.key).toLowerCase() === 'f';
+const isFindKey = (e) => (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && String(e.key).toLowerCase() === 'f';
 
 export default function ModuleSearch({ value, onChange, onSubmit, waiting = false }) {
   const [open, setOpen] = useState(false);
