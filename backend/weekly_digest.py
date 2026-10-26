@@ -61,6 +61,12 @@ _DEFAULT_SETTINGS = {
     "includeNoShift": True,     # no shift that day -> send at defaultSendTime
     "defaultSendTime": "08:00",  # local 24h HH:MM
     "defaultTimeZone": "America/Los_Angeles",
+    # The Daily Briefing's "decisions waiting" Outlook card on top of the
+    # digest (Neil, Oct 26): Approve / Reject inside Outlook, and it refreshes
+    # each time the email is opened, so a request decided since Monday drops
+    # off instead of still offering Reject. Only on the person's own copy and
+    # only where Actionable Messages are set up; other clients see the email.
+    "outlookCard": True,
 }
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 SECTION = "overdue"            # the person's own overdue tasks
@@ -110,6 +116,8 @@ def validate(patch: dict) -> dict:
         if not isinstance(out["test_recipients"], list):
             raise ValueError("Test recipients must be a list of email addresses.")
         out["test_recipients"] = [str(e).strip() for e in out["test_recipients"] if str(e).strip()]
+    if "outlookCard" in out:
+        out["outlookCard"] = bool(out["outlookCard"])
     if "sendDay" in out:
         v = out["sendDay"]
         if isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 7:
@@ -345,6 +353,29 @@ def render(first_name: str, today: date, sections: dict, greeting: str, logo_url
                               notes={TEAM_SECTION: _team_note(sections)})
 
 
+# ── Outlook card ──────────────────────────────────────────────────────────
+
+def card(sections: dict, email: str, today: date, outcome: str = "", always: bool = False):
+    """The quick "decisions waiting" card for the digest's Needs Your
+    Attention rows (briefing_card.build_quick_card, variant "weekly" so a
+    click or a refresh redraws this card from the digest's own rows). None
+    when nothing waits on a decision."""
+    import briefing_card
+    import briefing_mail_actions
+    return briefing_card.build_quick_card(
+        action_rows=sections.get(PENDING_SECTION) or [], briefing_date=today.isoformat(), since_iso="",
+        outcome=outcome, briefing_url=f"{app_url()}/briefing", variant="weekly", always=always,
+        refresh_token=briefing_mail_actions.refresh_token(email))
+
+
+def _with_card(html: str, sections: dict, email: str, today: date, cfg: dict) -> str:
+    import task_mail_actions
+    if not cfg.get("outlookCard", True) or not task_mail_actions.am_enabled():
+        return html
+    c = card(sections, email, today)
+    return daily.with_card(html, c) if c else html
+
+
 # ── Send + scan ─────────────────────────────────────────────────────────
 
 def _without_actions(sections: dict) -> dict:
@@ -375,6 +406,9 @@ def compose(db: Session, emp: "models.NexusEmployee", cfg: dict, today: date, lo
         sections = _without_actions(sections)
     subject, html = render((emp.first_name or "").strip(), today, sections,
                            daily._greeting(local_now), daily._logo_url(db), cfg)
+    if actions:
+        # Its buttons act as this person, so only their own copy gets one.
+        html = _with_card(html, sections, emp.work_email, today, cfg)
     return sections, subject, html
 
 
