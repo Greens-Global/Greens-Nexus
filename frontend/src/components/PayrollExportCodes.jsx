@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useGroupDirty } from '../lib/groupDirty';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner } from './AsyncState';
 
@@ -83,6 +84,7 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
   useEffect(() => { if (data && scoped) onOverride?.(anyCustom); }, [data, scoped, anyCustom, onOverride]);
   const dirty = (data?.classes || []).some((c) => (draft[c.key] || '').trim() !== (c.custom ? c.code : ''))
     || qbDraft.trim() !== (data?.quickbooksCompanyName || '');
+  useGroupDirty(dirty);
 
   return (
     <div data-testid="payroll-export-codes">

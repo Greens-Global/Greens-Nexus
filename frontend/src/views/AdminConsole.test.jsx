@@ -57,7 +57,13 @@ vi.mock('../components/shifts/ShiftSettingsSections', () => ({
   ShiftGroupsPanel: () => <div>Groups panel</div>,
   TimeOffReasons: () => <div>Time-off reasons panel</div>,
 }));
-vi.mock('../components/shifts/WeatherSettings', () => ({ default: ({ company }) => <div>Weather panel{company ? ` ${company}` : ''}</div> }));
+// The weather panel can stand in for any form with unsaved changes: it
+// reports `dirtyState.weather` through the shared hook (lib/groupDirty.js).
+const dirtyState = { weather: false };
+vi.mock('../components/shifts/WeatherSettings', async () => {
+  const { useGroupDirty } = await import('../lib/groupDirty');
+  return { default: function WeatherPanel({ company }) { useGroupDirty(dirtyState.weather); return <div>Weather panel{company ? ` ${company}` : ''}</div>; } };
+});
 // With a company fixed, the export codes say the company has names of its own.
 vi.mock('../components/PayrollExportCodes', async () => {
   const { useEffect } = await import('react');
@@ -90,7 +96,7 @@ vi.mock('./SettingsPanels', () => ({
 
 const AdminConsole = (await import('./AdminConsole')).default;
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); asRole('administrator'); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); asRole('administrator'); dirtyState.weather = false; });
 
 const rail = () => screen.getByRole('navigation', { name: 'Settings subjects' });
 // Lazy panels on a slow machine: give a find a little longer than the default second.
@@ -227,6 +233,31 @@ describe('AdminConsole', () => {
     expect(await find('Unit rules panel')).toBeInTheDocument();
     expect(screen.queryByText('Push to Cubby')).not.toBeInTheDocument();
     expect(within(rail()).queryByRole('button', { name: 'Tickets' })).not.toBeInTheDocument();
+  });
+
+  it('asks before leaving a group with unsaved changes - another subject, scope or top tab (one save pattern, Oct 23)', async () => {
+    const { hasUnsavedWork } = await import('../lib/dialogGuard');
+    dirtyState.weather = true;
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
+    expect(await find('Weather panel')).toBeInTheDocument();
+    expect(hasUnsavedWork()).toBe(true);   // the sidebar and the browser tab ask too
+    fireEvent.click(within(rail()).getByRole('button', { name: 'Companies' }));
+    expect(onSubChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Editing' }));
+    expect(onSubChange).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Applies To'), { target: { value: 'c1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
+    expect(onSubChange).toHaveBeenCalledWith('shifts@c1');
+    cleanup();
+    render(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
+    expect(await find('Weather panel')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Tools$/ }));
+    expect(onSubChange).not.toHaveBeenCalledWith('tools');
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
+    expect(onSubChange).toHaveBeenCalledWith('tools');
+    cleanup();
+    expect(hasUnsavedWork()).toBe(false);   // unmounted: nothing left to guard
   });
 
   it('has Shifts & Scheduling with the settings, shift types, groups and weather, all open (Charmi, 09/30)', async () => {

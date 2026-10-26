@@ -8,6 +8,7 @@
 // Administrators only - the backend refuses everyone else (this panel just
 // says so instead of rendering blank).
 import { useEffect, useState } from 'react';
+import { useGroupDirty } from '../lib/groupDirty';
 import { ShieldCheck, Save, Users } from 'lucide-react';
 import { LoadingState } from '../components/AsyncState';
 import { api } from '../api';
@@ -54,6 +55,9 @@ export default function TicketDeskAccessSettings() {
       .catch((e) => setErr(e.message || String(e)));
   }, [isAdmin]);
 
+  const dirty = !!data && choice !== data.deskAccess;
+  useGroupDirty(dirty);
+
   if (!isAdmin) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>
@@ -65,7 +69,6 @@ export default function TicketDeskAccessSettings() {
     return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
   }
 
-  const dirty = choice !== data.deskAccess;
   const changes = data.explicitChanges || [];
 
   const save = async () => {

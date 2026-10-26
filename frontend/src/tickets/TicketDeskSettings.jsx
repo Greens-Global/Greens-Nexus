@@ -24,6 +24,7 @@
 // company with no roster of its own falls back to, before the backend's last
 // resort of "every administrator" (see ticket_notify.ticket_agents).
 import { useEffect, useMemo, useState } from 'react';
+import { useGroupDirty } from '../lib/groupDirty';
 import { LoadingState } from '../components/AsyncState';
 import { Headset, Save, Building2, Siren, ChevronDown, ChevronRight } from 'lucide-react';
 import DragList from './DragList';
@@ -260,6 +261,7 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
 
   const dirty = useMemo(() => agents !== null && byCompany !== null
     && JSON.stringify([agents, byCompany]) !== baseline, [agents, byCompany, baseline]);
+  useGroupDirty(dirty);
 
   // Its own tab now, so this cannot return null - that would render the tab
   // blank with nothing explaining why (see CLAUDE.md: never let a screen render
