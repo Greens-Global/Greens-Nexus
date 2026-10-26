@@ -75,6 +75,30 @@ class PureTests(unittest.TestCase):
         self.assertIsNone(ask.reclassed(t, {**read, "accounts": {"99998"}}))
         self.assertIsNone(ask.reclassed(t, {**read, "from": "2026-10-01"}))
         self.assertIsNone(ask.reclassed(t, {**read, "entities": {"56000"}}))
+        # Item 06: moved to a card charge, read back as the summary line - not reclassed.
+        moved = {**t, "lineId": "cc:973886:801", "amount": 26.92}
+        self.assertTrue(ask.reclassed(moved, {**read, "ids": set()}))
+        self.assertFalse(ask.reclassed(moved, {**read, "ids": set(), "entries": {("GJ-1", "99999", "2026-09-15")}}))
+
+    def test_attach_splits(self):
+        """Item 06: a question on a split summary line carries its charges, and
+        stands for them; one already on a charge is an ordinary line."""
+        summary = {"line_id": "S1", "entry_no": "IA-9", "gl_code": "99999", "entry_date": "2026-01-20", "location": "15000"}
+        charges = [ask.line_out({**summary, "line_id": f"cc:9:{i}", "summary_line_id": "S1", "charge": True, "charge_count": 2,
+                                 "summary_debit": 47.61, "debit": amt, "memo": f"Charge {i}"}) for i, amt in ((1, 26.92), (2, 20.69))]
+        self.assertEqual((charges[0]["summaryLineId"], charges[0]["summaryAmount"], charges[0]["chargeCount"]), ("S1", 47.61, 2))
+        self.assertEqual(ask.split_summaries(charges)["S1"]["key"], ask.line_key("IA-9", "99999", 47.61, "2026-01-20"))
+        on_summary = {"lineId": "S1", "entryNo": "IA-9", "accountNo": "99999", "amount": 47.61, "date": "2026-01-20"}
+        by_key = {**on_summary, "lineId": "an-old-id"}                    # a re-synced entry: new line ids, same line
+        on_charge = {**on_summary, "lineId": "cc:9:2", "amount": 20.69}
+        elsewhere = {**on_summary, "lineId": "X", "entryNo": "GJ-1"}
+        stood = ask.attach_splits([on_summary, by_key, on_charge, elsewhere], charges)
+        self.assertEqual(stood, {"cc:9:1", "cc:9:2"})
+        self.assertEqual([c["amount"] for c in on_summary["splitInto"]], [26.92, 20.69])
+        self.assertTrue(on_summary["needsRelink"] and by_key["needsRelink"])
+        self.assertNotIn("splitInto", on_charge)
+        self.assertNotIn("splitInto", elsewhere)
+        self.assertEqual(ask.attach_splits([on_summary], [ask.line_out(summary)]), set())     # no charges read: nothing changes
 
 
 class PeriodAndColumnsTests(unittest.TestCase):
@@ -136,6 +160,7 @@ class EndpointTests(unittest.TestCase):
         self.calls = []
         self.lines = [ln("L1"), ln("L2", debit=0.0, credit=40.0, entry="GJ-101"), ln("L3", location="56000", entry="GJ-102"),
                       ln("L4", account="61000", entry="GJ-103")]
+        self.charges = {}          # summary line id -> its card charge rows (item 06), as the accounting app sends them
 
         async def fake_get(path, params):
             clean = {k: v for k, v in params.items() if v is not None}
@@ -149,7 +174,11 @@ class EndpointTests(unittest.TestCase):
                 rows = [r for r in self.lines if r["gl_code"] == clean.get("account") and (not locs or r["location"] in locs)
                         and clean.get("from", "") <= r["entry_date"] <= clean.get("to", "9999")]
                 off, lim = clean.get("offset", 0), clean.get("limit", 100)
-                return {"ok": True, "rows": rows[off:off + lim], "total": len(rows)}
+                page = rows[off:off + lim]
+                if clean.get("detail") != "card" or not self.charges:
+                    return {"ok": True, "rows": page, "total": len(rows)}
+                # The accounting app with item 06: each summary line's charges in its place.
+                return {"ok": True, "rows": [x for r in page for x in self.charges.get(r["line_id"], [r])], "total": len(rows), "page_lines": len(page)}
             return {"ok": True}
 
         self._get, accounting._acct_get = accounting._acct_get, fake_get
@@ -420,6 +449,111 @@ class EndpointTests(unittest.TestCase):
         r = self.client.post(f"/accounting/ask/threads/{t['id']}/resolve", json={"movedToAccount": "61000"})
         self.assertEqual(r.json()["status"], "Resolved")
         self.assertIn("reclassed", r.json()["messages"][-1]["body"])
+
+    # ── Item 06 (chat triage 10/27, Urmi / Vinod): card charges, not the batch summary ──
+    URL = "/accounting/ask/items?from=2026-01-01&to=2026-12-31"
+    AMEX = [(26.92, "Charge Card Transaction - American Express: ARCHANA KADAKIA 1006 AMAZON.COM AMZN.COM/BILL WA"),
+            (20.69, "Charge Card Transaction - American Express: ARCHANA KADAKIA 1006 AMAZON MARKETPLACE NAMZN.COM/BILL WA")]
+
+    def _summary(self, line_id="S1"):
+        """01/20/2026, account 63501's Amex batch summary line: 47.61."""
+        self.lines.append(ln(line_id, debit=47.61, day="2026-01-20", entry="IA-973886"))
+
+    def _split(self, summary_id, parts, rec="973886"):
+        """The accounting app has read the summary line's card charges."""
+        s = next(r for r in self.lines if r["line_id"] == summary_id)
+        self.charges[summary_id] = [{**s, "line_id": f"cc:{rec}:{800 + i}", "summary_line_id": summary_id, "charge": True, "charge_count": len(parts),
+                                     "summary_debit": s["debit"], "summary_credit": s["credit"], "memo": memo, "debit": amt, "credit": 0.0}
+                                    for i, (amt, memo) in enumerate(parts, 1)]
+        accounting._ACCT_CACHE.clear()
+
+    @staticmethod
+    def _total(rows):
+        return round(sum(r["amount"] for r in rows), 2)
+
+    def _ask_summary(self):
+        r = self.client.post("/accounting/ask/threads", json={
+            "entityCode": "15000", "question": "Whose card is this?", "accountant": ACCT, "lineId": "S1", "entryNo": "IA-973886",
+            "accountNo": "99999", "date": "2026-01-20", "debit": 47.61, "credit": 0.0, "description": "Line S1"})
+        self.assertEqual(r.status_code, 201, r.text)
+        return r.json()
+
+    def test_card_charges_one_line_each(self):
+        _as(VIEWER)
+        self._summary()
+        self._split("S1", self.AMEX)
+        d = self.client.get(self.URL).json()
+        amex = [x for x in d["rows"] if x["entryNo"] == "IA-973886"]
+        self.assertEqual(sorted(x["amount"] for x in amex), [20.69, 26.92])                  # never 47.61
+        self.assertTrue(all(x["memo"].startswith("Charge Card Transaction - American Express: ARCHANA KADAKIA 1006") for x in amex))
+        self.assertEqual({(x["kind"], x["status"], x["charge"]) for x in amex}, {("line", "Open", True)})
+        self.assertEqual(d["counts"]["All"], 5)
+        self.assertTrue(all(c[1].get("detail") == "card" for c in self.calls if c[0].endswith("/search")))
+
+    def test_question_on_a_batch_summary_line_is_kept_and_period_totals_do_not_move(self):
+        _as(VIEWER)
+        self._summary()
+        t = self._ask_summary()                      # asked before the charges were read
+        before = self.client.get(self.URL).json()
+        total = self._total(before["rows"])
+        self.assertEqual(total, round(125 - 40 + 125 + 47.61, 2))
+
+        self._split("S1", self.AMEX)
+        after = self.client.get(self.URL).json()
+        self.assertEqual(self._total(after["rows"]), total)                                  # the period's total is unchanged
+        q = next(x for x in after["rows"] if x["id"] == t["id"])
+        self.assertEqual((q["kind"], q["amount"], q["question"], q["needsRelink"], q["reclassed"]), ("thread", 47.61, "Whose card is this?", True, False))
+        self.assertEqual([c["amount"] for c in q["splitInto"]], [26.92, 20.69])
+        self.assertEqual([x["kind"] for x in after["rows"] if x["entryNo"] == "IA-973886"], ["thread"])    # the charges are not listed twice
+        self.assertEqual(after["counts"], before["counts"])
+        self.assertFalse(self.client.get(f"/accounting/ask/threads/{t['id']}").json()["reclassed"])         # never "Reclassed"
+
+        # Moved to the charge it is about: the question and its message stay;
+        # the other charge shows by itself; the total still does not move.
+        c1 = q["splitInto"][0]
+        r = self.client.post(f"/accounting/ask/threads/{t['id']}/relink", json=c1)
+        self.assertEqual(r.status_code, 200, r.text)
+        moved = r.json()
+        self.assertEqual((moved["lineId"], moved["amount"], moved["question"], moved["status"]), (c1["lineId"], 26.92, "Whose card is this?", "Open"))
+        self.assertTrue(moved["memo"].endswith("AMAZON.COM AMZN.COM/BILL WA"))
+        self.assertEqual([m["kind"] for m in moved["messages"]], ["question", "event"])
+        self.assertIn("47.61", moved["messages"][-1]["body"])
+        last = self.client.get(self.URL).json()
+        self.assertEqual(self._total(last["rows"]), total)
+        self.assertEqual(sorted((x["kind"], x["amount"]) for x in last["rows"] if x["entryNo"] == "IA-973886"), [("line", 20.69), ("thread", 26.92)])
+        self.assertFalse(next(x for x in last["rows"] if x["id"] == t["id"]).get("needsRelink", False))
+
+        # The accounting app back on summary lines only (charges not read): the moved question is not "Reclassed".
+        self.charges = {}
+        accounting._ACCT_CACHE.clear()
+        self.assertFalse(next(x for x in self.client.get(self.URL).json()["rows"] if x["id"] == t["id"])["reclassed"])
+
+    def test_relink_takes_a_charge_of_the_same_line(self):
+        _as(VIEWER)
+        self._summary()
+        t = self._ask_summary()
+        self._split("S1", self.AMEX)
+        c = next(x for x in self.client.get(self.URL).json()["rows"] if x["id"] == t["id"])["splitInto"][1]
+        url = f"/accounting/ask/threads/{t['id']}/relink"
+        for bad in ({"lineId": "L2"}, {"entryNo": "GJ-101"}, {"date": "2026-01-21"}, {"accountNo": "61000"}, {"debit": 99.0}):
+            self.assertEqual(self.client.post(url, json={**c, **bad}).status_code, 400, bad)
+        _as(LIMITED)
+        self.assertEqual(self.client.post(url, json=c).status_code, 404)                     # another entity's question
+        _as(EDITOR)
+        r = self.client.post(url, json=c)
+        self.assertEqual((r.status_code, r.json()["amount"]), (200, 20.69))
+
+    def test_paging_counts_ledger_lines_not_charge_rows(self):
+        """A page of 1,000 ledger lines with a split comes back with more
+        rows; the next page starts at line 1,000, so none is skipped."""
+        _as(VIEWER)
+        self.lines = [ln(f"P{i}", debit=1.0, day="2026-03-01", entry=f"GJ-P{i}") for i in range(1001)]
+        self._split("P0", [(0.4, "Charge A"), (0.6, "Charge B")], rec="1")
+        rows = self.client.get(self.URL).json()["rows"]
+        ids = {x["lineId"] for x in rows}
+        self.assertIn("P1000", ids)
+        self.assertNotIn("P0", ids)
+        self.assertEqual((len(rows), self._total(rows)), (1002, 1001.0))
 
     def test_ledger_down_still_lists_questions(self):
         _as(VIEWER)
