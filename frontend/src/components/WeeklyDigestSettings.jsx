@@ -15,6 +15,7 @@ import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle } from '../tasks/theme';
 import { formatDate, formatTime } from '../lib/datetime';
 import SavedCheck from './SavedCheck';
+import { SettingCard, SwitchRow } from './settings/SettingsUI';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 
@@ -81,6 +82,7 @@ export default function WeeklyDigestSettings() {
         includeNoShift: cfg.includeNoShift !== false,
         defaultSendTime: cfg.defaultSendTime || '08:00',
         defaultTimeZone: cfg.defaultTimeZone || 'America/Los_Angeles',
+        outlookCard: cfg.outlookCard !== false,
       });
       setCfg(next);
       setSavedMode(next.mode);
@@ -179,6 +181,15 @@ export default function WeeklyDigestSettings() {
           The default is Monday, 120 minutes before each shift, in the shift's own time zone. People with no shift
           that day get it at the time above in their shift time zone, else the one picked here.
         </div>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <SettingCard>
+          <SwitchRow id="weekly-digest-card" title="Outlook Card"
+            desc="Approve and reject in Outlook, on top of the digest. The card refreshes each time the email is opened, so anything already decided drops off. Shown only on a person's own copy, in Outlook, where Actionable Messages are set up - everyone else gets the email alone."
+            checked={cfg.outlookCard !== false}
+            onChange={(on) => setCfg((c) => ({ ...c, outlookCard: on }))} />
+        </SettingCard>
       </div>
 
       {goingLive && (

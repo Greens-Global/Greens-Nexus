@@ -63,6 +63,12 @@ def verify_token(token: str, *, now: float | None = None) -> dict | None:
         return None
 
 
+def refresh_token(recipient: str) -> str:
+    """Names only the recipient: the card's refresh-on-open call (Neil, Oct 26
+    - "needs to be dynamic") redraws THEIR pending list and decides nothing."""
+    return sign_token("refresh", "", "refresh", recipient)
+
+
 def action_url(kind: str, entity_id: str, action: str, recipient: str) -> str:
     token = sign_token(kind, entity_id, action, recipient)
     return f"{task_mail_actions.api_base()}/briefing-actions/page?token={token}"

@@ -201,6 +201,55 @@ describe('PersonView render-smoke', () => {
     expect(screen.getByText('Ext 3x')).toBeInTheDocument();
   });
 
+  // Oct 27 2026: the lists used to stop at 25, so 150 completed showed as 9
+  // and the tabs said 25. The whole list comes now, 25 at a time.
+  it('counts what it lists and pages a long list with Show More', async () => {
+    const row = (i, completed) => ({ id: `b${i}`, code: '', title: `${completed ? 'Done' : 'Open'} task ${i}`, completed,
+      status: completed ? 'completed' : 'not_started', dueOn: completed ? '' : '2099-01-01',
+      assigneeId: 'ashley@greensglobal.com', projectId: '', projectName: '' });
+    const assigned = [...Array.from({ length: 16 }, (_, i) => row(i, false)),
+      ...Array.from({ length: 60 }, (_, i) => row(100 + i, true))];
+    getPersonProfile.mockResolvedValueOnce({ ...profile, stats: { open: 1, completed: 1, overdue: 1 },
+      tasks: { ...profile.tasks, assigned } });
+    render(<PersonView {...props} />);
+    const completedStat = await screen.findByTitle('Show completed tasks');
+    expect(completedStat.textContent).toContain('60');                       // from the list, not stale stats
+    expect(screen.getByTitle('Show overdue tasks').textContent).toContain('0');
+    expect(screen.getByRole('button', { name: /^All/ }).textContent).toContain('76');
+    fireEvent.click(completedStat);
+    expect(screen.getAllByText(/^Done task/)).toHaveLength(25);
+    fireEvent.click(screen.getByRole('button', { name: /Show 25 More/ }));
+    expect(screen.getAllByText(/^Done task/)).toHaveLength(50);
+    fireEvent.click(screen.getByRole('button', { name: /Show 10 More/ }));
+    expect(screen.getAllByText(/^Done task/)).toHaveLength(60);
+    expect(screen.queryByRole('button', { name: /Show \d+ More/ })).toBeNull();
+  });
+
+  // Sagar, Oct 27: the Open / Overdue / Completed filter cascades into the
+  // tabs - their counts follow it and switching tabs keeps it.
+  it('carries the status filter into every tab and its count', async () => {
+    const t = (id, completed, dueOn) => ({ id, code: '', title: id, completed, status: completed ? 'completed' : 'not_started',
+      dueOn, assigneeId: 'ashley@greensglobal.com', projectId: '', projectName: '' });
+    getPersonProfile.mockResolvedValueOnce({ ...profile, tasks: {
+      assigned: [t('late-a', false, '2020-01-01'), t('late-b', false, '2020-01-02'), t('ahead', false, '2099-01-01'), t('done', true, '')],
+      assignedByYou: [t('late-a', false, '2020-01-01'), t('ahead', false, '2099-01-01')],
+      created: [t('handed-done', true, '')],
+      collaboratingWithYou: [],
+    } });
+    render(<PersonView {...props} />);
+    fireEvent.click(await screen.findByTitle('Show overdue tasks'));
+    const tab = (re) => screen.getByRole('button', { name: re });
+    expect(tab(/^All/).textContent).toContain('2');
+    expect(tab(/^Assigned By You/).textContent).toContain('1');
+    expect(tab(/^Assigned By Them/).textContent).toContain('0');
+    fireEvent.click(tab(/^Assigned By You/));
+    expect(screen.getByText('Overdue only')).toBeInTheDocument();      // still filtered
+    expect(screen.getByText('late-a')).toBeInTheDocument();
+    expect(screen.queryByText('ahead')).toBeNull();
+    fireEvent.click(tab(/^Assigned By Them/));
+    expect(screen.getByText('No overdue tasks here.')).toBeInTheDocument();
+  });
+
   it('leaves the deadline record out for a peer', async () => {
     render(<PersonView {...props} />);
     await screen.findByText('Projects');

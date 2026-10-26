@@ -20,6 +20,7 @@ import { cleanName } from '../lib/utils';
 import { formatDateLong, formatDateTime } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { Spinner } from './AsyncState';
+import { usePopupNudge } from '../lib/usePopupNudge';
 import PurchaseRequestForm from './PurchaseRequestForm';
 
 // The inventory Add Item form and the assign flow load only when someone
@@ -89,6 +90,7 @@ const SECTION = { fontSize:11.5, fontWeight:700, letterSpacing:'.07em', color:'v
 
 function ModalShell({ title, sub, onClose, children }) {
   const phone = useIsMobile('(max-width: 640px)');
+  const { nudge, popupClass, closeClass } = usePopupNudge();   // a click outside nudges, not closes
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -96,8 +98,8 @@ function ModalShell({ title, sub, onClose, children }) {
   }, [onClose]);
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', padding: phone ? 0 : 16 }}
-      onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}
+      onClick={nudge}>
+      <div role="dialog" aria-modal="true" aria-label={title} className={popupClass} onClick={(e) => e.stopPropagation()}
         style={phone
           ? { background:'var(--card)', width:'100%', height:'100%', display:'flex', flexDirection:'column' }
           : { background:'var(--card)', borderRadius:14, width:'60vw', minWidth:'min(420px, 100%)', maxWidth:'100%', minHeight:'60vh', maxHeight:'85vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
@@ -106,7 +108,7 @@ function ModalShell({ title, sub, onClose, children }) {
             <div style={{ fontWeight:700, fontSize:15, color:'var(--ink)' }}>{title}</div>
             {sub && <div style={{ fontSize:12, color:'var(--muted)' }}>{sub}</div>}
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:4 }}><X size={18} /></button>
+          <button type="button" className={closeClass} onClick={onClose} aria-label="Close" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:4 }}><X size={18} /></button>
         </div>
         <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'18px 20px', display:'flex', flexDirection:'column' }}>{children}</div>
       </div>
@@ -431,9 +433,10 @@ export default function PurchaseRequests({ toast, openNewKey = 0 }) {
               <FileText size={13} /> Export to CSV
             </button>
           )}
-          <button type="button" className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:6, padding:'7px 16px' }}
+          {/* "+ New", as on Reimbursements and Ask HR (Sagar, Oct 27); the full name stays for screen readers. */}
+          <button type="button" className="primary-btn" aria-label="New Purchase Request" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:6, padding:'7px 16px' }}
             onClick={() => setNewOpen(true)}>
-            <Plus size={13} /> New Purchase Request
+            <Plus size={13} /> New
           </button>
         </div>
       </div>
@@ -445,7 +448,7 @@ export default function PurchaseRequests({ toast, openNewKey = 0 }) {
             <div style={{ ...SECTION, marginTop:4 }}>Assigned to You to Purchase - {toFulfillForMe.length}</div>
             {toFulfillForMe.map(renderCard)}
           </>)}
-          {renderSections(mine, { emptyTitle: 'No purchase requests yet', emptyText: 'Need something the company does not have? Click New Purchase Request.' })}
+          {renderSections(mine, { emptyTitle: 'No purchase requests yet', emptyText: 'Need something the company does not have? Click New.' })}
         </>)}
 
       {newOpen && (
@@ -481,6 +484,45 @@ export default function PurchaseRequests({ toast, openNewKey = 0 }) {
             onDone={() => { inventory.refreshItems?.(); }} />
         </Suspense>
       )}
+    </div>
+  );
+}
+
+/** Purchase Requests as a popup over Workday, like Reimbursements - not a tab
+ *  of its own (Sagar, Oct 27). Same frame as the Reimbursements panel: most
+ *  of the screen on a desktop, the full screen on a phone. The forms it opens
+ *  (New, Add to Items, Assign) layer above it, and Escape closes the
+ *  top-most one only. */
+export function PurchaseRequestsPanel({ onClose, toast, openNewKey = 0 }) {
+  const phone = useIsMobile('(max-width: 640px)');
+  const { nudge, popupClass, closeClass } = usePopupNudge();   // a click outside nudges, not closes
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (document.querySelectorAll('[role="dialog"]').length > 1) return;   // a form inside is open
+      onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', padding: phone ? 0 : 16 }}
+      onClick={nudge}>
+      <div role="dialog" aria-modal="true" aria-label="Purchase Requests" className={popupClass} onClick={(e) => e.stopPropagation()}
+        style={phone
+          ? { background:'var(--card)', width:'100%', height:'100%', display:'flex', flexDirection:'column' }
+          : { background:'var(--card)', borderRadius:14, width:'85vw', minWidth:'min(420px, 100%)', maxWidth:'100%', height:'85vh', maxHeight:'100%', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <div style={{ padding:'16px 18px 12px', display:'flex', alignItems:'center', gap:10, borderBottom:'1px solid var(--line)' }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontWeight:700, fontSize:15, color:'var(--ink)' }}>Purchase Requests</div>
+            <div style={{ fontSize:12, color:'var(--muted)' }}>Need something the company does not have? Ask for it, your manager approves, then it is bought.</div>
+          </div>
+          <button type="button" className={closeClass} onClick={onClose} aria-label="Close" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex' }}><X size={16} /></button>
+        </div>
+        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'14px 18px 18px' }}>
+          <PurchaseRequests toast={toast} openNewKey={openNewKey} />
+        </div>
+      </div>
     </div>
   );
 }

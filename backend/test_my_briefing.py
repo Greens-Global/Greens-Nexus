@@ -276,6 +276,152 @@ class QuickCardEndpointTests(_DBCase):
         self.assertEqual(self._reload(b.id).approval_status, "pending")
 
 
+class RefreshOnOpenTests(_DBCase):
+    """Both Daily Briefing cards refresh themselves when the email is opened
+    (Neil, Oct 26)."""
+
+    def test_quick_card_refreshes_to_what_is_still_pending(self):
+        import briefing_mail_actions
+        from routers import briefing_actions
+        app = FastAPI()
+        app.include_router(briefing_actions.router)
+        client = TestClient(app)
+        a = self._task(title="Budget", type="approval", approval_status="pending")
+        self._task(title="Hiring plan", type="approval", approval_status="pending")
+        sections = daily_briefing.build_sections(self.db, ME, "2026-09-25T00:00:00", "2026-09-26")
+        card = daily_briefing.quick_card(sections, "2026-09-26", "2026-09-25T00:00:00", email=ME)
+        _assert_card_v1_0(self, card)
+        self.assertIn("kind=refresh", card["autoInvokeAction"]["url"])
+        a.approval_status = "approved"
+        self.db.commit()
+        tok = briefing_mail_actions.refresh_token(ME)
+        r = client.post("/briefing-actions/card", params={"kind": "refresh", "token": tok, "v": "quick",
+                                                           "d": "2026-09-26", "s": "2026-09-25T00:00:00"})
+        self.assertEqual(r.status_code, 200, r.text)
+        fresh = r.json()
+        self.assertEqual([x["title"] for x in fresh["actions"]], ["Hiring plan"])
+        self.assertNotIn("CARD-ACTION-STATUS", r.headers)   # opening the email is not an action
+        _assert_card_v1_0(self, fresh)
+
+    def test_full_card_carries_the_refresh_too(self):
+        sections = daily_briefing.build_sections(self.db, ME, "2026-09-25T00:00:00", "2026-09-26")
+        card = daily_briefing.outlook_card(self.db, ME, "Sagar", sections, "2026-09-26", "2026-09-25T00:00:00",
+                                           greeting="Good morning", logo_url="")
+        self.assertIn("kind=refresh", card["autoInvokeAction"]["url"])
+
+
+class BundledTimeOffPageTests(_DBCase):
+    """One Approve / Reject for an employee's several time-off requests,
+    opening a page that decides the ticked ones together (Neil, Oct 26)."""
+
+    def setUp(self):
+        super().setUp()
+        import briefing_mail_actions
+        from routers import briefing_actions
+        self.bma = briefing_mail_actions
+        self.db.query(models.TimeOffRequest).delete()
+        # A manager (level 3) - the time-off decision's own gate.
+        patcher = mock.patch("auth._role_for", return_value=("manager", 3))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.db.add(models.NexusEmployee(id=gen_id(), first_name="Charmi", last_name="Desai",
+                                         work_email="charmi@greensglobal.com", manager_email=ME))
+        self.reqs = []
+        for d, kind in (("2026-11-09", "sick"), ("2026-11-02", "personal"), ("2026-11-16", "vacation")):
+            r = models.TimeOffRequest(id=gen_id(), employee_email="charmi@greensglobal.com", type=kind,
+                                      start_date=d, end_date=d, status="pending", created_at=now_iso())
+            self.db.add(r)
+            self.reqs.append(r)
+        self.db.commit()
+        app = FastAPI()
+        app.include_router(briefing_actions.router)
+        self.client = TestClient(app)
+
+    def _token(self, action="approve", ids=None):
+        ids = ids or [r.id for r in self.reqs]
+        return self.bma.sign_token("timeoff_approval", ",".join(ids), action, ME)
+
+    def _status(self, rid):
+        self.db.expire_all()
+        return self.db.query(models.TimeOffRequest).filter(models.TimeOffRequest.id == rid).one().status
+
+    def test_email_row_has_a_pair_per_request_and_an_all_pair(self):
+        row = {"title": "Approve: Charmi Desai's Time Off (3 requests)", "detail": "3 pending requests",
+               "url": "https://x/timeclock", "module": "time_off",
+               "sub_actions": [{"detail": f"{r.start_date}", "action_kind": "timeoff_approval",
+                                "action_id": r.id, "action_email": ME} for r in self.reqs]}
+        html = daily_briefing._item_row_html(row, False, ("#000", "#111", "#222"))
+        self.assertEqual(html.count("briefing-actions/page"), 8)
+        ids = [self.bma.verify_token(t.split("'")[0])["id"] for t in html.split("token=")[1:]]
+        self.assertEqual(sorted(i for i in ids if "," not in i), sorted(r.id for r in self.reqs * 2))
+        self.assertEqual([i.split(",") for i in ids if "," in i], [[r.id for r in self.reqs]] * 2)
+        self.assertIn("Approve All", html)
+
+    def test_page_lists_every_pending_request_ticked_in_date_order(self):
+        self.reqs[2].status = "approved"
+        self.db.commit()
+        r = self.client.get("/briefing-actions/page", params={"token": self._token("reject")})
+        self.assertEqual(r.status_code, 200)
+        page = r.text
+        self.assertIn("Charmi Desai", page)
+        self.assertEqual(page.count("type='checkbox'"), 2)
+        self.assertLess(page.index("11/02/2026"), page.index("11/09/2026"))
+        # Decided since the email went out: listed with its decision, not pickable.
+        self.assertIn("11/16/2026", page)
+        self.assertIn("Already approved", page)
+        # The button clicked in the email comes first.
+        self.assertLess(page.index("Reject Selected"), page.index("Approve Selected"))
+
+    def test_submit_decides_only_the_ticked_requests(self):
+        a, b, c = self.reqs
+        r = self.client.post("/briefing-actions/page",
+                             data={"token": self._token(), "decision": "approve", "ids": [a.id, c.id]})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("2 requests approved", r.text)
+        self.assertEqual([self._status(x.id) for x in (a, b, c)], ["approved", "pending", "approved"])
+
+    def test_either_decision_from_one_link_and_foreign_ids_ignored(self):
+        a, b, _ = self.reqs
+        r = self.client.post("/briefing-actions/page",
+                             data={"token": self._token("approve", [a.id, b.id]), "decision": "reject",
+                                   "ids": [a.id, b.id, self.reqs[2].id]})
+        self.assertIn("2 requests rejected", r.text)
+        self.assertEqual(self._status(self.reqs[2].id), "pending")
+
+    def test_one_already_decided_does_not_stop_the_rest(self):
+        a, b, _ = self.reqs
+        a.status = "rejected"
+        self.db.commit()
+        r = self.client.post("/briefing-actions/page",
+                             data={"token": self._token(), "decision": "approve", "ids": [a.id, b.id]})
+        self.assertIn("1 request approved", r.text)
+        self.assertIn("Already rejected", r.text)
+        self.assertEqual(self._status(b.id), "approved")
+
+    def test_link_to_an_already_decided_request_offers_no_button(self):
+        a = self.reqs[0]
+        a.status, a.approver, a.decided_at = "approved", ME, "2026-10-26T14:00:00"
+        self.db.commit()
+        r = self.client.get("/briefing-actions/page", params={"token": self._token("reject", [a.id])})
+        self.assertIn("Already approved by Sagar Kumar on 10/26/2026.", r.text)
+        self.assertNotIn("<button", r.text)
+        # Still pending: the usual confirm.
+        r = self.client.get("/briefing-actions/page", params={"token": self._token("reject", [self.reqs[1].id])})
+        self.assertIn("Reject this time off request?", r.text)
+
+    def test_bundle_with_everything_decided_says_so(self):
+        for x in self.reqs:
+            x.status = "rejected"
+        self.db.commit()
+        r = self.client.get("/briefing-actions/page", params={"token": self._token()})
+        self.assertIn("All 3 requests have already been decided.", r.text)
+        self.assertNotIn("<button", r.text)
+
+    def test_nothing_ticked_saves_nothing(self):
+        r = self.client.post("/briefing-actions/page", data={"token": self._token(), "decision": "approve"})
+        self.assertIn("Nothing Selected", r.text)
+        self.assertTrue(all(self._status(x.id) == "pending" for x in self.reqs))
+
 
 if __name__ == "__main__":
     unittest.main()

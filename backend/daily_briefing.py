@@ -587,14 +587,14 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
                 label = f"({same_type})" if same_type else f"({len(reqs)} requests)"
                 rows.append({
                     "title": f"Approve: {name}'s Time Off {label}",
-                    "detail": f"{len(reqs)} pending requests - decide each below",
+                    "detail": f"{len(reqs)} pending requests",
                     "url": f"{app_url()}/timeclock",
                     "module": "time_off",
-                    # A bundled card still gets one-click actions - just one
-                    # Approve/Reject pair PER request instead of a single
-                    # ambiguous pair for the whole card (Pranshu, Sep 20 - the
-                    # Sep 15 "one card per employee" change accidentally also
-                    # dropped the one-click actions along with the repetition).
+                    # Each request keeps its own Approve / Reject, and the HTML
+                    # email adds Approve All / Reject All for the card, opening
+                    # a page where any or all of them are ticked and decided
+                    # at once (Neil, Oct 26 - a pair per line alone let him
+                    # decide only one per click). See _bundle_buttons.
                     "sub_actions": [{
                         "detail": f"{_fmt_date(r.start_date)} - {_fmt_date(r.end_date)}" +
                                   ("" if same_type else f" ({leave(r)})"),
@@ -1358,13 +1358,15 @@ def _links(pairs: list) -> str:
                     f"text-decoration:none;white-space:nowrap'>{escape(label)}</a>" for label, url in pairs)
 
 
-def _decision_buttons(kind: str, action_id: str, email: str) -> str:
+def _decision_buttons(kind: str, action_id: str, email: str, *, labels=("Approve", "Reject"),
+                      small: bool = False) -> list:
     # Two links, one per decision - NOT a single link that mutates on GET.
     # Email link scanners (Outlook Safe Links, Gmail) prefetch every URL in a
     # message; each link opens a one-tap confirm page
     # (routers/briefing_actions.py) that only acts on its own POST.
-    return [_button("Approve", briefing_mail_actions.action_url(kind, action_id, "approve", email), "approve"),
-            _button("Reject", briefing_mail_actions.action_url(kind, action_id, "reject", email), "reject")]
+    size = {"pad": "4px 10px", "size": "11.5px"} if small else {}
+    return [_button(labels[0], briefing_mail_actions.action_url(kind, action_id, "approve", email), "approve", **size),
+            _button(labels[1], briefing_mail_actions.action_url(kind, action_id, "reject", email), "reject", **size)]
 
 
 def _row_links(row: dict) -> list:
@@ -1415,22 +1417,47 @@ def _actions_cell_html(row: dict, td: str) -> str:
                      f"{_inline_links(links)}</td>")
     if row.get("action_kind"):
         cells += _decision_buttons(row["action_kind"], row["action_id"], row["action_email"])
+    cells += _bundle_buttons(row)
     return (f"<td class='nx-td nx-act' align='right' style='{td};text-align:right;white-space:nowrap'>"
             f"{_button_bar(cells, 'right')}</td>")
 
 
+def _bundle_buttons(row: dict) -> list:
+    """Approve All / Reject All for a bundled row (an employee with several
+    pending time-off requests - Neil, Oct 26: "club the requests ... allow for
+    one or more to be approved at the same time (or rejected)"), next to the
+    per-request pairs on each line (_sub_actions_html). The token names
+    every request in the bundle (ids comma-joined); its page lists them with
+    a checkbox each, all ticked, and decides the ticked ones together
+    (routers/briefing_actions.py). A copy for someone else (the Weekly
+    Digest's test mode) has no action_kind on its lines and gets no buttons."""
+    subs = [s for s in row.get("sub_actions") or [] if s.get("action_kind")]
+    if not subs:
+        return []
+    ids = ",".join(s["action_id"] for s in subs)
+    return _decision_buttons(subs[0]["action_kind"], ids, subs[0]["action_email"],
+                             labels=("Approve All", "Reject All"))
+
+
 def _sub_actions_html(row: dict, tone: tuple) -> str:
-    """One Approve/Reject pair per request inside a bundled row (e.g. an
-    employee with several pending time-off requests)."""
+    """The requests inside a bundled row, one line each with its own small
+    Approve / Reject (Neil, Oct 26: individual decisions stay, beside the
+    row's Approve All / Reject All). On a phone the pair drops under its
+    dates (.nx-sub-* in render_email) - side by side, the buttons were
+    squeezed against the card's right edge. A copy for someone else (the
+    Weekly Digest's test mode) keeps the dates without the buttons."""
     subs = row.get("sub_actions") or []
     if not subs:
         return ""
+    line = f"border-top:1px solid {tone[2]}"
     lines = "".join(
-        f"<tr><td style='padding:6px 0;font-size:12.5px;color:{_BODY};border-top:1px solid {tone[2]}'>{escape(s['detail'])}</td>"
-        f"<td align='right' style='padding:6px 0 2px;border-top:1px solid {tone[2]};white-space:nowrap'>"
-        # A copy for someone else (the Weekly Digest's test mode) carries the
-        # dates without the act-as-them buttons.
-        f"{_button_bar(_decision_buttons(s['action_kind'], s['action_id'], s['action_email']), 'right') if s.get('action_kind') else ''}</td></tr>"
+        f"<tr><td class='nx-sub-d' style='padding:7px 0;font-size:12.5px;color:{_BODY};{line}'>"
+        f"{escape(s['detail'])}</td>"
+        f"<td class='nx-sub-a' align='right' style='padding:5px 0 5px 12px;{line};white-space:nowrap;"
+        f"vertical-align:middle'>"
+        + (_button_bar(_decision_buttons(s["action_kind"], s["action_id"], s["action_email"], small=True), "right")
+           if s.get("action_kind") else "")
+        + "</td></tr>"
         for s in subs)
     return f"<table width='100%' cellpadding='0' cellspacing='0' style='margin-top:8px;border-collapse:collapse'>{lines}</table>"
 
@@ -1610,6 +1637,9 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
       .nx-ref {{ padding-bottom:0 !important; }}
       .nx-act {{ border-top:0 !important; padding-top:0 !important; text-align:left !important; white-space:normal !important; }}
       .nx-act table {{ float:none !important; }}
+      .nx-sub-d {{ display:block !important; padding-bottom:4px !important; }}
+      .nx-sub-a {{ display:block !important; border-top:0 !important; padding:0 0 8px !important; text-align:left !important; }}
+      .nx-sub-a table {{ float:none !important; }}
       .nx-kpi {{ padding:12px !important; }}
     }}
   </style>
@@ -1672,14 +1702,17 @@ def outlook_card(db: Session, email: str, first_name: str, sections: dict, brief
         briefing_date=briefing_date, since_iso=since_iso, logo_url=logo_url, app_url=base,
         view_urls={m: f"{base}{path}" for m, path in _MODULE_VIEW_URL.items()},
         status_options=lambda project_id: task_mail_actions.status_options(db, project_id),
-        outcome=outcome)
+        outcome=outcome, refresh_token=briefing_mail_actions.refresh_token(email))
 
 
-def quick_card(sections: dict, briefing_date: str, since_iso: str, outcome: str = ""):
-    """Option A (briefing_card.build_quick_card): None when nothing needs a decision."""
+def quick_card(sections: dict, briefing_date: str, since_iso: str, outcome: str = "", *,
+               email: str = "", always: bool = False):
+    """Option A (briefing_card.build_quick_card): None when nothing needs a
+    decision. With `email` it refreshes itself each time it is opened."""
     return briefing_card.build_quick_card(action_rows=sections.get("action_required") or [],
                                           briefing_date=briefing_date, since_iso=since_iso, outcome=outcome,
-                                          briefing_url=f"{app_url()}/briefing")
+                                          briefing_url=f"{app_url()}/briefing", always=always,
+                                          refresh_token=briefing_mail_actions.refresh_token(email) if email else "")
 
 
 def with_card(html: str, card: dict) -> str:
@@ -1787,7 +1820,7 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
         (e or "").strip().lower() for e in (cfg.get("test_recipients") or [])}
     style = card_style(cfg)
     if style != "off" and task_mail_actions.am_enabled() and sections and (mode == "live" or test_own):
-        card = (quick_card(sections, briefing_date, since_iso) if style == "quick" else
+        card = (quick_card(sections, briefing_date, since_iso, email=emp.work_email) if style == "quick" else
                 outlook_card(db, emp.work_email, first_name, sections, briefing_date, since_iso,
                              greeting=greeting, logo_url=logo_url))
         if card:

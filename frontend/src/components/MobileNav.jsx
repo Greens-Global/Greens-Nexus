@@ -7,6 +7,7 @@ import {
   LayoutDashboard, LayoutTemplate, FileSignature,
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
+import { TASKS_PERSON_PAGE } from '../lib/personTasksNav';
 
 // Icons for broadcast (dynamic) actions, keyed by action id - keeps the bar
 // visually identical whether actions are static or registered by a view.
@@ -76,6 +77,15 @@ export default function MobileNav({ activeView, activeSub }) {
     return () => window.removeEventListener('nexus:mobile-actions', h);
   }, []);
 
+  // A person opened in Tasks from search elsewhere is a page of its own -
+  // no module tabs, here as on the desktop strip (Sagar, Oct 27).
+  const [personOutside, setPersonOutside] = useState(false);
+  useEffect(() => {
+    const h = (e) => setPersonOutside(!!e.detail?.outside);
+    window.addEventListener(TASKS_PERSON_PAGE, h);
+    return () => window.removeEventListener(TASKS_PERSON_PAGE, h);
+  }, []);
+
   let actions = null;
   let effSub = activeSub;
   if (activeView === 'inventory') {
@@ -89,7 +99,7 @@ export default function MobileNav({ activeView, activeSub }) {
     // same as the desktop module-tab strip hiding on it (views/Tasks.jsx
     // `!onManage`). A drilled-into-project task list ('tasks') highlights
     // Projects, matching the desktop strip.
-    if (effSub === 'manage') {
+    if (effSub === 'manage' || personOutside) {
       actions = null;
     } else {
       actions = TASK_ACTIONS;

@@ -150,7 +150,7 @@ describe('TopHeader search', () => {
       await act(async () => { vi.advanceTimersByTime(1); });
       expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'tasks', sub: 'home' });
       expect(person).toHaveBeenCalledTimes(1);
-      expect(person.mock.calls[0][0].detail).toEqual({ email: 'charmi@x.com', name: 'Charmi Patel' });
+      expect(person.mock.calls[0][0].detail).toEqual({ email: 'charmi@x.com', name: 'Charmi Patel', fromOutside: true });
       expect(contact).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener('nexus:navigate', nav);
