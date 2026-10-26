@@ -1,0 +1,29 @@
+# Nexus Status - Cloudflare Worker (see README.md). Deployed by
+# .github/workflows/deploy-status.yml.
+name = "nexus-status"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# Every minute, from Cloudflare - outside Nexus.
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+NEXUS_WEB_URL = "https://nexus.greensglobal.com/"
+# NEXUS_API_URL is the prod API base, set as a secret by the deploy workflow
+# from the same VITE_API_BASE secret the frontend build uses.
+STATUS_PAGE_URL = ""
+
+# The history database. Create it once with
+#   npx wrangler d1 create nexus-status
+# and paste the database_id it prints here (see README.md, step 2).
+[[d1_databases]]
+binding = "DB"
+database_name = "nexus-status"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# Secrets (wrangler secret put <NAME>, or set by the deploy workflow):
+#   NEXUS_API_URL       prod API base, e.g. https://<api-host>
+#   TEAMS_WEBHOOK_URL   Teams Workflows webhook for the alert channel
+#   ALERT_WEBHOOK_URLS  optional, comma-separated extra receivers
+#   ADMIN_TOKEN         lets the team post incidents and maintenance

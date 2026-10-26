@@ -1,0 +1,11 @@
+{
+  "name": "nexus-status",
+  "private": true,
+  "type": "module",
+  "description": "Nexus status page and outage alerts - a Cloudflare Worker that runs outside Nexus.",
+  "scripts": {
+    "test": "node --test test/state.test.js test/monitor.test.js test/page.test.js",
+    "dev": "npx wrangler@3 dev --test-scheduled",
+    "deploy": "npx wrangler@3 deploy"
+  }
+}

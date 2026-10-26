@@ -1,0 +1,85 @@
+# Nexus Status (status/, Oct 27 2026) - deploys the status page Worker to
+# Cloudflare. It runs OUTSIDE Nexus and checks prod every minute; see
+# status/README.md.
+#
+# Secrets (repo Settings > Secrets and variables > Actions):
+#   CLOUDFLARE_STATUS_TOKEN   API token: "Edit Cloudflare Workers" + Account > D1 > Edit
+#   CLOUDFLARE_ACCOUNT_ID     already set (Pages deploys use it)
+#   VITE_API_BASE             already set - the prod API base the Worker probes
+#   STATUS_TEAMS_WEBHOOK_URL  Teams Workflows webhook for the alert channel
+#   STATUS_ADMIN_TOKEN        any long random string - lets the team post incidents
+#   STATUS_ALERT_WEBHOOKS     optional, comma-separated extra receivers
+# Until CLOUDFLARE_STATUS_TOKEN exists this workflow says so and stops - it
+# never fails a push.
+name: Deploy Status Page
+
+on:
+  push:
+    branches: ["main"]
+    paths: ["status/**", ".github/workflows/deploy-status.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: status-page
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: status
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STATUS_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tests
+        run: npm test
+
+      - name: Token present?
+        id: gate
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::notice::CLOUDFLARE_STATUS_TOKEN is not set yet - skipping the deploy (see status/README.md)."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Find or create the D1 database
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          id=$(npx --yes wrangler@3 d1 list --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const r=JSON.parse(s).find(x=>x.name==='nexus-status');process.stdout.write(r?(r.uuid||r.id||''):'')})")
+          if [ -z "$id" ]; then
+            npx --yes wrangler@3 d1 create nexus-status
+            id=$(npx --yes wrangler@3 d1 list --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const r=JSON.parse(s).find(x=>x.name==='nexus-status');process.stdout.write(r?(r.uuid||r.id||''):'')})")
+          fi
+          [ -n "$id" ] || { echo "::error::Could not find or create the nexus-status D1 database"; exit 1; }
+          sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$id/" wrangler.toml
+          echo "D1 database: $id"
+
+      - name: Apply the schema (idempotent)
+        if: steps.gate.outputs.go == 'true'
+        run: npx --yes wrangler@3 d1 execute nexus-status --remote --file=schema.sql
+
+      - name: Deploy
+        if: steps.gate.outputs.go == 'true'
+        run: npx --yes wrangler@3 deploy
+
+      - name: Set secrets
+        if: steps.gate.outputs.go == 'true'
+        env:
+          NEXUS_API_URL: ${{ secrets.VITE_API_BASE }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.STATUS_TEAMS_WEBHOOK_URL }}
+          ADMIN_TOKEN: ${{ secrets.STATUS_ADMIN_TOKEN }}
+          ALERT_WEBHOOK_URLS: ${{ secrets.STATUS_ALERT_WEBHOOKS }}
+        run: |
+          node -e "const o={};for(const k of ['NEXUS_API_URL','TEAMS_WEBHOOK_URL','ADMIN_TOKEN','ALERT_WEBHOOK_URLS']){if(process.env[k])o[k]=process.env[k].trim()}process.stdout.write(JSON.stringify(o))" > /tmp/secrets.json
+          npx --yes wrangler@3 secret bulk /tmp/secrets.json
+          rm -f /tmp/secrets.json
+          [ -n "$TEAMS_WEBHOOK_URL" ] || echo "::warning::STATUS_TEAMS_WEBHOOK_URL is not set - the page works, but nobody is alerted."

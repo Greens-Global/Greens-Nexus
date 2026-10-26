@@ -115,6 +115,15 @@ keep the diff minimal.
   APPLICATION permission with admin consent on the Entra app
   (`docs/Teams-Presence-Setup.md`); until then `/directory/presence` answers
   `enabled: false` and the UI shows no dots - never treat that as an error.
+- **Status page** (Sagar, Oct 27 2026): `status/` is a Cloudflare Worker that
+  runs OUTSIDE Nexus (so it survives a Nexus outage) - every minute it probes
+  the web app, `/health` and `/health/components`
+  (`routers/health_components.py`: database, storage, Microsoft 365,
+  background jobs, schema), opens/resolves incidents and alerts a Teams
+  channel once per outage. Deployed by `deploy-status.yml`; setup in
+  `status/README.md`. `/health/components` is public: fixed short notes only,
+  never error text, hostnames or keys; keep it cached. Never move the page
+  or its alerts into the Nexus app itself.
 - **Rate limiting** (`RequestRateLimit` in `middleware_hardening.py`, Sep 22):
   per-minute budgets keyed on the session/bearer for signed-in callers, per IP
   for anonymous ones, tighter on credential-taking routes, plus a per-IP

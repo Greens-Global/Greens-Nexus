@@ -55,6 +55,8 @@ jobs:
         env:
           NEXUS_SKIP_AUTH: "true"
         run: python -m unittest test_app_boot test_auth_access -v
+      - name: /health/components (what the status page reads)
+        run: python -m unittest test_health_components -v
       - name: Dependency vulnerability scan
         run: |
           pip install pip-audit
@@ -100,3 +102,17 @@ jobs:
         run: npm run build
       - name: Dependency vulnerability scan
         run: npm audit --omit=dev --audit-level=high || echo "::warning::npm audit found issues - review before release"
+
+  # The status page Worker (status/, Oct 27 2026) - plain Node tests, no installs.
+  test-status:
+    name: Status Page Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: status
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
