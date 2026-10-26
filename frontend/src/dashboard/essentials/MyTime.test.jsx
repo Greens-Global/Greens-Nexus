@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 const apiMock = vi.hoisted(() => ({ timeStatus: vi.fn(), timeBodRecord: vi.fn() }));
-const punchMock = vi.hoisted(() => ({ punchDurable: vi.fn(), replayPending: vi.fn(), readPending: vi.fn() }));
+const punchMock = vi.hoisted(() => ({ punchDurable: vi.fn(), holdPunch: vi.fn((_, run) => run()), signedIn: vi.fn(async () => true), replayPending: vi.fn(), readPending: vi.fn() }));
 const pairMock = vi.hoisted(() => ({ pairLocalAgent: vi.fn(async () => '') }));
 vi.mock('../../api', () => ({ api: apiMock }));
 vi.mock('../../lib/punchQueue', () => punchMock);
@@ -232,6 +232,19 @@ describe('<MyTime /> render', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(1));
     expect(screen.queryByTestId('bod-modal')).toBeNull();
+  });
+
+  it('a sign-in that expired while the tab sat open opens no message prompt (Miranda, Oct 26)', async () => {
+    apiMock.timeStatus.mockResolvedValue(clockedOutStatus({ bodRequired: true }));
+    punchMock.signedIn.mockResolvedValueOnce(false);   // the page is off to sign in
+    render(<MyTime />);
+    fireEvent.click(await screen.findByRole('button', { name: /Punch In/ }));
+    await waitFor(() => expect(punchMock.signedIn).toHaveBeenCalled());
+    expect(screen.queryByTestId('bod-modal')).toBeNull();
+    expect(punchMock.punchDurable).not.toHaveBeenCalled();
+    // Signed in again: the tap goes as usual.
+    fireEvent.click(screen.getByRole('button', { name: /Punch In/ }));
+    expect(await screen.findByTestId('bod-modal')).toHaveTextContent('bod');
   });
 
   it('the gate\'s Skip records the already-sent marker and still punches; Close cancels the punch', async () => {

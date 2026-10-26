@@ -15,7 +15,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
 import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
-import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
+import { punchDurable, replayPending, readPending, utcStamp, holdPunch, signedIn } from '../lib/punchQueue';
 import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
@@ -812,6 +812,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     // Every punch prompts for its message; the "already sent" checkbox lets a
     // repeat punch skip. (BOD gates punch-in, EOD gates checkout, break gates.)
     if (kind === 'in' || kind === 'break_start' || kind === 'break_end' || kind === 'out') {
+      // A sign-in that expired while the tab sat open is found before the
+      // message is typed, not after (the page goes to sign in now).
+      setBusy(kind);
+      const live = await signedIn();
+      setBusy('');
+      if (!live) return;
       gateClickRef.current = new Date().toISOString().slice(0, 19);
       setBodMode(kind === 'in' ? 'bod-gate'
         : kind === 'break_start' ? 'break-gate'
@@ -861,24 +867,30 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       return;
     }
     setBusy(kind);
-    // Short geo budget on the way out so the punch fires fast and can't be lost to
-    // a closing tab; full budget on the way in for the geofence check. On the way
-    // IN, pair with the local agent concurrently (shared-PC device binding) so it
-    // adds no latency over the geolocation wait.
-    const [firstPos, pairNonce] = await Promise.all([
-      kind === 'out' ? punchPosition('out') : getPosition(9000),   // out: a recent fix if a fresh one is slow
-      kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
-    ]);
-    // No fix: the punch goes without one, never asked or blocked; a clock-in
-    // raises the red Turn On / Skip bar after it lands (Neil, Oct 21).
-    const { pos, locationOff } = await askPunchPosition(firstPos);
-    // punchDurable retries and, if the server still can't be reached, parks the
-    // punch for replay. The Teams message has already gone out by this point, so
-    // a punch quietly dropped here is the one failure this screen must not have.
     const clickedAt = gateClickRef.current;
-    const res = await punchDurable({
-      kind, tzOffsetMin: new Date().getTimezoneOffset(), clickedAt, pos, locationOff,
-      extra: pairNonce ? { pair_nonce: pairNonce } : null,
+    const tzOffsetMin = new Date().getTimezoneOffset();
+    // Held on the device from here (punchQueue.holdPunch): the location wait
+    // below can take seconds, and a sign-in redirect meanwhile lost the punch.
+    const { res, pos, locationOff } = await holdPunch({ kind, clickedAt, tzOffsetMin }, async () => {
+      // Short geo budget on the way out so the punch fires fast and can't be lost to
+      // a closing tab; full budget on the way in for the geofence check. On the way
+      // IN, pair with the local agent concurrently (shared-PC device binding) so it
+      // adds no latency over the geolocation wait.
+      const [firstPos, pairNonce] = await Promise.all([
+        kind === 'out' ? punchPosition('out') : getPosition(9000),   // out: a recent fix if a fresh one is slow
+        kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
+      ]);
+      // No fix: the punch goes without one, never asked or blocked; a clock-in
+      // raises the red Turn On / Skip bar after it lands (Neil, Oct 21).
+      const fix = await askPunchPosition(firstPos);
+      // punchDurable retries and, if the server still can't be reached, parks the
+      // punch for replay. The Teams message has already gone out by this point, so
+      // a punch quietly dropped here is the one failure this screen must not have.
+      const out = await punchDurable({
+        kind, tzOffsetMin, clickedAt, pos: fix.pos, locationOff: fix.locationOff,
+        extra: pairNonce ? { pair_nonce: pairNonce } : null,
+      });
+      return { res: out, ...fix };
     });
     if (res.ok) {
       gateClickRef.current = '';
