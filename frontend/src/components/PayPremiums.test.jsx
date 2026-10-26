@@ -25,7 +25,7 @@ describe('PayPremiums', () => {
     const toggle = await screen.findByLabelText('Pay shift differentials and call-back pay for this company');
     expect(toggle.checked).toBe(false);
     expect(screen.queryByText('Add Differential')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Save' }).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();   // nothing changed yet
     expect(apiMock.timePremiumsGet).toHaveBeenCalledWith('co-a');
   });
 

@@ -203,7 +203,11 @@ function _detailToMessage(detail, status) {
 // A POST/PATCH/PUT/DELETE that committed server-side but exceeded the 18s abort
 // (Azure cold start) or 5xx'd after committing would otherwise be re-sent -
 // duplicate checkouts/assignments/notifications (P1-10). No method = GET.
+// `noRetry: true` opts ONE call out (Oct 23, Compensation): a long report the
+// server already bounds and explains gets one attempt - retrying a 180s read
+// three times only made people wait nine minutes in front of empty rows.
 function _isRetryable(options) {
+  if (options.noRetry) return false;
   const method = (options.method || 'GET').toUpperCase();
   return method === 'GET' || method === 'HEAD';
 }
@@ -235,9 +239,35 @@ function _networkError(err) {
   return out;
 }
 
+// Oct 24 (Neil, 10/23 meeting chat: "sync should be table level and not just
+// overall"): a table's own Sync reads past the server's short accounting cache.
+// Every GET started while `withFreshReads(fn)` runs - until the promise fn
+// returns settles, so a report read in several steps is fresh throughout -
+// carries fresh=1; the backend then asks the accounting app again instead of
+// answering from its cache. Only Accounting, Leasing (MRI) and PFS reads are
+// marked - the same list as the backend's _FRESH_PREFIXES (review 10/24): a
+// read another module starts in that moment (Facility Operations takes fresh
+// too) keeps its own caches.
+let _freshReads = 0;
+const FRESH_PREFIXES = ['/accounting', '/leasing', '/pfs'];
+const freshScoped = (path) => FRESH_PREFIXES.some((p) => path.startsWith(p));
+export function withFreshReads(fn) {
+  _freshReads += 1;
+  let out;
+  try { out = fn(); } catch (e) { _freshReads -= 1; throw e; }
+  if (out && typeof out.then === 'function') {
+    return Promise.resolve(out).finally(() => { _freshReads -= 1; });
+  }
+  _freshReads -= 1;
+  return out;
+}
+const freshPath = (path) => (/[?&]fresh=/.test(path) ? path : `${path}${path.includes('?') ? '&' : '?'}fresh=1`);
+
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
+  if (_freshReads > 0 && attempt === 1 && !tokenRefreshed && (!options.method || options.method === 'GET') && freshScoped(path)) path = freshPath(path);
   const authHeader = await getAuthHeader(tokenRefreshed);
   const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
+  const _startedAt = Date.now();   // Build Mode's network buffer (onApiRequest, end of file)
   let res;
   try {
     const controller = new AbortController();
@@ -271,9 +301,13 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
       await new Promise(r => setTimeout(r, 800 * attempt));
       return req(path, options, attempt + 1, tokenRefreshed);
     }
-    _setBackendDown(true);
+    // A no-retry call that ran out its own long timeout says nothing about
+    // whether Nexus is up - no "reconnecting" banner for it.
+    if (!(options.noRetry && err?.name === 'AbortError')) _setBackendDown(true);
+    _emitApiRequest(path, options, 0, _startedAt);
     throw _networkError(err);
   }
+  _emitApiRequest(path, options, res.status, _startedAt, _apiBodyWanted(path, res) ? res.clone() : null);
 
   // BFF mode: a 401 means the session cookie is dead/absent -> server-side login
   // (the replacement for MSAL's token-refresh + interactive reauth).
@@ -341,7 +375,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
 const _getCache = new Map(); // path → { ts, promise }
 function cachedGet(path, ttlMs = 60_000) {
   const hit = _getCache.get(path);
-  if (hit && (Date.now() - hit.ts) < ttlMs) return hit.promise;
+  if (hit && !(_freshReads && freshScoped(path)) && (Date.now() - hit.ts) < ttlMs) return hit.promise;
   const promise = req(path).catch(err => { _getCache.delete(path); throw err; });
   _getCache.set(path, { ts: Date.now(), promise });
   return promise;
@@ -538,6 +572,9 @@ export const api = {
   addToMyDay: (day, taskId, pick = true) => req("/tasks/my-day/add", { method: "POST", body: JSON.stringify({ day, task_id: taskId, pick }) }),
   removeFromMyDay: (day, taskId) => req("/tasks/my-day/remove", { method: "POST", body: JSON.stringify({ day, task_id: taskId }) }),
   reorderMyDay: (day, taskIds) => req("/tasks/my-day/order", { method: "PUT", body: JSON.stringify({ day, task_ids: taskIds }) }),
+  // Keep Private (Oct 23 2026): a subtask private only because of its main
+  // task stays private when that task is shared again. Answers the task.
+  keepTaskPrivate: (id) => req(`/tasks/${id}/keep-private`, { method: "POST" }),
   // Sections & custom statuses (board columns)
   getTaskSections: () => req("/tasks/meta/sections"),
   createTaskSection: (data) => req("/tasks/meta/sections", { method: "POST", body: JSON.stringify(data) }),
@@ -1433,20 +1470,6 @@ export const api = {
   getPackets:          ()         => req('/hr/packets'),
   getPacketCoverage:   ()         => req('/hr/packets/coverage'),
   setPacketHired:      (entityId, workerType, hired) => req('/hr/packets/coverage/hired', { method: 'PUT', body: JSON.stringify({ entity_id: entityId, worker_type: workerType, hired }) }),
-  // Hiring Setup (Oct 23)
-  getHiringSetup:          ()                          => req('/hr/hiring-setup'),
-  getHiringSetupCompany:   (entityId = '', roleId = '', section = 'hiring') => req(`/hr/hiring-setup/company?${new URLSearchParams({ entity_id: entityId || '', role_id: roleId || '', section })}`),
-  hiringSetupUseSame:      (settingId)                 => req('/hr/hiring-setup/use-same', { method: 'POST', body: JSON.stringify({ setting_id: settingId }) }),
-  hiringSetupRestore:      (settingId)                 => req('/hr/hiring-setup/restore', { method: 'POST', body: JSON.stringify({ setting_id: settingId }) }),
-  hiringSetupMakeOwn:      (data)                      => req('/hr/hiring-setup/make-own', { method: 'POST', body: JSON.stringify(data) }),
-  hiringSetupSetDocuments: (settingId, docTemplateIds) => req(`/hr/hiring-setup/settings/${settingId}/documents`, { method: 'PUT', body: JSON.stringify({ doc_template_ids: docTemplateIds }) }),
-  hiringSetupOwnCopy:      (settingId, templateId, entityId = '') => req(`/hr/hiring-setup/settings/${settingId}/documents/${encodeURIComponent(templateId)}/own-copy?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'POST' }),
-  hiringSetupPlace:        (entityId, country, region = '', remove = false) => req('/hr/hiring-setup/places', { method: 'PUT', body: JSON.stringify({ entity_id: entityId, country, region, remove }) }),
-  getRoleDuties:           (roleId, entityId = '')     => req(`/hr/hiring-setup/roles/${roleId}/duties?entity_id=${encodeURIComponent(entityId || '')}`),
-  addRoleDuty:             (roleId, data)              => req(`/hr/hiring-setup/roles/${roleId}/duties`, { method: 'POST', body: JSON.stringify(data) }),
-  updateRoleDuty:          (roleId, versionId, text)   => req(`/hr/hiring-setup/roles/${roleId}/duties/${versionId}`, { method: 'PATCH', body: JSON.stringify({ text }) }),
-  removeRoleDuty:          (roleId, versionId)         => req(`/hr/hiring-setup/roles/${roleId}/duties/${versionId}`, { method: 'DELETE' }),
-  setRoleHiringDocs:       (roleId, hiringDocs)        => req(`/hr/hiring-setup/roles/${roleId}/documents`, { method: 'PUT', body: JSON.stringify({ hiring_docs: hiringDocs }) }),
   savePacket:          (data)     => req('/hr/packets', { method: 'PUT', body: JSON.stringify(data) }),
   savePacketWhole:     (data)     => req('/hr/packets/whole', { method: 'PUT', body: JSON.stringify(data) }),
   deletePacket:        (id)       => req(`/hr/packets/${id}`, { method: 'DELETE' }),
@@ -1607,6 +1630,8 @@ export const api = {
   timeGeofencePunches: (email, start, end) => req(`/timeclock/geofence-punches?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}`),
   timeAdjustPunch:   (id, data)  => req(`/timeclock/punches/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeAddPunch:      (data)      => req('/timeclock/punches', { method: 'POST', body: JSON.stringify(data) }),
+  // HR / Global Admin: the period's time sheet as a PDF to sign on paper (Neil, Oct 23).
+  printTimeSheet:    (email, start) => reqBlob(`/timesheet-review/print?email=${encodeURIComponent(email || '')}&start=${encodeURIComponent(start || '')}`),
   timeExportCsv:     (start, end, mode) => reqBlob(`/timeclock/export.csv?start=${start || ''}&end=${end || ''}&mode=${mode || 'summary'}`),
   // QuickBooks Desktop time import (IIF TIMEACT rows) - Charmi imports this
   // instead of keying hours per employee by hand (Aug 21).
@@ -1665,7 +1690,7 @@ export const api = {
   dashUpdateView: (id, body)   => req(`/dashboards/views/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   dashSetDefault: (id)         => req(`/dashboards/views/${id}/default`, { method: 'PUT' }),
   dashDeleteView: (id)         => req(`/dashboards/views/${id}`, { method: 'DELETE' }),
-  dashKpis:       (scope = 'self') => req(`/dashboards/kpis?scope=${encodeURIComponent(scope)}`),
+  dashKpis:       (scope = 'self') => req(`/dashboards/kpis?scope=${encodeURIComponent(scope)}&tz_offset_min=${new Date().getTimezoneOffset()}`),
   dashInsights:   ()               => req('/dashboards/insights'),
   dashInsightsDrilldown: (module, metric) => req(`/dashboards/insights/drilldown?module=${encodeURIComponent(module)}&metric=${encodeURIComponent(metric)}`),
   // The caller's own Outlook agenda (M365 staff only - {available:false} otherwise)
@@ -2131,6 +2156,11 @@ export const api = {
   //    accounting app has no list yet), and the Flux Analysis explanation
   //    notes kept per entity set, account and period ──
   getAccountingJournals:   ()               => req('/accounting/journals'),
+  // Oct 23 (CR-12): Records > General Ledger Accounts - the chart ({source, accounts}).
+  getAccountingAccounts:   ()               => req('/accounting/accounts'),
+  // Oct 23 (CR-10): Audit & Insights > Manual Journal Entries - who keyed each entry, read from Intacct.
+  getManualJournalEntries: ({ from, to, locations = [], journals = [], user = '', edited = true }) =>
+    req(`/accounting/manual-entries?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${journals.length ? `&journals=${encodeURIComponent(journals.join(','))}` : ''}${user ? `&user=${encodeURIComponent(user)}` : ''}${edited ? '' : '&edited=false'}`, { timeoutMs: 120_000 }),
   getAccountingFluxNotes:  (entity, period) => req(`/accounting/flux-notes?entity=${encodeURIComponent(entity || 'all')}&period=${encodeURIComponent(period)}`),
   saveAccountingFluxNote:  (body)           => req('/accounting/flux-notes', { method: 'PUT', body: JSON.stringify(body) }),
 
@@ -2400,10 +2430,12 @@ export const api = {
   },
   // Accounting > Reporting > AMA, Asset Management Agreements (Oct 7,
   // routers/accounting_ama.py): Billed YTD read from the ledger.
-  getAmaSummary:       (year)     => req(`/accounting/ama/summary${year ? `?year=${year}` : ''}`),
+  // Oct 23 (CR-03): `period` = ytd | q1-q4 | m01-m12; getAmaAccounts lists the GL accounts for the Fee GL Account picker.
+  getAmaSummary:       (year, period = '') => req(`/accounting/ama/summary?${new URLSearchParams({ ...(year ? { year } : {}), ...(period ? { period } : {}) })}`),
   createAmaAgreement:  (body)     => req('/accounting/ama/agreements', { method: 'POST', body: JSON.stringify(body) }),
   updateAmaAgreement:  (id, body) => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteAmaAgreement:  (id)       => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getAmaAccounts:      ()         => req('/accounting/ama/accounts'),
   // Accounting > Reporting > AMA, Ask My Accountant (Neil, 10/15,
   // routers/accounting_ask.py): questions on ledger lines + the lines on the
   // Ask My Accountant (suspense) accounts. The agreements above are now
@@ -2425,6 +2457,21 @@ export const api = {
   getAskSettings:      ()         => req('/accounting/ask/settings'),
   saveAskSettings:     (body)     => req('/accounting/ask/settings', { method: 'PUT', body: JSON.stringify(body) }),
   getAskChart:         ()         => req('/accounting/ask/chart'),
+  // AMA, CR-13 (Charmi, 10/22; routers/accounting_ask_review.py): the other
+  // side of each entry on screen, Notes per line, and the GL reclass a
+  // bookkeeper approves and pushes.
+  getAskOffsets:       (entryIds) => req(`/accounting/ask/offsets?entries=${encodeURIComponent(entryIds.join(','))}`, { timeoutMs: 120_000 }),
+  getAskGlAccounts:    ()         => req('/accounting/ask/gl-accounts'),
+  saveAskNote:         (body)     => req('/accounting/ask/lines/note', { method: 'PUT', body: JSON.stringify(body) }),
+  proposeAskReclass:   (body)     => req('/accounting/ask/lines/reclass', { method: 'POST', body: JSON.stringify(body) }),
+  sendBackAskReclass:  (id, note = '') => req(`/accounting/ask/reviews/${encodeURIComponent(id)}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
+  pushAskReclass:      (id, previewId = '') => req(`/accounting/ask/reviews/${encodeURIComponent(id)}/push`, { method: 'POST', body: JSON.stringify({ previewId }), timeoutMs: 120_000 }),
+  // CR-13 rework (Neil, 23 Oct): the push edits the original Intacct entry -
+  // a preview first, then the push of exactly that preview, and its log.
+  previewAskPush:      (ids)      => req('/accounting/ask/reviews/preview', { method: 'POST', body: JSON.stringify({ ids }), timeoutMs: 120_000 }),
+  pushAskBatch:        (previewId, ids) => req('/accounting/ask/reviews/push', { method: 'POST', body: JSON.stringify({ previewId, ids }), timeoutMs: 180_000 }),
+  getAskPushLog:       (reviewId = '') => req(`/accounting/ask/push-log${reviewId ? `?review=${encodeURIComponent(reviewId)}` : ''}`),
+  exportAskReclasses:  (id = '')  => reqBlob(`/accounting/ask/reviews/export.csv${id ? `?id=${encodeURIComponent(id)}` : ''}`),
   // ── Dashboard Essentials tiles (Oct 7): My Work, My Team, Announcements.
   //    routers/my_work.py, my_team.py (supervisor+), announcements.py.
   //    My Day reads getMyBriefing / actOnMyBriefing; My Time reads
@@ -2513,7 +2560,8 @@ export const api = {
   updateLoanSlow:    (id, body) => req(`/accounting/loans/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body), timeoutMs: 90_000 }),
   // Accounting > Reporting > Profitability and Employee Compensation (10/15).
   getProfitability:      (from, to, { locations = [], book = 'accrual', expand = false, compare = true } = {}) => req(`/accounting/profitability?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${book && book !== 'accrual' ? `&book=${encodeURIComponent(book)}` : ''}${expand ? '&expand=true' : ''}${compare ? '' : '&compare=false'}`, { timeoutMs: 120_000 }),
-  getCompensationPeople: (from, to) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs: 180_000 }),
+  // One attempt (noRetry): the server bounds the run and says why it stopped.
+  getCompensationPeople: (from, to, { timeoutMs = 180_000 } = {}) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs, noRetry: true }),
   getCompensationLedger: (from, to, by = 'department') => req(`/accounting/compensation/ledger?from=${from}&to=${to}&by=${by}`, { timeoutMs: 120_000 }),
   // Flux Analysis review (Charmi, Oct 15): close (sign off) or reopen one
   // account's review - { entity, period, accountNo, closed }.
@@ -2572,8 +2620,6 @@ export const api = {
   // sent to the verifier; after-offer: start the packet when it could not start itself.
   offerOptions:        (cid, params = {}) => req(`/hr/candidates/${cid}/offer/options?${new URLSearchParams(params)}`),
   startOffer:          (cid, data) => req(`/hr/candidates/${cid}/offer/start`, { method: 'POST', body: JSON.stringify(data) }),
-  promotionOptions:    (eid, roleId = '') => req(`/hr/employees/${eid}/promotion/options?role_id=${encodeURIComponent(roleId || '')}`),
-  offboardOptions:     (eid)              => req(`/hr/employees/${eid}/offboard/options`),
   startPacketAfterOffer: (cid) => req(`/hr/candidates/${cid}/hiring-packet/after-offer`, { method: 'POST' }),
   // File Manually (Oct 15 2026): automatic Egnyte filing failed - HR names the folder.
   fileLifeEventManually: (eid, folder) => req(`/hr/life-events/${eid}/file-manually`, { method: 'POST', body: JSON.stringify({ folder }) }),
@@ -2915,7 +2961,74 @@ export const api = {
   deleteTaskLabel: (name, company = "") => req("/task-labels/delete", { method: "POST", body: JSON.stringify({ name, company }) }),
   // The batch bar's Add Label / Remove Label: merged into each task's labels.
   bulkTaskLabels: (ids, { add = [], remove = [] } = {}) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, tags_add: add, tags_remove: remove }) }),
+
+  // Build Mode (Oct 24 2026, frontend/src/devnotes, backend routers/dev_notes.py):
+  // pins on the live app that Claude Code picks up from a terminal. /enabled
+  // answers { enabled: false } for anyone without the grant - never a 403.
+  devNotesEnabled: () => req("/dev-notes/enabled"),
+  devNotesSettings: () => req("/dev-notes/settings"),
+  devNotesSaveSettings: (data) => req("/dev-notes/settings", { method: "PUT", body: JSON.stringify(data) }),
+  devNotesCreate: (data) => req("/dev-notes", { method: "POST", body: JSON.stringify(data) }),
+  devNotesList: (params = {}) => req(`/dev-notes?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null && v !== false))).toString()}`),
+  devNotesPins: (route, sub = "") => req(`/dev-notes/pins?${new URLSearchParams({ route: route || "", sub: sub || "" }).toString()}`),
+  devNotesGet: (id) => req(`/dev-notes/${encodeURIComponent(id)}`),
+  devNotesPatch: (id, data) => req(`/dev-notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  devNotesThread: (id, text, imageUrl = "") => req(`/dev-notes/${encodeURIComponent(id)}/thread`, { method: "POST", body: JSON.stringify({ text, imageUrl }) }),
+  devNotesVerify: (id, accepted, comment = "") => req(`/dev-notes/${encodeURIComponent(id)}/verify`, { method: "POST", body: JSON.stringify({ accepted, comment }) }),
+  devNotesDispatch: (data = {}) => req("/dev-notes/dispatch", { method: "POST", body: JSON.stringify(data) }),
+  devNotesSessions: (params = {}) => req(`/dev-notes/sessions?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))).toString()}`),
+  devNotesSessionPatch: (id, data) => req(`/dev-notes/sessions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  devNotesTokens: () => req("/dev-notes/tokens"),
+  devNotesTokenCreate: (label) => req("/dev-notes/tokens", { method: "POST", body: JSON.stringify({ label }) }),
+  devNotesTokenRevoke: (id) => req(`/dev-notes/tokens/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  // { pins: {...}, medianPinToPrHours, reopenRate, firstClaimHitRate } - the Sessions tab's Stats strip.
+  devNotesStats: () => req("/dev-notes/stats"),
+  // Build Mode v2: a pin on someone's area is held for them until they (or a
+  // Global Admin) release it to Claude Code; a pin Ready To Check is accepted
+  // or reopened (a note is required to reopen) against its local preview.
+  devNotesRelease: (id) => req(`/dev-notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ release: true }) }),
+  devNotesPreviewVerdict: (id, { accepted, comment = "" } = {}) => req(`/dev-notes/${encodeURIComponent(id)}/preview-verdict`, { method: "POST", body: JSON.stringify({ accepted: !!accepted, comment }) }),
+  // { owner: {name, email} | null, held } for a source stamp - the composer
+  // asks before saving whether the pin would be held for that owner.
+  devNotesOwnerOf: (path) => req(`/dev-notes/owner-of?${new URLSearchParams({ path: path || "" }).toString()}`),
 };
+
+// Build Mode's network buffer (Oct 24 2026): every request through req()
+// reports { method, path, status, ms, at } to the listeners - status 0 when
+// fetch itself failed. Nothing else changes: a listener that throws is
+// swallowed, and with no listener this is one Set lookup per request.
+const _apiRequestListeners = new Set();
+// Bodies travel only while a listener asked for them (setApiBodyCapture):
+// the response is cloned for the listener to read, the request body is the
+// string that was sent. Off (the default) nothing is cloned or kept.
+let _apiBodyCapture = false;
+let _apiBodyFilter = null;      // (path) => bool, set by the listener (Build Mode skips its blocked routes)
+const BODY_MAX_BYTES = 64 * 1024;
+// Clone only what the buffer will keep: JSON, at most 64 KB when the server
+// says how long it is, and only when the listener's filter agrees.
+function _apiBodyWanted(path, res) {
+  if (!_apiBodyCapture) return false;
+  try {
+    if (_apiBodyFilter && !_apiBodyFilter(path)) return false;
+    if (!/json/i.test(res.headers.get('content-type') || '')) return false;
+    const len = res.headers.get('content-length');
+    return !len || Number(len) <= BODY_MAX_BYTES;
+  } catch { return false; }
+}
+function _emitApiRequest(path, options, status, startedAt, responseClone = null) {
+  if (!_apiRequestListeners.size) return;
+  const entry = { method: (options?.method || 'GET').toUpperCase(), path, status, ms: Date.now() - startedAt, at: new Date().toISOString() };
+  if (_apiBodyCapture) {
+    entry.requestBody = typeof options?.body === 'string' ? options.body : (options?.body instanceof FormData ? '[multipart form]' : '');
+    entry.response = responseClone;
+  }
+  _apiRequestListeners.forEach((fn) => { try { fn(entry); } catch { /* a listener must never break a request */ } });
+}
+export function onApiRequest(listener) {
+  _apiRequestListeners.add(listener);
+  return () => _apiRequestListeners.delete(listener);
+}
+export function setApiBodyCapture(on, filter = null) { _apiBodyCapture = !!on; _apiBodyFilter = on && typeof filter === 'function' ? filter : null; }
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
 // no MSAL involved, the token in the URL is the credential.

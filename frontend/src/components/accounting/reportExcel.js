@@ -111,11 +111,28 @@ export function statementCells({ title, result, entities = [] }) {
 
   // The figure cells of one row: numbers in the data columns, formulas in the
   // derived ones. `numsAt(i)` = the cached number for statement column i.
+  // Report Builder comparisons (CR-05): an amount column marked `compare` is
+  // a prior figure - never in the Total - and every Variance $ / % after it
+  // compares the Total (else the first column) with it.
+  const compares = columns.map((c, i) => (c.type === 'amount' && c.compare ? i : -1)).filter((i) => i >= 0);
   const derived = (rowNo, numsAt, total, isPct) => {
     const out = {};
     if (totalCol >= 0) {
-      const parts = dataCols.map((c) => ref(sheetCol(c.i), rowNo));
+      const parts = dataCols.filter((c) => !c.compare).map((c) => ref(sheetCol(c.i), rowNo));
       out[totalCol] = { f: `SUM(${parts.join(',')})`, num: numsAt(totalCol), s: total ? S.numTotal : S.num };
+    }
+    if (compares.length) {
+      const a = ref(sheetCol(totalCol >= 0 ? totalCol : dataCols[0].i), rowNo);
+      columns.forEach((c, i) => {
+        if (c.type !== 'variance' && c.type !== 'pct') return;
+        const p = [...compares].reverse().find((j) => j < i);
+        if (p === undefined) return;
+        const b = ref(sheetCol(p), rowNo);
+        out[i] = c.type === 'variance'
+          ? { f: `${a}-${b}`, num: numsAt(i), s: total ? S.numTotal : S.num }
+          : { f: `IF(${b}=0,"",(${a}-${b})/ABS(${b}))`, num: isPct ? undefined : parsePct(numsAt(i)), s: total ? S.pctTotal : S.pct };
+      });
+      return out;
     }
     if (varCol >= 0 && dataCols.length >= 2) {
       const a = ref(sheetCol(dataCols[0].i), rowNo);

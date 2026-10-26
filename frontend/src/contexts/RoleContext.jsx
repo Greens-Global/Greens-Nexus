@@ -48,6 +48,9 @@ export const MODULES = [
   // Workforce Analytics > Scorecard + the weekly manager email (Neil, 10/10):
   // viewer = their own reporting line, full = the whole company.
   { id: 'workforce-scorecard', label: 'Workforce Scorecard' },
+  // Build Mode (Oct 24 2026): pins on the live app for Claude Code. Global
+  // Admins have it; this grant opens it to anyone else (routers/dev_notes.py).
+  { id: 'build-mode',          label: 'Build Mode' },
 ];
 
 // Per-module permission levels an Access Group can grant - mirrors a

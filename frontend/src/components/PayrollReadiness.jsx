@@ -7,6 +7,7 @@ import { isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { Spinner, ErrorBanner } from './AsyncState';
 import { StatusLabel } from './StatusLabel';
 import { Modal } from '../tasks/components';
+import { SettingCard, SettingRow, NumberBox } from './settings/SettingsUI';
 
 // Payroll Readiness (Neil, Oct 17 2026) - People > Time > Payroll. Before
 // payroll runs: who is not ready (approval, signature, missing punches, open
@@ -162,14 +163,17 @@ export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr }) 
 }
 
 // The thresholds themselves (Settings > Time & Pay > Payroll Readiness since
-// Oct 23). `company` fixes the company - Settings' scope picker - and hides
-// the select; on its own it offers the default (to whoever may edit it) and
-// every company. The dialog below wraps it for the payroll screen.
+// Oct 23). `company` fixes the company - Settings' scope picker, '' being the
+// default for every company - and hides the select (Oct 25: one company
+// picker on the page); left out, it offers the default (to whoever may edit
+// it) and every company. The dialog below wraps it for the payroll screen.
 export function ReadinessThresholds({ company: scoped, onSaved, onOverride, toastOk, toastErr }) {
+  const locked = scoped !== undefined;
   const [company, setCompany] = useState(null);       // null = not loaded yet
   const [meta, setMeta] = useState(null);
   useEffect(() => { if (meta && scoped) onOverride?.(!!meta.override); }, [meta, scoped, onOverride]);
   const [vals, setVals] = useState({});
+  const [saved, setSaved] = useState({});            // what the server holds, for the Save button
   const [busy, setBusy] = useState(false);
   const [loadErr, setLoadErr] = useState('');
 
@@ -177,7 +181,7 @@ export function ReadinessThresholds({ company: scoped, onSaved, onOverride, toas
     setLoadErr('');
     try {
       const m = await api.payrollReadinessSettings(cid);
-      setMeta(m); setVals(m.settings || {}); setCompany(m.company || '');
+      setMeta(m); setVals(m.settings || {}); setSaved(m.settings || {}); setCompany(m.company || '');
     } catch (e) { setLoadErr(e?.message || 'Could not load the thresholds.'); }
   }, []);
   // First load: the scoped company; else the default when this person may
@@ -186,17 +190,18 @@ export function ReadinessThresholds({ company: scoped, onSaved, onOverride, toas
     let live = true;
     api.payrollReadinessSettings(scoped || '').then(m => {
       if (!live) return;
-      if (!scoped && !m.canEditDefault && (m.companies || []).length) { load(m.companies[0].id); return; }
-      setMeta(m); setVals(m.settings || {}); setCompany(scoped || m.company || '');
+      if (!locked && !m.canEditDefault && (m.companies || []).length) { load(m.companies[0].id); return; }
+      setMeta(m); setVals(m.settings || {}); setSaved(m.settings || {}); setCompany(scoped || m.company || '');
     }).catch(e => { if (live) setLoadErr(e?.message || 'Could not load the thresholds.'); });
     return () => { live = false; };
-  }, [load, scoped]);
+  }, [load, scoped, locked]);
 
   async function save(reset = false) {
     setBusy(true);
     try {
       const r = await api.payrollReadinessSaveSettings({ company, settings: vals, reset });
       setVals(r.settings || vals);
+      setSaved(r.settings || vals);
       setMeta(m => ({ ...m, override: r.override }));
       toastOk?.(reset ? 'Thresholds reset to the default.' : 'Thresholds saved.');
       onSaved?.();
@@ -205,14 +210,15 @@ export function ReadinessThresholds({ company: scoped, onSaved, onOverride, toas
   }
 
   const canEdit = !!meta?.canEdit;
+  const dirty = SETTING_FIELDS.some(([k]) => String(vals[k] ?? '') !== String(saved[k] ?? ''));
   if (loadErr) return <ErrorBanner message={loadErr} onRetry={() => load(company || '')} />;
   if (!meta) return <div style={{ padding: 24, textAlign: 'center' }}><Spinner size="section" /></div>;
   return (
     <div style={{ display: 'grid', gap: 14 }}>
-      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+      <p className="nx-set-pad" style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
         A change is flagged when it is over the percent OR the hours. Each company can keep its own; a company with none uses the default.
       </p>
-      {!scoped && (meta.companies || []).length > 0 && (
+      {!locked && (meta.companies || []).length > 0 && (
         <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
           Company
           <select className="form-input" value={company ?? ''} aria-label="Company" onChange={e => load(e.target.value)} style={{ fontSize: 13 }}>
@@ -222,27 +228,30 @@ export function ReadinessThresholds({ company: scoped, onSaved, onOverride, toas
           {company && <span style={{ fontWeight: 400 }}>{meta.override ? 'This company has its own thresholds.' : 'This company uses the default.'}</span>}
         </label>
       )}
-      {scoped && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{meta.override ? 'This company has its own thresholds.' : 'This company uses the default.'}</span>}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+      {scoped && <span className="nx-set-pad" style={{ fontSize: 12, color: 'var(--muted)', paddingTop: 0 }}>{meta.override ? 'This company has its own thresholds.' : 'This company uses the default.'}</span>}
+      {/* Rows (Settings' pattern, Oct 25): the name and what it means on the left, the box on the right. */}
+      <SettingCard>
         {SETTING_FIELDS.map(([k, label, hint]) => {
           const [lo, hi] = meta.limits?.[k] || [1, 500];
           return (
-            <label key={k} style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
-              {label}
-              <input className="form-input" type="number" min={lo} max={hi} step={1} aria-label={label} disabled={!canEdit || busy}
-                value={vals[k] ?? ''} onChange={e => setVals(v => ({ ...v, [k]: e.target.value === '' ? '' : Number(e.target.value) }))}
-                style={{ fontSize: 13 }} />
-              <span style={{ fontSize: 11.5, fontWeight: 400, color: 'var(--muted)' }}>{hint}</span>
-            </label>
+            <SettingRow key={k} title={label} desc={hint}
+              control={<NumberBox label={label} min={lo} max={hi} width={84} disabled={!canEdit || busy} value={vals[k] ?? ''}
+                onChange={(v) => setVals(prev => ({ ...prev, [k]: v === '' ? '' : Number(v) }))} />} />
           );
         })}
-      </div>
+      </SettingCard>
       {!canEdit ? (
-        <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Only HR can change these.</p>
+        <p className="nx-set-pad" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
+          {locked && !company && (meta.companies || []).length
+            ? 'The default for every company is changed by an administrator. Pick your company in Applies To to set its own.'
+            : 'Only HR can change these.'}
+        </p>
       ) : (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="primary-btn" disabled={busy} onClick={() => save(false)}>{busy ? 'Saving…' : 'Save'}</button>
-          {company && meta.override && (
+        <div className="nx-set-pad" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {/* One save pattern (Oct 25): Save shows only once something changed. */}
+          {dirty && <button type="button" className="primary-btn" disabled={busy} onClick={() => save(false)}>{busy ? 'Saving…' : 'Save'}</button>}
+          {dirty && <button type="button" className="secondary-btn" disabled={busy} onClick={() => setVals(saved)}>Discard Changes</button>}
+          {!!company && !!meta.override && (
             <button type="button" className="secondary-btn" disabled={busy} onClick={() => save(true)}>Use the Default</button>
           )}
         </div>

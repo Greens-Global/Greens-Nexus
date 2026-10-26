@@ -69,7 +69,7 @@
 // component it was before the merge - only the wiring here changed.
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
-  Settings2, ChevronDown, Tag, Shield,
+  Settings2, ChevronRight, ChevronLeft, Tag, Shield,
   Headset, Bell, Mail, Building2, Timer,
   Activity, Signature, Check, Eye, X,
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
@@ -102,6 +102,7 @@ import WeeklyDigestSettings from '../components/WeeklyDigestSettings';
 import WorkforceScorecardSettings from '../components/WorkforceScorecardSettings';
 import PayrollExportCodes from '../components/PayrollExportCodes';
 import PayPremiums from '../components/PayPremiums';
+import { SwitchRow, NumberBox } from '../components/settings/SettingsUI';
 
 // Borrowed components, lazy so their home module's chunk only loads once an
 // admin actually opens that subject. One dynamic import per home module,
@@ -191,36 +192,47 @@ function SectionFallback() {
 //
 // faces: which scopes a subject has something to show for - 'org' (only at
 // "Every company"), 'company' (only with a company picked), 'both'.
+// desc is one line (Oct 25): each group card says the rest.
 const SUBJECTS = [
-  { key: 'companies',  label: 'Companies',           Icon: Building2, faces: 'both',
-    desc: 'The legal entities Nexus runs: each one\'s profile, managers and HR contact, departments and holiday calendar, and the group manager above them all.' },
-  { key: 'locations',  label: 'Locations',           Icon: MapPinned, faces: 'both',
-    desc: 'Every location employees can punch in at, with its geofence, and which companies use each one.' },
-  { key: 'access',     label: 'People & Access',     Icon: Shield, adminOnly: true, faces: 'both',
-    desc: 'Who can open which module: each person\'s access, access groups, the roles shared by every company and the full access matrix. Each company\'s own job roles are set with that company picked.' },
-  { key: 'security',   label: 'Security',            Icon: ShieldCheck, adminOnly: true, faces: 'org',
-    desc: 'How people sign in, how long sessions last, and the policy everyone accepts at sign-in.' },
-  { key: 'branding',   label: 'Branding & Email',    Icon: Palette, adminOnly: true, faces: 'both',
-    desc: 'The Nexus brand color, how every Nexus email looks, each company\'s email signature template, and the letterheads documents print on.' },
-  { key: 'emails',     label: 'Emails & Reminders',  Icon: Mail, faces: 'org',
-    desc: 'Every scheduled email Nexus sends - task emails, the daily briefing, the weekly digest, the workforce scorecard - and how early HR and asset managers are reminded.' },
-  { key: 'tickets',    label: 'Tickets',             Icon: Headset, faces: 'both',
-    desc: 'Where tickets go and who works them: routing and escalation, ticket email, response targets and ticket types, help topics, desk access, saved replies, AI features, and which tickets must name a property.' },
+  { key: 'companies', section: 'org', wide: true,  label: 'Companies',           Icon: Building2, faces: 'both',
+    desc: 'Each legal entity: its profile, managers, departments and holiday calendar.' },
+  { key: 'locations', section: 'org', wide: true,  label: 'Locations',           Icon: MapPinned, faces: 'both',
+    desc: 'Where people punch in, and each location\'s geofence.' },
+  { key: 'access', section: 'org', wide: true,     label: 'People & Access',     Icon: Shield, adminOnly: true, faces: 'both',
+    desc: 'Who can open which module, access groups and roles.' },
+  { key: 'security', section: 'org',   label: 'Security',            Icon: ShieldCheck, adminOnly: true, faces: 'org',
+    desc: 'How people sign in, how long sessions last and the policy everyone accepts.' },
+  { key: 'branding', section: 'org',   label: 'Branding & Email',    Icon: Palette, adminOnly: true, faces: 'both',
+    desc: 'The brand color, how emails look, signatures and letterheads.' },
+  { key: 'emails', section: 'comms',     label: 'Emails & Reminders',  Icon: Mail, faces: 'org',
+    desc: 'Every scheduled email and how early reminders go out.' },
+  { key: 'tickets', section: 'comms', wide: true,    label: 'Tickets',             Icon: Headset, faces: 'both',
+    desc: 'Where tickets go, who works them and how fast.' },
   // Time Clock pay rules (Charmi, Sep 30): moved off the timecard's Options popover.
-  { key: 'pay',        label: 'Time & Pay',          Icon: Clock, adminOnly: true, faces: 'both',
-    desc: 'The rules every time sheet and payroll run follow: punch rounding, the auto-lunch deduction, California paid rest breaks and minimum wage, payroll readiness, export codes, pay premiums, leave policies, time-off reasons and the Intacct nightly sync.' },
-  { key: 'analytics',  label: 'Workforce Analytics', Icon: MonitorDot, faces: 'both',
-    desc: 'How apps and websites are rated, and what each company captures about work on company computers. Every company has its own policy - pick it in the Scope box.' },
-  { key: 'shifts',     label: 'Shifts & Scheduling', Icon: CalendarClock, faces: 'both',
-    desc: 'What staff may request and see on the schedule, the team time zone and week start, time-off reasons, the shift types managers place, the groups people are scheduled in, and the weather alerts for their work sites.' },
-  { key: 'hiring',     label: 'Hiring & Onboarding', Icon: UserPlus, faces: 'both',
-    desc: 'What goes out when someone is hired, promoted or leaves, the interview questionnaires for each role, and the checklists every onboarding, promotion, offboarding and leave starts from. The Hiring board itself is only for moving candidates along.' },
-  { key: 'items',      label: 'Items & Equipment',   Icon: Package, faces: 'org',
-    desc: 'The catalog options used when adding items in Item Management.' },
-  { key: 'operations', label: 'Operations',          Icon: Warehouse, faces: 'org',
-    desc: 'How the storage facilities screens work with Cubby, and which unit types are mailboxes or not units at all.' },
+  { key: 'pay', section: 'work',        label: 'Time & Pay',          Icon: Clock, adminOnly: true, faces: 'both',
+    desc: 'The rules every time sheet and payroll run follow.' },
+  { key: 'analytics', section: 'work',  label: 'Workforce Analytics', Icon: MonitorDot, faces: 'both',
+    desc: 'App ratings, the location trail and what each company captures.' },
+  { key: 'shifts', section: 'work',     label: 'Shifts & Scheduling', Icon: CalendarClock, faces: 'both',
+    desc: 'What staff may request and see, attendance, overtime, rules and sharing.' },
+  { key: 'hiring', section: 'work',     label: 'Hiring & Onboarding', Icon: UserPlus, faces: 'both',
+    desc: 'Hiring documents, interview questions and onboarding checklists.' },
+  { key: 'items', section: 'ops',      label: 'Items & Equipment',   Icon: Package, faces: 'org',
+    desc: 'The catalog options used when adding items.' },
+  { key: 'operations', section: 'ops', label: 'Operations',          Icon: Warehouse, faces: 'org',
+    desc: 'How the storage facilities screens work with Cubby.' },
 ];
 const SUBJECT_KEYS = new Set(SUBJECTS.map(s => s.key));
+// The rail's four sections (Oct 25). `wide` subjects (whole screens: the
+// company pages, the Location Library, People & Access, the Ticket Manager)
+// use the full width; the rest read in a column (Pranshu, Sep 9: the big
+// embedded panels must not be squeezed).
+const SUBJECT_SECTIONS = [
+  { key: 'org', label: 'Organization' },
+  { key: 'comms', label: 'Communication' },
+  { key: 'work', label: 'Workforce' },
+  { key: 'ops', label: 'Operations' },
+];
 // The Global Settings categories (Sep 26 - Oct 22) and what each became, so
 // every 'global-<category>' link, bookmark and bell still lands.
 const LEGACY_SUBJECTS = {
@@ -307,7 +319,7 @@ const GROUPS = [
     sub: 'Which tickets must name the property they are about, by service area and by help topic.',
     keywords: 'property tickets required service area help topic facility unit link suggest' },
   // Time & Pay
-  { id: 'timeclock-policy', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Pay Rules',
+  { id: 'timeclock-policy', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Pay Rules', flush: true,
     sub: 'Punch rounding (off by default), the auto-lunch deduction and California paid rest breaks - the default for every time sheet, and each company\'s own.',
     keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california time sheet' },
   { id: 'payroll-export-codes', subject: 'pay', face: 'both', scope: 'company', icon: FileText, title: 'Payroll Export Codes',
@@ -316,7 +328,7 @@ const GROUPS = [
   { id: 'pay-premiums', subject: 'pay', face: 'both', scope: 'company', icon: Clock, title: 'Shift Differentials & Call-Back Pay',
     sub: 'Extra pay per hour at night, on weekends or at certain sites, and a minimum paid time when someone is called back - per company, off by default.',
     keywords: 'shift differential night weekend site premium call-back callback minimum paid hours hourly' },
-  { id: 'payroll-readiness', subject: 'pay', face: 'both', scope: 'layered', icon: ClipboardList, title: 'Payroll Readiness',
+  { id: 'payroll-readiness', subject: 'pay', face: 'both', scope: 'layered', icon: ClipboardList, title: 'Payroll Readiness', flush: true,
     sub: 'What counts as a big change or an unusual week when checking who is ready for payroll - a default, and each company\'s own.',
     keywords: 'payroll readiness thresholds percent hours big change unusual week export check flags' },
   { id: 'ca-min-wage', subject: 'pay', face: 'org', scope: 'org', icon: Clock, title: 'California Minimum Wage',
@@ -335,13 +347,35 @@ const GROUPS = [
   { id: 'app-ratings', subject: 'analytics', face: 'org', scope: 'org', icon: MonitorDot, title: 'App & Website Ratings',
     sub: 'Every application and website seen on company computers, rated productive, neutral or unproductive - the split the Workforce Analytics dashboard shows.',
     keywords: 'apps websites ratings productive neutral unproductive workforce analytics activity' },
+  // Moved out of Shift Settings (Oct 25): managers see the trail in Workforce Analytics.
+  { id: 'location-trail', subject: 'analytics', face: 'both', scope: 'layered', icon: MapPinned, title: 'Location Trail', part: 'trail', flush: true,
+    sub: 'Share each person\'s location while they are clocked in, for managers in Workforce Analytics. Off unless turned on.',
+    keywords: 'location trail gps clocked in live position map workforce analytics privacy shifts' },
   { id: 'company-policy', subject: 'analytics', face: 'company', scope: 'company', icon: MonitorDot, title: 'Workforce Analytics Policy',
     sub: 'Whether work on company computers is captured for this company, how often, and what is tracked.',
     keywords: 'workforce analytics monitoring policy capture screenshots interval tracking employee tracking' },
   // Shifts & Scheduling
-  { id: 'shift-settings', subject: 'shifts', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Shift Settings',
-    sub: 'What staff may request (open shifts, swaps, offers, time off) and see of their teammates, the team time zone, which day the week starts on, and the time-off reasons.',
-    keywords: 'shifts schedule requests swap offer open shift time off reasons time zone week start sunday monday visibility' },
+  // The shift settings are one record shown as several groups (Oct 25: one
+  // long card was hard to scan); `part` is the slice ShiftSettingsPanel
+  // shows. 'shift-settings' keeps its id so old links still land.
+  { id: 'shift-settings', subject: 'shifts', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Schedule Basics', part: 'basics', flush: true,
+    sub: 'The team time zone, the day each schedule week starts on, and the grace before a start counts as late.',
+    keywords: 'shifts schedule shift settings time zone week start sunday monday default grace late' },
+  { id: 'shift-requests', subject: 'shifts', face: 'both', scope: 'layered', icon: Users, title: 'Requests & Visibility', part: 'requests', flush: true,
+    sub: 'What staff may request - open shifts, swaps, offers, time off, releasing a shift - and what they see of their teammates.',
+    keywords: 'shifts requests swap offer open shift time off release pool across teams visibility teammates notes reasons' },
+  { id: 'shift-attendance', subject: 'shifts', face: 'both', scope: 'layered', icon: Clock, title: 'Attendance',
+    part: 'attendance', flush: true, sub: 'No-show and left-early alerts, escalating unapproved time sheets, and the break and meal reminders.',
+    keywords: 'attendance no-show no show left early escalate unapproved time sheets break reminder meal reminder california usual hours' },
+  { id: 'shift-overtime-alerts', subject: 'shifts', face: 'both', scope: 'layered', icon: Bell, title: 'Overtime Alerts', part: 'overtime', flush: true,
+    sub: 'Warn managers before someone who is clocked in reaches daily or weekly overtime.',
+    keywords: 'overtime alerts warning daily weekly managers clocked in' },
+  { id: 'shift-rules', subject: 'shifts', face: 'both', scope: 'layered', icon: ListChecks, title: 'Rules', part: 'rules', flush: true,
+    sub: 'Rest between shifts, days in a row, overtime and weekly hours - warnings on the schedule, never blocks - and the reason to share past them.',
+    keywords: 'shift rules rest days in a row daily overtime weekly overtime most hours week warnings share publish reason' },
+  { id: 'shift-sharing', subject: 'shifts', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Sharing', part: 'sharing', flush: true,
+    sub: 'Shared shifts on people\'s Outlook calendars, and asking people to confirm a shared schedule.',
+    keywords: 'sharing outlook calendar free busy confirm schedule share' },
   { id: 'shift-types', subject: 'shifts', face: 'both', scope: 'layered', icon: Clock, title: 'Shift Types',
     sub: 'The reusable shifts managers place with one click - name, code, color, times, time zone and days. A person\'s usual hours are one of these.',
     keywords: 'shifts presets shift type code color times usual hours grace break time zone days' },
@@ -392,77 +426,189 @@ function groupMatches(g, needle) {
 // (true: the company has its own; false: inherited; undefined: unknown).
 function scopeLabel(scope, company, override) {
   if (company) {
-    if (override === true) return 'Overridden';
-    if (override === false) return 'Inherited';
+    // A per-company setting has no default to inherit: it is the company's
+    // own (Custom) or still the built-in one (Default).
+    if (override === true) return scope === 'company' ? 'Custom' : 'Overridden';
+    if (override === false) return scope === 'company' ? 'Default' : 'Inherited';
     return company;
   }
-  if (scope === 'company') return 'Per company';
-  if (scope === 'layered') return 'Defaults, per company overrides';
-  return 'Every company';
+  if (scope === 'company') return 'Per Company';
+  if (scope === 'layered') return 'All Companies · Overridable';
+  return 'All Companies';
 }
 
+// Where a group's value comes from, as a quiet badge; orange when the picked
+// company has its own.
 function ScopeChip({ scope, company, override }) {
-  const own = !!company && override !== false;
-  return (
-    <span title={company && override === false ? `${company} follows the default for every company` : undefined} style={{
-      fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', whiteSpace: 'nowrap',
-      padding: '2px 7px', borderRadius: 4, border: '1px solid',
-      borderColor: own ? 'hsl(var(--color-orange))' : 'var(--line)',
-      color: own ? 'hsl(var(--color-orange))' : 'var(--muted)',
-      background: own ? 'hsla(var(--color-orange),0.08)' : 'transparent',
-    }}>
-      {scopeLabel(scope, company, override)}
-    </span>
-  );
+  const own = !!company && override === true;
+  const title = company && override === false ? `${company} follows the default${scope === 'company' ? '' : ' for every company'}` : undefined;
+  return <span className={`nx-set-badge${own ? ' is-own' : ''}`} title={title}>{scopeLabel(scope, company, override)}</span>;
 }
 
-// A setting group: a card with the group's title and description, always
-// open (Neil, Oct 23: nothing behind a click). `bare` drops the card chrome
-// for a subject's lone group, since the subject heading already names it.
-// `highlight` marks the group a link pointed at (sub '<subject>:<group>').
-function Group({ id, icon: Icon, title, sub, scope, company, override, bare = false, highlight = false, children }) {
+// A setting group (Oct 25 2026): its title and description as a heading, and
+// its controls on one card under it - always open (Neil, Oct 23: nothing
+// behind a click). `bare` drops the heading for a subject's lone group (the
+// subject header already names it); `flush` lets a panel built of rows
+// (SettingsUI) run edge to edge; `highlight` marks the group a link pointed
+// at (sub '<subject>:<group>'). The title takes focus on a jump.
+function Group({ id, title, sub, scope, company, override, bare = false, flush = false, highlight = false, footer = null, children }) {
   const ref = useRef(null);
+  // A link to a group lands on it - and stays on it while the panels above
+  // finish loading and push it down (they are lazy), until the person
+  // scrolls, types or clicks themselves, or two seconds pass.
   useEffect(() => {
-    if (highlight) ref.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    const el = ref.current;
+    if (!highlight || !el) return undefined;
+    let done = false;
+    let ours = false;   // a scroll this effect caused, not the person
+    const land = () => {
+      ours = true;
+      el.scrollIntoView?.({ block: 'start' });
+      requestAnimationFrame(() => { ours = false; });
+    };
+    land();
+    const quit = () => { done = true; };
+    const onScroll = () => { if (!ours) done = true; };   // a scrollbar drag fires no mousedown
+    const events = ['wheel', 'touchstart', 'keydown', 'mousedown'];
+    events.forEach(e => window.addEventListener(e, quit, { passive: true }));
+    window.addEventListener('scroll', onScroll, { passive: true, capture: true });
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => { if (!done) land(); }) : null;
+    ro?.observe(el.closest('.nx-set-main') || document.body);
+    const t = setTimeout(quit, 2000);
+    return () => {
+      ro?.disconnect(); clearTimeout(t);
+      events.forEach(e => window.removeEventListener(e, quit));
+      window.removeEventListener('scroll', onScroll, { capture: true });
+    };
   }, [highlight]);
-  if (bare) return <div id={`setting-${id}`} ref={ref}>{children}</div>;
+  if (bare) {
+    return (
+      <div id={`setting-${id}`} ref={ref} className="nx-set-group">
+        <div className={`nx-set-group-body${flush ? ' is-flush' : ''}`}>{children}{footer}</div>
+      </div>
+    );
+  }
   return (
-    <section id={`setting-${id}`} ref={ref} aria-label={title} data-highlight={highlight ? 'true' : undefined} style={{
-      border: `1px solid ${highlight ? 'var(--wk-brand)' : 'var(--line)'}`, borderRadius: 12, background: 'var(--card)',
-      marginBottom: 12, overflow: 'hidden', boxShadow: highlight ? '0 0 0 3px var(--wk-brand-tint)' : 'none', scrollMarginTop: 16,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px' }}>
-        <span style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-          <Icon size={14} style={{ color: 'var(--ink)' }} />
-        </span>
-        <span style={{ flex: 1, minWidth: 0 }}>
-          <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{title}</h4>
-          {sub && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>}
-        </span>
+    <section id={`setting-${id}`} ref={ref} aria-label={title} data-highlight={highlight ? 'true' : undefined}
+      className={`nx-set-group${highlight ? ' is-highlight' : ''}`}>
+      <div className="nx-set-group-head">
+        <div className="nx-set-group-head-text">
+          <h4 tabIndex={-1}>{title}</h4>
+          {sub && <p>{sub}</p>}
+        </div>
         <ScopeChip scope={scope} company={company} override={override} />
       </div>
-      <div style={{ padding: '0 18px 18px', borderTop: '1px solid var(--line)' }}><div style={{ paddingTop: 16 }}>{children}</div></div>
+      <div className={`nx-set-group-body${flush ? ' is-flush' : ''}`}>{children}{footer}</div>
     </section>
   );
 }
 
-// A company-only group asked for at "Every company": pick the company first.
-function PickCompany({ entities, onPick, what }) {
+// ── Where each company stands (Oct 25: one company picker, not four) ─────
+// A per-company setting at "Every company" lists the companies with where
+// each one stands, instead of a company select inside its panel; a layered
+// setting names the companies that keep their own under the default. Either
+// way, picking a company switches the page's Scope. One loader per group,
+// module-level so its identity never changes; `own` = differs from the
+// default (or, per company, from the built-in).
+const ownState = (own) => ({ own, label: own ? 'Own Settings' : 'Default' });
+const COMPANY_STATE = {
+  'payroll-export-codes': (cid) => api.timeExportCodesGet(cid).then((d) => {
+    const own = (d?.classes || []).some(c => c.custom) || !!d?.quickbooksCompanyName;
+    return { own, label: own ? 'Own Codes' : 'Default Codes' };
+  }),
+  'pay-premiums': (cid) => api.timePremiumsGet(cid).then((d) => {
+    if (!d?.enabled) return { own: false, label: 'Off' };
+    const n = (d.differentials || []).length;
+    const parts = [`${n} ${n === 1 ? 'Differential' : 'Differentials'}`];
+    if (d.callBack?.enabled) parts.push('Call-Back Pay');
+    return { own: true, label: `On · ${parts.join(' · ')}` };
+  }),
+  'timeclock-policy': (cid) => Promise.all([api.timeRoundingGet(cid), api.timeAutoLunchGet(cid), api.timeBreakPolicyGet(cid)])
+    .then(rules => ownState(rules.some(r => r?.hasOverride))),
+  'payroll-readiness': (cid) => api.payrollReadinessSettings(cid).then(m => ownState(!!m?.override)),
+  'time-off-reasons': (cid) => api.timeOffTypes(cid).then(r => ownState(!!r?.hasOverride)),
+  'shift-settings': (cid) => api.shiftRequestSettingsGetFor(cid).then(r => ownState(!!r?.hasOverride)),
+};
+// What the layered footer says before the names.
+const OWN_LINE = { 'shift-settings': 'Companies with shift settings of their own:' };
+// Two companies at a time per group: a subject of several groups at "Every
+// company" must not fire every company's loads at once.
+const STATE_POOL = 2;
+
+function useCompanyStates(entities, stateOf) {
+  const [states, setStates] = useState({});
+  useEffect(() => {
+    if (!stateOf) return undefined;
+    let live = true;
+    let i = 0;
+    setStates({});
+    const next = () => {
+      if (!live || i >= entities.length) return Promise.resolve();
+      const en = entities[i++];
+      return Promise.resolve().then(() => stateOf(en.id))
+        .then(st => { if (live) setStates(m => ({ ...m, [en.id]: st })); },
+          () => { if (live) setStates(m => ({ ...m, [en.id]: { own: false, label: 'Could Not Load', failed: true } })); })
+        .then(next);
+    };
+    for (let k = 0; k < STATE_POOL; k++) next();
+    return () => { live = false; };
+  }, [entities, stateOf]);
+  return states;
+}
+
+// The companies as a list to open; with `stateOf`, each says where it stands.
+function CompanyStates({ entities, stateOf = null, onPick, lead = 'Set per company. Open one to change it.' }) {
+  const states = useCompanyStates(entities, stateOf);
+  if (entities.length === 0) return <div className="nx-set-note" style={{ borderTop: 'none' }}>No companies yet - add one under Companies first.</div>;
   return (
-    <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
-      <div style={{ marginBottom: 10 }}>{what} is set per company. Pick one:</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {entities.map(en => (
-          <button key={en.id} type="button" className="secondary-btn" onClick={() => onPick(en.id)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-            <Building2 size={13} /> {en.name}
-          </button>
-        ))}
-        {entities.length === 0 && <span>No companies yet - add one under Companies first.</span>}
+    <>
+      <div className="nx-set-note" style={{ borderTop: 'none', borderBottom: '1px solid var(--line)' }}>{lead}</div>
+      <div className="nx-set-list">
+        {entities.map(en => {
+          const st = states[en.id];
+          return (
+            <button key={en.id} type="button" className="nx-set-list-item" onClick={() => onPick(en.id)} data-company-state={en.id}>
+              <span className="nx-set-tile"><Building2 size={14} /></span>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{en.name}</span>
+              {stateOf && (st ? (
+                <span className={`nx-set-badge${st.own ? ' is-own' : ''}`} style={st.failed ? { color: 'hsl(var(--color-red))' } : undefined}>{st.label}</span>
+              ) : <Spinner size={12} />)}
+              <ChevronRight size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+            </button>
+          );
+        })}
       </div>
+    </>
+  );
+}
+
+// Under a layered setting's default: which companies keep their own. Says so
+// when a company could not be checked rather than guessing it follows.
+function CompanyOverrides({ entities, stateOf, onPick, lead = 'Companies with their own:' }) {
+  const states = useCompanyStates(entities, stateOf);
+  if (entities.length === 0 || !entities.every(en => states[en.id])) return null;
+  const own = entities.filter(en => states[en.id].own);
+  const failed = entities.filter(en => states[en.id].failed).length;
+  return (
+    <div className="nx-set-note" data-company-overrides="">
+      <Building2 size={13} />
+      {own.length === 0 && !failed && 'Every company follows this default.'}
+      {own.length > 0 && (
+        <>
+          {lead}
+          {own.map((en, i) => (
+            <span key={en.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <button type="button" className="nx-set-inline-link" onClick={() => onPick(en.id)}>{en.name}</button>
+              {i < own.length - 1 && <span aria-hidden="true">·</span>}
+            </span>
+          ))}
+        </>
+      )}
+      {failed > 0 && <span>{`Could not check ${failed} ${failed === 1 ? 'company' : 'companies'}.`}</span>}
     </div>
   );
 }
+
 // Branding (accent color) was left out on Sep 9 (Pranshu: an individual's
 // own choice). The company accent itself - the one saved setting every
 // screen and the sign-in page read - now lives under Branding & Policies
@@ -638,13 +784,15 @@ function HiringSetupSection({ id, Modal, label, chrome, toastOk, toastErr, modal
 // ── A lazy panel inside the usual group card (Branding, Shifts, Checklists,
 // Operations...): its chunk loads when the subject is opened.
 // A layered panel reports whether the picked company has a value of its own
-// (`onOverride`), and the group's chip says Overridden / Inherited.
-function LazyPanelSection({ id, Panel, chrome, toastOk, toastErr, ...rest }) {
+// (`onOverride`), and the group's chip says Overridden / Inherited; `report`
+// passes it up for the subject's "Different for" line.
+function LazyPanelSection({ id, Panel, chrome, report, footer, toastOk, toastErr, ...rest }) {
   const [override, setOverride] = useState(undefined);
+  const onOverride = useCallback((v) => { setOverride(v); report?.(id, v); }, [id, report]);
   return (
-    <Group {...GROUP_META[id]} {...chrome} override={override}>
+    <Group {...GROUP_META[id]} {...chrome} override={override} footer={footer}>
       <Suspense fallback={<SectionFallback />}>
-        <Panel toastOk={toastOk} toastErr={toastErr} onOverride={setOverride} {...rest} />
+        <Panel toastOk={toastOk} toastErr={toastErr} onOverride={onOverride} {...rest} />
       </Suspense>
     </Group>
   );
@@ -1213,11 +1361,14 @@ const COMPANY_FACE_TABS = {
 };
 
 // ── Settings ─────────────────────────────────────────────────────────────────
-// Subject rail on the left (desktop) or a select (phones), the scope picker
-// and a filter box that searches every subject at once. Subject, group and
-// company live in the URL sub (see AdminConsole below); the filter text is
-// local.
-function SettingsBody({ subject, group, company, onNavigate, onDirtyChange, entities, refreshEntities, toast, toastOk, toastErr }) {
+// Desktop (Oct 25 2026): a rail of subjects in four sections that stays in
+// view, the filter at its top ('/' focuses it) and the subject on screen
+// listing its groups as jump links; the subject header sticks to the top with
+// the Scope switch in it. Phones: Settings opens on a list of the subjects
+// and a subject opens on its own page with a way back. Subject, group and
+// company live in the URL sub (see AdminConsole below); the filter text and
+// the last jump are local (a jump scrolls, it adds no history entry).
+function SettingsBody({ subject, group, company, home = false, onHome, onNavigate, onDirtyChange, entities, refreshEntities, toast, toastOk, toastErr }) {
   const { can } = useRole();
   const narrow = useIsMobile('(max-width: 900px)');
   const [query, setQuery] = useState('');
@@ -1232,9 +1383,10 @@ function SettingsBody({ subject, group, company, onNavigate, onDirtyChange, enti
   const entity = company ? entities.find(e => e.id === company) : null;
   const companyName = entity?.name || '';
   // With a company picked, only subjects with a company face are live; the
-  // rest sit under "For every company" and switch the scope back.
-  const live = useMemo(() => subjects.filter(s => !company || s.faces !== 'org'), [subjects, company]);
-  const rest = useMemo(() => subjects.filter(s => !live.includes(s)), [subjects, live]);
+  // rest stay where they are in the rail, dimmed, and open at Every company -
+  // the rail never reshuffles when the scope changes.
+  const isLive = useCallback((s) => !company || s.faces !== 'org', [company]);
+  const live = useMemo(() => subjects.filter(isLive), [subjects, isLive]);
   const activeSubject = live.find(s => s.key === subject) || live[0];
 
   // The groups a subject shows at this scope: its company face with a
@@ -1277,12 +1429,36 @@ function SettingsBody({ subject, group, company, onNavigate, onDirtyChange, enti
   const go = useCallback((target) => { setQuery(''); setPending(null); onNavigate(target); }, [onNavigate]);
   const nav = useCallback((target) => { if (dirty) setPending(target); else go(target); }, [dirty, go]);
   const pickSubject = (key) => nav({ subject: key, group: '', company });
-  const pickScope = (id) => nav({ subject: activeSubject?.key || 'companies', group: '', company: id });
+  // On the phone home list, a scope change stays on the list.
+  const pickScope = (id) => nav(narrow && home ? { home: true, company: id } : { subject: activeSubject?.key || 'companies', group: '', company: id });
+  const openSubject = (s) => (isLive(s) ? pickSubject(s.key) : nav({ subject: s.key, group: '', company: '' }));
+
+  // A jump within the subject on screen (rail links, the "Different for"
+  // line): scroll there and move focus to the group's title. Nothing
+  // unmounts, so there is nothing unsaved to ask about, and no history entry.
+  const here = `${activeSubject?.key}|${company}`;
+  const [jumped, setJumped] = useState({ at: '', id: '' });
+  const current = jumped.at === here ? jumped.id : group;
+  const jump = (g) => {
+    const el = document.getElementById(`setting-${g.id}`);
+    const calm = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    el?.scrollIntoView?.({ block: 'start', behavior: calm ? 'auto' : 'smooth' });
+    el?.querySelector?.('h4')?.focus?.({ preventScroll: true });
+    setJumped({ at: here, id: g.id });
+  };
+
+  // What each group reported about the picked company (true: its own value,
+  // false: the default), for the subject's "Different for" line.
+  const [overrides, setOverrides] = useState({});
+  const report = useCallback((id, v) => {
+    const k = `${company}|${id}`;
+    setOverrides(m => (m[k] === v ? m : { ...m, [k]: v }));
+  }, [company]);
 
   const sections = matches
     ? live.map(s => ({ s, items: matches.filter(g => g.subject === s.key) })).filter(x => x.items.length)
     : (activeSubject ? [{ s: activeSubject, items: groupsFor(activeSubject) }] : []);
-  // A subject's lone group renders bare: the subject heading already names it.
+  // A subject's lone group renders bare: the subject header already names it.
   const bareId = !matches && sections[0]?.items.length === 1 ? sections[0].items[0].id : '';
 
   function renderGroup(g) {
@@ -1294,13 +1470,30 @@ function SettingsBody({ subject, group, company, onNavigate, onDirtyChange, enti
   }
   function renderGroupBody(g) {
     const id = g.id;
-    const chrome = { bare: id === bareId, highlight: id === group, company: companyName };
+    const chrome = { bare: id === bareId, highlight: id === group, company: companyName, flush: !!g.flush };
     const key = `${id}-${company}`;
+    const pickFor = (cid) => nav({ subject: g.subject, group: id, company: cid });
+    // A per-company setting at "Every company": the companies and where each stands.
+    if (g.scope === 'company' && !company && COMPANY_STATE[id]) {
+      return (
+        <Group key={key} {...g} {...chrome} flush>
+          <CompanyStates entities={entities} stateOf={COMPANY_STATE[id]} onPick={pickFor} />
+        </Group>
+      );
+    }
+    // A layered setting at "Every company": the default, and who keeps their own.
+    const footer = g.scope === 'layered' && !company && COMPANY_STATE[id]
+      ? <CompanyOverrides entities={entities} stateOf={COMPANY_STATE[id]} onPick={pickFor} lead={OWN_LINE[id]} /> : null;
+    const layered = { report, footer };
+    // The shift settings, one slice per group.
+    if (g.part) {
+      return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} part={g.part} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+    }
     // A company-only group at "Every company": pick the company first.
     if (g.face === 'company' && !company) {
       return (
-        <Group key={key} {...g} {...chrome}>
-          <PickCompany entities={entities} what={g.title} onPick={cid => nav({ subject: g.subject, group: id, company: cid })} />
+        <Group key={key} {...g} {...chrome} flush>
+          <CompanyStates entities={entities} onPick={pickFor} lead={`${g.title} is set per company. Open one:`} />
         </Group>
       );
     }
@@ -1343,23 +1536,22 @@ function SettingsBody({ subject, group, company, onNavigate, onDirtyChange, enti
           </Group>
         );
       case 'timeclock-policy':
-        return <PayRulesSection key={key} chrome={chrome} company={company} toastOk={toastOk} toastErr={toastErr} />;
+        return <PayRulesSection key={key} chrome={chrome} company={company} {...layered} toastOk={toastOk} toastErr={toastErr} />;
       case 'hiring-documents':     return <HiringSetupSection key={key} id={id} Modal={PacketsModal} label="Open Hiring Documents" chrome={chrome} toastOk={toastOk} toastErr={toastErr} modalProps={company ? { companyId: company, lockCompany: true } : undefined} />;
-      case 'payroll-export-codes': return <LazyPanelSection key={key} id={id} Panel={PayrollExportCodes} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
-      case 'pay-premiums':         return <LazyPanelSection key={key} id={id} Panel={PayPremiums} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'payroll-export-codes': return <LazyPanelSection key={key} id={id} Panel={PayrollExportCodes} chrome={chrome} report={report} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'pay-premiums':         return <LazyPanelSection key={key} id={id} Panel={PayPremiums} chrome={chrome} report={report} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'interview-questionnaires': return <HiringSetupSection key={key} id={id} Modal={QuestionnairesModal} label="Open Questionnaires" chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'checklist-library':    return <LazyPanelSection key={key} id={id} Panel={ChecklistLibrary} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
-      case 'shift-settings':       return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'shift-types':          return <LazyPanelSection key={key} id={id} Panel={ShiftTypesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'shift-weather':        return <LazyPanelSection key={key} id={id} Panel={WeatherSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ops-cubby-push':       return <LazyPanelSection key={key} id={id} Panel={OpsSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       // Phase 3: the strays, each the component its module owns.
-      case 'payroll-readiness':    return <LazyPanelSection key={key} id={id} Panel={ReadinessThresholds} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company || undefined} />;
+      case 'payroll-readiness':    return <LazyPanelSection key={key} id={id} Panel={ReadinessThresholds} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ca-min-wage':          return <LazyPanelSection key={key} id={id} Panel={MinWageForm} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'leave-policies':       return <LazyPanelSection key={key} id={id} Panel={LeaveSetup} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
-      case 'time-off-reasons':     return <LazyPanelSection key={key} id={id} Panel={TimeOffReasons} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
-      case 'intacct-nightly':      return <LazyPanelSection key={key} id={id} Panel={IntacctNightlySync} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'time-off-reasons':     return <LazyPanelSection key={key} id={id} Panel={TimeOffReasons} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'intacct-nightly':      return <LazyPanelSection key={key} id={id} Panel={IntacctNightlySync} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} embedded />;
       case 'letterheads':          return <LazyPanelSection key={key} id={id} Panel={LetterheadsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'ticket-property-rules': return <LazyPanelSection key={key} id={id} Panel={TicketPropertyRulesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'ops-unit-rules':       return <LazyPanelSection key={key} id={id} Panel={UnitRulesPanel} chrome={chrome} />;
@@ -1368,63 +1560,107 @@ function SettingsBody({ subject, group, company, onNavigate, onDirtyChange, enti
     }
   }
 
-  const scopePicker = (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-      <Building2 size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-      <span style={{ fontSize: 12.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Scope</span>
-      <select className="form-input" aria-label="Scope" value={company} onChange={e => pickScope(e.target.value)}
-        style={{ fontSize: 12.5, minWidth: 0, flex: '1 1 180px', maxWidth: 280 }}>
+  const scopeSwitch = (
+    <div className={`nx-set-scope${company ? ' is-company' : ''}`}>
+      <Building2 size={14} style={{ color: company ? 'var(--nx-own)' : 'var(--muted)', flexShrink: 0 }} aria-hidden="true" />
+      <span className="nx-set-scope-label" aria-hidden="true">Applies To</span>
+      <select className="form-input" aria-label="Applies To" value={company} onChange={e => pickScope(e.target.value)}>
         <option value="">Every company</option>
         {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
       </select>
-    </label>
-  );
-
-  const filterBox = (
-    <div style={{ position: 'relative', minWidth: 0 }}>
-      <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
-      <input className="form-input" type="search" value={query} onChange={e => setQuery(e.target.value)}
-        placeholder="Filter settings" aria-label="Filter settings"
-        style={{ width: '100%', paddingLeft: 28, fontSize: 12.5, boxSizing: 'border-box' }} />
+      {company && (
+        <button type="button" className="nx-set-scope-clear" onClick={() => pickScope('')} aria-label="Back to every company" title="Back to every company">
+          <X size={14} />
+        </button>
+      )}
     </div>
   );
+
+  // '/' focuses the filter (TopHeader hands the key to a tagged search box).
+  const filterBox = (
+    <div className="nx-set-search">
+      <Search size={13} aria-hidden="true" />
+      <input className="form-input" type="search" value={query} onChange={e => setQuery(e.target.value)} data-slash-search=""
+        onKeyDown={e => { if (e.key === 'Escape' && query) { e.preventDefault(); setQuery(''); } }}
+        placeholder="Search settings" aria-label="Filter settings" />
+      {!query && !narrow && <kbd aria-hidden="true">/</kbd>}
+    </div>
+  );
+
+  // With a company picked: what this company does differently in the subject
+  // on screen, from what its groups reported, with jump links.
+  const shown = company && activeSubject && !matches ? groupsFor(activeSubject) : [];
+  const heard = shown.filter(g => overrides[`${company}|${g.id}`] !== undefined);
+  const different = heard.filter(g => overrides[`${company}|${g.id}`] === true);
+  const differs = heard.length > 0 && shown.length > 1 ? (
+    <div data-different-here="" className={`nx-set-diff${different.length ? ' is-own' : ''}`}>
+      {different.length === 0 ? <><Check size={14} aria-hidden="true" /> {`${companyName} follows the defaults here.`}</> : (
+        <>
+          <span style={{ color: 'var(--ink)', fontWeight: 600 }}>Different for {companyName}:</span>
+          {different.map((g, i) => (
+            <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <button type="button" onClick={() => jump(g)}>{g.title}</button>
+              {i < different.length - 1 && <span aria-hidden="true">·</span>}
+            </span>
+          ))}
+        </>
+      )}
+    </div>
+  ) : null;
 
   // With a company picked, the subject's organization-wide groups are a line
   // of links under its company face, so nothing seems to have vanished.
   const alsoOrg = company && activeSubject && !matches
     ? groups.filter(g => g.subject === activeSubject.key && g.face === 'org') : [];
 
+  const head = matches ? (
+    <div className="nx-set-head">
+      <div className="nx-set-head-text">
+        <h3>Search Results</h3>
+        <p>{`${matches.length} ${matches.length === 1 ? 'setting matches' : 'settings match'} "${query.trim()}"${company ? ` for ${companyName}` : ''}.`}</p>
+      </div>
+      {scopeSwitch}
+    </div>
+  ) : activeSubject ? (
+    <div className="nx-set-head">
+      <div className="nx-set-head-text">
+        <h3><activeSubject.Icon size={19} aria-hidden="true" style={{ color: 'var(--muted)' }} />{activeSubject.label}</h3>
+        <p>{activeSubject.desc}</p>
+      </div>
+      {scopeSwitch}
+    </div>
+  ) : null;
+
   const content = (
     <div style={{ minWidth: 0 }}>
       {sections.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>
+        <div style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 12 }}>
           {matches ? (
             <>
+              <Search size={20} style={{ marginBottom: 8, opacity: 0.6 }} aria-hidden="true" />
               <div style={{ marginBottom: 12 }}>No settings match "{query.trim()}"{company ? ` for ${companyName}` : ''}.</div>
               <button className="secondary-btn" onClick={() => setQuery('')}>Clear Filter</button>
             </>
           ) : 'Nothing to set here.'}
         </div>
       ) : sections.map(({ s, items }) => (
-        <section key={s.key} style={{ marginBottom: 20 }}>
-          <div style={{ marginBottom: 12, display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>
-                {s.label}{company && <span style={{ color: 'var(--muted)', fontWeight: 500 }}> · {companyName}</span>}
-              </h3>
-              {!matches && <p style={{ margin: '3px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>{s.desc}</p>}
-            </div>
-            {items[0]?.id === bareId && <ScopeChip scope={items[0].scope} company={companyName} />}
-          </div>
+        <section key={s.key} aria-label={matches ? s.label : undefined}>
+          {matches && (
+            <h3 style={{ margin: '4px 0 12px', fontSize: 12, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <s.Icon size={13} aria-hidden="true" /> {s.label}
+            </h3>
+          )}
+          {s === activeSubject && differs}
           {items.map(renderGroup)}
           {s === activeSubject && alsoOrg.length > 0 && (
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <Globe size={13} /> For every company:
-              {alsoOrg.map(g => (
-                <button key={g.id} type="button" onClick={() => nav({ subject: g.subject, group: g.id, company: '' })}
-                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, color: 'var(--wk-brand)', fontWeight: 600 }}>
-                  {g.title}
-                </button>
+            <div className="nx-set-diff" style={{ marginTop: -8 }}>
+              <Globe size={14} aria-hidden="true" />
+              <span>Set for every company:</span>
+              {alsoOrg.map((g, i) => (
+                <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <button type="button" className="nx-set-inline-link" onClick={() => nav({ subject: g.subject, group: g.id, company: '' })}>{g.title}</button>
+                  {i < alsoOrg.length - 1 && <span aria-hidden="true">·</span>}
+                </span>
               ))}
             </div>
           )}
@@ -1433,78 +1669,107 @@ function SettingsBody({ subject, group, company, onNavigate, onDirtyChange, enti
     </div>
   );
 
-  const railButton = ({ key, label, Icon }, { active = false, muted = false, count = null, onClick }) => (
-    <button key={key} onClick={onClick} aria-current={active ? 'page' : undefined}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px',
-        borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
-        textAlign: 'left', background: active ? 'var(--wk-brand-tint)' : 'transparent',
-        color: active ? 'var(--wk-brand)' : 'var(--ink)', fontWeight: active ? 600 : 500,
-        opacity: muted || count === 0 ? 0.45 : 1,
-      }}>
-      <Icon size={15} style={{ flexShrink: 0 }} />
-      <span style={{ flex: 1, minWidth: 0 }}>{label}</span>
-      {count > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>{count}</span>}
-    </button>
-  );
+  const wide = !matches && !!activeSubject?.wide;
+  const prompt = pending && <UnsavedChangesPrompt onKeepEditing={() => setPending(null)} onDiscard={() => go(pending)} />;
 
+  // ── Phones ──
+  if (narrow) {
+    if (home && !matches) {
+      return (
+        <>
+          <div style={{ display: 'grid', gap: 10 }}>{filterBox}{scopeSwitch}</div>
+          {SUBJECT_SECTIONS.map(sec => {
+            const items = subjects.filter(s => s.section === sec.key);
+            if (!items.length) return null;
+            return (
+              <div key={sec.key}>
+                <div className="nx-set-home-section">{sec.label}</div>
+                <div className="nx-set-card nx-set-list" role="group" aria-label={sec.label}>
+                  {items.map(s => (
+                    <button key={s.key} type="button" className="nx-set-list-item" onClick={() => openSubject(s)}
+                      style={isLive(s) ? undefined : { opacity: 0.55 }}>
+                      <span className="nx-set-tile"><s.Icon size={15} /></span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{s.label}</span>
+                        <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {isLive(s) ? s.desc : 'Set for every company'}
+                        </span>
+                      </span>
+                      <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {prompt}
+        </>
+      );
+    }
+    return (
+      <>
+        <button type="button" className="nx-set-back" onClick={() => (matches ? setQuery('') : onHome?.())}>
+          <ChevronLeft size={16} /> {matches ? 'Clear Search' : 'All Settings'}
+        </button>
+        {matches && <div style={{ marginBottom: 12 }}>{filterBox}</div>}
+        {head}
+        {content}
+        {prompt}
+      </>
+    );
+  }
+
+  // ── Desktop ──
   return (
     <>
-      {narrow ? (
-        <>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>{scopePicker}</div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-            <select className="form-input" aria-label="Subject" value={matches ? '' : (activeSubject?.key || '')}
-              onChange={e => e.target.value && (live.some(s => s.key === e.target.value) ? pickSubject(e.target.value) : nav({ subject: e.target.value, group: '', company: '' }))}
-              style={{ flex: '1 1 160px', minWidth: 0 }}>
-              {matches && <option value="" disabled>Matching Settings</option>}
-              {live.map(s => (
-                <option key={s.key} value={s.key}>{s.label}{counts ? ` (${counts[s.key] || 0})` : ''}</option>
-              ))}
-              {rest.length > 0 && (
-                <optgroup label="For every company">
-                  {rest.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-                </optgroup>
-              )}
-            </select>
-            <div style={{ flex: '1 1 160px', minWidth: 0 }}>{filterBox}</div>
-          </div>
+      <div className="nx-set-shell">
+        <nav aria-label="Settings subjects" className="nx-set-rail">
+          {filterBox}
+          {SUBJECT_SECTIONS.map(sec => {
+            const items = subjects.filter(s => s.section === sec.key);
+            if (!items.length) return null;
+            return (
+              <div key={sec.key} role="group" aria-labelledby={`nx-set-sec-${sec.key}`}>
+                <div className="nx-set-rail-section" id={`nx-set-sec-${sec.key}`}>{sec.label}</div>
+                {items.map(s => {
+                  const off = !isLive(s);
+                  const active = !matches && s === activeSubject;
+                  const inRail = active ? groupsFor(s) : [];
+                  const count = counts ? (counts[s.key] || 0) : null;
+                  return (
+                    <div key={s.key}>
+                      <button type="button" onClick={() => openSubject(s)} aria-current={active ? 'page' : undefined}
+                        title={off ? 'Set for every company - opens at Every company' : undefined}
+                        className={`nx-set-rail-item${active ? ' is-active' : ''}${off || count === 0 ? ' is-off' : ''}`}>
+                        <s.Icon size={15} style={{ flexShrink: 0 }} aria-hidden="true" />
+                        <span className="nx-set-rail-label">{s.label}</span>
+                        {off && <Globe size={12} aria-hidden="true" style={{ flexShrink: 0 }} />}
+                        {count > 0 && <span className="nx-set-rail-meta">{count}</span>}
+                      </button>
+                      {/* Jump links: the subject on screen lists its groups. */}
+                      {inRail.length > 1 && (
+                        <div role="group" aria-label={`${s.label} settings`} className="nx-set-rail-links">
+                          {inRail.map(g => (
+                            <button key={g.id} type="button" onClick={() => jump(g)} aria-current={g.id === current ? 'location' : undefined}
+                              className={`nx-set-rail-link${g.id === current ? ' is-current' : ''}`}>
+                              {g.title}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </nav>
+        <div className={`nx-set-main${wide ? '' : ' is-narrow'}`}>
+          {head}
           {content}
-        </>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr)', gap: 24, alignItems: 'start' }}>
-          <nav aria-label="Settings subjects" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <div style={{ marginBottom: 10 }}>{filterBox}</div>
-            {live.map(s => railButton(s, {
-              active: !matches && s === activeSubject, count: counts ? (counts[s.key] || 0) : null,
-              onClick: () => pickSubject(s.key),
-            }))}
-            {rest.length > 0 && (
-              <>
-                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', padding: '12px 10px 4px' }}>
-                  For every company
-                </div>
-                {rest.map(s => railButton(s, { muted: true, onClick: () => nav({ subject: s.key, group: '', company: '' }) }))}
-              </>
-            )}
-          </nav>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '10px 14px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--paper)', marginBottom: 16 }}>
-              {scopePicker}
-              <span style={{ fontSize: 12.5, color: 'var(--muted)', flex: '1 1 240px', minWidth: 0 }}>
-                {company
-                  ? `Showing what is set for ${companyName}. Switch to Every company for the settings shared by all.`
-                  : 'Showing what applies to every company. Pick a company for its own profile, locations, roles, checklists and policy.'}
-              </span>
-            </div>
-            {content}
-          </div>
         </div>
-      )}
-
-      {pending && (
-        <UnsavedChangesPrompt onKeepEditing={() => setPending(null)} onDiscard={() => go(pending)} />
-      )}
+      </div>
+      {prompt}
     </>
   );
 }
@@ -1521,7 +1786,10 @@ const TOP_TABS = [
 // Every key from before the merge still lands (see the note at the top).
 function resolveSub(sub) {
   const settings = (subject, group = '', company = '') => ({ tab: 'settings', subject, group, company });
-  if (!sub || sub === 'settings' || sub === 'global' || sub === 'company') return settings('companies');
+  // No subject named: Settings home - a list of the subjects on phones, Companies on a desktop.
+  if (!sub || sub === 'settings' || sub === 'global' || sub === 'company') return { ...settings('companies'), home: true };
+  // The phone home list with a company picked.
+  if (sub.startsWith('settings@')) return { ...settings('companies', '', sub.slice('settings@'.length)), home: true };
   if (sub === 'tools' || sub === 'audit') return { tab: sub, subject: 'companies', group: '', company: '' };
   if (sub === 'actas') return { tab: 'tools', subject: 'companies', group: '', company: '' };
   if (sub === 'access') return settings('access');
@@ -1533,7 +1801,8 @@ function resolveSub(sub) {
   if (!SUBJECT_KEYS.has(subject)) return settings('companies');
   return settings(subject, GROUP_META[group] ? group : '', company);
 }
-function buildSub({ subject, group = '', company = '' }) {
+function buildSub({ subject, group = '', company = '', home = false }) {
+  if (home) return company ? `settings@${company}` : 'settings';
   return `${subject}${group ? `:${group}` : ''}${company ? `@${company}` : ''}`;
 }
 
@@ -1573,7 +1842,8 @@ export default function AdminConsole({ activeSub, onSubChange }) {
     <div style={{ fontFamily: 'Inter, sans-serif' }}>
       {/* Icon-chip page title (Work OS grammar), matching every other module's
           .view-header instead of a bespoke h1 (Pranshu, Sep 12). */}
-      <div className="view-header" style={{ marginBottom: 18 }}>
+      {/* On a desktop the header already names the page and carries its tabs (Oct 25). */}
+      <div className="view-header nx-set-pagehead" style={{ marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
           <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Settings2 size={19} />
@@ -1599,6 +1869,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
         </Suspense>
       ) : (
         <SettingsBody subject={resolved.subject} group={resolved.group} company={resolved.company} onNavigate={navigate}
+          home={!!resolved.home} onHome={() => onSubChange?.(resolved.company ? `settings@${resolved.company}` : 'settings')}
           onDirtyChange={setSettingsDirty} entities={entities} refreshEntities={refreshEntities}
           toast={showToast} toastOk={toastOk} toastErr={toastErr} />
       )}
@@ -1623,31 +1894,29 @@ export default function AdminConsole({ activeSub, onSubChange }) {
 // the front door moved. Rounding is OFF for a new tenant; PROD keeps its own
 // saved row. Per-company scoping (one rule per hr_entities company) is
 // deferred: today each rule is one tenant-wide key.
-function PolicyCard({ title, desc, enabled, onToggle, busy, foot, children }) {
+// One pay rule (Oct 25 2026): a switch row that saves on click; its numbers
+// show under it while it is on, with a Save that appears once one changes.
+function PolicyCard({ id, title, desc, enabled, onToggle, busy, foot, children }) {
   return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: '14px 16px', marginBottom: 12 }}>
-      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: busy ? 'default' : 'pointer' }}>
-        <input type="checkbox" checked={!!enabled} disabled={busy} onChange={e => onToggle(e.target.checked)} style={{ marginTop: 3 }} />
-        <span style={{ flex: 1 }}>
-          <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{title}</span>
-          <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>{desc}</span>
-        </span>
-        {busy && <Spinner size={14} />}
-      </label>
-      {enabled && children && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 12, paddingLeft: 26 }}>{children}</div>
-      )}
-      {foot && <div style={{ marginTop: 10, paddingLeft: 26, fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{foot}</div>}
-    </div>
+    <>
+      <SwitchRow id={`pay-rule-${id}`} label={title} title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>{title}{busy && <Spinner size={12} />}</span>}
+        desc={desc} checked={enabled} disabled={busy} onChange={onToggle}>
+        {(enabled && children) || foot ? (
+          <>
+            {enabled && children}
+            {foot && <div style={{ flexBasis: '100%', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)' }}>{foot}</div>}
+          </>
+        ) : null}
+      </SwitchRow>
+    </>
   );
 }
 
-function PolicyNumber({ label, value, onChange, min = 0, max = 999, unit = 'min', width = 80 }) {
+function PolicyNumber({ label, value, onChange, min = 0, max = 999, unit = 'min', width = 76 }) {
   return (
-    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--ink)' }}>
-      <span style={{ color: 'var(--muted)' }}>{label}</span>
-      <input className="form-input" type="number" min={min} max={max} step="1" value={value} onChange={e => onChange(e.target.value)} style={{ width, fontSize: 12.5 }} />
-      <span style={{ color: 'var(--muted)' }}>{unit}</span>
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--muted)' }}>
+      {label}
+      <NumberBox value={value} onChange={onChange} min={min} max={max} unit={unit} width={width} label={label} />
     </label>
   );
 }
@@ -1710,7 +1979,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
     }
     setBusy(false);
   };
-  const useDefault = async (key) => {
+  const backToDefault = async (key) => {
     setResetting(key);
     try {
       const saved = await RULE_SETTERS[key]({ reset: true }, company);
@@ -1719,11 +1988,13 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
     } catch (e) { toastErr?.(e?.message || `Could not reset ${RULE_LABELS[key].toLowerCase()}.`); }
     setResetting('');
   };
-  // With a company picked: whose rule the card shows, and the way back to the default.
-  const foot = (key, rule) => (company ? (
+  // With a company picked, only a rule the company has of its own says so
+  // (the group's badge says Inherited otherwise), with the way back to the default.
+  const foot = (key, rule) => (company && rule.hasOverride ? (
     <>
-      {rule.hasOverride ? 'This company has a rule of its own.' : 'Using the default; a change here is this company\'s alone.'}
-      {rule.hasOverride && <button type="button" className="secondary-btn" style={{ fontSize: 11.5 }} disabled={busy || resetting === key} onClick={() => useDefault(key)}>Use the Default</button>}
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--nx-own)', flexShrink: 0 }} aria-hidden="true" />
+      This company has a rule of its own.
+      <button type="button" className="secondary-btn" style={{ fontSize: 11.5 }} disabled={busy || resetting === key} onClick={() => backToDefault(key)}>Use the Default</button>
     </>
   ) : null);
 
@@ -1732,40 +2003,36 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   const { rounding, autoLunch, breakPolicy } = draft;
   return (
     <div>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
-        {company
-          ? 'These rules shape this company\'s time sheets from the moment they are saved. A rule the company has not set follows the default for every company.'
-          : 'These rules shape every time sheet from the moment they are saved. A company can have rules of its own: pick it in the Scope box.'}
-      </div>
-      <PolicyCard title="Punch Rounding" busy={resetting === 'rounding'} enabled={rounding.enabled} foot={foot('rounding', cfg.rounding)}
+      <PolicyCard id="rounding" title="Punch Rounding" busy={resetting === 'rounding'} enabled={rounding.enabled} foot={foot('rounding', cfg.rounding)}
         desc={`Round every clock-in and clock-out to the nearest ${rounding.nearestMin || 5} minutes before computing hours (SwipeClock's model; the raw times stay on record and can be shown on the time sheet). Off by default - turn it on only if the company has a rounding policy.`}
         onToggle={on => edit('rounding', { enabled: on })}>
         <PolicyNumber label="Nearest" min={1} max={30} value={rounding.nearestMin} onChange={v => edit('rounding', { nearestMin: v })} />
       </PolicyCard>
-      <PolicyCard title="Auto-Lunch Deduction" busy={resetting === 'autoLunch'} enabled={autoLunch.enabled} foot={foot('autoLunch', cfg.autoLunch)}
+      <PolicyCard id="auto-lunch" title="Auto-Lunch Deduction" busy={resetting === 'autoLunch'} enabled={autoLunch.enabled} foot={foot('autoLunch', cfg.autoLunch)}
         desc={`Deduct ${autoLunch.deductMin} minutes of lunch from any shift longer than ${Math.round((autoLunch.afterMin || 0) / 60 * 10) / 10} hours that has no recorded break (the person forgot to clock lunch).`}
         onToggle={on => edit('autoLunch', { enabled: on })}>
         <PolicyNumber label="Shifts over" min={0} max={1440} value={autoLunch.afterMin} onChange={v => edit('autoLunch', { afterMin: v })} />
         <PolicyNumber label="Deduct" min={0} max={240} value={autoLunch.deductMin} onChange={v => edit('autoLunch', { deductMin: v })} />
       </PolicyCard>
-      <PolicyCard title="California Paid Rest Breaks" busy={resetting === 'breakPolicy'} enabled={breakPolicy.enabled} foot={foot('breakPolicy', cfg.breakPolicy)}
+      <PolicyCard id="ca-breaks" title="California Paid Rest Breaks" busy={resetting === 'breakPolicy'} enabled={breakPolicy.enabled} foot={foot('breakPolicy', cfg.breakPolicy)}
         desc={`Pay the first ${breakPolicy.paidBreakMin} minutes of each short break (up to ${breakPolicy.restMaxMin} minutes long) - one per 4 hours worked, as California requires. Meal-length breaks stay unpaid. Only employees on the California overtime rule; the long-break flags are always on.`}
         onToggle={on => edit('breakPolicy', { enabled: on })}>
         <PolicyNumber label="Paid per break" min={0} max={60} value={breakPolicy.paidBreakMin} onChange={v => edit('breakPolicy', { paidBreakMin: v })} />
         <PolicyNumber label="Rest break up to" min={1} max={120} value={breakPolicy.restMaxMin} onChange={v => edit('breakPolicy', { restMaxMin: v })} />
         <PolicyNumber label="Flag breaks over" min={15} max={600} value={breakPolicy.longBreakMin} onChange={v => edit('breakPolicy', { longBreakMin: v })} />
       </PolicyCard>
-      <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} style={{ marginTop: 4 }}
+      <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} style={{ margin: 0, padding: '12px 18px' }}
         note={company ? 'A rule saved here is this company\'s own.' : 'Saved rules shape every time sheet from then on.'} />
     </div>
   );
 }
 
-function PayRulesSection({ chrome, company, toastOk, toastErr }) {
+function PayRulesSection({ chrome, company, report, footer, toastOk, toastErr }) {
   const [override, setOverride] = useState(undefined);
+  const onOverride = useCallback((v) => { setOverride(v); report?.('timeclock-policy', v); }, [report]);
   return (
-    <Group {...GROUP_META['timeclock-policy']} {...chrome} override={override}>
-      <TimeClockPolicyPanel toastOk={toastOk} toastErr={toastErr} company={company} onOverride={setOverride} />
+    <Group {...GROUP_META['timeclock-policy']} {...chrome} override={override} footer={footer}>
+      <TimeClockPolicyPanel toastOk={toastOk} toastErr={toastErr} company={company} onOverride={onOverride} />
     </Group>
   );
 }

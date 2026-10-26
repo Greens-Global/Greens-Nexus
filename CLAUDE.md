@@ -44,7 +44,10 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 | Area | Owner | Files |
 |---|---|---|
 | Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
-| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `backend/routers/assets.py`, property models/tables |
+| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/assets.py`, `backend/routers/property_assets.py`, property models/tables |
+
+Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
+the build-notes skill refuses commits by it) - change both together.
 
 **Do not modify the other developer's files** — ask them instead.
 Shared files (`backend/models.py`, `backend/main.py` migrations list,
@@ -338,7 +341,14 @@ keep the diff minimal.
   (`global`, `global-<category>`, `company`, `access`, `actas`) still lands
   (`resolveSub`). A new setting = one `GROUPS` entry (subject, face, scope,
   keywords) + one `renderGroup` case; the panel stays the component its
-  module owns - never a second copy. Settings holds what defines the shape
+  module owns - never a second copy. Panels draw controls with
+  `components/settings/SettingsUI.jsx` (Neil, Oct 25 2026: "world class") -
+  `SwitchRow` / `SettingRow` / `NumberBox`: title and description left,
+  control right, hairline rows; a switch saves on click, typed fields save
+  through the group's one `SaveRow` (see "Settings saves one way" under
+  Frontend conventions); a group made of rows sets `flush: true`.
+  Styles are the `.nx-set-*` rules in style.css; never hand-roll another
+  switch. Settings holds what defines the shape
   of a module or a company and is changed rarely by an administrator; a
   module keeps what its managers maintain daily (Tasks > Manage, KB
   collections, Accounting's own tools stay put). Copy says "Settings >

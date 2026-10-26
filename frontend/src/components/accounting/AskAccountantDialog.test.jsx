@@ -12,6 +12,8 @@ const line = {
   journal: 'CCJ', debit: 22.46, credit: 0,
 };
 
+// The Tasks people picker's avatars carry a hover card that needs the role context.
+vi.mock('../PersonHoverCard', () => ({ default: ({ children }) => children }));
 vi.mock('../../api', () => ({
   api: {
     searchAccountingLedger: vi.fn(async () => ({ rows: [line], total: 1, debit: 22.46, credit: 0, facets: {} })),
@@ -44,8 +46,12 @@ describe('Ask My Accountant on a ledger line', () => {
     expect(within(dialog).getByText('71100 General')).toBeTruthy();
     expect(within(dialog).getByText('08/19/2026')).toBeTruthy();
     // The accountant set for the entity is picked; another can be chosen.
-    await waitFor(() => expect(within(dialog).getByLabelText('Accountant').value).toBe('charmi@greensglobal.com'));
-    fireEvent.change(within(dialog).getByLabelText('Accountant'), { target: { value: 'neil@greensglobal.com' } });
+    await waitFor(() => expect(within(dialog).getByLabelText('Accountant')).toHaveTextContent('Charmi'));
+    // The Tasks people picker: type to search, pick the match.
+    fireEvent.click(within(dialog).getByLabelText('Accountant'));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'ne' } });
+    fireEvent.click(within(screen.getByRole('listbox')).getByText('Neil'));
+    expect(within(dialog).getByLabelText('Accountant')).toHaveTextContent('Neil');
     // The question is required.
     fireEvent.click(within(dialog).getByRole('button', { name: 'Send Question' }));
     expect(await within(dialog).findByText('Type the question.')).toBeTruthy();
@@ -67,7 +73,7 @@ describe('Ask My Accountant on a ledger line', () => {
     fireEvent.click(within(entry).getByRole('button', { name: 'Ask My Accountant about this line' }));
     const dialog = await screen.findByRole('dialog', { name: 'Ask My Accountant' });
     fireEvent.change(within(dialog).getByLabelText('Question'), { target: { value: 'Personal?' } });
-    await waitFor(() => expect(within(dialog).getByLabelText('Accountant').value).toBe('charmi@greensglobal.com'));
+    await waitFor(() => expect(within(dialog).getByLabelText('Accountant')).toHaveTextContent('Charmi'));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Send Question' }));
     await waitFor(() => expect(api.askAccountant).toHaveBeenCalledWith(expect.objectContaining({ entityCode: '10001', entryId: 'e1', lineId: 'l1', journal: 'CCJ', question: 'Personal?' })));
     expect(screen.getByRole('dialog', { name: /Journal entry/ })).toBeTruthy();      // the entry stays open

@@ -268,7 +268,8 @@ export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
   const needle = q.trim().toLowerCase();
 
   const entries = Object.entries(WIDGETS).filter(([, def]) => canSee(def) && !def.hidden
-    && (!needle || def.title.toLowerCase().includes(needle) || def.cat.toLowerCase().includes(needle)));
+    && (!needle || def.title.toLowerCase().includes(needle) || def.cat.toLowerCase().includes(needle)
+      || (def.aka || []).some((a) => a.toLowerCase().includes(needle))));
   const cats = [...new Set(entries.map(([, d]) => d.cat))];
   // Which widget types are already on the view - the double-My-Agenda trap was
   // adding a widget the default layout already carried, with nothing saying so.

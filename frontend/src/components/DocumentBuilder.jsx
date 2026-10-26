@@ -33,6 +33,7 @@ import TemplateFieldsPanel from './TemplateFieldsPanel';
 import VariableLibrary from './VariableLibrary';
 import AnchoredMenu from './AnchoredMenu';
 import { Spinner } from './AsyncState';
+import { PersonSelect } from '../tasks/components';
 import { formatPacificDateTime } from '../lib/datetime';
 
 const FONT_GROUPS = {
@@ -908,6 +909,17 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
 
   const empLabel = (e) => `${e.firstName || ''} ${e.lastName || ''}`.trim() || e.workEmail || e.id;
   const activeEmployee = employees.find(e => e.id === employeeId);
+  // The merge-subject picker's rows, keyed by work email (so the photo shows)
+  // or by id for anyone without one; `id` is what the document saves.
+  const employeeRows = useMemo(() => {
+    const seen = new Set();
+    return employees.map(e => {
+      let email = (e.workEmail || '').toLowerCase();
+      if (!email || seen.has(email)) email = `id:${e.id}`.toLowerCase();
+      seen.add(email);
+      return { id: e.id, email, name: `${e.firstName || ''} ${e.lastName || ''}`.trim() || e.workEmail || e.id };
+    });
+  }, [employees]);
 
   // Manual merge-field values + custom variables (Phase 11). mergeOverrides
   // is a flat, document-scoped dict - persistent regardless of which
@@ -1882,10 +1894,10 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                   <>
                     <div>
                       <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Employee (merge subject)</label>
-                      <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={employeeId} onChange={e => changeEmployee(e.target.value)}>
-                        <option value="">None</option>
-                        {employees.map(e => <option key={e.id} value={e.id}>{empLabel(e)}</option>)}
-                      </select>
+                      <PersonSelect value={employeeRows.find(r => r.id === employeeId)?.email || null}
+                        onChange={v => { const id = employeeRows.find(r => r.email === v)?.id || ''; if (id !== employeeId) changeEmployee(id); }}
+                        people={employeeRows} placeholder="None" noneLabel="None" ariaLabel="Employee (merge subject)"
+                        style={{ height: 36, padding: '0 13px', borderRadius: 10, fontSize: 12.5, fontWeight: 400 }} />
                     </div>
                     <div>
                       <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Entity (company)</label>

@@ -20,7 +20,10 @@ import { useNameResolver } from '../../lib/useNameResolver';
 import { useRole } from '../../contexts/RoleContext';
 import { formatHHMM } from '../../lib/datetime';
 import { useListNav } from '../../lib/listNav';
+import { matchPeople } from '../../lib/peopleSearch';
+import { PersonSelect } from '../../tasks/components';
 import AsyncSection, { Spinner, SkeletonBlocks } from '../AsyncState';
+import { SettingRow, SwitchRow, NumberBox, SettingCard } from '../settings/SettingsUI';
 import { Avatar } from '../ShiftScheduleExtras';
 import { SHIFT_COLORS, orderGroups, alpha, DEFAULT_SHIFT_COLOR } from './shiftLib';
 
@@ -28,7 +31,6 @@ const DAYS = [['1', 'Mon'], ['2', 'Tue'], ['3', 'Wed'], ['4', 'Thu'], ['5', 'Fri
 const BLANK = { name: '', code: '', start_hhmm: '09:00', end_hhmm: '17:00', days: '1,2,3,4,5', grace_min: 10, break_min: 0, color: '#2563eb', timezone: 'America/Los_Angeles' };
 const MODAL_BACK = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' };
 const LBL = { fontSize: 11, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 };
-const CHECK = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer', padding: '3px 0' };
 const chip = (active) => ({ padding: '4px 10px', borderRadius: 999, border: `1px solid ${active ? 'transparent' : 'var(--wk-line2)'}`, background: active ? 'var(--wk-brand-tint)' : 'var(--card)', color: active ? 'var(--wk-brand)' : 'var(--muted)', fontSize: 12, fontWeight: active ? 700 : 500, cursor: 'pointer', fontFamily: 'inherit' });
 
 function daysLabel(csv) {
@@ -149,30 +151,74 @@ const SWITCHES = [
   ['teamShiftDetails', "Staff can see the notes, activities and breaks on teammates' shifts"],
   ['teamTimeOffReasons', 'Staff can see why a teammate is off, and their note'],
 ];
-export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverride }) {
+// Settings shows the shift settings as several groups (Oct 25: one long card
+// was hard to scan) - `part` picks one; left out, every part shows under its
+// own heading (the panel on its own). The keys say which settings a part
+// holds, so a company's group can say whether it differs from the default.
+export const SHIFT_SETTING_PARTS = {
+  basics: ['timeZone', 'weekStart', 'defaultGraceMin'],
+  requests: [...SWITCHES.map(([k]) => k), 'releaseShifts', 'releaseNeedsApproval', 'openShiftsAcrossTeams'],
+  attendance: ['noShowAlertMin', 'leftEarlyMin', 'timesheetEscalateDays', 'breakNudgeMin', 'mealReminderMin', 'noShowOnUsualHours'],
+  overtime: ['otAlertOn', 'otAlertDailyLeadMin', 'otAlertWeeklyLeadMin'],
+  rules: ['ruleMinRestHours', 'ruleMaxDaysInRow', 'ruleDailyOtHours', 'ruleWeeklyOtHours', 'ruleMaxWeekHours', 'publishReasonRequired'],
+  sharing: ['outlookCalendarOn', 'outlookShowAs', 'confirmRequests'],
+  trail: ['locationTrailOn'],
+};
+// The parts on screen at once share one request per company while it is in
+// flight, and hear each other's saves (SAVED_EVENT), so no part ever shows
+// - or acts on - a value another part has just changed.
+const inflight = new Map();
+function loadShiftSettings(company) {
+  if (!inflight.has(company)) {
+    const p = api.shiftRequestSettingsGetFor(company)
+      .catch((e) => (company ? Promise.reject(e) : api.shiftRequestsInbox().then((r) => r?.settings)))   // an older API has no GET
+      .finally(() => inflight.delete(company));
+    inflight.set(company, p);
+  }
+  return inflight.get(company);
+}
+const SAVED_EVENT = 'shifts:settings-saved';   // detail: { company, from, saved | reload }
+const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverride, part }) {
   const [company, setCompany] = useSettingsCompany(scoped);
   const locked = scoped !== undefined;
+  const show = (p) => !part || part === p;
   const [cfg, setCfg] = useState(null);
-  useEffect(() => { if (locked && company && cfg) onOverride?.(!!cfg.hasOverride); }, [locked, company, cfg, onOverride]);
+  // The defaults, for a company's part to say whether it differs from them.
+  const [defaults, setDefaults] = useState(null);
+  useEffect(() => {
+    if (!part || !locked || !company) { setDefaults(null); return undefined; }
+    let live = true;
+    loadShiftSettings('').then((r) => { if (live) setDefaults(r || {}); }).catch(() => {});
+    return () => { live = false; };
+  }, [part, locked, company]);
+  useEffect(() => {
+    if (!locked || !company || !cfg) return;
+    if (!part) { onOverride?.(!!cfg.hasOverride); return; }
+    if (defaults) onOverride?.(!!cfg.hasOverride && SHIFT_SETTING_PARTS[part].some((k) => !same(cfg[k], defaults[k])));
+  }, [locked, company, cfg, defaults, part, onOverride]);
   const [error, setError] = useState(null);
   const [tick, setTick] = useState(0);
   // Sticky across reloads so the picker stays put while a company loads.
   const [canPick, setCanPick] = useState(false);
   const [companies, setCompanies] = useState([]);
   const failed = useRef('');
-  // The typed numbers are one form (the Settings save pattern, Oct 23): a
-  // draft beside the saved values, one Save row at the foot, and only the
-  // keys that changed go to the API. The switches and selects still save
-  // the moment they change.
-  const { draft: nums, patch: patchNum, dirty: numsDirty, reset: resetNums } = useDraft(cfg ? numbersOf(cfg) : null);
+  const me = useRef({});
+  // The typed numbers of the part(s) on screen are one form (the Settings
+  // save pattern, Oct 23): a draft beside the saved values and one Save row
+  // at the foot; only the keys that changed go to the API. Switches and
+  // selects save the moment they change. Each part drafts only its own
+  // numbers, so a sibling group's save never wipes this one's edits.
+  const numKeys = NUM_KEYS.filter((k) => !part || SHIFT_SETTING_PARTS[part].includes(k));
+  const { draft: nums, patch: patchNum, dirty: numsDirty, reset: resetNums } = useDraft(cfg ? numbersOf(cfg, numKeys) : null);
   useGroupDirty(numsDirty);
   const [savingNums, setSavingNums] = useState(false);
   useEffect(() => {
     let live = true;
     setError(null);
     setCfg(null);
-    api.shiftRequestSettingsGetFor(company)
-      .catch((e) => (company ? Promise.reject(e) : api.shiftRequestsInbox().then((r) => r?.settings)))   // an older API has no GET
+    loadShiftSettings(company)
       .then((r) => {
         if (!live) return;
         const next = r || {};
@@ -185,6 +231,19 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
       .catch((e) => { if (live && (locked || !dropFailedCompany(company, setCompany, failed))) setError(e?.message || 'Could not load the settings.'); });
     return () => { live = false; };
   }, [tick, company]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const on = (e) => {
+      const d = e.detail || {};
+      if (d.from === me.current || (d.company || '') !== (company || '')) return;
+      if (d.reload) { setTick((t) => t + 1); return; }
+      // Re-read rather than take the other part's copy: two saves close
+      // together can answer out of order. The values stay on screen meanwhile.
+      if (d.saved) loadShiftSettings(company).then((r) => { if (r) setCfg(r); }).catch(() => {});
+    };
+    window.addEventListener(SAVED_EVENT, on);
+    return () => window.removeEventListener(SAVED_EVENT, on);
+  }, [company]);
+  const tell = (detail) => window.dispatchEvent(new CustomEvent(SAVED_EVENT, { detail: { company, from: me.current, ...detail } }));
   const companyName = companyNameOf(companies, company);
   // Only the key(s) that changed go to the API: a company's override stays
   // sparse (the server stores what differs from the tenant and says whether
@@ -195,15 +254,23 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
     setCfg(next);
     try {
       const r = await api.shiftRequestSettingsSaveFor(patch, company);
-      setCfg({ ...next, hasOverride: !!company, ...(r || {}) });
+      const saved = { ...next, hasOverride: !!company, ...(r || {}) };
+      setCfg(saved);
+      tell({ saved: true });
       toastOk?.(company ? `Shift settings saved for ${companyName}.` : 'Shift settings saved.');
-    } catch (e) { toastErr?.(e.message || 'Could not save the settings.'); setCfg(before); }
+    } catch (e) {
+      toastErr?.(e.message || 'Could not save the settings.');
+      setCfg(before);
+      // Another part may have saved since this one read: take the server's copy.
+      loadShiftSettings(company).then((r) => { if (r) setCfg(r); }).catch(() => {});
+    }
   }
   async function saveNums() {
     const patch = {};
-    for (const k of NUM_KEYS) {
+    const was = numbersOf(cfg, numKeys);
+    for (const k of numKeys) {
       const typed = String(nums?.[k] ?? '').trim();
-      if (typed === numbersOf(cfg)[k]) continue;
+      if (typed === was[k]) continue;
       const n = Number(typed);
       if (typed === '' || !Number.isFinite(n)) continue;
       patch[k] = Math.max(0, Math.min(NUM_MAX[k], Math.round(n)));
@@ -216,69 +283,71 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
   async function useDefaults() {
     const ok = await dialog.confirm(`Drop the shift settings ${companyName} has of its own? It then follows the default settings, and whatever changes there.`, { title: 'Use the Default', confirmText: 'Use the Default' });
     if (!ok) return;
-    try { await api.shiftRequestSettingsReset(company); toastOk?.(`${companyName} now uses the default settings.`); setTick((t) => t + 1); }
+    try { await api.shiftRequestSettingsReset(company); toastOk?.(`${companyName} now uses the default settings.`); setTick((t) => t + 1); tell({ reload: true }); }
     catch (e) { toastErr?.(e?.message || 'Could not drop the settings.'); }
   }
+  // Each part is rows (SettingsUI): in Settings the group card holds them;
+  // on its own the panel puts each part on a card under its heading.
+  const block = (key, title, rows) => (!show(key) ? null : part ? <div key={key}>{rows}</div> : (
+    <div key={key}>
+      <div style={{ ...LBL, margin: '0 2px 6px' }}>{title}</div>
+      <SettingCard>{rows}</SettingCard>
+    </div>
+  ));
+  const reasonHint = locked ? ' with the company picked in Applies To' : canPick ? ' - pick the company above first' : '';
   return (
     <div style={{ fontFamily: 'Inter,sans-serif' }}>
       {canPick && !locked && <CompanyPicker value={company} onChange={setCompany} companies={companies} hint="A company with no settings of its own follows the defaults." />}
-      <AsyncSection loading={!cfg && !error} error={!!error} onRetry={() => setTick((t) => t + 1)} errorMessage="The shift settings could not be loaded right now." skeleton={<SkeletonBlocks count={3} height={36} borderRadius={8} />}>
+      <AsyncSection loading={!cfg && !error} error={!!error} onRetry={() => setTick((t) => t + 1)} errorMessage="The shift settings could not be loaded right now." skeleton={<div style={{ padding: part ? 14 : 0 }}><SkeletonBlocks count={part ? 2 : 3} height={36} borderRadius={8} /></div>}>
         {cfg && (
-          <div style={{ display: 'grid', gap: 14 }}>
-            {company && (
-              <div style={{ fontSize: 12, border: '1px solid var(--line)', borderRadius: 10, padding: '8px 12px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', background: 'var(--card)' }}>
-                <span style={{ flex: 1, minWidth: 200, color: cfg.hasOverride ? 'var(--ink)' : 'var(--muted)' }}>
+          <div style={{ display: 'grid', gap: part ? 0 : 18 }}>
+            {company && show('basics') && (
+              <div className="nx-set-note" style={{ borderTop: 'none', borderBottom: part ? '1px solid var(--line)' : 'none', borderRadius: part ? 0 : 10, color: cfg.hasOverride ? 'var(--ink)' : 'var(--muted)' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: cfg.hasOverride ? 'var(--nx-own)' : 'var(--line)', flexShrink: 0 }} aria-hidden="true" />
+                <span style={{ flex: 1, minWidth: 200 }}>
                   {cfg.hasOverride
-                    ? `${companyName} has its own settings. Changes here apply to ${companyName} only.`
+                    ? `${companyName} has its own settings. Changes ${part ? 'in any shift group' : 'here'} apply to ${companyName} only.`
                     : `Using the default settings. Changing anything here saves settings for ${companyName} only.`}
                 </span>
                 {cfg.hasOverride && <button type="button" className="link-btn" onClick={useDefaults} style={{ marginTop: 0, color: 'var(--wk-brand)' }}>Use the Default</button>}
               </div>
             )}
-            <div>
-              <div style={LBL}>Requests And Visibility</div>
-              {SWITCHES.map(([k, text]) => (
-                <label key={k} style={CHECK}><input type="checkbox" checked={OFF_BY_DEFAULT.has(k) ? cfg[k] === true : cfg[k] !== false} onChange={(e) => save({ [k]: e.target.checked })} /> {text}</label>
-              ))}
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Trading (swaps, offers) and open shift requests are off unless turned on here.</div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Every request still needs a manager's approval. Turning one off stops new requests of that kind. A confidential time-off reason is never shown to teammates.</div>
-              {/* Shifts Phase 3b (Oct 15): staff move their own work. */}
-              <div style={{ marginTop: 10 }}>
-                <label style={CHECK}><input type="checkbox" checked={cfg.releaseShifts === true} onChange={(e) => save({ releaseShifts: e.target.checked })} /> People can release a shift to the open pool</label>
-                <label style={{ ...CHECK, paddingLeft: 24, color: cfg.releaseShifts === true ? 'var(--ink)' : 'var(--muted)', cursor: cfg.releaseShifts === true ? 'pointer' : 'default' }}>
-                  <input type="checkbox" disabled={cfg.releaseShifts !== true} checked={cfg.releaseNeedsApproval !== false} onChange={(e) => save({ releaseNeedsApproval: e.target.checked })} /> A manager approves a release
-                </label>
-                <label style={CHECK}><input type="checkbox" checked={cfg.openShiftsAcrossTeams === true} onChange={(e) => save({ openShiftsAcrossTeams: e.target.checked })} /> Open shifts can be claimed across teams</label>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off by default. Turn on per company. With approval off, a released shift goes to the open pool right away.</div>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-              <label style={{ display: 'grid', gap: 4 }}><span style={LBL}>Team Time Zone</span>
-                <ZonePick label="Team time zone" value={cfg.timeZone} onChange={(v) => save({ timeZone: v })} />
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>What a shift with no shift type runs on, and what a new shift type starts with.</span>
-              </label>
-              <label style={{ display: 'grid', gap: 4 }}><span style={LBL}>Week Starts On</span>
-                <select className="form-input" aria-label="Week starts on" value={cfg.weekStart === 'sunday' ? 'sunday' : 'monday'} onChange={(e) => save({ weekStart: e.target.value })} style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px' }}>
-                  <option value="monday">Monday</option>
-                  <option value="sunday">Sunday</option>
-                </select>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>The first column of every schedule grid.</span>
-              </label>
-              <label style={{ display: 'grid', gap: 4, maxWidth: 300 }}><span style={LBL}>Default Grace</span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <input type="number" min="0" max="120" step="1" className="form-input" aria-label="Default grace" value={nums?.defaultGraceMin ?? ''}
-                    onChange={(e) => patchNum({ defaultGraceMin: e.target.value })}
-                    style={{ width: 80, fontSize: 12.5, padding: '4px 8px' }} />
-                  <span style={{ fontSize: 12.5 }}>minutes</span>
-                </span>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Late starts this many minutes after the shift start for a shift with no shift type. A shift type carries its own grace.</span>
-              </label>
-            </div>
-            <div>
-              <div style={LBL}>Attendance</div>
-              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+            {block('requests', 'Requests And Visibility', (
+              <>
+                {SWITCHES.map(([k, text]) => (
+                  <SwitchRow key={k} id={`shift-${k}`} title={text} checked={OFF_BY_DEFAULT.has(k) ? cfg[k] === true : cfg[k] !== false} onChange={(on) => save({ [k]: on })} />
+                ))}
+                {/* Shifts Phase 3b (Oct 15): staff move their own work. */}
+                <SwitchRow id="shift-releaseShifts" title="People can release a shift to the open pool" checked={cfg.releaseShifts === true} onChange={(on) => save({ releaseShifts: on })} />
+                <SwitchRow id="shift-releaseNeedsApproval" nested title="A manager approves a release" disabled={cfg.releaseShifts !== true}
+                  desc="With approval off, a released shift goes to the open pool right away."
+                  checked={cfg.releaseNeedsApproval !== false} onChange={(on) => save({ releaseNeedsApproval: on })} />
+                <SwitchRow id="shift-openShiftsAcrossTeams" title="Open shifts can be claimed across teams" desc="Off by default. Turn on per company."
+                  checked={cfg.openShiftsAcrossTeams === true} onChange={(on) => save({ openShiftsAcrossTeams: on })} />
+                <div className="nx-set-note">Trading (swaps, offers) and open shift requests are off unless turned on here. Every request still needs a manager's approval. Turning one off stops new requests of that kind. A confidential time-off reason is never shown to teammates.</div>
+              </>
+            ))}
+            {block('basics', 'Schedule Basics', (
+              <>
+                <SettingRow title="Team Time Zone" desc="What a shift with no shift type runs on, and what a new shift type starts with."
+                  control={<ZonePick label="Team time zone" value={cfg.timeZone} onChange={(v) => save({ timeZone: v })} />} />
+                <SettingRow title="Week Starts On" desc="The first column of every schedule grid."
+                  control={(
+                    <select className="form-input" aria-label="Week starts on" value={cfg.weekStart === 'sunday' ? 'sunday' : 'monday'} onChange={(e) => save({ weekStart: e.target.value })} style={{ width: 'auto', fontSize: 13, padding: '6px 30px 6px 10px' }}>
+                      <option value="monday">Monday</option>
+                      <option value="sunday">Sunday</option>
+                    </select>
+                  )} />
+                <SettingRow title="Default Grace" desc="Late starts this many minutes after the shift start for a shift with no shift type. A shift type carries its own grace."
+                  control={<NumberBox label="Default grace" min={0} max={120} unit="minutes" value={nums?.defaultGraceMin ?? ''} onChange={(v) => patchNum({ defaultGraceMin: v })} />} />
+              </>
+            ))}
+            {block('attendance', 'Attendance', (
+              <>
                 <MinutesField label="No-Show Alert" aria="No-show alert" value={nums?.noShowAlertMin} fallback={10} onChange={(v) => patchNum({ noShowAlertMin: v })}
                   hint="Tells the person's manager, their backup manager and the team's schedulers when a shared shift has started, the grace has passed, and this many minutes have gone by with no clock-in. The alert always lands inside the six hours after the start. 0 turns it off." />
+                <SwitchRow id="shift-noShowOnUsualHours" nested title="Alert for usual hours too" checked={cfg.noShowOnUsualHours === true} onChange={(on) => save({ noShowOnUsualHours: on })}
+                  desc="Also alerts for office staff who have usual hours but no shift on the schedule that day. Time off and holidays excuse those." />
                 <MinutesField label="Left Early" aria="Left early" value={nums?.leftEarlyMin} fallback={15} onChange={(v) => patchNum({ leftEarlyMin: v })}
                   hint="Clocking out this many minutes before the shift's end counts as leaving early on the schedule." />
                 {/* Stalled Time Sheet escalation (Oct 19 2026, timesheet_alerts.py). */}
@@ -293,26 +362,27 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                 <MinutesField label={`Meal Reminder: Send at ${mealHours(cfg.mealReminderMin ?? 270)}`} aria="Meal reminder" max={295}
                   value={nums?.mealReminderMin} fallback={270} onChange={(v) => patchNum({ mealReminderMin: v })}
                   hint="Minutes of work in a day before people who work in California (hourly and salaried, with time tracking) are reminded to take their 30-minute meal break before the 5th hour. Not sent once they have taken a 30-minute meal, are on a break or have clocked out. 0 turns it off." />
-              </div>
-              <label style={{ ...CHECK, marginTop: 8 }}><input type="checkbox" checked={cfg.noShowOnUsualHours === true} onChange={(e) => save({ noShowOnUsualHours: e.target.checked })} /> Alert for usual hours too</label>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Also alerts for office staff who have usual hours but no shift on the schedule that day. Time off and holidays excuse those.</div>
-              {/* Live overtime alert (Oct 17 2026, overtime_watch.py). */}
-              <label style={{ ...CHECK, marginTop: 10 }}><input type="checkbox" checked={cfg.otAlertOn === true} onChange={(e) => save({ otAlertOn: e.target.checked })} /> Alert managers before overtime</label>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off unless turned on here. Tells the person's manager and their backup manager once, from the actual punches, when someone clocked in is about to reach overtime.</div>
-              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 8, opacity: cfg.otAlertOn === true ? 1 : 0.6 }}>
-                <MinutesField label="Daily Overtime Warning" aria="Daily overtime warning" value={nums?.otAlertDailyLeadMin} fallback={30} onChange={(v) => patchNum({ otAlertDailyLeadMin: v })}
+              </>
+            ))}
+            {block('overtime', 'Overtime Alerts', (
+              <>
+                {/* Live overtime alert (Oct 17 2026, overtime_watch.py). */}
+                <SwitchRow id="shift-otAlertOn" title="Alert managers before overtime" checked={cfg.otAlertOn === true} onChange={(on) => save({ otAlertOn: on })}
+                  desc="Off unless turned on here. Tells the person's manager and their backup manager once, from the actual punches, when someone clocked in is about to reach overtime." />
+                <MinutesField nested muted={cfg.otAlertOn !== true} label="Daily Overtime Warning" aria="Daily overtime warning" value={nums?.otAlertDailyLeadMin} fallback={30} onChange={(v) => patchNum({ otAlertDailyLeadMin: v })}
                   hint="Minutes before 8 worked hours in a day. People on the California overtime rule only. 0 turns it off." />
-                <MinutesField label="Weekly Overtime Warning" aria="Weekly overtime warning" max={480} value={nums?.otAlertWeeklyLeadMin} fallback={120} onChange={(v) => patchNum({ otAlertWeeklyLeadMin: v })}
+                <MinutesField nested muted={cfg.otAlertOn !== true} label="Weekly Overtime Warning" aria="Weekly overtime warning" max={480} value={nums?.otAlertWeeklyLeadMin} fallback={120} onChange={(v) => patchNum({ otAlertWeeklyLeadMin: v })}
                   hint="Minutes before 40 hours of regular time in a payroll week (Sunday to Saturday). 0 turns it off." />
-              </div>
-              {/* Location Trail While Clocked In (Oct 20 2026, routers/location_trail.py). */}
-              <label style={{ ...CHECK, marginTop: 10 }}><input type="checkbox" checked={cfg.locationTrailOn === true} onChange={(e) => save({ locationTrailOn: e.target.checked })} /> Location Trail While Clocked In</label>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off unless turned on here. When on, Nexus shares each person's location about every 5 minutes while they are clocked in, paused on breaks and stopped at clock out, and only when their browser already allows location. Only managers see live positions and each day's trail, in Workforce Analytics - Location Trail; employees never see a trail, their own included. Tell staff about it in your own policy. A browser cannot share while the phone screen is locked or Nexus is closed, so the trail has gaps then. Points are kept for 90 days.</div>
-            </div>
-            <div>
-              <div style={LBL}>Rules</div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 8 }}>0 turns a rule off. Rules warn on the schedule; they never block.</div>
-              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+              </>
+            ))}
+            {block('trail', 'Location Trail', (
+              // Location Trail While Clocked In (Oct 20 2026, routers/location_trail.py).
+              <SwitchRow id="shift-locationTrailOn" title="Location Trail While Clocked In" checked={cfg.locationTrailOn === true} onChange={(on) => save({ locationTrailOn: on })}
+                desc="Off unless turned on here. When on, Nexus shares each person's location about every 5 minutes while they are clocked in, paused on breaks and stopped at clock out, and only when their browser already allows location. Only managers see live positions and each day's trail, in Workforce Analytics - Location Trail; employees never see a trail, their own included. Tell staff about it in your own policy. A browser cannot share while the phone screen is locked or Nexus is closed, so the trail has gaps then. Points are kept for 90 days." />
+            ))}
+            {block('rules', 'Rules', (
+              <>
+                <div className="nx-set-note" style={{ borderTop: 'none', borderBottom: '1px solid var(--line)' }}>0 turns a rule off. Rules warn on the schedule; they never block.</div>
                 <MinutesField label="Minimum Rest Between Shifts" aria="Minimum rest between shifts" unit="hours" max={24} value={nums?.ruleMinRestHours} fallback={0} onChange={(v) => patchNum({ ruleMinRestHours: v })}
                   hint="Warns when someone's next shift starts sooner than this after their last one ends." />
                 <MinutesField label="Most Days In A Row" aria="Most days in a row" unit="days" max={14} value={nums?.ruleMaxDaysInRow} fallback={0} onChange={(v) => patchNum({ ruleMaxDaysInRow: v })}
@@ -323,27 +393,32 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                   hint="Warns when the hours scheduled in the payroll week, Sunday to Saturday, pass this - whatever day the grid starts on." />
                 <MinutesField label="Most Hours Per Week" aria="Most hours per week" unit="hours" max={100} value={nums?.ruleMaxWeekHours} fallback={0} onChange={(v) => patchNum({ ruleMaxWeekHours: v })}
                   hint="Warns when the hours scheduled in the week shown on the grid pass this. Applies to everyone." />
-              </div>
-              <label style={{ ...CHECK, marginTop: 8 }}><input type="checkbox" checked={cfg.publishReasonRequired === true} onChange={(e) => save({ publishReasonRequired: e.target.checked })} /> Require a reason to share a schedule that has warnings</label>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Rule warnings, approved time off and holidays ask for it; a pending request, availability or an overlap only shows. Managers see the reason in the history of the shifts it applies to. A company that does not want to be asked turns this off here{canPick ? ' - pick the company above first' : ''}.</div>
-            </div>
-            <div>
-              <div style={LBL}>Sharing</div>
-              <label style={CHECK}><input type="checkbox" checked={cfg.outlookCalendarOn === true} onChange={(e) => save({ outlookCalendarOn: e.target.checked })} /> Add shared shifts to people's Outlook calendars</label>
-              <label style={{ display: 'grid', gap: 4, maxWidth: 300, margin: '4px 0 6px' }}><span style={{ fontSize: 12.5, fontWeight: 600, color: cfg.outlookCalendarOn !== true ? 'var(--muted)' : 'var(--ink)' }}>Show In Outlook As</span>
-                <select className="form-input" aria-label="Show in Outlook as" disabled={cfg.outlookCalendarOn !== true} value={cfg.outlookShowAs === 'busy' ? 'busy' : 'free'} onChange={(e) => save({ outlookShowAs: e.target.value })} style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px' }}>
-                  <option value="free">Free</option>
-                  <option value="busy">Busy</option>
-                </select>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Off unless a company turns it on. Free keeps people bookable during a shift; Busy blocks the time. Each person can keep shifts out of their own calendar from My Shifts. Turning it off takes the events already added back off people's calendars.</span>
-              </label>
-              <label style={CHECK}><input type="checkbox" checked={cfg.confirmRequests !== false} onChange={(e) => save({ confirmRequests: e.target.checked })} /> Ask people to confirm a shared schedule</label>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>A share then asks each person to confirm in My Shifts; the schedule shows who has, and a manager can nudge the rest.</div>
-              <CalendarSyncStatus />
-            </div>
-            {!company && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Time-off reasons are under Time &amp; Pay &gt; Time-Off Reasons.</div>}
-            <SaveRow dirty={numsDirty} busy={savingNums} onSave={saveNums} onDiscard={resetNums} style={{ marginTop: 2 }}
-              note="Switches and lists save as you go; the numbers above save together." />
+                <SwitchRow id="shift-publishReasonRequired" title="Require a reason to share a schedule that has warnings" checked={cfg.publishReasonRequired === true} onChange={(on) => save({ publishReasonRequired: on })}
+                  desc={`Rule warnings, approved time off and holidays ask for it; a pending request, availability or an overlap only shows. Managers see the reason in the history of the shifts it applies to. A company that does not want to be asked turns this off here${reasonHint}.`} />
+              </>
+            ))}
+            {block('sharing', 'Sharing', (
+              <>
+                <SwitchRow id="shift-outlookCalendarOn" title="Add shared shifts to people's Outlook calendars" checked={cfg.outlookCalendarOn === true} onChange={(on) => save({ outlookCalendarOn: on })}
+                  desc="Off unless a company turns it on. Each person can keep shifts out of their own calendar from My Shifts. Turning it off takes the events already added back off people's calendars." />
+                <SettingRow nested muted={cfg.outlookCalendarOn !== true} title="Show In Outlook As" desc="Free keeps people bookable during a shift; Busy blocks the time."
+                  control={(
+                    <select className="form-input" aria-label="Show in Outlook as" disabled={cfg.outlookCalendarOn !== true} value={cfg.outlookShowAs === 'busy' ? 'busy' : 'free'} onChange={(e) => save({ outlookShowAs: e.target.value })} style={{ width: 'auto', fontSize: 13, padding: '6px 30px 6px 10px' }}>
+                      <option value="free">Free</option>
+                      <option value="busy">Busy</option>
+                    </select>
+                  )} />
+                <SwitchRow id="shift-confirmRequests" title="Ask people to confirm a shared schedule" checked={cfg.confirmRequests !== false} onChange={(on) => save({ confirmRequests: on })}
+                  desc="A share then asks each person to confirm in My Shifts; the schedule shows who has, and a manager can nudge the rest." />
+                <div className="nx-set-sync"><CalendarSyncStatus /></div>
+              </>
+            ))}
+            {!company && !part && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Time-off reasons are under Time &amp; Pay &gt; Time-Off Reasons.</div>}
+            {numKeys.length > 0 && (
+              <SaveRow dirty={numsDirty} busy={savingNums} onSave={saveNums} onDiscard={resetNums}
+                style={part ? { margin: 0, padding: '12px 18px' } : { marginTop: 2 }}
+                note={part ? undefined : 'Switches and lists save as you go; the numbers above save together.'} />
+            )}
           </div>
         )}
       </AsyncSection>
@@ -412,19 +487,14 @@ const NUM_DEFAULT = {
 const NUM_KEYS = Object.keys(NUM_MAX);
 // What the boxes show, as text: the saved value, else the default - so a
 // default typed back in is no change, and a blank box saves nothing.
-const numbersOf = (cfg) => Object.fromEntries(NUM_KEYS.map((k) => [k, String(cfg?.[k] ?? NUM_DEFAULT[k])]));
+const numbersOf = (cfg, keys = NUM_KEYS) => Object.fromEntries(keys.map((k) => [k, String(cfg?.[k] ?? NUM_DEFAULT[k])]));
 
-function MinutesField({ label, aria, value, fallback, max = 240, unit = 'minutes', hint, onChange }) {
+// A setting row (Oct 25): the box sits on the right with its unit after it,
+// never squeezed under it (the unit used to run over Daily Overtime After).
+function MinutesField({ label, aria, value, fallback, max = 240, unit = 'minutes', hint, onChange, nested = false, muted = false }) {
   return (
-    <label style={{ display: 'grid', gap: 4, maxWidth: 300 }}><span style={{ fontSize: 12.5, fontWeight: 600 }}>{label}</span>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <input type="number" min="0" max={max} step="1" className="form-input" aria-label={aria} value={value ?? fallback}
-          onChange={(e) => onChange(e.target.value)}
-          style={{ width: 80, fontSize: 12.5, padding: '4px 8px' }} />
-        <span style={{ fontSize: 12.5 }}>{unit}</span>
-      </span>
-      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{hint}</span>
-    </label>
+    <SettingRow title={label} desc={hint} nested={nested} muted={muted}
+      control={<NumberBox label={aria} min={0} max={max} unit={unit} value={value ?? String(fallback)} onChange={onChange} />} />
   );
 }
 
@@ -452,7 +522,6 @@ export function TimeOffReasons({ toastOk, toastErr, company = '', onOverride }) 
   const add = () => { const v = draft.trim(); if (v) save([...list, v]); };
   return (
     <div>
-      <div style={LBL}>Time-Off Reasons</div>
       <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>Vacation, Sick, Personal, Unpaid, 1/2 Day and Other are built in. Add the company's own.</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
         {list.map((r) => (
@@ -718,7 +787,8 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
         workSiteId: '', weatherDeciders: [], weatherAlerts: true, companyId: company || '' });
   };
   const toggleMember = (em) => setForm((f) => ({ ...f, members: f.members.includes(em) ? f.members.filter((x) => x !== em) : [...f.members, em] }));
-  const listed = directory.filter((p) => !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()));
+  // First-name matches first, as in every people picker (lib/peopleSearch.js).
+  const listed = matchPeople(directory, q);
   // Up / Down / Enter in the member search (lib/listNav.js), once typed.
   const memberNav = useListNav(listed, { open: !!q.trim(), query: q, onPick: (p) => toggleMember(p.email) });
 
@@ -804,11 +874,9 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
                   {(form.schedulers || []).map((em) => (
                     <button key={em} type="button" style={chip(true)} aria-label={`Remove scheduler ${who(em)}`} onClick={() => setForm({ ...form, schedulers: form.schedulers.filter((x) => x !== em) })}>{who(em)} ×</button>
                   ))}
-                  <select className="form-input" value="" aria-label="Add a scheduler" style={{ width: 'auto', fontSize: 12.5 }}
-                    onChange={(e) => { const em = e.target.value; if (em) setForm({ ...form, schedulers: [...(form.schedulers || []), em] }); }}>
-                    <option value="">Add a scheduler…</option>
-                    {directory.filter((p) => !p.external && !(form.schedulers || []).includes(p.email)).map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
-                  </select>
+                  <PersonSelect value={null} allowNone={false} placeholder="Add a scheduler…" ariaLabel="Add a scheduler" style={{ width: 240, fontSize: 12.5 }}
+                    people={directory.filter((p) => !p.external && !(form.schedulers || []).includes(p.email))}
+                    onChange={(em) => { if (em) setForm({ ...form, schedulers: [...(form.schedulers || []), em] }); }} />
                 </div>
               </div>
               <div style={{ marginTop: 14 }}>
@@ -830,11 +898,9 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
                       {(form.weatherDeciders || []).map((em) => (
                         <button key={em} type="button" style={chip(true)} aria-label={`Remove weather decider ${who(em)}`} onClick={() => setForm({ ...form, weatherDeciders: form.weatherDeciders.filter((x) => x !== em) })}>{who(em)} ×</button>
                       ))}
-                      <select className="form-input" value="" aria-label="Add a weather decider" style={{ width: 'auto', fontSize: 12.5 }}
-                        onChange={(e) => { const em = e.target.value; if (em) setForm({ ...form, weatherDeciders: [...(form.weatherDeciders || []), em] }); }}>
-                        <option value="">Add a decider…</option>
-                        {directory.filter((p) => !(form.weatherDeciders || []).includes(p.email)).map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
-                      </select>
+                      <PersonSelect value={null} allowNone={false} placeholder="Add a decider…" ariaLabel="Add a weather decider" style={{ width: 240, fontSize: 12.5 }}
+                        people={directory.filter((p) => !(form.weatherDeciders || []).includes(p.email))}
+                        onChange={(em) => { if (em) setForm({ ...form, weatherDeciders: [...(form.weatherDeciders || []), em] }); }} />
                     </div>
                   </div>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>

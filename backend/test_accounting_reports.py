@@ -66,6 +66,14 @@ class ReportsProxyTests(unittest.TestCase):
                 ]}
             if path == "/api/internal/reports/budget" and getattr(self, "budget_missing", False):
                 raise accounting.UpstreamError(404, "Accounting service returned 404")
+            if path == "/api/internal/accounts" and getattr(self, "accounts_missing", False):
+                raise accounting.UpstreamError(404, "Accounting service returned 404")
+            if path == "/api/internal/accounts":
+                return {"ok": True, "accounts": [{"account_no": "61000", "title": "Advertising", "section": "expense", "active": True, "secret": "x"},
+                                                 {"account_no": "11000", "title": "Chase", "section": "asset", "active": False}]}
+            if path == "/api/internal/reports/buckets" and getattr(self, "accounts_missing", False):
+                return {"ok": True, "rows": [{"account_no": "61000", "title": "Advertising", "section": "expense", "debit": 1, "credit": 0},
+                                             {"account_no": "61000", "title": "Advertising", "section": "expense", "debit": 2, "credit": 0}]}
             if path == "/api/internal/reports/budget":
                 return {"ok": True, "budget_id": "STD", "budgets": [], "rows": [{"account_no": "41000", "section": "revenue", "month": "2026-01-01", "amount": 10}], "total": 10}
             return {"ok": True, "rows": [], "total": 0}
@@ -91,6 +99,19 @@ class ReportsProxyTests(unittest.TestCase):
             db.commit()
         finally:
             db.close()
+
+    # CR-12: Records > General Ledger Accounts.
+    def test_accounts_list_the_chart_and_fall_back_to_the_ledger(self):
+        r = self.client.get("/accounting/accounts")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["source"], "chart")
+        self.assertEqual([a["account_no"] for a in r.json()["accounts"]], ["11000", "61000"])
+        self.assertNotIn("secret", r.json()["accounts"][0])
+        self.assertEqual(self.calls[-1], ("/api/internal/accounts", {"status": "all"}))
+        accounting._ACCT_CACHE.clear()
+        self.accounts_missing = True
+        r = self.client.get("/accounting/accounts")
+        self.assertEqual((r.json()["source"], [a["account_no"] for a in r.json()["accounts"]]), ("ledger", ["61000"]))
 
     def test_search_passes_the_dimension_filters(self):
         r = self.client.get("/accounting/search", params={"account": "12000", "from": "2026-01-01", "to": "2026-10-06", "vendor": "V05022", "departments": "9100,9200", "journals": "apj"})
@@ -186,6 +207,89 @@ class SavedReportKeysTests(unittest.TestCase):
         self.assertEqual(sorted(keys), sorted(accounting_saved._REPORTS))
         for k in keys:
             self.assertEqual(accounting_saved._config({"report": k})["report"], k)
+
+    # Oct 23 (items 05 / 11): a Report Builder definition is memorized as a
+    # versioned config; the statements' configs are checked as before.
+    def test_report_builder_configs_are_versioned(self):
+        from fastapi import HTTPException
+        good = {"kind": "builder", "version": 1, "accounts": ["60100"], "groups": [{"name": "Line 8 Advertising", "accounts": ["61000", "61010"]}]}
+        self.assertEqual(accounting_saved._config(good), good)
+        self.assertEqual(accounting_saved._config({"kind": "builder", "version": 1})["kind"], "builder")
+        for bad in (
+            {**good, "version": 2},
+            {"kind": "builder"},
+            {**good, "accounts": "60100"},
+            {**good, "accounts": [60100]},
+            {**good, "groups": [{"name": "Line 8", "accounts": "61000"}]},
+            {**good, "groups": ["Line 8"]},
+            {**good, "accounts": [f"{n:05d}" for n in range(5000)]},
+        ):
+            with self.assertRaises(HTTPException):
+                accounting_saved._config(bad)
+        # Not a builder config: still needs a known report.
+        with self.assertRaises(HTTPException):
+            accounting_saved._config({"kind": "other", "version": 1})
+
+    # CR-05 (Neil, 23 Oct): comparison columns; publishing is not sharing.
+    def test_builder_comparisons_and_published_flag(self):
+        from fastapi import HTTPException
+        good = {"kind": "builder", "version": 1, "compare": ["prior_period", "prior_year"], "published": True}
+        self.assertEqual(accounting_saved._config(good), good)
+        for bad in ({**good, "compare": ["next_year"]}, {**good, "compare": "prior_year"}, {**good, "published": "yes"}):
+            with self.assertRaises(HTTPException):
+                accounting_saved._config(bad)
+        draft = {"kind": "builder", "version": 1}
+        self.assertEqual(accounting_saved._shared_builder(draft, False), draft)
+        self.assertTrue(accounting_saved._shared_builder(draft, True)["published"])
+        statement = {"report": "pnl"}
+        self.assertEqual(accounting_saved._shared_builder(statement, True), statement)
+
+
+OTHER = "other.reports.test@greensglobal.com"
+
+
+class BuilderPublishTests(ReportsProxyTests):
+    """A viewer saves and publishes; a published report stays the author's
+    until Share With Everyone (the memorized report's `shared` flag)."""
+
+    def setUp(self):
+        super().setUp()
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusGroupMember(group_id=GROUP, email=OTHER))
+            db.commit()
+        finally:
+            db.close()
+        cache.module_grants.invalidate()
+
+    def _cleanup(self):
+        super()._cleanup()
+        db = database.SessionLocal()
+        try:
+            db.query(models.NexusGroupMember).filter(models.NexusGroupMember.email == OTHER).delete(synchronize_session=False)
+            db.query(models.AccountingSavedReport).filter(models.AccountingSavedReport.owner_email.in_((VIEWER, OTHER))).delete(synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
+
+    def test_viewer_publishes_and_shares_separately(self):
+        os.environ["NEXUS_DEV_EMAIL"] = VIEWER
+        cfg = {"kind": "builder", "version": 1, "accounts": ["61000"], "compare": ["prior_year"], "published": True}
+        r = self.client.post("/accounting/saved-reports", json={"name": "Schedule C draft", "config": cfg, "shared": False})
+        self.assertEqual(r.status_code, 201, r.text)
+        rid = r.json()["id"]
+        self.assertEqual((r.json()["shared"], r.json()["config"]["published"]), (False, True))
+        os.environ["NEXUS_DEV_EMAIL"] = OTHER
+        self.assertEqual([x for x in self.client.get("/accounting/saved-reports").json() if x["id"] == rid], [])
+        os.environ["NEXUS_DEV_EMAIL"] = VIEWER
+        self.assertEqual(self.client.patch(f"/accounting/saved-reports/{rid}", json={"shared": True}).status_code, 200)
+        os.environ["NEXUS_DEV_EMAIL"] = OTHER
+        seen = [x for x in self.client.get("/accounting/saved-reports").json() if x["id"] == rid]
+        self.assertEqual((len(seen), seen[0]["shared"], seen[0]["mine"]), (1, True, False))
+        # A draft shared straight away is published by the share.
+        os.environ["NEXUS_DEV_EMAIL"] = VIEWER
+        r = self.client.post("/accounting/saved-reports", json={"name": "Shared draft", "config": {"kind": "builder", "version": 1}, "shared": True})
+        self.assertTrue(r.json()["config"]["published"])
 
 
 if __name__ == "__main__":

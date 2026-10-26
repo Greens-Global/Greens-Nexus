@@ -43,6 +43,21 @@ describe('api network failures', () => {
     expect(err.cause).toBe(raw);
   });
 
+  it('a no-retry GET (Compensation) gets ONE attempt on a timeout and on a 5xx', async () => {
+    const raw = Object.assign(new Error('signal is aborted without reason'), { name: 'AbortError' });
+    let fetchMock = vi.fn().mockRejectedValue(raw);
+    vi.stubGlobal('fetch', fetchMock);
+    let err = await api.getCompensationPeople('2026-01', '2026-09').catch(e => e);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(err.name).toBe('AbortError');
+    expect(err.isNetworkError).toBe(true);
+    fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 502, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchMock);
+    err = await api.getCompensationPeople('2026-01', '2026-09').catch(e => e);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(err.status).toBe(502);
+  });
+
   it('an answer from the server keeps its own message and status', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false, status: 409, json: async () => ({ detail: 'Already punched in.' }),

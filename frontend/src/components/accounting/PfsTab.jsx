@@ -6,13 +6,15 @@ import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { formatDate, formatDateTime } from '../../lib/datetime';
-import { EntityPicker, ExportMenu, PopoverPanel, SelectAllCheckbox, control, usePopover } from './reportControls';
+import { ControlBar, EntityPicker, ExportMenu, PopoverPanel, SelectAllCheckbox, SyncButton, control, usePopover } from './reportControls';
+import { useTableSync } from './tableSync';
 import { downloadBlob, iso, priorMonthEnd } from './reportModel';
 import SendReportDialog from './SendReportDialog';
 import { conditionOf, refSuffix } from './pfsCondition';
 import PfsAffiliated, { PfsExecutiveProfiles } from './PfsAffiliated';
 import { US_STATES, normalizePfsDetails, zipError } from './pfsAddress';
 import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, usePfsLocks } from './PfsLock';
+import { PersonSelect } from '../../tasks/components';
 
 // Accounting -> PFS: personal financial statements (Neil, Sep 25).
 //
@@ -64,6 +66,13 @@ import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, u
 // and ZIP are three fields on both blocks (an old combined value is split on
 // read - pfsAddress.js), and the separate "Spouse or Co-Borrower" field is gone:
 // the Co-Borrower block's Name is the one source of truth.
+//
+// Oct 24 (Accounting call 10/23, item 13; Neil in the chat: "sync should be
+// table level and not just overall"): Sync beside Export reads the open
+// statement again - the file, its figures from the ledger, the statements
+// kept - past the server's short accounting cache. What is on screen stays
+// until the new figures arrive (no skeleton), and so do the tab, an open
+// editor and the date.
 
 const SECTIONS = [
   { key: 'statement', label: 'Statement' },
@@ -159,11 +168,12 @@ export default function PfsTab({ canEdit = false }) {
     loadProfiles().then((list) => setOpenId((id) => id || list.find((p) => !p.archived)?.id || ''));
   }, [loadProfiles]);
 
-  // The open profile, and its statement for the date picked.
-  const refresh = useCallback((id, date) => {
+  // The open profile, and its statement for the date picked. `keep` (Sync):
+  // the statement on screen stays until the new one arrives.
+  const refresh = useCallback((id, date, keep = false) => {
     if (!id) { setProfile(null); setStatement(null); return Promise.resolve(); }
     const mine = ++seq.current;
-    setWorking(true);
+    if (!keep) setWorking(true);
     setError('');
     // The profile shows as soon as it is read; the statement (the ledger, the
     // bank records, the schedules) follows behind a skeleton (Oct 6).
@@ -174,6 +184,10 @@ export default function PfsTab({ canEdit = false }) {
       .finally(() => { if (mine === seq.current) setWorking(false); });
   }, [markLocked]);
   useEffect(() => { setNote(''); refresh(fileOpen ? openId : '', asOf); }, [openId, asOf, refresh, fileOpen]);
+  const syncLoad = useCallback(() => refresh(fileOpen ? openId : '', asOf, true), [refresh, fileOpen, openId, asOf]);
+  const ts = useTableSync(syncLoad);
+  const [syncing, setSyncing] = useState(false);
+  const onSync = () => { setSyncing(true); Promise.resolve(ts.sync()).finally(() => setSyncing(false)); };
 
   // Oct 7 (item 28): lines whose share differs from Affiliated Entities are
   // offered once - Update or Keep - never changed silently.
@@ -322,7 +336,7 @@ export default function PfsTab({ canEdit = false }) {
       <div style={{ minWidth: 0, display: 'grid', gap: 10 }}>
         {/* Oct 7 (Neil): one bar - the guarantor, Lock Now, As of, Export; then the tabs with the Access Log beside them. */}
         <div style={{ ...card, padding: '8px 10px', display: 'grid', gap: 8 }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+          <ControlBar>
             <GuarantorPicker profiles={profiles || []} current={current} canEdit={canEdit} locks={locks} onPick={pickFile} onNew={() => setCreating(true)} onReorder={reorderProfiles} />
             {profile && fileOpen && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
@@ -350,6 +364,7 @@ export default function PfsTab({ canEdit = false }) {
                 {locks.untilOf(profile.id) && <PfsLockNow fileId={profile.id} until={locks.untilOf(profile.id)} onLocked={locks.markLocked} />}
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>As of</span>
                 <input type="date" value={asOf} aria-label="Statement date" style={control} onChange={(e) => e.target.value && setAsOf(e.target.value)} />
+                <SyncButton onSync={onSync} busy={syncing} syncedAt={ts.syncedAt} what="Statement" />
                 {/* Oct 6 (Charmi): "an option to Export to Excel and PDF and not
                     separate tabs/buttons - the exact one you had for reports".
                     Every choice keeps the statement on record and audits it. */}
@@ -361,7 +376,7 @@ export default function PfsTab({ canEdit = false }) {
                 ]} />
               </div>
             )}
-          </div>
+          </ControlBar>
           {profile && fileOpen && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderTop: '1px solid var(--border-color)', paddingTop: 8 }}>
               {profile && fileOpen ? (
@@ -1678,9 +1693,13 @@ function NewGuarantor({ onClose, onCreate }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  const pickPerson = (e, who) => {
-    const p = (people || []).find((x) => x.email === e.target.value);
+  const [picked, setPicked] = useState({ first: null, second: null });
+  const pickable = useMemo(() => (people || []).filter((p) => p.email)
+    .map((p) => ({ email: p.email.toLowerCase(), name: p.name || p.email, external: !!p.external })), [people]);
+  const pickPerson = (value, who) => {
+    const p = (people || []).find((x) => (x.email || '').toLowerCase() === value);
     if (!p) return;
+    setPicked((x) => ({ ...x, [who]: value }));
     if (who === 'first') { setName(p.name || ''); setEmail(p.email || ''); } else setSecond(p.name || '');
   };
   const save = (e) => {
@@ -1694,10 +1713,8 @@ function NewGuarantor({ onClose, onCreate }) {
     onCreate({ name: name.trim(), kind, details }).catch((err) => { setError(err?.message || 'Could not create the profile.'); setBusy(false); });
   };
   const picker = (id, who, text) => (
-    <select id={id} defaultValue="" onChange={(e) => pickPerson(e, who)} style={{ ...control, width: '100%' }} aria-label={text}>
-      <option value="">{people ? text : 'Loading People...'}</option>
-      {(people || []).map((p) => <option key={p.email} value={p.email}>{p.name}{p.companyName ? ` - ${p.companyName}` : ''}</option>)}
-    </select>
+    <PersonSelect value={picked[who]} onChange={(v) => pickPerson(v, who)} allowNone={false} id={who === 'first' ? 'pfs-new-person' : 'pfs-new-second-person'}
+      placeholder={people ? text : 'Loading People...'} people={pickable} style={{ ...control, fontWeight: 400 }} />
   );
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">

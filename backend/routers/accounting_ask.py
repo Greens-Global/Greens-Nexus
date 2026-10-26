@@ -44,6 +44,8 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import accounting_assumptions as assumptions
+import ama_review
 import models
 from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, company_of, level_for, require_module_grant, scoped_ids
 from database import SessionLocal, get_db
@@ -153,6 +155,7 @@ def line_out(r: dict) -> dict:
         "accountNo": str(r.get("gl_code") or ""), "accountTitle": r.get("account_name") or "",
         "description": r.get("description") or "", "memo": r.get("memo") or "", "party": str(party),
         "journal": r.get("journal") or "", "debit": debit, "credit": credit, "amount": _r2(debit - credit),
+        "departmentId": str(r.get("department") or ""),   # the bare code, for a reclass entry (CR-13)
     }
 
 
@@ -286,6 +289,8 @@ def _settings(db: Session) -> dict:
     return {
         "accounts": [str(a) for a in (base.accounts if base and isinstance(base.accounts, list) else [])],
         "accountants": {(r.entity_code or ""): [str(e).lower() for e in (r.accountants or []) if e] for r in rows if r.accountants},
+        # CR-13: who approves and pushes a reclass (the '' row; [] = the env fallback).
+        "bookkeepers": [str(e).lower() for e in ((base.bookkeepers if base else None) or []) if e],
     }
 
 
@@ -458,6 +463,8 @@ class AssignBody(BaseModel):
 class SettingsBody(BaseModel):
     accounts: Optional[list[str]] = None                 # None = leave as is; [] = find by title
     accountants: Optional[dict[str, list[str]]] = None   # {entity ('' = every entity): [emails]}
+    bookkeepers: Optional[list[str]] = None              # CR-13: None = leave as is; [] = the env fallback / the team's names
+    closedThrough: Optional[str] = None                  # CR-13 rework: None = leave as is; '' = the server default
 
 
 def _text(s: Optional[str], n: int) -> str:
@@ -532,10 +539,23 @@ async def list_items(entity: Optional[str] = None, from_: Optional[str] = Query(
                      "kind": "line", "source": "ama", "status": "Open", "question": "", "askedBy": "", "askedByName": "", "askedAt": "",
                      "accountant": "", "accountantName": "", "movedToAccount": "", "reclassed": False, "lastReplyAt": "", "lastReplyBy": "",
                      "lastReplyByName": "", "replies": 0})
+    # CR-13: each row's Notes and GL reclass; a pushed reclass resolves its line.
+    reviews, bookkeeper = await asyncio.to_thread(_reviews_and_role, reach, who["email"])
+    ama_review.apply_reviews(rows, reviews)
     counts = {s: sum(1 for r in rows if r["status"] == s) for s in STATUSES}
     counts["All"] = len(rows)
     return {"from": from_, "to": to, "entity": entity or "", "accounts": accounts, "autoDetected": not settings["accounts"],
-            "ledgerError": ledger_error, "rows": rows, "counts": counts, "outside": outside, "canEdit": who["editor"], "me": who["email"]}
+            "ledgerError": ledger_error, "rows": rows, "counts": counts, "outside": outside, "canEdit": who["editor"], "me": who["email"],
+            "isBookkeeper": bookkeeper, "pushToIntacct": bool(assumptions.AMA_PUSH_TO_INTACCT),
+            "reclassMode": assumptions.AMA_RECLASS_MODE, "pushBatchLimit": assumptions.AMA_PUSH_BATCH_LIMIT}
+
+
+def _reviews_and_role(reach: Optional[set], email: str) -> tuple[list[dict], bool]:
+    db = SessionLocal()
+    try:
+        return ama_review.load_reviews(db, reach, _names), ama_review.is_bookkeeper(db, email)
+    finally:
+        db.close()
 
 
 def _csv(v: Optional[str]) -> list[str]:
@@ -749,15 +769,29 @@ async def get_settings(who: dict = Depends(caller)):
             s = _settings(db)
             last = (db.query(models.AccountingAmaThread.accountant_email).filter(models.AccountingAmaThread.asked_by == me)
                     .order_by(models.AccountingAmaThread.asked_at.desc()).first())
-            people = {e for v in s["accountants"].values() for e in v} | ({last[0]} if last and last[0] else set())
-            return s, (last[0] if last else ""), _names(db, people)
+            effective = ama_review.bookkeepers(db)
+            source = ama_review.bookkeeper_source(db)
+            unmatched = ama_review.seed_bookkeepers(db)[1] if source == "seed" else []
+            people = {e for v in s["accountants"].values() for e in v} | ({last[0]} if last and last[0] else set()) | set(effective)
+            row = db.query(models.AccountingAmaSetting).filter(models.AccountingAmaSetting.entity_code == "").first()
+            return s, (last[0] if last else ""), _names(db, people), effective, source, unmatched, (row.closed_through if row else "") or ""
         finally:
             db.close()
-    s, last, names = await asyncio.to_thread(work)
+    s, last, names, effective, source, unmatched, closed = await asyncio.to_thread(work)
     accounts, error = await _accounts(who, s["accounts"])
     accountants = {k: [{"email": e, "name": names.get(e, "")} for e in v] for k, v in s["accountants"].items() if k == "" or _in(reach, k)}
     return {"accounts": accounts, "configured": s["accounts"], "autoDetected": not s["accounts"], "ledgerError": error,
-            "accountants": accountants, "lastAccountant": last, "lastAccountantName": names.get(last, ""), "canEdit": who["editor"]}
+            "accountants": accountants, "lastAccountant": last, "lastAccountantName": names.get(last, ""), "canEdit": who["editor"],
+            # CR-13: the bookkeepers - the list kept here, else the environment's.
+            "bookkeepers": [{"email": e, "name": names.get(e, "")} for e in effective],
+            "bookkeepersFromEnv": not s["bookkeepers"] and bool(effective), "isBookkeeper": me in effective,
+            # CR-13 rework (23 Oct): where the list comes from (settings | env |
+            # seed - the team's names matched on the People list), the names
+            # that matched nobody or several people, and the push guards.
+            "bookkeeperSource": source, "unmatchedBookkeepers": unmatched,
+            "closedThrough": closed, "closedThroughDefault": assumptions.AMA_BOOKS_CLOSED_THROUGH,
+            "reclassMode": assumptions.AMA_RECLASS_MODE, "pushBatchLimit": assumptions.AMA_PUSH_BATCH_LIMIT,
+            "pushToIntacct": bool(assumptions.AMA_PUSH_TO_INTACCT)}
 
 
 @router.get("/chart")
@@ -814,17 +848,40 @@ async def put_settings(body: SettingsBody, who: dict = Depends(caller)):
         if per_entity[""] and set(per_entity[""]) != set(stored):
             raise HTTPException(status_code=403, detail="Your accounting access is limited to certain entities; set the accountants of those entities.")
         per_entity.pop("")
+    keepers = None
+    if body.bookkeepers is not None:
+        # CR-13: who approves and pushes reclasses, for every entity - so it
+        # takes unlimited access, like the AMA accounts.
+        if limited:
+            raise HTTPException(status_code=403, detail="Your accounting access is limited to certain entities, and the bookkeepers approve for all of them.")
+        keepers = []
+        for e in body.bookkeepers:
+            e = (e or "").strip().lower()
+            if not e:
+                continue
+            if not _EMAIL.match(e):
+                raise HTTPException(status_code=400, detail=f"{e!r} is not an email address.")
+            if e not in keepers:
+                keepers.append(e)
+    closed = None
+    if body.closedThrough is not None:
+        # CR-13 rework: no AMA push edits an entry dated on or before this day.
+        if limited:
+            raise HTTPException(status_code=403, detail="Your accounting access is limited to certain entities, and the closed-through date covers all of them.")
+        closed = (body.closedThrough or "").strip()[:10]
+        if closed and not _ISO.match(closed):
+            raise HTTPException(status_code=400, detail="Books Closed Through must be a date.")
     me = who["email"]
 
     def work():
         db = SessionLocal()
         try:
-            for e in {x for v in per_entity.values() for x in v}:
+            for e in {x for v in per_entity.values() for x in v} | set(keepers or []):
                 if not db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == e).first():
                     raise HTTPException(status_code=400, detail=f"{e} is not on the Nexus People list.")
             now = _now()
             touched = dict(per_entity)
-            if accounts is not None:
+            if accounts is not None or keepers is not None or closed is not None:
                 touched.setdefault("", None)
             for ent, emails in touched.items():
                 row = db.query(models.AccountingAmaSetting).filter(models.AccountingAmaSetting.entity_code == ent).with_for_update().first()
@@ -833,6 +890,10 @@ async def put_settings(body: SettingsBody, who: dict = Depends(caller)):
                     db.add(row)
                 if ent == "" and accounts is not None:
                     row.accounts = accounts
+                if ent == "" and keepers is not None:
+                    row.bookkeepers = keepers
+                if ent == "" and closed is not None:
+                    row.closed_through = closed
                 if emails is not None:
                     row.accountants = emails
                 row.updated_by, row.updated_at = me, now

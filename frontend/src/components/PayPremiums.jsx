@@ -44,8 +44,10 @@ const chip = (on) => ({
 const lbl = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--muted)' };
 
 // `company` (Settings' scope picker, Oct 23) fixes the company and hides the
-// select; on its own the panel offers every company.
-export default function PayPremiums({ toastOk, toastErr, company: scoped = '' }) {
+// select; on its own the panel offers every company. Settings' group card
+// carries the title and description (Oct 25: one title per setting). With a
+// company fixed it reports whether the company pays premiums (`onOverride`).
+export default function PayPremiums({ toastOk, toastErr, company: scoped = '', onOverride }) {
   const [companies, setCompanies] = useState(null);   // null while loading
   const [company, setCompany] = useState(scoped);
   useEffect(() => { if (scoped) setCompany(scoped); }, [scoped]);
@@ -92,6 +94,7 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '' })
     setBusy(false);
   };
 
+  useEffect(() => { if (data && scoped) onOverride?.(!!data.enabled); }, [data, scoped, onOverride]);
   const dirty = !!data && !!draft && JSON.stringify(bodyOf(draft)) !== JSON.stringify(bodyOf(draftOf(data)));
   useGroupDirty(dirty);
   const setRule = (i, patch) => setDraft((d) => ({ ...d, differentials: d.differentials.map((r, j) => (j === i ? { ...r, ...patch } : r)) }));
@@ -100,13 +103,10 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '' })
   const siteName = (id) => sites.find((s) => s.id === id)?.name || id;
 
   return (
-    <div data-testid="pay-premiums" style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: '14px 16px', marginBottom: 12 }}>
+    <div data-testid="pay-premiums">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ flex: 1, minWidth: 200 }}>
-          <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>Shift Differentials and Call-Back Pay</span>
-          <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>
-            Extra pay per hour worked at night, on weekends or at certain sites, and a minimum paid time when someone is called back after clocking out. Set per company, off by default. Hourly employees only. A finalized time sheet keeps the rules it was finalized with.
-          </span>
+        <span style={{ flex: 1, minWidth: 200, fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>
+          Hourly employees only. A finalized time sheet keeps the rules it was finalized with.
         </span>
         {!scoped && companies && companies.length > 0 && (
           <select className="form-input" aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)} style={{ fontSize: 12.5, width: 'auto', maxWidth: 260 }}>
@@ -224,11 +224,14 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '' })
               </div>
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-            <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={busy || !dirty} onClick={save}>Save</button>
-            <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={busy || !dirty}
-              onClick={() => setDraft(draftOf(data))}>Discard Changes</button>
-          </div>
+          {/* One save pattern (Oct 25): Save shows only once something changed. */}
+          {dirty && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={busy} onClick={save}>Save</button>
+              <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={busy}
+                onClick={() => setDraft(draftOf(data))}>Discard Changes</button>
+            </div>
+          )}
         </>
       )}
     </div>

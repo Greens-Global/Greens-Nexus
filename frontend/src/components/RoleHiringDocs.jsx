@@ -6,20 +6,17 @@
 // - printed wherever a document uses Role Description - and names the
 // documents it brings: each one either added to whatever packet the hire
 // gets, or replacing one of that packet's (the standard confidentiality
-// agreement). The duties are edited in Set Up Hiring's Job Description popup
-// (Oct 23): a Standard text plus versions by Hired As, place and company.
+// agreement).
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Save, FileText } from 'lucide-react';
 import { api } from '../api';
 import { Spinner } from './AsyncState';
-import RoleDutiesModal from './hiring/RoleDutiesModal';
 
 const lbl = { display: 'block', fontSize: 12, fontWeight: 700, margin: '14px 0 6px' };
 const hint = { fontSize: 12, color: 'var(--muted)', lineHeight: 1.5, marginTop: 4 };
 
 export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
   const [duties, setDuties] = useState(role.job_description || '');
-  const [editingDuties, setEditingDuties] = useState(false);
   const [docs, setDocs] = useState(() => (role.hiring_docs || []).map(d => ({ templateId: d.templateId, replaces: d.replaces || '' })));
   const [templates, setTemplates] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -27,7 +24,8 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
     api.getDocTemplates({ status: 'active' }).then(r => setTemplates(Array.isArray(r) ? r : (r?.templates || []))).catch(() => setTemplates([]));
   }, []);
   const byId = useMemo(() => Object.fromEntries((templates || []).map(t => [t.id, t])), [templates]);
-  const dirty = JSON.stringify(docs) !== JSON.stringify((role.hiring_docs || []).map(d => ({ templateId: d.templateId, replaces: d.replaces || '' })));
+  const dirty = duties !== (role.job_description || '')
+    || JSON.stringify(docs) !== JSON.stringify((role.hiring_docs || []).map(d => ({ templateId: d.templateId, replaces: d.replaces || '' })));
   const incomplete = docs.some(d => !d.templateId);
   const setDoc = (i, patch) => setDocs(list => list.map((d, j) => (j === i ? { ...d, ...patch } : d)));
 
@@ -35,7 +33,7 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
     if (incomplete) { toastErr('Pick a document on every row, or remove the empty row.'); return; }
     setBusy(true);
     try {
-      const saved = await api.updateJobRole(role.id, { hiring_docs: docs });
+      const saved = await api.updateJobRole(role.id, { job_description: duties, hiring_docs: docs });
       onSaved?.(saved);
       toastOk('Saved - every packet this role is hired with now uses these.');
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
@@ -44,18 +42,11 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
 
   return (
     <div style={{ marginTop: 6 }}>
-      <div style={lbl}>Job Description (Duties)</div>
-      <div style={{ fontSize: 13, whiteSpace: 'pre-line', color: duties ? 'var(--ink)' : 'var(--muted)', border: '1px solid var(--line)', borderRadius: 8, padding: 10, maxHeight: 120, overflow: 'hidden' }}>
-        {duties || 'Not written yet.'}
-      </div>
-      <div style={{ ...hint, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
-        <span style={{ flex: 1 }}>Printed wherever a hiring document uses <b>Role Description</b>, so one Job Description document serves every role. Contractors, part-time staff or another place can get their own version.</span>
-        <button type="button" className="secondary-btn" onClick={() => setEditingDuties(true)}>Edit Job Description</button>
-      </div>
-      {editingDuties && (
-        <RoleDutiesModal roleId={role.id} entityId={role.company_id || ''} toastErr={toastErr}
-          onClose={() => { setEditingDuties(false); api.getRoleDuties(role.id, role.company_id || '').then(d => setDuties(d.versions?.[0]?.text || '')).catch(() => {}); }} />
-      )}
+      <label style={lbl} htmlFor={`jd-${role.id}`}>Job Description (Duties)</label>
+      <textarea id={`jd-${role.id}`} className="form-input" rows={6} style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+        value={duties} onChange={e => setDuties(e.target.value)}
+        placeholder={`What a ${role.name} does - duties, responsibilities, requirements.`} />
+      <div style={hint}>Printed wherever a hiring document uses <b>Role Description</b>, so one Job Description document serves every role.</div>
 
       <div style={{ ...lbl, marginTop: 20 }}>Role Documents</div>
       <div style={hint}>
@@ -77,7 +68,6 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
               <select aria-label="Replaces" className="form-input" style={{ flex: '1 1 180px', minWidth: 0 }} value={d.replaces}
                 onChange={e => setDoc(i, { replaces: e.target.value })}>
                 <option value="">Added To The Packet</option>
-                <option value="@jd">Replaces: Job Description</option>
                 {(templates || []).filter(t => t.id !== d.templateId).map(t => <option key={t.id} value={t.id}>Replaces {t.name}</option>)}
               </select>
               <button type="button" className="secondary-btn" onClick={() => setDocs(list => list.filter((_, j) => j !== i))}

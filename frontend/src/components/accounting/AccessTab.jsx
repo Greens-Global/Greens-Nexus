@@ -7,6 +7,7 @@ import { useNameResolver } from '../../lib/useNameResolver';
 import { usePhotoMap } from '../../lib/peoplePhotos';
 import { formatDateTime } from '../../lib/datetime';
 import { control, entityOptions } from './reportControls';
+import { PersonSelect } from '../../tasks/components';
 
 // Accounting -> Access (Neil, Sep 25): "even the accounting team should only
 // have access to certain items ... different people at different levels on
@@ -222,10 +223,11 @@ export default function AccessTab() {
                 <h4 style={{ fontSize: '0.88rem', margin: 0 }}>PFS Access Without Accounting</h4>
                 <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 2 }}>Personal financial statements open only for owners and the people given PFS access, and only the PFS picked for them. A borrower does not see their own file without it.</div>
               </div>
-              <select value="" aria-label="Give PFS Access to a Person" onChange={(e) => { const v = e.target.value; if (v) setPfsExtra((x) => [...x, v]); }} style={{ ...control, maxWidth: 280 }}>
-                <option value="">Give PFS Access to a Person...</option>
-                {pfsCandidates.map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
-              </select>
+              <div style={{ width: 280, maxWidth: '100%' }}>
+                <PersonSelect addButton value={null} onChange={(v) => { if (v) setPfsExtra((x) => [...x, v]); }} ariaLabel="Give PFS Access to a Person"
+                  placeholder="Give PFS Access to a Person..." people={pfsCandidates.map((p) => ({ email: p.email, name: p.name }))}
+                  style={{ ...control, borderRadius: '8px 0 0 8px', fontWeight: 400 }} />
+              </div>
             </div>
             {pfsOnly.length > 0 ? (
               <div className="acct-lines-wrap">

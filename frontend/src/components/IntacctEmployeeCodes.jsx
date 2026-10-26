@@ -33,8 +33,9 @@ function Chip({ action }) {
 
 // Settings > Time & Pay > Intacct Nightly Sync (Oct 23): the switch per
 // company and the last run. `company` (Settings' scope picker) shows one.
-// The sync modal below shows it too.
-export function IntacctNightlySync({ company = '', toastOk, toastErr }) {
+// The sync modal below shows it too. `embedded` (Settings) drops the heading:
+// the group card already carries it (Oct 25: one title per setting).
+export function IntacctNightlySync({ company = '', embedded = false, toastOk, toastErr }) {
   const [settings, setSettings] = useState(null);
   useEffect(() => {
     let live = true;
@@ -54,7 +55,7 @@ export function IntacctNightlySync({ company = '', toastOk, toastErr }) {
   const companies = (settings?.companies || []).filter(c => !company || c.id === company);
   return (
     <div>
-      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Automatic Nightly Sync</div>
+      {!embedded && <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Automatic Nightly Sync</div>}
       <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
         Once a night, for the companies switched on: fills or updates codes only for work email matches whose Nexus code is empty or was set by this sync. Everything else waits for HR to review on People &gt; Sync Employee Codes From Intacct.
       </p>

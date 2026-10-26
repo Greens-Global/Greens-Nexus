@@ -6,6 +6,7 @@ import { useAccountingPrefs } from './prefs';
 import { control } from './reportControls';
 import { csvRows, reportFileName } from './reportModel';
 import FolderPickModal from '../../egnyte/EgnyteFolderPick';
+import { PersonSelect } from '../../tasks/components';
 
 // Export -> Email / Save to Egnyte / Share (Charmi, call of 09/29). The
 // statement on screen becomes a file here (PDF or Excel, exactly what the
@@ -214,10 +215,8 @@ export default function SendReportDialog({ mode, result, entities, title, config
             <>
               <div>
                 <label style={label} htmlFor="send-person">Share With</label>
-                <select id="send-person" value={recipient} onChange={(e) => setRecipient(e.target.value)} style={{ ...control, width: '100%' }} autoFocus>
-                  <option value="">Pick a person...</option>
-                  {people.map((p) => <option key={p.email} value={p.email}>{p.name || 'Unnamed'}</option>)}
-                </select>
+                <PersonSelect id="send-person" autoFocus value={recipient || null} onChange={(v) => setRecipient(v || '')} allowNone={false} placeholder="Pick a person..."
+                  people={people.map((p) => ({ email: p.email, name: p.name || 'Unnamed' }))} style={{ ...control, fontWeight: 400 }} />
               </div>
               <div>
                 <label style={label} htmlFor="send-name">Saved As</label>
