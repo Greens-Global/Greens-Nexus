@@ -148,7 +148,7 @@ export const IMPL_PHASES = [
       ]},
       { title: 'Optional: Teams status and Outlook shift calendars', where: 'Microsoft Entra admin center (client tenant)', items: [
         'For Teams status on Team > Contact, add the Presence.Read.All application permission and grant admin consent (docs/Teams-Presence-Setup.md). Until then Contact simply shows no status.',
-        'To put shared shifts on Outlook calendars, add Calendars.ReadWrite (application) and grant consent (docs/Outlook-Calendar-Setup.md). Nothing is written until a company also turns it on in Shift Settings.',
+        'To put shared shifts on Outlook calendars, add Calendars.ReadWrite (application) and grant consent (docs/Outlook-Calendar-Setup.md). Nothing is written until a company also turns it on in Settings > Shifts & Scheduling > Sharing.',
       ]},
     ],
     checks: [
@@ -361,8 +361,8 @@ export const IMPL_PHASES = [
       { title: 'California staff', where: 'People > the person > Pay & Benefits', view: 'hr', sub: 'hr-people', items: [
         'For hourly staff on the California rule who waive meal periods: Send Waiver to Sign. California Review on People > Time > Payroll then checks each period.',
       ]},
-      { title: 'Time off', where: 'Settings > Shifts & Scheduling > Shift Settings', view: 'admin-console', sub: 'shifts:shift-settings', items: [
-        'With the Company picker on All Companies (Default), add the time-off reasons the client uses - one list for every company. Requests route to the person’s manager; approved time off is not punched in automatically.',
+      { title: 'Time off', where: 'Settings > Time & Pay > Time-Off Reasons', view: 'admin-console', sub: 'pay:time-off-reasons', items: [
+        'With the Scope box on Every company, add the time-off reasons the client uses - one list for every company. Requests route to the person’s manager; approved time off is not punched in automatically.',
       ]},
       { title: 'Monitoring computers', where: 'Workforce Analytics', view: 'employee-tracking', items: [
         'If monitoring is on: enroll each company computer (desktop agent), or have people share their screen in Chrome when clocking in.',
@@ -405,10 +405,10 @@ export const IMPL_PHASES = [
       'Outdoor crews only: which companies get weather alerts, and each group’s work site and weather deciders.',
     ],
     steps: [
-      { title: 'Shift settings', where: 'Settings > Shifts & Scheduling > Shift Settings', view: 'admin-console', sub: 'shifts:shift-settings', items: [
-        'Pick the Company, or All Companies (Default) for the defaults; a company with none of its own follows the defaults.',
-        'Requests And Visibility, Team Time Zone, Week Starts On and Default Grace.',
-        'Attendance (No-Show Alert, Left Early, Alert for usual hours too, and Alert managers before overtime with its daily and weekly warning minutes), Rules, and Sharing (Outlook calendars, Show In Outlook As, Ask people to confirm a shared schedule).',
+      { title: 'Shift settings', where: 'Settings > Shifts & Scheduling', view: 'admin-console', sub: 'shifts:shift-settings', items: [
+        'Set the Scope box to Every company for the defaults, or pick a company; a company with none of its own follows the defaults.',
+        'Schedule Basics (Team Time Zone, Week Starts On, Default Grace) and Requests & Visibility.',
+        'Attendance (No-Show Alert, Left Early, the break and meal reminders, Alert for usual hours too), Overtime Alerts (daily and weekly warning minutes), Rules, and Sharing (Outlook calendars, Show In Outlook As, Ask people to confirm a shared schedule).',
       ]},
       { title: 'Shift types and groups', where: 'Settings > Shifts & Scheduling', view: 'admin-console', sub: 'shifts', items: [
         'Shift Types: name, code, color, times, grace, unpaid break, time zone, days and company (Shared With Every Company or one).',
@@ -578,7 +578,7 @@ export const IMPL_PHASES = [
     summary: 'See Nexus as each kind of person, prove each flow end to end, and fix what is off.',
     why: 'Setup screens show what was configured; only acting as real people shows what they will experience. One person per role and tier, walked through their day, catches the wrong module, the missing manager and the misrouted message before anyone else sees it.',
     steps: [
-      { title: 'Act as each kind of person', where: 'Settings > Tools > Act As', view: 'admin-console', sub: 'actas', items: [
+      { title: 'Act as each kind of person', where: 'Profile menu (top right) > Tools > Act As', items: [
         'Pick one person per job role and tier (an employee, a supervisor, a manager, HR). Check their menu, their Workday, their People view and their approvals.',
       ]},
       { title: 'Prove the flows', items: [

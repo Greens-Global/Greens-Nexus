@@ -1309,6 +1309,15 @@ def _run_migrations():
             "ALTER TABLE accounting_ama_settings ADD COLUMN bookkeepers JSON DEFAULT '[]'",
             # AMA push edits the original (CR-13 rework) - see the Postgres list.
             "ALTER TABLE accounting_ama_settings ADD COLUMN closed_through VARCHAR DEFAULT ''",
+            # Build Mode v2 (Oct 24 2026) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN owner_email VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN owner_name VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN owner_released_by VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN owner_released_at VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN preview JSON DEFAULT '{}'",
+            "ALTER TABLE dev_notes ADD COLUMN preview_verdict VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN preview_verdict_at VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN regression_case_id VARCHAR DEFAULT ''",
             # Build Mode -> Teams mirror (Oct 25) - see the Postgres list.
             "ALTER TABLE dev_note_sessions ADD COLUMN teams_chat_id VARCHAR DEFAULT ''",
             "ALTER TABLE dev_note_sessions ADD COLUMN teams_chat_name VARCHAR DEFAULT ''",
@@ -3032,6 +3041,18 @@ def _run_migrations():
         "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS closed_through VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_ama_push_previews ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_ama_push_log ENABLE ROW LEVEL SECURITY",
+        # Build Mode v2 (Neil, Oct 24 2026, docs/Build-Mode.md "v2"): the owner a
+        # pin is held for (code_owners.py), who released it to Claude Code, the
+        # Ready To Check local preview and its verdict, and the regression test
+        # an accepted bug became. models.DevNote. Additive only.
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_email VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_name VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_released_by VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_released_at VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview JSON DEFAULT '{}'",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict_at VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS regression_case_id VARCHAR DEFAULT ''",
         # Build Mode -> Teams mirror (Oct 25): the chat a Build Session posts
         # to, picked by its author (build_mode_chat.py). models.DevNoteSession.
         "ALTER TABLE dev_note_sessions ADD COLUMN IF NOT EXISTS teams_chat_id VARCHAR DEFAULT ''",
@@ -3884,6 +3905,17 @@ async def lifespan(app: FastAPI):
                 print("[startup] screenshot retention sweep skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] screenshot retention sweep skipped: {e}")
+        # Build Mode: purge the media of pins closed 30+ days ago (deletes live
+        # storage, so deployed worker only - same gate as the sweep above).
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from routers.dev_notes import purge_media_loop
+                _tasks.append(_a.create_task(purge_media_loop()))
+            else:
+                print("[startup] Build Mode media purge skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Build Mode media purge skipped: {e}")
         try:
             from leader import is_deployed_worker
             if is_deployed_worker():

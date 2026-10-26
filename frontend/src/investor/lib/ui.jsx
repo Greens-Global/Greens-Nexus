@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { isBypassing } from '../../lib/dialogGuard';
 import { X } from 'lucide-react';
 import { statusColor, statusLabel } from './format';
 import UnsavedChangesPrompt from '../../components/UnsavedChangesPrompt';
 import { Spinner } from '../../components/AsyncState';
+import { PersonSelect } from '../../tasks/components';
 
 // ── Status as colored text + small solid dot ─────────────────────────────────
 // This is the ONLY status treatment in the module - tinted chip/pill badges
@@ -110,15 +111,14 @@ export function FG({ label, full, children }) {
 // People picker fed by the curated Nexus People directory
 // (api.getPeopleDirectory → /myhr/directory) - never M365/GAL lists.
 export function PeopleSelect({ value, onChange, people, placeholder = 'Select a person…' }) {
+  const list = useMemo(() => (people || []).filter(p => p.email)
+    .map(p => ({ email: p.email.toLowerCase(), name: p.name || p.email, external: !!p.external })), [people]);
   return (
-    <select className="form-select" value={value || ''} onChange={e => onChange(e.target.value)}>
-      <option value="">{placeholder}</option>
-      {(people || []).map(p => (
-        <option key={p.email} value={p.email}>{p.name ? `${p.name} - ${p.email}` : p.email}</option>
-      ))}
-    </select>
+    <PersonSelect value={(value || '').toLowerCase() || null} onChange={v => onChange(v || '')} people={list} placeholder={placeholder} noneLabel="Not Assigned" style={FORM_BOX} />
   );
 }
+// The trigger dressed as the module's .form-select boxes.
+const FORM_BOX = { borderRadius: 10, padding: '9px 13px', fontSize: 13.5, fontWeight: 400, border: '1px solid var(--wk-line2)', background: 'var(--card)' };
 
 // Local list-fetch hook: loading / error / reload, no global state. Pass the
 // values your fetcher closes over as deps so filter changes refetch.

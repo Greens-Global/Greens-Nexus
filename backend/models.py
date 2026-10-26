@@ -8279,6 +8279,15 @@ class DevNote(Base):
     state             = Column(JSON, default=dict)               # the target's React props/state snapshot (client-capped)
     verification      = Column(JSON, default=dict)               # written by the CLI: {repro, styleCheck, visual}
     purge_at          = Column(String, default="")               # done/dismissed + 30 days: media objects are purged after this
+    # Build Mode v2 (Oct 24 2026) - ALTER lines in BOTH of main.py's migration lists.
+    owner_email        = Column(String, default="")              # code_owners.owner_of(target.source.file), set by the server on create
+    owner_name         = Column(String, default="")
+    owner_released_by  = Column(String, default="")              # who released a held pin to Claude Code
+    owner_released_at  = Column(String, default="")
+    preview            = Column(JSON, default=dict)              # Ready To Check: {url, branch, prNumber, host, startedAt}; {} = none
+    preview_verdict    = Column(String, default="")              # '' | accepted | reopened
+    preview_verdict_at = Column(String, default="")
+    regression_case_id = Column(String, default="")              # qa_test_cases.id once promoted (= the pin id)
 
 
 class DevNoteSession(Base):

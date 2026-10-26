@@ -14,6 +14,7 @@ import { conditionOf, refSuffix } from './pfsCondition';
 import PfsAffiliated, { PfsExecutiveProfiles } from './PfsAffiliated';
 import { US_STATES, normalizePfsDetails, zipError } from './pfsAddress';
 import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, usePfsLocks } from './PfsLock';
+import { PersonSelect } from '../../tasks/components';
 
 // Accounting -> PFS: personal financial statements (Neil, Sep 25).
 //
@@ -1692,9 +1693,13 @@ function NewGuarantor({ onClose, onCreate }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  const pickPerson = (e, who) => {
-    const p = (people || []).find((x) => x.email === e.target.value);
+  const [picked, setPicked] = useState({ first: null, second: null });
+  const pickable = useMemo(() => (people || []).filter((p) => p.email)
+    .map((p) => ({ email: p.email.toLowerCase(), name: p.name || p.email, external: !!p.external })), [people]);
+  const pickPerson = (value, who) => {
+    const p = (people || []).find((x) => (x.email || '').toLowerCase() === value);
     if (!p) return;
+    setPicked((x) => ({ ...x, [who]: value }));
     if (who === 'first') { setName(p.name || ''); setEmail(p.email || ''); } else setSecond(p.name || '');
   };
   const save = (e) => {
@@ -1708,10 +1713,8 @@ function NewGuarantor({ onClose, onCreate }) {
     onCreate({ name: name.trim(), kind, details }).catch((err) => { setError(err?.message || 'Could not create the profile.'); setBusy(false); });
   };
   const picker = (id, who, text) => (
-    <select id={id} defaultValue="" onChange={(e) => pickPerson(e, who)} style={{ ...control, width: '100%' }} aria-label={text}>
-      <option value="">{people ? text : 'Loading People...'}</option>
-      {(people || []).map((p) => <option key={p.email} value={p.email}>{p.name}{p.companyName ? ` - ${p.companyName}` : ''}</option>)}
-    </select>
+    <PersonSelect value={picked[who]} onChange={(v) => pickPerson(v, who)} allowNone={false} id={who === 'first' ? 'pfs-new-person' : 'pfs-new-second-person'}
+      placeholder={people ? text : 'Loading People...'} people={pickable} style={{ ...control, fontWeight: 400 }} />
   );
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">

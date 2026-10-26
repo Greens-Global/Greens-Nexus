@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import get_current_user, require_level_or_module, _role_for, _LEVELS
-from models import ActAsSession, NexusRole, NexusEmployee
+from models import ActAsSession, NexusRole, NexusEmployee, HrEntity
 import security_config as _sec
 
 router = APIRouter(prefix="/act-as", tags=["Act As"])
@@ -131,6 +131,9 @@ def eligible_targets(user: dict = Depends(_act_as_gate), db: Session = Depends(g
                    .filter(NexusEmployee.work_email != "")
                    .order_by(NexusEmployee.first_name, NexusEmployee.last_name).all())
     roles = {r.email: r for r in db.query(NexusRole).all()}
+    # Company names, so the header's Act As search can match "india" or
+    # "greens" as well as a name (Neil, Oct 25 2026: 100+ people).
+    companies = {c.id: c.name for c in db.query(HrEntity.id, HrEntity.name).all()}
     out = []
     for e in employees:
         email = (e.work_email or "").lower().strip()
@@ -148,7 +151,12 @@ def eligible_targets(user: dict = Depends(_act_as_gate), db: Session = Depends(g
         fallback = f"{e.first_name} {e.last_name}".strip()
         out.append({"email": email, "name": _display_name(email, e.display_name or fallback),
                     # The People photo, so the picker shows faces (Neil, Oct 13 2026).
-                    "photoUrl": e.photo_url or ""})
+                    "photoUrl": e.photo_url or "",
+                    # Searchable context for the Act As finder: what the
+                    # Contact Directory already shows, nothing more.
+                    "title": e.job_title or "", "department": e.department or "",
+                    "company": companies.get(e.company or "", "") or e.external_company or "",
+                    "site": e.location or "", "role": role})
     return out
 
 

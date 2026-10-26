@@ -59,6 +59,7 @@ import { googleMapsUrl } from '../lib/addressSearch';
 import WorkSiteFenceCheck from '../components/WorkSiteFenceCheck';
 import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
+import { PersonSelect } from '../tasks/components';
 import { US_STATE_NAMES } from '../lib/usStates';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
 import RecordsAudit from '../components/RecordsAudit';
@@ -107,6 +108,32 @@ const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'blo
 
 const AVATAR_HUES = ['215,75%,45%', '142,60%,35%', '30,80%,48%', '271,60%,48%', '350,65%,48%'];
 const fullName = e => [e.firstName, e.lastName].filter(Boolean).join(' ');
+// Rows for the Tasks people picker (PersonSelect) from employee records: name
+// and photo, keyed by the lowercased work email. pickRows is for a field that
+// saves the email; idPickRows for one that saves the employee id (anyone with
+// no work email yet is keyed by id, so they stay pickable).
+const pickRows = (list) => {
+  const seen = new Set();
+  return list.filter(e => {
+    const em = (e.workEmail || '').toLowerCase();
+    if (!em || seen.has(em)) return false;
+    seen.add(em);
+    return true;
+  }).map(e => ({ email: e.workEmail.toLowerCase(), name: fullName(e), external: isExternalPerson(e) }));
+};
+const idPickRows = (list) => {
+  const seen = new Set();
+  return list.map(e => {
+    let email = (e.workEmail || '').toLowerCase();
+    if (!email || seen.has(email)) email = `id:${e.id}`.toLowerCase();
+    seen.add(email);
+    return { id: e.id, email, name: fullName(e), external: isExternalPerson(e) };
+  });
+};
+// Directory rows ({ email, name }) for the same picker.
+const dirPickRows = (list) => list.filter(p => p.email).map(p => ({ email: p.email.toLowerCase(), name: p.name || p.email, external: !!p.external }));
+// A picker trigger the height and shape of the form's other boxes.
+const PICK_BOX = { height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13.5, fontWeight: 400 };
 // Backstop for a task handover with no named person and no supervisor on the
 // org chart - kept in step with task_projects.HANDOVER_FALLBACK_EMAIL, which
 // is what the server actually applies.
@@ -391,37 +418,19 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={FL}>REPORTS TO</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.manager_email} onChange={e => set('manager_email', e.target.value)}>
-              <option value="">- no reporting line -</option>
-              {externalManagers.length ? (
-                <>
-                  <optgroup label="Nexus People">
-                    {managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
-                  </optgroup>
-                  <optgroup label="External Users">
-                    {externalManagers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)}{m.externalCompany ? ` - ${m.externalCompany}` : ''} ({m.workEmail})</option>)}
-                  </optgroup>
-                </>
-              ) : managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
-            </select>
+            <PersonSelect value={(f.manager_email || '').toLowerCase() || null} onChange={v => set('manager_email', v || '')}
+              people={pickRows([...managers, ...externalManagers])} placeholder="No reporting line" noneLabel="No Reporting Line"
+              ariaLabel="Reports To" style={PICK_BOX} />
           </div>
           {/* Backup Manager (Neil, Oct 13): covers this person when their manager
               is out, with the same rights over them. Blank = the default. */}
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={FL}>BACKUP MANAGER</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.backup_manager_email} onChange={e => set('backup_manager_email', e.target.value)}>
-              <option value="">Default - their manager's manager, or the company's HR contact</option>
-              {externalManagers.length ? (
-                <>
-                  <optgroup label="Nexus People">
-                    {managers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
-                  </optgroup>
-                  <optgroup label="External Users">
-                    {externalManagers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)}{m.externalCompany ? ` - ${m.externalCompany}` : ''} ({m.workEmail})</option>)}
-                  </optgroup>
-                </>
-              ) : managers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
-            </select>
+            <PersonSelect value={(f.backup_manager_email || '').toLowerCase() || null} onChange={v => set('backup_manager_email', v || '')}
+              people={pickRows([...managers, ...externalManagers].filter(m => m.workEmail.toLowerCase() !== (f.manager_email || '').toLowerCase()))}
+              placeholder="Default - their manager's manager, or the company's HR contact"
+              noneLabel="Use the Default"
+              ariaLabel="Backup Manager" style={PICK_BOX} />
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Has the same rights over this person as their manager - time sheets, punches, time off and approvals.</div>
           </div>
           {/* Office and contact info, kept in step with Microsoft 365 both ways
@@ -2608,12 +2617,11 @@ function OrgSidePanel({ e, people, externals = [], entities, entityName, descend
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '6px 22px 18px' }}>
           <label style={lbl}>Reports to</label>
-          <select className="form-input" style={{ width: '100%' }} value={f.manager_email}
-            onChange={ev => setF(x => ({ ...x, manager_email: ev.target.value }))}>
-            <option value="">- No manager (top of a tree) -</option>
-            {managerOptions.map(p => <option key={p.id} value={(p.workEmail || '').toLowerCase()}>{fullName(p)}{p.jobTitle ? ` - ${p.jobTitle}` : ''}{isExternalPerson(p) ? ' (External)' : ''}</option>)}
-            {offChartManager && <option value={f.manager_email}>{fullName(offChartManager)}{offChartManager.jobTitle ? ` - ${offChartManager.jobTitle}` : ''} (External, not shown on the chart)</option>}
-          </select>
+          <PersonSelect value={(f.manager_email || '').toLowerCase() || null}
+            onChange={v => setF(x => ({ ...x, manager_email: v || '' }))}
+            people={pickRows(offChartManager ? [...managerOptions, offChartManager] : managerOptions)}
+            placeholder="No manager (top of a tree)" noneLabel="No Manager (Top of a Tree)"
+            ariaLabel="Reports To" style={PICK_BOX} />
 
           <label style={lbl}>Job title</label>
           <input className="form-input" style={{ width: '100%' }} value={f.job_title} onChange={ev => setF(x => ({ ...x, job_title: ev.target.value }))} />
@@ -3139,6 +3147,7 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
   }
   const dirty = !!(f.employee_id || f.start_date || f.end_date || f.reason.trim() || f.days !== 1);
   const guard = useUnsavedGuard(dirty, onClose, canSave ? save : undefined);
+  const pickable = idPickRows(employees.filter(e => e.status !== 'offboarded'));
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
@@ -3149,10 +3158,9 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: 'auto auto auto 1fr', gap: 14 }}>
           <div style={{ gridColumn: '1 / -1' }}><label style={FL}>EMPLOYEE *</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.employee_id} onChange={e => set('employee_id', e.target.value)}>
-              <option value="">- pick a person -</option>
-              {employees.filter(e => e.status !== 'offboarded').map(e => <option key={e.id} value={e.id}>{fullName(e)} ({e.employeeCode})</option>)}
-            </select></div>
+            <PersonSelect value={pickable.find(p => p.id === f.employee_id)?.email || null}
+              onChange={v => set('employee_id', pickable.find(p => p.email === v)?.id || '')}
+              people={pickable} placeholder="Pick a person" allowNone={false} ariaLabel="Employee" style={PICK_BOX} /></div>
           <div><label style={FL}>TYPE</label>
             <select className="form-input" style={{ width: '100%' }} value={f.leave_type} onChange={e => set('leave_type', e.target.value)}>
               {LEAVE_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -3757,11 +3765,9 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                     ({{signatory}}); this is the person who actually signs. */}
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>AUTHORIZED SIGNATORY (PERSON)</label>
-                  <select className="form-input" style={{ width: '100%' }} value={f.signatory_email || ''}
-                    onChange={e => set('signatory_email', e.target.value)}>
-                    <option value="">- not set -</option>
-                    {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
-                  </select>
+                  <PersonSelect value={(f.signatory_email || '').toLowerCase() || null} onChange={v => set('signatory_email', v || '')}
+                    people={dirPickRows(people)} placeholder="Not set" noneLabel="Not Set"
+                    ariaLabel="Authorized Signatory (Person)" style={PICK_BOX} />
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs HR packets for the company when a packet's signing order says Authorized Signatory.</div>
                   {f.signatory_email && f.signatory.trim() && personName(f.signatory_email)
                     && !f.signatory.toLowerCase().includes((personName(f.signatory_email).split(' ')[0] || '').toLowerCase()) && (
@@ -3798,11 +3804,9 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                     payroll (timesheet review + Nexus Sign, Sep 2026). */}
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>HR CONTACT</label>
-                  <select className="form-input" style={{ width: '100%' }} value={f.hr_contact_email || ''}
-                    onChange={e => set('hr_contact_email', e.target.value)}>
-                    <option value="">- not set -</option>
-                    {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
-                  </select>
+                  <PersonSelect value={(f.hr_contact_email || '').toLowerCase() || null} onChange={v => set('hr_contact_email', v || '')}
+                    people={dirPickRows(people)} placeholder="Not set" noneLabel="Not Set"
+                    ariaLabel="HR Contact" style={PICK_BOX} />
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's time sheet after the employee and manager, and finalizes it for payroll.</div>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
@@ -3933,10 +3937,12 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
           <div style={{ fontSize: 13, fontWeight: 700 }}>Group Manager</div>
           <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Oversees every company - the escalation step above each company's manager.</div>
         </div>
-        <select className="form-input" disabled={groupMgrBusy} value={groupMgr} onChange={e => saveGroupMgr(e.target.value)} style={{ width: 220, fontSize: 12.5, flexShrink: 0 }}>
-          <option value="">- not set -</option>
-          {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
-        </select>
+        <div style={{ width: 220, flexShrink: 0 }}>
+          <PersonSelect disabled={groupMgrBusy} value={(groupMgr || '').toLowerCase() || null}
+            onChange={v => { if ((v || '') !== (groupMgr || '').toLowerCase()) saveGroupMgr(v || ''); }}
+            people={dirPickRows(people)} placeholder="Not set" noneLabel="Not Set"
+            ariaLabel="Group Manager" style={{ ...PICK_BOX, fontSize: 12.5 }} />
+        </div>
       </div>
       {entities.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)' }}>
@@ -5129,11 +5135,11 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
         {trustees.length === 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>No one selected yet.</span>}
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
-        <select className="form-input" style={{ flex: 1 }} value={pick} onChange={e => setPick(e.target.value)}>
-          <option value="">- add a colleague -</option>
-          {colleagues.filter(c => !trustees.includes((c.workEmail || '').toLowerCase()))
-            .map(c => <option key={c.id} value={(c.workEmail || '').toLowerCase()}>{fullName(c)} ({c.workEmail})</option>)}
-        </select>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <PersonSelect value={pick || null} onChange={v => setPick(v || '')}
+            people={pickRows(colleagues.filter(c => !trustees.includes((c.workEmail || '').toLowerCase())))}
+            placeholder="Add a colleague" allowNone={false} ariaLabel="Add a Colleague" style={PICK_BOX} />
+        </div>
         <button className="secondary-btn" onClick={addTrustee} disabled={!pick} style={{ padding: '6px 12px' }}>Add</button>
       </div>
       {psScript && (

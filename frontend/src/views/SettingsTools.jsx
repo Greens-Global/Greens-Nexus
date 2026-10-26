@@ -1,22 +1,21 @@
 // Settings -> Tools (Sep 26): the things an admin DOES, next to the things
-// they configure - Act As and the Microsoft 365 directory sync. This replaced
+// they configure - the Microsoft 365 directory sync (Act As moved to the
+// profile menu's Tools section, Oct 25 2026 - components/ToolsMenu.jsx). This replaced
 // the header's wrench menu (Pranshu: the extra header icon earned nothing a
 // Settings tab doesn't do better); the troubleshooting card went too.
 //
 // Each card is gated the same way its backend route is, and hidden (not
 // disabled) when the person can't use it:
-//   - Act As: Manager+ or an 'act-as' grant (routers/act_as.py).
 //   - Microsoft 365 sync: require_hr_write + _require_unrestricted in
 //     routers/hr.py, i.e. IT Admin+ or a People Editor grant, and no
 //     company-limited People access.
-import { useState, useSyncExternalStore, lazy, Suspense } from 'react';
-import { UserCog, DoorOpen, RefreshCw, Wrench } from 'lucide-react';
+import { useSyncExternalStore } from 'react';
+import { RefreshCw, Wrench } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDateTime } from '../lib/datetime';
-import { SkeletonBlocks, Spinner } from '../components/AsyncState';
+import { Spinner } from '../components/AsyncState';
 
-const ActAsPicker = lazy(() => import('../components/ActAsModal').then(m => ({ default: m.ActAsPicker })));
 
 // ── Microsoft 365 sync: state that outlives the tab ──────────────────────────
 // A sync takes a minute or two. Kept at module level so leaving the tab (or
@@ -90,17 +89,11 @@ function ToolCard({ icon: Icon, title, sub, children, testId }) {
 
 
 export default function SettingsTools() {
-  const { can, myGrantedModules, canAccessModule, hrScope, actingAs, startActAs, stopActAs } = useRole();
+  const { can, myGrantedModules, canAccessModule, hrScope } = useRole();
+  const canActAs = !!can?.('manager') || !!myGrantedModules?.has('act-as');
   const sync = useSyncExternalStore(subscribeSync, getSync, getSync);
-  const [stopping, setStopping] = useState(false);
 
-  const canActAs = can('manager') || !!myGrantedModules?.has('act-as');
   const canSync = !!canAccessModule?.('hr', 'administrator', 'editor') && !Array.isArray(hrScope);
-
-  async function exitActAs() {
-    setStopping(true);
-    try { await stopActAs(); } finally { setStopping(false); }
-  }
 
   return (
     <div>
@@ -108,31 +101,11 @@ export default function SettingsTools() {
         <Wrench size={15} style={{ color: 'var(--muted)', marginTop: 2, flexShrink: 0 }} />
         <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
           <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>Actions, not settings.</strong> Nothing here changes how Nexus is set up.
+          {canActAs && ' Act As is in your profile menu (top right), under Tools.'}
         </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 380px), 1fr))', gap: 14, alignItems: 'start' }}>
-        {(canActAs || actingAs) && (
-          <ToolCard testId="tool-act-as" icon={UserCog} title="Act As"
-            sub="Use Nexus as another employee sees it, to troubleshoot their access. Limited to people whose role is below your own.">
-            {actingAs ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>
-                  Currently acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}).
-                </span>
-                <button className="secondary-btn" onClick={exitActAs} disabled={stopping}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'hsl(var(--color-red))' }}>
-                  <DoorOpen size={14} /> {stopping ? 'Exiting…' : 'Exit Act As'}
-                </button>
-              </div>
-            ) : (
-              <Suspense fallback={<SkeletonBlocks count={3} height={40} borderRadius={10} />}>
-                <ActAsPicker onStart={startActAs} autoFocus={false} pageSize={10} />
-              </Suspense>
-            )}
-          </ToolCard>
-        )}
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           {canSync && (
             <ToolCard testId="tool-m365" icon={RefreshCw} title="Microsoft 365 Directory Sync"
@@ -152,7 +125,9 @@ export default function SettingsTools() {
               )}
             </ToolCard>
           )}
-
+          {!canSync && (
+            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No tools here for your access.</div>
+          )}
         </div>
       </div>
     </div>

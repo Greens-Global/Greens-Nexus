@@ -26,6 +26,8 @@ const items = () => ({
 });
 const detail = (over = {}) => ({ ...thread(over), messages: [{ id: 'm1', kind: 'question', body: 'Which property is this for?', author: ME, authorName: 'Val Viewer', at: '2026-10-14T16:00:00Z' }] });
 
+// The Tasks people picker's avatars carry a hover card that needs the role context.
+vi.mock('../PersonHoverCard', () => ({ default: ({ children }) => children }));
 vi.mock('../../api', () => ({
   api: {
     getAskItems: vi.fn(),
@@ -156,7 +158,7 @@ describe('AskAccountantTab', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Ask My Accountant/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Ask My Accountant' });
     fireEvent.change(within(dialog).getByLabelText('Question'), { target: { value: 'What is this deposit?' } });
-    await waitFor(() => expect(within(dialog).getByLabelText('Accountant').value).toBe(ACCT));
+    await waitFor(() => expect(within(dialog).getByLabelText('Accountant')).toHaveTextContent('Ann Accountant'));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Send Question' }));
     await waitFor(() => expect(api.askAccountant).toHaveBeenCalledWith(expect.objectContaining({ lineId: 'L2', entityCode: '56000', question: 'What is this deposit?', accountant: ACCT, credit: 40 })));
   });
@@ -290,9 +292,11 @@ describe('AskAccountantTab', () => {
   it('keeps the bookkeepers list', async () => {
     const s = { ...settingsWith(), bookkeepers: [{ email: ACCT, name: 'Ann Accountant' }], bookkeepersFromEnv: false };
     render(<SettingsDialog settings={s} entities={ents} limited={false} onClose={() => {}} onSaved={() => {}} />);
-    await waitFor(() => expect(screen.getByLabelText('Bookkeeper 1').value).toBe(ACCT));
+    await waitFor(() => expect(screen.getByLabelText(/^Bookkeeper 1:/)).toHaveTextContent('Ann Accountant'));
     fireEvent.click(screen.getByRole('button', { name: /Add Bookkeeper/ }));
-    fireEvent.change(screen.getByLabelText('Bookkeeper 2'), { target: { value: ME } });
+    fireEvent.click(screen.getByLabelText(/^Bookkeeper 2:/));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'val' } });
+    fireEvent.click(within(screen.getByRole('listbox')).getByText('Val Viewer'));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.saveAskSettings).toHaveBeenCalled());
     expect(api.saveAskSettings.mock.calls[0][0].bookkeepers).toEqual([ACCT, ME]);

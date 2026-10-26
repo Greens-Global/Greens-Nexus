@@ -137,6 +137,7 @@ vi.mock('../../api', () => ({
   },
   withFreshReads: vi.fn((fn) => fn()),
 }));
+vi.mock('../PersonHoverCard', () => ({ default: ({ children }) => children }));
 vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'me@greensglobal.com' }) }));
 vi.mock('./reportModel', async (importOriginal) => ({ ...(await importOriginal()), downloadBlob: vi.fn() }));
 
@@ -781,10 +782,15 @@ describe('PfsTab', () => {
     fireEvent.click(screen.getByRole('button', { name: /New Guarantor/ }));
     const dialog = screen.getByRole('dialog', { name: 'New guarantor' });
     fireEvent.change(within(dialog).getByLabelText('Statement Type'), { target: { value: 'joint' } });
-    await within(dialog).findAllByRole('option', { name: /Sahil Desai/ });   // both pickers list People once it has loaded
-    fireEvent.change(within(dialog).getByLabelText('Prefill From People'), { target: { value: 'sahil@greensglobal.com' } });
+    // Both pickers are the Tasks people picker: open, type, pick.
+    await waitFor(() => expect(within(dialog).getByLabelText('Prefill From People').textContent).toContain('Pick a person...'));
+    fireEvent.click(within(dialog).getByLabelText('Prefill From People'));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'sah' } });
+    fireEvent.click(within(screen.getByRole('listbox')).getByText('Sahil Desai'));
     expect(within(dialog).getByLabelText('Borrower').value).toBe('Sahil Desai');
-    fireEvent.change(within(dialog).getByLabelText('Second Person From People'), { target: { value: 'charmi@greensglobal.com' } });
+    fireEvent.click(within(dialog).getByLabelText('Second Person From People'));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'charmi' } });
+    fireEvent.click(within(screen.getByRole('listbox')).getByText('Charmi Desai'));
     expect(within(dialog).getByLabelText('Co-Borrower').value).toBe('Charmi Desai');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
     await waitFor(() => expect(api.createPfsProfile).toHaveBeenCalled());

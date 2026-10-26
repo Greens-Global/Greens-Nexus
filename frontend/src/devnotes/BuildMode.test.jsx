@@ -103,6 +103,13 @@ describe('BuildMode', () => {
     expect(screen.getByRole('button', { name: /^Reopen/ })).toBeTruthy();
   });
 
+  it('a dev_note_owner bell (action { view: dev-notes, sub: pin:<id> }) opens the pin through the store listener', async () => {
+    const { store } = await import('./store');
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'dev-notes', sub: 'pin:held-1' } }));
+    expect(store.get().pendingPin).toBe('held-1');
+    expect(sessionStorage.getItem('nexus:build-mode:open-pin')).toBe('held-1');
+  });
+
   it('a blocked route shows the off-on-this-screen bar and no overlay', async () => {
     enabled = true;
     sessionStorage.setItem('nexus:build-mode', '1');

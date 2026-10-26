@@ -18,6 +18,7 @@ import { popupRedirectUri } from '../authConfig';
 import { toViewUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner } from '../components/AsyncState';
+import { PersonSelect } from '../tasks/components';
 import { formatDate, formatPacificDateTime } from '../lib/datetime';
 
 // ── Testing module - interactive QA runs over the audit test cases, bug
@@ -345,6 +346,7 @@ function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, to
   const assignDirty = !!(email || due || note.trim());
   const [busy, setBusy] = useState(false);
 
+  const pickable = useMemo(() => people.filter(p => p.email).map(p => ({ email: p.email.toLowerCase(), name: p.name || p.email, external: p.external === true })), [people]);
   const pool = useMemo(() => cases.filter(c => c.module === module && c.status === 'active' && (!onlyUnrun || !resultsByCase[c.id]?.result)), [cases, module, onlyUnrun, resultsByCase]);
 
   async function sendTeamsDM(assigneeEmail, text) {
@@ -399,10 +401,8 @@ function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, to
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
           <label style={FL}>Assign to</label>
-          <select value={email} onChange={e => setEmail(e.target.value)} style={inputStyle}>
-            <option value="">- pick a person -</option>
-            {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
-          </select>
+          <PersonSelect value={email || null} onChange={v => setEmail(v || '')} people={pickable} allowNone={false}
+            placeholder="Pick a person" ariaLabel="Assign to" style={inputStyle} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>

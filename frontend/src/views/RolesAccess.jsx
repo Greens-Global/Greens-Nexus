@@ -18,6 +18,7 @@ import { useNameResolver } from '../lib/useNameResolver';
 import { capabilityText } from '../lib/moduleCapabilities';
 import GuidedTour from '../components/GuidedTour';
 import { takePendingOpen } from '../lib/pendingOpen';
+import { PersonSelect } from '../tasks/components';
 import AnchoredMenu from '../components/AnchoredMenu';
 import TeamsTargetPicker, { EMPTY_TEAMS_TARGET, teamsTargetLabel } from '../components/TeamsTargetPicker';
 import { registerTour } from '../lib/tours';
@@ -1234,6 +1235,7 @@ export function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastEr
   const [val, setVal] = useState(role.default_manager_email || '');
   const [busy, setBusy] = useState('');
   useEffect(() => { setVal(role.default_manager_email || ''); }, [role.id, role.default_manager_email]);
+  const pickable = useMemo(() => people.map(p => ({ email: p.email, name: p.name, external: !!p.external })), [people]);
 
   async function saveDefault(v) {
     setVal(v); setBusy('save');
@@ -1259,11 +1261,11 @@ export function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastEr
   return (
     <div data-tour="role-approver">
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <select value={val} onChange={e => saveDefault(e.target.value)} disabled={busy === 'save'}
-          style={{ ...input, width: 'auto', minWidth: 210, padding: '7px 10px', fontSize: 12.5 }}>
-          <option value="">No default approver</option>
-          {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
-        </select>
+        <div style={{ minWidth: 210 }}>
+          <PersonSelect value={val || null} onChange={v => { if ((v || '') !== (val || '')) saveDefault(v || ''); }} disabled={busy === 'save'} people={pickable}
+            placeholder="No Default Approver" noneLabel="No Default Approver" ariaLabel="Default approver"
+            style={{ ...input, padding: '7px 10px', fontSize: 12.5, fontWeight: 400 }} />
+        </div>
         <button className="secondary-btn" disabled={!val || !!busy || !role.member_count} onClick={applyAll}
           style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           {busy === 'apply' && <Spinner size={13} />}

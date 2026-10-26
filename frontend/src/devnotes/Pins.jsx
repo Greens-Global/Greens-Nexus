@@ -4,7 +4,7 @@
 // sees everyone's pins. Accept / Reopen live here, on the fixed pin, where
 // the bug was.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { X, ExternalLink, Check, RotateCcw, Send, Loader2, Trash2 } from 'lucide-react';
+import { X, ExternalLink, Check, RotateCcw, Send, Loader2, Trash2, Hand, Monitor, FlaskConical } from 'lucide-react';
 import { api } from '../api';
 import { formatDateTime } from '../lib/datetime';
 import { toViewUrl } from '../lib/storageView';
@@ -13,7 +13,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
 import { anchorRect } from './lib/capture';
 import { placeCard } from './lib/anchor';
-import { statusMeta, KIND_META, PRIORITY_META, initialsOf, firstNameOf } from './meta';
+import { pinMeta, pinReady, pinHeld, pinReopened, pinChecked, pinAwaitsClaude, isLocalPreview, KIND_META, PRIORITY_META, initialsOf, firstNameOf } from './meta';
 import { toast } from './store';
 
 const MINE = import.meta.env.VITE_BUILD_ID || 'dev';
@@ -25,12 +25,7 @@ export function fixDeploying(pin) {
 }
 
 /** A human answered and Claude Code has not picked it up again yet. */
-export function waitingForClaude(pin) {
-  if (pin?.status !== 'building') return false;
-  const t = Array.isArray(pin.thread) ? pin.thread : [];
-  const last = t[t.length - 1];
-  return !!last && last.kind === 'comment' && last.by !== 'claude';
-}
+export const waitingForClaude = pinAwaitsClaude;
 
 // Re-measures every pin's anchor on scroll (any scroller), resize, DOM
 // changes and a slow safety tick - pins follow their element.
@@ -61,7 +56,7 @@ function useAnchors(pins) {
   return anchors;
 }
 
-export default function Pins({ pins = [], openPinId = '', onOpen, onClose, onChanged, show = true }) {
+export default function Pins({ pins = [], openPinId = '', onOpen, onClose, onChanged, show = true, me }) {
   const anchors = useAnchors(pins);
   const openPin = pins.find((p) => p.id === openPinId) || null;
   const vpH = typeof window !== 'undefined' ? window.innerHeight : 800;
@@ -72,12 +67,12 @@ export default function Pins({ pins = [], openPinId = '', onOpen, onClose, onCha
         const a = anchors[p.id];
         if (!a) return null;
         if (a.y + a.h < -20 || a.y > vpH + 20) return null;           // scrolled away
-        const m = statusMeta(p.status);
+        const m = pinMeta(p);
         const left = Math.max(14, Math.min(window.innerWidth - 14, a.x + a.w));
         const top = Math.max(14, a.y);
         const isOpen = p.id === openPinId;
         return (
-          <button key={p.id} type="button" className={`bm-pin${m.pulse ? ' is-pulse' : ''}${m.faded ? ' is-faded' : ''}${isOpen ? ' is-open' : ''}${a.anchored ? '' : ' is-loose'}`}
+          <button key={p.id} type="button" className={`bm-pin${m.pulse ? ' is-pulse' : ''}${m.faded ? ' is-faded' : ''}${m.ready ? ' is-ready' : ''}${isOpen ? ' is-open' : ''}${a.anchored ? '' : ' is-loose'}`}
             style={{ left, top, '--c': m.color }} onClick={() => (isOpen ? onClose?.() : onOpen?.(p.id))}
             title={`Pin #${p.number} - ${m.label}${a.anchored ? '' : ' (element not found - at its last position)'}`}
             aria-label={`Pin ${p.number}, ${m.label}, by ${firstNameOf(p.createdBy)}`} aria-expanded={isOpen} data-testid="bm-pin">
@@ -87,15 +82,15 @@ export default function Pins({ pins = [], openPinId = '', onOpen, onClose, onCha
         );
       })}
       {openPin && anchors[openPin.id] && (
-        <div className="bm-pin-ring" aria-hidden="true" style={{ left: anchors[openPin.id].x - 3, top: anchors[openPin.id].y - 3, width: anchors[openPin.id].w + 6, height: anchors[openPin.id].h + 6, '--c': statusMeta(openPin.status).color }} />
+        <div className="bm-pin-ring" aria-hidden="true" style={{ left: anchors[openPin.id].x - 3, top: anchors[openPin.id].y - 3, width: anchors[openPin.id].w + 6, height: anchors[openPin.id].h + 6, '--c': pinMeta(openPin).color }} />
       )}
       {openPin && (anchors[openPin.id]?.anchored
-        ? <PinThread pin={openPin} anchor={anchors[openPin.id]} onClose={onClose} onChanged={onChanged} />
+        ? <PinThread pin={openPin} me={me} anchor={anchors[openPin.id]} onClose={onClose} onChanged={onChanged} />
         // The element is gone (or was never found): no popover to anchor, so
         // the thread opens as a proper centered sheet (60vw / 60vh / 85vh).
         : (
           <div className="bm-sheet-overlay" onClick={onClose} role="presentation">
-            <PinThread pin={openPin} anchor={null} detached onClose={onClose} onChanged={onChanged} />
+            <PinThread pin={openPin} me={me} anchor={null} detached onClose={onClose} onChanged={onChanged} />
           </div>
         ))}
     </>
@@ -176,7 +171,35 @@ function Evidence({ v }) {
   );
 }
 
-export function PinThread({ pin, anchor, onClose, onChanged, detached = false }) {
+// Ready To Check (v2): the branch runs on the developer's computer; the
+// author opens it there and Accepts (it merges as Done, no second check) or
+// Reopens with a note (Claude Code picks it up again on the same branch).
+function PreviewBlock({ pin }) {
+  const p = pin.preview || {};
+  const local = isLocalPreview(p.url);
+  const pr = p.prNumber || pin.prNumber;
+  return (
+    <section className="bm-preview" aria-label="Ready To Check" data-testid="bm-preview">
+      <div className="bm-preview-head">
+        <span className="bm-preview-title">Ready To Check</span>
+        {local
+          ? <a className="bm-btn bm-btn-sm bm-btn-primary" href={p.url} target="_blank" rel="noreferrer"><ExternalLink size={13} /> Open Preview</a>
+          : <span className="bm-dim bm-small">No preview link</span>}
+      </div>
+      {p.host && <div className="bm-small"><Monitor size={12} /> Runs on <b>{p.host}</b> - open it on that computer.</div>}
+      <div className="bm-preview-meta">
+        {(p.branch || pin.branch) && <code>{p.branch || pin.branch}</code>}
+        {pin.prUrl && <a className="bm-link" href={pin.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={12} /> PR #{pr}</a>}
+        {p.startedAt && <span className="bm-dim bm-small">Started {formatDateTime(p.startedAt)}</span>}
+      </div>
+    </section>
+  );
+}
+
+/** The Testing case's title, as the server writes it ("Pin #n - <comment, 80>"). */
+const regressionTitle = (pin) => `Pin #${pin.number} - ${String(pin.comment || pin.edit?.note || '').slice(0, 80)}`;
+
+export function PinThread({ pin, anchor, onClose, onChanged, detached = false, me = {} }) {
   const isMobile = useIsMobile();
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
@@ -184,12 +207,23 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false })
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const [confirm, setConfirm] = useState('');    // 'reopen' | 'dismiss'
-  const m = statusMeta(pin.status);
+  const m = pinMeta(pin);
   const kind = KIND_META[pin.kind] || KIND_META.bug;
   const prio = PRIORITY_META[pin.priority];
   const deploying = fixDeploying(pin);
+  const reopenedOnPreview = pinReopened(pin);
   const waiting = waitingForClaude(pin);
   const closed = pin.status === 'done' || pin.status === 'dismissed';
+  // The server says what this viewer may do (owner or Global Admin may
+  // release; author or Global Admin may judge the preview). No flag = no button.
+  const rights = { release: pin.canRelease === true, verdict: pin.canVerdict === true };
+  const held = pinHeld(pin);
+  const ready = pinReady(pin);
+  const checked = pinChecked(pin);
+  const ownerName = pin.ownerName || firstNameOf(pin.ownerEmail);
+  // The reply box doubles as the verdict note on a fixed pin, and on a pin
+  // Ready To Check for whoever may judge it.
+  const verdictBox = pin.status === 'fixed' || (ready && rights.verdict);
 
   useLayoutEffect(() => {
     if (isMobile || detached) { setPos(null); return; }
@@ -208,6 +242,20 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false })
   const accept = () => run('accept', () => api.devNotesVerify(pin.id, true, reply.trim())).then((n) => n && toast(`Pin #${pin.number} verified - thank you`));
   const reopen = () => run('reopen', () => api.devNotesVerify(pin.id, false, reply.trim())).then((n) => { if (n) { setConfirm(''); toast(`Pin #${pin.number} reopened`); } });
   const dismiss = () => run('dismiss', () => api.devNotesPatch(pin.id, { status: 'dismissed' })).then((n) => { if (n) { setConfirm(''); toast(`Pin #${pin.number} dismissed`); } });
+  // The release joins the AUTHOR's collecting session (and goes at once if
+  // their Send Instantly is on), so the pin can come back with a new number.
+  const release = () => run('release', () => api.devNotesRelease(pin.id)).then((n) => {
+    if (!n) return;
+    const no = n.number || pin.number;
+    toast(n.status === 'dispatched'
+      ? `Pin #${no} released and sent to Claude Code`
+      : `Pin #${no} released - ${firstNameOf(n.createdBy || pin.createdBy)} sends it with their next Build Session`);
+  });
+  const previewAccept = () => run('paccept', () => api.devNotesPreviewVerdict(pin.id, { accepted: true, comment: reply.trim() }))
+    .then((n) => { if (n) { setReply(''); toast(`Pin #${pin.number} checked - it is Done when the PR merges`); } });
+  const previewReopen = () => { const t = reply.trim(); if (!t) return; run('preopen', () => api.devNotesPreviewVerdict(pin.id, { accepted: false, comment: t }))
+    .then((n) => { if (n) { setReply(''); toast(`Pin #${pin.number} reopened - Claude Code picks it up on the same branch`); } }); };
+  const openTesting = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'testing' } }));
   const undismiss = () => run('undismiss', () => api.devNotesPatch(pin.id, { status: 'open' })).then((n) => n && toast(`Pin #${pin.number} is open again`));
 
   const edit = pin.edit && typeof pin.edit === 'object' && (pin.edit.text || pin.edit.styles?.length) ? pin.edit : null;
@@ -261,9 +309,26 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false })
           <div className="bm-progress"><Loader2 size={12} className={m.pulse ? 'bm-spin' : ''} /> <span>{pin.progress}</span>{pin.progressAt && <span className="bm-dim"> · {formatDateTime(pin.progressAt)}</span>}</div>
         )}
         {waiting && <div className="bm-hint">Waiting for Claude Code to pick up your reply.</div>}
+        {held && (
+          <div className="bm-hint bm-hint-amber" data-testid="bm-held">
+            <Hand size={12} /> This is {ownerName}&apos;s area - it waits for {ownerName}{rights.release ? '. Release it to Claude Code or handle it yourself.' : ', who can release it to Claude Code.'}
+          </div>
+        )}
+        {reopenedOnPreview && <div className="bm-hint" data-testid="bm-reopened">Reopened - Claude Code is on it.</div>}
         {pin.status === 'needs_input' && <div className="bm-hint bm-hint-amber">Claude Code is waiting for your answer - reply below.</div>}
-        {pin.prUrl && (
+        {ready ? <PreviewBlock pin={pin} /> : pin.prUrl && (
           <a className="bm-link" href={pin.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={12} /> PR #{pin.prNumber}{pin.branch ? ` · ${pin.branch}` : ''}</a>
+        )}
+        {ready && !rights.verdict && <div className="bm-hint">Waiting for {firstNameOf(pin.createdBy)} to check it on the preview.</div>}
+        {checked && <div className="bm-verify" data-testid="bm-checked"><Check size={13} /><span>Checked On The Preview - it is Done when the PR merges.</span></div>}
+        {pin.regressionCaseId && (
+          // Testing.jsx reads no case id from navigation, so the link lands on
+          // the module and the line names the case to search for there.
+          <div className="bm-regression" data-testid="bm-regression">
+            <FlaskConical size={13} />
+            <span className="bm-regression-text">Regression Test Added<span className="bm-dim bm-small"> - {regressionTitle(pin)}</span></span>
+            {me.canTesting && <button type="button" className="bm-btn bm-btn-sm bm-push" onClick={openTesting}>Open In Testing</button>}
+          </div>
         )}
         <Evidence v={pin.verification} />
         {(pin.thread || []).length > 0 && (
@@ -282,13 +347,25 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false })
         <div className="bm-card-foot bm-col">
           <div className="bm-reply">
             <textarea className="bm-textarea" rows={2} value={reply} onChange={(e) => setReply(e.target.value)}
-              placeholder={pin.status === 'fixed' ? 'A note with your verdict (optional)' : 'Reply to this pin'}
-              onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send(); }} />
-            {pin.status !== 'fixed' && (
+              placeholder={ready && rights.verdict ? 'What is still wrong? (required to reopen)' : pin.status === 'fixed' ? 'A note with your verdict (optional)' : 'Reply to this pin'}
+              aria-label={verdictBox ? 'Verdict note' : 'Reply'}
+              onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !verdictBox) send(); }} />
+            {!verdictBox && (
               <button type="button" className="bm-btn bm-btn-primary" onClick={send} disabled={!reply.trim() || !!busy} aria-label="Send reply"><Send size={14} /></button>
             )}
           </div>
           <div className="bm-actions">
+            {held && rights.release && !confirm && (
+              <button type="button" className="bm-btn bm-btn-primary" onClick={release} disabled={!!busy}>
+                {busy === 'release' ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Release To Claude Code
+              </button>
+            )}
+            {ready && rights.verdict && !confirm && (
+              <>
+                <button type="button" className="bm-btn bm-btn-primary" onClick={previewAccept} disabled={!!busy}><Check size={14} /> Accept</button>
+                <button type="button" className="bm-btn" onClick={previewReopen} disabled={!!busy || !reply.trim()} title={reply.trim() ? 'Send it back to Claude Code with your note' : 'Write what is still wrong first'}><RotateCcw size={14} /> Reopen</button>
+              </>
+            )}
             {pin.status === 'fixed' && !confirm && (
               <>
                 <button type="button" className="bm-btn bm-btn-primary" onClick={accept} disabled={!!busy}><Check size={14} /> Accept</button>

@@ -31,6 +31,57 @@ export const STATUS_META = {
 };
 export const statusMeta = (s) => STATUS_META[s] || { label: s || 'Open', color: '#64748b' };
 
+// Build Mode v2 labels that sit on top of the status (the status itself does
+// not change): a pin held for the owner of its area, a pin Ready To Check on
+// its local preview (between PR Open's violet and Fixed's green - the marker
+// carries the gradient, `ready`), and a pin checked there that waits to merge.
+export const READY_META = { label: 'Ready To Check', color: '#0d9488', ready: true };
+export const CHECKED_META = { label: 'PR Open - Checked', color: '#059669' };
+export const HELD_COLOR = '#d97706';
+
+const isReady = (pin) => (pin.readyToCheck != null
+  ? !!pin.readyToCheck
+  : pin.status === 'pr_open' && !!pin.preview?.url && pin.previewVerdict !== 'accepted');
+
+/** Held for the owner of its area, and still open (never sent). */
+export const pinHeld = (p) => !!p?.held && p.status === 'open';
+/** A human answered last and Claude Code has not picked it up again yet. */
+export function pinAwaitsClaude(p) {
+  if (p?.status !== 'building') return false;
+  const t = Array.isArray(p.thread) ? p.thread : [];
+  const last = t[t.length - 1];
+  return !!last && last.kind === 'comment' && last.by !== 'claude';
+}
+/** Reopened on the preview and Claude Code has it again: building, and the
+ *  author's note is no longer the last word waiting for it. A needs_input
+ *  pin is never "on it" - it is waiting for the author. */
+export const pinReopened = (p) => p?.previewVerdict === 'reopened' && p.status === 'building' && !pinAwaitsClaude(p);
+/** Accepted on the preview; the PR has not merged yet. */
+export const pinChecked = (p) => p?.previewVerdict === 'accepted' && p.status === 'pr_open';
+export const pinReady = (pin) => !!pin && isReady(pin);
+
+/** The label a pin shows everywhere (marker, thread, Queue row). */
+export function pinMeta(pin) {
+  if (!pin) return statusMeta('open');
+  if (pinHeld(pin)) {
+    return { label: `Waits For ${pin.ownerName || firstNameOf(pin.ownerEmail) || 'Owner'}`, color: HELD_COLOR, held: true };
+  }
+  if (isReady(pin)) return READY_META;
+  if (pinChecked(pin)) return CHECKED_META;
+  return statusMeta(pin.status);
+}
+
+/** A local preview link - the server's rule: http, localhost or 127.0.0.1,
+ *  a port, no credentials. Never an outside link. */
+export function isLocalPreview(url) {
+  if (!url) return false;
+  try {
+    const u = new URL(String(url));
+    return u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1')
+      && !!u.port && !u.username && !u.password;
+  } catch { return false; }
+}
+
 export const SESSION_STATUS = {
   collecting: { label: 'Collecting',     color: '#64748b' },
   sent:       { label: 'Sent',           color: '#2563eb' },

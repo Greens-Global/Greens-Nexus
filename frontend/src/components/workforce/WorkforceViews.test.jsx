@@ -97,6 +97,23 @@ describe('Workforce Analytics team views', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
+  it('People searches by name or department, ranked like the people pickers; Enter picks the top match', async () => {
+    api.workforceViewCreate.mockResolvedValue({ ...VIEWS[0], id: 'v4', name: 'Ben' });
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole('button', { name: /New View/ }));
+    await screen.findByRole('dialog', { name: 'New Team View' });
+    fireEvent.change(screen.getByPlaceholderText(/Front Desk Team/), { target: { value: 'Ben' } });
+    const search = await screen.findByPlaceholderText(/Search people by name/);
+    const listed = () => [...screen.getByRole('listbox', { name: 'People' }).querySelectorAll('label')].map(l => l.textContent);
+    fireEvent.change(search, { target: { value: 'sales' } });          // a department still finds them
+    expect(listed()).toEqual(['Ben Bell · Sales']);
+    fireEvent.change(search, { target: { value: 'b' } });              // first-name prefix first
+    expect(listed()[0]).toContain('Ben Bell');
+    fireEvent.keyDown(search, { key: 'Enter' });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Save View/ })); });
+    expect(api.workforceViewCreate).toHaveBeenCalledWith(expect.objectContaining({ criteria: expect.objectContaining({ people: ['ben@x.com'] }) }));
+  });
+
   it('will not save a view with no name or nothing picked', async () => {
     render(<Harness />);
     fireEvent.click(await screen.findByRole('button', { name: /New View/ }));

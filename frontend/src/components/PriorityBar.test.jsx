@@ -16,6 +16,8 @@ vi.mock('../api', () => ({ api: {
   sendPriorityNotice: vi.fn(async () => ({ id: 'n1' })),
 } }));
 
+vi.mock('./PersonHoverCard', () => ({ default: ({ children }) => children }));
+
 import PriorityBar, { RaiseNotice, canRaiseNotice, noticeSummary } from './PriorityBar';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { api } from '../api';
@@ -113,9 +115,11 @@ describe('PriorityBar', () => {
     expect(canRaiseNotice('manager')).toBe(true);
     expect(canRaiseNotice('employee')).toBe(false);
     render(<RaiseNotice onClose={() => {}} myEmail="me@greensglobal.com" />);
-    const to = await screen.findByLabelText('To');
-    await waitFor(() => expect(to.options.length).toBe(2));
-    fireEvent.change(to, { target: { value: 'urmi.gor@greensglobal.com' } });
+    // To is the Tasks people picker: open, type, pick.
+    fireEvent.click(await screen.findByLabelText('To'));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'urm' } });
+    fireEvent.click(await within(screen.getByRole('listbox')).findByText('Urmi Gor'));
+    expect(screen.getByLabelText('To').textContent).toContain('Urmi Gor');
     fireEvent.change(screen.getByLabelText('What must be done'), { target: { value: 'Sign your time sheet by 5 PM' } });
     fireEvent.change(screen.getByLabelText('Open takes them to'), { target: { value: 'timeclock:timecard' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send Notice' }));

@@ -13,6 +13,7 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { usePeopleDirectory } from '../lib/queries';
 import { toViewUrl } from '../lib/storageView';
 import { Spinner } from './AsyncState';
+import { PersonSelect } from '../tasks/components';
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
@@ -225,11 +226,12 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
           <label style={FL}>ASSIGN TO <span style={{ color: 'hsl(var(--color-red))' }}>*</span></label>
           {/* Show the email, not just the name - the directory has duplicate people
               across domains (e.g. several "Neil"s), so the email is how you pick the
-              account that person actually logs in with (Visesh). */}
-          <select className="form-input" style={{ width: '100%' }} value={pick} onChange={e => setPick(e.target.value)}>
-            <option value="">- select a person -</option>
-            {directory.map(d => <option key={d.email} value={d.email}>{d.name ? `${d.name} - ${d.email}` : d.email}</option>)}
-          </select>
+              account that person actually logs in with (Visesh). The searchable
+              people picker (Oct 25 2026) keeps it in each row's name. */}
+          <PersonSelect value={pick || null} onChange={v => setPick(v || '')} allowNone={false}
+            placeholder="Select a person" ariaLabel="Assign To"
+            people={directory.filter(d => d.email).map(d => ({ email: d.email, name: d.name ? `${d.name} - ${d.email}` : d.email, external: !!d.external }))}
+            style={{ borderRadius: 10, padding: '9px 13px', fontSize: 13.5, fontWeight: 400 }} />
           {reassign && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }} title={item.assignedToEmail || ''}>Currently with {item.assignedToName || emailToName(item.assignedToEmail)} - they’ll be asked to return it with a photo, then the new person accepts.</p>}
           {!reassign && (
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, cursor: 'pointer', userSelect: 'none' }}>

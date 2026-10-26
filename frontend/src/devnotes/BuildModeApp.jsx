@@ -23,7 +23,10 @@ import { setActionContext, pauseActions, snapshotActions } from './lib/actions';
 import { sensitiveRects } from './lib/privacy';
 import { uploadDevNoteFile } from './lib/upload';
 import { installHotkeys } from './lib/hotkeys';
-import { MARKUP_TOOLS } from './meta';
+import { MARKUP_TOOLS, pinHeld } from './meta';
+import { NAV, isNavItemVisible } from '../components/Sidebar';
+
+const TESTING_NAV = NAV.find((item) => item.view === 'testing');
 
 const BUILD_ID = import.meta.env.VITE_BUILD_ID || 'dev';
 
@@ -36,7 +39,18 @@ export default function BuildModeApp({ view, sub }) {
   const isMobile = useIsMobile();
   // The caller (acting-as identity when one is on): the Queue counts only
   // their own open pins for Send To Claude Code. Absent in tests.
-  const myEmail = useRole()?.myEmail || '';
+  const role = useRole();
+  const myEmail = (role?.myEmail || '').toLowerCase();
+  // Open In Testing (v2 regression link) only for people the sidebar shows
+  // Testing to - the same isNavItemVisible check, with the QA module's switch.
+  const [qaEnabled, setQaEnabled] = useState(false);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(api.qaEnabled?.()).then((r) => { if (live) setQaEnabled(!!r?.enabled); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const canTesting = !!role && !!TESTING_NAV && isNavItemVisible(TESTING_NAV, { isExternal: role.isExternal, can: role.can, myGrantedModules: role.myGrantedModules, qaEnabled });
+  const me = useMemo(() => ({ email: myEmail, canTesting }), [myEmail, canTesting]);
   const blocked = (s.blockedRoutes || []).includes(view);
   const [draft, setDraft] = useState(null);
   const draftRef = useRef(null);
@@ -240,15 +254,19 @@ export default function BuildModeApp({ view, sub }) {
         sessionTitle: `Build Session ${formatDate(new Date())} ${formatTime(new Date())}`,
       };
       const note = await api.devNotesCreate(body);
-      let sent = !!s.settings?.sendInstantly;
-      if (sendNow && !sent) {
+      // On someone else's area the server holds the pin for them (v2) - only
+      // its word counts: no `held` = not held.
+      const heldFor = note.held === true ? (note.ownerName || 'its owner') : '';
+      let sent = !!s.settings?.sendInstantly && !heldFor;
+      if (sendNow && !sent && !heldFor) {
         try { await api.devNotesDispatch({ noteIds: [note.id] }); sent = true; }
         catch (e) { toast(`Pin #${note.number} saved, but not sent: ${e?.message || 'dispatch failed'}`); }
       }
       removeDraft(draft.id);
       setDraft(null); setRecorded(null);
       store.set((st) => ({ pick: null, markup: [], version: st.version + 1 }));
-      if (sent || !sendNow) toast(sent ? `Pin #${note.number} sent to Claude Code` : `Pin #${note.number} saved to your Build Session`);
+      if (heldFor) toast(`Pin #${note.number} saved - it waits for ${heldFor}`);
+      else if (sent || !sendNow) toast(sent ? `Pin #${note.number} sent to Claude Code` : `Pin #${note.number} saved to your Build Session`);
     } catch (e) {
       toast(e?.message || 'The pin could not be saved');
     } finally { setSaving(''); }
@@ -337,13 +355,13 @@ export default function BuildModeApp({ view, sub }) {
     );
   }
 
-  const queueCount = pins.filter((p) => p.status === 'open').length;
+  const queueCount = pins.filter((p) => p.status === 'open' && !pinHeld(p)).length;
   return (
     <div data-nx-devnotes="1" className="bm-root">
       <Overlay tool={s.tool} color={s.color} interactive={!s.editPick && !s.panelOpen && s.tool !== 'browse'} items={s.markup}
         onAdd={(item) => store.set((st) => ({ markup: [...st.markup, item] }))} onPick={onPick}
         faintItems={faint.items} faintOffset={faint.offset} />
-      <Pins pins={pins} openPinId={s.openPinId} show={s.showPins} onOpen={(id) => store.set({ openPinId: id, pick: null })} onClose={() => store.set({ openPinId: '' })} onChanged={onPinChanged} />
+      <Pins pins={pins} me={me} openPinId={s.openPinId} show={s.showPins} onOpen={(id) => store.set({ openPinId: id, pick: null })} onClose={() => store.set({ openPinId: '' })} onChanged={onPinChanged} />
       {s.pick && draft && (
         <Composer pick={s.pick} draft={draft} onChange={updateDraft} onCancel={cancelComposer} onSave={save} saving={saving} settings={s.settings} view={view}
           capture={s.capture} recording={s.recording} onRecord={toggleRecord} onStopRecord={() => stopRecording()} recorded={recorded}

@@ -12,6 +12,7 @@ import { KINDS, PRIORITIES } from './meta';
 import { placeCard } from './lib/anchor';
 import { uploadDevNoteFile, storageReady } from './lib/upload';
 import { speechSupported } from './lib/recorder';
+import { api } from '../api';
 
 const ROUTE_LABEL = Object.fromEntries(MODULES.map((m) => [m.id, m.label]));
 const MOD = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘' : 'Ctrl';
@@ -33,6 +34,30 @@ export function looksLikeDetail(target) {
   const comp = (target.components || []).slice(-1)[0] || '';
   const src = target.source?.file ? `${target.source.file}:${target.source.line}` : '';
   return [comp, src, target.selector].filter(Boolean).join(' · ');
+}
+
+// Whose area the pick is on (v2): the server answers { owner, held } for a
+// source stamp (GET /dev-notes/owner-of - the same code_owners.py rule it
+// holds pins by). One lookup per file per page load, after the pick has sat
+// for a moment; a pick that moves on quickly never asks.
+const OWNER_CACHE = new Map();
+const OWNER_DEBOUNCE_MS = 250;
+function useHeldOwner(path) {
+  const [got, setGot] = useState({ path: '', v: null });
+  useEffect(() => {
+    if (!path || OWNER_CACHE.has(path)) return undefined;
+    let live = true;
+    const t = setTimeout(() => {
+      Promise.resolve(api.devNotesOwnerOf?.(path)).then((r) => {
+        const v = { owner: r?.owner || null, held: !!r?.held };
+        OWNER_CACHE.set(path, v);
+        if (live) setGot({ path, v });
+      }).catch(() => { /* no answer = no owner line; the server still decides on save */ });
+    }, OWNER_DEBOUNCE_MS);
+    return () => { live = false; clearTimeout(t); };
+  }, [path]);
+  const v = path ? (OWNER_CACHE.get(path) || (got.path === path ? got.v : null)) : null;
+  return v?.held && v.owner ? { name: v.owner.name || v.owner.email || 'its owner', email: v.owner.email || '' } : null;
 }
 
 const fmtDur = (ms) => { const s = Math.round((ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -78,7 +103,10 @@ export default function Composer({
   };
   const removeAttachment = (url) => set((d) => ({ attachments: (d.attachments || []).filter((u) => u !== url) }));
 
-  const sendInstantly = !!settings?.sendInstantly;
+  // Someone else's area (v2): the server says the pin would be held for them,
+  // so it is never sent to Claude Code from here - one button, Save For <Owner>.
+  const owner = useHeldOwner(pick?.target?.source?.file || '');
+  const sendInstantly = !!settings?.sendInstantly && !owner;
   const busy = !!saving || uploading > 0 || !!recording;
   const kindMeta = KINDS.find((k) => k.id === draft.kind) || KINDS[0];
   const hint = looksLike(pick?.target, view);
@@ -86,7 +114,7 @@ export default function Composer({
   return (
     <div ref={ref} className="bm-card bm-composer" role="dialog" aria-label="New Pin" data-testid="bm-composer"
       style={pos ? { left: pos.left, top: pos.top } : undefined}
-      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel?.(false); } if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); onSave?.(!sendInstantly); } }}>
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel?.(false); } if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); onSave?.(!owner && !sendInstantly); } }}>
       <div className="bm-card-head">
         <span className="bm-pin bm-pin-inline" style={{ '--c': kindMeta.color }} aria-hidden="true"><span className="bm-pin-no">+</span></span>
         <div className="bm-card-title">{draft.edit ? 'New Edit Pin' : 'New Pin'}{pick?.mode === 'region' ? <span className="bm-dim bm-small"> · region</span> : null}</div>
@@ -94,6 +122,7 @@ export default function Composer({
       </div>
       <div className="bm-card-body">
         {hint && <div className="bm-looks" title={looksLikeDetail(pick?.target)}>{hint}</div>}
+        {owner && <div className="bm-hint bm-hint-amber" role="note" data-testid="bm-owner-line">This is {owner.name}&apos;s area - it goes to {owner.name}, not Claude Code.</div>}
         <div className="bm-pills" role="radiogroup" aria-label="Kind">
           {KINDS.map((k) => (
             <button key={k.id} type="button" role="radio" aria-checked={draft.kind === k.id} className={`bm-pill${draft.kind === k.id ? ' is-on' : ''}`} style={{ '--c': k.color }} onClick={() => set({ kind: k.id })}>{k.label}</button>
@@ -162,10 +191,16 @@ export default function Composer({
           ? <span className="bm-confirm">Discard this pin? <button type="button" className="bm-btn bm-btn-danger" onClick={() => onCancel?.(true)}>Discard</button><button type="button" className="bm-btn bm-btn-ghost" onClick={() => setConfirmDiscard(false)}>Keep</button></span>
           : <button type="button" className="bm-btn bm-btn-ghost" onClick={() => ((draft.comment || '').trim() || draft.attachments?.length || recorded ? setConfirmDiscard(true) : onCancel?.(true))} disabled={!!saving}><Trash2 size={14} /> Discard</button>}
         <span className="bm-push" />
-        <button type="button" className={`bm-btn${sendInstantly ? ' bm-btn-primary' : ''}`} onClick={() => onSave?.(false)} disabled={busy}>
-          {saving === 'save' ? <Loader2 size={14} className="bm-spin" /> : <Check size={14} />} {sendInstantly ? 'Save And Send' : 'Save Pin'}
-        </button>
-        {!sendInstantly && (
+        {owner ? (
+          <button type="button" className="bm-btn bm-btn-primary" onClick={() => onSave?.(false)} disabled={busy} title={`${MOD}+Enter`}>
+            {saving === 'save' ? <Loader2 size={14} className="bm-spin" /> : <Check size={14} />} Save For {owner.name}
+          </button>
+        ) : (
+          <button type="button" className={`bm-btn${sendInstantly ? ' bm-btn-primary' : ''}`} onClick={() => onSave?.(false)} disabled={busy}>
+            {saving === 'save' ? <Loader2 size={14} className="bm-spin" /> : <Check size={14} />} {sendInstantly ? 'Save And Send' : 'Save Pin'}
+          </button>
+        )}
+        {!sendInstantly && !owner && (
           <button type="button" className="bm-btn bm-btn-primary" onClick={() => onSave?.(true)} disabled={busy} title={`${MOD}+Enter`}>
             {saving === 'send' ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Save And Send
           </button>

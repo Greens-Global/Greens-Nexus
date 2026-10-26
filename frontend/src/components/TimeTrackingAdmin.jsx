@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ShieldCheck, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown, Video, X, Radio, MousePointer2, Eye, Wrench } from 'lucide-react';
 import { api } from '../api';
-import { Avatar } from '../tasks/components';
+import { Avatar, PersonSelect } from '../tasks/components';
 import ScreenshotsAdmin from './ScreenshotsAdmin';
 import TimeInsights from './TimeInsights';
 import { MonitoringAlertsPanel } from './MonitoringAlerts';
@@ -104,7 +104,7 @@ function PolicySwitch({ on, onToggle }) {
 // The one reusable install command + the list of enrolled PCs. The agent is
 // disclosed (visible tray, named process); the command is identical on every PC
 // and each machine self-enrolls its own identity at install time.
-function AgentInstall() {
+export function AgentInstall() {
   const [info, setInfo] = useState(null);      // { configured, command, note } | null loading | false error
   const [devices, setDevices] = useState(null);
   const [people, setPeople] = useState([]);
@@ -284,11 +284,11 @@ function AgentInstall() {
             ) : (<>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <span style={{ fontSize: 11, color: 'var(--muted)' }}>Owner</span>
-              <select className="form-input" value={d.email || ''} onChange={e => assign(d.id, e.target.value)}
-                style={{ fontSize: 12, height: 30, minWidth: 150, maxWidth: 190 }}>
-                <option value="">Unassigned (shared)</option>
-                {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
-              </select>
+              <div style={{ width: 180 }}>
+                <PersonSelect value={d.email || null} onChange={v => { if ((v || '') !== (d.email || '')) assign(d.id, v || ''); }} people={people} ariaLabel="Owner"
+                  placeholder="Unassigned (Shared)" noneLabel="Unassigned (Shared)"
+                  style={{ fontSize: 12, height: 30, padding: '0 10px', borderRadius: 10, fontWeight: 400 }} />
+              </div>
               {savedId === d.id && (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-green))' }}>
                   <Check size={12} /> Saved
