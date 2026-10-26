@@ -2645,12 +2645,18 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
                       db: Session = Depends(get_db)):
     if body.kind not in KINDS:
         raise HTTPException(400, f"kind must be one of {KINDS}")
-    if _parse_iso(body.at) is None:
+    _at = _parse_iso(body.at)
+    if _at is None:
         raise HTTPException(400, "at must be an ISO timestamp")
     scope = _visible_emails(db, user)
     if scope is not None and body.employee_email.strip().lower() not in scope:
         raise HTTPException(403, "You can only add punches for your own team.")
     _refuse_own_time(user, body.employee_email, _OWN_EDIT)
+    # A future punch becomes the "last punch" (state = max(at)) and jams the
+    # person's clock until that moment passes - the employee routes refuse it,
+    # and a 5 PM clock-out added at 10 AM did the same from here (Oct 26).
+    if (_at if _at.tzinfo else _at.replace(tzinfo=timezone.utc)) > datetime.now(timezone.utc) + timedelta(minutes=5):
+        raise HTTPException(400, "A punch can't be in the future.")
     _guard_not_finalized(db, body.employee_email.strip().lower(),
                          _local_date(body.at, body.tz_offset_min or 0))
     _guard_review(db, body.employee_email.strip().lower(),
