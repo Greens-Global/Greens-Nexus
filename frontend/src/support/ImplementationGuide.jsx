@@ -241,7 +241,7 @@ function ConceptsPage() {
       {/* The shape, as a simple tree - the words below explain each box. */}
       <section className="docs-sec">
         <pre className="impl-tree" aria-label="Organization, companies, roles and people">
-{`Organization  (Global Settings, Microsoft 365 tenant)
+{`Organization  (Settings at Every company, Microsoft 365 tenant)
 ├─ Company  (legal entity: domains, managers, HR contact)
 │   ├─ Departments
 │   ├─ Locations  (from the Location Library)

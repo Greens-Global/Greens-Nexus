@@ -172,7 +172,7 @@ class LaunchCase(unittest.TestCase):
 
     # ── unlock reopens the review ──────────────────────────────────────────
 
-    def test_unlock_closes_the_signed_review_so_a_new_round_can_start(self):
+    def test_unlock_hands_the_signed_review_to_hr_to_correct(self):
         self._punch(self.start, "in", "16:00:00")
         self._punch(self.start, "out", "23:00:00")
         self.db.add(models.TimesheetReview(id="rv-done", employee_email=EMP, period_start=self.start,
@@ -185,15 +185,20 @@ class LaunchCase(unittest.TestCase):
         self.assertEqual(r.status_code, 409, r.text)     # finalized + completed: no new round
         self._as(HR)
         r = self.client.post("/timeclock/unfinalize", json={"email": EMP, "start": self.start, "end": self.end})
+        self.assertEqual(r.status_code, 422, r.text)          # Oct 22: a reason is required
+        r = self.client.post("/timeclock/unfinalize", json={"email": EMP, "start": self.start, "end": self.end,
+                                                            "reason": "Wrong lunch on Monday"})
         self.assertEqual(r.status_code, 200, r.text)
         self.db.expire_all()
-        self.assertEqual(self.db.query(models.TimesheetReview).get("rv-done").status, "unlocked")
-        self.assertIsNone(tsr.active_review(self.db, EMP, self.start))
+        self.assertEqual(self.db.query(models.TimesheetReview).get("rv-done").status, "correcting")
         self._as(EMP)
         r = self.client.post("/timesheet-review/submit", json={"start": self.start, "note": "fixed"})
+        self.assertEqual(r.status_code, 409, r.text)          # HR corrects it; the employee signs after
+        self._as(HR)
+        r = self.client.post("/timesheet-review/rv-done/relock")
         self.assertEqual(r.status_code, 200, r.text)
         rows = self.db.query(models.TimesheetReview).filter(models.TimesheetReview.employee_email == EMP).all()
-        self.assertEqual(sorted(x.status for x in rows), ["unlocked", "with_manager"])
+        self.assertEqual([x.status for x in rows], ["completed"])   # one review, locked again
 
     # ── stale shift message ────────────────────────────────────────────────
 

@@ -1,35 +1,51 @@
 // Task Module - Board view (1:1 port of the export's NexusBoardView).
-// Status columns (built-in + custom statuses) with drag-and-drop, per-column
-// WIP limits, collapsible columns, an "Add section" column that creates a
-// custom status, an inline comment composer on cards, and orthogonal swimlanes
-// (None / Assignee / Priority / Project). Grey columns, white cards.
+// Columns with drag-and-drop, per-column WIP limits (Status columns),
+// collapsible columns, an "Add Column" column that creates a custom status,
+// an inline comment composer on cards, and orthogonal swimlanes. Grey
+// columns, white cards.
+//
+// Planner's board (Oct 22 2026): the columns are a choice - Status (built-in
+// plus custom statuses), Section (a project's Custom sections), Priority or
+// Due Date - and the swimlanes are the toolbar's Group on Board (None /
+// Assignee / Priority / Project / Label / a select field; boardLayout.js).
+// Cards can show a preview under their title (CardPreview.jsx).
+//
+// On the Tasks workspace the toolbar owns the Group and Columns choices
+// (`group` / `columns` props); a board without them (My Tasks) keeps its own
+// small Group / Columns menus here, so a screen never has two of either.
 import { useMemo, useRef, useState } from 'react';
 import {
   Circle, CheckCircle2, MessageSquare, Diamond, Plus, Trash2, ChevronsLeft, ChevronsRight,
-  MoreHorizontal, Gauge, Rows3, ChevronDown, ListChecks,
+  MoreHorizontal, Gauge, Rows3, ChevronDown, ListChecks, ArrowRightLeft, Check, CornerDownRight, ListTree,
+  Columns3, Image as ImageIcon,
 } from 'lucide-react';
+import { useCanEditTask } from '../canEditTask';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META } from '../theme';
-import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees, requiredFieldsFor } from '../lib';
+import { cfFieldId, taskFieldValue, fieldsForProject, taskAssignees, requiredFieldsFor, effectiveProjectId, withTaskFields, groupTasks } from '../lib';
 import { useFlip } from '../../lib/motion';
 import ChangeFlash from '../../components/ChangeFlash';
 import { changedRecently } from '../recentChanges';
 import { statusesForProject } from '../TasksContext';
 import { Avatar, PriorityChip } from '../components';
-import { fmtDate } from '../lib';
+import { fmtDate, todayISO, wipStorageKey } from '../lib';
 import DueBadge from '../DueBadge';
 import AnchoredMenu from '../../components/AnchoredMenu';
+import { useRowColorMap, rowColorAttrs, boldTitleStyle } from '../rowColorState';
 import { projectLook } from '../projectLook';
+import {
+  boardSetup, boardHasSections, PRIORITY_COLUMNS, dueBoardColumns, dueColumnForTask, labelLaneTags, assigneeLanePeople, laneAddDefaults,
+} from '../boardLayout';
+import { awaitingFirstDate, clearingStopsSeries, moveTaskToDay } from '../calendarMove';
+import CardPreview from '../CardPreview';
+import { LabelPill, LabelStrip, labelKey, useLabelColors } from '../labels';
 
 const SECTION_PALETTE = ['#4573fa', '#8b6bf0', '#14a76c', '#e8a33d', '#e0844e', '#e8384f', '#29a8ab', '#db2777'];
-const SWIMLANE_OPTIONS = [
-  { key: 'none', label: 'None' }, { key: 'assignee', label: 'Assignee' },
-  { key: 'priority', label: 'Priority' }, { key: 'project', label: 'Project' },
-];
 const PRIORITY_LANE_ORDER = ['urgent', 'high', 'medium', 'low'];
+const DUE_COLORS = { overdue: NX.red, today: NX.amber, tomorrow: NX.blue, week: NX.purple, nextweek: NX.teal, later: NX.dim, none: NX.faint, completed: NX.green };
 
 const dueColor = (iso, completed) => {
   if (!iso || completed) return NX.faint;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   if (iso < today) return NX.red;
   if (iso === today) return NX.amber;
   return NX.dim;
@@ -44,6 +60,11 @@ const fmtDue = (iso) => fmtDate(iso);
 // drawn per column (headers/counts stay accurate) and show a "+N more" note -
 // same reasoning as the list view's render cap.
 const MAX_BOARD_CARDS = 100;
+
+// Per-board WIP limits - see wipStorageKey (lib.js).
+const readWip = (key) => {
+  try { const v = JSON.parse(localStorage.getItem(key) || '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; }
+};
 function MoreCards({ n }) {
   return (
     <div style={{ padding: '6px 4px', fontSize: 12, color: NX.faint, fontFamily: FONT }}>
@@ -52,18 +73,51 @@ function MoreCards({ n }) {
   );
 }
 
-export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId, defaultAssigneeId = '', onFullCreate }) {
+
+// showSubtasks / onToggleSubtasks (Oct 22 2026): the workspace's "Show
+// Subtasks" switch - when it is on, `visible` already holds the subtasks and
+// each one is a card of its own (with a "Subtask of" line). Without
+// onToggleSubtasks (My Tasks, which lists subtasks anyway) no switch shows.
+//
+// group / columns (Oct 22 2026): the stored swimlanes and columns, owned by
+// the workspace's toolbar. A value the board does not offer here falls back
+// to None / Status without being written back. Left undefined, the board
+// keeps its own (My Tasks). sections: the project's Custom sections
+// (useCustomSections) for Section columns. cardPreviews /
+// onToggleCardPreviews: the "Card Previews" switch, on by default.
+export default function BoardView({
+  visible, ctx, store, onOpen, lockedProjectId, defaultAssigneeId = '', onFullCreate, showSubtasks = false, onToggleSubtasks = null,
+  group, columns, sections = null, cardPreviews, onToggleCardPreviews = null,
+}) {
+  // A read-only person sees the cards but cannot drag them or move them
+  // between columns (Oct 22 2026) - the server refuses it anyway.
+  const canEditTask = useCanEditTask(store);
+  // Conditional row colors (Oct 22 2026): a card wears its rule's color as an
+  // inset accent on its left edge - no tint on a card.
+  const rowColors = useRowColorMap();
+  // The company's label names and colors (labels.js) - label lanes and the
+  // labels on each card.
+  const { map: labelMap } = useLabelColors();
   const [dragId, setDragId] = useState(null);
   // Which lane the card was picked up FROM. With a task able to sit in
-  // several assignee lanes at once, the destination alone no longer says
-  // what the drag meant - see drop().
+  // several assignee (or label) lanes at once, the destination alone no
+  // longer says what the drag meant - see drop().
   const [dragFrom, setDragFrom] = useState(null);
   const [dragOver, setDragOver] = useState(null);
   const [addIn, setAddIn] = useState(null);
   const [commentOpenId, setCommentOpenId] = useState(null);
   const [draft, setDraft] = useState('');
+  const [commentBusy, setCommentBusy] = useState(false);
+  const [commentError, setCommentError] = useState('');
   const [collapsed, setCollapsed] = useState(() => new Set());
-  const [swimlane, setSwimlane] = useState('none');
+  // My Tasks: the board's own choices (the workspace passes its toolbar's).
+  const [ownLanes, setOwnLanes] = useState('none');
+  const [ownColumns, setOwnColumns] = useState('status');
+  const [ownPreviews, setOwnPreviews] = useState(true);
+  const lanesControlled = group !== undefined;
+  const columnsControlled = columns !== undefined;
+  const showPreviews = cardPreviews !== undefined ? !!cardPreviews : ownPreviews;
+  const togglePreviews = onToggleCardPreviews || (cardPreviews === undefined ? () => setOwnPreviews((v) => !v) : null);
   // Select-type custom fields become swimlane choices too. Memoized because `lanes`
   // depends on it, and a fresh array every render would defeat that memo.
   const boardFields = useMemo(
@@ -71,22 +125,29 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
       .filter((f) => f.type === 'select' && (f.options || []).length),
     [store.customFields, lockedProjectId],
   );
-  const swimOptions = [...SWIMLANE_OPTIONS, ...boardFields.map((f) => ({ key: cfKey(f.id), label: f.name }))];
+  const hasSections = boardHasSections(lockedProjectId, sections);
+  const lanesIn = lanesControlled ? group : ownLanes;
+  const columnsIn = columnsControlled ? columns : ownColumns;
+  const setup = useMemo(() => boardSetup({ lanes: lanesIn, columns: columnsIn, lockedProjectId, fields: boardFields, hasSections }),
+    [lanesIn, columnsIn, lockedProjectId, boardFields, hasSections]);
+  const swimlane = setup.lanes;
+  const colKind = setup.columns;
   const [addingSection, setAddingSection] = useState(false);
   const [sectionName, setSectionName] = useState('');
-  const [swimOpen, setSwimOpen] = useState(false);
-  const swimRef = useRef(null);
   // Cards glide when a drop, a status change or a filter moves them.
   const flipRef = useRef(null);
   useFlip(flipRef);
-  const [wip, setWip] = useState(() => { try { return JSON.parse(localStorage.getItem('nexus.board.wip') || '{}'); } catch { return {}; } });
+  const wipKey = wipStorageKey(lockedProjectId, defaultAssigneeId);
+  const [wipState, setWipState] = useState(() => ({ key: wipKey, map: readWip(wipKey) }));
+  // Switching to another project's board reads that board's own limits.
+  const wip = wipState.key === wipKey ? wipState.map : readWip(wipKey);
 
-  const setLimit = (status, n) => setWip((prev) => {
-    const next = { ...prev };
+  const setLimit = (status, n) => {
+    const next = { ...wip };
     if (n == null || n <= 0) delete next[status]; else next[status] = n;
-    localStorage.setItem('nexus.board.wip', JSON.stringify(next));
-    return next;
-  });
+    try { localStorage.setItem(wipKey, JSON.stringify(next)); } catch { /* private mode: this session only */ }
+    setWipState({ key: wipKey, map: next });
+  };
 
   // Columns are the statuses THIS project uses (its own plus any global one) -
   // an unscoped list put a status invented for one project on every board.
@@ -101,13 +162,46 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
   const statusMeta = (key) => STATUS_META[key]
     || (() => { const c = store.customStatuses.find((s) => s.id === key); return c ? { label: c.label, color: c.color, tint: `${c.color}1a` } : { label: key, color: NX.dim, tint: NX.border2 }; })();
 
+  // The columns - each { key, label, color, match(task) } - for the kind
+  // chosen. Due Date columns read the viewer's local today.
+  const today = todayISO();
+  const sectionList = sections?.sections;
+  const sectionOf = sections?.sectionOf;
+  const cols = useMemo(() => {
+    if (colKind === 'priority') {
+      return PRIORITY_COLUMNS.map((p) => ({ key: p, label: PRIORITY_META[p]?.label || p, color: PRIORITY_META[p]?.color || NX.dim, match: (t) => (t.priority || 'medium') === p }));
+    }
+    if (colKind === 'due') {
+      return dueBoardColumns(today).map((c) => ({ key: c.key, label: c.label, color: DUE_COLORS[c.key], first: c.first, noDrop: c.key === 'overdue' || c.key === 'completed', match: (t) => dueColumnForTask(t, today) === c.key }));
+    }
+    if (colKind === 'section') {
+      const known = new Set((sectionList || []).map((x) => x.id));
+      const of = (t) => { const s = sectionOf ? sectionOf(t) : t.sectionId; return s && known.has(s) ? s : '-'; };
+      return [
+        { key: '-', label: 'No Section', color: NX.faint, match: (t) => of(t) === '-' },
+        ...(sectionList || []).map((x, i) => ({ key: x.id, label: x.name, color: SECTION_PALETTE[i % SECTION_PALETTE.length], match: (t) => of(t) === x.id })),
+      ];
+    }
+    return statuses.map((s) => { const m = statusMeta(s); return { key: s, label: m.label, color: m.color, status: true, match: (t) => t.status === s }; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colKind, today, sectionList, sectionOf, statuses, store.customStatuses]);
 
   const toggleCollapse = (s) => setCollapsed((prev) => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
 
-  const postComment = (id) => {
-    if (!draft.trim()) return;
-    store.addComment(id, draft.trim()).catch(() => {});
-    setDraft(''); setCommentOpenId(null);
+  // The draft is cleared only once the comment has posted - a refused or
+  // dropped post keeps what was typed, with the reason under it.
+  const postComment = async (id) => {
+    const text = draft.trim();
+    if (!text || commentBusy) return;
+    setCommentBusy(true); setCommentError('');
+    try {
+      await store.addComment(id, text);
+      setDraft(''); setCommentOpenId(null);
+    } catch (e) {
+      setCommentError(e?.message || 'The comment did not post. Try again.');
+    } finally {
+      setCommentBusy(false);
+    }
   };
 
   // Creates a custom STATUS, which is what a board column is here. The control
@@ -147,6 +241,22 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
       }
       return out.filter((l) => visible.some(l.match));
     }
+    if (swimlane === 'label') {
+      // Like assignee lanes: a task with several labels is in each label's
+      // lane, so the lane counts add up to more than the board holds. The
+      // lanes are the List's label groups (lib.groupTasks 'label' - one rule):
+      // one per label KEY ("Urgent" and "urgent" are one label), read from
+      // the cards on the board (never the server's in-use list, which only a
+      // label manager gets), named by the company's display name else the
+      // most common spelling, A-Z, No Label last. A lane's key is that name -
+      // a card added in it takes the label so spelled (laneAddDefaults).
+      const hasLabel = (t) => (t.tags || []).some((x) => labelKey(x));
+      return groupTasks(visible, 'label', { labelMap }).map((g) => {
+        if (!g.labelName) return { key: '__none', label: 'No Label', match: (t) => !hasLabel(t) };
+        const k = g.key.slice('label:'.length);
+        return { key: g.labelName, label: g.labelName, pill: true, match: (t) => (t.tags || []).some((x) => labelKey(x) === k) };
+      });
+    }
     if (swimlane === 'assignee') {
       const seen = new Map();
       // A shared task appears in EVERY assignee's lane. Keying lanes on the
@@ -169,50 +279,128 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
       }
       return out;
     }
-    // project
+    // project - a subtask's is its parent's (it may only reach it that way)
+    const pid = (t) => effectiveProjectId(t, store.taskById);
     const seen = new Map();
-    for (const t of visible) if (t.projectId && !seen.has(t.projectId)) seen.set(t.projectId, store.projectName(t.projectId));
-    const out = [...seen.entries()].map(([id, label]) => ({ key: id, label, match: (t) => t.projectId === id }));
-    if (visible.some((t) => !t.projectId)) out.push({ key: '__none', label: 'No project', match: (t) => !t.projectId });
+    for (const t of visible) if (pid(t) && !seen.has(pid(t))) seen.set(pid(t), store.projectName(pid(t)));
+    const out = [...seen.entries()].map(([id, label]) => ({ key: id, label, match: (t) => pid(t) === id }));
+    if (visible.some((t) => !pid(t))) out.push({ key: '__none', label: 'No Project', match: (t) => !pid(t) });
     return out;
-  }, [swimlane, visible, ctx, store, boardFields]);
+  }, [swimlane, visible, ctx, store, boardFields, labelMap]);
 
-  const drop = (status, lane) => {
-    if (!dragId) { setDragOver(null); return; }
-    store.setStatus(dragId, status);
-    if (lane && swimlane !== 'none' && lane.key !== 'all') {
-      if (swimlane === 'assignee') {
-        // Dragging a card between assignee lanes HANDS IT OVER: the person
-        // whose lane it came from is swapped for the person whose lane it
-        // landed in, and anyone else on the task stays. Adding it to a second
-        // person's lane without removing the first would make the drag a no-op
-        // in every lane you can see, which is not what dragging looks like.
-        //
-        // Dropped on Unassigned it means "take me off this" - only the source
-        // person is removed, so a task still held by somebody else stays on the
-        // board in their lane rather than vanishing.
-        const dragged = (store.tasks || []).find((x) => x.id === dragId);
-        const current = taskAssignees(dragged);
-        const from = dragFrom && dragFrom !== '__none' ? dragFrom : null;
-        let next;
-        if (lane.key === '__none') {
-          next = from ? current.filter((x) => x !== from) : [];
-        } else {
-          next = from
-            ? current.map((x) => (x === from ? lane.key : x))
-            : [...current, lane.key];
-        }
-        store.updateTask(dragId, { assigneeIds: [...new Set(next)].filter(Boolean) });
-      }
-      else if (swimlane === 'priority') store.updateTask(dragId, { priority: lane.key });
-      else if (swimlane === 'project') store.updateTask(dragId, { projectId: lane.key === '__none' ? '' : lane.key });
-    }
-    setDragId(null); setDragOver(null); setDragFrom(null);
+  const taskOf = (id) => (store.tasks || []).find((x) => x.id === id) || visible.find((x) => x.id === id);
+
+  // What landing in column `col` changes - {} when nothing does. Due Date
+  // columns are not a field patch: they go through the Calendar's day move
+  // (calendarMove.moveTaskToDay), so approvals, the held start date, the
+  // repeating-series refusals and Undo behave exactly as a calendar drag.
+  const columnPatch = (t, col) => {
+    if (colKind === 'status') return col.key !== t.status ? { status: col.key } : {};
+    if (colKind === 'priority') return col.key !== (t.priority || 'medium') ? { priority: col.key } : {};
+    // A subtask is filed with its parent - a Section column does not move it.
+    if (colKind === 'section') return !t.parentTaskId && !col.match(t) ? { sectionId: col.key === '-' ? '' : col.key } : {};
+    return {};
   };
 
-  const addTask = (status, title) => {
+  // What landing in `lane` changes, coming from lane `from`.
+  const lanePatch = (t, from, lane) => {
+    if (!lane || swimlane === 'none' || lane.key === 'all') return {};
+    if (swimlane === 'assignee') {
+      // Dragging a card between assignee lanes HANDS IT OVER: the person
+      // whose lane it came from is swapped for the person whose lane it
+      // landed in, and anyone else on the task stays. Dropped on Unassigned
+      // it means "take me off this" - only the source person is removed, so
+      // a task still held by somebody else stays on the board in their lane.
+      const next = from === lane.key ? null : assigneeLanePeople(taskAssignees(t), from, lane.key);
+      return next ? { assigneeIds: next } : {};
+    }
+    if (swimlane === 'label') {
+      // Label A to label B swaps A for B; no other label is touched.
+      const next = labelLaneTags(t.tags, from, lane.key);
+      return next ? { tags: next } : {};
+    }
+    if (swimlane === 'priority') return t.priority !== lane.key ? { priority: lane.key } : {};
+    if (swimlane === 'project') {
+      // A subtask's project is its parent's - a project lane does not move it.
+      if (t.parentTaskId) return {};
+      const to = lane.key === '__none' ? '' : lane.key;
+      return (t.projectId || '') !== to ? { projectId: to } : {};
+    }
+    const cfId = cfFieldId(swimlane);
+    if (cfId) {
+      const to = lane.key === '__none' ? '' : lane.key;
+      return (taskFieldValue(t, cfId) || '') !== to ? withTaskFields(t, { customFieldValues: { [cfId]: to } }) : {};
+    }
+    return {};
+  };
+
+  // Due Date columns: a completed card, or one whose first date is waiting
+  // for approval, stays where it is (as on the Calendar).
+  const canDrag = (t) => canEditTask(t) && !(colKind === 'due' && (t.completed || awaitingFirstDate(t)));
+  // A column that will not take this card: Overdue takes none, and No Date
+  // will not take the live occurrence of a repeating series (it keeps its
+  // date - the server refuses it too).
+  const refuses = (col, t) => !!col.noDrop || (colKind === 'due' && col.key === 'none' && !!t && clearingStopsSeries(t));
+
+  // Card `t` into column `col` (and lane `lane`, coming from lane `from`) -
+  // a drop, or the card's Move To menu from the keyboard.
+  const moveCard = (t, col, from = null, lane = null) => {
+    if (!t || !col || col.noDrop || !canDrag(t) || refuses(col, t)) return;
+    const id = t.id;
+    const patch = { ...columnPatch(t, col), ...lanePatch(t, from, lane) };
+    const keys = Object.keys(patch);
+    const moveDay = colKind === 'due' && !col.match(t);
+    const save = keys.length === 1 && keys[0] === 'status'
+      ? () => Promise.resolve(store.setStatus(id, patch.status))
+      : keys.length ? () => store.updateTask(id, patch) : () => Promise.resolve();
+    // The field change first, then the day move - one at a time, so the
+    // second never lands on a copy the first is still replacing. A refused
+    // change (put back and explained by the store) moves no day either.
+    Promise.resolve(save())
+      .then(() => (moveDay ? moveTaskToDay(store, t, col.first || '') : null), () => null)
+      .catch(() => {});
+  };
+
+  const drop = (col, lane) => {
+    const id = dragId;
+    const from = dragFrom;
+    setDragId(null); setDragOver(null); setDragFrom(null);
+    if (!id) return;
+    moveCard(taskOf(id), col, from, lane);
+  };
+
+  // The card's Move To menu (the keyboard path): the board's own columns
+  // first when they are not statuses (Priority / Section / Due Date - the
+  // ones this card may go to), then the statuses as before.
+  const moveGroups = (t) => {
+    const statusGroup = {
+      title: 'Status', current: t.status,
+      options: statuses.map((s) => { const m = statusMeta(s); return { key: s, label: m.label, color: m.color }; }),
+      onPick: (s) => { if (s !== t.status) Promise.resolve(store.setStatus(t.id, s)).catch(() => {}); },
+    };
+    if (colKind === 'status' || !canDrag(t) || (colKind === 'section' && t.parentTaskId)) return [statusGroup];
+    const here = cols.find((c) => c.match(t));
+    const columnGroup = {
+      title: setup.columnOpts.find((o) => o.key === colKind)?.label || 'Column', current: here?.key,
+      options: cols.filter((c) => !c.noDrop).map((c) => ({ key: c.key, label: c.label, color: c.color, disabled: refuses(c, t) })),
+      onPick: (k) => moveCard(t, cols.find((c) => c.key === k)),
+    };
+    return [columnGroup, statusGroup];
+  };
+
+  // A new card: the column's value, and the lane's (Oct 22 2026 - the lane's
+  // "Add" used to open nothing).
+  const addTask = (col, laneKey, title) => {
     const t = title.trim(); if (!t) return;
-    const task = { title: t, type: 'task', status, priority: 'medium', projectId: lockedProjectId || '', assigneeIds: defaultAssigneeId ? [defaultAssigneeId] : [] };
+    const base = { title: t, type: 'task', status: 'not_started', priority: 'medium', projectId: lockedProjectId || '', assigneeIds: defaultAssigneeId ? [defaultAssigneeId] : [] };
+    if (colKind === 'status') base.status = col.key;
+    else if (colKind === 'priority') base.priority = col.key;
+    else if (colKind === 'due') base.dueOn = col.first || '';
+    else if (colKind === 'section') base.sectionId = col.key === '-' ? '' : col.key;
+    const extra = laneAddDefaults(swimlane, laneKey);
+    const task = { ...base, ...extra };
+    // On My Tasks the new card stays the person's own, whoever's lane it is in.
+    if (extra.assigneeIds && defaultAssigneeId) task.assigneeIds = [...new Set([...extra.assigneeIds, defaultAssigneeId])];
     // Required custom fields: the full Create form instead (see richlist's AddTaskInline).
     if (onFullCreate && requiredFieldsFor(store.customFields, task.projectId).length) onFullCreate(task);
     else store.createTask(task).catch((e) => alert(e?.message || 'Could not add the task.'));
@@ -221,17 +409,34 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
 
   const renderCard = (t, laneKey = null) => {
     const dc = dueColor(t.dueOn, t.completed);
+    const rc = rowColors?.get(t.id) || null;
+    const rcAttrs = rowColorAttrs(rc, { card: true });
     // Kit card signature: a colored project tag pill leads the card (hidden
     // when the whole board is already locked to one project).
     const proj = !lockedProjectId && t.projectId ? store.projects.find((p) => p.id === t.projectId) : null;
     const projColor = projectLook(proj, NX.purple).color;
+    // Keyboard path (Oct 21 2026): the card is focusable and Enter / Space
+    // opens it; its Move To menu changes the status without dragging. Keys
+    // pressed inside the card's own controls (the comment box, a button) are
+    // theirs, not the card's. A group, not role="button": a button's children
+    // are hidden from screen readers, and this card holds real buttons.
+    const onCardKey = (e) => {
+      if (e.target !== e.currentTarget) return;
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(t.id); }
+    };
+    const editable = canEditTask(t);
+    const draggable = canDrag(t);
+    // A subtask card says whose subtask it is; the name opens the parent.
+    const parent = t.parentTaskId ? store.taskById?.[t.parentTaskId] || (store.tasks || []).find((x) => x.id === t.parentTaskId) : null;
     return (
-      <div key={t.id} draggable data-task-row data-flip={t.id}
-        onDragStart={() => { setDragId(t.id); setDragFrom(laneKey); }}
+      <div key={t.id} draggable={draggable} data-task-row data-flip={t.id} data-subtask-card={t.parentTaskId ? t.id : undefined} className={rcAttrs.className || undefined} data-row-color={rc?.id}
+        role="group" aria-roledescription={t.parentTaskId ? 'subtask card' : 'task card'} tabIndex={0} aria-keyshortcuts="Enter"
+        aria-label={`${t.title} - ${statusMeta(t.status).label}${rc ? ` - ${rc.name}` : ''}`} onKeyDown={onCardKey}
+        onDragStart={draggable ? () => { setDragId(t.id); setDragFrom(laneKey); } : undefined}
         onDragEnd={() => { setDragId(null); setDragFrom(null); }} onClick={() => onOpen(t.id)}
         onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.09)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)'; }}
-        style={{ position: 'relative', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1, transition: 'box-shadow .15s' }}>
+        style={{ position: 'relative', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: draggable ? 'grab' : 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1, transition: 'box-shadow .15s', ...rcAttrs.style }}>
         <ChangeFlash value={`${t.status}:${!!t.completed}`} color={statusMeta(t.status)?.color} isFresh={() => changedRecently(t.id)} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           {proj && (
@@ -239,15 +444,36 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
           )}
           {t.isMilestone && <Diamond size={11} style={{ color: NX.purple }} />}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
-            <button onClick={(e) => { e.stopPropagation(); onOpen(t.id); }} onMouseDown={(e) => e.stopPropagation()} title="More Actions" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><MoreHorizontal size={15} /></button>
-            <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} onMouseDown={(e) => e.stopPropagation()} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}</button>
+            {editable && (
+              <MoveToMenu groups={moveGroups(t)} title={t.title} what={colKind === 'status' ? 'status' : 'column'} />
+            )}
+            <button onClick={(e) => { e.stopPropagation(); onOpen(t.id); }} onMouseDown={(e) => e.stopPropagation()} title="More Actions" aria-label="More Actions" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><MoreHorizontal size={15} /></button>
+            <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} onMouseDown={(e) => e.stopPropagation()}
+              aria-label={t.completed ? 'Mark Incomplete' : 'Mark Complete'} title={t.completed ? 'Mark Incomplete' : 'Mark Complete'} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}</button>
           </div>
         </div>
-        <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</div>
+        <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none', ...boldTitleStyle(rc, t.completed) }}>{t.title}</div>
+        {t.parentTaskId && (
+          <div data-testid="subtask-of" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 11.5, color: NX.faint, minWidth: 0 }}>
+            <CornerDownRight size={11} style={{ flexShrink: 0 }} />
+            <span style={{ flexShrink: 0 }}>Subtask of</span>
+            {parent ? (
+              <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(parent.id); }} onMouseDown={(e) => e.stopPropagation()}
+                title={`Open ${parent.title}`}
+                style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: FONT, fontSize: 11.5, fontWeight: 600, color: NX.blue, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
+                {parent.title}
+              </button>
+            ) : <span style={{ fontWeight: 600 }}>Private Task</span>}
+          </div>
+        )}
+        {/* Labels (Planner's colored labels on the card): the shared strip. */}
+        <LabelStrip tags={t.tags} max={3} style={{ display: 'flex', flexWrap: 'wrap', marginTop: 6, maxWidth: '100%' }} />
+        {showPreviews && <CardPreview task={t} store={store} canEdit={editable} />}
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <PriorityChip priority={t.priority} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button onClick={(e) => { e.stopPropagation(); setDraft(''); setCommentOpenId((id) => (id === t.id ? null : t.id)); }} onMouseDown={(e) => e.stopPropagation()}
+            <button onClick={(e) => { e.stopPropagation(); setDraft(''); setCommentError(''); setCommentOpenId((id) => (id === t.id ? null : t.id)); }} onMouseDown={(e) => e.stopPropagation()}
+              aria-label={t.commentIds?.length ? `Comments (${t.commentIds.length})` : 'Add Comment'} title={t.commentIds?.length ? `${t.commentIds.length} Comments` : 'Add Comment'}
               style={{ ...btn('ghost'), padding: 2, gap: 2, fontSize: 11, color: commentOpenId === t.id ? NX.blue : NX.faint }}>
               <MessageSquare size={11} />{t.commentIds?.length > 0 ? t.commentIds.length : ''}
             </button>
@@ -273,9 +499,10 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
             <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postComment(t.id); } }}
               placeholder="Add a comment…" rows={2} style={{ ...inputStyle, resize: 'none', fontSize: 12, fontFamily: FONT }} />
+            {commentError && <div role="alert" style={{ fontSize: 11.5, color: NX.red, marginTop: 4 }}>{commentError}</div>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 6 }}>
               <button onClick={() => setCommentOpenId(null)} style={{ ...btn('ghost'), fontSize: 11, padding: '4px 8px' }}>Cancel</button>
-              <button onClick={() => postComment(t.id)} disabled={!draft.trim()} style={{ ...btn('primary'), fontSize: 11, padding: '5px 10px', opacity: draft.trim() ? 1 : 0.4 }}>Post</button>
+              <button onClick={() => postComment(t.id)} disabled={!draft.trim() || commentBusy} style={{ ...btn('primary'), fontSize: 11, padding: '5px 10px', opacity: draft.trim() && !commentBusy ? 1 : 0.4 }}>{commentBusy ? 'Posting…' : 'Post'}</button>
             </div>
           </div>
         )}
@@ -283,115 +510,141 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
     );
   };
 
-  const ColumnHeader = ({ status, count }) => {
-    const m = statusMeta(status);
-    const limit = wip[status];
+  const ColumnHeader = ({ col, count }) => {
+    const isStatus = !!col.status;
+    const limit = isStatus ? wip[col.key] : undefined;
     const over = limit != null && count > limit;
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 6px', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: m.color, flexShrink: 0 }} />
-          <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.label}</span>
+          <span style={{ width: 10, height: 10, borderRadius: '50%', background: col.color, flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
           <span style={{ fontSize: 12, fontWeight: 600, padding: '0 4px', borderRadius: 4, color: over ? NX.red : NX.faint, background: over ? 'rgba(220,38,38,0.14)' : 'transparent' }}>{count}{limit != null ? ` / ${limit}` : ''}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-          <WipMenu limit={limit} onSet={(v) => setLimit(status, v)} />
-          {customStatusIds.has(status) && (
-            <button onClick={() => deleteSection(status)} title="Delete Column" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={14} /></button>
+          {isStatus && <WipMenu limit={limit} onSet={(v) => setLimit(col.key, v)} />}
+          {isStatus && customStatusIds.has(col.key) && (
+            <button onClick={() => deleteSection(col.key)} title="Delete Column" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={14} /></button>
           )}
-          <button onClick={() => setAddIn(status)} title="Add Task" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Plus size={15} /></button>
+          {/* With swimlanes each lane's cell has its own Add. */}
+          {!col.noDrop && swimlane === 'none' && (
+            <button onClick={() => setAddIn(`all:${col.key}`)} title="Add Task" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Plus size={15} /></button>
+          )}
           {swimlane === 'none' && (
-            <button onClick={() => toggleCollapse(status)} title="Collapse Section" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><ChevronsLeft size={15} /></button>
+            <button onClick={() => toggleCollapse(col.key)} title="Collapse Section" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><ChevronsLeft size={15} /></button>
           )}
         </div>
       </div>
     );
   };
 
-  const swimLabel = SWIMLANE_OPTIONS.find((o) => o.key === swimlane).label;
+  // Drop-target wiring for a column (or a lane's cell): a column that takes
+  // no drops (Overdue) never claims the drag, so the cursor says so.
+  const dropZone = (zoneKey, col, lane) => (col.noDrop ? {} : {
+    onDragOver: (e) => {
+      if (dragId && refuses(col, taskOf(dragId))) return;
+      e.preventDefault(); if (dragOver !== zoneKey) setDragOver(zoneKey);
+    },
+    onDragLeave: () => setDragOver((d) => (d === zoneKey ? null : d)),
+    onDrop: (e) => { e.preventDefault(); e.stopPropagation(); drop(col, lane); },
+  });
+
+  const lanesLabel = setup.laneOpts.find((o) => o.key === swimlane)?.label || 'None';
+  const columnsLabel = setup.columnOpts.find((o) => o.key === colKind)?.label || 'Status';
 
   return (
     <div ref={flipRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: NX.canvas, fontFamily: FONT, padding: 16 }}>
       {/* Board toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexShrink: 0 }}>
-        <div>
-          <button ref={swimRef} onClick={() => setSwimOpen((o) => !o)} style={{ ...btn('outline'), fontSize: 12.5 }}>
-            <Rows3 size={14} /> Swimlanes: {swimLabel} <ChevronDown size={13} style={{ color: NX.faint }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexShrink: 0, flexWrap: 'wrap' }}>
+        {/* My Tasks has no toolbar Group / Columns on its board - its own here. */}
+        {!lanesControlled && (
+          <BoardMenu icon={Rows3} label={`Group: ${lanesLabel}`} ariaLabel="Group" options={setup.laneOpts} current={swimlane} onPick={setOwnLanes} />
+        )}
+        {!columnsControlled && (
+          <BoardMenu icon={Columns3} label={`Columns: ${columnsLabel}`} ariaLabel="Columns" options={setup.columnOpts} current={colKind} onPick={setOwnColumns} />
+        )}
+        {onToggleSubtasks && (
+          <button type="button" onClick={onToggleSubtasks} aria-pressed={!!showSubtasks}
+            title={showSubtasks ? 'Hide the subtask cards' : 'Show each subtask as a card of its own'}
+            style={{ ...btn('outline'), fontSize: 12.5, color: showSubtasks ? NX.blue : NX.dim }}>
+            <ListTree size={14} /> Show Subtasks {showSubtasks && <Check size={13} />}
           </button>
-          <AnchoredMenu anchorRef={swimRef} open={swimOpen} onClose={() => setSwimOpen(false)}
-            style={{ width: 176, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
-            {swimOptions.map((o) => (
-              <button key={o.key} onClick={() => { setSwimlane(o.key); setSwimOpen(false); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', color: swimlane === o.key ? NX.blue : NX.ink, background: swimlane === o.key ? NX.hover : 'transparent' }}>{o.label}</button>
-            ))}
-          </AnchoredMenu>
-        </div>
-        <span style={{ fontSize: 11, color: NX.faint, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          Set a WIP limit with the <Gauge size={11} /> in each column header.
-        </span>
+        )}
+        {togglePreviews && (
+          <button type="button" onClick={togglePreviews} aria-pressed={showPreviews}
+            title={showPreviews ? 'Hide the image, checklist or description under each card title' : 'Show an image, checklist or description under each card title'}
+            style={{ ...btn('outline'), fontSize: 12.5, color: showPreviews ? NX.blue : NX.dim }}>
+            <ImageIcon size={14} /> Card Previews {showPreviews && <Check size={13} />}
+          </button>
+        )}
+        {colKind === 'status' && (
+          <span style={{ fontSize: 11, color: NX.faint, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            Set a WIP limit with the <Gauge size={11} /> in each column header.
+          </span>
+        )}
       </div>
 
       {swimlane === 'none' ? (
         /* Standard columns */
-        <div className="nx-scroll" style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flex: 1, minHeight: 0, overflowX: 'auto', paddingBottom: 4 }}>
-          {statuses.map((status) => {
-            const tasks = visible.filter((t) => t.status === status);
-            const m = statusMeta(status);
-            const limit = wip[status];
+        <div className="nx-scroll" data-testid="board-columns" style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flex: 1, minHeight: 0, overflowX: 'auto', paddingBottom: 4 }}>
+          {cols.map((col) => {
+            const tasks = visible.filter(col.match);
+            const limit = col.status ? wip[col.key] : undefined;
             const over = limit != null && tasks.length > limit;
-            const isOver = dragOver === status;
-            return collapsed.has(status) ? (
-              <button key={status} onClick={() => toggleCollapse(status)}
-                onDragOver={(e) => { e.preventDefault(); setDragOver(status); }} onDragLeave={() => setDragOver((d) => (d === status ? null : d))} onDrop={(e) => { e.stopPropagation(); drop(status); }}
+            const isOver = dragOver === col.key;
+            return collapsed.has(col.key) ? (
+              <button key={col.key} onClick={() => toggleCollapse(col.key)} {...dropZone(col.key, col, null)}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, width: 40, flexShrink: 0, alignSelf: 'stretch', borderRadius: 16, border: `1px solid ${isOver ? NX.blue : NX.border}`, background: NX.surface2, padding: '12px 0', cursor: 'pointer' }} title="Expand Section">
                 <ChevronsRight size={14} style={{ color: NX.faint }} />
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: m.color }} />
+                <span style={{ width: 10, height: 10, borderRadius: '50%', background: col.color }} />
                 <span style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>{tasks.length}</span>
-                <span style={{ marginTop: 4, fontSize: 12, fontWeight: 700, color: NX.ink, whiteSpace: 'nowrap', writingMode: 'vertical-rl' }}>{m.label}</span>
+                <span style={{ marginTop: 4, fontSize: 12, fontWeight: 700, color: NX.ink, whiteSpace: 'nowrap', writingMode: 'vertical-rl' }}>{col.label}</span>
               </button>
             ) : (
-              <div key={status}
-                onDragOver={(e) => { e.preventDefault(); setDragOver(status); }} onDragLeave={() => setDragOver((d) => (d === status ? null : d))} onDrop={() => drop(status)}
-                style={{ display: 'flex', flexDirection: 'column', width: 300, flexShrink: 0, alignSelf: 'stretch', minHeight: 0, borderRadius: 16, border: `1px solid ${over ? 'rgba(220,38,38,0.5)' : isOver ? NX.blue : NX.border}`, background: NX.surface2, padding: 10 }}>
-                <ColumnHeader status={status} count={tasks.length} />
+              <div key={col.key} data-board-column={col.key} {...dropZone(col.key, col, null)}
+                style={{ display: 'flex', flexDirection: 'column', width: 300, maxWidth: 'calc(100vw - 64px)', flexShrink: 0, alignSelf: 'stretch', minHeight: 0, borderRadius: 16, border: `1px solid ${over ? 'rgba(220,38,38,0.5)' : isOver ? NX.blue : NX.border}`, background: NX.surface2, padding: 10 }}>
+                <ColumnHeader col={col} count={tasks.length} />
                 {over && <div style={{ marginBottom: 8, borderRadius: 8, background: 'rgba(220,38,38,0.14)', color: NX.red, padding: '4px 8px', fontSize: 11, fontWeight: 700 }}>Over WIP limit ({tasks.length}/{limit})</div>}
                 <div className="nx-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 2 }}>
-                  {addIn === status && <AddCard onAdd={(title) => addTask(status, title)} onCancel={() => setAddIn(null)} />}
+                  {addIn === `all:${col.key}` && <AddCard onAdd={(title) => addTask(col, null, title)} onCancel={() => setAddIn(null)} />}
                   {tasks.slice(0, MAX_BOARD_CARDS).map((t) => renderCard(t))}
                   {tasks.length > MAX_BOARD_CARDS && <MoreCards n={tasks.length - MAX_BOARD_CARDS} />}
                 </div>
               </div>
             );
           })}
-          <AddSectionColumn {...{ addingSection, setAddingSection, sectionName, setSectionName, createSection }} />
+          {colKind === 'status' && <AddSectionColumn {...{ addingSection, setAddingSection, sectionName, setSectionName, createSection }} />}
         </div>
       ) : (
         /* Swimlanes */
-        <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingBottom: 4 }}>
+        <div className="nx-scroll" data-testid="board-lanes" style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingBottom: 4 }}>
           <div style={{ minWidth: 'max-content' }}>
             <div style={{ display: 'flex', gap: 16, borderBottom: `1px solid ${NX.border}`, paddingBottom: 4 }}>
-              {statuses.map((status) => (
-                <div key={status} style={{ width: 300, flexShrink: 0 }}>
-                  <ColumnHeader status={status} count={visible.filter((t) => t.status === status).length} />
+              {cols.map((col) => (
+                <div key={col.key} style={{ width: 300, flexShrink: 0 }}>
+                  <ColumnHeader col={col} count={visible.filter(col.match).length} />
                 </div>
               ))}
             </div>
             {lanes.map((lane) => (
-              <div key={lane.key} style={{ borderBottom: `1px solid ${NX.border}` }}>
+              <div key={lane.key} data-board-lane={lane.key} style={{ borderBottom: `1px solid ${NX.border}` }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', fontSize: 12, fontWeight: 700, color: NX.ink }}>
-                  <Rows3 size={13} style={{ color: NX.faint }} />{lane.label}
+                  <Rows3 size={13} style={{ color: NX.faint }} />{lane.pill ? <LabelPill name={lane.label} /> : lane.label}
                   <span style={{ fontSize: 11, fontWeight: 400, color: NX.faint }}>{visible.filter(lane.match).length}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, paddingBottom: 12 }}>
-                  {statuses.map((status) => {
-                    const tasks = visible.filter((t) => t.status === status && lane.match(t));
-                    const zoneKey = `${lane.key}:${status}`;
+                  {cols.map((col) => {
+                    const tasks = visible.filter((t) => col.match(t) && lane.match(t));
+                    const zoneKey = `${lane.key}:${col.key}`;
                     return (
-                      <div key={status}
-                        onDragOver={(e) => { e.preventDefault(); setDragOver(zoneKey); }} onDragLeave={() => setDragOver((d) => (d === zoneKey ? null : d))} onDrop={() => drop(status, lane)}
+                      <div key={col.key} data-board-zone={col.key} {...dropZone(zoneKey, col, lane)}
                         style={{ display: 'flex', flexDirection: 'column', gap: 12, width: 300, flexShrink: 0, minHeight: 80, borderRadius: 12, border: `1px solid ${dragOver === zoneKey ? NX.blue : 'transparent'}`, background: dragOver === zoneKey ? NX.hover : 'transparent', padding: 8 }}>
                         {tasks.slice(0, MAX_BOARD_CARDS).map((t) => renderCard(t, lane.key))}
                         {tasks.length > MAX_BOARD_CARDS && <MoreCards n={tasks.length - MAX_BOARD_CARDS} />}
-                        <button onClick={() => setAddIn(status)} style={{ ...btn('ghost'), justifyContent: 'center', border: `1px dashed ${NX.border}`, fontSize: 11, color: NX.faint, padding: '6px 0' }}><Plus size={12} />Add</button>
+                        {addIn === zoneKey && <AddCard onAdd={(title) => addTask(col, lane.key, title)} onCancel={() => setAddIn(null)} />}
+                        {!col.noDrop && addIn !== zoneKey && (
+                          <button onClick={() => setAddIn(zoneKey)} style={{ ...btn('ghost'), justifyContent: 'center', border: `1px dashed ${NX.border}`, fontSize: 11, color: NX.faint, padding: '6px 0' }}><Plus size={12} />Add</button>
+                        )}
                       </div>
                     );
                   })}
@@ -401,6 +654,26 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The board's own Group / Columns menu (My Tasks, which has no toolbar for
+ *  them on its board). */
+function BoardMenu({ icon: Icon, label, ariaLabel, options, current, onPick }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  return (
+    <div>
+      <button ref={ref} type="button" onClick={() => setOpen((o) => !o)} aria-label={ariaLabel} aria-haspopup="menu" aria-expanded={open} style={{ ...btn('outline'), fontSize: 12.5 }}>
+        <Icon size={14} /> {label} <ChevronDown size={13} style={{ color: NX.faint }} />
+      </button>
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} aria-label={ariaLabel}
+        style={{ width: 176, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+        {options.map((o) => (
+          <button key={o.key} type="button" role="menuitem" onClick={() => { onPick(o.key); setOpen(false); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', color: current === o.key ? NX.blue : NX.ink, background: current === o.key ? NX.hover : 'transparent' }}>{o.label}</button>
+        ))}
+      </AnchoredMenu>
     </div>
   );
 }
@@ -435,6 +708,64 @@ function AddSectionColumn({ addingSection, setAddingSection, sectionName, setSec
         <button onClick={() => setAddingSection(true)} style={{ ...btn('ghost'), justifyContent: 'flex-start', color: NX.faint, padding: '8px 8px' }}><Plus size={15} />Add Column</button>
       )}
     </div>
+  );
+}
+
+/** "Move To" on a board card: the board's columns (and the statuses) as a
+ *  menu, so a card can change column from the keyboard (or a screen reader)
+ *  without a drag. `groups`: [{ title, options: [{ key, label, color,
+ *  disabled }], current, onPick }]. Arrow keys walk the list; Escape closes
+ *  it back onto the button. */
+function MoveToMenu({ groups, title, what = 'status' }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const listKey = (e) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const items = [...e.currentTarget.querySelectorAll('button:not([disabled])')];
+    const i = items.indexOf(document.activeElement);
+    const next = items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+    next?.focus();
+  };
+  const stop = (e) => e.stopPropagation();
+  // Focus lands on the first item the card can move to.
+  let first = null;
+  for (const g of groups) {
+    const o = g.options.find((x) => x.key !== g.current && !x.disabled);
+    if (o) { first = `${g.title}:${o.key}`; break; }
+  }
+  const several = groups.length > 1;
+  return (
+    <span onClick={stop} onMouseDown={stop} onKeyDown={stop} style={{ display: 'inline-flex' }}>
+      <button ref={ref} type="button" onClick={() => setOpen((o) => !o)} title="Move To" aria-label={`Move ${title} to another ${what}`}
+        aria-haspopup="menu" aria-expanded={open} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}>
+        <ArrowRightLeft size={14} />
+      </button>
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} align="end" aria-label="Move To"
+        style={{ width: 200, maxHeight: '60vh', overflowY: 'auto', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+        <div onKeyDown={listKey}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, padding: '4px 8px' }}>Move To</div>
+          {groups.map((g) => (
+            <div key={g.title} role="group" aria-label={g.title}>
+              {several && <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '6px 8px 2px' }}>{g.title}</div>}
+              {g.options.map((o) => {
+                const here = o.key === g.current;
+                const off = here || !!o.disabled;
+                return (
+                  <button key={o.key} type="button" role="menuitem" disabled={off} autoFocus={`${g.title}:${o.key}` === first}
+                    onClick={() => { setOpen(false); g.onPick(o.key); ref.current?.focus(); }}
+                    style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12.5, color: NX.ink, opacity: off ? 0.55 : 1, cursor: off ? 'default' : 'pointer' }}>
+                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: o.color, flexShrink: 0 }} />
+                    <span style={{ flex: 1, textAlign: 'left' }}>{o.label}</span>
+                    {here && <Check size={13} style={{ color: NX.faint }} />}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </AnchoredMenu>
+    </span>
   );
 }
 

@@ -15,7 +15,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import BodModal from '../../components/BodModal';
-import { punchDurable, replayPending, readPending } from '../../lib/punchQueue';
+import { punchDurable, replayPending, readPending, holdPunch, signedIn } from '../../lib/punchQueue';
 import { bodDurable } from '../../lib/bodQueue';
 import { punchPosition } from '../../lib/geoPosition';
 import { askPunchPosition } from '../../lib/punchLocation';
@@ -189,12 +189,19 @@ export function usePunchClock() {
       // people). The punch records once it is sent or acknowledged. The
       // share above has to come first (the browser grants it only inside
       // this tap), so closing the prompt stops it again (see `modals`).
-      if (status?.bodRequired && !status?.bodExempt) { setGate('bod'); return true; }
+      if (status?.bodRequired && !status?.bodExempt) {
+        // A sign-in that expired while the tab sat open is found before the
+        // message is typed, not after (the page goes to sign in now).
+        if (!(await signedIn())) return false;
+        setGate('bod');
+        return true;
+      }
     }
     // End-of-day message BEFORE the clock-out (Oct 16: policy, enforced by
     // the server for every surface - it refuses an "out" with no EOD on
     // record). Sent or acknowledged, then the punch records.
     if (kind === 'out' && status?.eodRequired && !status?.bodExempt) {
+      if (!(await signedIn())) return false;
       clickedAt.current = new Date().toISOString().slice(0, 19);
       setGate('eod');
       return true;
@@ -205,6 +212,7 @@ export function usePunchClock() {
     // Oct 14 2026). The punch records once the message is sent; closing the
     // prompt cancels it. Role-flagged people (bodExempt) punch straight through.
     if ((kind === 'break_start' || kind === 'break_end') && !status?.bodExempt) {
+      if (!(await signedIn())) return false;
       clickedAt.current = new Date().toISOString().slice(0, 19);
       setGate(kind === 'break_start' ? 'break' : 'break_end');
       return true;
@@ -229,23 +237,28 @@ export function usePunchClock() {
           return;
         }
       }
-      const posP = posRef.current || punchPosition(kind);
-      posRef.current = null;
-      const [early, pairNonce] = await Promise.all([
-        posP,
-        kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
-      ]);
-      // No fix from the early start (its permission bubble can sit behind the
-      // share picker on a first use): ask once more now, as before - a denied
-      // or unsupported device answers instantly, so this never waits twice.
-      // Still no fix: ask them to share it, or punch without (Visesh, Oct 20).
-      const { pos, locationOff } = await askPunchPosition(early ?? punchPosition(kind));
-      const res = await punchDurable({
-        kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, locationOff,
-        // The moment the button was pressed, when a prompt stood between it
-        // and the punch (the server backdates, bounded to 15 minutes).
-        clickedAt: clickedAt.current || undefined,
-        extra: pairNonce ? { pair_nonce: pairNonce } : null,
+      const tzOffsetMin = new Date().getTimezoneOffset();
+      // Held on the device from here (punchQueue.holdPunch): the location wait
+      // below can take seconds, and a sign-in redirect meanwhile lost the punch.
+      const res = await holdPunch({ kind, clickedAt: clickedAt.current, tzOffsetMin }, async () => {
+        const posP = posRef.current || punchPosition(kind);
+        posRef.current = null;
+        const [early, pairNonce] = await Promise.all([
+          posP,
+          kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
+        ]);
+        // No fix from the early start (its permission bubble can sit behind the
+        // share picker on a first use): ask once more now, as before - a denied
+        // or unsupported device answers instantly, so this never waits twice.
+        // Still no fix: ask them to share it, or punch without (Visesh, Oct 20).
+        const { pos, locationOff } = await askPunchPosition(early ?? punchPosition(kind));
+        return punchDurable({
+          kind, tzOffsetMin, pos, locationOff,
+          // The moment the button was pressed, when a prompt stood between it
+          // and the punch (the server backdates, bounded to 15 minutes).
+          clickedAt: clickedAt.current || undefined,
+          extra: pairNonce ? { pair_nonce: pairNonce } : null,
+        });
       });
       if (res.ok) {
         clickedAt.current = '';

@@ -17,7 +17,8 @@ import { Avatar, Modal, usePeople, useIsMobile } from './components';
 import { LoadingState } from '../components/AsyncState';
 import { formatDateTime, formatFullDate } from './changelogDates';
 import { formatDate } from '../lib/datetime';
-import { RequestStatusChip, RequestStatusEditor, REQUEST_STATUSES, TourHost, startTour } from './changelogLifecycle';
+import { matchPeople } from '../lib/peopleSearch';
+import { RequestStatusChip, RequestStatusEditor, RequestThread, REQUEST_STATUSES, TourHost, startTour } from './changelogLifecycle';
 
 export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -128,8 +129,8 @@ function MentionBox({ value, onChange, setMentions, onSubmit, placeholder, autoF
   const [query, setQuery] = useState(null);     // text after "@", or null
   const matches = useMemo(() => {
     if (query === null) return [];
-    const q = query.toLowerCase();
-    return people.filter((p) => p.name.toLowerCase().includes(q) || p.email.includes(q)).slice(0, 6);
+    // First-name matches first, as in every people picker.
+    return matchPeople(people, query, { limit: 6 });
   }, [people, query]);
   const [hi, setHi] = useState(0);
   const onText = (v) => {
@@ -162,7 +163,7 @@ function MentionBox({ value, onChange, setMentions, onSubmit, placeholder, autoF
           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); }
         }}
         placeholder={placeholder} aria-label="Add a comment"
-        style={{ ...inputStyle, resize: 'none', minHeight: 38, lineHeight: 1.4, fontFamily: FONT }} />
+        style={{ ...inputStyle, display: 'block', resize: 'none', minHeight: 38, lineHeight: 1.4, fontFamily: FONT }} />
       {matches.length > 0 && (
         <div role="listbox" aria-label="Mention someone" style={{
           position: 'absolute', left: 0, bottom: '100%', marginBottom: 4, zIndex: 20, minWidth: 240, maxWidth: '100%',
@@ -202,7 +203,7 @@ function Composer({ entryId, parentId, onPosted, autoFocus, placeholder = 'Write
       <MentionBox value={draft} onChange={setDraft} setMentions={setMentions} onSubmit={post}
         placeholder={placeholder} autoFocus={autoFocus} />
       <button onClick={post} disabled={!draft.trim() || posting} aria-label="Post comment"
-        style={{ ...btn('primary'), padding: 9, flexShrink: 0, opacity: draft.trim() && !posting ? 1 : 0.4 }}><Send size={15} /></button>
+        style={{ ...btn('primary'), width: 38, height: 38, padding: 0, justifyContent: 'center', flexShrink: 0, opacity: draft.trim() && !posting ? 1 : 0.4 }}><Send size={15} /></button>
     </div>
   );
 }
@@ -577,6 +578,7 @@ export function FeedbackList({ nameOf, entries, flash }) {
                   <RequestStatusEditor row={r} entries={entries} flash={flash}
                     onSaved={(u) => setRows((all) => all.map((x) => (x.id === u.id ? { ...x, ...u, kind: 'request' } : x)))} />
                 )}
+                {r.kind === 'request' && <RequestThread row={r} nameOf={nameOf} />}
               </div>
             </div>
           ))}

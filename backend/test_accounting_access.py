@@ -590,7 +590,22 @@ class AccountingAccessTests(unittest.TestCase):
         self.assertEqual(self.client.get("/accounting/prefs").json(), {"prefs": layout})
         _as(LIMITED)
         self.assertEqual(self.client.get("/accounting/prefs").json(), {"prefs": {}})
-        self.assertEqual(self.client.put("/accounting/prefs", json={"prefs": {"x": "y" * 7000}}).status_code, 400)
+        self.assertEqual(self.client.put("/accounting/prefs", json={"prefs": {"x": "y" * 130000}}).status_code, 400)
+
+    def test_saved_table_views_fit_and_stay_each_persons_own(self):
+        # 10/23 meeting, item 01: saved views (filters, sort, columns per
+        # table) are kept in the person's own layout. Thirty views with
+        # twenty rules each still save, and nobody else reads them.
+        rule = {"id": "r1", "col": "customer", "op": "contains", "a": "Greens Austin", "b": ""}
+        state = {"rules": [rule] * 20, "match": "any", "picks": {"vendor": {"out": ["Home Depot"] * 20}},
+                 "sort": {"col": "credit", "dir": "desc"}, "order": ["date", "entry", "account"], "vis": {"memo": True}, "widths": {"description": 320}}
+        views = {"ledger-lines": {"active": "v1", "list": [{"id": f"v{i}", "name": f"View {i}", "state": state} for i in range(30)]}}
+        _as(OPEN)
+        res = self.client.put("/accounting/prefs", json={"prefs": {"tableViews": views}})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.client.get("/accounting/prefs").json()["prefs"]["tableViews"]["ledger-lines"]["active"], "v1")
+        _as(LIMITED)
+        self.assertNotIn("tableViews", self.client.get("/accounting/prefs").json()["prefs"])
 
     def test_upstream_reason_reaches_the_screen(self):
         class R:

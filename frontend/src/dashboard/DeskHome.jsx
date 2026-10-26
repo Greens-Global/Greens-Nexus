@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
+import { myTasksFootnote, MY_TASKS_RULE } from './myTasksCount';
 import { useTimeStatus } from '../lib/useTimeStatus';
 // The header chip shows today's worked hours as H:MM - the same number and
 // format as the sidebar's time clock chip (Neil, Oct 14 2026), not seconds
@@ -87,10 +88,10 @@ const timeAgo = (ts) => {
   return `${Math.round(h / 24)}d`;
 };
 
-function Stat({ i, label, value, sub, chip, Icon, onGo, hero }) {
+function Stat({ i, label, value, sub, tip, chip, Icon, onGo, hero }) {
   const n = useCountUp(value ?? 0);
   return (
-    <button className={`dk-stat dk-rise${hero ? ' dk-stat--hero' : ''}`} style={{ '--i': i }} onClick={onGo}>
+    <button className={`dk-stat dk-rise${hero ? ' dk-stat--hero' : ''}`} style={{ '--i': i }} onClick={onGo} title={tip}>
       <span className="dk-stat-top">
         <span className={`dk-chip dk-chip--${chip}`}><Icon /></span>
         <ArrowUpRight size={15} className="dk-stat-arrow" />
@@ -263,7 +264,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
     : <>You're all caught up.</>;
 
   const stats = [
-    { label: 'Open Tasks', value: kpis.my_open_tasks, sub: 'Assigned to you', chip: 'blue', Icon: CheckSquare, go: () => navTo('tasks'), hero: true },
+    { label: 'Open Tasks', value: kpis.my_open_tasks, sub: myTasksFootnote(kpis) || 'Due soon or in progress', tip: `Open Tasks - ${MY_TASKS_RULE}${myTasksFootnote(kpis) ? `. ${myTasksFootnote(kpis)}` : ''}`, chip: 'blue', Icon: CheckSquare, go: () => navTo('tasks'), hero: true },
     { label: 'Checked-Out Items', value: kpis.my_checkouts, sub: 'With you right now', chip: 'orange', Icon: Package, go: () => navTo('inventory', 'checkouts') },
     { label: 'My Equipment', value: kpis.my_assignments, sub: 'Permanently assigned', chip: 'brand', Icon: Users, go: () => navTo('inventory') },
     { label: 'Signatures Needed', value: pendingSigs, sub: 'Waiting on you', chip: 'green', Icon: PenLine, go: () => navTo('myhr') },

@@ -6,12 +6,13 @@
 //   template        - open the template in Documents
 //   signOnce        - the company signs once (the editor opens Sign Once)
 //   addToForm       - add the variables nothing fills to the Details Form
-//   checklistOwners - Company Settings > Checklists > Role Owners
-import { useEffect, useState } from 'react';
+//   checklistOwners - the department heads (Company Settings > Departments)
+import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle, AlertTriangle, AlertCircle, ExternalLink, PenTool, Plus } from 'lucide-react';
 import { api } from '../api';
 import { setPendingOpen } from '../lib/pendingOpen';
 import { Spinner } from './AsyncState';
+import { PersonSelect } from '../tasks/components';
 
 const TONE = { ok: 'green', block: 'red', warn: 'orange' };
 const btn = { fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' };
@@ -21,6 +22,10 @@ function EntityFix({ fix, onChanged, toastErr }) {
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const isPerson = fix.field !== 'physical_address';
+  const pickable = useMemo(() => (people || []).map(p => {
+    const email = (p.workEmail || p.email || '').toLowerCase();
+    return { email, name: p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || email, external: !!p.external };
+  }).filter(p => p.email), [people]);
   useEffect(() => {
     if (isPerson) api.getPeopleDirectory().then(r => setPeople(r || [])).catch(() => setPeople([]));
   }, [isPerson]);
@@ -33,14 +38,12 @@ function EntityFix({ fix, onChanged, toastErr }) {
   return (
     <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
       {isPerson ? (
-        <select className="form-input" style={{ width: 220, fontSize: 12 }} value={value} onChange={e => setValue(e.target.value)}
-          aria-label={fix.field === 'signatory_email' ? 'Authorized Signatory' : 'HR Contact'} disabled={people === null}>
-          <option value="">{people === null ? 'Loading people...' : 'Pick a person...'}</option>
-          {(people || []).map(p => {
-            const email = p.workEmail || p.email || '';
-            return email ? <option key={email} value={email}>{p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || email}</option> : null;
-          })}
-        </select>
+        <div style={{ width: 220 }}>
+          <PersonSelect value={value || null} onChange={v => setValue(v || '')} allowNone={false} disabled={people === null}
+            ariaLabel={fix.field === 'signatory_email' ? 'Authorized Signatory' : 'HR Contact'}
+            placeholder={people === null ? 'Loading people...' : 'Pick a person...'} people={pickable}
+            style={{ borderRadius: 10, padding: '7px 11px', fontSize: 12, fontWeight: 400 }} />
+        </div>
       ) : (
         <input className="form-input" style={{ width: 260, fontSize: 12 }} value={value} onChange={e => setValue(e.target.value)}
           placeholder="Company address" aria-label="Company address" />
@@ -89,7 +92,7 @@ export default function PacketReadiness({ checks, meEmails = [], onChanged, onSi
                   {f.kind === 'checklistOwners' && (
                     <button type="button" className="secondary-btn" style={btn}
                       onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-checklists' } }))}>
-                      <ExternalLink size={12} /> Set Checklist Owners
+                      <ExternalLink size={12} /> Set Department Heads
                     </button>
                   )}
                 </div>

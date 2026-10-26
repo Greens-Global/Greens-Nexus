@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 
 import models
 from routers.task_util import log_activity, now_iso, task_assignees, task_notify
+import task_history
 
 AGREED = ("", "accepted")      # "" = legacy row, or a date nobody needs to confirm
 # While an extension waits for approval the CURRENT date is still the agreed one.
@@ -71,20 +72,55 @@ def _is_assignee(t: models.Task, email: str) -> bool:
     return bool(email) and email.strip().lower() in task_assignees(t)
 
 
-def _log(db: Session, t: models.Task, type_: str, actor: str, detail: str) -> None:
+def _log(db: Session, t: models.Task, type_: str, actor: str, detail: str, change: dict | None = None) -> None:
     """Activity row + its id on the task, so it shows on the task's timeline.
     Callers that rebuild t.activity_ids from a local list must call into this
-    module AFTER assigning that list, or the id is overwritten."""
+    module AFTER assigning that list, or the id is overwritten. `change` is
+    the row's field-history entry (task_history.py)."""
     aid = log_activity(db, type=type_, actor_email=actor, entity_id=t.id, entity_code=t.code or "",
-                       entity_title=t.title or "", detail=detail)
+                       entity_title=t.title or "", detail=detail, change=change)
     t.activity_ids = list(t.activity_ids or []) + [aid]
 
 
+def last_cleared(t: models.Task) -> tuple[str, str]:
+    """The date a task held before its due date was cleared, and the agreement
+    it stood at then - ("", "") when there is none to go by.
+
+    Clearing a date and setting a later one used to count as "setting the
+    first date": no extension, no approval, a clean count (Oct 21 2026). The
+    date being replaced is the one the latest clear removed. Only a clear
+    recorded by record_due_change since then counts - it carries the
+    agreement it stood at. A clear logged before (no "agreement" on the
+    entry) is not a baseline: a date set after it behaves exactly as it
+    always did (a first date)."""
+    for h in reversed(t.due_history if isinstance(t.due_history, list) else []):
+        if not isinstance(h, dict):
+            continue
+        if (h.get("to") or "")[:10]:
+            return "", ""          # the latest entry set a date: no clear to go by
+        if "agreement" not in h:
+            return "", ""          # a clear from before this was recorded: as on dev
+        return (h.get("from") or "")[:10], (h.get("agreement") or "")
+    return "", ""
+
+
+def _replaced(t: models.Task, old: str) -> tuple[str, str]:
+    """The date a move replaces and the agreement it stood at: `old` itself,
+    or - when the task holds no date right now - the one it was cleared from."""
+    old = (old or "")[:10]
+    if old:
+        return old, (t.due_agreement or "")
+    return last_cleared(t)
+
+
 def is_extension(t: models.Task, old: str, new: str, source: str) -> bool:
-    """A later date replacing an agreed one. Read BEFORE the agreement moves."""
-    old, new = (old or "")[:10], (new or "")[:10]
+    """A later date replacing an agreed one. Read BEFORE the agreement moves.
+    With no current date, the date replaced is the one it was cleared from -
+    clearing first is not a way around the count (see last_cleared)."""
+    new = (new or "")[:10]
+    old, agreement = _replaced(t, old)
     return (bool(old) and bool(new) and new > old and source != "proposal"
-            and (t.due_agreement or "") in (*AGREED, REQUESTED))
+            and agreement in (*AGREED, REQUESTED))
 
 
 def add_month(iso: str) -> str:
@@ -131,7 +167,7 @@ def needs_approval(db: Session, t: models.Task, old: str, new: str, actor: str,
     if privileged or not is_extension(t, old, new, "app"):
         return []
     number = int(t.due_extension_count or 0) + 1
-    base = baseline_of(t, old)
+    base = baseline_of(t, _replaced(t, old)[0])
     if number < APPROVAL_FROM and new <= add_month(base):
         return []
     who = approvers_of(db, t)
@@ -142,18 +178,25 @@ def needs_approval(db: Session, t: models.Task, old: str, new: str, actor: str,
 
 
 def request_extension(db: Session, t: models.Task, actor: str, new: str, approvers: list[str],
-                      note: str = "", notify: bool = True) -> None:
+                      note: str = "", notify: bool = True, start_on: str = "") -> None:
     """Hold an extension for approval. The caller has put t.due_on back to the
-    current date; it stays until an approver says yes (respond)."""
+    current date; it stays until an approver says yes (respond). `start_on`:
+    a start date moved in the same edit (a Calendar / Timeline drag keeps the
+    task's length) - held with it and applied on approval (Oct 22 2026)."""
     actor = (actor or "").strip().lower()
     number = int(t.due_extension_count or 0) + 1
-    base = baseline_of(t) or (t.due_on or "")[:10]
-    over_month = new[:10] > add_month(base)
+    # With no current date (it was cleared first) the date being extended is
+    # the one it was cleared from - see last_cleared.
+    current = (t.due_on or "")[:10] or last_cleared(t)[0]
+    base = baseline_of(t) or current
+    over_month = bool(base) and new[:10] > add_month(base)
     t.due_agreement = REQUESTED
     t.due_proposal = {"dueOn": new[:10], "by": actor, "at": now_iso(), "note": (note or "")[:500],
                       "kind": "extension", "number": number, "approvers": list(approvers),
                       "overMonth": over_month, "baseline": base}
-    detail = (f"asked to extend the due date from {us_date(t.due_on)} to {us_date(new)}"
+    if start_on:
+        t.due_proposal["startOn"] = start_on[:10]
+    detail = (f"asked to extend the due date from {us_date(current)} to {us_date(new)}"
               f" - extension #{number}, needs approval")
     if note:
         detail += f": {note[:200]}"
@@ -211,6 +254,10 @@ def record_due_change(db: Session, t: models.Task, old: str, new: str, *, actor:
              "source": source if source in SOURCES else "app", "extension": ext}
     if note:
         entry["note"] = note[:500]
+    if old and not new:
+        # Where the agreement stood when the date was cleared, so setting a
+        # later one afterwards is judged against it (last_cleared).
+        entry["agreement"] = t.due_agreement or ""
     t.due_history = list(t.due_history or []) + [entry]
     if ext:
         t.due_extension_count = int(t.due_extension_count or 0) + 1
@@ -235,7 +282,9 @@ def record_due_change(db: Session, t: models.Task, old: str, new: str, *, actor:
         detail += " (in Asana)"
     if source == "approved":
         detail += " (approved)"
-    _log(db, t, "due_changed", actor or "asana", detail)
+    # The due date's field history is this row (task_history.due_change) -
+    # every due_on write comes through here, so nothing else records it.
+    _log(db, t, "due_changed", actor or "asana", detail, change=task_history.due_change(old, new))
     if ext and source != "approved":
         # An approved one was already put to the managers as a request.
         _alert_managers(db, t, actor)
@@ -339,6 +388,13 @@ def _answer_extension(db: Session, t: models.Task, actor: str, accept: bool, not
         old = t.due_on or ""
         t.due_agreement = "accepted"      # the date being replaced is the agreed one
         t.due_on = prop.get("dueOn") or old
+        if prop.get("startOn"):
+            # Moved with it, so the task keeps its length - and recorded now,
+            # credited like the due move below: the edit that asked for it
+            # recorded nothing while it was held (routers/tasks.update_task).
+            start_before = task_history.snapshot(t)
+            t.start_on = prop["startOn"]
+            task_history.record(db, t, start_before, actor, only={"startOn"})
         record_due_change(db, t, old, t.due_on, actor=actor, source="approved", note=note)
         title, detail = "Extension Approved", f"approved the extension to {us_date(t.due_on)}"
     else:

@@ -15,13 +15,14 @@ import TypedFieldInput from './TypedFieldInput';
 import EgnyteBrowser from './EgnyteBrowser';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import { useIsMobile } from '../lib/useIsMobile';
-import { formatDate, formatDateTime } from '../lib/datetime';
+import { formatDate, formatDateTime, formatPacificDate, formatPacificDateTime } from '../lib/datetime';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import AccessCodeField from './AccessCodeField';
 import AnchoredMenu from './AnchoredMenu';
 import { useRole } from '../contexts/RoleContext';
 import { Spinner, LoadingState } from './AsyncState';
 import BreakAttestModal, { BreakStatement } from './BreakAttestModal';
+import { PersonSelect } from '../tasks/components';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
 // Send wizard (Document → Recipients → Fields → Review) with color-coded
@@ -479,7 +480,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
             <button className="secondary-btn" onClick={onClose}>Cancel</button>
             <button className="primary-btn" onClick={adopt} disabled={tab === 'draw' ? !hasInk : !typed.trim()}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (tab === 'draw' ? hasInk : typed.trim()) ? 1 : 0.55 }}>
-              <CheckCircle size={14} /> Adopt &amp; sign
+              <CheckCircle size={14} /> Adopt &amp; Sign
             </button>
           </div>
         </div>
@@ -1334,6 +1335,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   // 2026). It still tracks the current field's row vertically.
   const [tabLeft, setTabLeft] = useState(0);
   const docRef = useRef(null);
+  const finishBarRef = useRef(null);      // the pinned Finish bar - the tab stays below it
   // The opening bar stands down as soon as the signer engages with the
   // document - by scrolling past its first screen, or by pressing START.
   const [barHidden, setBarHidden] = useState(false);
@@ -1353,7 +1355,8 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
       // Just outside the page when there is room for it, otherwise overlapping
       // its edge - never off-screen, and never adrift in the margin.
       if (doc) setTabLeft(Math.max(0, Math.min(window.innerWidth - 70, doc.left - 46)));
-      const min = 12;
+      const bar = finishBarRef.current?.getBoundingClientRect();
+      const min = Math.max(12, bar ? bar.bottom + 6 : 0);
       const max = Math.max(min, window.innerHeight - 110);
       // Until START is pressed the tab waits at the TOP of the document, where
       // the signer's eye already is - not beside a field further down that
@@ -1707,6 +1710,76 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
 
   return (
     <div>
+      {/* The Finish bar (Neil, Oct 22: "I absolutely hate that Finish is all
+          the way at the bottom ... a bar at the top that lets you click
+          Finish so you don't miss it"). Pinned to the top of whatever
+          scrolls - the window on the public page, the panel in Nexus - and
+          always there on your turn: progress (the way in to what is left)
+          and Finish, under the same rules as the bar under the document.
+          The counter is the way IN to the list of what is left: a bare
+          "3/8" tells a signer they are not finished but not what is missing
+          (review section 7). */}
+      {payload.myTurn && (
+        <div ref={finishBarRef} className="nx-finish-bar" data-testid="finish-bar"
+          style={{ position: 'sticky', top: 0, zIndex: 26, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10,
+            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            padding: narrow ? 'calc(8px + env(safe-area-inset-top, 0px)) 12px 8px' : '8px 14px' }}>
+          {actsNotSigns || !required.length ? (
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {actsNotSigns ? 'Nothing to fill in' : 'Ready to sign'}
+            </span>
+          ) : (
+          <div>
+            <button ref={listBtnRef} type="button" onClick={() => setListOpen(o => !o)}
+              aria-expanded={listOpen}
+              title={allDone ? 'All required fields complete' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
+              style={{ background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                fontSize: 11.5, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)',
+                display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: narrow ? 56 : 90, height: 5, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
+                <span style={{ display: 'block', height: '100%', width: `${required.length ? (doneCount / required.length) * 100 : 100}%`, background: allDone ? 'hsl(var(--color-green))' : '#fbbf24', transition: 'width .3s' }} />
+              </span>
+              {allDone ? 'All fields complete' : `${doneCount} of ${required.length} fields`}
+              {allDone ? <CheckCircle size={12} /> : <ChevronDown size={12} style={{ transform: listOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />}
+            </button>
+            {/* Portaled so the page's scroll areas can't clip it (phones). */}
+            <AnchoredMenu anchorRef={listBtnRef} open={listOpen} onClose={() => setListOpen(false)} align="start" minWidth={250}
+              style={{ background: 'var(--card)', border: '1px solid var(--line)',
+                borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 8px 28px rgba(0,0,0,0.18))' }}>
+              <div style={{ maxWidth: 320, maxHeight: 280, overflowY: 'auto', padding: '8px 0' }}>
+                <div style={{ padding: '4px 14px 8px', fontSize: 11, fontWeight: 700, letterSpacing: '.05em',
+                  textTransform: 'uppercase', color: 'var(--muted)', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
+                  {allDone ? 'Nothing left to fill' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
+                </div>
+                {allDone ? (
+                  <div style={{ padding: '10px 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                    Every required field is complete. Select Finish to submit your signature.
+                  </div>
+                ) : outstanding.map(t => (
+                  <button key={t.id} type="button"
+                    onClick={() => { setListOpen(false); jumpTo(t); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
+                      background: 'none', border: 'none', padding: '8px 14px', cursor: 'pointer',
+                      fontFamily: 'Inter,sans-serif', fontSize: 12.5, color: 'var(--ink)' }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fbbf24', flexShrink: 0 }} />
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskName(t)}</span>
+                    {Number.isInteger(t.page) && (
+                      <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>p. {t.page + 1}</span>
+                    )}
+                    <ArrowRight size={12} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                  </button>
+                ))}
+              </div>
+            </AnchoredMenu>
+          </div>
+          )}
+          <span style={{ flex: 1 }} />
+          <button className="primary-btn" disabled={!canAct || busy} onClick={primaryAction}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canAct && !busy ? 1 : 0.5, fontSize: 13, flexShrink: 0 }}>
+            {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} {primaryLabel}
+          </button>
+        </div>
+      )}
       {/* The opening bar: what has been done so far and what is left. It is an
           INTRODUCTION, not furniture - once the signer starts, or scrolls into
           the document, it gets out of the way and the tab plus the bar under
@@ -1721,53 +1794,6 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
           </span>
           <ConsentDisclosures payload={payload} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* The counter is the way IN to the list of what is left. A bare
-                "3/8" tells a signer they are not finished but not what is
-                missing - on a six-page packet that is the difference between
-                finishing and giving up (review section 7). */}
-            <div>
-              <button ref={listBtnRef} type="button" onClick={() => setListOpen(o => !o)}
-                aria-expanded={listOpen}
-                title={allDone ? 'All required fields complete' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
-                style={{ background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                  fontSize: 11.5, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)',
-                  display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ width: 90, height: 5, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
-                  <span style={{ display: 'block', height: '100%', width: `${required.length ? (doneCount / required.length) * 100 : 100}%`, background: allDone ? 'hsl(var(--color-green))' : '#fbbf24', transition: 'width .3s' }} />
-                </span>
-                {doneCount}/{required.length}
-                {allDone ? <CheckCircle size={12} /> : <ChevronDown size={12} style={{ transform: listOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />}
-              </button>
-              {/* Portaled so the page's scroll areas can't clip it (phones). */}
-              <AnchoredMenu anchorRef={listBtnRef} open={listOpen} onClose={() => setListOpen(false)} align="end" minWidth={250}
-                style={{ background: 'var(--card)', border: '1px solid var(--line)',
-                  borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 8px 28px rgba(0,0,0,0.18))' }}>
-                <div style={{ maxWidth: 320, maxHeight: 280, overflowY: 'auto', padding: '8px 0' }}>
-                  <div style={{ padding: '4px 14px 8px', fontSize: 11, fontWeight: 700, letterSpacing: '.05em',
-                    textTransform: 'uppercase', color: 'var(--muted)', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
-                    {allDone ? 'Nothing left to fill' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
-                  </div>
-                  {allDone ? (
-                    <div style={{ padding: '10px 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                      Every required field is complete. Select Finish to submit your signature.
-                    </div>
-                  ) : outstanding.map(t => (
-                    <button key={t.id} type="button"
-                      onClick={() => { setListOpen(false); jumpTo(t); }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
-                        background: 'none', border: 'none', padding: '8px 14px', cursor: 'pointer',
-                        fontFamily: 'Inter,sans-serif', fontSize: 12.5, color: 'var(--ink)' }}>
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fbbf24', flexShrink: 0 }} />
-                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskName(t)}</span>
-                      {Number.isInteger(t.page) && (
-                        <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>p. {t.page + 1}</span>
-                      )}
-                      <ArrowRight size={12} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                    </button>
-                  ))}
-                </div>
-              </AnchoredMenu>
-            </div>
             {/* UETA section 8: the signer must be able to keep a copy of what
                 they are being asked to sign, while they are deciding - not
                 only after everyone has signed. Never gated on consent. */}
@@ -1792,11 +1818,6 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
               </button>
             )}
             <button onClick={() => setDeclineOpen(true)} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Decline</button>
-            <button className="primary-btn" disabled={!canAct || busy}
-              onClick={primaryAction}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canAct && !busy ? 1 : 0.5, fontSize: 13 }}>
-              {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} {primaryLabel}
-            </button>
           </div>
         </div>
       )}
@@ -2391,6 +2412,24 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const [dragOver, setDragOver] = useState(false);
   const [subjectId, setSubjectId] = useState(dr?.subjectId || (prefill?.candidateId ? `c:${prefill.candidateId}` : ''));
   const [candidates, setCandidates] = useState([]);
+  // The About picker's rows: employees then candidates not yet hired, each
+  // keyed for the people picker by work email (so the photo shows) or by its
+  // subject id; `key` is the subject id the envelope saves.
+  const subjectRows = useMemo(() => {
+    const seen = new Set();
+    const rows = [];
+    for (const e of employees) {
+      let email = (e.workEmail || '').toLowerCase();
+      if (!email || seen.has(email)) email = `e:${e.id}`.toLowerCase();
+      seen.add(email);
+      rows.push({ key: `e:${e.id}`, email, name: `${e.firstName || ''} ${e.lastName || ''}`.trim() || email });
+    }
+    for (const c of candidates) {
+      if (c.employeeId) continue;
+      rows.push({ key: `c:${c.id}`, email: `c:${c.id}`.toLowerCase(), name: `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Candidate' });
+    }
+    return rows;
+  }, [employees, candidates]);
   const [entityId, setEntityIdRaw] = useState(() => defaultSendEntityId(entities, employees, myEmail));
   // Entities and employees arrive asynchronously (react-query / a separate
   // fetch), so the first render often has neither. Keep applying the default
@@ -3085,15 +3124,10 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                 <div style={{ marginTop: 18, display: 'grid', gap: 12 }}>
                   <div>
                     <label style={FL}>About (person - fills merge fields)</label>
-                    <select className="form-input" style={{ width: '100%' }} value={subjectId} onChange={e => setSubjectId(e.target.value)}>
-                      <option value="">-</option>
-                      <optgroup label="Employees">
-                        {employees.map(e => <option key={e.id} value={`e:${e.id}`}>{e.firstName} {e.lastName} ({e.employeeCode})</option>)}
-                      </optgroup>
-                      <optgroup label="Candidates">
-                        {candidates.filter(c => !c.employeeId).map(c => <option key={c.id} value={`c:${c.id}`}>{c.firstName} {c.lastName} - {c.roleTitle || 'candidate'}</option>)}
-                      </optgroup>
-                    </select>
+                    <PersonSelect value={subjectRows.find(r => r.key === subjectId)?.email || null}
+                      onChange={v => setSubjectId(subjectRows.find(r => r.email === v)?.key || '')}
+                      people={subjectRows} placeholder="Pick a person" noneLabel="None" ariaLabel="About"
+                      style={{ height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13.5, fontWeight: 400 }} />
                   </div>
                   <div>
                     <label style={FL}>Company</label>
@@ -3650,7 +3684,7 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
                         onClick={() => { setEditPid(editPid === p.id ? null : p.id); setPf({ name: p.name, email: p.email, access_code: '' }); }}
                         style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px' }}><Pencil size={11} /> Edit</button>
                     )}
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: m.fg }}>{p.status === 'signed' && p.signedAt ? `Signed ${formatDate(p.signedAt.slice(0, 10))}` : cc && p.status !== 'signed' ? '-' : m.label}</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: m.fg }}>{p.status === 'signed' && p.signedAt ? `Signed ${formatPacificDate(p.signedAt)}` : cc && p.status !== 'signed' ? '-' : m.label}</span>
                   </div>
                   {editPid === p.id && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '0 0 10px 32px', alignItems: 'center' }}>
@@ -3680,8 +3714,9 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
             <div style={{ margin: '18px 0 8px' }}><label style={FL}>Audit trail</label></div>
             {(req.events || []).map((e, i) => (
               <div key={i} style={{ display: 'flex', gap: 10, padding: '5px 0', fontSize: 12, borderBottom: '1px dashed var(--line)' }}>
-                <span style={{ color: 'var(--muted)', width: 118, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{(e.at || '').slice(0, 16).replace('T', ' ')}</span>
-                <span style={{ fontWeight: 700, width: 78, flexShrink: 0, textTransform: 'capitalize' }}>{e.type}</span>
+                {/* Pacific time, PDT or PST by the date (Oct 23 2026) - was the raw UTC stamp. */}
+                <span style={{ color: 'var(--muted)', width: 172, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{formatPacificDateTime(e.at, '-')}</span>
+                <span style={{ fontWeight: 700, width: 120, flexShrink: 0, textTransform: 'capitalize', overflowWrap: 'anywhere' }}>{String(e.type || '').replace(/_/g, ' ')}</span>
                 <span style={{ color: 'var(--muted)', flex: 1 }}>{e.detail}{e.ip && ` · ${e.ip}`}</span>
               </div>
             ))}
@@ -3898,7 +3933,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
                       <span style={{ width: 70, height: 4, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
                         <span style={{ display: 'block', height: '100%', width: `${total ? (signed / total) * 100 : 0}%`, background: m.fg }} />
                       </span>
-                      {signed}/{total} signed · sent {formatDate((r.createdAt || '').slice(0, 10))}
+                      {signed}/{total} signed · sent {formatPacificDate(r.createdAt)}
                       {r.routing === 'parallel' && ' · all at once'}
                     </div>
                   </div>

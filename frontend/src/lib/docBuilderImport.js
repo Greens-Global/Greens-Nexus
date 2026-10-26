@@ -25,7 +25,8 @@
 // - .doc (legacy binary Word): rejected - no reader here (or mammoth) has
 //   ever supported the old binary format. Same message SOP.jsx already uses
 //   for the identical limitation.
-// - .txt / unknown: blank-line-separated paragraphs.
+// - .txt / .md / unknown: blank-line-separated paragraphs; **pairs** become bold.
+import { splitMdBold } from './markdownBold';
 
 const _importLimit = (name) => (/\.(pdf|docx?)$/i.test(name) ? 15 : 2) * 1024 * 1024;
 
@@ -231,7 +232,9 @@ async function importPdf(file) {
 
 async function importTxt(file) {
   const text = await file.text();
-  const html = text.split(/\n\s*\n/).map(block => `<p>${escapeHtml(block.trim()).replace(/\n/g, '<br/>')}</p>`).join('\n');
+  // "**Term**" from an AI draft or a Markdown file is bold, never literal asterisks (Neil, Oct 22).
+  const bolded = (s) => splitMdBold(s).map(([t, b]) => (b ? `<strong>${t}</strong>` : t)).join('');
+  const html = text.split(/\n\s*\n/).map(block => `<p>${bolded(escapeHtml(block.trim())).replace(/\n/g, '<br/>')}</p>`).join('\n');
   return { html, warnings: [] };
 }
 

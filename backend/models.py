@@ -128,6 +128,20 @@ class Task(Base):
     # Kept in step with TaskTicket.task_ids by routers/tickets.py, server-side
     # only; never taken from a task payload.
     source_ticket_id  = Column(String, default="", index=True)
+    # An HR checklist's task - a step's subtask or the parent task over an
+    # owner's steps (Oct 22 2026). Stamped by hr_checklists.sync_tasks, never
+    # taken from a payload; the task list reads it to hide Move To, and Move
+    # To refuses these (routers/tasks._is_hr_checklist_task).
+    hr_checklist      = Column(Boolean, default=False)
+    # What the task's board card shows under its title (Planner's "Show On
+    # Card", Oct 22 2026): "" Automatic, "checklist", "description", "none"
+    # or "image:<attachment id>" - one of this task's own image files. See
+    # task_card_preview.py.
+    card_preview      = Column(String, default="")
+    # The task whose "make private" took this one private with it (Oct 22
+    # 2026, routers/tasks._cascade_level): opening that task again opens this
+    # one again - unless its level was set by hand since, which clears it.
+    narrowed_by       = Column(String, default="")
 
 
 class PurchaseRequest(Base):
@@ -712,6 +726,20 @@ class NexusGroup(Base):
     created_from    = Column(String, default="")
     bod_team_id     = Column(String, default="")
     bod_team_name   = Column(String, default="")
+    # The role fills itself into the hiring paperwork (Neil, Oct 22: "the role
+    # gets filled into the hiring packet... the only thing that changes is a
+    # different confidentiality agreement and a different job description
+    # based on roles"). job_description is the duties text a white-label Job
+    # Description document prints as {{role_description}}; hiring_docs are the
+    # role's own documents, each added to - or replacing one of - whatever
+    # packet the hire gets: [{templateId, replaces}] ('' = added).
+    job_description = Column(Text, default="")
+    hiring_docs     = Column(JSON, default=list)
+    # Versions of the duties (Hiring Setup, Oct 23 2026): job_description is
+    # the Standard; each version is for a kind of hire, a place and/or one
+    # company - [{id, hiredAs, country, region, entityId, text, createdBy,
+    # createdAt, updatedAt, archivedAt}]. hiring_setup.resolve_duties picks one.
+    duty_versions   = Column(JSON, default=list)
 
 
 class NexusGroupMember(Base):
@@ -1006,6 +1034,8 @@ class HrCandidate(Base):
     decision_by    = Column(String, default="")
     decision_at    = Column(String, default="")
     decision_note  = Column(String, default="")
+    # Skip Interview (Neil, Oct 22): who moved them to Decision without one.
+    interview_skipped_by = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")
@@ -1163,6 +1193,21 @@ class KbDocument(Base):
     original_content = Column(Text, default="")                # raw extracted source text as first imported, before
                                                                  # any AI formatting - set once, never overwritten, so a
                                                                  # bad AI import can always be diffed against the true source
+    # Knowledge Base rebuild (Oct 2026, kb_*.py + routers/kb.py). Columns are
+    # ADDED, never changed: `body` / `doc_type` / `version` / `revision_history`
+    # stay exactly as the old module wrote them, so nothing is lost and the
+    # migration report (kb_migrate.py) can always diff old against new.
+    page_type        = Column(String, default="")              # how_to | sop | policy | reference ("" = not migrated yet)
+    collection_id    = Column(String, default="", index=True)  # KbCollection.id
+    summary          = Column(String, default="")              # one line under the title (search results, cards)
+    blocks           = Column(Text, default="")                # the page as the one editor stores it: TipTap JSON (kb_blocks.py)
+    major            = Column(Integer, default=0)              # version = f"{major}.{minor}"; 0.x = never published
+    minor            = Column(Integer, default=0)
+    published_at     = Column(String, default="")              # last time a version went live (ISO)
+    audience         = Column(Text, default="")                # policies: who must sign (kb_audience.py JSON), "" = everyone
+    signing          = Column(String, default="in_page")       # in_page | nexus_sign
+    translations     = Column(Text, default="")                # JSON {lang: {title, blocks, version, at}} - version != current = outdated
+    migrated_at      = Column(String, default="")              # set once by kb_migrate.apply; "" = still only the old body
 
 
 class KbService(Base):
@@ -1284,6 +1329,13 @@ class KbCourse(Base):
     quiz        = Column(String, default="{}")          # JSON {passPct,questions:[{_id,q,options,answer}]}
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
+    # Rebuild (Oct 2026): `lessons` / `quiz` are the LIVE version learners take;
+    # edits go to `draft` until Publish copies them over and bumps `major`
+    # (kb_course_versions keeps every published copy).
+    major        = Column(Integer, default=0)          # 0 = never published
+    draft        = Column(Text, default="")            # JSON {title, description, overview, est_minutes, lessons, quiz, recert_months, departments}
+    published_at = Column(String, default="")
+    published_by = Column(String, default="")
 
 
 class KbCourseProgress(Base):
@@ -1297,6 +1349,9 @@ class KbCourseProgress(Base):
     passed       = Column(Boolean, default=False)
     started_at   = Column(String, default="")
     completed_at = Column(String, default="")
+    course_major = Column(Integer, default=0)          # the course version this progress belongs to (a renewal starts over)
+    unlock_rounds = Column(Integer, default=0)         # manager unlocks: tries allowed = max_tries * (1 + unlock_rounds)
+    certificate_id = Column(String, default="")        # KbCertificate.id issued for this completion
 
 
 class KbPin(Base):
@@ -1319,6 +1374,9 @@ class KbCourseAssignment(Base):
     due_date    = Column(String, default="")          # YYYY-MM-DD ("" = no due date)
     assigned_by = Column(String, default="")
     created_at  = Column(String, default="")
+    source      = Column(String, default="manual")    # manual | rule | plan | renewal (rebuild, Oct 2026)
+    rule_id     = Column(String, default="")          # KbAssignmentRule.id that made it
+    plan_id     = Column(String, default="")          # KbTrainingPlan.id it belongs to
 
 
 class KbQuizAttempt(Base):
@@ -1335,6 +1393,16 @@ class KbQuizAttempt(Base):
     passed      = Column(Boolean, default=False)
     missed      = Column(String, default="[]")         # JSON: [{q, your, correct, explanation}]
     created_at  = Column(String, default="")
+    # Rebuild (Oct 2026): the quiz is drawn and graded on the server. An attempt
+    # is opened with the questions it drew (and the order each one's options
+    # were shown in), then graded once; `missed` on new rows holds
+    # [{id, q, lesson_id, lesson_title}] - never the right answer.
+    status       = Column(String, default="graded")   # open | graded
+    course_major = Column(Integer, default=0)
+    question_ids = Column(Text, default="")           # JSON [qid]
+    option_order = Column(Text, default="")           # JSON {qid: [original option index per shown position]}
+    answers      = Column(Text, default="")           # JSON {qid: [shown positions picked]}
+    graded_at    = Column(String, default="")
 
 
 class PageHelp(Base):
@@ -1405,6 +1473,7 @@ class HrEntity(Base):
     name               = Column(String, nullable=False)     # short display name (e.g. "Greens India")
     legal_name         = Column(String, default="")         # full registered legal name
     country            = Column(String, default="")         # US | IN | ...
+    region             = Column(String, default="")         # US state (CA, TX) - picks the hiring documents for the place
     tax_id             = Column(String, default="")         # EIN (US) / GSTIN (IN)
     registered_address = Column(String, default="")
     signatory          = Column(String, default="")         # authorized signatory name/title
@@ -2315,6 +2384,9 @@ class TicketTeamsMessage(Base):
     attempts        = Column(Integer, default=0)
     last_try_at     = Column(String, default="")
     created_at      = Column(String, default="")
+    # 'dm' = the requester DM above; 'feedback_chat' = a new Feature Request
+    # posted to the Nexus - Feedback and Bugs group chat (feature_requests.py).
+    kind            = Column(String, default="dm")
 
 
 class AgentDevice(Base):
@@ -3042,6 +3114,23 @@ class TaskProject(Base):
     # default folder, which is what every project showed before. Set with
     # `color` from the Edit Project form; routers/task_projects.clean_project_icon.
     icon          = Column(String, default="")
+    # Company wall (Oct 21 2026): the creator's company, stamped on create so
+    # the row stays on its side of the wall. '' = not stamped (rows from before
+    # this): the company is then derived from the owner / creator
+    # (routers/task_util.row_company), like an unstamped Task.
+    company_id    = Column(String, default="")
+    # People following the whole project (Neil, Oct 22 2026): lowercase
+    # emails. They hear about new tasks, completions and comments in it
+    # (task_project_follow.py), checked against who can still see the project
+    # and the task at send time. Written only under a row lock.
+    follower_emails = Column(JSON, default=list)
+    # Conditional row colors (Neil, Oct 22 2026): an ordered list of rules
+    # [{id, name, color, bold, enabled, match, conditions: [{field, op, value}]}]
+    # that color this project's task rows for everyone who views it. First
+    # enabled match wins; evaluated in the browser (tasks/colorRules.js),
+    # validated by task_color_rules.clean_rules, written only through
+    # PUT /task-projects/{id}/color-rules under the row lock.
+    color_rules   = Column(JSON, default=list)
 
 
 class TaskPortfolio(Base):
@@ -3079,6 +3168,11 @@ class TaskPortfolio(Base):
     # retention window, then purged by task_trash.trash_purge_loop.
     deleted_at    = Column(String, default="", index=True)
     deleted_by    = Column(String, default="")
+    # Company wall (Oct 21 2026): the creator's company, stamped on create so
+    # the row stays on its side of the wall. '' = not stamped (rows from before
+    # this): the company is then derived from the owner / creator
+    # (routers/task_util.row_company), like an unstamped Task.
+    company_id    = Column(String, default="")
 
 
 class TaskTeam(Base):
@@ -3137,6 +3231,11 @@ class TaskTeam(Base):
     # retention window, then purged by task_trash.trash_purge_loop.
     deleted_at    = Column(String, default="", index=True)
     deleted_by    = Column(String, default="")
+    # Company wall (Oct 21 2026): the creator's company, stamped on create so
+    # the row stays on its side of the wall. '' = not stamped (rows from before
+    # this): the company is then derived from the creator, else the team's
+    # projects (routers/task_util.team_company).
+    company_id    = Column(String, default="")
 
 
 class TaskSection(Base):
@@ -3179,6 +3278,11 @@ class TaskCustomStatus(Base):
     # the gids here gives one row scoped to many projects, while still letting a
     # rename in Asana be recognised rather than orphaned.
     asana_option_gids = Column(JSON, default=list)
+    # Company wall (Oct 21 2026): '' = shared by every company - what every
+    # row was before, and what a row made while the walls are off or by a
+    # Global Admin still is. A company here confines the row to that company
+    # (routers/task_util.config_admits).
+    company_id    = Column(String, default="")
 
 
 class TaskComment(Base):
@@ -3222,6 +3326,25 @@ class TaskAttachment(Base):
     # from a dying asanausercontent.com/app.asana.com address: the pre-rescue
     # URL, kept for audit/rollback. Blank on every row the rescue never touched.
     original_asana_url = Column(String, default="")
+    # File versions (Neil, Oct 22 2026). "Upload New Version" adds a row that
+    # shares the first version's group: version_group = the FIRST version's id
+    # ("" on that first row itself and on every row older than this feature -
+    # a row is its own group until a second version arrives, no backfill) and
+    # version = 1, 2, 3... The highest version is the current file; the lists
+    # show only it. Old versions stay rows - nothing is overwritten.
+    version_group = Column(String, default="")
+    version       = Column(Integer, default=1)
+    # Egnyte links (Oct 22 2026): kind "egnyte" is a LINK to a file or folder
+    # in the company Egnyte, not an uploaded copy - `url` is its https Egnyte
+    # web address (company domain only, see tasks._check_egnyte_url), nothing
+    # is stored in Supabase, and Egnyte applies each viewer's own permissions.
+    egnyte_path   = Column(String, default="")   # /Shared/... when known
+    egnyte_kind   = Column(String, default="")   # file|folder
+    # Web links (Oct 22 2026): kind "link" is a LINK to any web page - `url`
+    # is its normalized http(s) address (tasks._check_web_link), `name` its
+    # display name (the address itself when none was given). Never stored in
+    # or served from Supabase, never fetched by the server, never versioned.
+    # No column of its own: `kind` says it, as "egnyte" does.
 
 
 class TaskActivity(Base):
@@ -3237,6 +3360,11 @@ class TaskActivity(Base):
     actor_email  = Column(String, default="")
     at           = Column(String, default="", index=True)
     detail       = Column(String, default="")
+    # Field history (Neil, Oct 22 2026): the structured change this row
+    # records - {field, fieldId, label, from, to, labels} with raw values (ids,
+    # emails, ISO dates). Set only on rows written by task_history.py and on
+    # the status / assignee / due rows it extends; NULL everywhere else.
+    field_change = Column(JSON, nullable=True)
 
 
 class TaskDeleteLog(Base):
@@ -3262,6 +3390,9 @@ class TaskSavedView(Base):
     group       = Column(String, default="none")
     scope       = Column(String, default="task")         # task|ticket - which module the view belongs to
     created_at  = Column(String, default="")
+    # A Board view's columns (Oct 22 2026): status|section|priority|due, ""
+    # = Status. `group` is then the board's swimlanes.
+    board_columns = Column(String, default="")
 
 
 class TaskAutomationRule(Base):
@@ -3279,6 +3410,11 @@ class TaskAutomationRule(Base):
     conditions  = Column(JSON, default=list)
     run_count   = Column(Integer, default=0)
     last_run_at = Column(String, default="")
+    # Company wall (Oct 21 2026): '' = shared by every company - what every
+    # row was before, and what a row made while the walls are off or by a
+    # Global Admin still is. A company here confines the row to that company
+    # (routers/task_util.config_admits).
+    company_id    = Column(String, default="")
 
 
 class TaskTemplate(Base):
@@ -3303,6 +3439,11 @@ class TaskTemplate(Base):
     checklist      = Column(JSON, default=list)
     source_task_id = Column(String, default="")
     created_by     = Column(String, default="")
+    # Company wall (Oct 21 2026): '' = shared by every company - what every
+    # row was before, and what a row made while the walls are off or by a
+    # Global Admin still is. A company here confines the row to that company
+    # (routers/task_util.config_admits).
+    company_id    = Column(String, default="")
 
 
 class TaskIntakeForm(Base):
@@ -3312,6 +3453,11 @@ class TaskIntakeForm(Base):
     fields            = Column(JSON, default=list)       # [{label,type,required}]
     target_project_id = Column(String, default="")
     created_at        = Column(String, default="")
+    # Company wall (Oct 21 2026): '' = shared by every company - what every
+    # row was before, and what a row made while the walls are off or by a
+    # Global Admin still is. A company here confines the row to that company
+    # (routers/task_util.config_admits).
+    company_id    = Column(String, default="")
 
 
 class TaskCustomField(Base):
@@ -3367,6 +3513,18 @@ class TaskCustomField(Base):
     # this list is the per-project version. Enforced on create by
     # routers/tasks.py create_task and in every create form.
     required_project_ids = Column(JSON, default=list)
+    # Company wall (Oct 21 2026): '' = shared by every company - what every
+    # row was before, and what a row made while the walls are off or by a
+    # Global Admin still is. A company here confines the row to that company
+    # (routers/task_util.config_admits).
+    company_id    = Column(String, default="")
+    # Formula columns (Neil, Oct 22 2026). For type "formula" only: the
+    # expression ({Budget} - {Spent}, IF(...), ...) checked by task_formula.py
+    # on save and evaluated in the browser (tasks/formula.js). The value is
+    # never stored on a task. formula_format = {format, decimals}, format one
+    # of number|currency|percent|date|text.
+    formula        = Column(Text, default="")
+    formula_format = Column(JSON, default=dict)
 
 
 class TaskMemberRequest(Base):
@@ -4681,6 +4839,14 @@ class TaskTablePref(Base):
     prefs       = Column(JSON, default=dict)
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
+    # My Day (Oct 22 2026, routers/task_my_day.py): the person's own list for
+    # today - {"day": "YYYY-MM-DD" (their local date), "added": [task ids, in
+    # their order], "dismissed": [due-today task ids they took off]}. Its own
+    # column, not a key in `prefs`: "Restore all" resets prefs, every list
+    # fetches prefs on load, and a prefs save rewrites that whole document -
+    # none of which may touch today's list. A stored day that is not today
+    # reads as empty; nothing ever clears it on a schedule.
+    my_day      = Column(JSON, nullable=True)
 
 
 class UserTourState(Base):
@@ -5310,6 +5476,17 @@ class HrChecklist(Base):
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
     closed_at   = Column(String, default="")
+    # The job role whose steps it carries (Oct 23 2026), so a role's template
+    # change reaches it (hr_checklists.reconcile). '' = no role; NULL = started
+    # before the column - filled from the role the person holds on first use.
+    role_id     = Column(String, nullable=True)
+    # Its ONE task (Neil, Oct 22: "Onboarding - <name>" in the HR project,
+    # assigned to the head of HR); each step's subtask hangs under it.
+    task_id     = Column(String, default="")
+    # An Onboarding Audit of someone already working here (Neil, Oct 22: "if
+    # the person is an existing employee, we can have an option to do an
+    # audit"): dated from the audit, never moved by their old start date.
+    audit       = Column(Boolean, default=False)
 
 
 class HrChecklistItem(Base):
@@ -5346,6 +5523,9 @@ class HrChecklistItem(Base):
     # Comments made while the step had no subtask; the rest live on the subtask
     # as task comments, so both sides show the same thread (hr_checklists.comments_for).
     comments     = Column(JSON, default=list)
+    # Which condition ticked it when done_by is "Nexus" (Oct 23 2026), e.g.
+    # "An ID document is on file" - the proof of what was on record and when.
+    done_reason  = Column(String, default="")
 
 
 class AccountingLoanSchedule(Base):
@@ -5894,9 +6074,9 @@ class AccountingAmaAgreement(Base):
     entity_code         = Column(String, nullable=False, index=True)  # the managed ledger entity
     manager_entity_code = Column(String, default="")                  # the entity that earns / bills the fee
     status              = Column(String, default="Active")            # Active | Pending Review | Ended
-    fee_basis           = Column(String, default="percent_revenue")   # percent_revenue | flat
-    fee_rate            = Column(Float, nullable=True)                # percent, for percent_revenue
-    flat_amount         = Column(Float, nullable=True)                # per billing period, for flat
+    fee_basis           = Column(String, default="percent_revenue")   # percent_revenue | flat | percent_or_flat
+    fee_rate            = Column(Float, nullable=True)                # percent, for percent_revenue / percent_or_flat
+    flat_amount         = Column(Float, nullable=True)                # per billing period (flat); the "else" fee (percent_or_flat)
     billing_frequency   = Column(String, default="Monthly")           # Monthly | Quarterly | Annually
     start_date          = Column(String, default="")                  # YYYY-MM-DD
     end_date            = Column(String, default="")                  # '' = open-ended
@@ -5907,6 +6087,12 @@ class AccountingAmaAgreement(Base):
     created_at          = Column(String, default="")
     updated_by          = Column(String, default="")
     updated_at          = Column(String, default="")
+    # Oct 23 (Charmi, CR-03): percent_or_flat charges fee_rate % of gross when
+    # the gross is above threshold_amount, else flat_amount. threshold_basis
+    # annual | period ('' = accounting_assumptions default). Additive, NULL on
+    # every older agreement.
+    threshold_amount    = Column(Float, nullable=True)
+    threshold_basis     = Column(String, default="")
 
 
 class Announcement(Base):
@@ -5950,7 +6136,8 @@ class HrPacketSetting(Base):
     is the default every company falls back to, worker_type 'any' covers both
     employees and contractors. The template carries the merged PDFs and the
     signer roles; `subject_role` is the role the person signs as - every other
-    role is signed by the HR sender, who signs at send so the person signs last.
+    role is signed by the HR sender, who countersigns after the person (the
+    person signs first - Neil, Oct 22 2026).
     New table - RLS per CLAUDE.md (main.py list + the startup sweep)."""
     __tablename__ = "hr_packet_settings"
     id               = Column(String, primary_key=True)           # uuid
@@ -6003,6 +6190,15 @@ class HrPacketSetting(Base):
     # of doc_template_ids - "there's a different confidentiality agreement for
     # each team" (Neil). [{match: department | role, value, templateIds: []}]
     extra_docs       = Column(JSON, default=list)
+    # Where the person works, inside the country (Neil, Oct 22): "there is a
+    # hiring packet that applies to California... when we open Texas we'll add
+    # one for Texas". A US state code (CA, TX), '' = anywhere in the country.
+    region           = Column(String, default="")
+    # Use The Same (Hiring Setup, Oct 23 2026): an archived row is this level's
+    # own letter or packet put aside so the level above applies again - never
+    # sent, never deleted, restorable. '' = live.
+    archived_at      = Column(String, default="")
+    archived_by      = Column(String, default="")
 
 
 class HrLifeEvent(Base):
@@ -6624,6 +6820,59 @@ class AccountingAmaSetting(Base):
     accountants = Column(JSON, default=list)                       # ['person@greensglobal.com', ...]
     updated_by  = Column(String, default="")
     updated_at  = Column(String, default="")
+    # CR-13 (Oct 23): who may approve and push an AMA reclass (the '' row
+    # only). Empty = accounting_assumptions.AMA_BOOKKEEPERS_FALLBACK.
+    bookkeepers = Column(JSON, default=list)
+    # CR-13 rework (Oct 23): no AMA push edits an entry dated on or before
+    # this day ('' = accounting_assumptions.AMA_BOOKS_CLOSED_THROUGH).
+    closed_through = Column(String, default="")
+
+
+class AccountingAmaLineReview(Base):
+    """CR-13 (Charmi, Oct 22): what Nexus keeps against one Ask My Accountant
+    ledger line - the Notes typed in the grid and the GL reclass proposed for
+    it. A reclass runs Awaiting Bookkeeper -> (Sent Back -> Awaiting
+    Bookkeeper) -> Pushing -> Pushed; only a bookkeeper approves and pushes.
+    A push creates a NEW reclass entry (never edits the original); with the
+    Intacct switch off it is recorded for the GL import file instead
+    (push_mode 'import'). `line_ref` = the ledger line id, else "k:" + the
+    entry / account / amount / date key. routers/accounting_ask_review.py.
+    New table - create_all builds it; RLS by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_line_reviews"
+    id               = Column(String, primary_key=True)            # uuid
+    line_ref         = Column(String, unique=True, index=True)
+    entity_code      = Column(String, default="", index=True)
+    entry_id         = Column(String, default="")
+    entry_no         = Column(String, default="")
+    line_id          = Column(String, default="")
+    account_no       = Column(String, default="")                  # the AMA account
+    account_title    = Column(String, default="")
+    entry_date       = Column(String, default="")                  # YYYY-MM-DD
+    amount           = Column(Float, default=0.0)                  # debit - credit
+    description      = Column(String, default="")
+    department_id    = Column(String, default="")
+    note             = Column(Text, default="")
+    note_by          = Column(String, default="")
+    note_at          = Column(String, default="")
+    reclass_status   = Column(String, default="", index=True)      # '' | Awaiting Bookkeeper | Sent Back | Pushing | Pushed
+    reclass_ref      = Column(String, default="")                  # R-xxxxxxxx, on the reclass entry
+    to_account       = Column(String, default="")
+    to_account_title = Column(String, default="")
+    party_kind       = Column(String, default="")                  # '' | vendor | customer
+    party_id         = Column(String, default="")
+    party_name       = Column(String, default="")
+    reclass_memo     = Column(String, default="")
+    proposed_by      = Column(String, default="")
+    proposed_at      = Column(String, default="")
+    review_note      = Column(String, default="")                  # the bookkeeper's Send Back note
+    approved_by      = Column(String, default="")
+    approved_at      = Column(String, default="")
+    push_mode        = Column(String, default="")                  # edit (the original, CR-13 rework) | intacct | import (new_entry mode)
+    push_started_at  = Column(String, default="")
+    intacct_ref      = Column(String, default="")                  # RECORDNO of the reclass entry
+    push_error       = Column(String, default="")
+    history          = Column(JSON, default=list)                  # [{at, by, event}]
+    updated_at       = Column(String, default="")
 
 
 class ShiftNoShowAlert(Base):
@@ -6928,6 +7177,9 @@ class ChangelogFeedback(Base):
     shipped_entry_id = Column(String, default="")
     notified_status  = Column(String, default="")
     module           = Column(String, default="")
+    # The Feature Request ticket this request IS (Oct 23 2026,
+    # feature_requests.py): its comments are the request's one conversation.
+    ticket_id        = Column(String, default="", index=True)
 
 
 class ChangelogSubscription(Base):
@@ -7607,3 +7859,463 @@ class ContractorInvoice(Base):
     sent_at           = Column(String, default="")
     sent_to           = Column(JSON, default=list)
     egnyte_path       = Column(String, default="")
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Base rebuild (Oct 2026). New tables beside the old kb_* ones; the
+# old rows are never changed or dropped (kb_migrate.py converts and reports).
+# create_all makes these with RLS OFF - main.py's Postgres migration list
+# carries the ENABLE ROW LEVEL SECURITY line for each one.
+# ---------------------------------------------------------------------------
+
+class KbCollection(Base):
+    """A shelf in the Library: top level = a People department, one level of
+    sub-collections under it (the old kb_services). Each has an owner who keeps
+    it current and a review cycle its pages inherit. `reading_order` is an
+    ordered list of page ids for a collection read like a manual."""
+    __tablename__ = "kb_collections"
+    id                  = Column(String, primary_key=True)   # col_ + hex
+    name                = Column(String, nullable=False)
+    parent_id           = Column(String, default="", index=True)
+    department          = Column(String, default="")        # the People department name for a top-level collection
+    description         = Column(String, default="")
+    owner_email         = Column(String, default="")
+    owner_name          = Column(String, default="")
+    review_every_months = Column(Integer, default=12)
+    reading_order       = Column(Text, default="")          # JSON [doc_id]
+    sort_order          = Column(Integer, default=0)
+    active              = Column(Boolean, default=True)
+    created_by          = Column(String, default="")
+    created_at          = Column(String, default="")
+    updated_at          = Column(String, default="")
+    legacy_service_id   = Column(String, default="")        # KbService.id it was made from (migration)
+
+
+class KbRevision(Base):
+    """A revision draft of a PUBLISHED page. Readers keep seeing the live copy
+    until the revision is approved; then its blocks become the page and the
+    version bumps (minor for a small fix, major for a real change). One open
+    revision per page."""
+    __tablename__ = "kb_revisions"
+    id           = Column(String, primary_key=True)   # rev_ + hex
+    doc_id       = Column(String, nullable=False, index=True)
+    base_version = Column(String, default="")         # the live version it started from, e.g. "2.0"
+    title        = Column(String, default="")
+    summary      = Column(String, default="")
+    blocks       = Column(Text, default="")           # TipTap JSON
+    change_kind  = Column(String, default="minor")    # minor | major
+    change_note  = Column(String, default="")         # what changed, shown in the version list and in a policy's re-sign banner
+    status       = Column(String, default="draft")    # draft | in_review | changes_requested | merged | discarded
+    author_email = Column(String, default="")
+    author_name  = Column(String, default="")
+    reviewer_email = Column(String, default="")
+    review_note  = Column(String, default="")
+    created_at   = Column(String, default="")
+    updated_at   = Column(String, default="")
+    submitted_at = Column(String, default="")
+    decided_at   = Column(String, default="")
+    decided_by   = Column(String, default="")
+
+
+class KbPageVersion(Base):
+    """Every published version of a page, exactly as it read: the version
+    list, the compare view, what a signature or a course lesson is pinned to.
+    Migration turns the old kb_snapshots into these (order fixed)."""
+    __tablename__ = "kb_page_versions"
+    id            = Column(String, primary_key=True)   # ver_ + hex
+    doc_id        = Column(String, nullable=False, index=True)
+    major         = Column(Integer, default=0)
+    minor         = Column(Integer, default=0)
+    version       = Column(String, default="")         # "2.1"
+    title         = Column(String, default="")
+    summary       = Column(String, default="")
+    blocks        = Column(Text, default="")
+    content_text  = Column(Text, default="")
+    change_kind   = Column(String, default="")         # minor | major | import | migrated
+    change_note   = Column(String, default="")
+    author_email  = Column(String, default="")
+    approved_by   = Column(String, default="")
+    published_at  = Column(String, default="")
+    legacy_snapshot_id = Column(String, default="")   # KbSnapshot.id it came from
+
+
+class KbEvent(Base):
+    """The page's activity log, append-only: created, submitted, approved,
+    published, archived, restored, verified, flagged, signed, translated..."""
+    __tablename__ = "kb_events"
+    id         = Column(String, primary_key=True)   # evt_ + hex
+    doc_id     = Column(String, default="", index=True)
+    course_id  = Column(String, default="", index=True)
+    kind       = Column(String, nullable=False)
+    version    = Column(String, default="")
+    actor_email = Column(String, default="")
+    actor_name = Column(String, default="")
+    note       = Column(String, default="")
+    created_at = Column(String, default="", index=True)
+
+
+class KbSignature(Base):
+    """A policy signature: the typed name, the time, the version and the text
+    as it read at that moment. A signature counts while the page's MAJOR
+    version is the one signed; a new major version asks everyone again."""
+    __tablename__ = "kb_signatures"
+    id           = Column(String, primary_key=True)   # sig_ + hex
+    doc_id       = Column(String, nullable=False, index=True)
+    version      = Column(String, default="")
+    major        = Column(Integer, default=0)
+    user_email   = Column(String, nullable=False, index=True)
+    user_name    = Column(String, default="")
+    typed_name   = Column(String, default="")
+    signed_at    = Column(String, default="")
+    content_text = Column(Text, default="")           # the page as read, flattened
+    content_hash = Column(String, default="")         # sha256 of content_text
+    method       = Column(String, default="in_page")  # in_page | nexus_sign | legacy
+    legacy_ack_id = Column(String, default="")        # KbAcknowledgement.id it was converted from
+
+
+class KbFlag(Base):
+    """Report a Problem on a page - goes to the owner as a flagged item in
+    Manage > Health until it is resolved."""
+    __tablename__ = "kb_flags"
+    id          = Column(String, primary_key=True)   # flg_ + hex
+    doc_id      = Column(String, nullable=False, index=True)
+    version     = Column(String, default="")
+    user_email  = Column(String, default="")
+    user_name   = Column(String, default="")
+    text        = Column(String, default="")
+    status      = Column(String, default="open")     # open | resolved
+    created_at  = Column(String, default="")
+    resolved_at = Column(String, default="")
+    resolved_by = Column(String, default="")
+    resolution  = Column(String, default="")
+
+
+class KbView(Base):
+    """One row per person per page per day - the only thing a page open writes."""
+    __tablename__ = "kb_views"
+    id         = Column(String, primary_key=True)
+    doc_id     = Column(String, nullable=False, index=True)
+    user_email = Column(String, default="")
+    day        = Column(String, default="", index=True)   # YYYY-MM-DD
+    count      = Column(Integer, default=1)
+
+
+class KbSearchLog(Base):
+    """Searches that found nothing good - the Health screen's "we need a page
+    for this" list. One row per query per day."""
+    __tablename__ = "kb_search_log"
+    id         = Column(String, primary_key=True)
+    query      = Column(String, nullable=False)
+    day        = Column(String, default="", index=True)
+    count      = Column(Integer, default=1)
+    results    = Column(Integer, default=0)          # best result count seen that day
+    last_user  = Column(String, default="")
+
+
+class KbPageRequest(Base):
+    """A reader asked for a page that does not exist - notifies the collection
+    owner (or the Knowledge Base managers) and sits in Manage > Health."""
+    __tablename__ = "kb_page_requests"
+    id            = Column(String, primary_key=True)   # req_ + hex
+    query         = Column(String, default="")
+    note          = Column(String, default="")
+    collection_id = Column(String, default="")
+    user_email    = Column(String, default="")
+    user_name     = Column(String, default="")
+    status        = Column(String, default="open")     # open | done | declined
+    doc_id        = Column(String, default="")         # the page written in answer
+    created_at    = Column(String, default="")
+    closed_at     = Column(String, default="")
+    closed_by     = Column(String, default="")
+
+
+class KbJob(Base):
+    """A background AI job (import, course generation, translation) the screen
+    polls for progress. Result is JSON."""
+    __tablename__ = "kb_jobs"
+    id         = Column(String, primary_key=True)   # job_ + hex
+    kind       = Column(String, nullable=False)      # import | course | translate
+    status     = Column(String, default="queued")    # queued | running | done | failed
+    progress   = Column(Integer, default=0)
+    total      = Column(Integer, default=0)
+    doc_id     = Column(String, default="")
+    course_id  = Column(String, default="")
+    input      = Column(Text, default="")            # JSON (kept for retry)
+    result     = Column(Text, default="")            # JSON
+    error      = Column(String, default="")
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+    updated_at = Column(String, default="")
+
+
+class KbTaskLink(Base):
+    """An SOP started as a task: which task, from which version."""
+    __tablename__ = "kb_task_links"
+    id         = Column(String, primary_key=True)
+    doc_id     = Column(String, nullable=False, index=True)
+    version    = Column(String, default="")
+    task_id    = Column(String, nullable=False, index=True)
+    recurring  = Column(Boolean, default=False)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
+class KbCourseVersion(Base):
+    """Every published version of a course, so people mid-course finish the
+    version they started and a certificate names the version it was for."""
+    __tablename__ = "kb_course_versions"
+    id           = Column(String, primary_key=True)   # cv_ + hex
+    course_id    = Column(String, nullable=False, index=True)
+    major        = Column(Integer, default=1)
+    title        = Column(String, default="")
+    description  = Column(String, default="")
+    overview     = Column(Text, default="")           # JSON [str]
+    est_minutes  = Column(Integer, default=15)
+    lessons      = Column(Text, default="")           # JSON
+    quiz         = Column(Text, default="")           # JSON (answers included - never sent to learners)
+    published_at = Column(String, default="")
+    published_by = Column(String, default="")
+    change_note  = Column(String, default="")
+
+
+class KbCertificate(Base):
+    """A stored training certificate with a serial number, downloadable at any
+    time and checkable by anyone signed in."""
+    __tablename__ = "kb_certificates"
+    id            = Column(String, primary_key=True)   # cert_ + hex
+    serial        = Column(String, nullable=False, unique=True, index=True)   # CERT-2026-00417
+    course_id     = Column(String, nullable=False, index=True)
+    course_code   = Column(String, default="")
+    course_title  = Column(String, default="")
+    course_major  = Column(Integer, default=0)
+    user_email    = Column(String, nullable=False, index=True)
+    user_name     = Column(String, default="")
+    score         = Column(Integer, default=0)
+    issued_at     = Column(String, default="")
+    expires_at    = Column(String, default="")         # "" = never
+    assignment_id = Column(String, default="")
+    revoked_at    = Column(String, default="")
+    legacy        = Column(Boolean, default=False)     # issued by the migration for an old completion
+
+
+class KbAssignmentRule(Base):
+    """Who takes a course (or a plan) automatically: an audience, a due window
+    counted from the person's start date (or the rule's creation), and an
+    optional renewal. The daily scan creates the assignments."""
+    __tablename__ = "kb_assignment_rules"
+    id           = Column(String, primary_key=True)   # rule_ + hex
+    kind         = Column(String, default="course")   # course | plan
+    target_id    = Column(String, nullable=False, index=True)
+    audience     = Column(Text, default="")           # kb_audience.py JSON
+    due_days     = Column(Integer, default=14)
+    renew_months = Column(Integer, default=0)
+    active       = Column(Boolean, default=True)
+    created_by   = Column(String, default="")
+    created_at   = Column(String, default="")
+    updated_at   = Column(String, default="")
+    last_run_at  = Column(String, default="")
+
+
+class KbTrainingPlan(Base):
+    """A bundle of courses and policies for a role ("New Hire: Site Manager"),
+    tracked as one checklist in My Training."""
+    __tablename__ = "kb_training_plans"
+    id          = Column(String, primary_key=True)   # plan_ + hex
+    name        = Column(String, nullable=False)
+    description = Column(String, default="")
+    items       = Column(Text, default="")           # JSON [{kind: course|policy, id, order}]
+    due_days    = Column(Integer, default=30)
+    audience    = Column(Text, default="")           # JSON, "" = assigned by name only
+    active      = Column(Boolean, default=True)
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class KbPlanAssignment(Base):
+    """A plan given to one person (by rule or by hand)."""
+    __tablename__ = "kb_plan_assignments"
+    id          = Column(String, primary_key=True)
+    plan_id     = Column(String, nullable=False, index=True)
+    user_email  = Column(String, nullable=False, index=True)
+    user_name   = Column(String, default="")
+    due_date    = Column(String, default="")
+    source      = Column(String, default="manual")   # manual | rule
+    assigned_by = Column(String, default="")
+    created_at  = Column(String, default="")
+    completed_at = Column(String, default="")
+
+
+class KbReminderLog(Base):
+    """One row per reminder actually sent (bell or email), so the daily scan
+    never repeats one: (kind, ref, recipient, day) is the key."""
+    __tablename__ = "kb_reminder_log"
+    id         = Column(String, primary_key=True)
+    kind       = Column(String, nullable=False)
+    ref_id     = Column(String, default="", index=True)
+    recipient  = Column(String, default="", index=True)
+    day        = Column(String, default="")
+    created_at = Column(String, default="")
+
+
+class TimecardBonus(Base):
+    """A bonus on one person's pay period (Neil, Oct 22 2026): a manager or HR
+    writes why and how much; it adds to the period's pay, prints on the Time
+    Sheet the employee signs and on a contractor's invoice. `date` is a day
+    inside the period it pays in (the period start when added), so it lands on
+    a bi-weekly or a monthly card alike. Removing one stamps removed_* - the
+    row stays as the record."""
+    __tablename__ = "timecard_bonuses"
+    id             = Column(String, primary_key=True)
+    employee_email = Column(String, index=True, nullable=False)
+    date           = Column(String, index=True, nullable=False)   # YYYY-MM-DD
+    description    = Column(String, default="")
+    amount         = Column(Float, default=0.0)
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    removed_by     = Column(String, default="")
+    removed_at     = Column(String, default="")
+
+
+class AccountingAmaPushPreview(Base):
+    """CR-13 rework (Neil, 23 Oct 2026: "The push should edit the original
+    ... CAREFUL TO GET THIS RIGHT"): what a bookkeeper was SHOWN before a
+    push - for each Intacct entry the reclasses touch, the entry as read
+    (`entries[].before`), the exact update that would be sent
+    (`entries[].update`) and a fingerprint of the entry. A push names its
+    preview: it must be this person's, unused and fresh, for the same lines,
+    and the entry must read the same again or nothing is sent.
+    routers/accounting_ask_review.py. New table - create_all builds it; RLS
+    by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_push_previews"
+    id          = Column(String, primary_key=True)                 # uuid
+    created_by  = Column(String, default="", index=True)
+    created_at  = Column(String, default="")
+    expires_at  = Column(String, default="")
+    review_ids  = Column(JSON, default=list)                       # the AccountingAmaLineReview ids, sorted
+    source      = Column(String, default="")                       # intacct | ledger
+    live        = Column(Boolean, default=False)                   # AMA_PUSH_TO_INTACCT when previewed
+    entries     = Column(JSON, default=list)                       # [{key, fingerprint, before, update, changes}]
+    used_at     = Column(String, default="")
+
+
+class AccountingAmaPushLog(Base):
+    """CR-13 rework: one row per Intacct entry a push touched (or, with the
+    push switched off, would have touched) - who, when, the entry before,
+    exactly what was sent, what Intacct answered, the entry read again after,
+    and the outcome (edited | dry_run | failed | unconfirmed | already_done |
+    stale). APPEND-ONLY: never updated or deleted by code.
+    routers/accounting_ask_review.py. New table - create_all builds it; RLS
+    by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_push_log"
+    id          = Column(String, primary_key=True)                 # uuid
+    at          = Column(String, default="", index=True)
+    by          = Column(String, default="")
+    preview_id  = Column(String, default="", index=True)
+    review_ids  = Column(JSON, default=list)
+    entry_key   = Column(String, default="", index=True)           # Intacct GLBATCH RECORDNO (else the ledger entry id)
+    entry_no    = Column(String, default="")
+    mode        = Column(String, default="")                       # live | dry_run
+    source      = Column(String, default="")                       # intacct | ledger
+    before      = Column(JSON, default=dict)
+    sent        = Column(JSON, default=dict)                       # the update, as sent (or as it would be)
+    sent_xml    = Column(Text, default="")
+    response    = Column(Text, default="")
+    after       = Column(JSON, default=dict)
+    outcome     = Column(String, default="")
+    error       = Column(Text, default="")
+# ── Build Mode (Neil, Oct 24 2026) ─────────────────────────────────────────────
+# Pins, Build Sessions and Build Tokens for routers/dev_notes.py. Brand-new
+# tables: create_all builds them and main.py's _enable_rls_everywhere turns RLS
+# on at startup, so they need no ALTER lines in the migration lists. A column
+# added to one of them AFTER its first release does - in BOTH lists.
+class DevNote(Base):
+    """One Pin: a comment plus markup on one element of the live app, with the
+    captured context (route, viewport, selector, console and network tails,
+    screenshots, recording), its thread with Claude Code, and the PR that
+    fixed it. Status machine in docs/Build-Mode.md."""
+    __tablename__ = "dev_notes"
+    id                = Column(String, primary_key=True)
+    session_id        = Column(String, default="", index=True)   # dev_note_sessions.id ('' = none yet)
+    number            = Column(Integer, default=0)               # pin number on screen, per session
+    kind              = Column(String, default="bug")            # bug | change | question | edit
+    priority          = Column(String, default="normal")         # blocking | normal | nice
+    status            = Column(String, default="open", index=True)
+    comment           = Column(Text, default="")
+    thread            = Column(JSON, default=list)               # [{id, by, at, kind, text, image_url}]
+    route             = Column(String, default="")               # activeView
+    sub               = Column(String, default="")               # activeSub
+    url               = Column(String, default="")
+    build_id          = Column(String, default="")
+    viewport          = Column(JSON, default=dict)               # {w, h, dpr, ua, phone, theme}
+    target            = Column(JSON, default=dict)
+    markup            = Column(JSON, default=dict)
+    edit              = Column(JSON, default=dict)
+    screenshot_url    = Column(String, default="")
+    page_shot_url     = Column(String, default="")
+    video_url         = Column(String, default="")
+    contact_sheet_url = Column(String, default="")
+    transcript        = Column(Text, default="")
+    attachments       = Column(JSON, default=list)               # [url]
+    console_log       = Column(JSON, default=list)               # [{level, text, at}] max 50
+    network_log       = Column(JSON, default=list)               # [{method, path, status, ms, at}] max 30
+    dispatch_target   = Column(String, default="local")          # local | github (github reserved)
+    dispatched_at     = Column(String, default="")
+    progress          = Column(String, default="")
+    progress_at       = Column(String, default="")
+    branch            = Column(String, default="")
+    pr_url            = Column(String, default="")
+    pr_number         = Column(Integer, default=0, index=True)
+    github_issue      = Column(Integer, default=0)               # reserved
+    fixed_build_id    = Column(String, default="")               # merge commit sha
+    fixed_at          = Column(String, default="")
+    verified_by       = Column(String, default="")
+    verified_at       = Column(String, default="")
+    reopen_count      = Column(Integer, default=0)
+    created_by        = Column(String, default="", index=True)
+    created_at        = Column(String, default="")
+    updated_at        = Column(String, default="")
+    actions           = Column(JSON, default=list)               # last 30 user actions before the pin [{t, type, label, selector, value, view, sub}]
+    state             = Column(JSON, default=dict)               # the target's React props/state snapshot (client-capped)
+    verification      = Column(JSON, default=dict)               # written by the CLI: {repro, styleCheck, visual}
+    purge_at          = Column(String, default="")               # done/dismissed + 30 days: media objects are purged after this
+    # Build Mode v2 (Oct 24 2026) - ALTER lines in BOTH of main.py's migration lists.
+    owner_email        = Column(String, default="")              # code_owners.owner_of(target.source.file), set by the server on create
+    owner_name         = Column(String, default="")
+    owner_released_by  = Column(String, default="")              # who released a held pin to Claude Code
+    owner_released_at  = Column(String, default="")
+    preview            = Column(JSON, default=dict)              # Ready To Check: {url, branch, prNumber, host, startedAt}; {} = none
+    preview_verdict    = Column(String, default="")              # '' | accepted | reopened
+    preview_verdict_at = Column(String, default="")
+    regression_case_id = Column(String, default="")              # qa_test_cases.id once promoted (= the pin id)
+
+
+class DevNoteSession(Base):
+    """One Build Session: the pins a person collected together and sent to
+    Claude Code in one go. A person has at most one `collecting` session."""
+    __tablename__ = "dev_note_sessions"
+    id            = Column(String, primary_key=True)
+    title         = Column(String, default="")
+    status        = Column(String, default="collecting")   # collecting | sent | building | pr_open | fixed | done
+    created_by    = Column(String, default="", index=True)
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+    dispatched_at = Column(String, default="")
+    branch        = Column(String, default="")
+    pr_url        = Column(String, default="")
+    pr_number     = Column(Integer, default=0)
+    note_count    = Column(Integer, default=0)
+
+
+class DevNoteToken(Base):
+    """A Build Token for the local watcher / CLI: `nxbn_` + 43 urlsafe chars,
+    stored only as its sha256, 30 days, shown once, revocable."""
+    __tablename__ = "dev_note_tokens"
+    id           = Column(String, primary_key=True)
+    email        = Column(String, nullable=False, index=True)
+    label        = Column(String, default="")
+    token_hash   = Column(String, nullable=False, index=True)
+    created_at   = Column(String, default="")
+    expires_at   = Column(String, default="")
+    last_used_at = Column(String, default="")
+    revoked_at   = Column(String, default="")

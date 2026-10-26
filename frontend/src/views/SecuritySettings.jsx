@@ -15,6 +15,7 @@
 // screen, the same as before this page existed. Only Sessions and Guest
 // Sign-In are shown.
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useGroupDirty } from '../lib/groupDirty';
 import { RotateCcw, Lock } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
@@ -122,6 +123,7 @@ export default function SecuritySettings({ toastOk, toastErr }) {
   }, [changes, settings]);
 
   const dirty = Object.keys(changes).length > 0;
+  useGroupDirty(dirty);
   const valid = Object.keys(errors).length === 0;
 
   const valueOf = (key) => {

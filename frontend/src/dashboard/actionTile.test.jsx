@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 
 const apiMock = vi.hoisted(() => ({ timeStatus: vi.fn(), timeBodRecord: vi.fn() }));
-const punchMock = vi.hoisted(() => ({ punchDurable: vi.fn(), replayPending: vi.fn(), readPending: vi.fn(() => null) }));
+const punchMock = vi.hoisted(() => ({ punchDurable: vi.fn(), holdPunch: vi.fn((_, run) => run()), signedIn: vi.fn(async () => true), replayPending: vi.fn(), readPending: vi.fn(() => null) }));
 const roleMock = vi.hoisted(() => ({ timeTrackingExempt: false }));
 vi.mock('../api', () => ({ api: apiMock }));
 vi.mock('../lib/punchQueue', () => punchMock);

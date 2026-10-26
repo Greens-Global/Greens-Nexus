@@ -449,6 +449,67 @@ class SigningTests(ReviewCase):
         self.assertIn(tsr.BREAK_STATEMENT, text())
 
 
+class PaperPrintTests(ReviewCase):
+    """Neil, Oct 23 2026: HR / Global Admin print a time sheet to sign on
+    paper, not Nexus Sign - any period, finalized or not; it changes nothing."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(auth.invalidate_role_cache)   # is_hr looks people's levels up; later tests set roles
+
+    def _text(self, pdf):
+        import io
+        from pypdf import PdfReader
+        return " ".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
+
+    def test_hr_prints_any_period_with_every_note_and_nobody_else_can(self):
+        self.db.add(models.TimecardNote(id="n-1", employee_email=EMP, date=self.start, note="Lunch fixed by hand",
+                                        updated_by=MGR, employee_note="Doctor visit"))
+        self.db.commit()
+        self.addCleanup(lambda: (self.db.query(models.TimecardNote).filter_by(id="n-1").delete(), self.db.commit()))
+        pdf, name = tsr.paper_pdf(self.db, EMP, ANCHOR, HR)
+        text = self._text(pdf)
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertIn("to be signed on paper", text)
+        self.assertIn("Doctor visit", text)
+        self.assertIn("Lunch fixed by hand", text)            # HR's copy carries the manager's note too
+        self.assertTrue(name.endswith(".pdf"))
+        self.assertIsNone(self._r())                          # printing starts no review
+        for who in (MGR, EMP):
+            with self.assertRaises(HTTPException) as e:
+                tsr.paper_pdf(self.db, EMP, ANCHOR, who)
+            self.assertEqual(e.exception.status_code, 403)
+
+    def test_the_paper_copy_shows_every_break_and_who_finalized_it(self):
+        self._punch(self.start, "break_start", "19:00:00")
+        self._punch(self.start, "break_end", "19:30:00")
+        self.db.add(models.TimeApproval(id="fin-paper", employee_email=EMP, period_start=self.start, period_end=self.end,
+                                        worked_min=0, approved_by=HR, approved_at=f"{self.end}T20:00:00",
+                                        note="Final", revoked=0, kind="final"))
+        self.db.commit()
+        self.addCleanup(lambda: (self.db.query(models.TimeApproval).filter_by(id="fin-paper").delete(), self.db.commit()))
+        text = self._text(tsr.paper_pdf(self.db, EMP, ANCHOR, HR)[0])
+        self.assertIn("Break 30m", text)
+        self.assertIn("BREAK TIME", text)
+        self.assertIn("Finalized by HR - period locked", text)
+        self.assertIn("Signed by employee on paper", text)
+        self.assertNotIn("reported instead of signing", text)       # a Nexus Sign step, not a paper one
+        self.db.query(models.TimeApproval).filter_by(id="fin-paper").delete()
+        self.db.commit()
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        esign_text = self._text(tsr.build_pdf(self.db, r)[0])
+        self.assertNotIn("Break 30m", esign_text)                    # the e-sign copy keeps its layout
+        self.assertNotIn("on paper", esign_text)
+
+    def test_a_finalized_time_sheet_still_prints_and_stays_as_it_was(self):
+        r = self._to_signing()
+        self._sign(self._parties(r.sign_request_id)["employee"])
+        before = self._r().status
+        pdf, _ = tsr.paper_pdf(self.db, EMP, ANCHOR, HR)
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertEqual(self._r().status, before)
+
+
 class StateTests(ReviewCase):
     def test_what_each_viewer_may_do(self):
         self.assertEqual(tsr.state_for(self.db, EMP, self.start, EMP, False)["status"], "not_submitted")
@@ -780,13 +841,13 @@ class WaitingOnReviewerTests(ReviewCase):
         self.assertTrue(e.exception.detail["message"].startswith("Fix this on the time sheet before sign-off - 08/05/2026"))
         self.assertIn("Or override to sign off anyway.", e.exception.detail["message"])
 
-    def test_the_bell_takes_the_manager_to_timesheets_to_review(self):
-        """Oct 1: Workday > Time Sheet, where the Timesheets to Review list is -
-        People > Time needs the HR grant, which a reviewing manager may lack."""
+    def test_the_bell_takes_the_manager_to_the_card_in_people_time(self):
+        """Oct 22: Time Sheets to Review lives only in People > Time - the bell
+        opens that employee's card for that period there."""
         tsr.submit(self.db, EMP, ANCHOR)
         import json as _json
         action = _json.loads(self._bells(MGR)[-1].action)
-        self.assertEqual(action, {"view": "timeclock", "sub": "timesheet"})
+        self.assertEqual((action["view"], action["sub"], action["timecard"]), ("hr", "hr-time", EMP))
         tsr.send_back(self.db, self._r(), MGR, "Check Monday")
         self.assertEqual(_json.loads(self._bells(EMP)[-1].action)["view"], "timeclock")   # the employee's own card
 
@@ -800,7 +861,87 @@ class WaitingOnReviewerTests(ReviewCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["title"], "Review Erin Test's Time Sheet")
         self.assertIn(f"{tsr.us_date(self.start)} - {tsr.us_date(self.end)} - 7h 00m", rows[0]["detail"])
-        self.assertTrue(rows[0]["url"].endswith("/timeclock/timesheet"))
+        self.assertTrue(rows[0]["url"].endswith("/hr/hr-time"))   # People > Time (Oct 22)
+
+
+class StaleReviewTests(ReviewCase):
+    """Oct 22 (Neil): a submitted review nobody can decide any more - its
+    period predates the review launch, was finalized on the payroll screen, or
+    is no longer one of the person's pay periods - leaves the reviewer's list
+    and is retired with the reason, instead of sitting there for good."""
+
+    def setUp(self):
+        super().setUp()
+        self._launch = tsr.REVIEW_LAUNCH
+        tsr.REVIEW_LAUNCH = "2000-01-01"          # the test period counts as after launch
+
+    def tearDown(self):
+        tsr.REVIEW_LAUNCH = self._launch
+        super().tearDown()
+
+    def _retire(self):
+        n = tsr.retire_stale(self.db)
+        self.db.commit()
+        self.db.expire_all()
+        return n
+
+    def _retired(self, rid):
+        self.db.expire_all()
+        return self.db.query(models.TimesheetReview).filter(models.TimesheetReview.id == rid).first()
+
+    def test_a_live_review_stays(self):
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        self.assertEqual(tsr.stale_reason(self.db, r), "")
+        self.assertEqual(self._retire(), 0)
+        self.assertEqual(self._r().status, "with_manager")
+        self.assertEqual([x.id for x in tsr.waiting_on(self.db, MGR)], [r.id])
+
+    def test_a_period_before_the_review_launch_is_retired(self):
+        """Sagar's case: submitted 09/28 for September under the old rules,
+        Approve blocked by missing punches - on the list for good."""
+        rid = tsr.submit(self.db, EMP, ANCHOR).id
+        self._punch(self.end, "in", "16:00:00")                 # a missing clock-out: Approve is blocked
+        self.db.commit()
+        tsr.REVIEW_LAUNCH = (datetime.fromisoformat(self.end) + timedelta(days=1)).strftime("%Y-%m-%d")
+        self.assertEqual(self._retire(), 1)
+        r = self._retired(rid)
+        self.assertEqual(r.status, tsr.RETIRED)
+        self.assertEqual((r.rounds[-1]["action"], r.rounds[-1]["by"]), ("retired", "nexus"))
+        self.assertIn("signed off the old way", r.rounds[-1]["note"])
+        self.assertEqual(tsr.waiting_on(self.db, MGR), [])
+        self.assertIsNone(tsr.review_covering(self.db, EMP, self.start))   # no longer locks the period
+        self.assertEqual(self._retire(), 0)                                # once
+
+    def test_a_finalized_period_leaves_the_list(self):
+        rid = tsr.submit(self.db, EMP, ANCHOR).id
+        self.db.add(models.TimeApproval(id="ta-final", employee_email=EMP, period_start=self.start,
+                                        period_end=self.end, approved_by=HR, kind="final"))
+        self.db.commit()
+        self.assertEqual(tsr.waiting_on(self.db, MGR), [])        # at once, before the sweep
+        self.assertEqual(self._retire(), 1)
+        self.assertIn("finalized on the payroll screen", self._retired(rid).rounds[-1]["note"])
+
+    def test_a_pay_schedule_change_retires_the_old_period(self):
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        tsr.send_back(self.db, r, MGR, "Check Monday")             # with the employee: retired too
+        rid = r.id
+        self.db.add(models.PayrollRate(employee_email=EMP, pay_type="fixed", currency="INR",
+                                       monthly_salary=30000, full_day_hours=8, overtime_rule="none"))
+        self.db.commit()
+        self.assertEqual(self._retire(), 1)
+        r = self._retired(rid)
+        self.assertEqual(r.status, tsr.RETIRED)
+        self.assertIn("pay schedule changed", r.rounds[-1]["note"])
+
+    def test_a_person_now_exempt_leaves_the_list(self):
+        rid = tsr.submit(self.db, EMP, ANCHOR).id
+        self.db.add(models.NexusGroup(id="g-ts-stale", name="Managing Principal", is_job_role=1,
+                                      time_tracking_exempt=1))
+        self.db.add(models.NexusGroupMember(group_id="g-ts-stale", email=EMP))
+        self.db.commit()
+        self.assertEqual(tsr.waiting_on(self.db, MGR), [])
+        self.assertEqual(self._retire(), 1)
+        self.assertIn("exempt from time tracking", self._retired(rid).rounds[-1]["note"])
 
 
 class SentByNexusTests(ReviewCase):

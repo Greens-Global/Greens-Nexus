@@ -31,20 +31,21 @@ export function readinessSummary(checks) {
 export const keyLabel = (k) => String(k || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
 /** The signing order after documents change: every signer key a document's
- *  signature blocks name gets a step (default role), and The Person stays
- *  last on a hiring packet or separation package. */
+ *  signature blocks name gets a step (default role), and The Person signs
+ *  FIRST - the company never signs before them (Neil, Oct 22 2026). Nobody
+ *  signs an offer letter but The Person, so an offer gets no company signer.
+ *  The server applies the same order to every packet (hr_packet_docs.signing_flow). */
 export function flowFor(flow, docs, event) {
   const keys = [];
   docs.forEach(d => (d.signs || []).forEach(k => { if (!keys.includes(k)) keys.push(k); }));
-  const out = [...flow];
+  let out = [...flow];
   keys.forEach(k => {
     if (out.some(s => s.key === k)) return;
     const prints = docs.some(d => d.printsSignatory && (d.signs || []).includes(k));
     out.push({ key: k, role: defaultRoleFor(k, prints), action: 'sign' });
   });
-  if (event !== 'promotion') {
-    const i = out.findIndex(s => s.role === 'employee');
-    if (i >= 0 && i !== out.length - 1) { const [p] = out.splice(i, 1); out.push(p); }
-  }
+  if (event === 'offer') out = out.filter(s => s.role === 'employee' || s.action !== 'sign');
+  const i = out.findIndex(s => s.role === 'employee');
+  if (i > 0) { const [p] = out.splice(i, 1); out.unshift(p); }
   return out;
 }

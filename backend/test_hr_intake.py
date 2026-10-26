@@ -108,6 +108,28 @@ class IntakeTests(unittest.TestCase):
         v.update(kw)
         return {"values": v}
 
+    def test_a_detail_a_document_prints_is_required_on_the_form(self):
+        # Neil, 10/22 56:42: what a document prints is filled in, never left blank.
+        db = database.SessionLocal()
+        content = {"pages": [{"id": "p1", "json": {"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Emergency contact: "},
+                                              {"type": "mergeField", "attrs": {"token": "emergency_phone"}}]},
+            {"type": "signatureBlock", "attrs": {"role": "employee"}}]}}]}
+        db.query(models.DocTemplate).filter_by(id="t-offer").update({"content": content})
+        db.query(models.DocTemplateVersion).filter_by(id="v1").update({"content": content})
+        db.commit()
+        db.close()
+        out, token = self._start()
+        page = self.client.get(f"/hr/intake/public/{token}").json()
+        self.assertEqual(page["kind"], "hire")            # the page words itself for the event
+        req = {f["key"] for f in page["fields"] if f["required"]}
+        self.assertEqual(req, {"first_name", "last_name", "phone", "address", "emergency_phone"})
+        r = self.client.post(f"/hr/intake/public/{token}", json=self._values())
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("emergency phone", r.json()["detail"])
+        r = self.client.post(f"/hr/intake/public/{token}", json=self._values(emergency_phone="555-0199"))
+        self.assertEqual(r.status_code, 200, r.text)
+
     def test_the_candidate_fills_in_their_details_and_the_documents_are_generated(self):
         out, token = self._start()
         self.assertEqual(out["status"], "intake")

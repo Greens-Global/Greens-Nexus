@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 
 import models
 import task_due
+import task_history
 from routers.task_util import now_iso
 
 MAX_CHAIN = 2000   # a chain longer than this is a data problem, not a schedule
@@ -87,6 +88,7 @@ def push_dependents(db: Session, root: models.Task, *, actor: str,
     moved: dict[str, models.Task] = {}
     skipped: dict[str, models.Task] = {}
     original_due: dict[str, str] = {}   # where each moved task's due stood before this drag
+    hist_before: dict[str, dict] = {}   # field history: each moved task before this drag
     pushes: dict[str, int] = {}
     queue = deque([root])
     hops = 0
@@ -116,6 +118,8 @@ def push_dependents(db: Session, root: models.Task, *, actor: str,
                 raise HTTPException(409, f"\"{dep.title}\" and the tasks it waits on depend on each other in a loop. "
                                          "Fix those links before moving the chain.")
             original_due.setdefault(dep.id, (dep.due_on or "")[:10])
+            if dep.id not in hist_before:
+                hist_before[dep.id] = task_history.snapshot(dep)
             if dep.start_on:
                 dep.start_on = _plus(dep.start_on, delta)
             if dep.due_on:
@@ -130,4 +134,6 @@ def push_dependents(db: Session, root: models.Task, *, actor: str,
         if (dep.due_on or "")[:10] != original_due[tid]:
             task_due.record_due_change(db, dep, original_due[tid], dep.due_on or "", actor=actor, source="cascade",
                                        note=f"Moved with \"{root.title}\"")
+        # The start date's history (the due date's is the line above).
+        task_history.record(db, dep, hist_before[tid], actor, only={"startOn"})
     return list(moved.values()), list(skipped.values())

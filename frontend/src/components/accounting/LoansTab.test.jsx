@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -99,6 +99,10 @@ beforeEach(() => {
 
 const rowOf = async (text) => (await screen.findAllByText(text))[0].closest('tr');
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('LoansTab', () => {
   it('lists the open loans with the columns asked for, closed ones hidden', async () => {
     render(<LoansTab canEdit />);
@@ -135,6 +139,68 @@ describe('LoansTab', () => {
     expect(api.getLoansReview.mock.calls[0][0]).toMatchObject({ from: expect.stringMatching(/^\d{4}-\d{2}-01$/), to: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), entities: [] });
   });
 
+  it('has the standard table view: a value list narrows the loans, the totals follow, a hidden detail column can be shown, the export follows the view (10/23, item 01)', async () => {
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:x');
+    globalThis.URL.revokeObjectURL = vi.fn();
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Lender by value' }));
+    const list = await screen.findByRole('dialog', { name: 'Lender values' });
+    fireEvent.click(within(list).getByRole('checkbox', { name: /Golden 1 Credit Union/ }));
+    expect(screen.queryAllByText('Golden 1 Credit Union').filter((el) => el.closest('tbody.loan')).length).toBe(0);
+    const total = screen.getByText('Total').closest('tr');
+    // F&M 1,252,000 + Chase 400,000 + intercompany 20,000.
+    expect(within(total).getByText('1,672,000.00')).toBeTruthy();
+    // The export's detail columns are hidden columns now: Vendor shows from Columns.
+    expect(screen.queryByRole('columnheader', { name: 'Vendor' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show or Hide Columns' }));
+    fireEvent.click(await screen.findByLabelText('Vendor'));
+    expect(screen.getByRole('columnheader', { name: 'Vendor' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
+    const file = URL.createObjectURL.mock.calls[0][0];
+    const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
+    const lines = text.replace(/^\s+/, '').split('\r\n');
+    // Vendor, shown, sits where the screen has it; the other 10/06 details follow (round 3).
+    expect(lines[0]).toBe('Lender,Loan #,GL Code,Entity,Monthly Payment,Original Principal,Balance,Principal Paid,Interest Paid,Debt Service,Rate,Maturity,DSCR,Type,Vendor,Principal Account,Interest Account,Loan Type,Draws,Documents Folder,Statements Folder');
+    expect(text).not.toContain('Golden 1');
+  });
+
+  // Round 3 (Charmi, 10/06): the 7 detail columns are always in the file,
+  // shown or hidden; every other column follows Columns, and the rows follow
+  // the filters and the sort.
+  it('always exports the 7 detail columns, hidden or not, with the filters and sort applied', async () => {
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:x');
+    globalThis.URL.revokeObjectURL = vi.fn();
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    // Filter out Golden 1, sort by Balance (largest first), hide Rate.
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Lender by value' }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Lender values' })).getByRole('checkbox', { name: /Golden 1 Credit Union/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Balance - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Balance column' })).getByRole('menuitemradio', { name: /Sort Descending/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show or Hide Columns' }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Columns' })).getByLabelText('Rate'));
+    expect(screen.queryByRole('columnheader', { name: 'Rate' })).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Principal Account' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
+    const file = URL.createObjectURL.mock.calls[0][0];
+    const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
+    const lines = text.replace(/^\s+/, '').split('\r\n');
+    expect(lines[0]).toBe('Lender,Loan #,GL Code,Entity,Monthly Payment,Original Principal,Balance,Principal Paid,Interest Paid,Debt Service,Maturity,DSCR,Type,Principal Account,Interest Account,Loan Type,Vendor,Draws,Documents Folder,Statements Folder');
+    // Largest balance first: F&M 1,252,000, Chase 400,000, the intercompany loan 20,000; Golden 1 filtered out.
+    expect(lines[1].startsWith('F&M Bank,')).toBe(true);
+    expect(lines[2].startsWith('Chase,')).toBe(true);
+    expect(lines[3].startsWith('"Greens Global, Inc.",')).toBe(true);
+    expect(text).not.toContain('Golden 1');
+    // F&M's details are in the file though no detail column is on screen.
+    expect(lines[1]).toContain('27100,71100');
+    expect(lines[1]).toContain('/Shared/Loans/F&M');
+  });
+
   it('filters by Internal / External and by text, and reads again for the entities picked', async () => {
     render(<LoansTab canEdit />);
     await rowOf('F&M Bank');
@@ -142,7 +208,8 @@ describe('LoansTab', () => {
     expect(screen.queryByText('F&M Bank')).toBeNull();
     expect(screen.getAllByText('Greens Global, Inc.').length).toBeGreaterThan(0);
     fireEvent.change(screen.getByLabelText('Internal or External'), { target: { value: 'all' } });
-    fireEvent.change(screen.getByLabelText('Filter loans'), { target: { value: 'chase' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Filter loans' }));   // item 02: an icon until used
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter loans' }), { target: { value: 'chase' } });
     expect(screen.queryAllByText('F&M Bank')).toHaveLength(0);
     expect(screen.getAllByText('Chase').length).toBeGreaterThan(0);
     // Entities: the Reports picker; the historical (H) entity is not offered.
@@ -580,7 +647,7 @@ describe('LoansTab shared controls', () => {
       render(<LoansTab canEdit />);
       await rowOf('F&M Bank');
       fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind the balance of F&M Bank' }));
-      expect(seen[0]).toEqual(['nav', { view: 'accounting', sub: 'reports' }]);
+      expect(seen[0]).toEqual(['nav', { view: 'accounting', sub: 'rpt-pnl' }]);
       expect(seen[1][1]).toMatchObject({ account: '27100', entity: '15000', from: '' });
       fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind the principal paid on F&M Bank' }));
       expect(seen[3][1]).toMatchObject({ account: '27100', entity: '15000', from: expect.stringMatching(/^\d{4}-\d{2}-01$/) });

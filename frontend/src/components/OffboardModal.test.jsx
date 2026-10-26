@@ -9,6 +9,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // in the evening in the US (after 5 PM Pacific).
 const localToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
+// The last day is the shared DateField (a calendar button, never a native date
+// box - CLAUDE.md); a plain input stands in for it so the test can type a date.
+vi.mock('../tasks/components', async (orig) => ({
+  ...(await orig()),
+  DateField: ({ value, onChange, title }) => <input aria-label={title} value={value || ''} onChange={e => onChange(e.target.value)} />,
+}));
+
 const offboard = vi.fn(() => Promise.resolve({ id: 'ev1', applyStatus: 'scheduled', effectiveDate: '2099-01-31' }));
 vi.mock('../api', () => ({
   api: {

@@ -256,7 +256,36 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // 13712 KB (a clean local build reads ~13505 - CI's clean install runs about
 // 200 KB higher, see above). No new dependency: the heat map and hexes are
 // drawn by hand. Deliberate (Visesh).
-const TOTAL_KB     = 13950;
+// Oct 23, 2026: Hiring Setup (offer upload, Make An Offer on
+// one screen, offboarding packages) fits under the cap below: 13996 KB on a
+// clean local build with the planner batch. App code only, no new dependency.
+// Oct 22 2026: 13950 -> 14250. Planner parity batch (PR #765) measured
+// 14033 KB on CI: the Board's Group / Columns / label lanes / card previews,
+// the Calendar's Unscheduled pane, colored labels with Manage > Labels, web
+// links and checklist item to subtask, and My Day. A clean local build reads
+// 13828 KB. My Day and Manage > Labels already load with their tab (their
+// own chunks); this sums every shipped file regardless. App code only, no
+// new dependency. Deliberate (Neil).
+// Oct 23 2026: 14250 -> 14600. dev already read 14241 KB on CI after the
+// dashboard count (#776) and Keep Private (#778); the Tasks Home pass (four
+// tiles, a grouped Tasks card, Projects at Risk, Team Workload, a My Day card,
+// one widget header) adds about 12 KB (14049 KB on a clean local build). App
+// code only, no new dependency. Deliberate (Neil, who approved the plan
+// knowing the cap would move).
+// Oct 24 2026: Build Mode (src/devnotes, a lazy 85 KB chunk) measured 14086 KB
+// on a plain build. Dev builds (CF_PAGES_BRANCH=dev) also carry its source
+// stamps - data-nx-src="<fileId>:<line>:<col>" on host elements with a
+// handler or an aria / role attribute plus each component's root element
+// (scripts/nxsrc-plugin.mjs): +317 KB. The stamps are debugging metadata
+// that never ships to production, so a dev-stamped build gets its own
+// allowance on top of the cap instead of the cap moving for everyone: the
+// prod budget below is unchanged, and the stamped dev build (14669 KB after
+// the 10/23 accounting work landed on dev) is judged against cap + 350 KB.
+// The same condition as vite.config.js decides whether stamps are on. The
+// two bigger stamp modes (text elements too: +718 KB; every element:
+// +1919 KB) do not fit any budget and stay local-only.
+const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE_NX_SRC;
+const TOTAL_KB     = 14600 + (NX_SRC_ON ? 350 : 0);
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

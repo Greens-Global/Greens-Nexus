@@ -21,13 +21,19 @@ const BASELINE = fileURLToPath(new URL('./date-guard-baseline.json', import.meta
 
 const PATTERNS = {
   'type="date"': /type=["']date["']/g,
+  'type="datetime-local"': /type=["']datetime-local["']/g,
+  // A computed type that can come out as a date box, e.g.
+  // type={f.type === 'date' ? 'date' : 'text'} - the literal pattern above
+  // never saw these (a Tasks custom field slipped through that way).
+  'type={...date...}': /type=\{[^}]*['"]date['"]/g,
   'toLocaleDateString(': /\.toLocaleDateString\(/g,
   'toLocaleTimeString(': /\.toLocaleTimeString\(/g,
   'Intl.DateTimeFormat(': /Intl\.DateTimeFormat\(/g,
 };
 // The shared helpers themselves (tests are skipped in walk).
-// shortcut: native time / datetime-local boxes are not guarded yet - Nexus has
-// no shared 12-hour time picker to point people to; add both once it does.
+// datetime-local is guarded since Oct 21 2026: a DateField plus the 12-hour
+// TimeField (tasks/components.jsx) replace it. A bare native time box is not
+// guarded yet - its older uses outside Tasks still need moving to TimeField.
 const ALLOWED = new Set(['lib/datetime.js', 'lib/displayTz.js']);
 
 function walk(dir, out = []) {

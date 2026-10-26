@@ -4,10 +4,9 @@
 //
 //   RoleChangeModal - Change Role. In People it asks first: a role change
 //                  without a promotion switches the role now (no letter,
-//                  no approval); a promotion opens PromoteModal. From
-//                  Settings > Access (`approval`) there is no promotion - it
-//                  only sends the change, with a reason, to the employee's
-//                  manager and HR, and one of them approves (Pranshu, Oct 13-14).
+//                  no approval) with a required reason; a promotion opens
+//                  PromoteModal. Settings > Access passes no onPromote, so it
+//                  is only the direct change (Neil, Oct 22).
 //   PromoteModal - Promote: the new role, title, effective date
 //                  (can be in the past), responsibilities and pay -> a preview
 //                  of the letter's signing order -> sent through Nexus Sign:
@@ -22,6 +21,7 @@ import { usDay, EmailPreviewModal, Problem } from './HiringPacket';
 import { usePeopleDirectory } from '../lib/queries';
 import { currencyOptions } from '../asset/lib/currency';
 import PersonSearchSelect from './PersonSearchSelect';
+import { DateField } from '../tasks/components';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.04em' };
 const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
@@ -37,13 +37,13 @@ function Warn({ children }) {
 }
 
 // Change Role (Pranshu, Oct 13): "it should be simple" - ask whether it is a
-// promotion. Without one, it is a REQUEST with a reason: the employee's
-// manager or HR approves it and only then does the role change
-// (RoleChangeRequests.jsx). A promotion goes to the letter. Used in People
-// and in Settings > Access (which passes its own `roles` and knows the
-// person by workEmail).
-export function RoleChangeModal({ employee: e, roles: givenRoles, approval = false, onClose, onPromote, onChanged, toastErr }) {
-  const [plain, setPlain] = useState(approval);
+// promotion. Without one, the role changes now - only HR, IT Admins and
+// Global Admins see this (Neil, Oct 22: no approval, but never without a
+// logged reason). A promotion goes to the letter. Used in People and in
+// Settings > Access (which passes its own `roles`, no onPromote, and knows
+// the person by workEmail).
+export function RoleChangeModal({ employee: e, roles: givenRoles, onClose, onPromote, onChanged, toastErr }) {
+  const [plain, setPlain] = useState(!onPromote);
   const [fetched, setFetched] = useState(null);
   const [roleId, setRoleId] = useState('');
   const [reason, setReason] = useState('');
@@ -59,14 +59,14 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, approval = fal
   async function save() {
     setBusy(true);
     try {
-      onChanged(approval
-        ? await api.requestRoleChange({ employee_id: e.id || '', email: e.workEmail || '', role_id: roleId, reason })
-        : await api.changeRoleNow(e.id, { role_id: roleId, reason }));
-    } catch (err) { toastErr(err?.message || (approval ? 'Could not send the request.' : 'Could not change the role.')); setBusy(false); }
+      onChanged(await api.changeRoleNow(e.id || e.workEmail, { role_id: roleId, reason }));
+    } catch (err) { toastErr(err?.message || 'Could not change the role.'); setBusy(false); }
   }
-  const choice = (on, Icon, color, title, sub, onClick) => (
-    <button type="button" onClick={onClick}
-      style={{ display: 'flex', gap: 12, alignItems: 'flex-start', width: '100%', textAlign: 'left', padding: '12px 14px', marginTop: 10, borderRadius: 12, cursor: 'pointer', fontFamily: 'Inter,sans-serif', color: 'var(--ink)',
+  // The role is their Nexus access: no work email, no role (the API's 409, said up front).
+  const noEmail = !e.workEmail;
+  const choice = (on, Icon, color, title, sub, onClick, off = false) => (
+    <button type="button" onClick={onClick} disabled={off}
+      style={{ display: 'flex', gap: 12, alignItems: 'flex-start', width: '100%', textAlign: 'left', padding: '12px 14px', marginTop: 10, borderRadius: 12, cursor: off ? 'not-allowed' : 'pointer', opacity: off ? 0.55 : 1, fontFamily: 'Inter,sans-serif', color: 'var(--ink)',
         border: `1.5px solid ${on ? 'var(--pine)' : 'var(--line)'}`, background: on ? 'hsla(var(--color-green),0.06)' : 'var(--card)' }}>
       <Icon size={18} style={{ color, flexShrink: 0, marginTop: 1 }} />
       <div><div style={{ fontWeight: 700, fontSize: 13.5 }}>{title}</div>
@@ -84,11 +84,10 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, approval = fal
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div className="nx-fill" style={{ overflowY: 'auto', padding: '6px 22px 18px' }}>
-          {approval ? (
-            <div style={{ ...hint, marginTop: 14 }}>The change goes to their manager and HR. It takes effect when one of them approves.</div>
-          ) : choice(plain, Shield, 'var(--pine)', 'Role Change Without Promotion',
-            'Their access and title follow the new role right away - no letter to sign.', () => setPlain(true))}
-          {!approval && onPromote && choice(false, TrendingUp, 'hsl(var(--color-green))', 'Promotion',
+          {onPromote && choice(plain, Shield, 'var(--pine)', 'Role Change Without Promotion',
+            noEmail ? 'They need a work email first.' : 'Their access and title follow the new role right away - no letter to sign.',
+            () => setPlain(true), noEmail)}
+          {onPromote && choice(false, TrendingUp, 'hsl(var(--color-green))', 'Promotion',
             'A promotion letter with the new responsibilities, pay and effective date, signed through Nexus Sign.', onPromote)}
           {plain && (
             <>
@@ -102,20 +101,18 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, approval = fal
                 <option value="">{roles === null ? 'Loading roles...' : '- pick a role -'}</option>
                 {(roles || []).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
               </select>
-              <label style={lbl}>Reason{approval ? ' *' : ''}</label>
+              <label style={lbl}>Reason *</label>
               <textarea className="form-input" rows={3} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
                 value={reason} onChange={ev => setReason(ev.target.value)} placeholder="e.g. Moving to the Accounting team to cover month-end close" />
-              <div style={hint}>{approval
-                ? 'Their manager and HR read this. The role changes when one of them approves - until then nothing changes.'
-                : 'Optional - kept with the change in the audit log, and their manager sees it.'}</div>
+              <div style={hint}>Required - kept in their role history, and their manager sees it.</div>
             </>
           )}
         </div>
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           {plain && (
-            <button className="primary-btn" onClick={save} disabled={busy || !roleId || (approval && !reason.trim())} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {busy ? <Spinner size={14} /> : approval ? <Send size={14} /> : <Shield size={14} />} {approval ? 'Send For Approval' : 'Change Role'}
+            <button className="primary-btn" onClick={save} disabled={busy || !roleId || !reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {busy ? <Spinner size={14} /> : <Shield size={14} />} Change Role
             </button>
           )}
         </div>
@@ -231,7 +228,8 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
             <>{input('Pay As Written In The Letter', 'salary_text', { placeholder: 'e.g. $95,000 per year, or "unchanged"' })}
               <div style={hint}>Pay & Benefits access is needed to change their payroll rate.</div></>
           )}
-          {input('Reason (kept on the record)', 'reason', { placeholder: 'e.g. Annual review - exceeded targets' })}
+          {input('Reason *', 'reason', { placeholder: 'e.g. Annual review - exceeded targets' })}
+          <div style={hint}>Required - kept in their role history.</div>
 
           {preview && docsMode && (
             <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--mist)' }}>
@@ -263,7 +261,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 8 }}>
                 <div>
                   <div style={{ ...lbl, marginTop: 0 }}>Signing Order</div>
-                  {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.who === 'employee' ? `${r.name} (${r.email})` : r.who === 'manager' ? `${r.name} (manager)` : `You (${r.role}) - sign now`}</div>)}
+                  {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.who === 'employee' ? `${r.name} (${r.email})` : r.who === 'manager' ? `${r.name} (manager)` : `You (${r.role}) - countersign after them`}</div>)}
                 </div>
                 <div>
                   <div style={{ ...lbl, marginTop: 0 }}>The Change</div>
@@ -302,15 +300,15 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
           {!preview ? (
-            <button className="primary-btn" onClick={review} disabled={!!busy || !f.role_id || !f.effective_date} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button className="primary-btn" onClick={review} disabled={!!busy || !f.role_id || !f.effective_date || !f.reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review Letter
             </button>
           ) : docsMode ? (
-            <button className="primary-btn" onClick={start} disabled={!!busy || (preview.problems || []).length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button className="primary-btn" onClick={start} disabled={!!busy || !f.reason.trim() || (preview.problems || []).length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'send' ? <Spinner size={14} /> : <FileSignature size={14} />} Generate Letter
             </button>
           ) : (
-            <button className="primary-btn" onClick={send} disabled={!!busy || !ack || missing.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button className="primary-btn" onClick={send} disabled={!!busy || !ack || !f.reason.trim() || missing.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'send' ? <Spinner size={14} /> : <Send size={14} />} Send For Signature
             </button>
           )}
@@ -388,7 +386,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
         <div style={{ overflowY: 'auto', flex: 1, padding: '6px 22px 18px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '0 14px' }}>
             <div><label style={lbl}>Last Day *</label>
-              <input type="date" className="form-input" style={{ width: '100%' }} value={f.last_day} onChange={ev => set('last_day', ev.target.value)} /></div>
+              <DateField value={f.last_day} onChange={v => set('last_day', v || '')} placeholder="MM/DD/YYYY" title="Last day" style={{ width: '100%' }} /></div>
             <div><label style={lbl}>Why They Are Leaving *</label>
               <select className="form-input" style={{ width: '100%' }} value={f.exit_type} onChange={ev => set('exit_type', ev.target.value)}>
                 <option value="">- pick one -</option>
@@ -472,7 +470,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
                   </div>
                   <div>
                     <div style={{ ...lbl, marginTop: 0 }}>Signing Order</div>
-                    {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.isSubject ? name : r.role === 'manager' ? `${r.name} (manager)` : `You (${r.role}) - sign now`}</div>)}
+                    {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.isSubject ? name : r.role === 'manager' ? `${r.name} (manager)` : `You (${r.role}) - countersign after ${name}`}</div>)}
                   </div>
                   <div>
                     <div style={{ ...lbl, marginTop: 0 }}>Filed In Egnyte</div>

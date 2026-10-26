@@ -35,7 +35,9 @@ import { flowFor, keyLabel, formKey, readinessSummary } from '../lib/packetFlow'
 import { Spinner } from './AsyncState';
 import SignOnceModal from './SignOnceModal';
 import PacketReadiness from './PacketReadiness';
+import PacketIntakePanel from './PacketIntakePanel';
 import { formatDate } from '../lib/datetime';
+import { US_STATE_NAMES, placeName } from '../lib/usStates';
 
 // Roomy, plain: normal-case labels, one short hint only where it helps.
 const lbl = { fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '18px 0 6px' };
@@ -44,6 +46,7 @@ const h2 = { fontSize: 17, fontWeight: 800, margin: '22px 0 4px', color: 'var(--
 const lead = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, margin: 0 };
 const card = { border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--card)' };
 const iconBtn = { padding: '4px 6px', display: 'inline-flex', alignItems: 'center' };
+const linkBtn = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-blue))', textDecoration: 'underline', fontFamily: 'Inter,sans-serif' };
 const smallBtn = { fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 };
 
 const Problem = ({ children }) => (
@@ -101,29 +104,48 @@ function PreviewModal({ templateId, name, companyId, flow, letterheadId, onClose
 
 const STEPS = [['who', 'Who It\'s For'], ['docs', 'Documents'], ['signs', 'Who Signs'], ['ready', 'Ready To Send']];
 
+// The editor's state from a saved row, a seed ({roleIds} or a place from What
+// Each Hire Gets) or a copy.
+const fromPacket = (packet, event = '', eventLabel = '') => ({
+  id: packet?.engine === 'documents' ? packet.id : '',
+  // A Set Up from What Each Hire Gets arrives with its place - named from it.
+  name: packet?.name || (packet?.country ? [placeName(packet.country, packet.region, COUNTRY_NAMES),
+    { employee: 'Employee', contractor: 'Contractor' }[packet.workerType] || '', eventLabel].filter(Boolean).join(' ') : ''),
+  // A typed (or saved) name is never replaced by the suggestion; a copy's is, once its place changes.
+  nameTouched: packet?.nameTouched ?? !!packet?.name,
+  roleIds: packet?.roleIds || [],
+  // Place first (Neil, Oct 22): a hiring packet is a place's paperwork -
+  // "California employee", "India contractor" - never left to "any".
+  workerType: packet?.workerType || (packet?.id || !['offer', 'hire'].includes(event) ? 'any' : ''),
+  country: packet?.country || '',
+  region: packet?.region || '',
+  docIds: packet?.docTemplateIds || [],
+  // Building blocks (Oct 14): documents added only for a team or a role -
+  // each team's own confidentiality agreement (Neil).
+  extraDocs: (packet?.extraDocs || []).map(({ match, value, templateIds }) => ({ match, value, templateIds: templateIds || [] })),
+  flow: packet?.flow?.map(({ key, role, action, once }) => ({ key, role, action, ...(once ? { once: true } : {}) })) || [],
+  detailsForm: (packet?.detailsForm || []).map(f => ({ ...f, options: f.options || [] })),
+  verifyRole: packet?.verifyRole || 'hr',
+  letterheadId: packet?.letterheadId || '',
+  payMode: packet?.payMode || '',
+  emailMessage: packet?.emailMessage || '',
+  egnyteSubfolder: packet?.egnyteSubfolder || '',
+});
+
+/** A new packet that starts as a copy of `src` (Copy From / Duplicate, Neil
+ *  Oct 22): its documents, signing order and settings - never its id or its
+ *  Sign Once signatures, which belong to the packet that was signed. */
+export const packetCopy = (src) => ({ ...src, id: '', engine: '', name: `${src.name || 'Packet'} (Copy)`, nameTouched: false, signOnce: [], readiness: [] });
+
 /** The editor. `packet` is a saved documents row from /hr/packets (null for a
- *  new one, or a seed like {roleIds}); `catalog` is that same response. */
-export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, companyName, defaultSubfolder, catalog, onClose, onSaved, toastErr }) {
-  const [p, setP] = useState(() => ({
-    id: packet?.engine === 'documents' ? packet.id : '',
-    name: packet?.name || '',
-    roleIds: packet?.roleIds || [],
-    // Who it is for (Oct 14): employees or contractors, and where they work -
-    // "if it's an Indian contractor, it needs a different document" (Neil).
-    workerType: packet?.workerType || 'any',
-    country: packet?.country || '',
-    docIds: packet?.docTemplateIds || [],
-    // Building blocks (Oct 14): documents added only for a team or a role -
-    // each team's own confidentiality agreement (Neil).
-    extraDocs: (packet?.extraDocs || []).map(({ match, value, templateIds }) => ({ match, value, templateIds: templateIds || [] })),
-    flow: packet?.flow?.map(({ key, role, action, once }) => ({ key, role, action, ...(once ? { once: true } : {}) })) || [],
-    detailsForm: (packet?.detailsForm || []).map(f => ({ ...f, options: f.options || [] })),
-    verifyRole: packet?.verifyRole || 'hr',
-    letterheadId: packet?.letterheadId || '',
-    payMode: packet?.payMode || '',
-    emailMessage: packet?.emailMessage || '',
-    egnyteSubfolder: packet?.egnyteSubfolder || '',
-  }));
+ *  new one, or a seed like {roleIds}, or a packetCopy); `catalog` is that same response. */
+export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: startCompany, companyName: startCompanyName, companies, defaultSubfolder, catalog, onRefreshCatalog, onClose, onSaved, toastErr }) {
+  const [p, setP] = useState(() => fromPacket(packet, event, eventLabel));
+  // A new packet picks its company on Who It's For when `companies` is given.
+  const [companyId, setCompanyId] = useState(startCompany || '');
+  const companyName = companies && companyId !== (startCompany || '')
+    ? (companyId ? companies.find(c => c.id === companyId)?.name || 'This company' : 'Every company') : startCompanyName;
+  const [copiedFrom, setCopiedFrom] = useState('');
   // A saved packet opens on its checklist; a new one starts at the beginning.
   const [step, setStep] = useState(packet?.engine === 'documents' ? 'ready' : 'who');
   const [tried, setTried] = useState(false);          // Continue pressed on this step - show its problems
@@ -153,8 +175,12 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   }, [p.id, companyId]);
 
   useEffect(() => {
-    api.hiringOptions(companyId || '').then(o => { setCompanyRoles(o.roles || []); setDepartments(o.departments || []); })
-      .catch(() => setCompanyRoles([]));
+    api.hiringOptions(companyId || '').then(o => {
+      const roles = o.roles || [];
+      setCompanyRoles(roles); setDepartments(o.departments || []);
+      // A copy, or a new packet moved to another company, keeps its role only if this company has it.
+      setP(x => (x.id || x.roleIds.every(id => roles.some(r => r.id === id)) ? x : { ...x, roleIds: [] }));
+    }).catch(() => setCompanyRoles([]));
   }, [companyId]);
   useEffect(() => { api.packetRoleHolders(companyId || '').then(setHolders).catch(() => setHolders({})); }, [companyId]);
   useEffect(() => { api.getDocLetterheads().then(setLetterheads).catch(() => setLetterheads([])); }, []);
@@ -172,7 +198,9 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     if (role === 'sender') return 'whoever starts it';
     if (!holders) return '...';
     const h = holders[role];
-    return h?.email ? `today: ${h.name}` : 'nobody holds this yet';
+    if (h?.email) return `today: ${h.name}`;
+    // A packet for every company is signed by each company's own holder (Oct 22).
+    return companyId ? 'nobody holds this yet' : "each company's own, when it is sent";
   };
 
   const setDocs = (ids) => {
@@ -210,7 +238,11 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
 
   // Quick checks per step; the server's full list arrives on Save.
   const problemsFor = {
-    who: [!p.name.trim() && 'Give the packet a name.'],
+    who: [
+      !p.name.trim() && 'Give the packet a name.',
+      event === 'hire' && !p.country && 'Pick where these hires work - hiring paperwork is different in each place.',
+      ['offer', 'hire'].includes(event) && !p.workerType && 'Pick employees or contractors.',
+    ],
     docs: [
       !p.docIds.length && 'Add at least one document.',
       ...docs.filter(d => !d.missing && !d.publishedVersion).map(d => `"${d.name}" is not published yet - open it in Documents and click Publish.`),
@@ -218,7 +250,12 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
       ...p.extraDocs.map(r => (r.value || r.templateIds.length) && !r.value && 'Pick the team or role each added document is for.'),
       ...p.extraDocs.map(r => r.value && !r.templateIds.length && `Add a document for ${r.match === 'role' ? (companyRoles || []).find(x => x.id === r.value)?.name || 'the role' : r.value}, or remove that row.`),
     ],
-    signs: [!p.flow.some(s => s.role === 'employee') && `One step must be The Person (the ${who}).`],
+    signs: [
+      !p.flow.some(s => s.role === 'employee') && `One step must be The Person (the ${who}).`,
+      // Countersigned (Pranshu, Oct 23 2026) - the server says the same.
+      event === 'promotion' && !p.flow.some(s => s.role !== 'employee' && s.action === 'sign')
+        && 'A promotion letter is countersigned - add a signature spot for their manager (or HR) to the letter, so someone signs after the person.',
+    ],
     ready: [],
   };
   const stepProblems = (k) => [...new Set(problemsFor[k].filter(Boolean))];
@@ -239,7 +276,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     try {
       const saved = await api.saveDocumentsPacket({
         id: p.id, entity_id: companyId || '', event, name: p.name.trim(), role_ids: p.roleIds,
-        worker_type: p.workerType, country: p.country,
+        worker_type: p.workerType, country: p.country, region: p.country === 'US' ? p.region : '',
         extra_docs: p.extraDocs.filter(r => r.value || r.templateIds.length),
         doc_template_ids: p.docIds, flow: p.flow, verify_role: p.verifyRole, letterhead_id: p.letterheadId,
         pay_mode: p.payMode, email_message: p.emailMessage, egnyte_subfolder: p.egnyteSubfolder,
@@ -272,50 +309,130 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   const countries = [...new Set([...(catalog?.countries || ['US', 'IN']), p.country].filter(Boolean))];
   const verifyHolder = holders && holders[p.verifyRole];
 
+  // Copy From (Neil, Oct 22: "a builder option where you can copy from"):
+  // any packet this person can see; the new one is a copy until saved.
+  const copyable = (catalog?.settings || []).filter(s => s.engine === 'documents');
+  const eventName = (k) => (catalog?.events || []).find(e => e.key === k)?.label || k;
+  const copyLabel = (s) => [
+    s.entityId ? companies?.find(c => c.id === s.entityId)?.name || 'Another company' : 'Every Company',
+    eventName(s.event), s.name || 'Unnamed packet', s.roleNames?.length ? s.roleNames.join(', ') : 'Every Role',
+    { employee: 'Employees', contractor: 'Contractors' }[s.workerType] || 'Employees And Contractors',
+    s.country ? placeName(s.country, s.region, COUNTRY_NAMES) : 'Any Country',
+  ].join(' - ');
+  const copyFrom = (id) => {
+    const src = copyable.find(s => s.id === id);
+    setCopiedFrom(id);
+    if (!src) { setP(fromPacket(packet, event, eventLabel)); return; }    // Start From Scratch again
+    const c = packetCopy(src);
+    // Its role only if this company has it (the roles' load re-checks) - else Every role.
+    const roleIds = !companyRoles || (c.roleIds || []).every(r => companyRoles.some(x => x.id === r)) ? c.roleIds || [] : [];
+    setP(x => fromPacket({ ...c, roleIds, name: (x.nameTouched && x.name.trim()) || c.name }, event, eventLabel));
+    setServerProblems([]);
+  };
+
   // ── the steps ──
+  // The name says the place and the hire (Neil, Oct 22) until HR types one.
+  const suggestedName = () => {
+    const place = placeName(p.country, p.region, COUNTRY_NAMES);
+    const who = { employee: 'Employee', contractor: 'Contractor' }[p.workerType] || '';
+    return [place, who, eventLabel].filter(Boolean).join(' ');
+  };
+  const setPlace = (patch) => setP(x => {
+    const next = { ...x, ...patch };
+    if (!next.nameTouched) {
+      const place = placeName(next.country, next.region, COUNTRY_NAMES);
+      const who = { employee: 'Employee', contractor: 'Contractor' }[next.workerType] || '';
+      if (place || who) next.name = [place, who, eventLabel].filter(Boolean).join(' ');
+    }
+    return next;
+  });
+  const placeEvent = ['offer', 'hire'].includes(event);
   const whoStep = (
     <>
       <h2 style={h2}>Who is this {eventLabel.toLowerCase()} for?</h2>
-      <p style={lead}>Nexus picks it by itself for each person from these answers.</p>
-      <label style={lbl} htmlFor="pk-name">Name</label>
-      <input id="pk-name" className="form-input" style={{ width: '100%', fontSize: 14 }} value={p.name} onChange={e => set('name', e.target.value)}
-        placeholder={`e.g. ${eventLabel} - IT Dev Associate`} autoFocus={!p.id} />
-      <label style={lbl} htmlFor="pk-role">Role</label>
-      {companyRoles === null ? <Spinner size={14} /> : (
-        <select id="pk-role" className="form-input" style={{ width: '100%' }} value={p.roleIds[0] || ''} onChange={e => set('roleIds', e.target.value ? [e.target.value] : [])}>
-          <option value="">Every role</option>
-          <optgroup label={`${companyName || 'Company'} Roles`}>
-            {companyRoles.filter(r => r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
-          </optgroup>
-          <optgroup label="Shared Roles">
-            {companyRoles.filter(r => !r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
-          </optgroup>
-        </select>
+      <p style={lead}>
+        {placeEvent
+          ? `One ${eventLabel.toLowerCase()} per place and kind of hire - for example California employees, India contractors. Nexus sends it to every role hired there and fills in each person's own details.`
+          : 'Nexus picks it by itself for each person from these answers.'}
+      </p>
+      {!p.id && copyable.length > 0 && (
+        <>
+          <label style={lbl} htmlFor="pk-copy">Copy From</label>
+          <select id="pk-copy" className="form-input" style={{ width: '100%' }} value={copiedFrom} onChange={e => copyFrom(e.target.value)}>
+            <option value="">Start From Scratch</option>
+            {copyable.map(s => <option key={s.id} value={s.id}>{copyLabel(s)}</option>)}
+          </select>
+          <div style={hint}>Starts with that packet's documents, signing order, details form and settings. Change the company, the place or who it is for below, then save.</div>
+        </>
       )}
-      <div style={hint}>"Every role" covers the roles that have no {eventLabel.toLowerCase()} of their own. A role with its own always gets that one.</div>
-      {['offer', 'hire'].includes(event) && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0 18px' }}>
+      {!p.id && companies && (
+        <>
+          <label style={lbl} htmlFor="pk-company">Company</label>
+          <select id="pk-company" className="form-input" style={{ width: '100%' }} value={companyId} onChange={e => { setCompanyId(e.target.value); setServerProblems([]); }}>
+            <option value="">Every Company</option>
+            {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 18px' }}>
+        <div>
+          <label style={lbl} htmlFor="pk-country">Works In</label>
+          <select id="pk-country" className="form-input" style={{ width: '100%' }} value={p.country}
+            onChange={e => setPlace({ country: e.target.value, region: e.target.value === 'US' ? p.region : '' })}>
+            <option value="">{event === 'hire' ? 'Pick a country' : 'Any Country'}</option>
+            {countries.map(k => <option key={k} value={k}>{COUNTRY_NAMES[k] || k}</option>)}
+          </select>
+        </div>
+        {p.country === 'US' && (
+          <div>
+            <label style={lbl} htmlFor="pk-region">State</label>
+            <select id="pk-region" className="form-input" style={{ width: '100%' }} value={p.region} onChange={e => setPlace({ region: e.target.value })}>
+              <option value="">Anywhere In The US</option>
+              {Object.entries(US_STATE_NAMES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+            </select>
+          </div>
+        )}
+        {placeEvent && (
           <div>
             <label style={lbl} htmlFor="pk-wt">Hired As</label>
-            <select id="pk-wt" className="form-input" style={{ width: '100%' }} value={p.workerType} onChange={e => set('workerType', e.target.value)}>
+            <select id="pk-wt" className="form-input" style={{ width: '100%' }} value={p.workerType} onChange={e => setPlace({ workerType: e.target.value })}>
+              {!p.workerType && <option value="">Pick one</option>}
+              <option value="employee">Employees</option>
+              <option value="contractor">Contractors</option>
               <option value="any">Employees And Contractors</option>
-              <option value="employee">Employees Only</option>
-              <option value="contractor">Contractors Only</option>
             </select>
           </div>
-          <div>
-            <label style={lbl} htmlFor="pk-country">Works In</label>
-            <select id="pk-country" className="form-input" style={{ width: '100%' }} value={p.country} onChange={e => set('country', e.target.value)}>
-              <option value="">Any Country</option>
-              {countries.map(k => <option key={k} value={k}>{COUNTRY_NAMES[k] || k}</option>)}
-            </select>
-          </div>
-          <div style={{ ...hint, gridColumn: '1 / -1' }}>
-            {event === 'offer' ? "HR says employee or contractor when making the offer - a contractor's letter never says employment."
-              : 'Picked from what HR answered on the offer, once it is signed.'}
-          </div>
+        )}
+      </div>
+      {placeEvent && (
+        <div style={hint}>
+          {event === 'offer' ? "HR says employee or contractor when making the offer - a contractor's letter never says employment. "
+            : 'Picked from what HR answered on the offer, once it is signed. '}
+          A state picked here wins over &quot;Anywhere In The US&quot; for people who work in that state.
         </div>
       )}
+      <label style={lbl} htmlFor="pk-name">Name</label>
+      <input id="pk-name" className="form-input" style={{ width: '100%', fontSize: 14 }} value={p.name}
+        onChange={e => setP(x => ({ ...x, name: e.target.value, nameTouched: true }))}
+        placeholder={suggestedName() || `e.g. California Employee ${eventLabel}`} autoFocus={!p.id} />
+      <details open={p.roleIds.length > 0} style={{ marginTop: 14 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Only For One Role{p.roleIds.length ? ' (On)' : ' (Usually Off)'}</summary>
+        <div style={{ ...hint, marginTop: 6 }}>
+          Leave this off: the same {eventLabel.toLowerCase()} goes to every role hired in this place, and each person&apos;s role, job description and
+          role documents are filled in for them. Turn it on only when one role truly needs different paperwork - it still applies only to the place above.
+        </div>
+        {companyRoles === null ? <Spinner size={14} /> : (
+          <select id="pk-role" aria-label="Only for this role" className="form-input" style={{ width: '100%', marginTop: 6 }} value={p.roleIds[0] || ''} onChange={e => set('roleIds', e.target.value ? [e.target.value] : [])}>
+            <option value="">Every role</option>
+            <optgroup label={`${companyName || 'Company'} Roles`}>
+              {companyRoles.filter(r => r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+            </optgroup>
+            <optgroup label="Shared Roles">
+              {companyRoles.filter(r => !r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+            </optgroup>
+          </select>
+        )}
+      </details>
     </>
   );
 
@@ -350,7 +467,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   const docsStep = (
     <>
       <h2 style={h2}>Which documents go out?</h2>
-      <p style={lead}>Each one is a template from Documents &gt; Templates, in this order. {event === 'offer' ? 'An offer is one document, signed by both sides.' : `The Job Description is added per ${who} when the offer is made.`}</p>
+      <p style={lead}>Each one is a template from Documents &gt; Templates, in this order. {event === 'offer' ? 'An offer is one document, signed by the candidate only - the company never signs an offer.' : `The Job Description is added per ${who} when the offer is made.`}</p>
       <div style={{ marginTop: 16 }}>
         {docs.length === 0 && (
           <div style={{ fontSize: 13, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12, padding: '18px 16px', textAlign: 'center' }}>
@@ -361,13 +478,19 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
         <select className="form-input" style={{ flex: '1 1 260px' }} value={adding} onChange={e => setAdding(e.target.value)} aria-label="Pick a template to add">
-          <option value="">{available.length ? 'Pick a template to add...' : 'Every active template is already in this packet'}</option>
+          <option value="">{available.length ? 'Pick a template to add...' : templates.length ? 'Every active template is already in this packet' : 'No active templates yet'}</option>
           {available.map(t => <option key={t.id} value={t.id}>{t.name}{t.publishedVersion ? '' : ' (Not Published)'}</option>)}
         </select>
         <button type="button" className="primary-btn" disabled={!adding} onClick={() => { setDocs([...p.docIds, adding]); setAdding(''); }} style={smallBtn}><Plus size={13} /> Add Document</button>
       </div>
+      {/* Writing a template elsewhere and coming back is normal (Oct 22 walkthrough):
+          make a new one in a new tab, then refresh this list - nothing typed here is lost. */}
+      <div style={{ ...hint, display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 6 }}>
+        <button type="button" onClick={() => window.open('/documents/documents-templates', '_blank', 'noopener')} style={linkBtn}>New Template (Opens In A New Tab)</button>
+        {onRefreshCatalog && <button type="button" onClick={onRefreshCatalog} style={linkBtn}>Refresh The List</button>}
+      </div>
 
-      {(asked.person.length > 0 || asked.hr.length > 0) && (
+      {event !== 'hire' && (asked.person.length > 0 || asked.hr.length > 0) && (
         <div style={{ ...card, marginTop: 18, background: 'var(--mist)', fontSize: 13, lineHeight: 1.6 }}>
           {asked.hr.length > 0 && <div><b>HR answers when making the offer:</b> {asked.hr.join(', ')}</div>}
           {asked.person.length > 0 && <div><b>The {who} is asked on their form:</b> {asked.person.join(', ')}</div>}
@@ -422,8 +545,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
       )}
 
       {event === 'hire' && (
-        <More title={`Ask the new hire for more on their form${p.detailsForm.length ? ` (${p.detailsForm.length})` : ''}`} open={p.detailsForm.length > 0 || wanted.length > 0}>
-          <div style={hint}>Name, phone, address and emergency contact are always asked, and so is anything the templates mark Ask The Person. Add fields here only for something else - each one is a variable the templates can print.</div>
+        <PacketIntakePanel docIds={p.docIds} extraDocs={p.extraDocs} detailsForm={p.detailsForm} companyId={companyId} roleIds={p.roleIds} companyName={companyName}>
           {wanted.length > 0 && (
             <div style={{ border: '1.5px dashed var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 10, fontSize: 13 }}>
               Your documents print these, and nothing fills them yet:
@@ -474,7 +596,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
             <button type="button" className="secondary-btn" onClick={() => addField({})} style={smallBtn}><Plus size={12} /> Add Field</button>
             <button type="button" className="secondary-btn" onClick={() => addField({ type: 'heading' })} style={smallBtn}><Heading size={12} /> Add Section Heading</button>
           </div>
-        </More>
+        </PacketIntakePanel>
       )}
     </>
   );
@@ -482,7 +604,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   const signsStep = (
     <>
       <h2 style={h2}>Who signs, and who checks?</h2>
-      <p style={lead}>Set by role, never by name - change who holds a role in People and every packet follows. {event !== 'promotion' && `The ${who} signs last.`}</p>
+      <p style={lead}>Set by role, never by name - change who holds a role in People and every packet follows. {event === 'offer' ? `Only the ${who} signs an offer - HR checks it before it goes, but nobody signs it for the company.` : `The ${who} signs first; the company countersigns after them, never before.`}</p>
       <div style={{ marginTop: 16 }}>
         {p.flow.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)' }}>Add a document first - each signature spot in it becomes a step here.</div>}
         {p.flow.map((s, i) => (
@@ -498,8 +620,8 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
             <select className="form-input" style={{ width: 130 }} value={s.action} onChange={e => setFlowStep(i, { action: e.target.value })} aria-label="Action">
               {actionOpts.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
             </select>
-            {s.action === 'sign' && ONCE_ROLES(s.role) && (
-              <label title="The company signs this packet once - that signature then goes on every packet by itself"
+            {s.action === 'sign' && event !== 'offer' && ONCE_ROLES(s.role) && (
+              <label title="The company signs this packet once - that signature then goes on every packet by itself, after the person has signed"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 <input type="checkbox" checked={!!s.once} onChange={e => setFlowStep(i, { once: e.target.checked || undefined })} style={{ accentColor: 'var(--pine)' }} />
                 Signs Once
@@ -515,7 +637,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
         <button type="button" className="secondary-btn" onClick={addFlowStep} style={smallBtn}><Plus size={12} /> Add Someone Who Approves Or Gets A Copy</button>
       </div>
 
-      {p.flow.some(s => s.once) && (
+      {event !== 'offer' && p.flow.some(s => s.once) && (
         <div style={{ marginTop: 18 }}>
           <label style={lbl}>Company Signature (Signs Once)</label>
           {!p.id || !companyId ? (

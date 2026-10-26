@@ -17,7 +17,11 @@ vi.mock('../api', () => ({
     getPersonPhotos: () => Promise.resolve({}),
   },
 }));
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => false, myGrantedModules: new Set() }) }));
+let manager = false;
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => false, myGrantedModules: new Set(), canAccessModule: () => manager }) }));
+const confirmAnswer = { value: true };
+const dialogConfirm = vi.fn(() => Promise.resolve(confirmAnswer.value));
+vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => dialogConfirm(...a), alert: () => Promise.resolve() } }));
 const store = { runningTimer: null, startTimer: vi.fn(), stopTimer: vi.fn(), applyServerTask: vi.fn(), nameOf: (e) => e, myEmail: 'me@greensglobal.com' };
 vi.mock('./TasksContext', () => ({ useTasks: () => store }));
 
@@ -75,6 +79,37 @@ describe('TimeTracking', () => {
     expect(calls.add).toHaveBeenCalledWith('t1', expect.objectContaining({ minutes: 90, note: 'calls', billable: true }));
     expect(store.applyServerTask).toHaveBeenCalledWith(expect.objectContaining({ timeEntryCount: 1 }));
     await waitFor(() => expect(screen.getByText('1h 30m')).toBeInTheDocument());
+  });
+
+  it("a manager can edit and remove anyone's entry; others only their own (Oct 21 2026)", async () => {
+    serverEntries = [{ id: 'e1', minutes: 20, note: 'theirs', source: 'manual', startedAt: '2026-10-10T12:00:00Z', personId: 'x@greensglobal.com' }];
+    manager = false;
+    const { unmount } = render(<TimeTracking task={task} />);
+    expect(await screen.findByText('theirs')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Delete entry')).toBeNull();
+    unmount();
+    manager = true;
+    render(<TimeTracking task={task} />);
+    expect(await screen.findByText('theirs')).toBeInTheDocument();
+    expect(screen.getByLabelText('Edit entry')).toBeInTheDocument();
+    expect(screen.getByLabelText('Delete entry')).toBeInTheDocument();
+    manager = false;
+  });
+
+  it('asks before removing an entry, and removes nothing on Cancel', async () => {
+    serverEntries = [{ id: 'e1', minutes: 20, note: 'mine', source: 'manual', startedAt: '2026-10-10T12:00:00Z', personId: 'me@greensglobal.com' }];
+    calls.del.mockResolvedValue({ task });
+    dialogConfirm.mockClear();
+    confirmAnswer.value = false;
+    render(<TimeTracking task={task} />);
+    await screen.findByText('mine');
+    await act(async () => { fireEvent.click(screen.getByLabelText('Delete entry')); });
+    expect(dialogConfirm).toHaveBeenCalledTimes(1);
+    expect(calls.del).not.toHaveBeenCalled();
+    confirmAnswer.value = true;
+    await act(async () => { fireEvent.click(screen.getByLabelText('Delete entry')); });
+    expect(calls.del).toHaveBeenCalledWith('e1');
+    await waitFor(() => expect(screen.queryByText('mine')).toBeNull());
   });
 
   it('a viewer sees the totals and entries but no controls', async () => {

@@ -76,6 +76,15 @@ class GenerateWithSubjectTests(unittest.TestCase):
         self.assertEqual(merge["job_title"], "Site Engineer")
         self.assertEqual(merge["company_address"], "1 Greens Way, Bakersfield, CA")
 
+    def test_personal_email_is_never_the_work_email(self):
+        with SessionLocal() as db:
+            merge = resolve_merge_data(db, employee_id=self.emp_id)
+            self.assertNotIn("personal_email", merge)            # none on file: left unfilled, caught at review
+            cid = str(uuid.uuid4())
+            db.add(models.HrCandidate(id=cid, first_name="Omar", last_name="Test", email="omar@gmail.com"))
+            db.commit()
+            self.assertEqual(resolve_merge_data(db, candidate_id=cid)["personal_email"], "omar@gmail.com")
+
     def test_the_generated_export_shows_values_not_tokens(self):
         tpl = self._template()
         doc = self.client.post("/documents", json={"title": "Filled", "templateId": tpl["id"],

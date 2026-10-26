@@ -98,6 +98,7 @@ class CompanyJobRoleTests(unittest.TestCase):
             (db.query(models.NexusEmployee).execution_options(include_deleted=True)
                .filter(models.NexusEmployee.work_email.like("cjr.%")).delete(synchronize_session=False))
             db.query(models.NexusRole).filter(models.NexusRole.email.like("cjr.%")).delete(synchronize_session=False)
+            db.query(models.AuditLog).filter(models.AuditLog.resource_id.like("e-cjr.%")).delete(synchronize_session=False)
             db.query(models.HrEntity).filter(models.HrEntity.id.in_([COA, COB])).delete(synchronize_session=False)
             db.commit()
         finally:
@@ -195,8 +196,9 @@ class CompanyJobRoleTests(unittest.TestCase):
         self.assertIn("Beta Co", r.json()["detail"])
         self.assertNotIn(BEMP, self._members(ROLE_A))
 
+    # AEMP / NOCO already hold SHARED: a swap needs a reason now (Neil, Oct 22).
     def test_same_company_assignment(self):
-        r = self.client.post(f"/jobroles/{ROLE_A}/assign", json={"email": AEMP})
+        r = self.client.post(f"/jobroles/{ROLE_A}/assign", json={"email": AEMP, "reason": "Team move"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["company_id"], COA)
         self.assertEqual(r.json()["warning"], "")
@@ -204,7 +206,7 @@ class CompanyJobRoleTests(unittest.TestCase):
         self.assertNotIn(AEMP, self._members(SHARED))   # still one primary role
 
     def test_no_company_person_assigned_with_warning(self):
-        r = self.client.post(f"/jobroles/{ROLE_A}/assign", json={"email": NOCO})
+        r = self.client.post(f"/jobroles/{ROLE_A}/assign", json={"email": NOCO, "reason": "Team move"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertIn("Alpha Co", r.json()["warning"])
         self.assertIn(NOCO, self._members(ROLE_A))
@@ -212,7 +214,7 @@ class CompanyJobRoleTests(unittest.TestCase):
     def test_shared_role_unchanged(self):
         # A shared role still goes to anyone, from any company, with no warning.
         for email in (BEMP, AEMP, NOCO):
-            r = self.client.post(f"/jobroles/{SHARED_MIXED}/assign", json={"email": email})
+            r = self.client.post(f"/jobroles/{SHARED_MIXED}/assign", json={"email": email, "reason": "Team move"})
             self.assertEqual(r.status_code, 200, r.text)
             self.assertEqual(r.json()["company_id"], "")
             self.assertEqual(r.json()["warning"], "")
@@ -227,11 +229,45 @@ class CompanyJobRoleTests(unittest.TestCase):
         r = self.client.put(f"/groups/{ROLE_A}", json={"name": "cjr Alpha Crew", "company_id": COA})
         self.assertEqual(r.status_code, 200)   # unchanged company is fine
 
-    def test_groups_route_cannot_add_other_company_member(self):
-        r = self.client.post(f"/groups/{ROLE_A}/members", json={"emails": [BEMP]})
+    # A job role's members change only through Assign / Change Role, which log
+    # the reason (Neil, Oct 22) - the plain member routes refuse it.
+    def test_groups_member_routes_refuse_job_roles(self):
+        r = self.client.post(f"/groups/{ROLE_A}/members", json={"emails": [AEMP2]})
         self.assertEqual(r.status_code, 400)
-        r = self.client.post(f"/groups/{ROLE_A}/members", json={"emails": [AEMP2, NOCO]})
-        self.assertEqual(r.status_code, 200)
+        self.assertIn("Change Role", r.json()["detail"])
+        r = self.client.delete(f"/groups/{SHARED}/members/{AEMP}")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(self._members(ROLE_A), set())
+        self.assertIn(AEMP, self._members(SHARED))
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusGroup(id="GRPcjr-plain", name="cjr Plain", is_job_role=0)); db.commit()
+        finally:
+            db.close()
+        self.assertEqual(self.client.post("/groups/GRPcjr-plain/members", json={"emails": [AEMP2]}).status_code, 200)
+        self.assertEqual(self.client.delete(f"/groups/GRPcjr-plain/members/{AEMP2}").status_code, 200)
+
+    # Removing someone's role needs a reason and lands in their role history.
+    def test_unassign_requires_reason_and_logs_it(self):
+        import role_change
+        r = self.client.post(f"/jobroles/{SHARED}/unassign", json={"email": AEMP})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn(AEMP, self._members(SHARED))
+        self._as(AEMP2)   # an employee (or a manager) cannot take a role away
+        self.assertEqual(self.client.post(f"/jobroles/{SHARED}/unassign",
+                                          json={"email": AEMP, "reason": "x"}).status_code, 403)
+        self._as(OWNER)
+        r = self.client.post(f"/jobroles/{SHARED}/unassign", json={"email": AEMP, "reason": "Contract ended"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn(AEMP, self._members(SHARED))
+        db = database.SessionLocal()
+        try:
+            emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == AEMP).first()
+            hist = role_change.role_history(db, emp)
+        finally:
+            db.close()
+        self.assertEqual([(h["from"], h["to"], h["reason"]) for h in hist],
+                         [("cjr Shared Crew", "No role", "Contract ended")])
 
 
 if __name__ == "__main__":

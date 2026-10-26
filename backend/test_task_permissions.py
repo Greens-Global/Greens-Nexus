@@ -190,9 +190,21 @@ class TaskPermissionTests(unittest.TestCase):
         self.assertIsNotNone(self.db.get(models.TaskAttachment, a.id))
 
     def test_the_uploader_can_remove_their_own_attachment(self):
+        # The uploader can still see the task (here as a collaborator on it):
+        # since Oct 21 2026 removing a file also takes sight of its task.
+        self.task.follower_emails = [OUTSIDER["email"]]
+        self.db.commit()
         a = self._attachment(added_by=OUTSIDER["email"])
         delete_attachment(a.id, user=OUTSIDER, db=self.db)
         self.assertIsNone(self.db.get(models.TaskAttachment, a.id))
+
+    def test_an_uploader_who_can_no_longer_see_the_task_gets_404(self):
+        a = self._attachment(added_by=OUTSIDER["email"])
+        with self.assertRaises(HTTPException) as ctx:
+            delete_attachment(a.id, user=OUTSIDER, db=self.db)
+        self.assertEqual(ctx.exception.status_code, 404)
+        self.db.rollback()
+        self.assertIsNotNone(self.db.get(models.TaskAttachment, a.id))
 
     # ── sections ─────────────────────────────────────────────────────────
     def test_an_outsider_cannot_create_a_section_in_a_restricted_project(self):

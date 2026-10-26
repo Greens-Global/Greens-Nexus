@@ -342,7 +342,7 @@ export default function RichDescription({
             {onAttachFile && (
               <button type="button" onClick={() => { setAddOpen(false); fileRef.current?.click(); }}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px', border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: NX.ink, fontFamily: FONT, textAlign: 'left' }}>
-                <Paperclip size={14} style={{ color: NX.dim }} />Attach file…
+                <Paperclip size={14} style={{ color: NX.dim }} />Attach File…
               </button>
             )}
             <button type="button" onClick={() => { setAddOpen(false); imageRef.current?.click(); }}

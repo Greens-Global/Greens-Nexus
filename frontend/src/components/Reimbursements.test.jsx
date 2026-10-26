@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
 // Workday > Reimbursements (Oct 18 2026): file one (category, currency, a
 // pasted receipt, the approver), the approver sends back / rejects with a
 // note, the employee fixes and resubmits, HR approves and marks it paid, and
-// People > person > Expenses lists the claims.
+// People > person > Reimbursements lists the claims.
 
 const overview = vi.fn();
 const create = vi.fn();
@@ -29,6 +29,8 @@ vi.mock('../api', () => ({
     getPeopleDirectory: (...a) => people(...a),
   },
 }));
+
+vi.mock('./PersonHoverCard', () => ({ default: ({ children }) => children }));
 
 const { default: ReimbursementsTile, PersonReimbursements, OPEN_REIMBURSEMENTS } = await import('./Reimbursements');
 
@@ -85,6 +87,22 @@ describe('Reimbursements', () => {
     expect(flash).toHaveBeenCalledWith('Sent to Neil Test for approval');
   });
 
+  it('the approver field searches the People list and sends the picked email', async () => {
+    render(<ReimbursementsTile />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Reimbursements' }));
+    fireEvent.click(screen.getByRole('button', { name: /New Reimbursement/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Other/ }));
+    fireEvent.change(screen.getByLabelText('What Was It?'), { target: { value: 'Parking' } });
+    fireEvent.change(screen.getByLabelText('Amount Paid'), { target: { value: '12.5' } });
+    fireEvent.change(screen.getByLabelText('Business Purpose'), { target: { value: 'Client visit' } });
+    expect(screen.getByLabelText('Who Approves It').textContent).toContain('My Manager');
+    fireEvent.click(screen.getByLabelText('Who Approves It'));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'neil' } });
+    fireEvent.click(await within(screen.getByRole('listbox')).findByText('Neil Test'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send for Approval' })); });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ approver_email: 'neil@x.com' }));
+  });
+
   it('the approver sends it back with a note; the employee fixes and resubmits', async () => {
     overview.mockResolvedValue({ ...none, toApprove: [row()] });
     const { unmount } = render(<ReimbursementsTile />);
@@ -123,7 +141,7 @@ describe('Reimbursements', () => {
     expect(pay).toHaveBeenCalledWith('r1', expect.objectContaining({ payment_method: 'payroll', payment_ref: 'PR-1031' }));
   });
 
-  it('People > person > Expenses lists their claims', async () => {
+  it('People > person > Reimbursements lists their claims', async () => {
     render(<PersonReimbursements email="amy@x.com" />);
     expect(await screen.findByText('Monitor')).toBeTruthy();
     expect(person).toHaveBeenCalledWith('amy@x.com');

@@ -180,19 +180,24 @@ class HrOverrideTests(Oct16Case):
             tsr.guard_edit(self.db, EMP, self.start, MGR)    # the manager still waits
         self.assertEqual(self._r().status, "with_employee")
 
-    def test_an_unlocked_period_is_reviewable_again(self):
-        """Neil's Unlock closes the signed review out as "unlocked"; the
-        manager's list offers the period again and a new round signs it."""
+    def test_an_unlocked_period_is_hrs_to_correct(self):
+        """Neil, Oct 22: HR's Unlock leaves the period with HR - the manager
+        cannot approve or edit it; unchanged, HR locks it again unsigned."""
         r = self._agreed()
         self._sign(self._parties(r.sign_request_id)["employee"])
         self.assertTrue(timeclock._finalized_row(self.db, EMP, self.start, self.end))
-        timeclock.unfinalize_timecard(timeclock.FinalizeIn(email=EMP, start=self.start, end=self.end),
+        timeclock.unfinalize_timecard(timeclock.FinalizeIn(email=EMP, start=self.start, end=self.end, reason="Wrong lunch on Monday"),
                                       user={"email": HR, "level": 4}, db=self.db)
         self.db.expire_all()
-        old = self.db.get(models.TimesheetReview, r.id)
-        self.assertEqual(old.status, "unlocked")
-        tsr.approve_period(self.db, EMP, ANCHOR, MGR, "Corrected")
-        self.assertEqual(self._r().status, "signing")
+        self.assertEqual(self.db.get(models.TimesheetReview, r.id).status, "correcting")
+        with self.assertRaises(HTTPException):
+            tsr.approve_period(self.db, EMP, ANCHOR, MGR, "Corrected")
+        with self.assertRaises(HTTPException):
+            tsr.guard_edit(self.db, EMP, self.start, MGR)
+        tsr.relock(self.db, self._r(), HR)
+        self.db.commit()
+        self.assertEqual(self._r().status, "completed")
+        self.assertTrue(timeclock._finalized_row(self.db, EMP, self.start, self.end))
 
 
 class PopUpTests(Oct16Case):

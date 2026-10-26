@@ -16,7 +16,7 @@ import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { MonitoringAlertsLine } from './MonitoringAlerts';
 import { ErrorBanner, Spinner } from './AsyncState';
-import { formatDate, zonedDateTime, zonedInputValue, zonedInputToUtc, zoneOffsetMin } from '../lib/datetime';
+import { formatDate, formatPacificDateTime, zonedDateTime, zonedInputValue, zonedInputToUtc, zoneOffsetMin } from '../lib/datetime';
 import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
 import { TIMEOFF_FILTERS, countByStatus, filterAndSortTimeoff, nextSort, yearsOf, inPeriod } from '../lib/timeOffFilter';
 import { takePendingOpen } from '../lib/pendingOpen';
@@ -81,7 +81,7 @@ function AdminDayRow({ date, email, d, approval, onApprove, timeZone }) {
         {d.flags.length > 0 && <AlertTriangle size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
         {onApprove && LEGACY_APPROVE && (
           approval && !approval.stale ? (
-            <span title={`Approved by ${approval.by} · ${(approval.at || '').slice(0, 16).replace('T', ' ')}`}
+            <span title={`Approved by ${approval.by} · ${formatPacificDateTime(approval.at, '-')}`}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '2px 9px', borderRadius: 999, flexShrink: 0 }}>
               <CheckCircle size={10} /> OK
             </span>

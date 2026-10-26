@@ -10,6 +10,7 @@ import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import Highlight from '@tiptap/extension-highlight';
 import { MergeField, PageBreak, DocShape, DocTextbox, ResizableImage, Bookmark, SectionBox, SignatureBlock } from './docBuilderExtensions';
+import { boldTextNode } from './markdownBold';
 
 // Word-style cell shading - TipTap's stock TableCell/TableHeader carry no
 // background-color attribute, so both are extended identically with one
@@ -116,7 +117,12 @@ function repairNodes(node, schema) {
   if (!node || typeof node !== 'object' || !node.type) return [];
   if (!Array.isArray(node.content) || !node.content.length) return [node];
   const spec = schema.nodes[node.type];
-  const children = node.content.flatMap(c => repairNodes(c, schema));
+  let children = node.content.flatMap(c => repairNodes(c, schema));
+  // Literal **pairs** saved as text become bold (lib/markdownBold.js) - not in
+  // a block that takes no marks (a code block).
+  if (spec?.isTextblock && schema.marks.bold && spec.allowsMarkType(schema.marks.bold)) {
+    children = children.flatMap(c => (c.type === 'text' ? boldTextNode(c) : [c]));
+  }
   const isInline = (n) => !!schema.nodes[n.type]?.isInline;
 
   // A textblock (paragraph, heading) may hold inline content only. Lift any

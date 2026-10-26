@@ -78,7 +78,7 @@ describe('Org chart externals and four-line cards', () => {
     fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
     const panel = screen.getByText('Reports to').closest('div');
     expect(within(panel).getByDisplayValue('Acme Construction')).toBeTruthy();
-    expect(within(panel).getAllByRole('combobox')[0].value).toBe('mia@x.com');
+    expect(within(panel).getByRole('button', { name: /^Reports To:/ }).textContent).toContain('Mia Mid');
     fireEvent.change(within(panel).getByDisplayValue('Acme Construction'), { target: { value: 'Acme Builders' } });
     fireEvent.click(screen.getByRole('button', { name: /Save changes/ }));
     const saved = calls.find(([k]) => k === 'updateEmployee');
@@ -110,9 +110,10 @@ describe('Org chart externals and four-line cards', () => {
       fireEvent.pointerDown(cardOf('Mia Mid'), { clientX: 10, clientY: 10, button: 0 });
       fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
       const panel = screen.getByText('Reports to').closest('div');
-      const sel = within(panel).getAllByRole('combobox')[0];
-      expect(sel.value).toBe('jane@acme.com');
-      expect(within(sel).getByText(/Jane Doe.*External, not shown on the chart/)).toBeTruthy();
+      const trigger = within(panel).getByRole('button', { name: /^Reports To:/ });
+      expect(trigger.textContent).toContain('Jane Doe');
+      fireEvent.click(trigger);
+      expect(within(screen.getByRole('listbox')).getByText('Jane Doe')).toBeTruthy();
     } finally { PEOPLE[1].managerEmail = 'val@x.com'; }
   }, 20000);
 });

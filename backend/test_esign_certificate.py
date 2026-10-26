@@ -235,6 +235,43 @@ class CertificateTests(unittest.TestCase):
         self.assertIn("req-cert", text)
 
 
+    # -- Pacific time with the UTC in brackets (Oct 23 2026, company_time.py) --
+    def test_a_new_certificate_prints_pacific_with_the_utc_in_brackets(self):
+        snap = self._snapshot()
+        self.assertEqual(snap["time_style"], "pacific")
+        html = esign.render_certificate_html(snap)
+        # generated_at 2026-08-27T16:41:57Z is 9:41:57 AM PDT.
+        self.assertIn("Generated 08-27-2026 9:41:57 AM PDT (16:41:57 UTC).", html)
+        self.assertRegex(html, r"\d{1,2}:\d{2}:\d{2} [AP]M P[DS]T \(")
+        text = self._build()
+        self.assertIn("Times are Pacific (PDT or PST)", text)
+        self.assertIn("9:41:57 AM PDT (16:41:57 UTC)", text)
+        self.assertEqual(html, esign.render_certificate_html(snap))     # still deterministic
+
+    def test_a_certificate_issued_before_keeps_rendering_in_utc(self):
+        """The certificate of record is proved by re-rendering its stored
+        snapshot byte for byte: one sealed before Oct 23 2026 (no time_style)
+        must come out exactly as it was issued."""
+        snap = self._snapshot()
+        del snap["time_style"]
+        html = esign.render_certificate_html(snap)
+        self.assertIn("Generated 2026-08-27 16:41:57 UTC.", html)
+        self.assertNotIn("PDT", html)
+        self.assertNotIn("PST", html)
+        self.assertIn("Times are UTC as recorded by the application clock.", _text(esign._certificate_pdf(snap)))
+
+    def test_pacific_with_utc_handles_winter_dates_and_the_utc_day_rolling_over(self):
+        import company_time
+        us = esign._us_date
+        self.assertEqual(company_time.pacific_with_utc("2026-12-20T18:08:03+00:00", us),
+                         "12-20-2026 10:08:03 AM PST (18:08:03 UTC)")
+        self.assertEqual(company_time.pacific_with_utc("2026-10-21T02:30:00+00:00", us, seconds=False),
+                         "10-20-2026 7:30 PM PDT (10-21-2026 02:30 UTC)")
+        self.assertEqual(company_time.pacific_with_utc("2026-10-20T18:08:03", us),   # no zone = UTC
+                         "10-20-2026 11:08:03 AM PDT (18:08:03 UTC)")
+        self.assertEqual(company_time.pacific_with_utc("", us), "")
+
+
 class UserAgentTests(unittest.TestCase):
     def test_mobile_agents_are_not_reported_as_desktop(self):
         ios = "Mozilla/5.0 (iPhone; CPU iPhone OS 19_2 like Mac OS X) Version/19.2 Safari/604.1"

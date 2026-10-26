@@ -9,6 +9,7 @@ import { RoleEditor, AssignModal, ApproverPicker, TierBadge, ModuleLevelPill, Av
 import { setPendingOpen } from '../lib/pendingOpen';
 import { Modal } from '../tasks/components';
 import { RoleStepsEditor } from '../components/HrChecklists';
+import RoleHiringDocs from '../components/RoleHiringDocs';
 
 // ── Company Settings > [company] > Roles ─────────────────────────────────────
 // Job roles are given company by company (Neil, Sep 2026); who can reach what
@@ -26,7 +27,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
   const [editing, setEditing] = useState(undefined);   // undefined = closed, object = edit / new seed
   const [editingShared, setEditingShared] = useState(null);   // a shared role open in the editor
   const [assignFor, setAssignFor] = useState(null);
-  const [tab, setTab] = useState('access');   // the selected role's panel: 'access' | 'checklists'
+  const [tab, setTab] = useState('access');   // the selected role's panel: 'access' | 'hiring' | 'checklists'
   const [stepsFor, setStepsFor] = useState(null);   // a shared role open in the checklist modal
   const [stepCounts, setStepCounts] = useState({});   // roleId -> {kind: steps}
   const { data: dir } = usePeopleDirectory();
@@ -110,7 +111,11 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
   }
   async function removeMember(email) {
     if (!selected) return;
-    try { await api.unassignJobRole(selected.id, email); toastOk(`Removed ${nameOf(email)} from “${selected.name}”.`); load(); }
+    // Taking a role away needs the why, like any role change (Neil, Oct 22).
+    const reason = await dialog.prompt(`Why is ${nameOf(email)} leaving "${selected.name}"? Kept in their role history.`,
+      { title: 'Remove From Role', confirmText: 'Remove', required: true, multiline: true, danger: true });
+    if (!reason) return;
+    try { await api.unassignJobRole(selected.id, email, reason); toastOk(`Removed ${nameOf(email)} from “${selected.name}”.`); load(); }
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
 
@@ -123,7 +128,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
         <div style={{ flex: 1, minWidth: 220 }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Roles at {entity.name}</h4>
           <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>
-            Only people at {entity.name} can hold these roles. What each role can reach is set in its bundle; extra groups are managed in Global Settings under Access.
+            Only people at {entity.name} can hold these roles. What each role can reach is set in its bundle; extra groups are managed in People &amp; Access with the scope on Every company.
           </p>
         </div>
         <button className="primary-btn" onClick={() => setEditing({})} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
@@ -170,7 +175,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
 
               <div role="tablist" aria-label="Role details" className="scroll-tabs"
                 style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', margin: '12px 0 0' }}>
-                {[['access', 'Access & People'], ['checklists', 'Checklists']].map(([key, label]) => {
+                {[['access', 'Access & People'], ['hiring', 'Hiring Documents'], ['checklists', 'Checklists']].map(([key, label]) => {
                   const on = tab === key;
                   const n = key === 'checklists' ? stepTotal(selected.id) : 0;
                   return (
@@ -182,7 +187,12 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
                 })}
               </div>
 
-              {tab === 'checklists' ? (
+              {tab === 'hiring' ? (
+                <div role="tabpanel" style={{ marginTop: 6 }}>
+                  <RoleHiringDocs key={selected.id} role={selected} toastOk={toastOk} toastErr={toastErr}
+                    onSaved={saved => setRoles(list => (list || []).map(r => (r.id === saved.id ? { ...r, ...saved } : r)))} />
+                </div>
+              ) : tab === 'checklists' ? (
                 <div role="tabpanel" style={{ marginTop: 16 }}>
                   <RoleStepsEditor key={selected.id} roleId={selected.id} roleName={selected.name}
                     toastOk={toastOk} toastErr={toastErr} onCounts={setCountsFor(selected.id)} />
@@ -226,7 +236,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800, flex: 1 }}>Shared Across Companies</h4>
           {/* Shared roles are org-wide, so creating and deleting them lives in
-              Global Settings > Access > Shared Roles; this jumps there. */}
+              People & Access > Shared Roles (scope: Every company); this jumps there. */}
           <button className="secondary-btn" style={{ fontSize: 12.5 }}
             onClick={() => {
               setPendingOpen(PENDING_ACCESS_TAB, 'jobroles');

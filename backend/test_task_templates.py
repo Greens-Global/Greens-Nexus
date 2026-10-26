@@ -45,6 +45,12 @@ class TaskTemplateTests(unittest.TestCase):
             self.db.query(m).delete()
         # The Entity field the values below belong to.
         self.db.add(models.TaskCustomField(id="ent", name="Entity", type="text"))
+        # The people the template puts on its tasks are in the directory - an
+        # assignee or collaborator must be a current person (Oct 21 2026).
+        self.db.query(models.NexusEmployee).delete()
+        for who in ("viral@greensglobal.com", "urmi@greensglobal.com", "neil@greensglobal.com"):
+            self.db.add(models.NexusEmployee(id=gen_id(), work_email=who, first_name=who.split("@")[0],
+                                             status="active", company=""))
         self.db.commit()
 
     def tearDown(self):
@@ -107,7 +113,9 @@ class TaskTemplateTests(unittest.TestCase):
         new = self._use(tpl["id"], title="Tax Return - Greens Austin", due_on="2027-04-15",
                         custom_field_values={"ent": "aus"})
         self.assertEqual((new.title, new.due_on, new.status, new.priority), ("Tax Return - Greens Austin", "2027-04-15", "recurring", "high"))
-        self.assertEqual(new.recurrence, {"freq": "yearly", "monthOfYear": 4, "dayOfMonth": 15})
+        # A series of its own (Oct 21 2026): the new task's id, never the id of
+        # the task the template was saved from.
+        self.assertEqual(new.recurrence, {"freq": "yearly", "monthOfYear": 4, "dayOfMonth": 15, "seriesId": new.id})
         self.assertEqual(new.custom_field_values, {"ent": "aus"})
         subs = (self.db.query(models.Task).filter(models.Task.parent_task_id == new.id)
                 .order_by(models.Task.position).all())

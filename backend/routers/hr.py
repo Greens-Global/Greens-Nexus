@@ -413,6 +413,9 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     row.updated_at = datetime.now(timezone.utc).isoformat()
     if "work_email" in changes and not changes["work_email"][0]:
         adopt_pending_pay(db, row, user["email"])
+    if changes:   # work authorization, status, dates: the checklist's automatic steps tick now
+        import hr_checklists
+        hr_checklists.refresh_person(db, row.id, user["email"].lower())
     db.commit()
     db.refresh(row)
     # Field-level audit (Sep 22, 2026). The request-level audit row only says
@@ -645,6 +648,7 @@ class CandidateUpdate(BaseModel):
     role_id:        Optional[str] = None
     expected_interview_on: Optional[str] = None
     inactive:       Optional[bool] = None  # Remove a rejected candidate from the board (True)
+    skip_interview: Optional[bool] = None  # with stage="decision": Skip Interview (Neil, Oct 22)
 
 
 def _is_inactive(c: HrCandidate) -> bool:
@@ -669,6 +673,7 @@ def _ser_candidate(c: HrCandidate) -> dict:
         "company": c.company or "", "roleId": c.role_id or "",
         "interviewAt": c.interview_at or "",
         "decision": c.decision or "", "decisionBy": c.decision_by or "", "decisionAt": c.decision_at or "",
+        "interviewSkippedBy": c.interview_skipped_by or "",
         "resumeUrl": c.resume_url, "notes": c.notes, "employeeId": c.employee_id,
         "createdAt": c.created_at, "updatedAt": c.updated_at,
     }
@@ -731,9 +736,13 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
         if r.department and r.department not in depts:
             depts.append(r.department)
     names = {e.id: e.name for e in db.query(HrEntity).all()} if all_roles else {}
+    by_key = {_dept_key(k): v for k, v in leads.items()}   # "accounting " still finds Accounting's head
     return {"roles": [{"id": r.id, "name": r.name, "department": r.department or "",
                        "companyId": r.company_id or "", "companyName": names.get(r.company_id or "", ""),
-                       "defaultManagerEmail": (r.default_manager_email or "").lower()}
+                       # No default manager on the role: its department's head (Neil, Oct 22 -
+                       # "supervisor should be the department head").
+                       "defaultManagerEmail": ((r.default_manager_email or "").lower()
+                                               or next(iter(by_key.get(_dept_key(r.department)) or []), ""))}
                       for r in roles],
             "departments": depts, "departmentLeads": leads, "sources": list(HIRING_SOURCES)}
 
@@ -1032,7 +1041,12 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
     if body.stage is not None and body.stage != row.stage:
         if body.stage not in _STAGES:
             raise HTTPException(400, f"stage must be one of {_STAGES}")
-        if body.stage not in _STAGE_MOVES.get(row.stage, set()):
+        # Skip Interview (Neil, Oct 22: "it could be the interview has already
+        # happened") - straight to Decision from before Interview, on purpose only.
+        skip = bool(body.skip_interview)
+        if skip and not (body.stage == "decision" and row.stage in ("applied", "screening")):
+            raise HTTPException(409, "Only a candidate who has not reached Interview can skip it.")
+        if not skip and body.stage not in _STAGE_MOVES.get(row.stage, set()):
             raise HTTPException(409, _STAGE_HINTS.get(body.stage)
                                 or f"A candidate in {row.stage} can't move to {body.stage}.")
         if row.stage == "offer" and body.stage != "hired" or body.stage == "rejected":
@@ -1052,9 +1066,17 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
                 raise HTTPException(400, "Say why they are marked hired by hand.")
         import hiring_decision
         if body.stage == "decision":
+            note = (body.stage_note or "").strip()
+            if skip:
+                note = "Interview skipped" + (f" - {note}" if note else "")
+                row.interview_skipped_by = user["email"]
+                import hiring_screening
+                hiring_screening.close(db, row)      # nothing left to screen before an interview
             # The "Decide on" task for the interviewers and the department head.
-            decision_task = hiring_decision.enter(db, row, user["email"], (body.stage_note or "").strip())
+            decision_task = hiring_decision.enter(db, row, user["email"], note)
         else:
+            if body.stage in ("applied", "screening", "interview"):
+                row.interview_skipped_by = ""        # back before the interview: it is owed again
             db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage=row.stage,
                                 to_stage=body.stage, note=(body.stage_note or "").strip(),
                                 by_email=user["email"], created_at=now))
@@ -1428,6 +1450,8 @@ def upload_document(eid: str, file: UploadFile = File(...), kind: str = Form("ot
                      size_bytes=len(data), expires_on=expires_on.strip(),
                      uploaded_by=user["email"], created_at=datetime.now(timezone.utc).isoformat())
     db.add(row)
+    import hr_checklists
+    hr_checklists.refresh_person(db, row.employee_id, user["email"].lower())   # an ID on file ticks now
     db.commit()
     return _ser_doc(row)
 
@@ -1607,6 +1631,8 @@ def attach_request_to_employee(rid: str, body: AttachToEmployeeIn,
                      file_name=fname, storage_path=dest, size_bytes=0, expires_on="",
                      uploaded_by=user["email"], created_at=datetime.now(timezone.utc).isoformat())
     db.add(row)
+    import hr_checklists
+    hr_checklists.refresh_person(db, row.employee_id, user["email"].lower())   # an ID on file ticks now
     db.commit()
     return _ser_doc(row)
 
@@ -1963,6 +1989,8 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
     run.finished_at = datetime.now(timezone.utc).isoformat()
     if emp.status == "onboarding" and user_id:
         emp.status = "active"
+    import hr_checklists
+    hr_checklists.refresh_person(db, eid, user["email"].lower())   # "provisioned" ticks now
     db.commit()
 
     return {
@@ -2584,6 +2612,7 @@ class EntityIn(BaseModel):
     name:               str
     legal_name:         Optional[str] = ""
     country:            Optional[str] = ""
+    region:             Optional[str] = ""   # US state (CA, TX) - picks the hiring documents for the place
     tax_id:             Optional[str] = ""
     registered_address: Optional[str] = ""   # legacy - the form now writes physical_address instead
     physical_address:   Optional[str] = ""
@@ -2610,6 +2639,7 @@ class EntityUpdate(BaseModel):
     name:               Optional[str] = None
     legal_name:         Optional[str] = None
     country:            Optional[str] = None
+    region:             Optional[str] = None
     tax_id:             Optional[str] = None
     registered_address: Optional[str] = None
     physical_address:   Optional[str] = None
@@ -2665,9 +2695,14 @@ def _norm_manager_emails(manager_email, manager_emails) -> tuple:
     return single, ([single] if single else [])
 
 
+def _norm_region(value) -> str:
+    """A state code (CA, TX) - letters only, uppercase."""
+    return re.sub(r"[^A-Za-z]", "", str(value or "")).upper()[:3]
+
+
 def _serialize_entity(e: HrEntity) -> dict:
     return {
-        "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
+        "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country, "region": e.region or "",
         "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
         # physicalAddress falls back to the legacy registered_address field for a
         # row that predates the physical/mailing split - the one-shot startup
@@ -2714,6 +2749,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
     row = HrEntity(
         id=str(uuid.uuid4()), name=body.name.strip(), legal_name=(body.legal_name or "").strip(),
         country=(body.country or "").strip(), tax_id=(body.tax_id or "").strip(),
+        region=_norm_region(body.region),
         registered_address=(body.registered_address or "").strip(),
         physical_address=(body.physical_address or "").strip(), mailing_address=(body.mailing_address or "").strip(),
         signatory=(body.signatory or "").strip(),
@@ -2773,6 +2809,8 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
             value = _check_signatory_email(db, value)
         elif key == "invoice_recipients":
             value = _norm_emails(value)
+        elif key == "region":
+            value = _norm_region(value)
         elif key == "manager_emails":
             mgr_email, value = _norm_manager_emails(None, value)
             row.manager_email = mgr_email
@@ -3254,6 +3292,7 @@ def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Department not found")
+    people_before = (row.lead_email or "", row.backup_email or "", row.name or "")
     if body.name is not None:
         new_name = (body.name or "").strip()
         if not new_name:
@@ -3272,10 +3311,27 @@ def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
                 if _dept_key(e.department or "") == old_key:
                     e.department = new_name
             row.name = new_name
-    if body.lead_email is not None:
-        row.lead_email = (body.lead_email or "").strip().lower()
-    if body.backup_email is not None:
-        row.backup_email = (body.backup_email or "").strip().lower()
+    for field in ("lead_email", "backup_email"):
+        val = getattr(body, field)
+        if val is None:
+            continue
+        val = (val or "").strip().lower()
+        # Curated People list only (CLAUDE.md) - a typo here would quietly
+        # leave HR / IT / Accounting steps with nobody on them.
+        if val and not db.query(NexusEmployee.id).filter(
+                func.lower(NexusEmployee.work_email) == val,
+                NexusEmployee.status.in_(["active", "onboarding"])).first():
+            raise HTTPException(400, f"{val} is not an active person in Nexus People")
+        setattr(row, field, val)
+    if row.backup_email and row.backup_email == row.lead_email:
+        raise HTTPException(400, "The backup has to be someone other than the department head")
+    if (row.lead_email or "", row.backup_email or "", row.name or "") != people_before:
+        # Checklist steps owned by this department follow the new head / backup,
+        # or the new name: HR, IT and Accounting steps go by it (Neil, Oct 22: one
+        # company setup, applied everywhere; Pranshu, Oct 23: no owner setting).
+        db.flush()
+        import hr_checklists
+        hr_checklists.resync_company(db, entity_id, user["email"].lower())
     db.commit()
     rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).order_by(HrDepartment.sort_order, HrDepartment.name).all()
     return [_serialize_dept(d) for d in rows]
@@ -3299,7 +3355,11 @@ def delete_department(entity_id: str, dept_id: str, reassign_to: Optional[str] =
         for e in db.query(NexusEmployee).filter(NexusEmployee.company == entity_id).all():
             if _dept_key(e.department or "") == dept_key:
                 e.department = target
-        db.delete(row); db.commit()
+        db.delete(row)
+        db.flush()
+        import hr_checklists                 # its open checklist steps go back to HR
+        hr_checklists.resync_company(db, entity_id, user["email"].lower())
+        db.commit()
     rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).order_by(HrDepartment.sort_order, HrDepartment.name).all()
     return [_serialize_dept(d) for d in rows]
 
@@ -4093,6 +4153,7 @@ class CompensationIn(BaseModel):
     compensation: Optional[dict] = None   # {base, payBasis, frequency, currency, effectiveDate, history[]}
     bank:         Optional[list] = None   # [{holder, number, routingOrIfsc, type, bankName}]
     gstin:        Optional[str] = None    # contractor's GSTIN, kept in compensation JSON beside the bank list (Oct 21)
+    pan:          Optional[str] = None    # PAN (India): the SAME compliance.pan, edited here beside the GSTIN too (Oct 23)
 
 
 @router.get("/employees/{eid}/compensation")
@@ -4108,11 +4169,11 @@ def get_compensation(eid: str, user: dict = Depends(require_comp_read_or_manager
         _direct_report_or_404(user, row, db)
         # The GSTIN is bank-grade (Oct 21): a manager never sees it.
         return {"compensation": {k: v for k, v in (row.compensation or {}).items() if k != "gstin"},
-                "bank": [], "gstin": "", "readOnly": True,
+                "bank": [], "gstin": "", "pan": "", "readOnly": True,
                 "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
     from own_pay import own_pay_locked
     return {"compensation": row.compensation or {}, "bank": row.bank or [],
-            "gstin": (row.compensation or {}).get("gstin", ""),
+            "gstin": (row.compensation or {}).get("gstin", ""), "pan": (row.compliance or {}).get("pan", ""),
             "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row),
             # Your own record: pay is read-only (another admin or HR sets it), bank stays yours.
             "ownPayLocked": own_pay_locked(db, user, row.work_email, min_level=5, module_id="hr_comp")}
@@ -4394,6 +4455,11 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
         else:
             comp.pop("gstin", None)
         row.compensation = comp
+    if body.pan is not None:
+        # One PAN per person: Compliance and Pay & Benefits edit the same field.
+        compliance = _norm_compliance({**(row.compliance or {}), "pan": body.pan})   # 400 before any commit
+        if compliance != (row.compliance or {}):
+            row.compliance = compliance
     if body.bank is not None:
         row.bank = body.bank
     row.updated_at = datetime.now(timezone.utc).isoformat()
@@ -4406,7 +4472,7 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
         append_rate_history(db, row, effective, by=user["email"])
     db.commit()
     return {"compensation": row.compensation or {}, "bank": row.bank or [],
-            "gstin": (row.compensation or {}).get("gstin", ""),
+            "gstin": (row.compensation or {}).get("gstin", ""), "pan": (row.compliance or {}).get("pan", ""),
             "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
 
 
@@ -4524,9 +4590,17 @@ def employee_bod_log(eid: str, start: str = "", end: str = "",
 # endpoint (out-of-company people 404).
 # ---------------------------------------------------------------------------
 
+# work_remote: 0 = On-Site, 1 = Remote, 2 = Hybrid (Neil, Oct 22 2026: usual
+# sites some days, remote on others). Readers use bool(), so Hybrid is
+# "remote allowed" everywhere a punch is judged.
+_WORK_MODES = {"onsite": 0, "remote": 1, "hybrid": 2}
+
+
 def _geofence_payload(emp: NexusEmployee) -> dict:
+    code = int(emp.work_remote or 0)
     return {
-        "remote": bool(emp.work_remote or 0),
+        "mode": {1: "remote", 2: "hybrid"}.get(code, "onsite"),
+        "remote": bool(code),   # builds older than Hybrid read only this
         # Allowed work sites (Sep 29): [] = any company site. workSiteId is
         # the Sep 25 single pick, kept for builds that still read it.
         "workSiteIds": allowed_site_ids(emp),
@@ -4581,6 +4655,8 @@ def get_geofence(eid: str, user: dict = Depends(require_hr_read), db: Session = 
 
 class GeofenceIn(BaseModel):
     remote:   Optional[bool] = None
+    # "onsite" | "remote" | "hybrid"; wins over remote when both are sent.
+    mode:     Optional[str] = None
     # An HrWorkSite.id to pin this person to, "" to clear (any site). Omitted = unchanged.
     work_site_id: Optional[str] = None
     # The sites this person may punch at (Sep 29); [] = any company site.
@@ -4601,10 +4677,14 @@ def set_geofence(eid: str, body: GeofenceIn, user: dict = Depends(require_hr_wri
     if not emp:
         raise HTTPException(404, "Employee not found")
     _assert_scope(emp, hr_scope(user, db))
-    if body.remote is None and body.work_site_id is None and body.work_site_ids is None:
+    if body.mode is not None and body.mode not in _WORK_MODES:
+        raise HTTPException(400, "Work mode must be On-Site, Remote or Hybrid.")
+    if body.mode is None and body.remote is None and body.work_site_id is None and body.work_site_ids is None:
         raise HTTPException(400, "Personal work locations were retired - mark the person remote, "
                                  "or leave them on-site to punch from any company location.")
-    if body.remote is not None:
+    if body.mode is not None:
+        emp.work_remote = _WORK_MODES[body.mode]
+    elif body.remote is not None:
         emp.work_remote = 1 if body.remote else 0
     if body.work_site_ids is not None or body.work_site_id is not None:
         ids = ([i.strip() for i in body.work_site_ids if (i or "").strip()] if body.work_site_ids is not None

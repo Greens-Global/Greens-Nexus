@@ -35,7 +35,7 @@ from database import get_db
 from auth import get_current_user, require_module_grant
 from models import (DocFolder, Document, DocumentVersion, DocTemplate, DocTemplateVersion,
                     DocLetterhead, HrSignRequest, HrSignParty, NexusEmployee)
-from services.merge_fields import (BUILTIN_VARIABLES, group_label, is_auto_token,
+from services.merge_fields import (BUILTIN_VARIABLES, builtin_when, group_label, is_auto_token,
                                    is_valid_token, resolve_merge_data, token_group)
 from services.doc_export import tiptap_to_blocks, render_pdf, render_docx
 from routers.hr import require_hr_read, _hr_notify
@@ -390,7 +390,7 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
         raise HTTPException(400, "title is required")
     _assert_folder_ok(db, body.folderId or "", user)
     now = _now_iso()
-    content = body.content if body.content is not None else {}
+    content = as_pages(body.content) if body.content is not None else {}
     letterhead_id = ""
     merge_overrides = {}
     tpl = None
@@ -681,9 +681,11 @@ def list_variables(user: dict = Depends(get_current_user), db: Session = Depends
     """
     seen = {}
     for token, label, group in BUILTIN_VARIABLES:
-        seen[token] = {"token": token, "label": label, "group": group,
+        seen[token] = {"token": token, "label": label, "group": group, "when": builtin_when(token, group),
                        "description": "", "source": "builtin", "usedBy": []}
-    for t in db.query(DocTemplate).filter(DocTemplate.status == "active").all():
+    # Drafts count too: two templates written side by side should agree on a
+    # shared field before either is activated.
+    for t in db.query(DocTemplate).filter(DocTemplate.status != "archived").all():
         # A template declares its variables two ways: typed fields the wizard
         # asks for, and plain default values set on the template itself.
         tokens = {str(fd.get("token") or ""): (str(fd.get("label") or ""), str(fd.get("description") or ""))
@@ -708,6 +710,15 @@ def list_variables(user: dict = Depends(get_current_user), db: Session = Depends
                     entry["description"] = description
             if t.name not in entry["usedBy"]:
                 entry["usedBy"].append(t.name)
+        # How each template defines its own fields, so another template using
+        # the same {{token}} can start from - and stay in step with - it.
+        for fd in (t.field_defs or []):
+            entry = seen.get(str((fd or {}).get("token") or "")) if isinstance(fd, dict) else None
+            if entry is not None and entry["source"] == "template":
+                entry.setdefault("defs", []).append({
+                    "templateId": t.id, "templateName": t.name, "type": fd.get("type") or "text",
+                    "source": fd.get("source") or "", "required": bool(fd.get("required")),
+                    "sensitive": bool(fd.get("sensitive"))})
     # Built-ins first, then the company's own groups alphabetically - a browser
     # opens on the variables that always resolve.
     order = {"Person": 0, "Company": 1, "Document": 2}
@@ -846,7 +857,7 @@ def create_template(body: TemplateIn, user: dict = Depends(get_current_user), db
     if category not in _TEMPLATE_CATEGORIES:
         raise HTTPException(400, f"category must be one of {_TEMPLATE_CATEGORIES}")
     now = _now_iso()
-    content = body.content if body.content is not None else {}
+    content = as_pages(body.content) if body.content is not None else {}
     row = DocTemplate(id=str(uuid.uuid4()), name=body.name.strip(), category=category,
                        tags=body.tags or [], content=content,
                        requires_letterhead=bool(body.requiresLetterhead), letterhead_id=body.letterheadId or "",
@@ -902,6 +913,16 @@ def _ul(*items) -> dict:
 # plain TipTap JSON dicts directly (no HTML/generateJSON - that's a frontend
 # @tiptap/core helper, not available server-side); the frontend's schema
 # normalizes any attrs left implicit, same as any hand-crafted TipTap doc.
+def as_pages(content):
+    """Documents and templates are stored as {pages: [{id, json}], header,
+    footer} - what the editor saves and the renderer reads. A bare TipTap doc
+    (an API caller, an import script) is wrapped instead of saved as-is: the
+    renderer skips it and the PDF comes out blank (Oct 23 walkthrough)."""
+    if isinstance(content, dict) and content.get("type") == "doc":
+        return {"pages": [{"id": str(uuid.uuid4()), "json": content}], "header": None, "footer": None}
+    return content
+
+
 def _offer_letter_content() -> dict:
     return {"type": "doc", "content": [
         _h("Offer of Employment"),
@@ -1311,7 +1332,7 @@ def update_template(tid: str, body: TemplateUpdate, user: dict = Depends(get_cur
             raise HTTPException(400, f"docType must be one of {', '.join(_TEMPLATE_TYPES)}")
         row.doc_type = body.docType
     if body.content is not None:
-        row.content = body.content
+        row.content = as_pages(body.content)
         row.version += 1
         db.add(DocTemplateVersion(id=str(uuid.uuid4()), template_id=row.id, version_no=row.version,
                                   content=body.content, edited_by=user["email"], edited_at=_now_iso(),
@@ -1853,7 +1874,7 @@ def update_document(did: str, body: DocumentUpdate, user: dict = Depends(get_cur
     if body.signRequestId is not None:
         row.sign_request_id = body.signRequestId
     if body.content is not None:
-        row.content = body.content
+        row.content = as_pages(body.content)
         row.current_version += 1
         db.add(DocumentVersion(id=str(uuid.uuid4()), document_id=row.id, version_no=row.current_version,
                                 content=body.content, edited_by=user["email"], edited_at=_now_iso(),

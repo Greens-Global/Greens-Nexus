@@ -70,6 +70,17 @@ describe('PublicIntake', () => {
       answers: { pan_number: 'ABCDE1234F' } });
   });
 
+  it('a promotion or separation page names its own documents', async () => {
+    page = { ...page, state: 'open', afterOffer: false, form: [], kind: 'promotion' };
+    const { unmount } = render(<PublicIntake token="tok" />);
+    await waitFor(() => expect(screen.getByText(/prepare your promotion letter/)).toBeTruthy());
+    expect(screen.queryByText(/hiring documents/)).toBeNull();
+    unmount();
+    page = { ...page, kind: 'separation' };
+    render(<PublicIntake token="tok" />);
+    await waitFor(() => expect(screen.getByText(/prepare your separation documents/)).toBeTruthy());
+  });
+
   it('says when the link has expired', async () => {
     page = { ...page, state: 'expired' };
     render(<PublicIntake token="tok" />);

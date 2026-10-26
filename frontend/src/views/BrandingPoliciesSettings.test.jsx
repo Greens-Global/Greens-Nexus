@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 
-// Settings > Global Settings > Branding & Policies: the category renders for
-// administrators only, each panel loads, and the sign-in policy editor saves
-// drafts without publishing and asks before publishing a new version.
+// Settings > Branding & Email (and Security, which holds the Sign-In Policy
+// since Oct 23): the subjects render for administrators only, each panel
+// loads, and the sign-in policy editor saves drafts without publishing and
+// asks before publishing a new version.
 
 const PUBLISHED = { title: 'Company Policies & Monitoring', body: '## Employee monitoring\nScreenshots while clocked in.', version: '2026-07-21', publishedAt: '', publishedBy: '' };
 const mockApi = {
@@ -48,24 +49,30 @@ const { SignInPolicyPanel, EmailAppearancePanel, BrandColorPanel } = await impor
 beforeEach(() => { Object.values(mockApi).forEach(f => f.mockClear()); });
 afterEach(() => { cleanup(); roleState.admin = true; });
 
-describe('Branding & Policies category', () => {
-  it('renders its three sections for administrators', () => {
+describe('Branding & Email subject', () => {
+  it('renders its groups for administrators, and the old global-branding link lands on it', () => {
     render(<AdminConsole activeSub="global-branding" onSubChange={() => {}} />);
-    expect(screen.getByRole('heading', { name: 'Branding & Policies' })).toBeInTheDocument();
-    for (const t of ['Brand Color', 'Email Appearance', 'Sign-In Policy']) expect(screen.getByText(t)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Branding & Email' })).toBeInTheDocument();
+    for (const t of ['Brand Color', 'Email Appearance', 'Email Signature']) expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
+    // The Sign-In Policy is a Security matter now.
+    expect(screen.queryByText('Sign-In Policy')).not.toBeInTheDocument();
+    cleanup();
+    render(<AdminConsole activeSub="security" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Sign-In Policy' })).toBeInTheDocument();
   });
 
   it('is hidden from non-administrators', () => {
     roleState.admin = false;
     render(<AdminConsole activeSub="global-branding" onSubChange={() => {}} />);
-    expect(screen.queryByRole('button', { name: /Branding & Policies/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Organization' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Branding & Email/ })).not.toBeInTheDocument();
+    // Falls back to the first subject this person may open (the registry
+    // gates, Oct 23): a manager with no People grant starts at the emails.
+    expect(screen.getByRole('heading', { name: 'Emails & Reminders' })).toBeInTheDocument();
   });
 
-  it('opens a section and loads its panel', async () => {
-    render(<AdminConsole activeSub="global-branding" onSubChange={() => {}} />);
-    fireEvent.click(screen.getByText('Brand Color'));
-    expect(await screen.findByRole('radio', { name: /Blue/ })).toBeInTheDocument();
+  it('loads its panels without a click', async () => {
+    render(<AdminConsole activeSub="branding" onSubChange={() => {}} />);
+    expect(await screen.findByRole('radio', { name: /Blue/ }, { timeout: 5000 })).toBeInTheDocument();
   });
 });
 

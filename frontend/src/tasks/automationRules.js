@@ -11,19 +11,27 @@ export const TRIGGER_TYPES = [
   { value: 'moved_to_project', label: 'When moved to a project', valueKind: 'project' },
   { value: 'completed_early', label: 'When completed before its due date', valueKind: 'none' },
   { value: 'due_date_arrives', label: 'When the due date arrives', valueKind: 'days' },
+  // Oct 22 2026 (the Monday recipes): value {fieldId, to} - to blank = any change.
+  { value: 'custom_field_changed', label: 'When a custom field changes', valueKind: 'field_change' },
+  { value: 'due_date_changed', label: 'When the due date changes', valueKind: 'none' },
 ];
 
 export const ACTION_TYPES = [
-  { value: 'set_status', label: 'Set status', valueKind: 'status' },
-  { value: 'set_priority', label: 'Set priority', valueKind: 'priority' },
-  { value: 'assign_to', label: 'Assign to', valueKind: 'person' },
-  { value: 'add_assignee', label: 'Add assignee', valueKind: 'person' },
-  { value: 'add_follower', label: 'Add collaborator', valueKind: 'person' },
-  { value: 'set_due_in_days', label: 'Set due date to N days from today', valueKind: 'days' },
-  { value: 'shift_due_days', label: 'Move due date by N days', valueKind: 'days' },
-  { value: 'add_tag', label: 'Add tag', valueKind: 'text' },
-  { value: 'add_comment', label: 'Add comment', valueKind: 'comment' },
-  { value: 'set_milestone', label: 'Mark as milestone', valueKind: 'none' },
+  { value: 'set_status', label: 'Set Status', valueKind: 'status' },
+  { value: 'set_priority', label: 'Set Priority', valueKind: 'priority' },
+  { value: 'assign_to', label: 'Assign To', valueKind: 'person' },
+  { value: 'add_assignee', label: 'Add Assignee', valueKind: 'person' },
+  { value: 'add_follower', label: 'Add Collaborator', valueKind: 'person' },
+  { value: 'set_due_in_days', label: 'Set Due Date to N Days From Today', valueKind: 'days' },
+  { value: 'shift_due_days', label: 'Move Due Date by N Days', valueKind: 'days' },
+  { value: 'add_tag', label: 'Add Tag', valueKind: 'text' },
+  { value: 'add_comment', label: 'Add Comment', valueKind: 'comment' },
+  { value: 'set_milestone', label: 'Mark as Milestone', valueKind: 'none' },
+  // Object-valued (Oct 22 2026) - see defaultActionValue for their shapes.
+  { value: 'create_task', label: 'Create Task', valueKind: 'create_task' },
+  { value: 'move_to_project', label: 'Move to Project', valueKind: 'move' },
+  { value: 'send_email', label: 'Send Email', valueKind: 'email' },
+  { value: 'set_custom_field', label: 'Set Custom Field', valueKind: 'field_set' },
 ];
 
 export const CONDITION_FIELDS = [
@@ -33,6 +41,8 @@ export const CONDITION_FIELDS = [
   { value: 'assignee', label: 'Assignee', valueKind: 'person' },
   { value: 'team', label: 'Team', valueKind: 'team' },
   { value: 'tag', label: 'Tag', valueKind: 'text' },
+  // Carries `fieldId` beside `value`.
+  { value: 'custom_field', label: 'Custom Field', valueKind: 'field_value' },
 ];
 
 export const CONDITION_OPS = [
@@ -40,35 +50,101 @@ export const CONDITION_OPS = [
   { value: 'is_not', label: 'is not' },
 ];
 
+// Who a Send Email action writes to. 'person' is the editor's choice for "a
+// specific person" - what is stored is that person's email.
+export const EMAIL_TO = [
+  { value: 'assignees', label: 'The Assignees', words: 'the assignees' },
+  { value: 'creator', label: 'The Creator', words: 'the creator' },
+  { value: 'followers', label: 'The Collaborators', words: 'the collaborators' },
+  { value: 'project_owner', label: 'The Project Owner', words: 'the project owner' },
+  { value: 'person', label: 'A Specific Person', words: '' },
+];
+const EMAIL_TO_KEYS = EMAIL_TO.filter((x) => x.value !== 'person').map((x) => x.value);
+
 export const MAX_CONDITIONS = 10;
 export const MAX_ACTIONS = 6;
+export const MAX_TITLE = 200;
+export const MAX_SUBJECT = 200;
+export const MAX_BODY = 5000;
 
-// Placeholders add_comment fills in server-side.
+// Placeholders the server fills in (comments, created task titles, emails).
 export const COMMENT_PLACEHOLDERS = ['{title}', '{assignee}', '{due}', '{priority}', '{status}', '{project}'];
+
+const OBJECT_ACTIONS = ['create_task', 'move_to_project', 'send_email', 'set_custom_field'];
 
 const blankRule = () => ({
   name: '', enabled: true,
   trigger: { type: 'status_changed', value: '' },
   conditions: [],
-  actions: [{ type: 'set_priority', value: 'high' }],
+  actions: [{ type: 'set_priority', value: 'high', key: 'a0' }],
 });
+
+// An object value is copied so editing the draft never writes through to the
+// rule the list is still showing.
+const copyValue = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? { ...v } : (v ?? ''));
 
 export function ruleDraft(rule) {
   if (!rule) return blankRule();
   return {
     name: rule.name || '',
     enabled: rule.enabled !== false,
-    trigger: { type: rule.trigger?.type || 'status_changed', value: rule.trigger?.value ?? '' },
-    conditions: (rule.conditions || []).map((c) => ({ field: c.field, op: c.op || 'is', value: c.value ?? '' })),
-    actions: (rule.actions || []).length
-      ? rule.actions.map((a) => ({ type: a.type, value: a.value ?? '' }))
-      : blankRule().actions,
+    trigger: { type: rule.trigger?.type || 'status_changed', value: copyValue(rule.trigger?.value) },
+    conditions: (rule.conditions || []).map((c) => ({
+      field: c.field, op: c.op || 'is', value: c.value ?? '',
+      ...(c.field === 'custom_field' ? { fieldId: c.fieldId || '' } : {}),
+    })),
+    actions: ((rule.actions || []).length ? rule.actions : blankRule().actions)
+      .map((a, i) => ({ type: a.type, value: copyValue(a.value), key: `a${i}` })),
   };
 }
 
-export const defaultActionValue = (type) => ({
-  set_status: 'in_progress', set_priority: 'high', set_due_in_days: 7, shift_due_days: 1,
-}[type] ?? '');
+// A stable id for an action row the editor adds (the editors keep local
+// state, so a row keyed by its index would inherit its neighbor's after a
+// removal). Never sent: rulePayload builds the body field by field.
+let actionSeq = 0;
+export const newActionKey = () => `n${Date.now().toString(36)}${(actionSeq += 1)}`;
+
+export const defaultTriggerValue = (type) => {
+  if (type === 'due_date_arrives') return 0;
+  if (type === 'custom_field_changed') return { fieldId: '', to: '' };
+  return '';
+};
+
+export const defaultActionValue = (type) => {
+  switch (type) {
+    case 'create_task': return { title: 'Follow up: {title}', projectId: '', asSubtask: false, assignee: '{assignee}', dueInDays: '', priority: '' };
+    case 'move_to_project': return { projectId: '', sectionId: '' };
+    case 'send_email': return { to: 'assignees', subject: '{title} - {status}', body: '' };
+    case 'set_custom_field': return { fieldId: '', value: '' };
+    default:
+      return { set_status: 'in_progress', set_priority: 'high', set_due_in_days: 7, shift_due_days: 1 }[type] ?? '';
+  }
+};
+
+const isWholeNumber = (v) => v !== '' && v !== null && v !== undefined && Number.isInteger(Number(v));
+const blank = (v) => !String(v ?? '').trim();
+
+function actionProblem(a) {
+  const v = a.value && typeof a.value === 'object' ? a.value : {};
+  if (a.type === 'create_task') {
+    if (blank(v.title)) return 'Give the new task a title.';
+    if (String(v.title).length > MAX_TITLE) return `The new task's title can be at most ${MAX_TITLE} characters.`;
+    if (!blank(v.dueInDays) && !isWholeNumber(v.dueInDays)) return 'Days must be a whole number.';
+    if (v.assignee && v.assignee !== '{assignee}' && !String(v.assignee).includes('@')) return 'Pick a person for the new task.';
+    return '';
+  }
+  if (a.type === 'move_to_project') return blank(v.projectId) ? 'Pick the project to move the task to.' : '';
+  if (a.type === 'send_email') {
+    if (!EMAIL_TO_KEYS.includes(v.to) && !String(v.to || '').includes('@')) return 'Pick who the email goes to.';
+    if (blank(v.subject)) return 'Give the email a subject.';
+    if (String(v.subject).length > MAX_SUBJECT) return `The subject can be at most ${MAX_SUBJECT} characters.`;
+    if (blank(v.body)) return 'Write the email message.';
+    if (String(v.body).length > MAX_BODY) return `The message can be at most ${MAX_BODY} characters.`;
+    return '';
+  }
+  if (a.type === 'set_custom_field') return blank(v.fieldId) ? 'Pick the custom field to set.' : '';
+  return '';
+}
 
 /** The first thing the editor refuses, as a sentence, or '' when the draft is saveable. */
 export function ruleProblem(draft) {
@@ -76,13 +152,22 @@ export function ruleProblem(draft) {
   if (draft.trigger.type === 'due_date_arrives' && !Number.isInteger(Number(draft.trigger.value || 0))) {
     return 'Days before or after the due date must be a whole number.';
   }
+  if (draft.trigger.type === 'custom_field_changed' && blank(draft.trigger.value?.fieldId)) {
+    return 'Pick the custom field the rule watches.';
+  }
   if (!draft.actions.length) return 'Add at least one action.';
   if (draft.actions.length > MAX_ACTIONS) return `At most ${MAX_ACTIONS} actions.`;
   if (draft.conditions.length > MAX_CONDITIONS) return `At most ${MAX_CONDITIONS} conditions.`;
   for (const c of draft.conditions) {
+    if (c.field === 'custom_field' && blank(c.fieldId)) return 'Pick a custom field for every custom field condition.';
     if (!String(c.value ?? '').trim()) return 'Every condition needs a value.';
   }
   for (const a of draft.actions) {
+    if (OBJECT_ACTIONS.includes(a.type)) {
+      const problem = actionProblem(a);
+      if (problem) return problem;
+      continue;
+    }
     const kind = ACTION_TYPES.find((x) => x.value === a.type)?.valueKind;
     if (kind === 'none') continue;
     if (kind === 'days') {
@@ -96,6 +181,43 @@ export function ruleProblem(draft) {
   return '';
 }
 
+/** The body the API takes for a draft (what RuleModal saves). */
+export function rulePayload(draft) {
+  const triggerDef = TRIGGER_TYPES.find((t) => t.value === draft.trigger.type) || TRIGGER_TYPES[0];
+  let triggerValue = draft.trigger.value;
+  if (triggerDef.valueKind === 'none') triggerValue = '';
+  else if (triggerDef.valueKind === 'field_change') {
+    triggerValue = { fieldId: draft.trigger.value?.fieldId || '', to: draft.trigger.value?.to ?? '' };
+  }
+  return {
+    name: draft.name.trim(),
+    enabled: draft.enabled,
+    trigger: { type: draft.trigger.type, value: triggerValue },
+    conditions: draft.conditions.map((c) => ({
+      field: c.field, op: c.op, value: c.value,
+      ...(c.field === 'custom_field' ? { fieldId: c.fieldId || '' } : {}),
+    })),
+    actions: draft.actions.map((a) => {
+      const kind = ACTION_TYPES.find((x) => x.value === a.type)?.valueKind;
+      const v = a.value && typeof a.value === 'object' ? a.value : {};
+      if (a.type === 'create_task') {
+        return { type: a.type, value: {
+          title: String(v.title || '').trim(),
+          projectId: v.asSubtask ? '' : (v.projectId || ''),
+          asSubtask: !!v.asSubtask,
+          assignee: v.assignee || '',
+          dueInDays: blank(v.dueInDays) ? '' : Number(v.dueInDays),
+          priority: v.priority || '',
+        } };
+      }
+      if (a.type === 'move_to_project') return { type: a.type, value: { projectId: v.projectId || '', sectionId: v.sectionId || '' } };
+      if (a.type === 'send_email') return { type: a.type, value: { to: v.to || '', subject: String(v.subject || '').trim(), body: v.body || '' } };
+      if (a.type === 'set_custom_field') return { type: a.type, value: { fieldId: v.fieldId || '', value: v.value ?? '' } };
+      return { type: a.type, value: kind === 'none' ? '' : kind === 'days' ? Number(a.value) : a.value };
+    }),
+  };
+}
+
 // Day offsets read as plain English: -2 -> "2 days before", 0 -> "on", 3 -> "3 days after".
 export function describeDays(value) {
   const n = Number(value || 0);
@@ -104,8 +226,16 @@ export function describeDays(value) {
   return `${abs} day${abs === 1 ? '' : 's'} ${n < 0 ? 'before' : 'after'} the due date`;
 }
 
+/** A custom field's options as [{id, label}] - older fields store plain strings. */
+export function fieldOptions(field) {
+  return (field?.options || []).map((o) => (typeof o === 'string'
+    ? { id: o, label: o }
+    : { id: o.id ?? o.label, label: o.label ?? o.id })).filter((o) => o.id);
+}
+
 /**
- * ctx: { statusLabel(id), projectName(id), teamName(id), personName(email), priorityLabel(key) }
+ * ctx: { statusLabel(id), projectName(id), teamName(id), personName(email), priorityLabel(key),
+ *        fieldName(id), fieldOptionLabel(fieldId, value), sectionName(id) }
  * Every lookup falls back to the raw value, so a deleted status or project
  * still reads rather than printing "undefined".
  */
@@ -119,6 +249,17 @@ function valueText(kind, value, ctx) {
   return String(v);
 }
 
+const fieldText = (fieldId, ctx) => ctx.fieldName?.(fieldId) || fieldId || 'a custom field';
+
+/** A custom field value in words: option labels, Checked / Unchecked, people's names. */
+export function fieldValueText(fieldId, value, ctx = {}) {
+  if (value === true || value === 'checked') return 'Checked';
+  if (value === false || value === 'unchecked') return 'Unchecked';
+  const v = String(value ?? '');
+  if (v.includes('@')) return ctx.personName?.(v) || v;
+  return ctx.fieldOptionLabel?.(fieldId, v) || v;
+}
+
 export function describeTrigger(trigger = {}, ctx = {}) {
   const t = TRIGGER_TYPES.find((x) => x.value === trigger.type);
   if (!t) return trigger.type || 'Trigger';
@@ -127,6 +268,13 @@ export function describeTrigger(trigger = {}, ctx = {}) {
   if (t.valueKind === 'days') {
     const d = describeDays(v);
     return d === 'on the due date' ? 'On the due date' : `When it is ${d}`;
+  }
+  if (t.valueKind === 'field_change') {
+    const field = fieldText(v?.fieldId, ctx);
+    const to = v?.to;
+    return to === '' || to === null || to === undefined
+      ? `When ${field} changes`
+      : `When ${field} changes to ${fieldValueText(v.fieldId, to, ctx)}`;
   }
   if (v === '' || v === null || v === undefined) {
     return { status_changed: 'When status changes', priority_changed: 'When priority changes',
@@ -141,13 +289,21 @@ export function describeCondition(c = {}, ctx = {}) {
   const op = CONDITION_OPS.find((x) => x.value === (c.op || 'is'))?.label || 'is';
   if (!f) return '';
   if (f.value === 'tag') return `tag ${op === 'is' ? 'includes' : 'does not include'} ${c.value}`;
+  if (f.value === 'custom_field') return `${fieldText(c.fieldId, ctx)} ${op} ${fieldValueText(c.fieldId, c.value, ctx)}`;
   return `${f.label.toLowerCase()} ${op} ${valueText(f.valueKind, c.value, ctx)}`;
+}
+
+function emailToText(to, ctx) {
+  const known = EMAIL_TO.find((x) => x.value === to && x.words);
+  if (known) return known.words;
+  return valueText('person', to, ctx) || 'nobody yet';
 }
 
 export function describeAction(a = {}, ctx = {}) {
   const t = ACTION_TYPES.find((x) => x.value === a.type);
   if (!t) return a.type || '';
   const v = a.value;
+  const o = v && typeof v === 'object' ? v : {};
   switch (t.value) {
     case 'set_status': return `set status to ${valueText('status', v, ctx)}`;
     case 'set_priority': return `set priority to ${valueText('priority', v, ctx)}`;
@@ -159,6 +315,22 @@ export function describeAction(a = {}, ctx = {}) {
     case 'add_tag': return `add tag ${v}`;
     case 'add_comment': return 'add a comment';
     case 'set_milestone': return 'mark as milestone';
+    case 'create_task': {
+      const where = o.asSubtask ? ' as a subtask' : o.projectId ? ` in ${valueText('project', o.projectId, ctx)}` : '';
+      const who = o.assignee === '{assignee}' ? ' for the same assignees'
+        : o.assignee ? ` for ${valueText('person', o.assignee, ctx)}` : '';
+      return `create task "${o.title || ''}"${where}${who}`;
+    }
+    case 'move_to_project': {
+      const section = o.sectionId ? ` (${ctx.sectionName?.(o.sectionId) || o.sectionId})` : '';
+      return `move to ${valueText('project', o.projectId, ctx)}${section}`;
+    }
+    case 'send_email': return `send an email to ${emailToText(o.to, ctx)}`;
+    case 'set_custom_field': {
+      const field = fieldText(o.fieldId, ctx);
+      return o.value === '' || o.value === null || o.value === undefined
+        ? `clear ${field}` : `set ${field} to ${fieldValueText(o.fieldId, o.value, ctx)}`;
+    }
     default: return t.label.toLowerCase();
   }
 }

@@ -1,10 +1,11 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
-import { InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
+import { InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import { SendHiringPacketModal, PacketSigner, PersonLifeEvents, PaperworkStatus, usDay } from '../components/HiringPacket';
 import PacketReview from '../components/PacketReview';
 import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
+import MailboxExportResult from '../components/MailboxExportResult';
 import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
@@ -14,9 +15,9 @@ import {
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Receipt, Landmark, Lock, Contact, Heart,
-  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
+  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw, ArrowLeftRight,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
-  ListChecks, RefreshCw, Video, Hourglass,
+  ListChecks, RefreshCw, Hourglass,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -58,7 +59,10 @@ import { googleMapsUrl } from '../lib/addressSearch';
 import WorkSiteFenceCheck from '../components/WorkSiteFenceCheck';
 import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
+import { PersonSelect } from '../tasks/components';
+import { US_STATE_NAMES } from '../lib/usStates';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
+import RecordsAudit from '../components/RecordsAudit';
 import { ApprovalDelegationsAdmin } from '../components/DelegateApprovals';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { PersonReimbursements } from '../components/Reimbursements';
@@ -104,6 +108,32 @@ const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'blo
 
 const AVATAR_HUES = ['215,75%,45%', '142,60%,35%', '30,80%,48%', '271,60%,48%', '350,65%,48%'];
 const fullName = e => [e.firstName, e.lastName].filter(Boolean).join(' ');
+// Rows for the Tasks people picker (PersonSelect) from employee records: name
+// and photo, keyed by the lowercased work email. pickRows is for a field that
+// saves the email; idPickRows for one that saves the employee id (anyone with
+// no work email yet is keyed by id, so they stay pickable).
+const pickRows = (list) => {
+  const seen = new Set();
+  return list.filter(e => {
+    const em = (e.workEmail || '').toLowerCase();
+    if (!em || seen.has(em)) return false;
+    seen.add(em);
+    return true;
+  }).map(e => ({ email: e.workEmail.toLowerCase(), name: fullName(e), external: isExternalPerson(e) }));
+};
+const idPickRows = (list) => {
+  const seen = new Set();
+  return list.map(e => {
+    let email = (e.workEmail || '').toLowerCase();
+    if (!email || seen.has(email)) email = `id:${e.id}`.toLowerCase();
+    seen.add(email);
+    return { id: e.id, email, name: fullName(e), external: isExternalPerson(e) };
+  });
+};
+// Directory rows ({ email, name }) for the same picker.
+const dirPickRows = (list) => list.filter(p => p.email).map(p => ({ email: p.email.toLowerCase(), name: p.name || p.email, external: !!p.external }));
+// A picker trigger the height and shape of the form's other boxes.
+const PICK_BOX = { height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13.5, fontWeight: 400 };
 // Backstop for a task handover with no named person and no supervisor on the
 // org chart - kept in step with task_projects.HANDOVER_FALLBACK_EMAIL, which
 // is what the server actually applies.
@@ -279,13 +309,13 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
       // profile "Saved"/M365 message.
       let wageWarn = '';
       // New hire + a chosen job role → set their access + tier now. Needs a work
-      // email; if not provisioned yet, prompt to set it later on the Access tab.
+      // email; if not provisioned yet, prompt to set it later on the Role tab.
       if (!editing && jobRoleId) {
         if (wemail) {
           try { await api.assignJobRole(jobRoleId, wemail); toastOk?.(`${fullName(saved)} added - job role & access assigned.`); }
-          catch (err) { toastErr(err?.message || 'Employee added, but the job role could not be assigned - set it on their Access tab.'); }
+          catch (err) { toastErr(err?.message || 'Employee added, but the job role could not be assigned - set it on their Role tab.'); }
         } else {
-          toastOk?.('Employee added - assign their job role from the Access tab once a work email is set.');
+          toastOk?.('Employee added - assign their job role from the Role tab once a work email is set.');
         }
       } else if (!editing && !saved.entra) {
         toastOk?.('Employee added.');   // plain add (no job role, no M365) had no confirmation before
@@ -388,37 +418,19 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={FL}>REPORTS TO</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.manager_email} onChange={e => set('manager_email', e.target.value)}>
-              <option value="">- no reporting line -</option>
-              {externalManagers.length ? (
-                <>
-                  <optgroup label="Nexus People">
-                    {managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
-                  </optgroup>
-                  <optgroup label="External Users">
-                    {externalManagers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)}{m.externalCompany ? ` - ${m.externalCompany}` : ''} ({m.workEmail})</option>)}
-                  </optgroup>
-                </>
-              ) : managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
-            </select>
+            <PersonSelect value={(f.manager_email || '').toLowerCase() || null} onChange={v => set('manager_email', v || '')}
+              people={pickRows([...managers, ...externalManagers])} placeholder="No reporting line" noneLabel="No Reporting Line"
+              ariaLabel="Reports To" style={PICK_BOX} />
           </div>
           {/* Backup Manager (Neil, Oct 13): covers this person when their manager
               is out, with the same rights over them. Blank = the default. */}
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={FL}>BACKUP MANAGER</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.backup_manager_email} onChange={e => set('backup_manager_email', e.target.value)}>
-              <option value="">Default - their manager's manager, or the company's HR contact</option>
-              {externalManagers.length ? (
-                <>
-                  <optgroup label="Nexus People">
-                    {managers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
-                  </optgroup>
-                  <optgroup label="External Users">
-                    {externalManagers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)}{m.externalCompany ? ` - ${m.externalCompany}` : ''} ({m.workEmail})</option>)}
-                  </optgroup>
-                </>
-              ) : managers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
-            </select>
+            <PersonSelect value={(f.backup_manager_email || '').toLowerCase() || null} onChange={v => set('backup_manager_email', v || '')}
+              people={pickRows([...managers, ...externalManagers].filter(m => m.workEmail.toLowerCase() !== (f.manager_email || '').toLowerCase()))}
+              placeholder="Default - their manager's manager, or the company's HR contact"
+              noneLabel="Use the Default"
+              ariaLabel="Backup Manager" style={PICK_BOX} />
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Has the same rights over this person as their manager - time sheets, punches, time off and approvals.</div>
           </div>
           {/* Office and contact info, kept in step with Microsoft 365 both ways
@@ -537,73 +549,6 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
 // ── Documents (Phase 3) - private bucket, viewed via short-lived signed URLs ──
 const DOC_KINDS = [['resume', 'Resume'], ['id', 'ID'], ['contract', 'Contract'], ['certificate', 'Certificate'], ['other', 'Other']];
 
-// Mailbox export - start a Graph-backed .eml zip and poll it to completion.
-function MailboxExportSection({ employee, toastOk, toastErr }) {
-  const [job, setJob] = useState(undefined);   // undefined = loading, null = none
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { api.getMailboxExport(employee.id).then(setJob).catch(() => setJob(null)); }, [employee.id]);
-  const active = job && (job.status === 'pending' || job.status === 'running');
-  useEffect(() => {
-    if (!active) return;
-    const t = setInterval(() => { api.getExportStatus(job.id).then(setJob).catch(() => {}); }, 3000);
-    return () => clearInterval(t);
-  }, [active, job?.id]);
-
-  if (!employee.m365Id) return null;   // export needs a linked M365 mailbox
-
-  async function start() {
-    if (busy) return; setBusy(true);
-    try { const j = await api.startMailboxExport(employee.id); setJob(j); toastOk('Mailbox export started - this can take a while for large mailboxes.'); }
-    catch (e) { toastErr(e?.message || 'Could not start export.'); }
-    setBusy(false);
-  }
-  async function download() {
-    try { const { url } = await api.getExportUrl(job.id); window.open(url, '_blank', 'noopener'); }
-    catch (e) { toastErr(e?.message || 'Could not get download link.'); }
-  }
-
-  const pct = active && job?.total > 0 ? Math.min(100, Math.round((job.count / job.total) * 100)) : null;
-  const status = job === undefined ? '' :
-    !job ? 'No export yet.' :
-    job.status === 'done' ? `Ready · ${job.message} · ${formatDate((job.updatedAt || '').slice(0, 10))}` :
-    job.status === 'error' ? `Failed · ${job.message}` :
-    job.total > 0 ? `Exporting… ${job.count} of ${job.total} messages (${pct}%)` :
-    job.count > 0 ? `Exporting… ${job.count} messages so far` :
-    'Starting… counting the mailbox';
-
-  return (
-    <div style={{ marginTop: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
-          <Mail size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Mailbox export
-        </span>
-        {job?.status === 'done' && (
-          <button className="secondary-btn" onClick={download} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
-            <FileText size={12} /> Download .zip
-          </button>
-        )}
-        <button className="secondary-btn" onClick={start} disabled={busy || active}
-          style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
-          {(busy || active) ? <Spinner size={12} /> : <History size={12} />} {job?.status === 'done' ? 'Re-export' : 'Export emails'}
-        </button>
-      </div>
-      <div style={{ fontSize: 12.5, color: job?.status === 'error' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
-        {status}{status && ' '}
-        {job?.status === 'error' && /Mail\.Read/i.test(job.message || '') && <em>Grant the Mail.Read app permission in Entra, then re-export.</em>}
-      </div>
-      {active && (
-        <div style={{ marginTop: 8, height: 6, borderRadius: 6, background: 'var(--line)', overflow: 'hidden' }}>
-          <div style={{
-            height: '100%', borderRadius: 6, background: 'hsl(var(--color-green))',
-            width: pct !== null ? `${pct}%` : '15%',
-            transition: 'width .4s ease',
-          }} />
-        </div>
-      )}
-    </div>
-  );
-}
-
 // Live read of what a person holds in Item Management (Section B5). No data is
 // stored here - Items stays the single source of truth; this deep-links into it.
 function AssetsSection({ employee }) {
@@ -660,11 +605,12 @@ function AssetsSection({ employee }) {
 // specific location. We're tagging them to our locations.") This replaced the
 // per-person geofence, where an admin pinned one person to one spot and radius.
 // Every punch still records where it was made, so a doubtful one can be looked
-// at on the map - "that's on us, that's not on him."
+// at on the map - "that's on us, that's not on him." Hybrid (Neil, Oct 22
+// 2026) is both: remote allowed, plus the usual locations they go to.
 function GeofenceSection({ employee, toastOk, toastErr }) {
   const { canAccessModule, hrTeam } = useRole();
   const canEdit = !hrTeam && canAccessModule('hr', 'manager', 'editor');   // a team view is read only
-  const [data, setData] = useState(null);        // { geofence: {remote,setBy,setAt}, lastPunchLocation, workSites }
+  const [data, setData] = useState(null);        // { geofence: {mode,remote,setBy,setAt}, lastPunchLocation, workSites }
   const [busy, setBusy] = useState(false);
 
   const load = () => api.getGeofence(employee.id)
@@ -673,7 +619,8 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
   useEffect(() => { setData(null); load(); }, [employee.id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const gf = data?.geofence || {};
-  const remote = !!gf.remote;
+  // Older payloads carry only remote; Hybrid (Neil, Oct 22) came with mode.
+  const mode = gf.mode || (gf.remote ? 'remote' : 'onsite');
   const lp = data?.lastPunchLocation || null;
   const sites = data?.workSites || [];
   // Allowed sites (Charmi, Sep 29): several, any of them is on-site; none
@@ -695,21 +642,27 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
   const toggleSite = (sid) => saveSites(allowed.includes(sid) ? allowed.filter(x => x !== sid) : [...allowed, sid]);
 
   const choose = async (next) => {
-    if (busy || !canEdit || next === remote) return;
+    if (busy || !canEdit || next === mode) return;
     setBusy(true);
     try {
-      const r = await api.setGeofence(employee.id, { remote: next });
+      const r = await api.setGeofence(employee.id, { mode: next });
       setData(d => ({ ...(d || {}), geofence: r }));
-      toastOk(next ? `${firstName} is now remote - punches from anywhere are accepted.` : `${firstName} is now on-site - punches are expected at a company location.`);
+      toastOk({
+        remote: `${firstName} is now remote - punches from anywhere are accepted.`,
+        hybrid: `${firstName} is now hybrid - punches at a company location count there, anywhere else counts as remote.`,
+        onsite: `${firstName} is now on-site - punches are expected at a company location.`,
+      }[next]);
     } catch (e) { toastErr(e?.message || 'Could not save the work mode.'); }
     finally { setBusy(false); }
   };
 
   const OPTIONS = [
-    { value: false, icon: Building2, title: 'On-Site',
+    { value: 'onsite', icon: Building2, title: 'On-Site',
       body: 'Punches are expected at any company location. A punch made somewhere else is still recorded, and flagged for the manager to review.' },
-    { value: true, icon: Globe, title: 'Remote',
+    { value: 'remote', icon: Globe, title: 'Remote',
       body: 'May punch from anywhere - home, a coffee shop, another city. Nothing is flagged. At a company location, the punch still counts toward that location.' },
+    { value: 'hybrid', icon: ArrowLeftRight, title: 'Hybrid',
+      body: 'Works from their usual locations some days and remotely on others; punches away from a site count as remote.' },
   ];
 
   return (
@@ -721,12 +674,12 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
       {!data ? <SkeletonBlocks count={3} height={40} /> : (
         <>
           <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
-            Nobody is tied to a single address. A person either works remote, or works from our locations - any of them.
+            Nobody is tied to a single address. A person works remote, works from our locations - any of them - or is hybrid and does both.
           </div>
 
-          <div role="radiogroup" aria-label="Work mode" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }} className="acc-grid">
+          <div role="radiogroup" aria-label="Work mode" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 14 }} className="acc-grid">
             {OPTIONS.map(o => {
-              const on = remote === o.value;
+              const on = mode === o.value;
               const Icon = o.icon;
               return (
                 <button key={o.title} type="button" role="radio" aria-checked={on} disabled={!canEdit || busy} onClick={() => choose(o.value)}
@@ -751,14 +704,14 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
             </div>
           )}
 
-          {!remote && (
+          {mode !== 'remote' && (
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
               <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>{firstName}'s Usual Locations</div>
               {sites.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--muted)', marginBottom: 10, flexWrap: 'wrap' }}>
                   <span>
                     {allowed.length
-                      ? `${allowed.length === 1 ? 'This is' : `These ${allowed.length} locations are`} ${firstName}'s usual location${allowed.length === 1 ? '' : 's'} and win where two locations overlap. A punch at any company location counts as on-site; outside all of them is Out of Location.`
+                      ? `${allowed.length === 1 ? 'This is' : `These ${allowed.length} locations are`} ${firstName}'s usual location${allowed.length === 1 ? '' : 's'} and win where two locations overlap. A punch at any company location counts as on-site; outside all of them is ${mode === 'hybrid' ? 'Remote' : 'Out of Location'}.`
                       : 'Any company location counts as on-site. Click locations to mark the usual ones - they only matter where two locations overlap.'}
                   </span>
                   {allowed.length > 0 && canEdit && (
@@ -1158,7 +1111,7 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
   useEffect(() => {
     let live = true;
     api.getCompensation(employee.id)
-      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [], payroll: r.payroll || {}, rateHistory: r.rateHistory || [], gstin: r.gstin || '' }); } })
+      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [], payroll: r.payroll || {}, rateHistory: r.rateHistory || [], gstin: r.gstin || '', pan: r.pan || '' }); } })
       .catch(e => {
         // Compensation/bank require a fresh step-up MFA - show the Verify gate.
         if (isStepUpRequired(e)) { if (live) setStepLocked(true); return; }
@@ -1260,6 +1213,7 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
           {!readOnly && (data.bank.length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
             : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · '))))}
+          {!readOnly && data.pan && row2('pan', 'PAN', maskId(data.pan))}
           {!readOnly && data.gstin && row2('gstin', 'GSTIN', maskId(data.gstin))}
 
           {sectionLabel('Paystubs')}
@@ -1459,6 +1413,13 @@ function EmployeeAccess({ email, identityType = 'internal', companyId = '', toas
 
   return (
     <div>
+      {/* The same access, with everyone else's beside it (Oct 23). */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button type="button" className="secondary-btn" style={{ fontSize: 12 }}
+          onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'access' } }))}>
+          Open in Settings
+        </button>
+      </div>
       <div className="acc-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <div style={_accBox}>
           <div style={_accLabel}>Job role</div>
@@ -1735,6 +1696,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const { canAccessModule: canAccessHr, myEmail: viewerEmail } = useRole();
   const canEditChecklist = canAccessHr('hr', 'administrator', 'editor');
   const canEditProfile = canAccessHr('hr', 'manager', 'editor');
+  // Promote / Change Role: HR editors outside a team view, IT Admins and
+  // Global Admins only (Neil, Oct 22 - "Manager calls HR"); the server's
+  // role_change.can_change_roles is the same rule.
+  const canChangeRole = !teamView && canAccessHr('hr', 'administrator', 'editor');
   const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
   const [restoreBusy, setRestoreBusy] = useState(false);
   // Nexus-only removal - separate from offboarding (which deprovisions M365).
@@ -1774,30 +1739,31 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value || '-'}</span>
     </div>
   );
-  // A manager looking at their team (Oct 6) gets five tabs, read only - plus
-  // Pay & Benefits, read only, for their DIRECT reports (Oct 7).
+  // A manager looking at their team (Oct 6) gets a short read-only strip -
+  // plus Pay & Benefits and Reimbursements for their DIRECT reports (Oct 7).
+  // Order and the Access -> Role label are Neil's (Oct 22 2026); the key stays
+  // 'access' so jumps into it keep working.
   const directReport = teamView && !!mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase();
   const tabs = (teamView ? [
     ['overview', 'Overview', Contact],
+    ['access', 'Role', Shield],
     directReport && ['pay', 'Pay & Benefits', Wallet],
-    directReport && ['expenses', 'Expenses', Receipt],
+    directReport && ['expenses', 'Reimbursements', Receipt],
     ['assets', 'Assets', Briefcase],
     ['location', 'Work Mode', MapPinned],
-    ['access', 'Access', Shield],
     ['bod', 'Work Logs', Clock],
   ] : [
     ['overview', 'Overview', Contact],
+    // Everyone in People sees Role (Pranshu, Oct 14): the pending role
+    // change and the role history; managing access stays admin-only.
+    ['access', 'Role', Shield],
     canSeeComp && ['pay', 'Pay & Benefits', Wallet],
-    ['expenses', 'Expenses', Receipt],
+    ['expenses', 'Reimbursements', Receipt],
     ['compliance', 'Compliance', ShieldCheck],
     ['assets', 'Assets', Briefcase],
     ['location', 'Work Mode', MapPinned],
     ['documents', 'Documents', FileText],
-    ['interviews', 'Interviews', Video],
     ['checklist', 'Checklist', ListChecks],
-    // Everyone in People sees Access (Pranshu, Oct 14): the pending role
-    // change and the role history; managing access stays admin-only.
-    ['access', 'Access', Shield],
     ['bod', 'Work Logs', Clock],
   ]).filter(Boolean);
   const expiry = nextExpiry(e);
@@ -1866,6 +1832,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         </button>
         {canEditProfile && !teamView && ['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' && (
           <>
+            {canChangeRole && (<>
             <button className="secondary-btn" onClick={() => setRoleAction('promotion')}
               title="Promotion letter through Nexus Sign - new role, pay and date; the employee and their manager sign"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
@@ -1876,6 +1843,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               <Shield size={13} /> Change Role
             </button>
+            </>)}
             <button className="secondary-btn" onClick={() => setOffboardOpen(true)}
               title="Last day, the separation package through Nexus Sign, and everything that happens when they leave"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', borderColor: 'hsla(var(--color-red),0.35)' }}>
@@ -1936,8 +1904,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           nothing was deleted. Their Microsoft 365 account was never changed.
         </div>
       )}
-      {!teamView && <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} />}
-      {!teamView && <PersonLifeEvents employeeId={e.id} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />}
+      {!teamView && <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} pendingOnly />}
+      {!teamView && <PersonLifeEvents employeeId={e.id} workEmail={e.workEmail} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />}
       {roleAction === 'choose' && <RoleChangeModal employee={e} toastErr={toastErr}
         onClose={() => setRoleAction(null)} onPromote={() => setRoleAction('promotion')}
         onChanged={res => {
@@ -1961,7 +1929,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           if (ev.applyStatus === 'applied') onEmployeeUpdated?.({ ...e, status: 'offboarded' });
           else onReload?.();
           const m = ev.result?.m365 || {};
-          const extra = [m.signIn && `sign-in ${m.signIn}`, m.licenses && `license ${m.licenses}`, m.error && `M365 issue: ${m.error}`].filter(Boolean).join(', ');
+          const extra = [m.signIn && `sign-in ${m.signIn}`, m.licenses && `license ${m.licenses}`, m.export && 'mailbox export started - download it from the Documents tab once it is ready', m.error && `M365 issue: ${m.error}`].filter(Boolean).join(', ');
           toastOk(ev.applyStatus === 'applied'
             ? `${e.firstName} is offboarded${extra ? ` - ${extra}` : ''}.`
             : `Offboarding scheduled - last day ${usDay(ev.effectiveDate)}, Nexus marks them Left the morning after.`);
@@ -2102,8 +2070,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
-        {/* Role change awaiting approval (Pranshu, Oct 13): the manager or HR
-            approves here, or from the bell / email. */}
+        {/* A role change request from before Oct 22 still waiting: HR decides
+            or cancels it here, or from the bell / email. */}
         {tab === 'access' && <RoleChangeRequestCard employeeId={e.id} refreshKey={requestsKey}
           toastOk={toastOk} toastErr={toastErr} onDecided={() => { setRequestsKey(n => n + 1); onReload?.(); }} />}
         {tab === 'access' && teamView && <TeamAccessView employee={e} />}
@@ -2120,10 +2088,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'checklist' && <ChecklistSection employee={e} canEdit={canEditChecklist && !isRemoved} myEmail={viewerEmail} toastOk={toastOk} toastErr={toastErr} />}
 
-        {tab === 'interviews' && <EmployeeInterviews employeeId={e.id} toastErr={toastErr} />}
-
         {tab === 'documents' && (
           <>
+            {/* Signed offer / packet / letters, one line each with their filing (off the header - Neil, Oct 22). */}
+            {!teamView && <PersonLifeEvents signed employeeId={e.id} workEmail={e.workEmail} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />}
             <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
             {/* The person's wired Egnyte folder (Neil, Aug 6): hiring package,
                 invoices, payment proofs live in Egnyte, not as Nexus uploads.
@@ -2134,7 +2102,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                 <EgnytePersonFolder email={e.workEmail} personName={fullName(e)} />
               </div>
             )}
-            <MailboxExportSection employee={e} toastOk={toastOk} toastErr={toastErr} />
+            {/* Started only from Offboard / Change Status; here is just the result. */}
+            <MailboxExportResult employeeId={e.id} toastErr={toastErr} />
           </>
         )}
       </div>
@@ -2345,7 +2314,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           {/* Neil, Oct 14: the questionnaires and the documents are settings -
               set up in Settings > Hiring, never edited on the board. */}
           <button className="secondary-btn"
-            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'global-hiring' } }))}
+            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'hiring' } }))}
             title={needPackets.length ? `${needPackets.map(r => r.name).join(', ')} - added while hiring, no hiring documents yet` : 'Hiring documents and interview questionnaires, in Settings'}
             style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6,
               ...(needPackets.length ? { borderColor: '#b45309', color: '#b45309', background: 'rgba(180,83,9,0.08)', fontWeight: 700 } : {}) }}>
@@ -2648,12 +2617,11 @@ function OrgSidePanel({ e, people, externals = [], entities, entityName, descend
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '6px 22px 18px' }}>
           <label style={lbl}>Reports to</label>
-          <select className="form-input" style={{ width: '100%' }} value={f.manager_email}
-            onChange={ev => setF(x => ({ ...x, manager_email: ev.target.value }))}>
-            <option value="">- No manager (top of a tree) -</option>
-            {managerOptions.map(p => <option key={p.id} value={(p.workEmail || '').toLowerCase()}>{fullName(p)}{p.jobTitle ? ` - ${p.jobTitle}` : ''}{isExternalPerson(p) ? ' (External)' : ''}</option>)}
-            {offChartManager && <option value={f.manager_email}>{fullName(offChartManager)}{offChartManager.jobTitle ? ` - ${offChartManager.jobTitle}` : ''} (External, not shown on the chart)</option>}
-          </select>
+          <PersonSelect value={(f.manager_email || '').toLowerCase() || null}
+            onChange={v => setF(x => ({ ...x, manager_email: v || '' }))}
+            people={pickRows(offChartManager ? [...managerOptions, offChartManager] : managerOptions)}
+            placeholder="No manager (top of a tree)" noneLabel="No Manager (Top of a Tree)"
+            ariaLabel="Reports To" style={PICK_BOX} />
 
           <label style={lbl}>Job title</label>
           <input className="form-input" style={{ width: '100%' }} value={f.job_title} onChange={ev => setF(x => ({ ...x, job_title: ev.target.value }))} />
@@ -3179,6 +3147,7 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
   }
   const dirty = !!(f.employee_id || f.start_date || f.end_date || f.reason.trim() || f.days !== 1);
   const guard = useUnsavedGuard(dirty, onClose, canSave ? save : undefined);
+  const pickable = idPickRows(employees.filter(e => e.status !== 'offboarded'));
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
@@ -3189,10 +3158,9 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: 'auto auto auto 1fr', gap: 14 }}>
           <div style={{ gridColumn: '1 / -1' }}><label style={FL}>EMPLOYEE *</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.employee_id} onChange={e => set('employee_id', e.target.value)}>
-              <option value="">- pick a person -</option>
-              {employees.filter(e => e.status !== 'offboarded').map(e => <option key={e.id} value={e.id}>{fullName(e)} ({e.employeeCode})</option>)}
-            </select></div>
+            <PersonSelect value={pickable.find(p => p.id === f.employee_id)?.email || null}
+              onChange={v => set('employee_id', pickable.find(p => p.email === v)?.id || '')}
+              people={pickable} placeholder="Pick a person" allowNone={false} ariaLabel="Employee" style={PICK_BOX} /></div>
           <div><label style={FL}>TYPE</label>
             <select className="form-input" style={{ width: '100%' }} value={f.leave_type} onChange={e => set('leave_type', e.target.value)}>
               {LEAVE_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -3488,11 +3456,14 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
     catch (e) { toastErr(e?.message || 'Could not add department.'); }
     setBusy(false);
   }
-  async function setDeptHead(d, email) {
+  // Head AND backup (Neil, Oct 22: "there's usually a number one and a number
+  // two"). HR / IT / Accounting checklist steps go to both.
+  async function setDeptPerson(d, field, email) {
+    const what = field === 'lead_email' ? 'head' : 'backup';
     try {
-      setDepts(await api.updateCompanyDepartment(entity.id, d.id, { lead_email: email }));
-      toastOk?.(email ? `${nameOf(email)} is now the head of ${d.name}.` : `${d.name} has no department head now.`);
-    } catch (e) { toastErr(e?.message || 'Could not set the department head.'); }
+      setDepts(await api.updateCompanyDepartment(entity.id, d.id, { [field]: email }));
+      toastOk?.(email ? `${nameOf(email)} is now the ${what} of ${d.name}.` : `${d.name} has no ${what} now.`);
+    } catch (e) { toastErr(e?.message || `Could not set the ${what}.`); }
   }
   const headPicker = (value, onPick, onClear, label) => value ? (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, fontSize: 12.5 }}>
@@ -3502,7 +3473,7 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
         <X size={12} />
       </button>
     </span>
-  ) : <PersonSearchSelect placeholder="Department head (optional)" groups={[{ label: 'Nexus People', people }]} onPick={onPick} />;
+  ) : <PersonSearchSelect placeholder={label.startsWith('backup') ? 'Backup (optional)' : 'Department head (optional)'} groups={[{ label: 'Nexus People', people }]} onPick={onPick} />;
   async function remove(d) {
     if (!await dialog.confirm(
       `Delete the "${d.name}" department? Anyone currently assigned to it will be left with no department - you can reassign them on their profile.`,
@@ -3526,6 +3497,7 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
       <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px' }}>
         Departments for <strong>{entity.name}</strong>. These are the only choices when picking a department for someone in this company.
         The department head is the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Contact Directory.
+        The head and the backup both get the HR, IT and Accounting steps of every checklist, so set a backup for anyone who can be out.
       </p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <input className="form-input" style={{ flex: '1 1 180px' }} placeholder="e.g. Estimating" value={name}
@@ -3540,11 +3512,9 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
         : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet - add the first one above.</div>
         : (
           <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) 32px', gap: 10, padding: '8px 12px', background: 'var(--paper)', borderBottom: '1px solid var(--line)', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
-              <span>Department</span><span>Department Head</span><span />
-            </div>
             {depts.map(d => (
-              <div key={d.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) 32px', gap: 10, padding: '8px 12px', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
+              <div key={d.id} style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', padding: '10px 12px', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
+                <div style={{ flex: '1 1 160px', minWidth: 0 }}>
                 {editId === d.id ? (
                   <input className="form-input" autoFocus value={editName} maxLength={40}
                     onChange={e => setEditName(e.target.value)}
@@ -3552,7 +3522,7 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
                     onBlur={() => { if (cancelRef.current) { cancelRef.current = false; return; } rename(d); }}
                     style={{ fontSize: 13, padding: '4px 8px' }} />
                 ) : (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
                     <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
                     <button onClick={() => { setEditId(d.id); setEditName(d.name); }} title={`Rename ${d.name}`} aria-label={`Rename ${d.name}`}
                       style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', padding: 0, flexShrink: 0 }}
@@ -3562,7 +3532,13 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
                     </button>
                   </span>
                 )}
-                <div style={{ minWidth: 0 }}>{headPicker(d.leadEmail, (email) => setDeptHead(d, email), () => setDeptHead(d, ''), `head of ${d.name}`)}</div>
+                </div>
+                {[['lead_email', 'Head', d.leadEmail, `head of ${d.name}`], ['backup_email', 'Backup', d.backupEmail, `backup for ${d.name}`]].map(([field, cap, value, label]) => (
+                  <div key={field} style={{ flex: '1 1 170px', minWidth: 0, display: 'grid', gap: 2 }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>{cap}</span>
+                    {headPicker(value, (email) => setDeptPerson(d, field, email), () => setDeptPerson(d, field, ''), label)}
+                  </div>
+                ))}
                 <button onClick={() => remove(d)} title={`Remove ${d.name}`} aria-label={`Remove ${d.name}`}
                   style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: '50%', padding: 0 }}
                   onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
@@ -3594,17 +3570,27 @@ const COMPANY_TABS = [
 ];
 const COMPANY_ROLES_TAB = { key: 'roles', label: 'Roles' };
 
-export function CompanySetupPage({ entities, employees = [], sites = [], onChangedEntities, onChangedSites, toastOk, toastErr }) {
+// Settings merged into one tab (Neil, Oct 23 2026): `entityId` opens the page
+// on that company (the shell's scope picker chose it, so no Back button and
+// no title of its own), `tabs` limits it to the tabs the shell's subject
+// asked for (Profile / Departments / Holiday Calendar under Companies, the
+// sites under Locations, Roles under People & Access...), `onOpen` is what
+// the list's Edit does instead of opening in place, and `onDirtyChange`
+// tells the shell the Overview form has unsaved edits.
+export function CompanySetupPage({ entities, employees = [], sites = [], onChangedEntities, onChangedSites, toastOk, toastErr,
+  entityId = '', tabs = null, onOpen, onDirtyChange }) {
   // linkedin_url is deliberately NOT in this form state (Sep 18: removed from
   // the UI) - omitting the key means an update PATCH never sends it, so
   // Pydantic's exclude_unset leaves whatever a company already has in the DB
   // untouched (still rendered in signatures); this form just stops offering
   // a way to view/set it.
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', invoice_recipients: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
+  const blank = { name: '', legal_name: '', country: '', region: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', invoice_recipients: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const { can } = useRole();
-  const companyTabs = can('administrator') ? [...COMPANY_TABS, COMPANY_ROLES_TAB] : COMPANY_TABS;
+  const allTabs = can('administrator') ? [...COMPANY_TABS, COMPANY_ROLES_TAB] : COMPANY_TABS;
+  const companyTabs = tabs ? allTabs.filter(t => tabs.includes(t.key)) : allTabs;
+  const firstTab = companyTabs[0]?.key || 'overview';
   const [f, setF] = useState(blank);
   const [busy, setBusy] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
@@ -3647,15 +3633,22 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
       const hit = COUNTRIES.find(c => en.mainPhone.startsWith(c.dial + ' '));
       if (hit) { phoneCountry = hit.code; phoneNumber = en.mainPhone.slice(hit.dial.length + 1); }
     }
-    const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '',
+    const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', region: en.region || '', tax_id: en.taxId || '',
       physical_address: en.physicalAddress || '', mailing_address: en.mailingAddress || '',
       signatory: en.signatory || '', signatory_email: en.signatoryEmail || '', notes: en.notes || '', domains: en.domains || '',
       manager_emails: en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []),
       hr_contact_email: en.hrContactEmail || '',
       invoice_recipients: (en.invoiceRecipients || []).join(', '),
       logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
-    setF(seeded); formSnapshotRef.current = seeded; setTab('overview'); setMode(en.id);
+    setF(seeded); formSnapshotRef.current = seeded; setTab(firstTab); setMode(en.id);
   };
+  // Opened on a company by the shell: follow it (and a later switch of the
+  // scope picker); a refresh of the same company keeps the form as it is.
+  useEffect(() => {
+    if (!entityId) return;
+    const en = entities.find(e => e.id === entityId);
+    if (en && mode !== entityId) startEdit(en);
+  }, [entityId, entities]); // eslint-disable-line react-hooks/exhaustive-deps
   async function uploadLogo(file) {
     if (!file || mode === 'new') return;   // logo needs a saved company id - save first
     setLogoBusy(true);
@@ -3712,23 +3705,34 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   // Only the Overview tab's form carries unsaved state - Departments/Work
   // Sites/Holidays manage and save their own rows independently as you go.
   const dirty = !!mode && tab === 'overview' && JSON.stringify(f) !== JSON.stringify(formSnapshotRef.current);
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   const backToList = () => setMode(null);
   const guard = useUnsavedGuard(dirty, backToList, f.name.trim() ? save : undefined);
+  const opened = !!entityId && mode === entityId;   // the shell picked the company
+
+  if (entityId && !opened) {
+    return entities.length
+      ? <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
+      : <SkeletonBlocks count={4} height={56} borderRadius={10} />;
+  }
 
   if (mode) {
     return (
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-          <button onClick={guard.requestClose} className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px' }}>
-            <ChevronLeft size={14} /> Back
-          </button>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Building2 size={17} color="hsl(var(--color-blue))" />
+        {!opened && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <button onClick={guard.requestClose} className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px' }}>
+              <ChevronLeft size={14} /> Back
+            </button>
+            <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Building2 size={17} color="hsl(var(--color-blue))" />
+            </div>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{mode === 'new' ? 'Add Company' : editingEntity?.name || 'Edit Company'}</h3>
           </div>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{mode === 'new' ? 'Add Company' : editingEntity?.name || 'Edit Company'}</h3>
-        </div>
+        )}
 
-        {mode !== 'new' && <ModuleTabs tabs={companyTabs} active={tab} onChange={setTab} inline />}
+        {mode !== 'new' && companyTabs.length > 1 && <ModuleTabs tabs={companyTabs} active={tab} onChange={setTab} inline />}
 
         {(mode === 'new' || tab === 'overview') && (
           <>
@@ -3738,11 +3742,22 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 {field('LEGAL NAME', 'legal_name', { placeholder: 'full registered name' })}
                 <div>
                   <label style={FL}>COUNTRY</label>
-                  <select className="form-input" style={{ width: '100%' }} value={f.country} onChange={e => set('country', e.target.value)}>
+                  <select className="form-input" style={{ width: '100%' }} value={f.country} onChange={e => { set('country', e.target.value); if (e.target.value !== 'US') set('region', ''); }}>
                     <option value="">-</option>
                     {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
                   </select>
                 </div>
+                {/* Where its people work (Neil, Oct 22): picks the hiring paperwork - California, Texas... */}
+                {f.country === 'US' && (
+                  <div>
+                    <label style={FL}>STATE</label>
+                    <select className="form-input" style={{ width: '100%' }} value={f.region || ''} onChange={e => set('region', e.target.value)}>
+                      <option value="">-</option>
+                      {Object.entries(US_STATE_NAMES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+                    </select>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Picks the hiring documents its new hires get.</div>
+                  </div>
+                )}
                 {field('TAX ID (EIN / GSTIN)', 'tax_id')}
                 {field('AUTHORIZED SIGNATORY', 'signatory', { placeholder: 'name, title' })}
                 {/* Who signs when an HR packet's signing order says Authorized
@@ -3750,11 +3765,9 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                     ({{signatory}}); this is the person who actually signs. */}
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>AUTHORIZED SIGNATORY (PERSON)</label>
-                  <select className="form-input" style={{ width: '100%' }} value={f.signatory_email || ''}
-                    onChange={e => set('signatory_email', e.target.value)}>
-                    <option value="">- not set -</option>
-                    {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
-                  </select>
+                  <PersonSelect value={(f.signatory_email || '').toLowerCase() || null} onChange={v => set('signatory_email', v || '')}
+                    people={dirPickRows(people)} placeholder="Not set" noneLabel="Not Set"
+                    ariaLabel="Authorized Signatory (Person)" style={PICK_BOX} />
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs HR packets for the company when a packet's signing order says Authorized Signatory.</div>
                   {f.signatory_email && f.signatory.trim() && personName(f.signatory_email)
                     && !f.signatory.toLowerCase().includes((personName(f.signatory_email).split(' ')[0] || '').toLowerCase()) && (
@@ -3791,11 +3804,9 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                     payroll (timesheet review + Nexus Sign, Sep 2026). */}
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>HR CONTACT</label>
-                  <select className="form-input" style={{ width: '100%' }} value={f.hr_contact_email || ''}
-                    onChange={e => set('hr_contact_email', e.target.value)}>
-                    <option value="">- not set -</option>
-                    {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
-                  </select>
+                  <PersonSelect value={(f.hr_contact_email || '').toLowerCase() || null} onChange={v => set('hr_contact_email', v || '')}
+                    people={dirPickRows(people)} placeholder="Not set" noneLabel="Not Set"
+                    ariaLabel="HR Contact" style={PICK_BOX} />
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's time sheet after the employee and manager, and finalizes it for payroll.</div>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
@@ -3899,7 +3910,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
         )}
         {mode !== 'new' && tab === 'checklists' && (
           editingEntity
-            ? <ChecklistSettings entityId={editingEntity.id} entities={entities} toastOk={toastOk} toastErr={toastErr} />
+            ? <ChecklistSettings entityId={editingEntity.id} entities={entities} onOpenDepartments={() => setTab('departments')} toastOk={toastOk} toastErr={toastErr} embedded={tabs != null} />
             : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
         )}
         {mode !== 'new' && tab === 'roles' && can('administrator') && (
@@ -3926,10 +3937,12 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
           <div style={{ fontSize: 13, fontWeight: 700 }}>Group Manager</div>
           <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Oversees every company - the escalation step above each company's manager.</div>
         </div>
-        <select className="form-input" disabled={groupMgrBusy} value={groupMgr} onChange={e => saveGroupMgr(e.target.value)} style={{ width: 220, fontSize: 12.5, flexShrink: 0 }}>
-          <option value="">- not set -</option>
-          {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
-        </select>
+        <div style={{ width: 220, flexShrink: 0 }}>
+          <PersonSelect disabled={groupMgrBusy} value={(groupMgr || '').toLowerCase() || null}
+            onChange={v => { if ((v || '') !== (groupMgr || '').toLowerCase()) saveGroupMgr(v || ''); }}
+            people={dirPickRows(people)} placeholder="Not set" noneLabel="Not Set"
+            ariaLabel="Group Manager" style={{ ...PICK_BOX, fontSize: 12.5 }} />
+        </div>
       </div>
       {entities.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)' }}>
@@ -3946,7 +3959,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, mgrNames && `Manager${mgrEmails.length > 1 ? 's' : ''} ${mgrNames}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '-'}</div>
           </div>
-          <button className="secondary-btn" onClick={() => startEdit(en)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
+          <button className="secondary-btn" onClick={() => (onOpen ? onOpen(en.id) : startEdit(en))} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
           <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
         </div>
         );
@@ -5073,7 +5086,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
       if (m?.sessions) bits.push(`M365 sessions ${m.sessions}`);
       if (m?.nexusSessions) bits.push(`logged out of Nexus on ${m.nexusSessions} device${m.nexusSessions === 1 ? '' : 's'}`);
       if (m?.licenses) bits.push(`license ${m.licenses}`);
-      if (m?.export) bits.push('mailbox export started');
+      if (m?.export) bits.push('mailbox export started - download it from the Documents tab once it is ready');
       if (m?.error) bits.push(`M365 issue: ${m.error}`);
       const it = saved.items;
       const ho = saved.handover;
@@ -5122,11 +5135,11 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
         {trustees.length === 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>No one selected yet.</span>}
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
-        <select className="form-input" style={{ flex: 1 }} value={pick} onChange={e => setPick(e.target.value)}>
-          <option value="">- add a colleague -</option>
-          {colleagues.filter(c => !trustees.includes((c.workEmail || '').toLowerCase()))
-            .map(c => <option key={c.id} value={(c.workEmail || '').toLowerCase()}>{fullName(c)} ({c.workEmail})</option>)}
-        </select>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <PersonSelect value={pick || null} onChange={v => setPick(v || '')}
+            people={pickRows(colleagues.filter(c => !trustees.includes((c.workEmail || '').toLowerCase())))}
+            placeholder="Add a colleague" allowNone={false} ariaLabel="Add a Colleague" style={PICK_BOX} />
+        </div>
         <button className="secondary-btn" onClick={addTrustee} disabled={!pick} style={{ padding: '6px 12px' }}>Add</button>
       </div>
       {psScript && (
@@ -5472,6 +5485,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   const [comp, setComp] = useState(COMP_DEFAULTS);
   const [bank, setBank] = useState([]);
   const [gstin, setGstin] = useState('');   // India GST number, printed on a contractor's invoices (Oct 21)
+  const [pan, setPan] = useState('');       // PAN (India) - the same one as on Compliance; printed on invoices (Oct 23)
   const [payroll, setPayroll] = useState({});   // what the timecard currently uses (read-only context)
   const [ownPayLocked, setOwnPayLocked] = useState(false);   // your own record: another admin or HR sets your pay (Oct 20)
   const [loading, setLoading] = useState(true);
@@ -5493,8 +5507,8 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
         if (nextComp.overtimeRule === undefined || nextComp.overtimeRule === null) nextComp.overtimeRule = '';
         if (!(r.compensation || {}).fullDayHours && pr.fullDayHours) nextComp.fullDayHours = String(pr.fullDayHours);
         const nextBank = r.bank || [];
-        setComp(nextComp); setBank(nextBank); setGstin(r.gstin || ''); setPayroll(pr); setOwnPayLocked(!!r.ownPayLocked);
-        baselineRef.current = { comp: nextComp, bank: nextBank, gstin: r.gstin || '' };
+        setComp(nextComp); setBank(nextBank); setGstin(r.gstin || ''); setPan(r.pan || ''); setPayroll(pr); setOwnPayLocked(!!r.ownPayLocked);
+        baselineRef.current = { comp: nextComp, bank: nextBank, gstin: r.gstin || '', pan: r.pan || '' };
       })
       .catch(e => toastErr(e?.message || 'Could not load compensation.'))
       .finally(() => live && setLoading(false));
@@ -5517,13 +5531,14 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
     try {
       const clean = { ...comp }; delete clean.history;   // server owns history
       // GSTIN rides on the same PUT (the server keeps it beside the bank list).
-      await api.saveCompensation(employee.id, { compensation: clean, bank, gstin });
+      await api.saveCompensation(employee.id, { compensation: clean, bank, gstin, pan });
       toastOk('Compensation saved.'); onClose();
     } catch (e) { toastErr(e?.message || 'Could not save compensation.'); setBusy(false); }
   }
   const money = (v, cur) => v ? `${moneyPrefix(cur)}${Number(v).toLocaleString()}` : '-';
   const gstinBad = !!gstin && !GSTIN_RE.test(gstin);
-  const dirty = JSON.stringify({ comp, bank, gstin }) !== JSON.stringify(baselineRef.current);
+  const panBad = !!pan && !PAN_RE.test(pan);
+  const dirty = JSON.stringify({ comp, bank, gstin, pan }) !== JSON.stringify(baselineRef.current);
   const guard = useUnsavedGuard(dirty, onClose, save);
 
   return (
@@ -5631,7 +5646,16 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
               </div>
             ))}
             <button className="secondary-btn" onClick={addBank} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add Bank Account</button>
-            <div style={{ marginTop: 14, maxWidth: 360 }}>
+            <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, maxWidth: 560 }}>
+            <div>
+              <label style={FL} htmlFor="comp-pan">PAN</label>
+              <input id="comp-pan" className="form-input" style={{ width: '100%', textTransform: 'uppercase', borderColor: panBad ? 'hsl(var(--color-red))' : undefined }} value={pan} maxLength={10}
+                onChange={e => setPan(e.target.value.toUpperCase().replace(/\s/g, ''))} placeholder="e.g. ABCDE1234F" aria-invalid={panBad} />
+              <div style={{ fontSize: 10.5, color: panBad ? 'hsl(var(--color-red))' : 'var(--muted)', marginTop: 4 }}>
+                {panBad ? 'Not a valid PAN - 5 letters, 4 digits and a letter, like ABCDE1234F.' : "The same PAN as on Compliance. Printed on the person's invoices."}
+              </div>
+            </div>
+            <div>
               <label style={FL} htmlFor="comp-gstin">GSTIN</label>
               <input id="comp-gstin" className="form-input" style={{ width: '100%', textTransform: 'uppercase', borderColor: gstinBad ? 'hsl(var(--color-red))' : undefined }} value={gstin} maxLength={15}
                 onChange={e => setGstin(e.target.value.toUpperCase().replace(/\s/g, ''))} placeholder="e.g. 27ABCDE1234F1Z5" aria-invalid={gstinBad} />
@@ -5639,12 +5663,13 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
                 {gstinBad ? 'Not a valid GSTIN - 15 characters, like 27ABCDE1234F1Z5.' : "Printed on the person's invoices when set."}
               </div>
             </div>
+            </div>
           </div>
         )}
 
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy || loading || gstinBad} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || loading || gstinBad) ? 0.6 : 1 }}>
+          <button className="primary-btn" onClick={save} disabled={busy || loading || gstinBad || panBad} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || loading || gstinBad || panBad) ? 0.6 : 1 }}>
             {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
           </button>
         </div>
@@ -5707,7 +5732,7 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Every location, entered once. Pick the companies whose people punch in at each one - here, or from a company's Locations tab in Company Settings.</p>
+        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Every location, entered once. Pick the companies whose people punch in at each one - here, or under Locations with the company picked.</p>
         <div style={{ position: 'relative' }}>
           <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
           <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search locations" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
@@ -6396,7 +6421,7 @@ export default function HR({ activeSub, onSubChange }) {
       {sub === 'hr-checklists' && (
         <>
           <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', marginBottom: 14 }}>
-            Steps are set up in Settings: Company Settings &gt; Checklists for each company, Global Settings &gt; Hiring &gt; Checklist Library for the standard ones, and Team &gt; Role Checklists for a role&apos;s own steps.
+            Steps are set up in Settings &gt; Hiring &amp; Onboarding: the Checklist Library for the standard ones, each company&apos;s Checklists with that company picked, and Team &gt; Role Checklists for a role&apos;s own steps.
           </div>
           <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
         </>
@@ -6404,6 +6429,7 @@ export default function HR({ activeSub, onSubChange }) {
 
       {sub === 'hr-people' && (<>
         {!hrTeam && <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />}
+        {!hrTeam && <RecordsAudit entityName={entityName} refreshKey={employees} onOpen={id => { setOpenTab('documents'); setSelectedId(id); }} />}
         {/* Stat cards - headcount composition, status breakdown, department
             spread (real data, designed zero/loading states) */}
         <PeopleStatCards employees={employees} externals={extEmployees} loading={loading} isMobile={isMobile}

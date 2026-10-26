@@ -16,6 +16,7 @@ import CreateTaskModal from './CreateTaskModal';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { formatDate } from '../lib/datetime';
 import DueBadge from './DueBadge';
+import { todayISO } from './lib';
 
 // Two of these are relative to the VIEWER, not the person being looked at:
 // "what did I give them" and "where do we overlap" are the questions you open
@@ -56,7 +57,7 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
 
   const person = data?.person;
   const identity = IDENTITY_META[person?.identityType];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const allRows = data?.tasks?.[tab] || [];
   // The rollup cards count the ASSIGNED bucket specifically (backend
   // person_profile) - clicking one jumps there too, so the number clicked
@@ -190,7 +191,7 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
                   Nothing here.
                 </div>
               ) : [...openRows, ...(doneOpen ? doneRows : [])].map((t) => {
-                const overdue = !t.completed && t.dueOn && t.dueOn < new Date().toISOString().slice(0, 10);
+                const overdue = !t.completed && t.dueOn && t.dueOn < todayISO();
                 return (
                   <div key={t.id} onClick={() => setOpenId(t.id)} className="stack-table-row nx-row-hover"
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer' }}>

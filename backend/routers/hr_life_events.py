@@ -1,6 +1,7 @@
 """HR life events API - packet settings per company, the hiring packet send,
 and the event list each person/candidate shows. The engine is
 hr_life_events.py; this file is permissions and shapes only."""
+import json
 import re
 import uuid
 from datetime import datetime, timezone
@@ -79,23 +80,47 @@ def _clean_role_ids(db: Session, entity_id: str, role_ids) -> list:
     return list(dict.fromkeys(want))
 
 
-def _roles_taken(db: Session, row: HrPacketSetting) -> None:
-    """A job role has one packet per event per company - two would make the
-    send a coin toss."""
-    from models import NexusGroup
-    mine = set(row.role_ids or [])
-    if not mine:
+def _place_taken(db: Session, row: HrPacketSetting) -> None:
+    """One packet per place and kind of hire per company (Neil, Oct 22): two
+    "California - Employee" packets would make the send a coin toss. A role's
+    own packet is the exception _roles_taken guards."""
+    if row.role_ids:
         return
     for other in (db.query(HrPacketSetting)
                   .filter(HrPacketSetting.entity_id == (row.entity_id or ""), HrPacketSetting.event == row.event,
                           HrPacketSetting.id != row.id).all()):
+        if (not (other.role_ids or []) and (other.country or "") == (row.country or "")
+                and (other.region or "") == (row.region or "")
+                and (other.worker_type or "any") == (row.worker_type or "any")):
+            raise HTTPException(400, f'"{other.name or "Another packet"}" already covers '
+                                     f'{hle.place_label(row.worker_type, row.country, row.region)} - '
+                                     f'change that one, or pick another place or kind of hire.')
+
+
+def _roles_taken(db: Session, row: HrPacketSetting) -> None:
+    """A job role has one packet per event per company - two would make the
+    send a coin toss. The same role for another kind of hire (employee vs
+    contractor) or another country is not a clash - resolve_setting tells
+    them apart (Neil, Oct 22: copy a packet, then change who it is for)."""
+    from models import NexusGroup
+    mine = set(row.role_ids or [])
+    if not mine:
+        return
+    wt, country = row.worker_type or "any", (row.country or "").upper()
+    for other in (db.query(HrPacketSetting)
+                  .filter(HrPacketSetting.entity_id == (row.entity_id or ""), HrPacketSetting.event == row.event,
+                          HrPacketSetting.id != row.id).all()):
+        oc = (other.country or "").upper()
+        if (other.worker_type or "any") != wt or (country and oc and oc != country):
+            continue
         clash = mine & set(other.role_ids or [])
         if clash:
             g = db.query(NexusGroup).filter(NexusGroup.id == sorted(clash)[0]).first()
             tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == other.template_id).first()
             label = other.name or (tpl.name if tpl else "") or "unnamed"
             raise HTTPException(400, f"{g.name if g else 'That role'} already has a packet "
-                                     f"({label}) - remove it there first.")
+                                     f"({label}) for the same hires - change the company, role, Hired As "
+                                     f"or Works In, or remove that packet first.")
 
 
 def _setting_in_scope(entity_id: str, scope, write: bool) -> None:
@@ -111,11 +136,89 @@ def _setting_in_scope(entity_id: str, scope, write: bool) -> None:
         raise HTTPException(404, "Company not found")
 
 
+_NOT_HIRED_KEY = "hr_not_hired:"     # + company id -> ["employee"] / ["contractor"]
+
+
+def _not_hired(db: Session, entity_id: str) -> list:
+    """The kinds of hire a company never makes (GGCon hires contractors only) -
+    What Each Hire Gets stops calling their missing paperwork a gap."""
+    from models import NexusSetting
+    row = db.query(NexusSetting).filter(NexusSetting.key == _NOT_HIRED_KEY + entity_id).first()
+    try:
+        val = json.loads(row.value) if row and row.value else []
+    except ValueError:
+        val = []
+    return [v for v in val if v in ("employee", "contractor")] if isinstance(val, list) else []
+
+
+class NotHiredIn(BaseModel):
+    entity_id: str
+    worker_type: str
+    hired: bool
+
+
+@router.put("/packets/coverage/hired")
+def set_hired(body: NotHiredIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Say a company does (or does not) hire employees / contractors."""
+    from models import NexusSetting
+    if body.worker_type not in ("employee", "contractor"):
+        raise HTTPException(400, "Employee or contractor")
+    scope = hr_scope(user, db)
+    if (scope is not None and body.entity_id not in scope) or not db.query(HrEntity).filter(HrEntity.id == body.entity_id).first():
+        raise HTTPException(404, "Company not found")
+    cur = set(_not_hired(db, body.entity_id))
+    cur.discard(body.worker_type) if body.hired else cur.add(body.worker_type)
+    key = _NOT_HIRED_KEY + body.entity_id
+    row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
+    if row is None:
+        row = NexusSetting(key=key)
+        db.add(row)
+    row.value, row.updated_by, row.updated_at = json.dumps(sorted(cur)), user["email"], _now()
+    db.commit()
+    return {"entityId": body.entity_id, "notHired": sorted(cur)}
+
+
+@router.get("/packets/coverage")
+def packet_coverage(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """What each hire gets, company by company (Neil, Oct 22: "let's see what
+    is missing" before a hire is stuck). For every company and kind of hire,
+    the offer letter, hiring packet, promotion letter and separation package
+    Nexus would send to someone working at the company's own place - asked of
+    the same resolve_setting a real hire uses, so this screen can never say
+    something the send would not do. Plus every offer letter / hiring packet
+    that names no place (it would reach any country)."""
+    scope = hr_scope(user, db)
+    ents = [e for e in db.query(HrEntity).order_by(HrEntity.name).all() if scope is None or e.id in scope]
+    events = ("offer", "hire", "promotion", "separation")
+
+    def cell(s):
+        if s is None:
+            return None
+        return {"id": s.id, "name": s.name or "Unnamed", "entityId": s.entity_id or "", "country": s.country or "",
+                "region": s.region or "", "place": hle.place_label(s.worker_type, s.country, s.region),
+                "roleOnly": bool(s.role_ids), "engine": s.engine or "pdf"}
+
+    companies = []
+    for e in ents:
+        country, region = hle.country_of(db, e.id), hle.region_of(db, e.id)
+        not_hired = _not_hired(db, e.id)
+        rows = []
+        for wt in ("employee", "contractor"):
+            rows.append({"workerType": wt, "notHired": wt in not_hired, **{ev: cell(hle.resolve_setting(
+                db, e.id, ev, wt, "", country, documents_only=(ev == "hire"), region=region)) for ev in events}})
+        companies.append({"id": e.id, "name": e.name, "country": country, "region": region, "rows": rows})
+    unplaced = [{"id": s.id, "name": s.name or "Unnamed", "event": s.event, "entityId": s.entity_id or ""}
+                for s in db.query(HrPacketSetting).filter(HrPacketSetting.event.in_(("offer", "hire"))).all()
+                if not (s.country or "") and (scope is None or not s.entity_id or s.entity_id in scope)]
+    return {"companies": companies, "unplaced": unplaced}
+
+
 @router.get("/packets")
 def list_packets(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     scope = hr_scope(user, db)
     rows = db.query(HrPacketSetting).all()
-    rows = [r for r in rows if scope is None or not r.entity_id or r.entity_id in scope]
+    # A row the retired Hiring Setup archived stays out of use and out of the list.
+    rows = [r for r in rows if not (r.archived_at or "") and (scope is None or not r.entity_id or r.entity_id in scope)]
     tpls = (db.query(HrSignTemplate).filter(HrSignTemplate.status == "active")
             .order_by(HrSignTemplate.name).all())
     tpls = [t for t in tpls if scope is None or not t.entity_id or t.entity_id in scope]
@@ -221,6 +324,7 @@ def save_packet(body: PacketSettingIn, user: dict = Depends(require_hr_write), d
         db.rollback()
         raise HTTPException(400, problems[0])
     _roles_taken(db, row)
+    _place_taken(db, row)
     db.commit()
     return hle.ser_setting(db, row)
 
@@ -260,8 +364,9 @@ def save_whole_packet(body: PacketIn, user: dict = Depends(require_hr_write), db
     tpl.attachments = _clean_attachments([dict(a) for a in (body.attachments or []) if isinstance(a, dict)])
     tpl.updated_at = now
     db.flush()
-    # The person signs as the LAST signer for a hire or separation (the
-    # company signs at send); a promotion letter's employee signs first.
+    # Which role is the person: 'employee', else the template's last role for a
+    # hire or separation, its first for a promotion. Whatever the template's
+    # order, the person signs FIRST (hle._parties_for, Neil, Oct 22 2026).
     subject = ("employee" if any(r["key"] == "employee" for r in signers)
                else (signers[0]["key"] if body.event == "promotion" else signers[-1]["key"]))
     setting = PacketSettingIn(id=row.id if row is not None else "", entity_id=entity_id, event=body.event,
@@ -307,6 +412,7 @@ class DocumentsPacketIn(BaseModel):
     egnyte_subfolder: Optional[str] = ""
     details_form:     Optional[list] = None        # the packet's own Details Form (hiring packets)
     country:          Optional[str] = ""           # where the person works: US, IN ... ('' = any)
+    region:           Optional[str] = ""           # the state inside it: CA, TX ... ('' = anywhere in the country)
     extra_docs:       Optional[list] = None        # documents for a team or role: [{match, value, templateIds}]
 
 
@@ -344,8 +450,17 @@ def save_documents_packet(body: DocumentsPacketIn, user: dict = Depends(require_
     row.entity_id, row.event, row.engine = entity_id, body.event, "documents"
     row.worker_type = (body.worker_type or "any").strip()
     row.country = re.sub(r"[^A-Za-z]", "", body.country or "").upper()[:2]
+    row.region = re.sub(r"[^A-Za-z]", "", body.region or "").upper()[:3] if row.country else ""
+    # A hiring packet is legal paperwork for a place (Neil, Oct 22) - it says
+    # where it applies, so a California hire can never get India's packet.
+    if body.event == "hire" and not row.country:
+        db.rollback()
+        raise HTTPException(400, "Pick where this packet's hires work (Works In) - hiring paperwork is "
+                                 "different in each country and state.")
     row.name = name
     row.role_ids = _clean_role_ids(db, entity_id, body.role_ids)
+    row.worker_type = row.worker_type or "any"
+    _place_taken(db, row)      # the place is the first thing to get right - before its documents
     row.doc_template_ids = list(dict.fromkeys(str(t).strip() for t in (body.doc_template_ids or []) if str(t).strip()))
     row.flow = hpd.clean_flow(body.flow)
     row.subject_role = next((s["key"] for s in row.flow if s["role"] == hpd.SUBJECT_ROLE), "employee")
@@ -377,6 +492,7 @@ def save_documents_packet(body: DocumentsPacketIn, user: dict = Depends(require_
         db.rollback()
         raise HTTPException(400, problems[0])
     _roles_taken(db, row)
+    _place_taken(db, row)
     db.commit()
     return hle.ser_setting(db, row)
 
@@ -440,6 +556,29 @@ def _once_holder_or_403(db: Session, setting: HrPacketSetting, step_key: str, en
     if not s["email"] or s["email"] != (email or "").lower():
         raise HTTPException(403, f"Only {s['name'] or 'the person who holds ' + s['roleLabel']} "
                                  f"({s['roleLabel']}) can sign this packet once.")
+
+
+class IntakePreviewIn(BaseModel):
+    doc_template_ids: Optional[list] = None
+    extra_docs:       Optional[list] = None      # [{templateIds}] - the team / role documents
+    details_form:     Optional[list] = None
+    entity_id:        Optional[str] = None       # the packet's company - its roles' own documents
+    role_ids:         Optional[list] = None      # the packet's roles, when it is for some only
+
+
+@router.post("/packets/intake-preview")
+def packet_intake_preview(body: IntakePreviewIn, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """What The New Hire Will Be Asked, for the packet editor's unsaved
+    state - computed by the intake page's own rules. Nothing is saved."""
+    ids = [str(t) for t in (body.doc_template_ids or [])]
+    for r in body.extra_docs or []:
+        if isinstance(r, dict):
+            ids += [str(t) for t in (r.get("templateIds") or [])]
+    try:
+        return hpd.intake_preview(db, ids, body.details_form or [], entity_id=body.entity_id or "",
+                                  role_ids=[str(r) for r in (body.role_ids or []) if r])
+    except hpd.PacketProblem as e:
+        raise HTTPException(400, str(e))
 
 
 @router.get("/packets/{sid}/readiness")
@@ -545,13 +684,14 @@ def packet_render_preview(body: PreviewDocIn, user: dict = Depends(require_hr_wr
     if setting is None:
         setting = HrPacketSetting(entity_id=entity_id, event="hire", letterhead_id=body.letterhead_id or "",
                                   flow=hpd.clean_flow(body.flow or []), pay_mode="")
+    snap = hpd.signed_snaps(setting, [snap])[0]          # an offer prints no company signature
     entity = db.query(HrEntity).filter(HrEntity.id == entity_id).first() if entity_id else None
     import hr_checklists as hc
     ctx = {"entity": entity, "owners": hc.role_owners(db, entity_id), "sender": user["email"],
            "subject_email": "jane.doe@example.com", "subject_name": "Jane Doe", "subject_kind": "external",
            "manager_email": ""}
     parties, remap, _problems = hpd.build_parties(db, setting, ctx)
-    values = {**_SAMPLE, **hpd.signer_values(parties, remap)}
+    values = {**_SAMPLE, **hpd.unsigned_names(db, setting, ctx), **hpd.signer_values(parties, remap)}
     merge = hpd.full_merge(db, snap, entity_id=entity_id, overrides=values)
     for t in snap.tokens:
         if hpd.is_pay_token(t, snap.defs) and t not in merge:
@@ -713,17 +853,17 @@ def start_hiring_packet(cid: str, body: StartPacketIn, background: BackgroundTas
 
 @router.get("/candidates/{cid}/offer/options")
 def offer_options(cid: str, worker_type: str = "", country: str = "", role_id: str = "", packet_id: str = "",
-                  new_role: str = "", department: str = "",
+                  new_role: str = "", department: str = "", region: str = "",
                   user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """The Move To Offer form: which offer letter this hire gets (by employee
-    or contractor, and where they work), the hiring packet that follows it,
-    and every question either asks of HR."""
+    or contractor, and where they work - country and state), the hiring packet
+    that follows it, and every question either asks of HR."""
     try:
         cand = hle._load_candidate(db, cid, hr_scope(user, db))
     except hle.PacketError as e:
         _raise(e)
     return hle.offer_options(db, cand, worker_type, country, role_id, packet_id,
-                             new_role=new_role in ("1", "true"), department=department)
+                             new_role=new_role in ("1", "true"), department=department, region=region)
 
 
 class OfferIn(BaseModel):
@@ -1016,10 +1156,8 @@ def start_promotion_letter(eid: str, body: StartLetterIn, user: dict = Depends(r
 
 
 class RoleChangeIn(BaseModel):
-    role_id:     str
-    reason:      Optional[str] = ""
-    employee_id: Optional[str] = ""
-    email:       Optional[str] = ""     # Settings > Access knows the person by email
+    role_id: str
+    reason:  Optional[str] = ""   # required - change_now says so
 
 
 class RoleDecisionIn(BaseModel):
@@ -1029,14 +1167,6 @@ class RoleDecisionIn(BaseModel):
 def _rc_raise(db: Session, e: rc.RoleChangeError):
     db.rollback()
     raise HTTPException(e.status, str(e))
-
-
-def _hr_editor(user: dict, db: Session) -> bool:
-    try:
-        require_hr_write(user=user, db=db)
-        return True
-    except HTTPException:
-        return False
 
 
 def _hr_reader(user: dict, db: Session, company: str = None) -> bool:
@@ -1065,10 +1195,13 @@ def _rc_employee(db: Session, user: dict, employee_id: str = "", email: str = ""
 @router.post("/employees/{eid}/role")
 def change_role_now(eid: str, body: RoleChangeIn, user: dict = Depends(require_hr_write),
                     db: Session = Depends(get_db)):
-    """People > Change Role > Role Change Without Promotion (Pranshu, Oct 14):
-    HR changes the role directly - no approval. The reason is optional and
-    kept in the audit row. A promotion goes through /promotion."""
-    emp = _rc_employee(db, user, eid)
+    """Change Role > Role Change Without Promotion, from People or Settings >
+    Access (Neil, Oct 22): HR editors (not team-limited), IT Admins and Global
+    Admins change the role directly - no approval - with a REQUIRED reason,
+    kept in the audit row role history reads. Settings > Access knows the
+    person by work email, so `eid` may be that. A promotion goes through
+    /promotion."""
+    emp = _rc_employee(db, user, email=eid) if "@" in eid else _rc_employee(db, user, eid)
     try:
         jr, warning = rc.change_now(db, user, emp, body.role_id, body.reason or "")
     except rc.RoleChangeError as e:
@@ -1078,19 +1211,11 @@ def change_role_now(eid: str, body: RoleChangeIn, user: dict = Depends(require_h
 
 
 @router.post("/role-change-requests")
-def request_role_change(body: RoleChangeIn, background: BackgroundTasks,
-                        user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """Settings > Access > Change Role (Pranshu, Oct 13): asks the employee's
-    manager and HR - the role changes only when one of them approves
-    (role_change.py). From People, HR changes it directly (/employees/{eid}/role)."""
-    emp = _rc_employee(db, user, body.employee_id or "", body.email or "")
-    try:
-        req, warning, emails = rc.request_change(db, user, emp, body.role_id, body.reason or "")
-    except rc.RoleChangeError as e:
-        _rc_raise(db, e)
-    db.commit()
-    background.add_task(rc.send_emails, emails)
-    return {**rc.ser(db, req, user["email"], True), "warning": warning}
+def request_role_change(user: dict = Depends(get_current_user)):
+    """Gone (Neil, Oct 22): a role change no longer asks anyone - whoever may
+    change it does, with a reason (/employees/{eid}/role). Requests already
+    pending can still be approved, declined or canceled below."""
+    raise HTTPException(410, "Role changes no longer need approval - HR changes the role directly with a reason.")
 
 
 @router.get("/role-change-requests")
@@ -1105,7 +1230,7 @@ def list_role_change_requests(employee_id: str = "", email: str = "", user: dict
         q = q.filter(HrRoleChangeRequest.employee_id == employee_id)
     elif email:
         q = q.filter(HrRoleChangeRequest.employee_email == email.strip().lower())
-    editor = _hr_editor(user, db)
+    editor = rc.can_change_roles(db, user)
     # A team-limited manager (Oct 6 rule) is not an HR-wide reader here: they
     # get the requests they may decide or asked for, which is their own team.
     team_only = hr_team_limited(user)
@@ -1133,7 +1258,7 @@ def get_role_change_request(rid: str, user: dict = Depends(get_current_user), db
     req = db.query(HrRoleChangeRequest).filter(HrRoleChangeRequest.id == rid).first()
     if not req or not rc.can_see(db, req, user["email"], _hr_reader(user, db, req.company)):
         raise HTTPException(404, "Role change request not found")
-    return rc.ser(db, req, user["email"], _hr_editor(user, db))
+    return rc.ser(db, req, user["email"], rc.can_change_roles(db, user))
 
 
 def _decide(rid: str, approve: bool, note: str, background: BackgroundTasks, user: dict, db: Session):
@@ -1143,13 +1268,13 @@ def _decide(rid: str, approve: bool, note: str, background: BackgroundTasks, use
         _rc_raise(db, e)
     db.commit()
     background.add_task(rc.send_emails, emails)
-    return rc.ser(db, req, user["email"], _hr_editor(user, db))
+    return rc.ser(db, req, user["email"], rc.can_change_roles(db, user))
 
 
 @router.post("/role-change-requests/{rid}/approve")
 def approve_role_change(rid: str, background: BackgroundTasks, user: dict = Depends(get_current_user),
                         db: Session = Depends(get_db)):
-    """The employee's manager or HR contact - the role changes now."""
+    """A request from before Oct 22: HR, an IT Admin or a Global Admin - the role changes now."""
     return _decide(rid, True, "", background, user, db)
 
 
@@ -1162,7 +1287,7 @@ def decline_role_change(rid: str, body: RoleDecisionIn, background: BackgroundTa
 @router.post("/role-change-requests/{rid}/cancel")
 def cancel_role_change(rid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        req = rc.cancel(db, user, rid, _hr_editor(user, db))
+        req = rc.cancel(db, user, rid, rc.can_change_roles(db, user))
     except rc.RoleChangeError as e:
         _rc_raise(db, e)
     db.commit()

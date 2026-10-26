@@ -102,7 +102,7 @@ settings_config  = TTLCache("settings_config",  ttl=60)    # NexusSetting-backed
 egnyte_wirings   = TTLCache("egnyte_wirings",   ttl=60)    # egnyte_wiring.py - whole registry in one entry
 item_types       = TTLCache("item_types",       ttl=300)   # /items/types - manager-curated, near-static
 role_holders     = TTLCache("role_holders",     ttl=120)   # /items/approvers + /allocators pickers
-dashboard_kpis   = TTLCache("dashboard_kpis",   ttl=20)    # /dashboards/kpis - per (email,team); a dozen COUNT
+dashboard_kpis   = TTLCache("dashboard_kpis",   ttl=20)    # /dashboards/kpis - per (email,team,local day); a dozen COUNT
                                                            # queries per load. Glanceable counts tolerate ~20s
                                                            # staleness; single-flight also collapses the burst of
                                                            # identical loads when a dashboard/its widgets mount.

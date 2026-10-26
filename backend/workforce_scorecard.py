@@ -564,6 +564,8 @@ def _context(db: Session, people: list, ws: date, cfg: dict) -> dict:
     emails = [e.work_email.lower() for e in people]
     start, end = ws.isoformat(), (ws + timedelta(days=6)).isoformat()
     ctx = {"team_tz": _team_tz(db), "break_cfg": _breakpolicy_cfg(db),
+           # {company id: break policy} - each person reads their own company's (Oct 23).
+           "break_cfg_by_company": {co: _breakpolicy_cfg(db, co) for co in {(e.company or "") for e in people}},
            "default_grace": shift_expect.default_grace_min(db),   # a placement with no preset (tenant)
            # {company id: (team_tz, default_grace)} - each person reads their own company's (_defaults_of).
            "company_defaults": shift_expect.defaults_by_company(db, [(e.company or "") for e in people]),
@@ -642,7 +644,8 @@ def score_person(emp, ws: date, ctx: dict, cfg: dict, complete: bool = False) ->
     rate = ctx["rates"].get(em)
     # The paid rest-break credit only exists under California law (timeclock._break_cfg_for).
     rule = (getattr(rate, "overtime_rule", None) or "ca") if rate else "ca"
-    break_cfg = {**ctx["break_cfg"], "enabled": ctx["break_cfg"]["enabled"] and rule == "ca"}
+    _bp = ctx.get("break_cfg_by_company", {}).get(emp.company or "", ctx["break_cfg"])
+    break_cfg = {**_bp, "enabled": _bp["enabled"] and rule == "ca"}
     worked_p, leave_p = _split_leave(punches)
     worked = _day_summaries(worked_p, 0, break_cfg) if worked_p else {}
     leave = _day_summaries(leave_p, 0, break_cfg) if leave_p else {}

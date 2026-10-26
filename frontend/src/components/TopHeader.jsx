@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Scale } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
@@ -34,6 +34,9 @@ import { useNexusSearch, SEARCH_PLACEHOLDER, SEARCH_HINT, SEARCH_LABEL } from '.
 import SearchResults from './search/SearchResults';
 
 import { isSearchShortcut, isPhone } from '../lib/keys';
+import { useBuildModeMenu, BuildModeChip } from '../devnotes/BuildModeChip';   // Build Mode (Oct 24 2026)
+import { ToolsSection, ActAsFinder } from './ToolsMenu';   // profile menu Tools (Oct 25 2026)
+import { useActionCounts } from '../lib/useActionCounts';
 
 const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘' : 'Ctrl';
 
@@ -45,6 +48,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   // NOT part of that bargain any more: it sits in the right cluster on
   // every module, the same size in the same place (Neil, Oct 14 2026).
   const headerTabs = useHeaderTabs();
+  const actionCounts = useActionCounts();
+  const waiting = Object.values(actionCounts || {}).some((tabs) => Object.values(tabs || {}).some((n) => n > 0));
   // Modules that opt into syncTitle (<ModuleTabs syncTitle>) get the active
   // tab's own name in the breadcrumb instead of the module's fixed name - so
   // switching tabs (e.g. Time Clock's Clock/Time Sheet/Time Off) actually
@@ -98,6 +103,18 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   }, []);
 
   const [open,         setOpen]         = useState(false);
+  // '' = the menu, 'actas' = the Act As finder in its place (Oct 25 2026).
+  const [menuView,     setMenuView]     = useState('');
+  const openActAs = useCallback(() => setMenuView('actas'), []);
+  const pillRef = useRef(null);
+  // Back from the finder: focus lands on the Act As row it came from.
+  const backToMenu = useCallback(() => {
+    setMenuView('');
+    requestAnimationFrame(() => dropRef.current?.querySelector('[data-tools-actas]')?.focus());
+  }, []);
+  // Build Mode (Oct 24 2026): the menu row shows only when the server says the
+  // person has it; the chip beside the profile pill shows while it is on.
+  const buildMode = useBuildModeMenu();
   // What's New is a page in the app now (Neil, Oct 12 2026), not an overlay:
   // every way in navigates to it, and every signed-in user may read it.
   function openChangelog() {
@@ -201,6 +218,19 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  // Esc: the Act As finder goes back to the menu, the menu closes.
+  useEffect(() => {
+    if (!open) return undefined;
+    function onKey(e) {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault();
+      if (menuView) backToMenu();
+      else { setOpen(false); pillRef.current?.focus(); }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, menuView, backToMenu]);
+
   // The highlighted row, clamped: a shrinking result set never strands it.
   const activeIdx = search.rows.length ? Math.min(searchIdx, search.rows.length - 1) : 0;
   function handleSearchKey(e) {
@@ -257,8 +287,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     <>
     <header className="top-header">
       <div className="header-left">
-        <button className="mobile-toggle" onClick={onMobileToggle} aria-label="Menu" title="Menu">
+        {/* The phone has no rail: the menu button carries a dot when a module
+            has something waiting on me (Oct 25 2026), so it is worth opening.
+            A dot, not a number - some items count in two modules. */}
+        <button className="mobile-toggle" onClick={onMobileToggle} aria-label={waiting ? 'Menu, items waiting on you' : 'Menu'} title="Menu">
           <Menu style={{ width: 18, height: 18 }} />
+          {waiting && <span className="mobile-toggle-dot" aria-hidden="true" />}
         </button>
         {/* Phone-only back button - the breadcrumb (with its back arrow) is
             hidden on mobile, leaving no way to step back to the parent screen
@@ -283,7 +317,9 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <ArrowLeft style={{ width: 15, height: 15 }} />
             </button>
           )}
-          {canGoBack && prevLabel && (
+          {/* Back within one module (Settings > another subject) named the
+              same page twice - "Settings / Settings" (Oct 25); the arrow stays. */}
+          {canGoBack && prevLabel && prevLabel !== displayTitle && (
             <>
               <button className="breadcrumb-prev" onClick={onBack} title={`Back to ${prevLabel}`}>{prevLabel}</button>
               <span style={{ color: "var(--muted)", opacity: 0.4, fontSize: 11, userSelect: "none" }}>/</span>
@@ -295,10 +331,10 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
 
       <div className={`header-center${headerTabs ? ' has-tabs' : ''}`}>
         {headerTabs && (
-          <nav className="hdr-tabs" aria-label="Module sections" data-tour="module-tabs">
+          <nav className={`hdr-tabs${headerTabs.compactGroups ? ' hdr-tabs--compact' : ''}`} aria-label="Module sections" data-tour="module-tabs">
             <TabInk key={headerTabs.tabs.map((t) => t.key).join('|')} active={headerTabs.active} />
-            {headerTabs.tabs.map(({ key, label, Icon, badge, items }) => (items ? (
-              <TabGroupButton key={key} tab={{ key, label, Icon, items }} active={headerTabs.active} className="hdr-tab"
+            {headerTabs.tabs.map(({ key, label, Icon, badge, items, landing }) => (items ? (
+              <TabGroupButton key={key} tab={{ key, label, Icon, items, landing }} active={headerTabs.active} className="hdr-tab" compact={!!headerTabs.compactGroups}
                 onSelect={(k) => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(k); }} />
             ) : (
               <button key={key}
@@ -319,11 +355,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         {/* "?" Help menu: search the guide, help with this page, then Contact
             Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
         <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
+        {buildMode.enabled && buildMode.on && <BuildModeChip onClick={buildMode.toggle} />}
         <NotificationBell onNavigate={onNavigate} />
 
         {/* User profile pill */}
         <div className="header-user-wrap" ref={dropRef}>
-          <button className="header-user-pill" onClick={() => setOpen(o => !o)} title="Account" aria-label="Account menu" aria-haspopup="menu" aria-expanded={open}>
+          <button ref={pillRef} className="header-user-pill" onClick={() => { setMenuView(''); setOpen(o => !o); }} title="Account" aria-label="Account menu" aria-haspopup="menu" aria-expanded={open}>
             <div className="header-avatar">
               {photo
                 ? <img src={photo} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
@@ -336,7 +373,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
             <ChevronDown size={13} style={{ color: 'var(--muted)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
           </button>
 
-          {open && (
+          {open && menuView === 'actas' && (
+            <div className="header-user-dropdown">
+              <ActAsFinder onBack={backToMenu} />
+            </div>
+          )}
+          {open && menuView !== 'actas' && (
             <div className="header-user-dropdown">
 
               {/* ── Profile card ─────────────────────────────────── */}
@@ -395,10 +437,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                 <Scale size={14} /> Legal
               </button>
 
-              {/* Act As and Audit Logs live in Settings (the Tools and Audit
-                  Logs tabs) - neither belongs in this personal menu.
-                  The "Exit Act As" affordance stays available at all times via
-                  the sticky orange banner below, independent of this menu. */}
+              {/* Tools (Neil, Oct 25 2026): Act As, Build Mode and Testing
+                  under one label, each row only for the
+                  people who can use it - components/ToolsMenu.jsx. The sticky
+                  orange banner below still offers Exit Act As everywhere. */}
+              <ToolsSection onClose={() => setOpen(false)} onOpenActAs={openActAs} />
 
               <div className="hud-divider" />
               <button className="hud-item hud-signout" onClick={handleSignOut}>

@@ -109,6 +109,34 @@ def _period_text(start: str, end: str) -> str:
     return f"{us_date(start)} - {us_date(end)}"
 
 
+def _email_span(start: str, end: str) -> str:
+    """What the invoice email says it covers (Pranshu, Oct 23): a whole
+    calendar month (a fee contractor) is "for October 2026"; anything else (a
+    bi-weekly hourly period) is "from 10/04/2026 to 10/17/2026"."""
+    import calendar
+    try:
+        s, e = date.fromisoformat(start[:10]), date.fromisoformat(end[:10])
+    except ValueError:
+        return f"for {_period_text(start, end)}"
+    if s.day == 1 and (e.year, e.month) == (s.year, s.month) and e.day == calendar.monthrange(s.year, s.month)[1]:
+        return f"for {s.strftime('%B %Y')}"
+    return f"from {us_date(start)} to {us_date(end)}"
+
+
+def invoice_email(inv: ContractorInvoice, who: str, approver_name: str, approver_email: str) -> tuple[str, str]:
+    """(subject, html) of the Approve & Send email (Pranshu, Oct 23). The
+    subject reads like a filing name: "<invoice date> - <contractor> (<total>)",
+    the total with any bonuses; the body says which month or which dates."""
+    from html import escape as esc
+    total = f"{inv.currency} {inv.amount:,.2f}"
+    subject = f"{us_date(inv.invoice_date)} - {who} ({total})"
+    by = f"{approver_name} ({approver_email})" if approver_name and approver_name != approver_email else approver_email
+    html = (f"<p>Please find attached invoice {inv.number} from {esc(who)} "
+            f"{_email_span(inv.period_start, inv.period_end)}: {total}.</p>"
+            f"<p>Approved in Nexus by {esc(by)}.</p>")
+    return subject, html
+
+
 def _snapshot(emp: NexusEmployee, ent: Optional[HrEntity], inv: ContractorInvoice) -> dict:
     """The party blocks and lines as the PDF prints them - frozen with the row."""
     bank = (emp.bank or [{}])[0] if emp.bank else {}
@@ -172,7 +200,11 @@ def draft_for(db: Session, email: str, final_row) -> Optional[ContractorInvoice]
         invoice_date=date.today().isoformat(), currency=currency, amount=round(amount, 2),
         hours=hours, rate=rate, description=(contractor.get("invoice_description") or "Services").strip(),
         status="draft", final_approval_id=final_row.id, created_at=_now(), sent_to=[])
-    inv.snapshot = _snapshot(emp, ent, inv)
+    snap_out = _snapshot(emp, ent, inv)
+    # Bonuses on the period (Neil, Oct 22) are in `amount`; each prints as its own line.
+    snap_out["bonuses"] = [{"description": b.description or "", "amount": round(float(b.amount or 0), 2)}
+                           for b in tc._bonus_rows(db, email, final_row.period_start, final_row.period_end)]
+    inv.snapshot = snap_out
     db.add(inv)
     _bell(db, emp, ent, inv)
     return inv
@@ -198,10 +230,24 @@ def _settle_bell(db: Session, inv: ContractorInvoice, title: str, line: str) -> 
 
 
 def void_for_final(db: Session, final_id: str) -> None:
-    """unfinalize: the draft goes; a sent invoice is history and stays."""
+    """unfinalize: the draft goes; a sent invoice is history and stays. A
+    draft nobody sent gives its number back when it is the person's latest,
+    so a corrected period goes out under the same number (Oct 23: June's
+    invoice 1, voided to fix the fee, came back as invoice 2)."""
     inv = _for_final(db, final_id)
     if inv is not None and inv.status == "draft":
         inv.status = "void"
+        from routers import timeclock as tc
+        tc._lock_person(db, inv.employee_email)
+        emp = _employee(db, inv.employee_email)
+        contractor = dict((emp.contractor if emp else None) or {})
+        try:
+            nxt = int(contractor.get("invoice_next_number") or 0)
+        except (TypeError, ValueError):
+            nxt = 0
+        if emp is not None and nxt == (inv.number or 0) + 1:
+            contractor["invoice_next_number"] = inv.number
+            emp.contractor = contractor
         _settle_bell(db, inv, f"Contractor Invoice Voided - Invoice {inv.number}",
                      "The period was reopened; a new invoice is drafted when it is finalized again.")
 
@@ -218,10 +264,26 @@ def invoice_for_period(db: Session, email: str, start: str, end: str) -> Optiona
             "currency": inv.currency, "sentAt": inv.sent_at or ""}
 
 
-def card_keys(db: Session, email: str, start: str, end: str) -> dict:
+def card_keys(db: Session, email: str, start: str, end: str, viewer: Optional[dict] = None) -> dict:
+    """`viewer` = the person looking at someone else's card: when they may
+    Approve & Send this draft (the same rule as the Invoices tab), the card
+    offers it right there (Oct 23 - after the signature the card only had
+    Preview, and the send looked missing)."""
     emp = _employee(db, email)
     contractor = bool(emp and (emp.employment_type or "") == "contractor")
-    return {"contractor": contractor, "invoice": invoice_for_period(db, email, start, end) if contractor else None}
+    inv = invoice_for_period(db, email, start, end) if contractor else None
+    if inv and inv["status"] == "draft" and viewer and (viewer.get("email") or "").lower() != (email or "").lower():
+        row = db.get(ContractorInvoice, inv["id"])
+        try:
+            allowed = _hr_companies(viewer, db)
+        except HTTPException:
+            allowed = set()
+        if row is not None and (allowed is None or row.company_id in allowed):
+            ent = db.query(HrEntity).filter(HrEntity.id == row.company_id).first()
+            inv.update(canSend=True, recipients=list((ent.invoice_recipients if ent else None) or []),
+                       companyName=(ent.name if ent else ""),
+                       employeeName=(row.snapshot or {}).get("billedBy", {}).get("name") or row.employee_email)
+    return {"contractor": contractor, "invoice": inv}
 
 
 # ── PDF ──────────────────────────────────────────────────────────────────────
@@ -298,12 +360,18 @@ def render_pdf(snap: dict) -> bytes:
         desc += (f"<br/><font color='#6b6b75' size='8'>{float(snap['hours']):,.2f} hours x "
                  f"{esc(_money(snap['rate'], cur, rupee_ok))} per hour</font>")
     total = _money(snap.get("amount", 0), cur, rupee_ok)
+    bonuses = snap.get("bonuses") or []
+    services = float(snap.get("amount") or 0) - sum(float(b.get("amount") or 0) for b in bonuses)
+    lines = [[Paragraph(desc, S), Paragraph(esc(_money(services, cur, rupee_ok)), R)]]
+    lines += [[Paragraph(f"Bonus: {esc(b.get('description') or '')}", S),
+               Paragraph(esc(_money(b.get("amount", 0), cur, rupee_ok)), R)] for b in bonuses]
+    n = len(lines)
     items = Table([[Paragraph("DESCRIPTION", LBL), Paragraph("AMOUNT", ParagraphStyle("lr", parent=LBL, alignment=2))],
-                   [Paragraph(desc, S), Paragraph(esc(total), R)],
+                   *lines,
                    [Paragraph("TOTAL", RB), Paragraph(esc(total), RB)]],
                   colWidths=[W - 140, 140])
-    items.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, 0), 0.8, ink), ("LINEBELOW", (0, 1), (-1, 1), 0.5, line),
-                               ("LINEBELOW", (0, 2), (-1, 2), 0.8, ink), ("TOPPADDING", (0, 0), (-1, -1), 7),
+    items.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, 0), 0.8, ink), ("LINEBELOW", (0, 1), (-1, n), 0.5, line),
+                               ("LINEBELOW", (0, n + 1), (-1, n + 1), 0.8, ink), ("TOPPADDING", (0, 0), (-1, -1), 7),
                                ("BOTTOMPADDING", (0, 0), (-1, -1), 7), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                                ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
 
@@ -464,15 +532,14 @@ def send_invoice(inv_id: str, user: dict = Depends(get_current_user), db: Sessio
     snap = inv.snapshot or {}
     blob = render_pdf(snap)
     name = _filename(inv)
-    period = (snap.get("period") or {}).get("text") or _period_text(inv.period_start, inv.period_end)
     who = (snap.get("billedBy") or {}).get("name") or inv.employee_email
     emailed = False
     if graph_mail.graph_configured():
-        html = (f"<p>Please find attached invoice {inv.number} from {who} for {period}: "
-                f"{inv.currency} {inv.amount:,.2f}.</p><p>Approved in Nexus by {user.get('email', '')}.</p>")
+        me = (user.get("email") or "").lower()
+        subject, html = invoice_email(inv, who, _name(_employee(db, me), me), me)
         try:
             graph_mail.send_mail(from_email=graph_mail.DEFAULT_FROM_EMAIL, to=recipients, cc=[inv.employee_email],
-                                 subject=f"Invoice {inv.number} - {who} - {period}", html=html,
+                                 subject=subject, html=html,
                                  attachments=[(name, "application/pdf", blob)])
             emailed = True
         except graph_mail.GraphMailError as e:

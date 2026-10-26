@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Accounting -> Reporting -> MRE (Oct 6): the grid renders (a render smoke
@@ -48,11 +48,15 @@ vi.mock('../../api', () => ({
 }));
 vi.mock('./reportModel', async (importOriginal) => ({ ...(await importOriginal()), downloadBlob: vi.fn() }));
 
-import MreTab, { MreFromLedger, dueInMonth, frequencyLabel, mreTable, steadyProgress, visibleRows } from './MreTab';
+import MreTab, { MreFromLedger, dueInMonth, frequencyLabel, mreColumnFilter, mreFilterColumns, mreTable, steadyProgress, visibleRows } from './MreTab';
 import { linesCsv } from './linesExport';
 import { api } from '../../api';
 import { downloadBlob } from './reportModel';
+import fs from 'node:fs';
+import path from 'node:path';
 import { resetAccountingPrefs } from './prefs';
+
+const css = fs.readFileSync(path.join(__dirname, '..', '..', 'style.css'), 'utf8').replace(/\r\n/g, '\n');
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -61,6 +65,10 @@ beforeEach(() => {
   api.getMreProposals.mockImplementation(async () => proposals);
 });
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('MreTab', () => {
   it('renders the grid with paid amounts colored against what was expected', async () => {
     render(<MreTab canEdit />);
@@ -85,7 +93,8 @@ describe('MreTab', () => {
   it('filters by vendor and category', async () => {
     render(<MreTab />);
     await screen.findByText('San Diego Gas & Electric');
-    fireEvent.change(screen.getByLabelText('Search a vendor'), { target: { value: 'micro' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search a vendor' }));   // item 02: an icon until used
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search a vendor' }), { target: { value: 'micro' } });
     expect(screen.queryByText('San Diego Gas & Electric')).toBeNull();
     expect(screen.getByText('Microsoft')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Search a vendor'), { target: { value: '' } });
@@ -353,5 +362,124 @@ describe('MreTab shared controls', () => {
     await waitFor(() => expect(api.getAccountingEntry).toHaveBeenCalledWith('e-1'));
     // The year's Total drills the same way.
     expect(within(row).getByRole('button', { name: /Ledger lines behind San Diego Gas & Electric's total for 2026/ })).toBeTruthy();
+  });
+});
+
+// Oct 23 (Charmi, Teams): a filter box under every MRE heading, as on AMA.
+describe('MreTab column filters', () => {
+  it('text boxes hold the words typed, amount boxes compare, and they stack', () => {
+    const rows = grid.rows;
+    const cols = mreFilterColumns();
+    const ids = (typed) => mreColumnFilter(rows, typed, cols).map((r) => r.line.id);
+    expect(ids({})).toEqual(['L1', 'L2', 'L3']);
+    expect(ids({ vendor: 'v-msft' })).toEqual(['L2']);
+    expect(ids({ vendor: 'gas electric' })).toEqual(['L1']);
+    expect(ids({ entity: '15000' })).toEqual(['L1', 'L3']);
+    expect(ids({ entity: 'escondido', category: 'util' })).toEqual(['L1', 'L3']);
+    expect(ids({ entity: 'escondido', expected: { op: '>', a: '400' } })).toEqual(['L1', 'L3']);
+    expect(ids({ entity: 'escondido', total: { op: '>', a: '100' } })).toEqual(['L1']);
+    expect(ids({ expected: { op: 'between', a: '50', b: '100' } })).toEqual(['L2']);
+    expect(ids({ expected: { op: '<', a: '100' }, vendor: 'sdge' })).toEqual([]);
+    expect(ids({ m1: { op: '=', a: '200' } })).toEqual(['L1']);
+    // A month outside the period shown, or an optional column turned off, is ignored.
+    expect(mreColumnFilter(rows, { m1: { op: '=', a: '999' } }, mreFilterColumns([], [9, 11])).length).toBe(3);
+    expect(mreColumnFilter(rows, { accountNumber: 'zzz' }, cols).length).toBe(3);
+    expect(mreColumnFilter([{ ...rows[0], line: { ...rows[0].line, accountNumber: 'AC-77' } }, rows[1]], { accountNumber: 'ac-77' }, mreFilterColumns(['accountNumber'])).length).toBe(1);
+  });
+
+  it('a box under each heading narrows the grid with the vendor search and category, and the export follows', async () => {
+    render(<MreTab />);
+    await screen.findByText('San Diego Gas & Electric');
+    for (const l of ['Vendor', 'Entity', 'Category', 'Notes']) expect(screen.getByRole('textbox', { name: `Filter ${l}` })).toBeTruthy();
+    for (const l of ['Expected', 'Jan', 'Total', 'Balance']) expect(screen.getByRole('combobox', { name: `Operator for ${l}` })).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Entity' }), { target: { value: 'mcd' } });
+    expect(screen.queryByText('San Diego Gas & Electric')).toBeNull();
+    expect(screen.getByText('Microsoft')).toBeTruthy();
+    // With the category: nothing left, the boxes stay so they can be cleared.
+    fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'utilities' } });
+    expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Entity' }), { target: { value: '' } });
+    expect(screen.getByText('San Diego Gas & Electric')).toBeTruthy();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: '' } });
+    // An amount box: Expected > 100 leaves SDG&E only, with the vendor search on top.
+    fireEvent.change(screen.getByRole('combobox', { name: 'Operator for Expected' }), { target: { value: '>' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Expected' }), { target: { value: '100' } });
+    expect(screen.queryByText('Microsoft')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Search a vendor' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search a vendor' }), { target: { value: 'micro' } });
+    expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Search a vendor'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalled());
+    const file = downloadBlob.mock.calls[0][1];
+    const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
+    expect(text).toContain('San Diego Gas & Electric');
+    expect(text).not.toContain('Microsoft');
+    expect(api.setMreNotes).not.toHaveBeenCalled();
+  });
+});
+
+// 10/23 meeting, item 01: the standard table view on the grid.
+describe('MreTab standard table view', () => {
+  it('a value list, a hidden column and a moved column: the grid, its boxes and the export follow the view', async () => {
+    render(<MreTab />);
+    await screen.findByText('San Diego Gas & Electric');
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Vendor by value' }));
+    const list = await screen.findByRole('dialog', { name: 'Vendor values' });
+    fireEvent.click(within(list).getByRole('checkbox', { name: /Microsoft/ }));
+    expect(screen.queryByText('Microsoft')).toBeNull();
+    // Hide Notes, move Category left of Entity: the filter boxes move with their headings.
+    fireEvent.click(screen.getByRole('button', { name: /^Notes - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Notes column' })).getByRole('menuitem', { name: /Hide Column/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Category - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Category column' })).getByRole('menuitem', { name: /Move Left/ }));
+    const table = screen.getByRole('table', { name: /Recurring expenses/ });
+    const heads = within(table.querySelector('thead tr')).getAllByRole('columnheader').map((h) => h.getAttribute('aria-label'));
+    expect(heads.slice(0, 3)).toEqual(['Vendor', 'Category', 'Entity']);
+    expect(heads).not.toContain('Notes');
+    const boxes = table.querySelectorAll('.acct-filter-row td');
+    expect(boxes[1].querySelector('input').getAttribute('aria-label')).toBe('Filter Category');
+    // The Vendor column cannot move or hide: it stays pinned first.
+    fireEvent.click(screen.getByRole('button', { name: /^Vendor - column menu/ }));
+    const menu = await screen.findByRole('menu', { name: 'Vendor column' });
+    expect(within(menu).queryByRole('menuitem', { name: /Hide Column/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalled());
+    const file = downloadBlob.mock.calls[0][1];
+    const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
+    const lines = text.replace(/^\s+/, '').split('\r\n');
+    expect(lines[0].startsWith('Vendor No.,Vendor,Category,Frequency,Entity,Expected,Jan')).toBe(true);
+    expect(lines[0]).not.toContain('Notes');
+    expect(text).toContain('San Diego Gas & Electric');
+    expect(text).not.toContain('Microsoft');
+  });
+});
+
+// Oct 23 (Viral, Charmi): the headings and filter boxes stick as one block,
+// and the pinned Vendor cell stays solid while the months scroll under it.
+describe('MreTab sticky header block', () => {
+  it('keeps the headings and the filter boxes in one sticky head, the Vendor heading pinned left', async () => {
+    render(<MreTab />);
+    await screen.findByText('San Diego Gas & Electric');
+    const table = screen.getByRole('table', { name: /Recurring expenses/ });
+    expect(table.classList.contains('mre-grid')).toBe(true);
+    const head = table.querySelector('thead');
+    const vendorHead = within(head).getByRole('columnheader', { name: 'Vendor' });
+    expect(head.contains(screen.getByRole('textbox', { name: 'Filter Vendor' }))).toBe(true);
+    expect(head.contains(screen.getByRole('combobox', { name: 'Operator for Jan' }))).toBe(true);
+    expect(vendorHead.style.position).toBe('sticky');
+    expect(vendorHead.style.left).toBe('0px');
+    expect(table.querySelector('tbody td.acct-label').closest('tbody')).toBeTruthy();
+  });
+
+  it('the stylesheet makes the head one sticky block and paints the pinned Vendor cell over the card color', () => {
+    const rule = (sel) => css.split('\n').find((l) => l.startsWith(sel)) || '';
+    expect(rule('.acct-report.mre-grid thead {')).toMatch(/position: sticky; top: 0/);
+    expect(rule('.acct-report.mre-grid thead th, .acct-report.mre-grid .acct-filter-row td {')).toMatch(/top: auto/);
+    expect(rule('.acct-report.mre-grid tbody tr td.acct-label {')).toMatch(/background: var\(--bg-card\)/);
+    const hover = css.slice(css.indexOf('.acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label'));
+    expect(hover.slice(0, hover.indexOf('}'))).toMatch(/linear-gradient\(var\(--wk-brand-tint, #e8ecfd\), var\(--wk-brand-tint, #e8ecfd\)\), var\(--bg-card\)/);
   });
 });

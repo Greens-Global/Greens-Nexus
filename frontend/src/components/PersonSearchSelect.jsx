@@ -1,11 +1,15 @@
 import { useRef, useState } from 'react';
 import { Search, ChevronDown } from 'lucide-react';
 import AnchoredMenu from './AnchoredMenu';
+import { matchPeople } from '../lib/peopleSearch';
+import { recentRows, noteRecentPerson } from '../lib/recentPeople';
 
 // A searchable people dropdown (Sep 29): click to browse the whole list, or type
 // to narrow it by name or email. `groups` = [{ label, people: [{ email, name }] }];
 // each non-empty group gets a caption. Picking fires onPick(email) - the caller
 // keeps the chosen list (Company Manager(s) shows them as chips above).
+// Each group is ranked first-name matches first (lib/peopleSearch.js); while
+// nothing is typed a "Recent" group leads with the people picked lately.
 export default function PersonSearchSelect({ groups, onPick, placeholder = 'Search people...' }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -13,14 +17,19 @@ export default function PersonSearchSelect({ groups, onPick, placeholder = 'Sear
   const boxRef = useRef(null);
   const inputRef = useRef(null);
   const [boxWidth, setBoxWidth] = useState();
+  // Read when the list opens, so a pick never reshuffles an open list.
+  const [recent, setRecent] = useState([]);
   const query = q.trim().toLowerCase();
+  const everyone = groups.flatMap(g => g.people);
+  const top = query ? [] : recent.filter(r => everyone.some(p => p.email === r.email));
   const shown = groups
-    .map(g => ({ ...g, people: g.people.filter(p => !query || `${p.name || ''} ${p.email || ''}`.toLowerCase().includes(query)) }))
+    .map(g => ({ ...g, people: matchPeople(g.people, query) }))
     .filter(g => g.people.length);
+  if (top.length) shown.unshift({ label: 'Recent', people: top });
   const flat = shown.flatMap(g => g.people);
-  const openList = () => { setBoxWidth(boxRef.current?.offsetWidth); setOpen(true); };
+  const openList = () => { setBoxWidth(boxRef.current?.offsetWidth); if (!open) setRecent(recentRows(everyone)); setOpen(true); };
   const close = () => { setOpen(false); setQ(''); setHi(0); };
-  const pick = (p) => { onPick(p.email); close(); inputRef.current?.blur(); };
+  const pick = (p) => { noteRecentPerson(p.email); onPick(p.email); close(); inputRef.current?.blur(); };
   const optionStyle = (on) => ({ display: 'flex', alignItems: 'baseline', gap: 6, width: '100%', textAlign: 'left', padding: '7px 12px', border: 'none',
     background: on ? 'var(--mist)' : 'none', cursor: 'pointer', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)' });
   let idx = -1;

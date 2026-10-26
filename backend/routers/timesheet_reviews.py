@@ -5,7 +5,7 @@ in timesheet_review.py; this file only decides who may call what.
 Signing itself happens in Nexus Sign (/esign/mine/{party_id}/...), which calls
 back into timesheet_review when a party signs, declines, or completes it.
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -236,6 +236,15 @@ def approve_bulk(body: ApproveBulkIn, user: dict = Depends(require_approval_writ
     return {"results": results, **count}
 
 
+@router.get("/print")
+def print_paper(email: str, start: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """HR / Global Admin: the period's time sheet as a PDF to print and sign on
+    paper (Neil, Oct 23 2026). `start` = any date in the period. Changes nothing."""
+    pdf, name = tsr.paper_pdf(db, email, (start or "").strip(), (user.get("email") or "").lower())
+    safe = "".join(ch for ch in name if ch.isalnum() or ch in " .-_") or "Time Sheet.pdf"
+    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{safe}"'})
+
+
 @router.post("/finalize-unsigned")
 def finalize_unsigned(body: FinalizeUnsignedIn, user: dict = Depends(get_current_user),
                       db: Session = Depends(get_db)):
@@ -247,6 +256,29 @@ def finalize_unsigned(body: FinalizeUnsignedIn, user: dict = Depends(get_current
     if not tsr.is_hr(db, me, email):
         raise HTTPException(403, "Only HR can finalize a time sheet without the employee's signature.")
     r = tsr.finalize_unsigned(db, email, (body.start or "").strip(), me, body.reason)
+    return tsr.state_for(db, r.employee_email, r.period_start, me, True)
+
+
+@router.post("/{rid}/send-correction")
+def send_correction(rid: str, request: Request, user: dict = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """HR: the corrected card of an unlocked period goes to the employee to
+    sign (Neil, Oct 22). is_hr is checked in tsr.send_correction."""
+    r = _review(db, rid)
+    me = (user.get("email") or "").lower()
+    ip, ua = _client_meta(request)
+    tsr.send_correction(db, r, me, ip=ip, user_agent=ua)
+    db.commit()
+    return tsr.state_for(db, r.employee_email, r.period_start, me, True)
+
+
+@router.post("/{rid}/relock")
+def relock(rid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """HR: unlocked, nothing changed - locked again with no new signature."""
+    r = _review(db, rid)
+    me = (user.get("email") or "").lower()
+    tsr.relock(db, r, me)
+    db.commit()
     return tsr.state_for(db, r.employee_email, r.period_start, me, True)
 
 

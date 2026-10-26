@@ -49,8 +49,10 @@ class ReferentialIntegrityTests(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         for m in (models.Task, models.TaskSection, models.TaskComment,
-                  models.TaskAttachment, models.TaskProject, models.TaskActivity):
+                  models.TaskAttachment, models.TaskProject, models.TaskActivity, models.NexusEmployee):
             self.db.query(m).delete()
+        # A collaborator is a directory person (Oct 21 2026).
+        self.db.add(models.NexusEmployee(id=gen_id(), work_email="a.b@greensglobal.com", first_name="A"))
         self.db.commit()
 
     def tearDown(self):

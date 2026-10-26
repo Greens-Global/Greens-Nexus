@@ -54,6 +54,31 @@ class T(unittest.TestCase):
         self.assertNotIn("richlist", prefs)
         self.assertIn("projects", prefs)
 
+    def test_the_board_layout_and_show_subtasks_are_kept(self):
+        # Oct 22 2026: both were silently dropped, so a Board set up off a
+        # project (and Show Subtasks) came back at its defaults on reload.
+        c.delete("/task-prefs")
+        c.put("/task-prefs/richlist", json={"board": {"lanes": "label", "columns": "due", "previews": False},
+                                            "showSubtasks": {"board": True, "timeline": False}})
+        c.put("/task-prefs/richlist", json={"group": "priority"})          # a later save keeps them
+        got = c.get("/task-prefs").json()["prefs"]["richlist"]
+        self.assertEqual(got["board"], {"lanes": "label", "columns": "due", "previews": False})
+        self.assertEqual(got["showSubtasks"], {"board": True, "timeline": False})
+        self.assertEqual(got["group"], "priority")
+        c.put("/task-prefs/richlist", json={"board": {"lanes": "cf:abc123"}})
+        self.assertEqual(c.get("/task-prefs").json()["prefs"]["richlist"]["board"], {"lanes": "cf:abc123"})
+
+    def test_board_junk_is_dropped(self):
+        c.delete("/task-prefs")
+        c.put("/task-prefs/richlist", json={
+            "board": {"lanes": "status", "columns": "weird", "previews": "yes", "extra": {"x": 1}},
+            "showSubtasks": {"board": "true", "timeline": True, "list": True}})
+        got = c.get("/task-prefs").json()["prefs"]["richlist"]
+        self.assertEqual(got["board"], {})
+        self.assertEqual(got["showSubtasks"], {"timeline": True})
+        c.put("/task-prefs/richlist", json={"board": {"lanes": "cf:" + "x" * 80}})
+        self.assertEqual(c.get("/task-prefs").json()["prefs"]["richlist"]["board"], {})
+
     def test_reset_all(self):
         c.put("/task-prefs/richlist", json={"order": ["task"]})
         c.put("/task-prefs/projects", json={"order": ["name"]})

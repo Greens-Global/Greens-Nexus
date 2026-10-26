@@ -17,11 +17,12 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
+from routers import tasks, purchases, reviews, marketing, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
 from routers import directory as directory_router  # Contact Directory (Support, Oct 2026)
+from routers import kb as kb_router, kb_training as kb_training_router  # Knowledge Base rebuild (Oct 2026) - replaces knowledge_base + sop
 from routers import site_models as site_models_router  # 3D property site models + markup pins (Neil, Oct 11 2026)
 from routers import github_webhook  # PR/push merged to dev/main -> admin notification + What's New drafts (Sep 2026)
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
@@ -503,6 +504,34 @@ def _run_migrations():
             "ALTER TABLE kb_documents ADD COLUMN service VARCHAR DEFAULT ''",
             "ALTER TABLE kb_documents ADD COLUMN original_title VARCHAR DEFAULT ''",
             "ALTER TABLE kb_documents ADD COLUMN original_content TEXT DEFAULT ''",
+            # Knowledge Base rebuild (Oct 2026): added columns; the old ones stay as they are
+            "ALTER TABLE kb_documents ADD COLUMN page_type VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN collection_id VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN summary VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN blocks TEXT DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN major INTEGER DEFAULT 0",
+            "ALTER TABLE kb_documents ADD COLUMN minor INTEGER DEFAULT 0",
+            "ALTER TABLE kb_documents ADD COLUMN published_at VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN audience TEXT DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN signing VARCHAR DEFAULT 'in_page'",
+            "ALTER TABLE kb_documents ADD COLUMN translations TEXT DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN migrated_at VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN major INTEGER DEFAULT 0",
+            "ALTER TABLE kb_courses ADD COLUMN draft TEXT DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN published_at VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN published_by VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_course_progress ADD COLUMN course_major INTEGER DEFAULT 0",
+            "ALTER TABLE kb_course_progress ADD COLUMN unlock_rounds INTEGER DEFAULT 0",
+            "ALTER TABLE kb_course_progress ADD COLUMN certificate_id VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_course_assignments ADD COLUMN source VARCHAR DEFAULT 'manual'",
+            "ALTER TABLE kb_course_assignments ADD COLUMN rule_id VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_course_assignments ADD COLUMN plan_id VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_quiz_attempts ADD COLUMN status VARCHAR DEFAULT 'graded'",
+            "ALTER TABLE kb_quiz_attempts ADD COLUMN course_major INTEGER DEFAULT 0",
+            "ALTER TABLE kb_quiz_attempts ADD COLUMN question_ids TEXT DEFAULT ''",
+            "ALTER TABLE kb_quiz_attempts ADD COLUMN option_order TEXT DEFAULT ''",
+            "ALTER TABLE kb_quiz_attempts ADD COLUMN answers TEXT DEFAULT ''",
+            "ALTER TABLE kb_quiz_attempts ADD COLUMN graded_at VARCHAR DEFAULT ''",
             # External Links directory rebuild (Aug 2026) - department scoping,
             # icon key, admin ordering/pin, and who/when for the audit trail.
             "ALTER TABLE external_links ADD COLUMN department VARCHAR DEFAULT ''",
@@ -1214,6 +1243,81 @@ def _run_migrations():
             "ALTER TABLE accounting_loan_settings ADD COLUMN vendor_name VARCHAR DEFAULT ''",
             # Contractor invoices (Oct 21): the company's payer emails. models.HrEntity.
             "ALTER TABLE hr_entities ADD COLUMN invoice_recipients JSON DEFAULT '[]'",
+            # Tasks company walls (Oct 21 2026) - see the Postgres list.
+            "ALTER TABLE task_projects ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_portfolios ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_teams ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_custom_statuses ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_automation_rules ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_templates ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_intake_forms ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_custom_fields ADD COLUMN company_id VARCHAR DEFAULT ''",
+            # Follow a project (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE task_projects ADD COLUMN follower_emails JSON DEFAULT '[]'",
+            # Task file versions + Egnyte links (Oct 22 2026). See TaskAttachment.
+            "ALTER TABLE task_attachments ADD COLUMN version_group VARCHAR DEFAULT ''",
+            "ALTER TABLE task_attachments ADD COLUMN version INTEGER DEFAULT 1",
+            "ALTER TABLE task_attachments ADD COLUMN egnyte_path VARCHAR DEFAULT ''",
+            "ALTER TABLE task_attachments ADD COLUMN egnyte_kind VARCHAR DEFAULT ''",
+            # HR checklist tasks (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE tasks ADD COLUMN hr_checklist BOOLEAN DEFAULT 0",
+            "UPDATE tasks SET hr_checklist = 1 WHERE COALESCE(hr_checklist, 0) = 0 AND ("
+            "id IN (SELECT task_id FROM hr_checklist_items WHERE COALESCE(task_id, '') != '') OR "
+            "id IN (SELECT parent_task_id FROM tasks WHERE id IN "
+            "(SELECT task_id FROM hr_checklist_items WHERE COALESCE(task_id, '') != '')))",
+            # Field history (Neil, Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE task_activity ADD COLUMN field_change JSON",
+            # Formula columns (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE task_custom_fields ADD COLUMN formula TEXT DEFAULT ''",
+            "ALTER TABLE task_custom_fields ADD COLUMN formula_format JSON DEFAULT '{}'",
+            # Tasks conditional row colors (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE task_projects ADD COLUMN color_rules JSON DEFAULT '[]'",
+            # Skip Interview (Neil, Oct 22) - see the Postgres list.
+            "ALTER TABLE hr_candidates ADD COLUMN interview_skipped_by VARCHAR DEFAULT ''",
+            # Hiring documents by place (Neil, Oct 22) - see the Postgres list.
+            "ALTER TABLE hr_packet_settings ADD COLUMN region VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN region VARCHAR DEFAULT ''",
+            # A role's own hiring paperwork (Neil, Oct 22) - see the Postgres list.
+            "ALTER TABLE nexus_groups ADD COLUMN job_description TEXT DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN hiring_docs JSON DEFAULT '[]'",
+            # Checklist steps ticked by Nexus say why (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_checklist_items ADD COLUMN done_reason VARCHAR DEFAULT ''",
+            # A checklist remembers its job role (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_checklists ADD COLUMN role_id VARCHAR",
+            # One task per checklist (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_checklists ADD COLUMN task_id VARCHAR DEFAULT ''",
+            # Onboarding audits (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_checklists ADD COLUMN audit BOOLEAN DEFAULT 0",
+            # Hiring Setup (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_packet_settings ADD COLUMN archived_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_packet_settings ADD COLUMN archived_by VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN duty_versions JSON DEFAULT '[]'",
+            # Board card previews + a saved Board view's columns (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE tasks ADD COLUMN card_preview VARCHAR DEFAULT ''",
+            "ALTER TABLE task_saved_views ADD COLUMN board_columns VARCHAR DEFAULT ''",
+            # My Day (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE task_table_prefs ADD COLUMN my_day JSON",
+            # A subtask made private with its parent (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE tasks ADD COLUMN narrowed_by VARCHAR DEFAULT ''",
+            # Feature requests are tickets (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE changelog_feedback ADD COLUMN ticket_id VARCHAR DEFAULT ''",
+            "ALTER TABLE ticket_teams_message ADD COLUMN kind VARCHAR DEFAULT 'dm'",
+            # Management Fees threshold rule (CR-03) - see the Postgres list.
+            "ALTER TABLE accounting_ama_agreements ADD COLUMN threshold_amount FLOAT",
+            "ALTER TABLE accounting_ama_agreements ADD COLUMN threshold_basis VARCHAR DEFAULT ''",
+            # AMA bookkeepers (CR-13, Oct 23) - see the Postgres list.
+            "ALTER TABLE accounting_ama_settings ADD COLUMN bookkeepers JSON DEFAULT '[]'",
+            # AMA push edits the original (CR-13 rework) - see the Postgres list.
+            "ALTER TABLE accounting_ama_settings ADD COLUMN closed_through VARCHAR DEFAULT ''",
+            # Build Mode v2 (Oct 24 2026) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN owner_email VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN owner_name VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN owner_released_by VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN owner_released_at VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN preview JSON DEFAULT '{}'",
+            "ALTER TABLE dev_notes ADD COLUMN preview_verdict VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN preview_verdict_at VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN regression_case_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1794,6 +1898,64 @@ def _run_migrations():
         # gap CLAUDE.md records; idempotent, runs every boot on dev and prod.
         "ALTER TABLE kb_services ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE kb_tags ENABLE ROW LEVEL SECURITY",
+        # Knowledge Base rebuild (Oct 2026): added columns on the old tables (nothing
+        # dropped, nothing renamed) and RLS on every new table create_all makes.
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS page_type VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS collection_id VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS summary VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS blocks TEXT DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS major INTEGER DEFAULT 0",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS minor INTEGER DEFAULT 0",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS published_at VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS audience TEXT DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS signing VARCHAR DEFAULT 'in_page'",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS translations TEXT DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS migrated_at VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_kb_documents_collection_id ON kb_documents (collection_id)",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS major INTEGER DEFAULT 0",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS draft TEXT DEFAULT ''",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS published_at VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS published_by VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_course_progress ADD COLUMN IF NOT EXISTS course_major INTEGER DEFAULT 0",
+        "ALTER TABLE kb_course_progress ADD COLUMN IF NOT EXISTS unlock_rounds INTEGER DEFAULT 0",
+        "ALTER TABLE kb_course_progress ADD COLUMN IF NOT EXISTS certificate_id VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_course_assignments ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'manual'",
+        "ALTER TABLE kb_course_assignments ADD COLUMN IF NOT EXISTS rule_id VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_course_assignments ADD COLUMN IF NOT EXISTS plan_id VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_quiz_attempts ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'graded'",
+        "ALTER TABLE kb_quiz_attempts ADD COLUMN IF NOT EXISTS course_major INTEGER DEFAULT 0",
+        "ALTER TABLE kb_quiz_attempts ADD COLUMN IF NOT EXISTS question_ids TEXT DEFAULT ''",
+        "ALTER TABLE kb_quiz_attempts ADD COLUMN IF NOT EXISTS option_order TEXT DEFAULT ''",
+        "ALTER TABLE kb_quiz_attempts ADD COLUMN IF NOT EXISTS answers TEXT DEFAULT ''",
+        "ALTER TABLE kb_quiz_attempts ADD COLUMN IF NOT EXISTS graded_at VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_collections ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_revisions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_page_versions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_events ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_signatures ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_flags ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_views ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_search_log ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_page_requests ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_jobs ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_task_links ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_course_versions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_certificates ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_assignment_rules ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_training_plans ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_plan_assignments ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_reminder_log ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_documents ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_feedback ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_runs ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_acknowledgements ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_comments ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_snapshots ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_courses ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_course_progress ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_pins ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_course_assignments ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_quiz_attempts ENABLE ROW LEVEL SECURITY",
         # External Links directory rebuild (Aug 2026) - department scoping,
         # icon key, admin ordering/pin, and who/when for the audit trail.
         "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
@@ -2766,6 +2928,128 @@ def _run_migrations():
         "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS vendor_name VARCHAR DEFAULT ''",
         # Contractor invoices (Oct 21): the company's payer emails. models.HrEntity.
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS invoice_recipients JSONB DEFAULT '[]'::jsonb",
+        # Tasks company walls (Oct 21 2026). Projects / portfolios / teams: the
+        # creator's company, '' = derive from owner / creator (task_util.row_company).
+        # Rules / templates / custom fields / custom statuses / intake forms:
+        # '' = shared by every company (task_util.config_admits). Additive only.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_portfolios ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_custom_statuses ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_intake_forms ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        # Follow a project (Oct 22 2026): who follows it (lowercase emails).
+        # models.TaskProject.follower_emails / task_project_follow.py.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS follower_emails JSONB DEFAULT '[]'::jsonb",
+        # Task file versions + Egnyte links (Oct 22 2026). See TaskAttachment.
+        "ALTER TABLE task_attachments ADD COLUMN IF NOT EXISTS version_group VARCHAR DEFAULT ''",
+        "ALTER TABLE task_attachments ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1",
+        "ALTER TABLE task_attachments ADD COLUMN IF NOT EXISTS egnyte_path VARCHAR DEFAULT ''",
+        "ALTER TABLE task_attachments ADD COLUMN IF NOT EXISTS egnyte_kind VARCHAR DEFAULT ''",
+        # HR checklist tasks (Oct 22 2026): models.Task.hr_checklist - a step's
+        # subtask or the parent over an owner's steps. Stamped by the checklist
+        # sync from now on; this marks the ones already there (a no-op once done).
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS hr_checklist BOOLEAN DEFAULT FALSE",
+        "UPDATE tasks SET hr_checklist = TRUE WHERE hr_checklist IS NOT TRUE AND ("
+        "id IN (SELECT task_id FROM hr_checklist_items WHERE COALESCE(task_id, '') <> '') OR "
+        "id IN (SELECT parent_task_id FROM tasks WHERE id IN "
+        "(SELECT task_id FROM hr_checklist_items WHERE COALESCE(task_id, '') <> '')))",
+        # Field history (Neil, Oct 22 2026): {field, fieldId, label, from, to,
+        # labels} on the activity row that recorded a change (task_history.py).
+        # NULL on every other row. Additive only.
+        "ALTER TABLE task_activity ADD COLUMN IF NOT EXISTS field_change JSONB",
+        # Formula columns (Oct 22 2026): a formula field's expression and how
+        # its result is shown. Computed in the browser, never stored per task.
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS formula TEXT DEFAULT ''",
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS formula_format JSONB DEFAULT '{}'::jsonb",
+        # Tasks conditional row colors (Oct 22 2026): a project's ordered color
+        # rules, models.TaskProject.color_rules. Additive; [] = no colors.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS color_rules JSONB DEFAULT '[]'::jsonb",
+        # Time Sheet bonuses (Neil, Oct 22) - a new table: explicit RLS on top of
+        # the _enable_rls_everywhere sweep. models.TimecardBonus.
+        "ALTER TABLE timecard_bonuses ENABLE ROW LEVEL SECURITY",
+        # Skip Interview (Neil, Oct 22): who moved the candidate to Decision
+        # without an interview. models.HrCandidate.interview_skipped_by.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS interview_skipped_by VARCHAR DEFAULT ''",
+        # Hiring documents by place (Neil, Oct 22): a packet's state inside its
+        # country, and the state a company's people work in. Additive; '' = any.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS region VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS region VARCHAR DEFAULT ''",
+        # A role's own hiring paperwork (Neil, Oct 22): its duties text and its
+        # documents. models.NexusGroup.job_description / hiring_docs. Additive.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS job_description TEXT DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS hiring_docs JSONB DEFAULT '[]'::jsonb",
+        # Checklist steps ticked by Nexus say which condition did it (Neil, Oct
+        # 22: several conditions per step). models.HrChecklistItem.done_reason.
+        "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS done_reason VARCHAR DEFAULT ''",
+        # A checklist remembers its job role so a role's template change reaches
+        # it (Oct 23 2026). No default on purpose: NULL = started before this,
+        # filled lazily by hr_checklists.reconcile. models.HrChecklist.role_id.
+        "ALTER TABLE hr_checklists ADD COLUMN IF NOT EXISTS role_id VARCHAR",
+        # One task per checklist in the company's HR project (Neil, Oct 22),
+        # the steps' subtasks under it. models.HrChecklist.task_id.
+        "ALTER TABLE hr_checklists ADD COLUMN IF NOT EXISTS task_id VARCHAR DEFAULT ''",
+        # An onboarding checklist run as an audit of someone already here (Neil,
+        # Oct 22). models.HrChecklist.audit.
+        "ALTER TABLE hr_checklists ADD COLUMN IF NOT EXISTS audit BOOLEAN DEFAULT false",
+        # Hiring Setup (Oct 23 2026): Use The Same archives a level's own letter
+        # or packet; a role's duties get versions. models.HrPacketSetting.
+        # archived_at / archived_by, models.NexusGroup.duty_versions. Additive.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS archived_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS archived_by VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS duty_versions JSONB DEFAULT '[]'::jsonb",
+        # Board card previews (Oct 22 2026): models.Task.card_preview - what a
+        # board card shows ("" = Automatic). A saved Board view's columns:
+        # models.TaskSavedView.board_columns ("" = Status). Additive only.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS card_preview VARCHAR DEFAULT ''",
+        "ALTER TABLE task_saved_views ADD COLUMN IF NOT EXISTS board_columns VARCHAR DEFAULT ''",
+        # My Day (Oct 22 2026): the person's list for today on their own
+        # task_table_prefs row, models.TaskTablePref.my_day. Additive; NULL =
+        # nothing planned.
+        "ALTER TABLE task_table_prefs ADD COLUMN IF NOT EXISTS my_day JSONB",
+        # A subtask made private with its parent (Oct 22 2026): models.Task.
+        # narrowed_by - the task whose "make private" took it along, so opening
+        # that task again opens it again. "" = its own level. Additive only.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS narrowed_by VARCHAR DEFAULT ''",
+        # Feature requests are tickets (Oct 23 2026, feature_requests.py): a
+        # What's New request links its Feature Request ticket (one thread),
+        # and the ticket Teams queue also carries the post to the Nexus -
+        # Feedback and Bugs chat (kind 'feedback_chat'; 'dm' = the requester
+        # DM it always held). Additive only.
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS ticket_id VARCHAR DEFAULT ''",
+        "ALTER TABLE ticket_teams_message ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'dm'",
+        # Management Fees threshold rule (Charmi, Oct 22 call, CR-03): "X% of
+        # gross if gross > threshold, else a flat amount". NULL / '' on every
+        # older agreement = the defaults in accounting_assumptions.py.
+        "ALTER TABLE accounting_ama_agreements ADD COLUMN IF NOT EXISTS threshold_amount DOUBLE PRECISION",
+        "ALTER TABLE accounting_ama_agreements ADD COLUMN IF NOT EXISTS threshold_basis VARCHAR DEFAULT ''",
+        # AMA notes and reclass approval (Charmi, CR-13, Oct 23): who may push
+        # a reclass ('' row; [] = the env fallback), and the per-line Notes /
+        # reclass table - new, so explicit RLS. models.AccountingAmaSetting /
+        # AccountingAmaLineReview.
+        "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS bookkeepers JSON DEFAULT '[]'",
+        "ALTER TABLE accounting_ama_line_reviews ENABLE ROW LEVEL SECURITY",
+        # AMA push edits the original Intacct entry (Neil, 23 Oct, CR-13
+        # rework): the books-closed-through date, the previews a push must
+        # name, and the append-only push log - new tables, so explicit RLS.
+        # models.AccountingAmaSetting / AccountingAmaPushPreview / AccountingAmaPushLog.
+        "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS closed_through VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_ama_push_previews ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_ama_push_log ENABLE ROW LEVEL SECURITY",
+        # Build Mode v2 (Neil, Oct 24 2026, docs/Build-Mode.md "v2"): the owner a
+        # pin is held for (code_owners.py), who released it to Claude Code, the
+        # Ready To Check local preview and its verdict, and the regression test
+        # an accepted bug became. models.DevNote. Additive only.
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_email VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_name VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_released_by VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_released_at VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview JSON DEFAULT '{}'",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict_at VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS regression_case_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3378,6 +3662,21 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] department head adoption skipped: {e}")
+    # Checklist evidence (Oct 22 2026, the Colin case): onboarding templates
+    # seeded earlier get the ID / right-to-work conditions and the Picture ID
+    # step, once (hr_checklists.backfill_id_evidence).
+    try:
+        from database import SessionLocal
+        import hr_checklists
+        db = SessionLocal()
+        try:
+            n = hr_checklists.backfill_id_evidence(db)
+            if n:
+                print(f"[startup] checklist ID evidence added to {n} onboarding template(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] checklist ID evidence backfill skipped: {e}")
 
 
 @asynccontextmanager
@@ -3599,6 +3898,17 @@ async def lifespan(app: FastAPI):
                 print("[startup] screenshot retention sweep skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] screenshot retention sweep skipped: {e}")
+        # Build Mode: purge the media of pins closed 30+ days ago (deletes live
+        # storage, so deployed worker only - same gate as the sweep above).
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from routers.dev_notes import purge_media_loop
+                _tasks.append(_a.create_task(purge_media_loop()))
+            else:
+                print("[startup] Build Mode media purge skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Build Mode media purge skipped: {e}")
         try:
             from leader import is_deployed_worker
             if is_deployed_worker():
@@ -3970,6 +4280,8 @@ app.add_middleware(
     # thrown away.
     expose_headers=["Content-Disposition"],
 )
+# Oct 24 (Neil, item 13): a table's own Sync (fresh=1) reads past the accounting cache.
+app.add_middleware(accounting.AccountingFreshReads)
 
 
 @app.exception_handler(Exception)
@@ -4111,7 +4423,6 @@ app.include_router(tasks.router)
 app.include_router(purchases.router)
 app.include_router(reviews.router)
 app.include_router(marketing.router)
-app.include_router(sop.router)
 app.include_router(external_links.router) # External Links: registered BEFORE assets.router so its real
                                            # GET/POST/click routes win the match over assets.py's leftover
                                            # /external-links stub (Starlette matches in registration order,
@@ -4146,7 +4457,8 @@ app.include_router(qa.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
 app.include_router(hr_life_events_router.router)
-app.include_router(knowledge_base.router)
+app.include_router(kb_router.router)
+app.include_router(kb_training_router.router)
 app.include_router(help_router.router)
 app.include_router(esign.router)
 app.include_router(documents_router.router)
@@ -4182,6 +4494,8 @@ app.include_router(files_router.router)   # Authenticated viewer for the private
 
 from routers import task_prefs             # noqa: E402
 app.include_router(task_prefs.router)     # Per-user column arrangement for the Task module's lists
+from routers import task_my_day            # noqa: E402
+app.include_router(task_my_day.router)    # Tasks > My Day: the person's own list for today (Oct 22 2026)
 
 from routers import user_tours             # noqa: E402
 app.include_router(user_tours.router)     # Per-user guided-tour "seen" state (server-side, follows the person not the browser)
@@ -4324,3 +4638,13 @@ from routers import ops_customer_map as ops_customer_map_router  # noqa: E402
 app.include_router(ops_customer_map_router.router)  # Operations > Customer Map: current customers around each facility, with rings (Neil, Oct 21 2026)
 from routers import contractor_invoices as contractor_invoices_router  # noqa: E402
 app.include_router(contractor_invoices_router.router)  # Contractor invoices: drafted at Time Sheet finalize, HR approves and sends the PDF (Pranshu + Neil, Oct 21 2026)
+from routers import task_labels as task_labels_router  # noqa: E402
+app.include_router(task_labels_router.router)      # Tasks: label colors, labels in use, Manage > Labels (Neil, Oct 22 2026)
+from routers import meeting_files as meeting_files_router  # noqa: E402
+app.include_router(meeting_files_router.router)    # Meeting files: Teams transcript/recording of a meeting you were in, whoever recorded it - for Nexus Bots (Visesh, Oct 24 2026)
+from routers import accounting_ask_review  # noqa: E402
+app.include_router(accounting_ask_review.router)   # Accounting > AMA: the other side of each line, Notes, GL reclass approved and pushed by a bookkeeper (Charmi, CR-13, Oct 23 2026)
+from routers import accounting_manual_je  # noqa: E402
+app.include_router(accounting_manual_je.router)    # Accounting > Audit & Insights > Manual Journal Entries: who keyed each entry, read from Intacct (Neil + Charmi, CR-10, Oct 23 2026)
+from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: create_all + _enable_rls_everywhere, no ALTER lines
+app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)

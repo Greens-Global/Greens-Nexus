@@ -2,13 +2,13 @@
 // strip (Automation rules · Custom fields · Custom statuses · Templates · Intake
 // forms · Activity log · Reporting), ported from the export's manage/ + reporting/
 // screens onto the Nexus inline-style idiom + FastAPI-backed store.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState } from '../components/AsyncState';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
   Circle, Palette, Users, List, ChevronDown, Check, AlertTriangle, RotateCcw,
-  FolderKanban, Briefcase, LayoutTemplate,
+  FolderKanban, Briefcase, LayoutTemplate, Tag,
 } from 'lucide-react';
 import DataQualityTab from './DataQualityTab';
 import { useTasks } from './TasksContext';
@@ -17,15 +17,21 @@ import {
   NX, FONT, card, chip, btn, input as inputStyle,
   STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, colorForKey,
 } from './theme';
-import { Avatar, EmptyState, Modal, SearchSelect, ChipMultiSelect, PersonSelect, usePeople } from './components';
+import { Avatar, EmptyState, Modal, SearchSelect, ChipMultiSelect, PersonSelect, usePeople, DateField } from './components';
 import {
   TRIGGER_TYPES, ACTION_TYPES, CONDITION_FIELDS, CONDITION_OPS, MAX_CONDITIONS, MAX_ACTIONS,
   COMMENT_PLACEHOLDERS, ruleDraft, ruleProblem, defaultActionValue, describeRule,
+  defaultTriggerValue, rulePayload, fieldOptions, EMAIL_TO, MAX_TITLE, MAX_SUBJECT, MAX_BODY, newActionKey,
 } from './automationRules';
-import { taskStats, topLevel, fmtDateTime, teamProjectIds } from './lib';
+import { taskStats, topLevel, fmtDateTime, teamProjectIds, todayISO } from './lib';
 import TasksWorkspace from './TasksWorkspace';
+import { FormulaEditor } from './FormulaColumn';
+import { checkFormula, normalizeFormat, formulaContext, previewRows, fieldNameProblem, formulaNameProblem, builtinNameHint, formulasUsing } from './formula';
+import { groupFieldChanges, foldBulkChanges } from './fieldHistory';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { TeamModal, deptIcon } from './TeamsView';
+// Manage > Labels, rarely opened: loaded with the tab (a ring meanwhile).
+const LabelsManageTab = lazy(() => import('./LabelsManageTab'));
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -86,6 +92,8 @@ const SUBTABS = [
   { key: 'rules', label: 'Automation Rules', icon: Zap },
   { key: 'fields', label: 'Custom Fields', icon: ListChecks },
   { key: 'statuses', label: 'Custom Statuses', icon: Palette },
+  // Labels (Oct 22 2026): recolor, rename, merge, delete - company-wide.
+  { key: 'labels', label: 'Labels', icon: Tag },
   { key: 'templates', label: 'Templates', icon: FileText },
   // Intake Forms removed from the strip (Neil, Sept 8). The tab, its store
   // actions and the backend endpoints are all still here - this is one line,
@@ -150,6 +158,7 @@ export default function ManageView({ onExit }) {
             {tab === 'rules' && <RulesTab store={store} />}
             {tab === 'fields' && <FieldsTab store={store} />}
             {tab === 'statuses' && <StatusesTab store={store} />}
+            {tab === 'labels' && <Suspense fallback={<LoadingState label="Loading labels" />}><LabelsManageTab /></Suspense>}
             {tab === 'templates' && <TemplatesTab store={store} />}
             {/* {tab === 'intake' && <IntakeTab store={store} />}  - see the tab list */}
             {tab === 'trash' && <DeletedTasksTab store={store} />}
@@ -254,16 +263,24 @@ function TeamsTab({ store }) {
 
 /** Option lists every value picker in the rule editor draws from. */
 function useRuleContext() {
-  const { statusOrder, statusMeta, projects, teams, nameOf } = useTasks();
+  const { statusOrder, statusMeta, projects, teams, nameOf, customFields, sections } = useTasks();
   const people = usePeople();
-  return useMemo(() => ({
-    statusOrder, statusMeta, projects: projects || [], teams: teams || [], people,
-    statusLabel: (id) => statusMeta[id]?.label || id,
-    priorityLabel: (k) => PRIORITY_META[k]?.label || k,
-    projectName: (id) => (projects || []).find((p) => p.id === id)?.name || id,
-    teamName: (id) => (teams || []).find((t) => t.id === id)?.name || id,
-    personName: (email) => nameOf(email) || email,
-  }), [statusOrder, statusMeta, projects, teams, people, nameOf]);
+  return useMemo(() => {
+    const fields = customFields || [];
+    const fieldById = (id) => fields.find((f) => f.id === id);
+    return {
+      statusOrder, statusMeta, projects: projects || [], teams: teams || [], people,
+      customFields: fields, sections: sections || [],
+      statusLabel: (id) => statusMeta[id]?.label || id,
+      priorityLabel: (k) => PRIORITY_META[k]?.label || k,
+      projectName: (id) => (projects || []).find((p) => p.id === id)?.name || id,
+      teamName: (id) => (teams || []).find((t) => t.id === id)?.name || id,
+      personName: (email) => nameOf(email) || email,
+      fieldName: (id) => fieldById(id)?.name || id,
+      fieldOptionLabel: (fieldId, v) => fieldOptions(fieldById(fieldId)).find((o) => o.id === v)?.label || v,
+      sectionName: (id) => (sections || []).find((s) => s.id === id)?.name || id,
+    };
+  }, [statusOrder, statusMeta, projects, teams, people, nameOf, customFields, sections]);
 }
 
 function RulesTab({ store }) {
@@ -397,7 +414,240 @@ function RuleValueInput({ kind, value, onChange, ctx, anyLabel }) {
   return <input value={value ?? ''} onChange={(e) => onChange(e.target.value)} placeholder={kind === 'text' ? 'Tag' : ''} style={{ ...inputStyle, flex: 1, minWidth: 0 }} />;
 }
 
-function RuleModal({ rule, ctx, onClose, onSave }) {
+// ── Custom field, create task, move and email editors (Oct 22 2026) ──────────
+const miniLabel = { fontSize: 11.5, fontWeight: 600, color: NX.dim, minWidth: 92, flexShrink: 0 };
+const editorBox = { flexBasis: '100%', display: 'flex', flexDirection: 'column', gap: 8, padding: 10, borderRadius: 10, background: NX.hover };
+const editorRow = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' };
+const placeholderHint = (extra) => (
+  <div style={{ fontSize: 11.5, color: NX.faint }}>Fill-ins: {COMMENT_PLACEHOLDERS.join(' ')}.{extra ? ` ${extra}` : ''}</div>
+);
+
+/** The custom fields this company can see (the store is already company-filtered). */
+function CustomFieldPicker({ value, onChange, ctx, writable = false }) {
+  // A formula field is calculated, never stored: a rule can neither watch,
+  // test nor set it (task_automation.FORMULA_TYPE). Read-only fields can be
+  // watched but not set.
+  const rows = ctx.customFields.filter((f) => f.type !== 'formula' && (!writable || !f.readOnly));
+  return (
+    <div style={{ flex: 1, minWidth: 160 }}>
+      <SearchSelect options={rows.map((f) => ({ id: f.id, label: f.name }))} value={value || ''}
+        onPick={(o) => onChange(o.id)} placeholder="Choose a custom field" emptyText="No custom fields yet."
+        buttonStyle={{ width: '100%' }} />
+    </div>
+  );
+}
+
+/** One custom field value, shaped by the field's type. `anyLabel` adds a blank choice. */
+function CustomFieldValueInput({ field, value, onChange, ctx, anyLabel }) {
+  const style = { ...selectStyle, flex: 1, minWidth: 140 };
+  if (!field) return <span style={{ flex: 1, fontSize: 12, color: NX.faint }}>Pick a field first.</span>;
+  const type = field.type || 'text';
+  if (type === 'select' || type === 'multiselect') {
+    return (
+      <select value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={style}>
+        {anyLabel ? <option value="">{anyLabel}</option> : <option value="" disabled>Choose an option</option>}
+        {fieldOptions(field).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+      </select>
+    );
+  }
+  if (type === 'checkbox') {
+    const v = value === true ? 'checked' : value === false ? 'unchecked' : (value ?? '');
+    return (
+      <select value={v} onChange={(e) => onChange(e.target.value)} style={style}>
+        {anyLabel ? <option value="">{anyLabel}</option> : <option value="" disabled>Choose</option>}
+        <option value="checked">Checked</option>
+        <option value="unchecked">Unchecked</option>
+      </select>
+    );
+  }
+  if (type === 'people') {
+    return (
+      <div style={{ flex: 1, minWidth: 140 }}>
+        <PersonSelect value={value || ''} onChange={(email) => onChange(email || '')} people={ctx.people}
+          placeholder={anyLabel || 'Choose a person'} />
+      </div>
+    );
+  }
+  if (type === 'date') {
+    return (
+      <DateField value={value || ''} onChange={(v) => onChange(v || '')} placeholder={anyLabel || 'Pick a date'}
+        title={field.name} style={{ ...inputStyle, cursor: 'pointer', flex: 1, minWidth: 140 }} />
+    );
+  }
+  return (
+    <input type={type === 'number' ? 'number' : 'text'} value={value ?? ''} onChange={(e) => onChange(e.target.value)}
+      placeholder={anyLabel || 'Value'} style={{ ...inputStyle, flex: 1, minWidth: 140 }} />
+  );
+}
+
+/** Trigger value for "When a custom field changes": the field, then what it changes to. */
+function FieldChangeInput({ value, onChange, ctx }) {
+  const v = value && typeof value === 'object' ? value : { fieldId: '', to: '' };
+  const field = ctx.customFields.find((f) => f.id === v.fieldId);
+  return (
+    <div style={{ ...editorRow, flex: 1, minWidth: 0 }}>
+      <CustomFieldPicker value={v.fieldId} ctx={ctx} onChange={(id) => onChange({ fieldId: id, to: '' })} />
+      {field && (
+        <CustomFieldValueInput field={field} value={v.to} ctx={ctx} onChange={(to) => onChange({ ...v, to })}
+          anyLabel={field.type === 'multiselect' ? 'Any change' : 'Any value'} />
+      )}
+    </div>
+  );
+}
+
+function CreateTaskEditor({ value, onChange, ctx }) {
+  const v = value && typeof value === 'object' ? value : {};
+  const set = (patch) => onChange({ ...v, ...patch });
+  // "A specific person" before one is picked has no email to store yet, so
+  // the choice is held here.
+  const [who, setWho] = useState(() => (v.assignee === '{assignee}' ? 'same' : v.assignee ? 'person' : 'none'));
+  const pickWho = (w) => { setWho(w); set({ assignee: w === 'same' ? '{assignee}' : '' }); };
+  return (
+    <div style={editorBox}>
+      <div style={editorRow}>
+        <span style={miniLabel}>Title</span>
+        <input value={v.title ?? ''} maxLength={MAX_TITLE} onChange={(e) => set({ title: e.target.value })}
+          placeholder="e.g. Follow up: {title}" style={{ ...inputStyle, flex: 1, minWidth: 160 }} />
+      </div>
+      <label style={{ ...editorRow, fontSize: 12.5, color: NX.ink, cursor: 'pointer' }}>
+        <input type="checkbox" checked={!!v.asSubtask} onChange={(e) => set({ asSubtask: e.target.checked })} />
+        Create it as a subtask of the task that triggered the rule
+      </label>
+      {!v.asSubtask && (
+        <div style={editorRow}>
+          <span style={miniLabel}>Project</span>
+          <RuleValueInput kind="project" value={v.projectId || ''} ctx={ctx} anyLabel="Same Project"
+            onChange={(id) => set({ projectId: id })} />
+        </div>
+      )}
+      <div style={editorRow}>
+        <span style={miniLabel}>Assignee</span>
+        <select value={who} onChange={(e) => pickWho(e.target.value)} style={{ ...selectStyle, width: 190, flexShrink: 0 }}>
+          <option value="none">Nobody</option>
+          <option value="same">The Same Assignees</option>
+          <option value="person">A Specific Person</option>
+        </select>
+        {who === 'person' && (
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <PersonSelect value={v.assignee || ''} onChange={(email) => set({ assignee: email || '' })} people={ctx.people}
+              placeholder="Choose a person" />
+          </div>
+        )}
+      </div>
+      <div style={editorRow}>
+        <span style={miniLabel}>Due</span>
+        <input type="number" step={1} value={v.dueInDays ?? ''} placeholder="-"
+          onChange={(e) => set({ dueInDays: e.target.value === '' ? '' : Number(e.target.value) })}
+          style={{ ...inputStyle, width: 80, flexShrink: 0 }} />
+        <span style={{ fontSize: 12, color: NX.dim }}>days from the day it is created (blank = no due date)</span>
+      </div>
+      <div style={editorRow}>
+        <span style={miniLabel}>Priority</span>
+        <select value={v.priority || ''} onChange={(e) => set({ priority: e.target.value })} style={{ ...selectStyle, width: 190, flexShrink: 0 }}>
+          <option value="">Default (Medium)</option>
+          {PRIORITY_KEYS.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
+        </select>
+      </div>
+      {placeholderHint('Created as the person whose change fired the rule, so it follows their access. A task a rule creates never triggers other rules.')}
+    </div>
+  );
+}
+
+function MoveEditor({ value, onChange, ctx }) {
+  const v = value && typeof value === 'object' ? value : {};
+  // The store's sections are as of when Tasks loaded; a project picked here
+  // may have sections made since. Re-read them (the existing sections API)
+  // whenever the destination changes; the store's copy shows meanwhile.
+  const [fetched, setFetched] = useState(null);
+  useEffect(() => {
+    if (!v.projectId) return undefined;
+    let alive = true;
+    api.getTaskSections()
+      .then((rows) => { if (alive && Array.isArray(rows)) setFetched(rows); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [v.projectId]);
+  const sections = (fetched || ctx.sections).filter((s) => s.projectId === v.projectId);
+  return (
+    <div style={editorBox}>
+      <div style={editorRow}>
+        <span style={miniLabel}>Project</span>
+        <RuleValueInput kind="project" value={v.projectId || ''} ctx={ctx} onChange={(id) => onChange({ projectId: id, sectionId: '' })} />
+      </div>
+      {!!sections.length && (
+        <div style={editorRow}>
+          <span style={miniLabel}>Section</span>
+          <select value={v.sectionId || ''} onChange={(e) => onChange({ ...v, sectionId: e.target.value })} style={{ ...selectStyle, flex: 1, minWidth: 140 }}>
+            <option value="">No Section</option>
+            {sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+      )}
+      <div style={{ fontSize: 11.5, color: NX.faint }}>Subtasks move with the task. A move made by a rule does not trigger other rules.</div>
+    </div>
+  );
+}
+
+function EmailEditor({ value, onChange, ctx }) {
+  const v = value && typeof value === 'object' ? value : {};
+  const set = (patch) => onChange({ ...v, ...patch });
+  const preset = EMAIL_TO.some((x) => x.value === v.to && x.value !== 'person');
+  const [person, setPerson] = useState(() => !preset && !!v.to);
+  const choice = preset ? v.to : (person || v.to ? 'person' : 'assignees');
+  return (
+    <div style={editorBox}>
+      <div style={editorRow}>
+        <span style={miniLabel}>To</span>
+        <select value={choice} onChange={(e) => { const to = e.target.value; setPerson(to === 'person'); set({ to: to === 'person' ? '' : to }); }}
+          style={{ ...selectStyle, width: 190, flexShrink: 0 }}>
+          {EMAIL_TO.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+        </select>
+        {choice === 'person' && (
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <PersonSelect value={v.to || ''} onChange={(email) => set({ to: email || '' })} people={ctx.people}
+              placeholder="Choose a person" />
+          </div>
+        )}
+      </div>
+      <div style={editorRow}>
+        <span style={miniLabel}>Subject</span>
+        <input value={v.subject ?? ''} maxLength={MAX_SUBJECT} onChange={(e) => set({ subject: e.target.value })}
+          placeholder="e.g. {title} is over budget" style={{ ...inputStyle, flex: 1, minWidth: 160 }} />
+      </div>
+      <div style={{ ...editorRow, alignItems: 'flex-start' }}>
+        <span style={{ ...miniLabel, paddingTop: 8 }}>Message</span>
+        <textarea value={v.body ?? ''} maxLength={MAX_BODY} rows={4} onChange={(e) => set({ body: e.target.value })}
+          placeholder="e.g. {assignee}, {title} in {project} needs a look before {due}."
+          style={{ ...inputStyle, flex: 1, minWidth: 160, height: 'auto', resize: 'vertical', fontFamily: FONT }} />
+      </div>
+      {placeholderHint('Sent with the regular task emails (batched, and respecting mutes), only to Nexus people who can see the task.')}
+    </div>
+  );
+}
+
+function FieldSetEditor({ value, onChange, ctx }) {
+  const v = value && typeof value === 'object' ? value : {};
+  const field = ctx.customFields.find((f) => f.id === v.fieldId);
+  return (
+    <div style={editorBox}>
+      <div style={editorRow}>
+        <span style={miniLabel}>Field</span>
+        <CustomFieldPicker value={v.fieldId} ctx={ctx} writable onChange={(id) => onChange({ fieldId: id, value: '' })} />
+      </div>
+      {field && (
+        <div style={editorRow}>
+          <span style={miniLabel}>Value</span>
+          <CustomFieldValueInput field={field} value={v.value} ctx={ctx} onChange={(val) => onChange({ ...v, value: val })}
+            anyLabel="Clear the Field" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+const OBJECT_EDITORS = { create_task: CreateTaskEditor, move: MoveEditor, email: EmailEditor, field_set: FieldSetEditor };
+
+export function RuleModal({ rule, ctx, onClose, onSave }) {
   const [draft, setDraft] = useState(() => ruleDraft(rule));
   const initial = useMemo(() => JSON.stringify(ruleDraft(rule)), [rule]);
   const dirty = JSON.stringify(draft) !== initial;
@@ -406,23 +656,14 @@ function RuleModal({ rule, ctx, onClose, onSave }) {
   const [tried, setTried] = useState(false);
 
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
-  const setTrigger = (type) => set({ trigger: { type, value: type === 'due_date_arrives' ? 0 : '' } });
+  const setTrigger = (type) => set({ trigger: { type, value: defaultTriggerValue(type) } });
   const setCond = (i, patch) => set({ conditions: draft.conditions.map((c, idx) => (idx === i ? { ...c, ...patch } : c)) });
   const setAction = (i, patch) => set({ actions: draft.actions.map((a, idx) => (idx === i ? { ...a, ...patch } : a)) });
 
   const save = () => {
     setTried(true);
     if (problem) return;
-    onSave({
-      name: draft.name.trim(),
-      enabled: draft.enabled,
-      trigger: { type: draft.trigger.type, value: triggerDef.valueKind === 'none' ? '' : draft.trigger.value },
-      conditions: draft.conditions.map((c) => ({ field: c.field, op: c.op, value: c.value })),
-      actions: draft.actions.map((a) => {
-        const kind = ACTION_TYPES.find((x) => x.value === a.type)?.valueKind;
-        return { type: a.type, value: kind === 'none' ? '' : kind === 'days' ? Number(a.value) : a.value };
-      }),
-    });
+    onSave(rulePayload(draft));
   };
 
   const rowStyle = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' };
@@ -453,6 +694,8 @@ function RuleModal({ rule, ctx, onClose, onSave }) {
         </select>
         {triggerDef.valueKind === 'days' ? (
           <DaysOffsetInput value={draft.trigger.value} onChange={(v) => set({ trigger: { ...draft.trigger, value: v } })} />
+        ) : triggerDef.valueKind === 'field_change' ? (
+          <FieldChangeInput value={draft.trigger.value} ctx={ctx} onChange={(v) => set({ trigger: { ...draft.trigger, value: v } })} />
         ) : (
           <RuleValueInput kind={triggerDef.valueKind} value={draft.trigger.value} ctx={ctx} anyLabel={anyLabel}
             onChange={(v) => set({ trigger: { ...draft.trigger, value: v } })} />
@@ -461,7 +704,9 @@ function RuleModal({ rule, ctx, onClose, onSave }) {
       <div style={{ fontSize: 12, color: NX.faint, marginBottom: 14 }}>
         {draft.trigger.type === 'due_date_arrives'
           ? 'Checked hourly. Each open task is acted on once per date; a task whose date moves is checked again on its new date.'
-          : 'Runs when a person makes this change, including through a bulk edit. Changes made by other rules do not count.'}
+          : draft.trigger.type === 'custom_field_changed'
+            ? 'Runs when a person changes the field, including through a bulk edit. For a multi-select field, "changes to" means the option was added.'
+            : 'Runs when a person makes this change, including through a bulk edit. Changes made by other rules do not count.'}
       </div>
 
       <label style={fieldLabel}>Only if</label>
@@ -471,13 +716,21 @@ function RuleModal({ rule, ctx, onClose, onSave }) {
           const f = CONDITION_FIELDS.find((x) => x.value === c.field) || CONDITION_FIELDS[0];
           return (
             <div key={i} style={rowStyle}>
-              <select value={c.field} onChange={(e) => setCond(i, { field: e.target.value, value: firstConditionValue(e.target.value, ctx) })} style={{ ...selectStyle, width: 130, flexShrink: 0 }}>
+              <select value={c.field} onChange={(e) => setCond(i, { field: e.target.value, value: firstConditionValue(e.target.value, ctx), fieldId: '' })} style={{ ...selectStyle, width: 130, flexShrink: 0 }}>
                 {CONDITION_FIELDS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
               </select>
+              {f.valueKind === 'field_value' && (
+                <CustomFieldPicker value={c.fieldId} ctx={ctx} onChange={(id) => setCond(i, { fieldId: id, value: '' })} />
+              )}
               <select value={c.op} onChange={(e) => setCond(i, { op: e.target.value })} style={{ ...selectStyle, width: 90, flexShrink: 0 }}>
                 {CONDITION_OPS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
               </select>
-              <RuleValueInput kind={f.valueKind} value={c.value} ctx={ctx} onChange={(v) => setCond(i, { value: v })} />
+              {f.valueKind === 'field_value' ? (
+                <CustomFieldValueInput field={ctx.customFields.find((x) => x.id === c.fieldId)} value={c.value} ctx={ctx}
+                  onChange={(v) => setCond(i, { value: v })} />
+              ) : (
+                <RuleValueInput kind={f.valueKind} value={c.value} ctx={ctx} onChange={(v) => setCond(i, { value: v })} />
+              )}
               <IconButton icon={X} title="Remove Condition" onClick={() => set({ conditions: draft.conditions.filter((_, idx) => idx !== i) })} />
             </div>
           );
@@ -494,13 +747,20 @@ function RuleModal({ rule, ctx, onClose, onSave }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {draft.actions.map((a, i) => {
           const def = ACTION_TYPES.find((x) => x.value === a.type) || ACTION_TYPES[0];
+          const Editor = OBJECT_EDITORS[def.valueKind];
           return (
-            <div key={i} style={{ ...rowStyle, alignItems: def.valueKind === 'comment' ? 'flex-start' : 'center' }}>
+            <div key={a.key || i} style={{ ...rowStyle, alignItems: def.valueKind === 'comment' ? 'flex-start' : 'center' }}>
               <select value={a.type} onChange={(e) => setAction(i, { type: e.target.value, value: defaultActionValue(e.target.value) })} style={{ ...selectStyle, width: 220, flexShrink: 0 }}>
                 {ACTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
-              <RuleValueInput kind={def.valueKind} value={a.value} ctx={ctx} onChange={(v) => setAction(i, { value: v })} />
+              {Editor ? <div style={{ flex: 1 }} /> : (
+                <RuleValueInput kind={def.valueKind} value={a.value} ctx={ctx} onChange={(v) => setAction(i, { value: v })} />
+              )}
               <IconButton icon={X} title="Remove Action" onClick={() => set({ actions: draft.actions.filter((_, idx) => idx !== i) })} />
+              {/* Keyed by the row's own id (and type, so a new type starts fresh) -
+                  never the index: removing a row must not hand the next row this
+                  editor's local state. */}
+              {Editor && <Editor key={`${a.key || i}:${a.type}`} value={a.value} ctx={ctx} onChange={(v) => setAction(i, { value: v })} />}
               {def.valueKind === 'comment' && (
                 <div style={{ flexBasis: '100%', fontSize: 11.5, color: NX.faint, marginTop: -4 }}>
                   Fill-ins: {COMMENT_PLACEHOLDERS.join(' ')}. Posted by "Automation" and emailed like any comment.
@@ -511,7 +771,7 @@ function RuleModal({ rule, ctx, onClose, onSave }) {
         })}
       </div>
       {draft.actions.length < MAX_ACTIONS && (
-        <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => set({ actions: [...draft.actions, { type: 'set_priority', value: 'high' }] })}>
+        <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => set({ actions: [...draft.actions, { type: 'set_priority', value: 'high', key: newActionKey() }] })}>
           <Plus size={14} />Add Action
         </button>
       )}
@@ -566,7 +826,7 @@ function RuleRunsModal({ ruleId, rules, onClose }) {
           {rows.map((x) => (
             <div key={x.id} style={{ ...card, padding: '8px 12px', display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12.5 }}>
               <span style={{ ...iconBadge, width: 26, height: 26, color: x.status === 'error' ? NX.red : NX.amber }}>
-                {x.status === 'error' ? <AlertTriangle size={14} /> : <Zap size={14} />}
+                {x.status === 'error' || x.status === 'partial' ? <AlertTriangle size={14} /> : <Zap size={14} />}
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div>
@@ -575,7 +835,12 @@ function RuleRunsModal({ ruleId, rules, onClose }) {
                   <button type="button" onClick={() => openTask(x.taskId)} style={{ ...btn('ghost'), padding: 0, height: 'auto', fontWeight: 600, color: NX.blue }}>{x.taskTitle || 'a task'}</button>
                 </div>
                 <div style={{ color: x.status === 'error' ? NX.red : NX.dim, marginTop: 1 }}>
-                  {x.status === 'error' ? `Failed: ${x.detail}` : (x.actions || []).join('; ')}
+                  {x.status === 'error' ? `Failed: ${x.detail}` : (x.actions || []).map((ln, n) => (
+                    // A partial run: the lines that could not run read in red (task_automation._record).
+                    <span key={n} style={{ color: String(ln).startsWith('could not ') ? NX.red : undefined }}>
+                      {n ? '; ' : ''}{ln}
+                    </span>
+                  ))}
                 </div>
               </div>
               <div style={{ color: NX.faint, whiteSpace: 'nowrap', fontSize: 11.5 }}>{fmtDateTime(x.at)}<br />{x.event}</div>
@@ -596,6 +861,8 @@ const FIELD_TYPES = [
   { value: 'multiselect', label: 'Multi-Select' },
   { value: 'people', label: 'People' },
   { value: 'checkbox', label: 'Checkbox' },
+  // Worked out from other fields, never stored per task (Oct 22 2026).
+  { value: 'formula', label: 'Formula' },
 ];
 // The two kinds whose value is chosen from a fixed option list.
 const OPTION_TYPES = ['select', 'multiselect'];
@@ -605,6 +872,22 @@ function FieldsTab({ store }) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
   const projectName = (id) => projects.find((p) => p.id === id)?.name || '';
+  // Formula columns that name the field would show #Error once it is gone
+  // (Oct 22 2026), so the question lists them. The server asks too (409 with
+  // the ones this screen did not know about) - answered the same way.
+  const deleteFieldAsking = async (f) => {
+    const uses = formulasUsing(customFields, f);
+    const ask = (names) => confirm(names.length
+      ? `Delete field "${f.name}"?\n\nThese formula columns use it and will show #Error: ${names.join(', ')}.`
+      : `Delete field "${f.name}"?`);
+    if (!ask(uses.map((g) => g.name))) return;
+    try {
+      await deleteCustomField(f.id, { force: uses.length > 0 });
+    } catch (e) {
+      if (e?.status !== 409) { alert(e?.message || 'The field could not be deleted.'); return; }
+      if (ask(e.detail?.formulas || [])) await deleteCustomField(f.id, { force: true }).catch((err) => alert(err?.message || 'The field could not be deleted.'));
+    }
+  };
 
   return (
     <div>
@@ -621,6 +904,9 @@ function FieldsTab({ store }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>{f.name}</div>
             {f.description && <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{f.description}</div>}
+            {f.type === 'formula' && f.formula && (
+              <code style={{ display: 'block', fontSize: 11.5, color: NX.dim, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>= {f.formula}</code>
+            )}
             {OPTION_TYPES.includes(f.type) && !!(f.options || []).length && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
                 {(f.options || []).slice(0, LIST_CAP).map((o) => {
@@ -650,14 +936,14 @@ function FieldsTab({ store }) {
                 Required in {(f.requiredProjectIds || []).length} {(f.requiredProjectIds || []).length === 1 ? 'Project' : 'Projects'}
               </span>
             )}
-          {f.readOnly && <span title="Calculated in Asana - imported but never pushed back" style={chip(NX.dim, NX.border2)}>Read-only</span>}
+          {f.readOnly && f.type !== 'formula' && <span title="Calculated in Asana - imported but never pushed back" style={chip(NX.dim, NX.border2)}>Read-only</span>}
           <span style={chip(NX.dim, NX.border2)}>{FIELD_TYPES.find((t) => t.value === f.type)?.label || f.type}</span>
           <IconButton icon={Pencil} title="Edit Field" onClick={() => setEditing(f)} />
-          <IconButton icon={Trash2} title="Delete Field" danger onClick={() => { if (confirm(`Delete field "${f.name}"?`)) deleteCustomField(f.id); }} />
+          <IconButton icon={Trash2} title="Delete Field" danger onClick={() => deleteFieldAsking(f)} />
         </RowCard>
       ))}
-      {adding && <FieldModal projects={projects} onClose={() => setAdding(false)} onSave={async (d) => { await createCustomField(d); setAdding(false); }} />}
-      {editing && <FieldModal projects={projects} field={editing} onClose={() => setEditing(null)}
+      {adding && <FieldModal projects={projects} store={store} onClose={() => setAdding(false)} onSave={async (d) => { await createCustomField(d); setAdding(false); }} />}
+      {editing && <FieldModal projects={projects} store={store} field={editing} onClose={() => setEditing(null)}
         onSave={async (d) => { await updateCustomField(editing.id, d); setEditing(null); }} />}
     </div>
   );
@@ -676,10 +962,25 @@ const APPLIES_TO_OPTS = [
   { value: 'project', label: 'Projects' },
 ];
 
-export function FieldModal({ projects = [], field = null, onClose, onSave }) {
+export function FieldModal({ projects = [], field = null, onClose, onSave, store = null }) {
   const [name, setName] = useState(field?.name || '');
   const [description, setDescription] = useState(field?.description || '');
   const [type, setType] = useState(field?.type || 'text');
+  // Formula columns (Oct 22 2026): the expression and how its result reads.
+  const [formula, setFormula] = useState(field?.formula || '');
+  const [formulaFormat, setFormulaFormat] = useState(normalizeFormat(field?.formulaFormat));
+  const isFormula = type === 'formula';
+  const fctx = useMemo(() => formulaContext(store?.customFields || [], field?.id || '__draft'), [store?.customFields, field?.id]);
+  const formulaProblem = isFormula ? checkFormula(formula, { selfName: name.trim(), ...fctx }) : '';
+  // Only a NEW name is held to it - an older field keeps whatever it is
+  // called - except that a formula column never takes a built-in's name
+  // (checked again when a field becomes one). An ordinary field may; it
+  // only gets a hint.
+  const nameChanged = name !== (field?.name || '');
+  const nameProblem = isFormula && (nameChanged || type !== (field?.type || 'text'))
+    ? formulaNameProblem(name) : nameChanged ? fieldNameProblem(name) : '';
+  const nameHint = !isFormula && !nameProblem ? builtinNameHint(name) : '';
+  const blocked = formulaProblem || nameProblem;
   // A field can apply to tasks, projects, or both at once.
   const [appliesTo, setAppliesTo] = useState(field?.appliesTo?.length ? field.appliesTo : ['task']);
   const [options, setOptions] = useState(() => {
@@ -724,7 +1025,9 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
     || JSON.stringify(requiredProjectIds) !== JSON.stringify(initial.requiredProjectIds)
     || JSON.stringify(appliesTo) !== JSON.stringify(initial.appliesTo)
     || JSON.stringify(options) !== JSON.stringify(initial.options)
-    || JSON.stringify(projectIds) !== JSON.stringify(initial.projectIds);
+    || JSON.stringify(projectIds) !== JSON.stringify(initial.projectIds)
+    || formula !== (field?.formula || '')
+    || JSON.stringify(formulaFormat) !== JSON.stringify(normalizeFormat(field?.formulaFormat));
 
   const setOpt = (i, patch) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
   // At least one kind must stay checked - a field that applies to nothing
@@ -733,7 +1036,15 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
     ? (prev.length > 1 ? prev.filter((k) => k !== kind) : prev)
     : [...prev, kind]));
   const save = () => {
-    if (!name.trim()) return;
+    if (!name.trim() || nameProblem) return;
+    if (isFormula) {
+      if (formulaProblem) return;
+      // Task-side, never required, no options - the server holds it to that too.
+      onSave({ name: name.trim(), description: description.trim(), type, options: [],
+               project_ids: projectIds, required: false, required_project_ids: [], applies_to: ['task'],
+               formula: formula.trim(), formula_format: formulaFormat });
+      return;
+    }
     const opts = OPTION_TYPES.includes(type)
       ? options.filter((o) => o.label.trim()).map((o) => ({ id: o.label.trim(), label: o.label.trim(), color: o.color }))
       : [];
@@ -751,15 +1062,19 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
   };
 
   return (
-    <Modal title={field ? 'Edit Custom Field' : 'New Custom Field'} onClose={onClose} isDirty={dirty} onSave={name.trim() ? save : undefined} footer={
+    <Modal title={field ? 'Edit Custom Field' : 'New Custom Field'} onClose={onClose} isDirty={dirty} onSave={name.trim() && !blocked ? save : undefined} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={btn('primary')} onClick={save}>{field ? 'Save Field' : 'Add Field'}</button>
+        <button style={{ ...btn('primary'), opacity: blocked ? 0.5 : 1 }} disabled={!!blocked} onClick={save}>{field ? 'Save Field' : 'Add Field'}</button>
       </>
     }>
-      <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points, Location" style={inputStyle} /></Field>
+      <Field label="Name">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points, Location" style={inputStyle} aria-invalid={!!nameProblem || undefined} />
+        {nameProblem && <div role="alert" style={{ fontSize: 12, color: NX.red, marginTop: 4 }}>{nameProblem}</div>}
+        {nameHint && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{nameHint}</div>}
+      </Field>
       <Field label="Description"><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" style={inputStyle} /></Field>
-      <Field label="Applies To">
+      {!isFormula && <Field label="Applies To">
         <div style={{ display: 'flex', gap: 16 }}>
           {APPLIES_TO_OPTS.map((o) => (
             <label key={o.value} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
@@ -769,13 +1084,22 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
           ))}
         </div>
         {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>Unchecking a kind moves the field off it - any values already saved under that kind stay stored but stop showing anywhere.</div>}
-      </Field>
+      </Field>}
       <Field label="Type">
         <select value={type} onChange={(e) => setType(e.target.value)} style={selectStyle}>
           {FIELD_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Switching this can leave existing values in the old kind's shape (e.g. a Select's saved option won't match a Text field) - check them after saving.</div>}
       </Field>
+      {isFormula && (
+        <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column' }}>
+          <FormulaEditor formula={formula} onFormula={setFormula} format={formulaFormat} onFormat={setFormulaFormat}
+            fieldNames={fctx.fieldNames} formulaFields={fctx.formulaFields} selfName={name.trim()}
+            preview={formula.trim() && !formulaProblem && store
+              ? previewRows({ draft: { id: field?.id || '__draft', name: name.trim(), type: 'formula', formula, formulaFormat, projectIds }, store, tasks: [], projectIds })
+              : null} />
+        </div>
+      )}
       {OPTION_TYPES.includes(type) && (
         <div>
           <label style={fieldLabel}>Options</label>
@@ -802,7 +1126,7 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
           </button>
         </div>
       )}
-      {appliesTo.includes('task') && (
+      {(isFormula || appliesTo.includes('task')) && (
         <div style={{ marginTop: 16 }}>
           <label style={fieldLabel}>Projects</label>
           <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 6 }}>
@@ -810,7 +1134,8 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
           </div>
           <ChipMultiSelect value={projectIds} onChange={setProjectIds} options={projectPickerOptions(projects)}
             placeholder="Every project" searchPlaceholder="Search projects…" emptyText="No projects yet." />
-          {projectIds.length > 0 ? (
+          {/* A formula is worked out, so it is never required. */}
+          {isFormula ? null : projectIds.length > 0 ? (
             <RequiredPerProject projectIds={projectIds} projects={projects}
               requiredIds={requiredProjectIds} onToggle={toggleRequiredIn}
               onAll={(on) => setRequiredProjectIds(on ? [...projectIds] : [])} />
@@ -832,7 +1157,7 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
         </div>
       )}
       {/* A field only on projects keeps its single switch. */}
-      {!appliesTo.includes('task') && (
+      {!isFormula && !appliesTo.includes('task') && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 13, cursor: 'pointer' }}>
           <input type="checkbox" className="nx-check" checked={required} onChange={(e) => setRequired(e.target.checked)} style={{ width: 16, height: 16 }} />
           Required when creating a project
@@ -1380,7 +1705,7 @@ const ACTIVITY_ICON = {
   created: Plus, updated: Pencil, completed: CheckCircle2, deleted: Trash2,
   restored: RotateCcw, purged: Trash2,
   status_changed: ArrowRightLeft, priority_changed: Flag, assignee_changed: User,
-  due: Calendar, commented: MessageSquare, automation: Zap,
+  due: Calendar, commented: MessageSquare, automation: Zap, field_changed: Pencil, bulk_changed: Pencil,
 };
 
 function ActivityTab({ store }) {
@@ -1394,7 +1719,19 @@ function ActivityTab({ store }) {
     return () => { alive = false; };
   }, []);
 
-  const sorted = useMemo(() => [...(rows || [])].sort((a, b) => String(b.at).localeCompare(String(a.at))), [rows]);
+  // A save's per-field history rows (Oct 22 2026) read as one line here, and
+  // one person's bulk edit across many tasks as one expandable line.
+  const sorted = useMemo(() => {
+    const fields = store.customFields || [];
+    const byTime = [...(rows || [])].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    return foldBulkChanges(groupFieldChanges(byTime, fields), fields);
+  }, [rows, store.customFields]);
+  const [openBulk, setOpenBulk] = useState(() => new Set());
+  const toggleBulk = (id) => setOpenBulk((cur) => {
+    const next = new Set(cur);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   return (
     <div>
@@ -1423,6 +1760,19 @@ function ActivityTab({ store }) {
                     <span style={{ fontWeight: 700 }}>{actor}</span> {e.detail || humanize(e.type)}
                   </div>
                   {e.entityTitle && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.entityTitle}</div>}
+                  {e.type === 'bulk_changed' && (
+                    <>
+                      <button type="button" onClick={() => toggleBulk(e.id)} aria-expanded={openBulk.has(e.id)}
+                        style={{ ...btn('ghost'), padding: '2px 0', fontSize: 11.5, marginTop: 2 }}>
+                        {openBulk.has(e.id) ? 'Hide Tasks' : 'Show Tasks'}
+                      </button>
+                      {openBulk.has(e.id) && (
+                        <ul style={{ margin: '4px 0 0', padding: '0 0 0 16px', maxHeight: 200, overflowY: 'auto', fontSize: 11.5, color: NX.dim }}>
+                          {e.tasks.map((x) => <li key={x.entityId}>{x.entityTitle || 'Untitled task'}</li>)}
+                        </ul>
+                      )}
+                    </>
+                  )}
                 </div>
                 <span style={{ fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap' }}>{when}</span>
               </div>
@@ -1674,8 +2024,8 @@ function ExportExcelModal({ store, onClose }) {
         placeholder="Anyone" searchable emptyHint="Nobody is assigned a task yet." />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Field label="Due From"><input type="date" value={dueFrom} onChange={(e) => setDueFrom(e.target.value)} style={inputStyle} /></Field>
-        <Field label="Due To"><input type="date" value={dueTo} onChange={(e) => setDueTo(e.target.value)} style={inputStyle} /></Field>
+        <Field label="Due From"><DateField value={dueFrom} onChange={(v) => setDueFrom(v || '')} placeholder="Any date" title="Due From" style={{ ...inputStyle, cursor: 'pointer' }} /></Field>
+        <Field label="Due To"><DateField value={dueTo} onChange={(v) => setDueTo(v || '')} placeholder="Any date" title="Due To" style={{ ...inputStyle, cursor: 'pointer' }} /></Field>
       </div>
 
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: NX.ink, cursor: 'pointer' }}>
@@ -1708,7 +2058,7 @@ function ReportingTab({ store }) {
       t.projectId ? (projectName(t.projectId) || '-') : '-',
       t.dueOn || '',
     ]);
-    downloadCSV(`task-report-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+    downloadCSV(`task-report-${todayISO()}.csv`, headers, rows);
   };
 
   const kpis = [

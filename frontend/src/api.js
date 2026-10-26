@@ -203,7 +203,11 @@ function _detailToMessage(detail, status) {
 // A POST/PATCH/PUT/DELETE that committed server-side but exceeded the 18s abort
 // (Azure cold start) or 5xx'd after committing would otherwise be re-sent -
 // duplicate checkouts/assignments/notifications (P1-10). No method = GET.
+// `noRetry: true` opts ONE call out (Oct 23, Compensation): a long report the
+// server already bounds and explains gets one attempt - retrying a 180s read
+// three times only made people wait nine minutes in front of empty rows.
 function _isRetryable(options) {
+  if (options.noRetry) return false;
   const method = (options.method || 'GET').toUpperCase();
   return method === 'GET' || method === 'HEAD';
 }
@@ -235,9 +239,35 @@ function _networkError(err) {
   return out;
 }
 
+// Oct 24 (Neil, 10/23 meeting chat: "sync should be table level and not just
+// overall"): a table's own Sync reads past the server's short accounting cache.
+// Every GET started while `withFreshReads(fn)` runs - until the promise fn
+// returns settles, so a report read in several steps is fresh throughout -
+// carries fresh=1; the backend then asks the accounting app again instead of
+// answering from its cache. Only Accounting, Leasing (MRI) and PFS reads are
+// marked - the same list as the backend's _FRESH_PREFIXES (review 10/24): a
+// read another module starts in that moment (Facility Operations takes fresh
+// too) keeps its own caches.
+let _freshReads = 0;
+const FRESH_PREFIXES = ['/accounting', '/leasing', '/pfs'];
+const freshScoped = (path) => FRESH_PREFIXES.some((p) => path.startsWith(p));
+export function withFreshReads(fn) {
+  _freshReads += 1;
+  let out;
+  try { out = fn(); } catch (e) { _freshReads -= 1; throw e; }
+  if (out && typeof out.then === 'function') {
+    return Promise.resolve(out).finally(() => { _freshReads -= 1; });
+  }
+  _freshReads -= 1;
+  return out;
+}
+const freshPath = (path) => (/[?&]fresh=/.test(path) ? path : `${path}${path.includes('?') ? '&' : '?'}fresh=1`);
+
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
+  if (_freshReads > 0 && attempt === 1 && !tokenRefreshed && (!options.method || options.method === 'GET') && freshScoped(path)) path = freshPath(path);
   const authHeader = await getAuthHeader(tokenRefreshed);
   const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
+  const _startedAt = Date.now();   // Build Mode's network buffer (onApiRequest, end of file)
   let res;
   try {
     const controller = new AbortController();
@@ -271,9 +301,13 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
       await new Promise(r => setTimeout(r, 800 * attempt));
       return req(path, options, attempt + 1, tokenRefreshed);
     }
-    _setBackendDown(true);
+    // A no-retry call that ran out its own long timeout says nothing about
+    // whether Nexus is up - no "reconnecting" banner for it.
+    if (!(options.noRetry && err?.name === 'AbortError')) _setBackendDown(true);
+    _emitApiRequest(path, options, 0, _startedAt);
     throw _networkError(err);
   }
+  _emitApiRequest(path, options, res.status, _startedAt, _apiBodyWanted(path, res) ? res.clone() : null);
 
   // BFF mode: a 401 means the session cookie is dead/absent -> server-side login
   // (the replacement for MSAL's token-refresh + interactive reauth).
@@ -341,7 +375,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
 const _getCache = new Map(); // path → { ts, promise }
 function cachedGet(path, ttlMs = 60_000) {
   const hit = _getCache.get(path);
-  if (hit && (Date.now() - hit.ts) < ttlMs) return hit.promise;
+  if (hit && !(_freshReads && freshScoped(path)) && (Date.now() - hit.ts) < ttlMs) return hit.promise;
   const promise = req(path).catch(err => { _getCache.delete(path); throw err; });
   _getCache.set(path, { ts: Date.now(), promise });
   return promise;
@@ -430,6 +464,13 @@ export const api = {
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTask: (id) => req(`/tasks/${id}`, { method: "DELETE" }),
   bulkUpdateTasks: (ids, patch) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, patch }) }),
+  // The batch bar's Dates action (Oct 22 2026): { op: shift|set_due|set_start|clear_due,
+  // days, skip_weekends, on } - worked out per task on the server. Answers
+  // { tasks, changed, skipped, sentForApproval }.
+  bulkTaskDates: (ids, dates) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, dates }) }),
+  // Import from CSV / Excel (Oct 22 2026): dry_run returns the per-row report
+  // the wizard previews; otherwise it creates. Up to 2,000 rows in one call.
+  importTasks: (data) => req("/tasks/import", { method: "POST", body: JSON.stringify(data), timeoutMs: 120000 }),
   // Trash (Aug 27): deleteTask above now moves to Trash - it's restorable for
   // 90 days (see task_trash.py) via these three, Manage > Deleted Tasks only.
   // scope="mine" is the Recycle Bin OUTSIDE Manage - what you deleted plus what
@@ -491,8 +532,20 @@ export const api = {
   getTaskAttachments: (id) => req(`/tasks/${id}/attachments`),
   addTaskAttachment: (id, data) => req(`/tasks/${id}/attachments`, { method: "POST", body: JSON.stringify(data) }),
   deleteTaskAttachment: (aid) => req(`/tasks/attachments/${aid}`, { method: "DELETE" }),
+  // File versions + Egnyte links (Oct 22 2026) - routers/tasks.py.
+  getTaskAttachmentVersions: (aid) => req(`/tasks/attachments/${aid}/versions`),
+  addTaskAttachmentVersion: (aid, data) => req(`/tasks/attachments/${aid}/versions`, { method: "POST", body: JSON.stringify(data) }),
+  deleteTaskAttachmentVersions: (aid) => req(`/tasks/attachments/${aid}/versions`, { method: "DELETE" }),
+  addTaskEgnyteLink: (id, data) => req(`/tasks/${id}/egnyte-links`, { method: "POST", body: JSON.stringify(data) }),
+  // Web links (Oct 22 2026): {url, name} - kind "link" rows, never fetched by the server.
+  addTaskLink: (id, data) => req(`/tasks/${id}/links`, { method: "POST", body: JSON.stringify(data) }),
+  updateTaskLink: (aid, data) => req(`/tasks/attachments/${aid}/link`, { method: "PATCH", body: JSON.stringify(data) }),
   ocrImage: (file) => { const fd = new FormData(); fd.append("image", file); return req("/task-ocr", { method: "POST", body: fd, timeoutMs: 60_000 }); },
   getTaskActivity: (id) => req(`/tasks/${id}/activity`),
+  // Field history (Oct 22 2026): {items, more}, newest first. `field` = a core
+  // key ("status", "dueOn"...), a custom field id, or several comma-joined.
+  getTaskHistory: (id, { field = "", limit = 20, offset = 0 } = {}) =>
+    req(`/tasks/${id}/history?field=${encodeURIComponent(field)}&limit=${limit}&offset=${offset}`),
   // Checklist inside a task (Oct 2026). Writes answer with the task's fresh
   // checklistTotal / checklistDone so the caller can hand it to the store.
   getTaskChecklist: (taskId) => req(`/tasks/${taskId}/checklist`),
@@ -500,6 +553,8 @@ export const api = {
   updateTaskChecklistItem: (itemId, data) => req(`/tasks/checklist/${itemId}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskChecklistItem: (itemId) => req(`/tasks/checklist/${itemId}`, { method: "DELETE" }),
   reorderTaskChecklist: (taskId, ids) => req(`/tasks/${taskId}/checklist/order`, { method: "PUT", body: JSON.stringify({ ids }) }),
+  // Convert to Subtask (Oct 22 2026): {subtask, task} - the line is gone, the subtask made.
+  convertTaskChecklistItem: (itemId) => req(`/tasks/checklist/${itemId}/convert`, { method: "POST" }),
   getGlobalTaskActivity: () => req("/tasks/activity"),
   // Due-date negotiation (Sep 24) - the assignee confirms or proposes, the
   // requester answers. Each returns the updated task.
@@ -507,6 +562,19 @@ export const api = {
   proposeTaskDue: (id, dueOn, note = "") => req(`/tasks/${id}/due/propose`, { method: "POST", body: JSON.stringify({ due_on: dueOn, note }) }),
   respondTaskDue: (id, accept, note = "", counterOn = "") => req(`/tasks/${id}/due/respond`, { method: "POST", body: JSON.stringify({ accept, note, counter_on: counterOn }) }),
   withdrawTaskDue: (id) => req(`/tasks/${id}/due/withdraw`, { method: "POST" }),
+  // Undo the caller's own just-made due-date move (Oct 22 2026): `at` names its history entry.
+  undoTaskDue: (id, at) => req(`/tasks/${id}/due/undo`, { method: "POST", body: JSON.stringify({ at }) }),
+  // My Day (Oct 22 2026, routers/task_my_day.py): the person's own list for
+  // `day` (their local date, tasks/lib.js todayISO). Each answers with the
+  // whole list and its suggestions.
+  getMyDay: (day) => req(`/tasks/my-day?day=${encodeURIComponent(day)}`),
+  // pick=false: only un-dismiss (Undo of a due-today task's removal).
+  addToMyDay: (day, taskId, pick = true) => req("/tasks/my-day/add", { method: "POST", body: JSON.stringify({ day, task_id: taskId, pick }) }),
+  removeFromMyDay: (day, taskId) => req("/tasks/my-day/remove", { method: "POST", body: JSON.stringify({ day, task_id: taskId }) }),
+  reorderMyDay: (day, taskIds) => req("/tasks/my-day/order", { method: "PUT", body: JSON.stringify({ day, task_ids: taskIds }) }),
+  // Keep Private (Oct 23 2026): a subtask private only because of its main
+  // task stays private when that task is shared again. Answers the task.
+  keepTaskPrivate: (id) => req(`/tasks/${id}/keep-private`, { method: "POST" }),
   // Sections & custom statuses (board columns)
   getTaskSections: () => req("/tasks/meta/sections"),
   createTaskSection: (data) => req("/tasks/meta/sections", { method: "POST", body: JSON.stringify(data) }),
@@ -523,7 +591,14 @@ export const api = {
   // One shared dashboard chart at a time: upsert / remove by id (Oct 2026).
   putTaskProjectChart: (id, chartId, chart) => req(`/task-projects/${id}/shared-charts/${encodeURIComponent(chartId)}`, { method: "PUT", body: JSON.stringify(chart) }),
   deleteTaskProjectChart: (id, chartId) => req(`/task-projects/${id}/shared-charts/${encodeURIComponent(chartId)}`, { method: "DELETE" }),
+  // Conditional row colors (Oct 22 2026): the whole ordered list + the rev it was read at (409 = changed since).
+  putTaskProjectColorRules: (id, rules, rev) => req(`/task-projects/${id}/color-rules`, { method: "PUT", body: JSON.stringify({ rules, rev }) }),
   deleteTaskProject: (id) => req(`/task-projects/${id}`, { method: "DELETE" }),
+  // Follow a project (Oct 22 2026): yourself, or (owners / editors) someone else.
+  followTaskProject: (id) => req(`/task-projects/${id}/follow`, { method: "POST" }),
+  unfollowTaskProject: (id) => req(`/task-projects/${id}/follow`, { method: "DELETE" }),
+  addTaskProjectFollower: (id, email) => req(`/task-projects/${id}/followers`, { method: "POST", body: JSON.stringify({ email }) }),
+  removeTaskProjectFollower: (id, email) => req(`/task-projects/${id}/followers/${encodeURIComponent(email)}`, { method: "DELETE" }),
   // Department names only, readable by anyone in the task module (the People
   // module's own listing needs HR access) - see list_project_departments.
   getProjectDepartments: () => req("/task-projects/meta/departments"),
@@ -615,6 +690,8 @@ export const api = {
   createTaskCustomField: (data) => req("/task-custom-fields", { method: "POST", body: JSON.stringify(data) }),
   updateTaskCustomField: (id, data) => req(`/task-custom-fields/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskCustomField: (id) => req(`/task-custom-fields/${id}`, { method: "DELETE" }),
+  // Past the 409 that lists the formula columns using it (Oct 22 2026).
+  deleteTaskCustomFieldForced: (id) => req(`/task-custom-fields/${id}?force=true`, { method: "DELETE" }),
   // Tickets
   getTaskTickets: () => req("/task-tickets"),
   // The requester's own tickets, scoped server-side - the Support page's list.
@@ -738,6 +815,9 @@ export const api = {
   getMyChangelogRequests: () => req("/task-changelog/my-requests"),
   raiseChangelogRequest: (data) => req("/task-changelog/requests", { method: "POST", body: JSON.stringify(data) }),
   setChangelogRequestStatus: (id, data) => req(`/task-changelog-admin/requests/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  // A request is a Feature Request ticket (Oct 23 2026): its thread is the ticket's.
+  getChangelogRequestComments: (id) => req(`/task-changelog/requests/${encodeURIComponent(id)}/comments`),
+  addChangelogRequestComment: (id, body) => req(`/task-changelog/requests/${encodeURIComponent(id)}/comments`, { method: "POST", body: JSON.stringify({ body }) }),
   raiseChangelogIssue: (id, data) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue`, { method: "POST", body: JSON.stringify(data) }),
   resolveChangelogIssue: (id, data) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue/resolve`, { method: "POST", body: JSON.stringify(data) }),
   clearChangelogIssue: (id) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue`, { method: "DELETE" }),
@@ -759,7 +839,8 @@ export const api = {
   leaveMyBalance:      ()           => req('/leave-balances/me'),
   leavePersonBalance:  (email)      => req(`/leave-balances/person/${encodeURIComponent(email)}`),
   leaveAdmin:          ()           => req('/leave-balances/admin'),
-  leaveSetCutover:     (date)       => req('/leave-balances/cutover', { method: 'PUT', body: JSON.stringify({ date }) }),
+  // `company` (Oct 23): that company's own start date; `reset` drops it so it follows the organization's.
+  leaveSetCutover:     (date, company = '', reset = false) => req('/leave-balances/cutover', { method: 'PUT', body: JSON.stringify({ date, company, reset }) }),
   leaveSavePolicies:   (policies)   => req('/leave-balances/policies', { method: 'PUT', body: JSON.stringify({ policies }) }),
   leaveImport:         (body)       => req('/leave-balances/import', { method: 'POST', body: JSON.stringify(body) }),
   leaveAdjust:         (body)       => req('/leave-balances/adjust', { method: 'POST', body: JSON.stringify(body) }),
@@ -960,8 +1041,8 @@ export const api = {
   createJobRole:     (body)              => req('/jobroles', { method: 'POST', body: JSON.stringify(body) }),
   updateJobRole:     (id, body)          => req(`/jobroles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteJobRole:     (id)                => req(`/jobroles/${id}`, { method: 'DELETE' }),
-  assignJobRole:     (id, email)         => req(`/jobroles/${id}/assign`, { method: 'POST', body: JSON.stringify({ email }) }),
-  unassignJobRole:   (id, email)         => req(`/jobroles/${id}/unassign`, { method: 'POST', body: JSON.stringify({ email }) }),
+  assignJobRole:     (id, email, reason) => req(`/jobroles/${id}/assign`, { method: 'POST', body: JSON.stringify({ email, reason }) }),
+  unassignJobRole:   (id, email, reason) => req(`/jobroles/${id}/unassign`, { method: 'POST', body: JSON.stringify({ email, reason }) }),
   getEffectiveAccess: (email)            => req(`/jobroles/effective/${encodeURIComponent(email)}`),
   applyJobRoleManager: (id, manager_email) => req(`/jobroles/${id}/apply-manager`, { method: 'POST', body: JSON.stringify({ manager_email }) }),
   // One company's job roles plus the shared ones (Company Settings > Roles).
@@ -1387,6 +1468,8 @@ export const api = {
 
   // HR - life events through Nexus Sign (hiring packet, Oct 2026)
   getPackets:          ()         => req('/hr/packets'),
+  getPacketCoverage:   ()         => req('/hr/packets/coverage'),
+  setPacketHired:      (entityId, workerType, hired) => req('/hr/packets/coverage/hired', { method: 'PUT', body: JSON.stringify({ entity_id: entityId, worker_type: workerType, hired }) }),
   savePacket:          (data)     => req('/hr/packets', { method: 'PUT', body: JSON.stringify(data) }),
   savePacketWhole:     (data)     => req('/hr/packets/whole', { method: 'PUT', body: JSON.stringify(data) }),
   deletePacket:        (id)       => req(`/hr/packets/${id}`, { method: 'DELETE' }),
@@ -1402,7 +1485,6 @@ export const api = {
   previewPromotion:    (eid, data) => req(`/hr/employees/${eid}/promotion/preview`, { method: 'POST', body: JSON.stringify(data) }),
   sendPromotion:       (eid, data) => req(`/hr/employees/${eid}/promotion`, { method: 'POST', body: JSON.stringify(data) }),
   // Role change without a promotion: asks the manager / HR, who approve (Pranshu, Oct 13).
-  requestRoleChange:   (data)      => req('/hr/role-change-requests', { method: 'POST', body: JSON.stringify(data) }),
   getRoleChangeRequests: ({ employeeId = '', email = '' } = {}) =>
     req(`/hr/role-change-requests?employee_id=${encodeURIComponent(employeeId)}&email=${encodeURIComponent(email)}`),
   getRoleChangeRequest: (id)       => req(`/hr/role-change-requests/${id}`),
@@ -1548,6 +1630,8 @@ export const api = {
   timeGeofencePunches: (email, start, end) => req(`/timeclock/geofence-punches?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}`),
   timeAdjustPunch:   (id, data)  => req(`/timeclock/punches/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeAddPunch:      (data)      => req('/timeclock/punches', { method: 'POST', body: JSON.stringify(data) }),
+  // HR / Global Admin: the period's time sheet as a PDF to sign on paper (Neil, Oct 23).
+  printTimeSheet:    (email, start) => reqBlob(`/timesheet-review/print?email=${encodeURIComponent(email || '')}&start=${encodeURIComponent(start || '')}`),
   timeExportCsv:     (start, end, mode) => reqBlob(`/timeclock/export.csv?start=${start || ''}&end=${end || ''}&mode=${mode || 'summary'}`),
   // QuickBooks Desktop time import (IIF TIMEACT rows) - Charmi imports this
   // instead of keying hours per employee by hand (Aug 21).
@@ -1606,7 +1690,7 @@ export const api = {
   dashUpdateView: (id, body)   => req(`/dashboards/views/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   dashSetDefault: (id)         => req(`/dashboards/views/${id}/default`, { method: 'PUT' }),
   dashDeleteView: (id)         => req(`/dashboards/views/${id}`, { method: 'DELETE' }),
-  dashKpis:       (scope = 'self') => req(`/dashboards/kpis?scope=${encodeURIComponent(scope)}`),
+  dashKpis:       (scope = 'self') => req(`/dashboards/kpis?scope=${encodeURIComponent(scope)}&tz_offset_min=${new Date().getTimezoneOffset()}`),
   dashInsights:   ()               => req('/dashboards/insights'),
   dashInsightsDrilldown: (module, metric) => req(`/dashboards/insights/drilldown?module=${encodeURIComponent(module)}&metric=${encodeURIComponent(metric)}`),
   // The caller's own Outlook agenda (M365 staff only - {available:false} otherwise)
@@ -1717,8 +1801,8 @@ export const api = {
   timeSchedImport:   (data)      => req('/timeclock/schedule/import', { method: 'POST', body: JSON.stringify(data) }),
   availabilityMine:  ()          => req('/timeclock/availability/mine'),
   availabilitySave:  (data)      => req('/timeclock/availability/mine', { method: 'PUT', body: JSON.stringify(data) }),
-  timeOffTypes:      ()          => req('/timeclock/timeoff/types'),
-  timeOffTypesSave:  (data)      => req('/timeclock/timeoff/types', { method: 'PUT', body: JSON.stringify(data) }),
+  timeOffTypes:      (company = '') => req(`/timeclock/timeoff/types${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  timeOffTypesSave:  (data, company = '') => req(`/timeclock/timeoff/types${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
   timeSchedDayNote:  (data)      => req('/timeclock/schedule/day-note', { method: 'PUT', body: JSON.stringify(data) }),
   // Teams on the schedule grid (Sep 30): add/remove members, rename/archive, reorder.
   timeShiftGroupMembers: (id, data) => req(`/timeclock/shift-groups/${id}/members`, { method: 'POST', body: JSON.stringify(data) }),
@@ -1727,10 +1811,10 @@ export const api = {
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
   timePayrollRateGet: (email)    => req(`/timeclock/payroll/rate?email=${encodeURIComponent(email)}`),
-  timeAutoLunchSet:  (data)      => req('/timeclock/payroll/autolunch', { method: 'PUT', body: JSON.stringify(data) }),
-  timeRoundingSet:   (data)      => req('/timeclock/payroll/rounding', { method: 'PUT', body: JSON.stringify(data) }),
+  timeAutoLunchSet:  (data, company = '') => req(`/timeclock/payroll/autolunch${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
+  timeRoundingSet:   (data, company = '') => req(`/timeclock/payroll/rounding${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
   // Break policy: CA paid rest breaks + long/unended-break flags (Charmi, Aug 21)
-  timeBreakPolicySet: (data)     => req('/timeclock/payroll/breakpolicy', { method: 'PUT', body: JSON.stringify(data) }),
+  timeBreakPolicySet: (data, company = '') => req(`/timeclock/payroll/breakpolicy${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
   timeFinalize:      (data)      => req('/timeclock/finalize', { method: 'POST', body: JSON.stringify(data) }),
   timeUnfinalize:    (data)      => req('/timeclock/unfinalize', { method: 'POST', body: JSON.stringify(data) }),
   timeTeamExceptions:(start, end) => req(`/timeclock/team-exceptions?start=${start || ''}&end=${end || ''}`),
@@ -2047,9 +2131,10 @@ export const api = {
 
   // ── Time Clock company settings (Charmi, Sep 30) - read by Settings > Global
   //    Settings > Time Clock; the matching *Set calls are above ──
-  timeRoundingGet:     () => req('/timeclock/payroll/rounding'),
-  timeAutoLunchGet:    () => req('/timeclock/payroll/autolunch'),
-  timeBreakPolicyGet:  () => req('/timeclock/payroll/breakpolicy'),
+  // Pay rules per company (Oct 23): `company` reads or saves that company's own; '' the default for every company.
+  timeRoundingGet:     (company = '') => req(`/timeclock/payroll/rounding${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  timeAutoLunchGet:    (company = '') => req(`/timeclock/payroll/autolunch${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  timeBreakPolicyGet:  (company = '') => req(`/timeclock/payroll/breakpolicy${company ? `?company=${encodeURIComponent(company)}` : ''}`),
   // Payroll Export Codes (Oct 17): one company's pay item names for the
   // QuickBooks IIF and Intacct memo; codes {} is Reset to Default.
   timeExportCodesGet:  (company) => req(`/timeclock/payroll/export-codes?company=${encodeURIComponent(company || '')}`),
@@ -2071,6 +2156,11 @@ export const api = {
   //    accounting app has no list yet), and the Flux Analysis explanation
   //    notes kept per entity set, account and period ──
   getAccountingJournals:   ()               => req('/accounting/journals'),
+  // Oct 23 (CR-12): Records > General Ledger Accounts - the chart ({source, accounts}).
+  getAccountingAccounts:   ()               => req('/accounting/accounts'),
+  // Oct 23 (CR-10): Audit & Insights > Manual Journal Entries - who keyed each entry, read from Intacct.
+  getManualJournalEntries: ({ from, to, locations = [], journals = [], user = '', edited = true }) =>
+    req(`/accounting/manual-entries?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${journals.length ? `&journals=${encodeURIComponent(journals.join(','))}` : ''}${user ? `&user=${encodeURIComponent(user)}` : ''}${edited ? '' : '&edited=false'}`, { timeoutMs: 120_000 }),
   getAccountingFluxNotes:  (entity, period) => req(`/accounting/flux-notes?entity=${encodeURIComponent(entity || 'all')}&period=${encodeURIComponent(period)}`),
   saveAccountingFluxNote:  (body)           => req('/accounting/flux-notes', { method: 'PUT', body: JSON.stringify(body) }),
 
@@ -2136,7 +2226,8 @@ export const api = {
   // People > onboarding / offboarding / leave checklists (hr_checklists.py).
   // The owner of a step (manager, IT, the new hire) ticks it from My HR via
   // getMyChecklistSteps + updateChecklistItem without an hr grant.
-  getChecklistMeta:       ()          => req('/hr/checklists/meta'),
+  getChecklistMeta:       ({ entityId = '', roleId = '' } = {}) => req(`/hr/checklists/meta?entity_id=${encodeURIComponent(entityId)}&role_id=${encodeURIComponent(roleId)}`),
+  saveChecklistStepDepartments: (entityId, departmentIds) => req(`/hr/checklists/step-departments?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ department_ids: departmentIds }) }),
   getEmployeeChecklists:  (empId)     => req(`/hr/checklists/employee/${empId}`),
   startChecklist:         (empId, d)  => req(`/hr/checklists/employee/${empId}`, { method: 'POST', body: JSON.stringify(d) }),
   cancelChecklist:        (id)        => req(`/hr/checklists/${id}/cancel`, { method: 'POST' }),
@@ -2156,6 +2247,15 @@ export const api = {
   getRoleChecklistRoles:  ()          => req('/hr/checklists/role-templates'),
   getRoleChecklist:       (roleId)    => req(`/hr/checklists/role-templates/${roleId}`),
   saveRoleChecklist:      (roleId, kind, items) => req(`/hr/checklists/role-templates/${roleId}/${kind}`, { method: 'PUT', body: JSON.stringify({ items }) }),
+  // Copy another role's steps into this one (Neil, Oct 22): { from_role_id, kinds, mode: append | replace }.
+  copyRoleChecklist:      (roleId, d) => req(`/hr/checklists/role-templates/${roleId}/copy`, { method: 'POST', body: JSON.stringify(d) }),
+  // Where a company's checklist tasks go (Neil, Oct 22): { place: { default | kind: { projectId, sectionId } }, move }.
+  getChecklistTaskPlace:  (entityId) => req(`/hr/checklists/task-place?entity_id=${encodeURIComponent(entityId || '')}`),
+  saveChecklistTaskPlace: (entityId, d) => req(`/hr/checklists/task-place?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify(d) }),
+  // Onboarding Audit of people already here (Neil, Oct 22): who has no record, start (at most 50 per call), the CSV record.
+  getChecklistAuditCandidates: (entityId) => req(`/hr/checklists/audit/candidates?entity_id=${encodeURIComponent(entityId || '')}`),
+  startOnboardingAudits:  (employeeIds) => req('/hr/checklists/audit', { method: 'POST', body: JSON.stringify({ employee_ids: employeeIds }) }),
+  downloadChecklistRecord: (id)      => reqBlob(`/hr/checklists/${id}/record.csv`),
   // Accounting > Loans (Charmi and Neil, Oct 6): an amortization schedule per
   // loan (built or the bank's file) and saved rate stress scenarios
   // (routers/accounting_loan_plans.py).
@@ -2330,10 +2430,12 @@ export const api = {
   },
   // Accounting > Reporting > AMA, Asset Management Agreements (Oct 7,
   // routers/accounting_ama.py): Billed YTD read from the ledger.
-  getAmaSummary:       (year)     => req(`/accounting/ama/summary${year ? `?year=${year}` : ''}`),
+  // Oct 23 (CR-03): `period` = ytd | q1-q4 | m01-m12; getAmaAccounts lists the GL accounts for the Fee GL Account picker.
+  getAmaSummary:       (year, period = '') => req(`/accounting/ama/summary?${new URLSearchParams({ ...(year ? { year } : {}), ...(period ? { period } : {}) })}`),
   createAmaAgreement:  (body)     => req('/accounting/ama/agreements', { method: 'POST', body: JSON.stringify(body) }),
   updateAmaAgreement:  (id, body) => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteAmaAgreement:  (id)       => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getAmaAccounts:      ()         => req('/accounting/ama/accounts'),
   // Accounting > Reporting > AMA, Ask My Accountant (Neil, 10/15,
   // routers/accounting_ask.py): questions on ledger lines + the lines on the
   // Ask My Accountant (suspense) accounts. The agreements above are now
@@ -2355,6 +2457,21 @@ export const api = {
   getAskSettings:      ()         => req('/accounting/ask/settings'),
   saveAskSettings:     (body)     => req('/accounting/ask/settings', { method: 'PUT', body: JSON.stringify(body) }),
   getAskChart:         ()         => req('/accounting/ask/chart'),
+  // AMA, CR-13 (Charmi, 10/22; routers/accounting_ask_review.py): the other
+  // side of each entry on screen, Notes per line, and the GL reclass a
+  // bookkeeper approves and pushes.
+  getAskOffsets:       (entryIds) => req(`/accounting/ask/offsets?entries=${encodeURIComponent(entryIds.join(','))}`, { timeoutMs: 120_000 }),
+  getAskGlAccounts:    ()         => req('/accounting/ask/gl-accounts'),
+  saveAskNote:         (body)     => req('/accounting/ask/lines/note', { method: 'PUT', body: JSON.stringify(body) }),
+  proposeAskReclass:   (body)     => req('/accounting/ask/lines/reclass', { method: 'POST', body: JSON.stringify(body) }),
+  sendBackAskReclass:  (id, note = '') => req(`/accounting/ask/reviews/${encodeURIComponent(id)}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
+  pushAskReclass:      (id, previewId = '') => req(`/accounting/ask/reviews/${encodeURIComponent(id)}/push`, { method: 'POST', body: JSON.stringify({ previewId }), timeoutMs: 120_000 }),
+  // CR-13 rework (Neil, 23 Oct): the push edits the original Intacct entry -
+  // a preview first, then the push of exactly that preview, and its log.
+  previewAskPush:      (ids)      => req('/accounting/ask/reviews/preview', { method: 'POST', body: JSON.stringify({ ids }), timeoutMs: 120_000 }),
+  pushAskBatch:        (previewId, ids) => req('/accounting/ask/reviews/push', { method: 'POST', body: JSON.stringify({ previewId, ids }), timeoutMs: 180_000 }),
+  getAskPushLog:       (reviewId = '') => req(`/accounting/ask/push-log${reviewId ? `?review=${encodeURIComponent(reviewId)}` : ''}`),
+  exportAskReclasses:  (id = '')  => reqBlob(`/accounting/ask/reviews/export.csv${id ? `?id=${encodeURIComponent(id)}` : ''}`),
   // ── Dashboard Essentials tiles (Oct 7): My Work, My Team, Announcements.
   //    routers/my_work.py, my_team.py (supervisor+), announcements.py.
   //    My Day reads getMyBriefing / actOnMyBriefing; My Time reads
@@ -2443,7 +2560,8 @@ export const api = {
   updateLoanSlow:    (id, body) => req(`/accounting/loans/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body), timeoutMs: 90_000 }),
   // Accounting > Reporting > Profitability and Employee Compensation (10/15).
   getProfitability:      (from, to, { locations = [], book = 'accrual', expand = false, compare = true } = {}) => req(`/accounting/profitability?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${book && book !== 'accrual' ? `&book=${encodeURIComponent(book)}` : ''}${expand ? '&expand=true' : ''}${compare ? '' : '&compare=false'}`, { timeoutMs: 120_000 }),
-  getCompensationPeople: (from, to) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs: 180_000 }),
+  // One attempt (noRetry): the server bounds the run and says why it stopped.
+  getCompensationPeople: (from, to, { timeoutMs = 180_000 } = {}) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs, noRetry: true }),
   getCompensationLedger: (from, to, by = 'department') => req(`/accounting/compensation/ledger?from=${from}&to=${to}&by=${by}`, { timeoutMs: 120_000 }),
   // Flux Analysis review (Charmi, Oct 15): close (sign off) or reopen one
   // account's review - { entity, period, accountNo, closed }.
@@ -2514,6 +2632,9 @@ export const api = {
   timesheetReviewSign:          (id) => req(`/timesheet-review/${id}/sign`, { method: 'POST' }),
   // HR: Finalize Without Employee Signature (Oct 17) - left, or never signed.
   timesheetReviewFinalizeUnsigned: (email, start, reason) => req('/timesheet-review/finalize-unsigned', { method: 'POST', body: JSON.stringify({ email, start: start || '', reason }) }),
+  // HR's correction of a finalized period (Neil, Oct 22): send the corrected card to sign, or re-lock it unchanged.
+  timesheetReviewSendCorrection: (id) => req(`/timesheet-review/${id}/send-correction`, { method: 'POST' }),
+  timesheetReviewRelock:         (id) => req(`/timesheet-review/${id}/relock`, { method: 'POST' }),
   timeExportIifFinalized:       (start, end, company) =>
     reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company || '')}&finalized_only=true`, { timeoutMs: 120_000 }),
   // Approve All Clean (Oct 17): items are [{id}] or [{email, start}], at most
@@ -2548,6 +2669,9 @@ export const api = {
   timesheetBreakClaim:   (rid, data) => req(`/timesheet-review/${encodeURIComponent(rid)}/break-claim`, { method: 'POST', body: JSON.stringify(data) }),
   breakPremiumAdd:       (data) => req('/ca-breaks/premiums', { method: 'POST', body: JSON.stringify(data) }),
   breakPremiumRemove:    (id, reason) => req(`/ca-breaks/premiums/${encodeURIComponent(id)}/remove`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  // Time Sheet bonuses (Neil, Oct 22): { email, date, description, amount }
+  timecardBonusAdd:      (data) => req('/timeclock/bonuses', { method: 'POST', body: JSON.stringify(data) }),
+  timecardBonusRemove:   (id) => req(`/timeclock/bonuses/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   mealWaiver:            (email) => req(`/ca-breaks/waiver?email=${encodeURIComponent(email || '')}`),
   mealWaiverSend:        (email) => req('/ca-breaks/waiver/send', { method: 'POST', body: JSON.stringify({ email }) }),
   mealWaiverRevoke:      (email, note) => req('/ca-breaks/waiver/revoke', { method: 'POST', body: JSON.stringify({ email, note }) }),
@@ -2606,6 +2730,9 @@ export const api = {
   },
   // Tickets <-> properties (Neil, Ops review 10/20) - routers/ticket_property.py.
   getTicketPropertyRules:   () => cachedGet('/ticket-property/rules', 300_000),
+  // Settings > Tickets > Property Rules (Oct 23): the editor reads fresh and saves.
+  getTicketPropertyRulesFresh: () => req('/ticket-property/rules'),
+  saveTicketPropertyRules:  (data) => req('/ticket-property/rules', { method: 'PUT', body: JSON.stringify(data) }),
   suggestTicketProperty:    (text) => req(`/ticket-property/suggest?text=${encodeURIComponent(String(text || '').slice(0, 1500))}`),
   getTicketPropertyUnits:   (id) => cachedGet(`/ticket-property/units/${encodeURIComponent(id)}`, 300_000),
   getPropertyLinkSuggestions: () => req('/ticket-property/link-suggestions'),
@@ -2717,7 +2844,191 @@ export const api = {
   contractorInvoicesMine: ()   => req('/contractor-invoices/mine'),
   contractorInvoicePdf:   (id) => reqBlob(`/contractor-invoices/${encodeURIComponent(id)}/pdf`),   // bearer-authenticated, so a blob, never a bare link
   contractorInvoiceSend:  (id) => req(`/contractor-invoices/${encodeURIComponent(id)}/send`, { method: 'POST' }),
+  // ── Knowledge Base rebuild (Oct 2026) - everything under /kb. The old
+  // /knowledge-base functions above are retired with the old screens.
+  kbMe: () => req("/kb/me"),
+  kbHome: () => req("/kb/home"),
+  kbSearch: (q, { type = "", collection = "", limit = 30 } = {}) =>
+    req(`/kb/search?q=${encodeURIComponent(q || "")}&type=${encodeURIComponent(type)}&collection=${encodeURIComponent(collection)}&limit=${limit}`),
+  kbAsk: (question) => req("/kb/ask", { method: "POST", body: JSON.stringify({ question }), timeoutMs: AI_TIMEOUT_MS }),
+  kbCollections: () => req("/kb/collections"),
+  kbCollection: (id) => req(`/kb/collections/${id}`),
+  kbCreateCollection: (data) => req("/kb/collections", { method: "POST", body: JSON.stringify(data) }),
+  kbUpdateCollection: (id, data) => req(`/kb/collections/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  kbTags: () => req("/kb/tags"),
+  kbCreateTag: (name) => req("/kb/tags", { method: "POST", body: JSON.stringify({ name }) }),
+  kbPages: (params = {}) => req(`/kb/pages?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))).toString()}`),
+  kbPage: (id) => req(`/kb/pages/${id}`),
+  kbPageVersion: (id, vid) => req(`/kb/pages/${id}/versions/${vid}`),
+  kbPageOriginal: (id) => req(`/kb/pages/${id}/original`),
+  kbCreatePage: (data) => req("/kb/pages", { method: "POST", body: JSON.stringify(data) }),
+  kbUpdatePage: (id, data) => req(`/kb/pages/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  kbSubmitPage: (id, data = {}) => req(`/kb/pages/${id}/submit`, { method: "POST", body: JSON.stringify(data) }),
+  kbWithdrawPage: (id) => req(`/kb/pages/${id}/withdraw`, { method: "POST" }),
+  kbPublishPage: (id, data = {}) => req(`/kb/pages/${id}/publish`, { method: "POST", body: JSON.stringify(data) }),
+  kbReviewPage: (id, data) => req(`/kb/pages/${id}/review`, { method: "POST", body: JSON.stringify(data) }),
+  kbArchivePage: (id) => req(`/kb/pages/${id}/archive`, { method: "POST" }),
+  kbRestorePage: (id) => req(`/kb/pages/${id}/restore`, { method: "POST" }),
+  kbVerifyPage: (id) => req(`/kb/pages/${id}/verify`, { method: "POST" }),
+  kbPinPage: (id) => req(`/kb/pages/${id}/pin`, { method: "POST" }),
+  kbFeedback: (id, helpful) => req(`/kb/pages/${id}/feedback`, { method: "POST", body: JSON.stringify({ helpful }) }),
+  kbFlagPage: (id, text) => req(`/kb/pages/${id}/flag`, { method: "POST", body: JSON.stringify({ text }) }),
+  kbComments: (id) => req(`/kb/pages/${id}/comments`),
+  kbAddComment: (id, text) => req(`/kb/pages/${id}/comments`, { method: "POST", body: JSON.stringify({ text }) }),
+  kbOpenRevision: (id) => req(`/kb/pages/${id}/revisions`, { method: "POST" }),
+  kbRevision: (rid) => req(`/kb/revisions/${rid}`),
+  kbUpdateRevision: (rid, data) => req(`/kb/revisions/${rid}`, { method: "PATCH", body: JSON.stringify(data) }),
+  kbSubmitRevision: (rid, data = {}) => req(`/kb/revisions/${rid}/submit`, { method: "POST", body: JSON.stringify(data) }),
+  kbReviewRevision: (rid, data) => req(`/kb/revisions/${rid}/review`, { method: "POST", body: JSON.stringify(data) }),
+  kbDiscardRevision: (rid) => req(`/kb/revisions/${rid}/discard`, { method: "POST" }),
+  kbSign: (id, typed_name) => req(`/kb/pages/${id}/sign`, { method: "POST", body: JSON.stringify({ typed_name }) }),
+  kbSignatures: (id) => req(`/kb/pages/${id}/signatures`),
+  kbNudge: (id, emails = null) => req(`/kb/pages/${id}/nudge`, { method: "POST", body: JSON.stringify({ emails }) }),
+  kbStartTask: (id, data) => req(`/kb/pages/${id}/start-task`, { method: "POST", body: JSON.stringify(data) }),
+  kbPageTasks: (id) => req(`/kb/pages/${id}/tasks`),
+  kbUploadMedia: (data, folder = "pages") => req("/kb/media", { method: "POST", body: JSON.stringify({ data, folder }), timeoutMs: 90_000 }),
+  kbImport: (data) => req("/kb/import", { method: "POST", body: JSON.stringify(data), timeoutMs: 90_000 }),
+  kbJob: (id) => req(`/kb/jobs/${id}`),
+  kbSuggest: (id, data) => req(`/kb/pages/${id}/suggest`, { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
+  kbTranslate: (id, lang) => req(`/kb/pages/${id}/translate`, { method: "POST", body: JSON.stringify({ lang }) }),
+  kbTranslation: (id, lang) => req(`/kb/pages/${id}/translations/${lang}`),
+  kbRequestPage: (data) => req("/kb/requests", { method: "POST", body: JSON.stringify(data) }),
+  kbHealth: () => req("/kb/health"),
+  kbActivity: (limit = 60, docId = "") => req(`/kb/activity?limit=${limit}&doc_id=${encodeURIComponent(docId)}`),
+  kbResolveFlag: (id, resolution = "") => req(`/kb/flags/${id}/resolve`, { method: "POST", body: JSON.stringify({ resolution }) }),
+  kbCloseRequest: (id, resolution = "") => req(`/kb/requests/${id}/close`, { method: "POST", body: JSON.stringify({ resolution }) }),
+  kbMigrationReport: () => req("/kb/migrate", { timeoutMs: 180_000 }),
+  kbMigrationApply: () => req("/kb/migrate", { method: "POST", timeoutMs: 600_000 }),
+  kbAudienceOptions: () => req("/kb/audience/options"),
+  kbAudiencePreview: (audience) => req("/kb/audience/preview", { method: "POST", body: JSON.stringify({ audience }) }),
+  kbPeople: () => cachedGet("/kb/people"),
+  kbPrintUrl: (id) => `${API_BASE}/kb/print/${id}`,
+  // training
+  kbTrainingMe: () => req("/kb/training/me"),
+  kbCourses: (all = false) => req(`/kb/courses${all ? "?all=true" : ""}`),
+  kbCourse: (id) => req(`/kb/courses/${id}`),
+  kbCreateCourse: (data) => req("/kb/courses", { method: "POST", body: JSON.stringify(data) }),
+  kbCourseBuilder: (id) => req(`/kb/courses/${id}/builder`),
+  kbUpdateCourse: (id, data) => req(`/kb/courses/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  kbPublishCourse: (id, data = {}) => req(`/kb/courses/${id}/publish`, { method: "POST", body: JSON.stringify(data) }),
+  kbArchiveCourse: (id) => req(`/kb/courses/${id}/archive`, { method: "POST" }),
+  kbDiscardCourseDraft: (id) => req(`/kb/courses/${id}/discard-draft`, { method: "POST" }),
+  kbCourseVersions: (id) => req(`/kb/courses/${id}/versions`),
+  kbMarkLessonDone: (cid, lid) => req(`/kb/courses/${cid}/lessons/${lid}/done`, { method: "POST" }),
+  kbQuizStart: (cid) => req(`/kb/courses/${cid}/quiz/start`, { method: "POST" }),
+  kbQuizSubmit: (aid, answers) => req(`/kb/quiz/${aid}/submit`, { method: "POST", body: JSON.stringify({ answers }) }),
+  kbCheckpointStart: (cid, lid) => req(`/kb/courses/${cid}/lessons/${lid}/checkpoint/start`, { method: "POST" }),
+  kbCheckpointSubmit: (aid, answers) => req(`/kb/checkpoint/${aid}/submit`, { method: "POST", body: JSON.stringify({ answers }) }),
+  kbUnlockQuiz: (cid, email, note = "") => req(`/kb/courses/${cid}/unlock`, { method: "POST", body: JSON.stringify({ email, note }) }),
+  kbCourseReport: (cid) => req(`/kb/courses/${cid}/report`),
+  kbAssignCourse: (cid, emails, due_date = "") => req(`/kb/courses/${cid}/assign`, { method: "POST", body: JSON.stringify({ emails, due_date }) }),
+  kbCourseAssignments: (cid) => req(`/kb/courses/${cid}/assignments`),
+  kbRemoveAssignment: (aid) => req(`/kb/assignments/${aid}`, { method: "DELETE" }),
+  kbRules: () => req("/kb/rules"),
+  kbCreateRule: (data) => req("/kb/rules", { method: "POST", body: JSON.stringify(data) }),
+  kbUpdateRule: (id, data) => req(`/kb/rules/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  kbDeleteRule: (id) => req(`/kb/rules/${id}`, { method: "DELETE" }),
+  kbPlans: () => req("/kb/plans"),
+  kbCreatePlan: (data) => req("/kb/plans", { method: "POST", body: JSON.stringify(data) }),
+  kbUpdatePlan: (id, data) => req(`/kb/plans/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  kbAssignPlan: (id, emails) => req(`/kb/plans/${id}/assign`, { method: "POST", body: JSON.stringify({ emails }) }),
+  kbGenerateCourse: (cid, data) => req(`/kb/courses/${cid}/generate`, { method: "POST", body: JSON.stringify(data) }),
+  kbCertificateLookup: (serial) => req(`/kb/certificates/lookup?serial=${encodeURIComponent(serial)}`),
+  kbCertificate: (id) => req(`/kb/certificates/${id}`),
+  kbCertificatePdf: (id) => reqBlob(`/kb/certificates/${id}/pdf`),
+  kbCompliance: (params = {}) => req(`/kb/compliance?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))).toString()}`),
+  kbComplianceNudge: (emails) => req("/kb/compliance/nudge", { method: "POST", body: JSON.stringify({ emails }) }),
+  // the help widget's corpus, in the shape docsSearch.buildKbSections reads
+  kbCorpusDocs: () => req("/kb/pages?status=approved").then((rows) => (rows || []).map((d) => ({
+    id: d.id, title: d.title, status: d.status, doc_code: d.code, doc_type: d.type_label, departments: (d.collection || []).map((c) => c.name).join(", "),
+    service: "", tags: (d.tags || []).join(","), body: { purpose: d.summary || "" }, content_text: d.summary || "",
+  }))),
+  kbCorpusCourses: () => req("/kb/courses").then((rows) => (rows || []).map((c) => ({ ...c, course_code: c.code, overview: [] }))),
+  // What The New Hire Will Be Asked - the packet editor's unsaved documents and form
+  packetIntakePreview: (data) => req('/hr/packets/intake-preview', { method: 'POST', body: JSON.stringify(data) }),
+  // People > Records Audit - missing details and expired documents (hr_record_audit.py)
+  getRecordsAudit: () => req('/hr/checklists/records-audit'),
+
+  // Task labels (Oct 22 2026): the company's label colors, for labels on
+  // tasks the caller can open (tasks/labels.js). `all` = Manage's view: the
+  // whole map and every label in use with counts (managers). Changes name
+  // the company only when someone in several companies picks one.
+  getTaskLabels: ({ company = "", all = false } = {}) => req(`/task-labels?${new URLSearchParams({ ...(company ? { company } : {}), ...(all ? { all: "true" } : {}) }).toString()}`),
+  // What a rename / delete would change (rules, row colors, saved views, templates).
+  getTaskLabelImpact: (name, company = "") => req(`/task-labels/impact?${new URLSearchParams({ name, ...(company ? { company } : {}) }).toString()}`),
+  setTaskLabelColor: (name, color, company = "") => req("/task-labels/color", { method: "PUT", body: JSON.stringify({ name, color, company }) }),
+  renameTaskLabel: (name, to, company = "") => req("/task-labels/rename", { method: "POST", body: JSON.stringify({ name, to, company }) }),
+  deleteTaskLabel: (name, company = "") => req("/task-labels/delete", { method: "POST", body: JSON.stringify({ name, company }) }),
+  // The batch bar's Add Label / Remove Label: merged into each task's labels.
+  bulkTaskLabels: (ids, { add = [], remove = [] } = {}) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, tags_add: add, tags_remove: remove }) }),
+
+  // Build Mode (Oct 24 2026, frontend/src/devnotes, backend routers/dev_notes.py):
+  // pins on the live app that Claude Code picks up from a terminal. /enabled
+  // answers { enabled: false } for anyone without the grant - never a 403.
+  devNotesEnabled: () => req("/dev-notes/enabled"),
+  devNotesSettings: () => req("/dev-notes/settings"),
+  devNotesSaveSettings: (data) => req("/dev-notes/settings", { method: "PUT", body: JSON.stringify(data) }),
+  devNotesCreate: (data) => req("/dev-notes", { method: "POST", body: JSON.stringify(data) }),
+  devNotesList: (params = {}) => req(`/dev-notes?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null && v !== false))).toString()}`),
+  devNotesPins: (route, sub = "") => req(`/dev-notes/pins?${new URLSearchParams({ route: route || "", sub: sub || "" }).toString()}`),
+  devNotesGet: (id) => req(`/dev-notes/${encodeURIComponent(id)}`),
+  devNotesPatch: (id, data) => req(`/dev-notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  devNotesThread: (id, text, imageUrl = "") => req(`/dev-notes/${encodeURIComponent(id)}/thread`, { method: "POST", body: JSON.stringify({ text, imageUrl }) }),
+  devNotesVerify: (id, accepted, comment = "") => req(`/dev-notes/${encodeURIComponent(id)}/verify`, { method: "POST", body: JSON.stringify({ accepted, comment }) }),
+  devNotesDispatch: (data = {}) => req("/dev-notes/dispatch", { method: "POST", body: JSON.stringify(data) }),
+  devNotesSessions: (params = {}) => req(`/dev-notes/sessions?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))).toString()}`),
+  devNotesSessionPatch: (id, data) => req(`/dev-notes/sessions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  devNotesTokens: () => req("/dev-notes/tokens"),
+  devNotesTokenCreate: (label) => req("/dev-notes/tokens", { method: "POST", body: JSON.stringify({ label }) }),
+  devNotesTokenRevoke: (id) => req(`/dev-notes/tokens/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  // { pins: {...}, medianPinToPrHours, reopenRate, firstClaimHitRate } - the Sessions tab's Stats strip.
+  devNotesStats: () => req("/dev-notes/stats"),
+  // Build Mode v2: a pin on someone's area is held for them until they (or a
+  // Global Admin) release it to Claude Code; a pin Ready To Check is accepted
+  // or reopened (a note is required to reopen) against its local preview.
+  devNotesRelease: (id) => req(`/dev-notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ release: true }) }),
+  devNotesPreviewVerdict: (id, { accepted, comment = "" } = {}) => req(`/dev-notes/${encodeURIComponent(id)}/preview-verdict`, { method: "POST", body: JSON.stringify({ accepted: !!accepted, comment }) }),
+  // { owner: {name, email} | null, held } for a source stamp - the composer
+  // asks before saving whether the pin would be held for that owner.
+  devNotesOwnerOf: (path) => req(`/dev-notes/owner-of?${new URLSearchParams({ path: path || "" }).toString()}`),
 };
+
+// Build Mode's network buffer (Oct 24 2026): every request through req()
+// reports { method, path, status, ms, at } to the listeners - status 0 when
+// fetch itself failed. Nothing else changes: a listener that throws is
+// swallowed, and with no listener this is one Set lookup per request.
+const _apiRequestListeners = new Set();
+// Bodies travel only while a listener asked for them (setApiBodyCapture):
+// the response is cloned for the listener to read, the request body is the
+// string that was sent. Off (the default) nothing is cloned or kept.
+let _apiBodyCapture = false;
+let _apiBodyFilter = null;      // (path) => bool, set by the listener (Build Mode skips its blocked routes)
+const BODY_MAX_BYTES = 64 * 1024;
+// Clone only what the buffer will keep: JSON, at most 64 KB when the server
+// says how long it is, and only when the listener's filter agrees.
+function _apiBodyWanted(path, res) {
+  if (!_apiBodyCapture) return false;
+  try {
+    if (_apiBodyFilter && !_apiBodyFilter(path)) return false;
+    if (!/json/i.test(res.headers.get('content-type') || '')) return false;
+    const len = res.headers.get('content-length');
+    return !len || Number(len) <= BODY_MAX_BYTES;
+  } catch { return false; }
+}
+function _emitApiRequest(path, options, status, startedAt, responseClone = null) {
+  if (!_apiRequestListeners.size) return;
+  const entry = { method: (options?.method || 'GET').toUpperCase(), path, status, ms: Date.now() - startedAt, at: new Date().toISOString() };
+  if (_apiBodyCapture) {
+    entry.requestBody = typeof options?.body === 'string' ? options.body : (options?.body instanceof FormData ? '[multipart form]' : '');
+    entry.response = responseClone;
+  }
+  _apiRequestListeners.forEach((fn) => { try { fn(entry); } catch { /* a listener must never break a request */ } });
+}
+export function onApiRequest(listener) {
+  _apiRequestListeners.add(listener);
+  return () => _apiRequestListeners.delete(listener);
+}
+export function setApiBodyCapture(on, filter = null) { _apiBodyCapture = !!on; _apiBodyFilter = on && typeof filter === 'function' ? filter : null; }
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
 // no MSAL involved, the token in the URL is the credential.

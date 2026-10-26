@@ -22,14 +22,14 @@ import uuid
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import hr_checklist_seed
 import hr_checklists as hc
-from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, get_current_user, hr_scope, require_module_grant
+from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, get_current_user, hr_scope, is_team_scope, require_module_grant
 from database import get_db
 from models import (
     HrChecklist,
@@ -98,24 +98,34 @@ def _send_task_emails(background: Optional[BackgroundTasks], task_ids: list, by:
 
 def _full(db: Session, cl: HrChecklist) -> dict:
     items = db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all()
-    names = hc.name_map(db, [e for i in items for e in hc.owners_of(i)])
-    return hc.ser_checklist(cl, items, names, hc.comments_for(db, items), hc.role_people(db, cl))
+    names = hc.name_map(db, [e for i in items for e in [*hc.owners_of(i), i.owner_role]])
+    return hc.ser_checklist(cl, items, names, hc.comments_for(db, items), hc.role_people(db, cl),
+                            hc.task_info(db, cl))
 
 
 def _step_out(db: Session, it: HrChecklistItem) -> dict:
-    return hc.ser_item(it, hc.name_map(db, hc.owners_of(it)), hc.comments_for(db, [it])[it.id])
+    return hc.ser_item(it, hc.name_map(db, [*hc.owners_of(it), it.owner_role]), hc.comments_for(db, [it])[it.id])
 
 
 # --- Meta ------------------------------------------------------------------
 
 @router.get("/meta")
-def meta(user: dict = Depends(get_current_user)):
+def meta(entity_id: str = "", role_id: str = "", user: dict = Depends(get_current_user),
+         db: Session = Depends(get_db)):
+    """`entity_id` (or a job role's company, `role_id`): the company's other
+    departments ticked to own steps are owners too (Pranshu, Oct 23)."""
+    if role_id and not entity_id:
+        role = db.query(NexusGroup).filter(NexusGroup.id == role_id).first()
+        entity_id = (role.company_id or "") if role else ""
+    scope = hr_scope(user, db) if entity_id else None
+    depts = hc.step_departments(db, entity_id) if entity_id and (scope is None or entity_id in scope) else []
     return {
         "kinds": [{"value": k, "label": hc.KIND_LABELS[k]} for k in hc.KINDS],
-        "roles": [{"value": r, "label": hc.ROLE_LABELS[r]} for r in hc.ROLES],
+        "roles": [{"value": r, "label": hc.ROLE_LABELS[r]} for r in hc.ROLES]
+                 + [{"value": hc.DEPT_PREFIX + d.id, "label": d.name, "department": True} for d in depts],
         "exitTypes": [{"value": t, "label": hr_checklist_seed.EXIT_TYPE_LABELS[t]}
                       for t in hr_checklist_seed.EXIT_TYPES],
-        "signals": [{"value": k, "label": v} for k, v in hc.SIGNAL_LABELS.items()],
+        "signals": [{"value": k, "label": v} for k, v in {**hc.SIGNAL_PRESETS, **hc.SIGNAL_LABELS}.items()],
     }
 
 
@@ -129,15 +139,17 @@ def employee_checklists(eid: str, background: BackgroundTasks = None,
             .order_by(HrChecklist.created_at.desc()).all())
     changed, created = False, []
     for cl in rows:
-        changed = hc.sync(db, cl, emp) or changed
+        did = hc.sync(db, cl, emp)
+        changed = did or changed
         db.flush()
         # A step whose owner is known but has no subtask yet (owner filled in
-        # after the start) gets it now, not at the overnight pass.
+        # after the start) gets it now, not at the overnight pass - and a step
+        # that just ticked (or a checklist that just closed) completes its task.
         waiting = cl.status == "open" and db.query(HrChecklistItem.id).filter(
             HrChecklistItem.checklist_id == cl.id, HrChecklistItem.status == "open",
             func.coalesce(HrChecklistItem.owner_email, "") != "",
             func.coalesce(HrChecklistItem.task_id, "") == "").first() is not None
-        if waiting:
+        if did or waiting:
             new = hc.sync_tasks(db, cl, emp, by=user["email"])
             created += new
             changed = changed or bool(new)
@@ -245,6 +257,7 @@ def update_item(iid: str, body: ItemPatch, background: BackgroundTasks = None,
             it.done_by, it.done_at = "", ""
         else:
             it.done_by, it.done_at = me, hc._now()
+        it.done_reason = ""
     if body.note is not None:
         it.note = body.note.strip()[:1000]
     if body.owner_email is not None:
@@ -420,12 +433,154 @@ def board(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
                 "title": nxt.title, "dueDate": nxt.due_date,
                 "overdue": bool(nxt.due_date and nxt.due_date < t_iso),
                 "ownerEmail": nxt.owner_email, "ownerName": names.get(nxt.owner_email, ""),
-                "ownerRoleLabel": hc.ROLE_LABELS.get(nxt.owner_role, nxt.owner_role),
+                "ownerRoleLabel": hc.role_label(db, nxt.owner_role),
             },
         })
     # Most urgent first: anything late, then the nearest date.
     out.sort(key=lambda r: (-r["overdue"], r["anchorDate"] or "9999-12-31", r["name"]))
     return {"rows": out}
+
+
+# --- Onboarding Audit (Neil, Oct 22) ----------------------------------------
+# "Many people are non-compliant on their onboarding... if the person is an
+# existing employee, we can have an option to do an audit... you can just
+# click it all off and then now you have proof that on this date you had it
+# all." An audit is an onboarding checklist flagged `audit`, dated from the
+# day it starts; whatever is already on file ticks itself at once (the
+# evidence conditions), the rest becomes tasks, and each step's done row -
+# who or what closed it, and when - is the proof (Download Audit Record).
+
+AUDIT_CAP = 50            # people per request; the screen sends a larger pick in batches
+
+
+@router.get("/audit/candidates")
+def audit_candidates(entity_id: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Active people at a company with no onboarding checklist, ever."""
+    if not entity_id:
+        raise HTTPException(400, "Pick a company")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    had = {r.employee_id for r in db.query(HrChecklist.employee_id).filter(HrChecklist.kind == "onboarding")}
+    people = (db.query(NexusEmployee).filter(NexusEmployee.company == entity_id, NexusEmployee.status == "active")
+              .all())
+    out = [{"id": e.id, "name": hc.full_name(e), "jobTitle": e.job_title or "", "department": e.department or "",
+            "startDate": (e.start_date or "")[:10]} for e in people if e.id not in had]
+    out.sort(key=lambda x: x["name"].lower())
+    return {"people": out}
+
+
+@router.get("/records-audit")
+def records_audit(entity_id: Optional[str] = None, user: dict = Depends(require_hr_read),
+                  db: Session = Depends(get_db)):
+    """People > Records Audit: everyone whose record is missing something or
+    has a document past its expiry (hr_record_audit.gaps - what the morning
+    bell says)."""
+    import hr_record_audit
+    scope = hr_scope(user, db)
+    if entity_id and scope is not None and not is_team_scope(scope) and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    return {"people": hr_record_audit.company_report(db, entity_id or None, scope)}
+
+
+class AuditIn(BaseModel):
+    employee_ids: list
+
+
+def _audit_emails(task_ids: list, by: str) -> None:
+    """ONE email per person for the whole audit (task_notify's bulk path),
+    never one per checklist or step. Runs after the response, in a thread."""
+    import models
+    import task_notify
+    from database import SessionLocal
+    from routers.task_util import task_assignees
+    db = SessionLocal()
+    try:
+        assigned = {}
+        for t in db.query(models.Task).filter(models.Task.id.in_(list(task_ids))).all():
+            for who in task_assignees(t):
+                assigned.setdefault(who, []).append(t)
+        task_notify.queue_bulk_assignments(db, by, assigned, send_now_if_instant=True)
+    except Exception as e:   # noqa: BLE001 - a missed email never undoes the audit
+        print(f"[checklists] audit emails failed: {e}")
+    finally:
+        db.close()
+
+
+@router.post("/audit", status_code=201)
+def start_audits(body: AuditIn, background: BackgroundTasks = None,
+                 user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Start an Onboarding Audit for each person (one, from the profile, or a
+    pick from Company Settings). Idempotent: someone with an open onboarding
+    checklist is skipped, so a second click starts nothing twice."""
+    ids = list(dict.fromkeys(str(x).strip() for x in (body.employee_ids or []) if str(x or "").strip()))
+    if not ids:
+        raise HTTPException(400, "Pick at least one person")
+    if len(ids) > AUDIT_CAP:
+        raise HTTPException(400, f"At most {AUDIT_CAP} people at a time")
+    me = user["email"].lower()
+    started, skipped, tasks = [], [], []
+    for eid in ids:
+        try:
+            emp = _employee_in_scope(db, eid, user)
+        except HTTPException:
+            skipped.append({"id": eid, "name": "", "reason": "Not found"})
+            continue
+        if emp.status not in ("active", "onboarding"):
+            skipped.append({"id": eid, "name": hc.full_name(emp), "reason": "Not active"})
+            continue
+        if hc.open_checklist(db, emp.id, "onboarding"):
+            skipped.append({"id": eid, "name": hc.full_name(emp), "reason": "Already has an open onboarding checklist"})
+            continue
+        try:
+            cl = hc.start(db, emp, "onboarding", by=me, audit=True, notify=False)
+        except ValueError as e:
+            skipped.append({"id": eid, "name": hc.full_name(emp), "reason": str(e)})
+            continue
+        tasks += cl.new_task_ids
+        items = db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all()
+        started.append({"id": eid, "name": hc.full_name(emp), "checklistId": cl.id, "total": len(items),
+                        "onFile": sum(1 for i in items if i.status == "done")})
+    db.commit()
+    if background is not None and tasks:
+        background.add_task(_audit_emails, tasks, me)
+    return {"started": started, "skipped": skipped}
+
+
+def _csv(rows: list) -> str:
+    import csv
+    import io
+    buf = io.StringIO()
+    csv.writer(buf).writerows(rows)
+    return buf.getvalue()
+
+
+@router.get("/{cid}/record.csv")
+def checklist_record(cid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """The checklist as a record (the audit's proof): every step, where it
+    stands, who or what closed it and when - US dates."""
+    cl = _checklist_in_scope(db, cid, user)
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == cl.employee_id).first()
+    items = sorted(db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all(),
+                   key=lambda x: x.sort_order or 0)
+    names = hc.name_map(db, [i.done_by for i in items] + [e for i in items for e in hc.owners_of(i)])
+    ent = db.query(HrEntity).filter(HrEntity.id == cl.company).first() if cl.company else None
+    label = hc.KIND_LABELS.get(cl.kind, cl.kind) + (" Audit" if cl.audit else " Checklist")
+    who = lambda em: f"{names.get(em, '') or em} ({em})" if names.get(em) else em  # noqa: E731
+    status = {"open": "Open", "done": "Done", "na": "N/A"}
+    rows = [["Person", hc.full_name(emp)], ["Company", ent.name if ent else ""], ["Record", label],
+            ["Started", hc.us_date(cl.created_at)], ["Status", {"open": "In Progress", "done": "Complete"}.get(cl.status, "Cancelled")],
+            ["Downloaded", hc.us_date(hc._now())], [],
+            ["Phase", "Step", "Owner", "Status", "Due", "Closed By", "Closed On", "How"]]
+    for i in items:
+        closed = i.status in ("done", "na")
+        by = ("Nexus" if i.done_by == "Nexus" else who(i.done_by)) if closed and i.done_by else ""
+        how = (i.done_reason or "Ticked by hand") if i.status == "done" else (i.note or "") if i.status == "na" else ""
+        rows.append([i.phase, i.title, ", ".join(who(e) for e in hc.owners_of(i)) or hc.role_label(db, i.owner_role),
+                     status.get(i.status, i.status), hc.us_date(i.due_date), by, hc.us_date(i.done_at) if closed else "", how])
+    name = f"{label} - {hc.full_name(emp)}".replace('"', "")
+    return Response(content=_csv(rows), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{name}.csv"'})
 
 
 # --- Templates -------------------------------------------------------------
@@ -482,8 +637,12 @@ def save_template(kind: str, body: TemplateIn, entity_id: str = "",
     row = _put_template(db, kind, entity_id, items, user["email"])
     if body.name is not None and body.name.strip():
         row.name = body.name.strip()[:120]
+    db.flush()
+    # Open checklists take the change now, tasks too (Neil, Oct 22: "is it
+    # dynamic or is it fixed?"); done steps stay as they were.
+    n = hc.reconcile_open(db, kind, entity_id=entity_id, by=user["email"].lower())
     db.commit()
-    return _ser_template(row, entity_id)
+    return {**_ser_template(row, entity_id), "openUpdated": n}
 
 
 def _put_template(db: Session, kind: str, entity_id: str, items: list, by: str) -> HrChecklistTemplate:
@@ -511,7 +670,7 @@ def copy_templates(body: CopyIn, user: dict = Depends(require_hr_write), db: Ses
     they stay the same (Neil, Oct 19: "an option to copy to multiple companies
     and standardize it ... we added 19 steps on company A, but company B only
     18 - no one will ever remember"). Each target gets its own copy; checklists
-    already started keep their steps."""
+    open at those companies take it (done steps stay)."""
     kinds = [k for k in (body.kinds or hc.KINDS) if k in hc.KINDS]
     if not kinds:
         raise HTTPException(400, "Pick which checklists to copy")
@@ -524,18 +683,21 @@ def copy_templates(body: CopyIn, user: dict = Depends(require_hr_write), db: Ses
     if not targets:
         raise HTTPException(400, "Pick at least one company to copy to")
     targets = [_entity_for_settings(db, t, user) for t in targets]
+    n = 0
     for kind in kinds:
         items = hc.norm_items(hc.get_template(db, kind, src).items)
         for t in targets:
             _put_template(db, kind, t, items, user["email"])
+            db.flush()
+            n += hc.reconcile_open(db, kind, entity_id=t, by=user["email"].lower())
     db.commit()
-    return {"copied": len(kinds) * len(targets), "kinds": kinds, "companies": targets}
+    return {"copied": len(kinds) * len(targets), "kinds": kinds, "companies": targets, "openUpdated": n}
 
 
 @router.delete("/templates/{kind}")
 def reset_template(kind: str, entity_id: str = "", user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """A company's own template -> back to the default. The default itself goes
-    back to the shipped rows. Checklists already started keep their rows."""
+    back to the shipped rows. Open checklists follow (done steps stay)."""
     if kind not in hc.KINDS:
         raise HTTPException(404, "Unknown checklist kind")
     entity_id = _entity_for_settings(db, entity_id, user)
@@ -546,64 +708,163 @@ def reset_template(kind: str, entity_id: str = "", user: dict = Depends(require_
         else:
             row.items = [dict(i) for i in hr_checklist_seed.DEFAULTS[kind][1]]
             row.updated_by, row.updated_at = user["email"], hc._now()
+    db.flush()
+    n = hc.reconcile_open(db, kind, entity_id=entity_id, by=user["email"].lower())
     db.commit()
-    return _ser_template(hc.get_template(db, kind, entity_id), entity_id)
+    return {**_ser_template(hc.get_template(db, kind, entity_id), entity_id), "openUpdated": n}
 
 
-# --- Role owners -----------------------------------------------------------
+# --- Where checklist tasks go (Neil, Oct 22; Pranshu: "what if I want to
+# change the task location for the checklist in future?") -------------------
 
-@router.get("/owners")
-def get_owners(entity_id: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+def _place_out(db: Session, entity_id: str, scope=None) -> dict:
+    import models
+    from routers.task_util import row_company
+    # Any project of a company HR covers - the group's HR project usually
+    # belongs to the parent company, not the one hiring.
+    projects = [p for p in db.query(models.TaskProject).filter(models.TaskProject.archived.isnot(True))
+                .order_by(models.TaskProject.name).all()
+                if scope is None or row_company(db, p) in ("", entity_id, *scope)]
+    secs = {}
+    if projects:
+        for s in (db.query(models.TaskSection).filter(models.TaskSection.project_id.in_([p.id for p in projects]))
+                  .order_by(models.TaskSection.position).all()):
+            secs.setdefault(s.project_id, []).append({"id": s.id, "name": s.name})
+    names = {p.id: p.name for p in projects}
+    sec_names = {s["id"]: s["name"] for rows in secs.values() for s in rows}
+    effective = {}
+    for k in hc.KINDS:
+        pl = hc.task_place(db, entity_id, k)
+        if pl["projectId"] and pl["projectId"] not in names:
+            p = db.query(models.TaskProject).filter(models.TaskProject.id == pl["projectId"]).first()
+            names[pl["projectId"]] = p.name if p else ""
+        effective[k] = {**pl, "projectName": names.get(pl["projectId"], ""), "sectionName": sec_names.get(pl["sectionId"], "")}
+    open_tasks = []
+    for cl in db.query(HrChecklist).filter(HrChecklist.status == "open", HrChecklist.company == entity_id,
+                                           func.coalesce(HrChecklist.task_id, "") != "").all():
+        t = db.query(models.Task).filter(models.Task.id == cl.task_id).first()
+        if t is not None:
+            open_tasks.append({"kind": cl.kind, "projectId": t.project_id or "", "sectionId": t.section_id or ""})
+    auto = hc.auto_project(db, entity_id)
+    return {"place": hc._setting_json(db, hc.PLACE_KEY + entity_id), "effective": effective,
+            "auto": {"projectId": auto.id, "projectName": auto.name} if auto else None,
+            "projects": [{"id": p.id, "name": p.name, "sections": secs.get(p.id, [])} for p in projects],
+            "openTasks": open_tasks}
+
+
+@router.get("/task-place")
+def get_task_place(entity_id: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Where a company's checklist tasks go, per kind or one for all, what
+    that resolves to today, the projects to pick from and where its open
+    checklists' tasks are now."""
+    if not entity_id:
+        raise HTTPException(400, "Pick a company")
     scope = hr_scope(user, db)
-    if entity_id and scope is not None and entity_id not in scope:
+    if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Company not found")
-    own = {}
-    row = db.query(NexusSetting).filter(NexusSetting.key == hc.OWNERS_KEY + (entity_id or "")).first()
-    if row and row.value:
-        try:
-            own = hc.owners_setting(json.loads(row.value))
-        except (ValueError, AttributeError):
-            own = {}
-    ent = db.query(HrEntity).filter(HrEntity.id == entity_id).first() if entity_id else None
-    return {"owners": own, "effective": hc.role_owners(db, entity_id),
-            "hrContact": (ent.hr_contact_email if ent else "") or ""}
+    return _place_out(db, entity_id, scope)
 
 
-class OwnersIn(BaseModel):
-    owners: dict
+class PlaceIn(BaseModel):
+    place: dict                  # {"default" | kind: {"projectId": "", "sectionId": ""}}
+    move: bool = True            # move the open checklists' tasks there too
 
 
-@router.put("/owners")
-def save_owners(body: OwnersIn, entity_id: str = "", background: BackgroundTasks = None,
-                user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+@router.put("/task-place")
+def save_task_place(body: PlaceIn, entity_id: str = "", user: dict = Depends(require_hr_write),
+                    db: Session = Depends(get_db)):
+    import models
+    if not entity_id:
+        raise HTTPException(400, "Pick a company")
     entity_id = _entity_for_settings(db, entity_id, user)
     clean = {}
-    for role, emails in (body.owners or {}).items():
-        if role not in ("hr", "it", "accounting"):
-            raise HTTPException(400, f"{role} is set per person, not per company")
-        found = [_directory_email(db, em) for em in hc.email_list(emails)]   # several per role (Oct 20)
-        if found:
-            clean[role] = list(dict.fromkeys(found))
-    key = hc.OWNERS_KEY + entity_id
+    for k, v in (body.place or {}).items():
+        if k not in hc.PLACE_KINDS:
+            raise HTTPException(400, f"{k} is not a checklist kind")
+        v = v if isinstance(v, dict) else {}
+        pid, sec = str(v.get("projectId") or "").strip(), str(v.get("sectionId") or "").strip()
+        if not pid:
+            continue
+        if db.query(models.TaskProject.id).filter(models.TaskProject.id == pid).first() is None:
+            raise HTTPException(400, "That project does not exist")
+        if sec and db.query(models.TaskSection.id).filter(models.TaskSection.id == sec,
+                                                          models.TaskSection.project_id == pid).first() is None:
+            raise HTTPException(400, "That section is not in the project")
+        clean[k] = {"projectId": pid, "sectionId": sec}
+    key = hc.PLACE_KEY + entity_id
     row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
     if row is None:
         row = NexusSetting(key=key)
         db.add(row)
     row.value, row.updated_by, row.updated_at = json.dumps(clean), user["email"], hc._now()
     db.flush()
-    # Open checklists waiting on an owner get them now, and their tasks, rather
-    # than at the overnight pass (Pranshu, Oct 20). '' = the default, every company.
-    q = db.query(HrChecklist).filter(HrChecklist.status == "open")
-    if entity_id:
-        q = q.filter(HrChecklist.company == entity_id)
-    created = []
-    for cl in q.all():
-        if hc.sync(db, cl):
-            db.flush()
-            created += hc.sync_tasks(db, cl, by=user["email"])
+    moved = hc.move_open_tasks(db, entity_id, user["email"].lower()) if body.move else 0
     db.commit()
-    _send_task_emails(background, created, user["email"])
-    return {"owners": clean, "effective": hc.role_owners(db, entity_id)}
+    return {**_place_out(db, entity_id, hr_scope(user, db)), "moved": moved}
+
+
+# --- Role owners -----------------------------------------------------------
+
+@router.get("/owners")
+def get_owners(entity_id: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Who owns HR / IT / Accounting steps at a company, and why: the
+    department of that name (its head and backup), the HR contact and the
+    Global Admins at the end of the line (Neil, Oct 22)."""
+    scope = hr_scope(user, db)
+    if entity_id and scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    ent = db.query(HrEntity).filter(HrEntity.id == entity_id).first() if entity_id else None
+    depts = hc.owner_departments(db, entity_id)
+    ticked = {d.id for d in hc.step_departments(db, entity_id)}
+    taken = {d.id for d in depts.values()}
+    others = (db.query(HrDepartment).filter(HrDepartment.company_id == entity_id)
+              .order_by(HrDepartment.sort_order, HrDepartment.name).all() if entity_id else [])
+    out = lambda d: {"id": d.id, "name": d.name, "leadEmail": d.lead_email or "",  # noqa: E731
+                     "backupEmail": d.backup_email or "",
+                     "active": hc.active_people(db, [d.lead_email, d.backup_email])}
+    return {"effective": hc.role_owners(db, entity_id),
+            "hrContact": (ent.hr_contact_email if ent else "") or "",
+            "departments": {r: out(d) for r, d in depts.items()},
+            # Every other department, ticked = it owns steps too (Pranshu, Oct 23).
+            "otherDepartments": [{**out(d), "checked": d.id in ticked} for d in others if d.id not in taken],
+            "globalAdmins": hc.global_admins(db)}
+
+
+class StepDeptsIn(BaseModel):
+    department_ids: list
+
+
+@router.put("/step-departments")
+def save_step_departments(body: StepDeptsIn, entity_id: str = "",
+                          user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Which of the company's other departments own checklist steps (HR, IT
+    and Accounting always do). Unticked: its open steps go to HR at once."""
+    if not entity_id:
+        raise HTTPException(400, "Pick a company")
+    entity_id = _entity_for_settings(db, entity_id, user)
+    ids = {d.id for d in db.query(HrDepartment.id).filter(HrDepartment.company_id == entity_id)}
+    clean = list(dict.fromkeys(str(x or "").strip() for x in (body.department_ids or []) if str(x or "").strip()))
+    if any(x not in ids for x in clean):
+        raise HTTPException(400, "That department is not in this company")
+    key = hc.STEP_DEPTS_KEY + entity_id
+    row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
+    if row is None:
+        row = NexusSetting(key=key)
+        db.add(row)
+    row.value, row.updated_by, row.updated_at = json.dumps(clean), user["email"], hc._now()
+    db.flush()
+    hc.resync_company(db, entity_id, user["email"].lower())
+    db.commit()
+    return get_owners(entity_id, user, db)
+
+
+@router.put("/owners")
+def save_owners(user: dict = Depends(require_hr_write)):
+    """Retired Oct 23: no people list is kept inside checklists any more (Neil,
+    Oct 22 4:41-5:42) - steps go to the department head and backup. The old
+    lists stay in nexus_settings; nothing reads them."""
+    raise HTTPException(410, "Step owners are now each department's head and backup - "
+                             "set them in Company Settings > Departments.")
 
 
 # --- A job role's own steps (Neil, Oct 19) -----------------------------------
@@ -660,19 +921,93 @@ def role_templates(user: dict = Depends(get_current_user), db: Session = Depends
                         "companyId": r.company_id or "", "companyName": names.get(r.company_id or "", ""),
                         "counts": {k: counts.get(r.id, {}).get(k, 0) for k in hc.KINDS}})
     out.sort(key=lambda x: (x["companyName"] or "~", x["department"].lower(), x["roleName"].lower()))
-    return {"roles": out, "isHr": hr}
+    # The baseline steps a hire at each company ('' = the library) gets first,
+    # so a role with no steps of its own reads Baseline Only, not Missing.
+    baselines = {e: {k: len(hc.get_template(db, k, e).items or []) for k in hc.KINDS} for e in ["", *names]}
+    db.commit()   # seeding the library on first read
+    return {"roles": out, "isHr": hr, "baselines": baselines}
 
 
 @router.get("/role-templates/{role_id}")
 def role_template(role_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     role = _editable_role(db, user, role_id)
+    return _role_out(db, role)
+
+
+def _role_out(db: Session, role: NexusGroup) -> dict:
+    """A role's own steps per kind, each with the BASELINE every hire gets
+    first (Neil, Oct 22: "this is a baseline and we build off of the
+    baseline") - the role's company's own steps, else the Checklist Library -
+    so nobody re-adds those to each role."""
+    company = db.query(HrEntity).filter(HrEntity.id == role.company_id).first() if role.company_id else None
     out = []
     for k in hc.KINDS:
         t = hc.role_template(db, k, role.id)
+        base = hc.get_template(db, k, role.company_id or "")
         out.append({"kind": k, "kindLabel": hc.KIND_LABELS[k], "items": hc.norm_items(t.items) if t else [],
                     "updatedBy": t.updated_by if t else "", "updatedAt": t.updated_at if t else "",
-                    "entityId": "", "inherited": False})
-    return {"roleId": role.id, "roleName": role.name, "department": role.department or "", "templates": out}
+                    "entityId": "", "inherited": False,
+                    "baseline": {"source": "company" if base.entity_id else "library",
+                                 "items": [{"key": r.get("key", ""), "title": r.get("title", ""), "phase": r.get("phase", ""),
+                                            "owner": r.get("owner", "hr")} for r in hc.norm_items(base.items)]}})
+    db.commit()   # seeding the library on first read
+    return {"roleId": role.id, "roleName": role.name, "department": role.department or "",
+            "companyId": role.company_id or "", "companyName": company.name if company else "", "templates": out}
+
+
+class RoleCopyIn(BaseModel):
+    from_role_id: str
+    kinds: list = []             # [] = all four
+    mode: str = "append"         # append (skip titles it already has) | replace
+
+
+@router.post("/role-templates/{role_id}/copy")
+def copy_role_template(role_id: str, body: RoleCopyIn, user: dict = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    """Copy another role's own steps into this one while building it (Neil, Oct
+    22: "we have 25 to 30 roles... there needs to be a copy from option").
+    Both roles must be ones the caller keeps; each copied step gets a new key."""
+    role = _editable_role(db, user, role_id)
+    src = _editable_role(db, user, (body.from_role_id or "").strip())
+    if src.id == role.id:
+        raise HTTPException(400, "Pick a different role to copy from")
+    if body.mode not in ("append", "replace"):
+        raise HTTPException(400, "mode must be append or replace")
+    kinds = [k for k in (body.kinds or hc.KINDS) if k in hc.KINDS]
+    if not kinds:
+        raise HTTPException(400, "Pick which checklists to copy")
+    copied, changed = 0, []
+    for kind in kinds:
+        st = hc.role_template(db, kind, src.id)
+        t = hc.role_template(db, kind, role.id)
+        mine = [] if body.mode == "replace" else hc.norm_items(t.items if t else [])
+        have = {(r.get("title") or "").strip().lower() for r in mine}
+        new = []
+        for r in hc.norm_items(st.items if st else []):
+            title = (r.get("title") or "").strip()
+            if title.lower() in have:
+                continue
+            have.add(title.lower())
+            phase = r.get("phase") or ""
+            new.append({**r, "key": "", "phase": f"{role.name} Steps" if phase == f"{src.name} Steps" else phase})
+        if not new and body.mode == "append":
+            continue
+        items = hc.clean_template_items(mine + new)
+        copied += len(new)
+        changed.append(kind)
+        if not items:
+            if t is not None:
+                db.delete(t)
+            continue
+        if t is None:
+            t = HrChecklistTemplate(id=str(uuid.uuid4()), kind=kind, entity_id="", role_id=role.id,
+                                    name=f"{role.name} - {hc.KIND_LABELS[kind]}", created_at=hc._now())
+            db.add(t)
+        t.items, t.updated_by, t.updated_at = items, user["email"], hc._now()
+    db.flush()
+    n = sum(hc.reconcile_open(db, k, role_id=role.id, by=user["email"].lower()) for k in changed)
+    db.commit()
+    return {**_role_out(db, role), "copied": copied, "openUpdated": n}
 
 
 @router.put("/role-templates/{role_id}/{kind}")
@@ -687,17 +1022,22 @@ def save_role_template(role_id: str, kind: str, body: TemplateIn, user: dict = D
     except ValueError as e:
         raise HTTPException(400, str(e))
     t = hc.role_template(db, kind, role.id)
+    me = user["email"].lower()
     if not items:
         if t is not None:
             db.delete(t)
+        db.flush()
+        n = hc.reconcile_open(db, kind, role_id=role.id, by=me)
         db.commit()
         return {"kind": kind, "kindLabel": hc.KIND_LABELS[kind], "items": [], "updatedBy": "", "updatedAt": "",
-                "entityId": "", "inherited": False}
+                "entityId": "", "inherited": False, "openUpdated": n}
     if t is None:
         t = HrChecklistTemplate(id=str(uuid.uuid4()), kind=kind, entity_id="", role_id=role.id,
                                 name=f"{role.name} - {hc.KIND_LABELS[kind]}", created_at=hc._now())
         db.add(t)
     t.items, t.updated_by, t.updated_at = items, user["email"], hc._now()
+    db.flush()
+    n = hc.reconcile_open(db, kind, role_id=role.id, by=me)
     db.commit()
     return {"kind": kind, "kindLabel": hc.KIND_LABELS[kind], "items": items, "updatedBy": t.updated_by,
-            "updatedAt": t.updated_at, "entityId": "", "inherited": False}
+            "updatedAt": t.updated_at, "entityId": "", "inherited": False, "openUpdated": n}

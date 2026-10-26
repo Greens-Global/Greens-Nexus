@@ -14,6 +14,7 @@ import UnsavedChangesPrompt from '../../components/UnsavedChangesPrompt';
 import { taskAssignees, projectRoleOf, roleAtLeast } from '../lib';
 import { useTableValue, whenTablePrefsLoaded } from '../tableCols';
 import { useRole } from '../../contexts/RoleContext';
+import { useIsMobile } from '../../lib/useIsMobile';
 
 const PALETTE = ['#2563eb', '#16a34a', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#db2777', '#65a30d'];
 
@@ -385,6 +386,8 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
 
   const sel = { ...inputStyle, cursor: 'pointer', appearance: 'auto' };
   const lbl = { display: 'block', fontSize: 12, color: NX.dim, marginBottom: 4 };
+  // A phone gets the full-screen sheet; elsewhere the 60% popup (.nx-popup).
+  const isMobile = useIsMobile();
 
   const initialCfgRef = useRef(cfg);
   const dirty = JSON.stringify(cfg) !== JSON.stringify(initialCfgRef.current);
@@ -398,13 +401,18 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
   }, [tasks, store]);
 
   return (
-    <div onMouseDown={(e) => e.target === e.currentTarget && guard.requestClose()} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(17,24,39,0.45)', padding: 16, fontFamily: FONT }}>
-      <div className="nx-popup" style={{ display: 'flex', flexDirection: 'column', height: '88vh', overflow: 'hidden', borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, boxShadow: '0 24px 60px rgba(0,0,0,0.28)' }}>
+    <div onMouseDown={(e) => e.target === e.currentTarget && guard.requestClose()} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: isMobile ? 'stretch' : 'center', justifyContent: 'center', background: 'rgba(17,24,39,0.45)', padding: isMobile ? 0 : 16, fontFamily: FONT }}>
+      {/* 60vw x 60-85vh from .nx-popup (no inline height to fight it); the
+          body between header and footer is the part that grows (.nx-fill). */}
+      <div className="nx-popup" role="dialog" aria-modal="true" aria-label={initial ? 'Edit Chart' : 'Add Chart'}
+        style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: isMobile ? 0 : 16, border: `1px solid ${NX.border}`, background: NX.surface, boxShadow: '0 24px 60px rgba(0,0,0,0.28)', ...(isMobile ? { height: '100%', maxHeight: '100%' } : null) }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 20px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{initial ? 'Edit Chart' : 'Add Chart'}</h2>
-          <button onClick={guard.requestClose} style={{ ...btn('ghost'), padding: 6 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} aria-label="Close" title="Close" style={{ ...btn('ghost'), padding: 6 }}><X size={18} /></button>
         </div>
-        <div style={{ display: 'flex', minHeight: 0, flex: 1, flexWrap: 'wrap' }}>
+        {/* nx-fill grows into the popup's height; flexDirection row (inline)
+            keeps the preview and the controls side by side. */}
+        <div className="nx-fill" style={{ flexDirection: 'row', flexWrap: 'wrap', overflowY: isMobile ? 'auto' : undefined }}>
           {/* Preview */}
           <div className="nx-scroll" style={{ minWidth: 300, flex: '1 1 340px', overflow: 'auto', borderRight: `1px solid ${NX.border}`, padding: 24 }}>
             <input value={title} onChange={(e) => { setTitleTouched(true); patch({ title: e.target.value }); }}
@@ -422,7 +430,7 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
               <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700 }}>Chart Data</div>
               <label style={lbl}>X-Axis (Group By)</label>
               <select value={cfg.dimension} onChange={(e) => patch({ dimension: e.target.value })} style={sel}>{DIMENSIONS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}</select>
-              <label style={{ ...lbl, marginTop: 12 }}>Y-axis (metric)</label>
+              <label style={{ ...lbl, marginTop: 12 }}>Y-Axis (Metric)</label>
               <select value={cfg.metric} onChange={(e) => patch({ metric: e.target.value })} style={sel}>{METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select>
             </div>
             <div style={{ borderTop: `1px solid ${NX.border}`, paddingTop: 16 }}>
@@ -445,7 +453,7 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, padding: '13px 20px', borderTop: `1px solid ${NX.border}`, flexShrink: 0 }}>
           <button onClick={onClose} style={btn('outline')}>Cancel</button>
-          <button onClick={() => onSave({ ...cfg, title })} style={btn('primary')}>{initial ? 'Save chart' : 'Add chart'}</button>
+          <button onClick={() => onSave({ ...cfg, title })} style={btn('primary')}>{initial ? 'Save Chart' : 'Add Chart'}</button>
         </div>
       </div>
       {guard.confirming && (

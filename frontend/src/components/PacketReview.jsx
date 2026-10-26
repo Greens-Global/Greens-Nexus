@@ -13,12 +13,13 @@
 // template was published meanwhile) this screen asks for one regenerate and
 // reloads - it never treats the read as a writer.
 import { useEffect, useRef, useState } from 'react';
-import { X, FileText, Eye, Send, Ban, CheckCircle, AlertTriangle, Pencil, Lock, RefreshCw, Copy, Mail, PenTool } from 'lucide-react';
+import { X, FileText, Eye, Send, Ban, CheckCircle, AlertTriangle, Pencil, Lock, RefreshCw, Copy, Mail, PenTool, Info } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatHHMM } from '../lib/datetime';
 import { Spinner } from './AsyncState';
 import DetailsFormFields from './DetailsFormFields';
 import SignOnceModal from './SignOnceModal';
+import { REPORTS_TO } from './OfferModal';
 
 const lbl = { fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '0 0 5px' };
 const h3 = { fontSize: 15, fontWeight: 800, margin: '24px 0 10px', color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 10 };
@@ -69,7 +70,7 @@ function DocPreview({ eventId, doc, onClose, toastErr }) {
   );
 }
 
-export default function PacketReview({ eventId, onClose, onChanged, onSignNow, toastOk, toastErr }) {
+export default function PacketReview({ eventId, onClose, onChanged, toastOk, toastErr }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState('');
   const [preview, setPreview] = useState(null);
@@ -102,6 +103,9 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
   const v = data.verifier || {};
   const inReview = ev.status === 'review';
   const isHire = ['offer', 'hire'].includes(ev.kind);      // the offer letter reads like a hire (Oct 14)
+  // An offer only asks "do you accept?" - the emergency contact and permanent
+  // address come later, on the hiring packet's form (Neil, Oct 22).
+  const isOffer = ev.kind === 'offer';
   const first = (ev.subjectName || '').split(' ')[0] || 'them';
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -133,8 +137,9 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
       const out = await api.verifyAndSendPacket(eventId, { excluded_ack: ack, seen: data.seen });
       onChanged?.();
       onClose();
-      if (out.senderPartyId) onSignNow?.(out.senderPartyId);
-      else toastOk?.(out.status === 'sent' ? `Sent - ${ev.subjectName} has been emailed the documents to sign.` : 'Sent for signature.');
+      // Verify is a check, never a signature: the person signs first and the
+      // company countersigns after them (Neil, Oct 22 2026).
+      toastOk?.(out.status === 'sent' ? `Sent - ${ev.subjectName} has been emailed the documents to sign.` : 'Sent for signature.');
     } catch (e) {
       toastErr?.(e?.message || 'Could not send the packet.');
       load();
@@ -223,10 +228,10 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
               {field('Preferred Name', 'preferred_name')}
               {field('Phone', 'phone')}
               <div style={{ gridColumn: '1 / -1' }}>{field('Current Address', 'address')}</div>
-              <div style={{ gridColumn: '1 / -1' }}>{field('Permanent Address', 'permanent_address')}</div>
-              {field('Emergency Contact', 'emergency_name')}
-              {field('Relationship', 'emergency_relationship')}
-              {field('Emergency Phone', 'emergency_phone')}
+              {!isOffer && <div style={{ gridColumn: '1 / -1' }}>{field('Permanent Address', 'permanent_address')}</div>}
+              {!isOffer && field('Emergency Contact', 'emergency_name')}
+              {!isOffer && field('Relationship', 'emergency_relationship')}
+              {!isOffer && field('Emergency Phone', 'emergency_phone')}
               {field('Work Starts At', 'work_start', { type: 'time' })}
               {field('Work Ends At', 'work_end', { type: 'time' })}
               <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Work Days</label>
@@ -260,7 +265,7 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
               {isHire && <Row k="Role" v={o.jobTitle && `${o.jobTitle}${o.department ? ` - ${o.department}` : ''}`} />}
               {isHire && <Row k="Start Date" v={formatDate(o.startDate)} />}
               {isHire && <Row k="Offer Expires" v={formatDate(o.offerExpires)} />}
-              {isHire && <Row k="Supervisor" v={o.managerName} />}
+              {isHire && <Row k={<span title={REPORTS_TO} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Supervisor <Info size={12} aria-label={REPORTS_TO} style={{ cursor: 'help' }} /></span>} v={o.managerName} />}
               {ev.kind === 'promotion' && <Row k="New Role" v={o.jobTitle} />}
               {ev.kind === 'promotion' && <Row k="Effective" v={formatDate(o.effectiveDate)} />}
               {ev.kind === 'separation' && <Row k="Last Day" v={formatDate(o.lastDay)} />}
@@ -276,7 +281,7 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
                 <Row k="Phone" v={d.phone} />
                 <Row k="Address" v={d.address} />
                 {d.permanent_address && <Row k="Permanent Address" v={d.permanent_address} />}
-                <Row k="Emergency Contact" v={d.emergency_name && `${d.emergency_name}${d.emergency_relationship ? ` (${d.emergency_relationship})` : ''}${d.emergency_phone ? ` - ${d.emergency_phone}` : ''}`} />
+                {!isOffer && <Row k="Emergency Contact" v={d.emergency_name && `${d.emergency_name}${d.emergency_relationship ? ` (${d.emergency_relationship})` : ''}${d.emergency_phone ? ` - ${d.emergency_phone}` : ''}`} />}
                 {(data.answers || []).map((a, i) => a.type === 'heading'
                   ? <div key={`h-${i}`} style={{ fontSize: 12.5, fontWeight: 800, marginTop: 8 }}>{a.label}</div>
                   : <Row key={a.key} k={a.label} v={a.locked ? <Locked /> : a.value} />)}
@@ -321,6 +326,7 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
         )}
 
         {(data.problems || []).map(p => <Problem key={p}>{p}</Problem>)}
+        {(data.warnings || []).map(w => <Problem key={w}>{w}</Problem>)}
 
         {inReview && data.isVerifier && (
           <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>

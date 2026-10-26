@@ -50,7 +50,8 @@ def _safe(db: Session, fn) -> int:
 # ── Workday ──────────────────────────────────────────────────────────────────
 
 def _timesheet(db: Session, me: str) -> int:
-    """Time Sheets submitted to me, waiting on my signature, or sent back to me.
+    """Time Sheets waiting on my signature, or sent back to me. The ones
+    waiting on my review count on People > Time (_to_review, Oct 22).
     A time-tracking-exempt person has no time sheet of their own, so nothing
     of theirs is "sent back": a review row left from before they became
     exempt would otherwise show as a "1" over an empty tab for good
@@ -61,7 +62,13 @@ def _timesheet(db: Session, me: str) -> int:
         db.query(func.count(models.TimesheetReview.id))
         .filter(models.TimesheetReview.employee_email == me,
                 models.TimesheetReview.status == "with_employee").scalar())
-    return len(tsr.waiting_on(db, me)) + len(tsr.to_sign(db, me)) + (sent_back or 0)
+    return len(tsr.to_sign(db, me)) + (sent_back or 0)
+
+
+def _to_review(db: Session, me: str) -> int:
+    """Time Sheets submitted to me for review - People > Time's list."""
+    import timesheet_review as tsr
+    return len(tsr.waiting_on(db, me))
 
 
 def _schedule_confirm(db: Session, me: str) -> int:
@@ -160,30 +167,29 @@ def _partner_changes(db: Session, user: dict) -> int:
 # ── Help Center / Dashboard ──────────────────────────────────────────────────
 
 def _kb_signoffs(db: Session, me: str) -> int:
-    docs = {d.id: d.version for d in db.query(models.KbDocument)
-            .filter(models.KbDocument.status == "approved", models.KbDocument.require_ack.is_(True)).all()}
-    if not docs:
-        return 0
-    signed = {(a.doc_id, a.version) for a in db.query(models.KbAcknowledgement)
-              .filter(func.lower(models.KbAcknowledgement.user_email) == me,
-                      models.KbAcknowledgement.doc_id.in_(list(docs))).all()}
-    return sum(1 for doc_id, version in docs.items() if (doc_id, version) not in signed)
+    """Published pages that need my signature and do not have it for their
+    current major version (Oct 2026 rebuild: kb_core.signoff_state is the one
+    rule; audiences decide who owes a signature)."""
+    import kb_core
+    n = 0
+    for d in db.query(models.KbDocument).filter(models.KbDocument.status == "approved", models.KbDocument.require_ack.is_(True)).all():
+        st = kb_core.signoff_state(db, d, me)
+        if st["required"] and not st["signed"]:
+            n += 1
+    return n
 
 
 def _training(db: Session, me: str) -> int:
-    """Assigned, published courses not completed (or due again) - the rule of
-    /knowledge-base/my-assignments, read only (that route also sends the due
-    reminders, which a badge must not)."""
-    from routers.knowledge_base import _progress_dict, _recert, _status_for
+    """Assigned, published courses not completed (or expired) - read only,
+    the same rule My Training shows (kb_core.training_status)."""
+    import kb_core
     n = 0
     for a in db.query(models.KbCourseAssignment).filter(func.lower(models.KbCourseAssignment.user_email) == me).all():
         c = db.query(models.KbCourse).filter(models.KbCourse.id == a.course_id).first()
         if not c or c.status != "published":
             continue
-        prog = _progress_dict(db.query(models.KbCourseProgress).filter(
-            models.KbCourseProgress.course_id == c.id, func.lower(models.KbCourseProgress.user_email) == me).first())
-        expired, _renew_by = _recert(c, prog)
-        if _status_for(c, prog) != "Completed" or expired:
+        st = kb_core.training_status(db, c, kb_core.progress_of(db, c, me), a.due_date)
+        if st["status"] != "Completed":
             n += 1
     return n
 
@@ -222,7 +228,7 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
             "requests": s(lambda: _shift_requests_to_decide(db, user)) + time_off,
         },
         "hr": {
-            "hr-time": time_off + s(lambda: _punch_fixes(db, user)),
+            "hr-time": time_off + s(lambda: _punch_fixes(db, user)) + s(lambda: _to_review(db, me)),
             "hr-people": s(lambda: _ask_hr(db, user)) + s(lambda: _role_changes(db, user)),
         },
         "accounting": {

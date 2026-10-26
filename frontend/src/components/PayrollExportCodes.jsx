@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useGroupDirty } from '../lib/groupDirty';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner } from './AsyncState';
 
@@ -18,13 +19,21 @@ export const PAY_CLASS_LABELS = {
   personal: 'Personal',
   shiftDifferential: 'Shift Differential',
   callBack: 'Call-Back Pay',
+  mealPremium: 'Meal Premium',
+  restPremium: 'Rest Premium',
 };
 
 const draftOf = (data) => Object.fromEntries((data?.classes || []).map((c) => [c.key, c.custom ? c.code : '']));
 
-export default function PayrollExportCodes({ toastOk, toastErr }) {
+// `company` (Settings' scope picker, Oct 23) fixes the company and hides the
+// select; on its own the panel offers every company. Settings' group card
+// carries the title and description, so the panel draws neither (Oct 25):
+// one title per setting. With a company fixed it reports whether that
+// company has names of its own (`onOverride`), for the group's chip.
+export default function PayrollExportCodes({ toastOk, toastErr, company: scoped = '', onOverride }) {
   const [companies, setCompanies] = useState(null);   // null while loading
-  const [company, setCompany] = useState('');
+  const [company, setCompany] = useState(scoped);
+  useEffect(() => { if (scoped) setCompany(scoped); }, [scoped]);
   const [data, setData] = useState(null);
   const [draft, setDraft] = useState({});
   // The QuickBooks company name the IIF header carries (Oct 19); blank = the company's own name.
@@ -39,7 +48,7 @@ export default function PayrollExportCodes({ toastOk, toastErr }) {
         if (!alive) return;
         const list = Array.isArray(d) ? d : [];
         setCompanies(list);
-        setCompany(list[0]?.id || '');
+        setCompany((c) => c || list[0]?.id || '');
       })
       .catch(() => { if (alive) { setCompanies([]); setCompany(''); } });
     return () => { alive = false; };
@@ -72,19 +81,18 @@ export default function PayrollExportCodes({ toastOk, toastErr }) {
   };
 
   const anyCustom = (data?.classes || []).some((c) => c.custom) || !!data?.quickbooksCompanyName;
+  useEffect(() => { if (data && scoped) onOverride?.(anyCustom); }, [data, scoped, anyCustom, onOverride]);
   const dirty = (data?.classes || []).some((c) => (draft[c.key] || '').trim() !== (c.custom ? c.code : ''))
     || qbDraft.trim() !== (data?.quickbooksCompanyName || '');
+  useGroupDirty(dirty);
 
   return (
-    <div data-testid="payroll-export-codes" style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: '14px 16px', marginBottom: 12 }}>
+    <div data-testid="payroll-export-codes">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ flex: 1, minWidth: 200 }}>
-          <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>Payroll Export Codes</span>
-          <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>
-            The payroll item name each pay class carries in the QuickBooks IIF and the Intacct payroll memo, set per company. Leave a box blank to use the default shown in it. The names must match the payroll items in QuickBooks.
-          </span>
+        <span style={{ flex: 1, minWidth: 200, fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>
+          Leave a box blank to use the default shown in it. The names must match the payroll items in QuickBooks.
         </span>
-        {companies && companies.length > 0 && (
+        {!scoped && companies && companies.length > 0 && (
           <select className="form-input" aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)} style={{ fontSize: 12.5, width: 'auto', maxWidth: 260 }}>
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
           </select>
@@ -118,11 +126,20 @@ export default function PayrollExportCodes({ toastOk, toastErr }) {
               value={qbDraft} onChange={(e) => setQbDraft(e.target.value)} style={{ fontSize: 12.5 }} />
             <span style={{ fontSize: 11.5 }}>The company name in the QuickBooks IIF header. It must match the QuickBooks company file; leave it blank to use the company's name.</span>
           </label>
+          {/* One save pattern (Oct 25): Save shows only once something changed. */}
           <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-            <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={!!busy || !dirty}
-              onClick={() => save(draft, qbDraft, 'save')}>Save</button>
-            <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={!!busy || !anyCustom}
-              onClick={() => save({}, '', 'reset')}>Reset to Default</button>
+            {dirty && (
+              <>
+                <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={!!busy}
+                  onClick={() => save(draft, qbDraft, 'save')}>Save</button>
+                <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={!!busy}
+                  onClick={() => { setDraft(draftOf(data)); setQbDraft(data?.quickbooksCompanyName || ''); }}>Discard Changes</button>
+              </>
+            )}
+            {anyCustom && (
+              <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={!!busy}
+                onClick={() => save({}, '', 'reset')}>Reset to Default</button>
+            )}
           </div>
         </>
       )}

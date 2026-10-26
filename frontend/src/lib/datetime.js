@@ -116,6 +116,41 @@ export function formatDateTime(v, fallback = '', timeZone) {
   return `${formatDate(d, '', timeZone)}, ${timeZone ? formatTimeIn(d, timeZone) : formatTime(d)}`;
 }
 
+// Company time (Oct 23 2026): records that are the company's own - Nexus Sign
+// audit trails, sent and signed dates - read on Pacific time whoever looks at
+// them, with the zone named so a reader elsewhere is not misled. PDT or PST
+// follows daylight saving time for that instant.
+export const COMPANY_TIME_ZONE = 'America/Los_Angeles';
+
+// Server timestamps are UTC; one stored without a zone (an older row) is read
+// as UTC too, never as the viewer's own clock.
+const asUtc = (v) => (typeof v === 'string' && /T\d{2}:\d{2}/.test(v) && !/(Z|[+-]\d{2}:?\d{2})$/.test(v) ? `${v}Z` : v);
+
+// "PDT" in summer, "PST" in winter (for that instant, not today). Not
+// zoneAbbr below, which names Pacific "PT" for the shift screens.
+export function pacificZoneName(v) {
+  const d = toDate(asUtc(v));
+  if (!d) return '';
+  const part = new Intl.DateTimeFormat('en-US', { timeZone: COMPANY_TIME_ZONE, timeZoneName: 'short' })
+    .formatToParts(d).find((p) => p.type === 'timeZoneName');
+  return part ? part.value : '';
+}
+
+// "10/20/2026, 11:08 AM PDT" - an instant on Pacific time, zone named.
+export function formatPacificDateTime(v, fallback = '') {
+  const d = toDate(asUtc(v));
+  if (!d) return fallback;
+  return `${formatDateTime(d, '', COMPANY_TIME_ZONE)} ${pacificZoneName(d)}`;
+}
+
+// "10/20/2026" - the Pacific calendar day of an instant (a 6 PM signature on
+// the US west coast is still that day, not tomorrow's UTC date).
+export function formatPacificDate(v, fallback = '') {
+  const d = toDate(asUtc(v));
+  if (!d) return fallback;
+  return formatDate(d, '', COMPANY_TIME_ZONE);
+}
+
 // Readable  ->  "Aug 4, 2026" (use where a numeric date reads cold); day-first
 // people read "4 Aug 2026", YYYY-MM-DD people their own format.
 export function formatDateLong(v, fallback = '') {

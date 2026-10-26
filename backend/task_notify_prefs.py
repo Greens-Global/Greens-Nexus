@@ -21,6 +21,9 @@ Choices a person can make:
   mutedTaskIds / mutedProjectIds
                            no email about these at all, except a mention (which
                            is somebody asking this person directly)
+  followedProjects         emails about projects they follow (new tasks,
+                           completions, comments - task_project_follow.py);
+                           on unless they switch it off (Oct 22 2026)
 """
 from __future__ import annotations
 
@@ -36,7 +39,8 @@ DEFAULT_HOUR = 8
 # Instant events a person may turn off. Assigned / mentioned are not here on
 # purpose - see the module docstring.
 OPTIONAL_EVENTS = ("created", "commented", "modified", "follower_added", "completed",
-                   "deleted", "recurring")
+                   "deleted", "recurring",
+                   "automation")   # an automation rule's Send Email action (task_automation, Oct 22 2026)
 LOCKED_EVENTS = ("assigned", "mentioned")
 
 OVERDUE_CHOICES = {"company": None, "daily": 1, "every2": 2, "every3": 3,
@@ -54,6 +58,7 @@ DEFAULTS = {
     "updateThrottleMinutes": 0,
     "mutedTaskIds": [],
     "mutedProjectIds": [],
+    "followedProjects": True,
 }
 
 
@@ -106,6 +111,7 @@ def normalize(raw: dict | None) -> dict:
     for key in ("mutedTaskIds", "mutedProjectIds"):
         vals = raw.get(key) if isinstance(raw.get(key), list) else []
         p[key] = list(dict.fromkeys(str(v) for v in vals if v))[:500]
+    p["followedProjects"] = raw.get("followedProjects", True) is not False
     return p
 
 

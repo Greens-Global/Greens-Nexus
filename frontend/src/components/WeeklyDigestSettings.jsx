@@ -53,7 +53,7 @@ export default function WeeklyDigestSettings() {
   if (!can('administrator')) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>
-        Global-Admin access is required to view Weekly Digest settings.
+        Administrator access is required to view Weekly Digest settings.
       </div>
     );
   }

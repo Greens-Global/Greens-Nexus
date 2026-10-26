@@ -31,6 +31,54 @@ function Chip({ action }) {
   return <span style={{ display: 'inline-block', padding: '2px 9px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: m.bg, color: m.fg, whiteSpace: 'nowrap' }}>{m.label}</span>;
 }
 
+// Settings > Time & Pay > Intacct Nightly Sync (Oct 23): the switch per
+// company and the last run. `company` (Settings' scope picker) shows one.
+// The sync modal below shows it too. `embedded` (Settings) drops the heading:
+// the group card already carries it (Oct 25: one title per setting).
+export function IntacctNightlySync({ company = '', embedded = false, toastOk, toastErr }) {
+  const [settings, setSettings] = useState(null);
+  useEffect(() => {
+    let live = true;
+    api.intacctCodesSettings().then(s => { if (live) setSettings(s); }).catch(() => { if (live) setSettings({ companies: [], lastRun: {} }); });
+    return () => { live = false; };
+  }, []);
+  const setNightly = async (c, on) => {
+    try {
+      await api.setIntacctCodesNightly(c.id, on);
+      setSettings(s => ({ ...s, companies: s.companies.map(x => x.id === c.id ? { ...x, nightly: on } : x) }));
+      toastOk?.(`Nightly sync ${on ? 'on' : 'off'} for ${c.name}.`);
+    } catch (e) {
+      toastErr?.(e?.message || 'Could not save the setting.');
+    }
+  };
+  const last = settings?.lastRun || {};
+  const companies = (settings?.companies || []).filter(c => !company || c.id === company);
+  return (
+    <div>
+      {!embedded && <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Automatic Nightly Sync</div>}
+      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+        Once a night, for the companies switched on: fills or updates codes only for work email matches whose Nexus code is empty or was set by this sync. Everything else waits for HR to review on People &gt; Sync Employee Codes From Intacct.
+      </p>
+      {!settings && <SkeletonBlocks count={1} height={36} />}
+      {settings && companies.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No companies set up yet.</div>}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 18px' }}>
+        {companies.map(c => (
+          <label key={c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!c.nightly} onChange={e => setNightly(c, e.target.checked)} /> {c.name}
+          </label>
+        ))}
+      </div>
+      {last.at && (
+        <div style={{ fontSize: 12, color: last.ok ? 'var(--muted)' : 'hsl(var(--color-red))', marginTop: 8 }}>
+          Last run {formatDateTime(last.at)}: {last.ok
+            ? `${last.applied || 0} updated, ${last.review || 0} waiting for review`
+            : `nothing changed - ${last.error || 'Intacct could not be read'}`}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function IntacctEmployeeCodes({ onClose, onApplied, toastOk, toastErr }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -39,7 +87,6 @@ export default function IntacctEmployeeCodes({ onClose, onApplied, toastOk, toas
   const [filter, setFilter] = useState('all');
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState(null);
-  const [settings, setSettings] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -54,10 +101,7 @@ export default function IntacctEmployeeCodes({ onClose, onApplied, toastOk, toas
       setLoading(false);
     }
   }, []);
-  const loadSettings = useCallback(async () => {
-    try { setSettings(await api.intacctCodesSettings()); } catch { setSettings({ companies: [], lastRun: {} }); }
-  }, []);
-  useEffect(() => { load(); loadSettings(); }, [load, loadSettings]);
+  useEffect(() => { load(); }, [load]);
 
   const rows = useMemo(() => (data?.rows || []).filter(r => filter === 'all' || r.action === filter), [data, filter]);
   const updatable = useMemo(() => (data?.rows || []).filter(r => r.action === 'update'), [data]);
@@ -89,17 +133,7 @@ export default function IntacctEmployeeCodes({ onClose, onApplied, toastOk, toas
     }
   };
 
-  const setNightly = async (c, on) => {
-    try {
-      await api.setIntacctCodesNightly(c.id, on);
-      setSettings(s => ({ ...s, companies: s.companies.map(x => x.id === c.id ? { ...x, nightly: on } : x) }));
-      toastOk?.(`Nightly sync ${on ? 'on' : 'off'} for ${c.name}.`);
-    } catch (e) {
-      toastErr?.(e?.message || 'Could not save the setting.');
-    }
-  };
 
-  const last = settings?.lastRun || {};
   const footer = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, width: '100%', flexWrap: 'wrap' }}>
       <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{count} selected</span>
@@ -226,26 +260,7 @@ export default function IntacctEmployeeCodes({ onClose, onApplied, toastOk, toas
       )}
 
       <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Automatic Nightly Sync</div>
-        <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
-          Once a night, for the companies switched on: fills or updates codes only for work email matches whose Nexus code is empty or was set by this sync. Everything else stays here for HR to review.
-        </p>
-        {!settings && <SkeletonBlocks count={1} height={36} />}
-        {settings && settings.companies.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No companies set up yet.</div>}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 18px' }}>
-          {settings?.companies.map(c => (
-            <label key={c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={!!c.nightly} onChange={e => setNightly(c, e.target.checked)} /> {c.name}
-            </label>
-          ))}
-        </div>
-        {last.at && (
-          <div style={{ fontSize: 12, color: last.ok ? 'var(--muted)' : 'hsl(var(--color-red))', marginTop: 8 }}>
-            Last run {formatDateTime(last.at)}: {last.ok
-              ? `${last.applied || 0} updated, ${last.review || 0} waiting for review`
-              : `nothing changed - ${last.error || 'Intacct could not be read'}`}
-          </div>
-        )}
+        <IntacctNightlySync toastOk={toastOk} toastErr={toastErr} />
       </div>
     </Modal>
   );

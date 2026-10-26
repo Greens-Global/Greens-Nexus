@@ -135,12 +135,14 @@ vi.mock('../../api', () => ({
     getRolesDirectory: vi.fn(async () => []),
     getPeopleDirectory: vi.fn(async () => [{ email: 'charmi@greensglobal.com', name: 'Charmi Desai', companyName: 'Greens Global' }, { email: 'sahil@greensglobal.com', name: 'Sahil Desai', companyName: 'Greens Global' }]),
   },
+  withFreshReads: vi.fn((fn) => fn()),
 }));
+vi.mock('../PersonHoverCard', () => ({ default: ({ children }) => children }));
 vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'me@greensglobal.com' }) }));
 vi.mock('./reportModel', async (importOriginal) => ({ ...(await importOriginal()), downloadBlob: vi.fn() }));
 
 import PfsTab from './PfsTab';
-import { api } from '../../api';
+import { api, withFreshReads } from '../../api';
 import { buildPfsPdf } from './pfsPdf';
 import { buildPfsWorkbook, pfsSheets } from './pfsXlsx';
 import { downloadBlob } from './reportModel';
@@ -179,6 +181,26 @@ describe('PfsTab', () => {
     expect(within(past).getByText('650,000.00')).toBeTruthy();
     expect(within(past).getByRole('button', { name: 'Open Excel' })).toBeTruthy();
     expect(api.getPfsStatement).toHaveBeenCalledWith('p1', expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+  });
+
+  // Accounting call 10/23, item 13 (fix 10/24): the statement's own Sync.
+  it('Sync reads the open statement again, fresh, keeping the figures on screen until the new ones arrive', async () => {
+    render(<PfsTab canEdit />);
+    await loaded();
+    let release;
+    api.getPfsStatement.mockImplementationOnce(() => new Promise((r) => { release = () => r({ ...statement, totals: { ...statement.totals, netWorth: 712345 } }); }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sync Statement' }));
+    expect(withFreshReads).toHaveBeenCalledTimes(1);
+    expect(api.getPfsStatement).toHaveBeenCalledTimes(2);
+    // No skeleton: the first page stays while it reads.
+    expect(screen.getByRole('region', { name: 'Statement of Financial Condition' })).toBeTruthy();
+    expect(screen.queryByLabelText('Loading the statement')).toBeNull();
+    release();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sync Statement' }).getAttribute('aria-busy')).toBeNull());
+    // Only the open file was read again - not the guarantor list or the categories.
+    expect(api.getPfsProfiles).toHaveBeenCalledTimes(1);
+    expect(api.getPfsMeta).toHaveBeenCalledTimes(1);
+    expect(api.getPfsProfile).toHaveBeenCalledTimes(2);
   });
 
   it('has the tabs in Neil\'s order and no Schedules tab (Oct 7)', async () => {
@@ -760,10 +782,15 @@ describe('PfsTab', () => {
     fireEvent.click(screen.getByRole('button', { name: /New Guarantor/ }));
     const dialog = screen.getByRole('dialog', { name: 'New guarantor' });
     fireEvent.change(within(dialog).getByLabelText('Statement Type'), { target: { value: 'joint' } });
-    await within(dialog).findAllByRole('option', { name: /Sahil Desai/ });   // both pickers list People once it has loaded
-    fireEvent.change(within(dialog).getByLabelText('Prefill From People'), { target: { value: 'sahil@greensglobal.com' } });
+    // Both pickers are the Tasks people picker: open, type, pick.
+    await waitFor(() => expect(within(dialog).getByLabelText('Prefill From People').textContent).toContain('Pick a person...'));
+    fireEvent.click(within(dialog).getByLabelText('Prefill From People'));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'sah' } });
+    fireEvent.click(within(screen.getByRole('listbox')).getByText('Sahil Desai'));
     expect(within(dialog).getByLabelText('Borrower').value).toBe('Sahil Desai');
-    fireEvent.change(within(dialog).getByLabelText('Second Person From People'), { target: { value: 'charmi@greensglobal.com' } });
+    fireEvent.click(within(dialog).getByLabelText('Second Person From People'));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'charmi' } });
+    fireEvent.click(within(screen.getByRole('listbox')).getByText('Charmi Desai'));
     expect(within(dialog).getByLabelText('Co-Borrower').value).toBe('Charmi Desai');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
     await waitFor(() => expect(api.createPfsProfile).toHaveBeenCalled());
