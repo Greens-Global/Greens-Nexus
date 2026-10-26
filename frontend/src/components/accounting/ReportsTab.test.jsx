@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Render-smoke for Accounting -> Reports.
 //   Sep 25 morning (Neil): code and name on one line, sections fold on click,
@@ -27,6 +29,7 @@ const pnl = {
 };
 const cash = { ...pnl, sections: [{ ...pnl.sections[0], total: 1200, accounts: [{ account_no: '41000', title: 'Rental Income', amount: 1200 }] }, pnl.sections[1]] };
 
+vi.mock('../PersonHoverCard', () => ({ default: ({ children }) => children }));
 vi.mock('../../api', () => ({
   api: {
     getAccountingLocations: vi.fn(async () => ({ entities: [
@@ -83,6 +86,7 @@ vi.mock('../../api', () => ({
     getRolesDirectory: vi.fn(async () => []),
     getPeopleDirectory: vi.fn(async () => [{ email: 'urmi.gor@greensglobal.com', name: 'Urmi Gor' }]),
   },
+  withFreshReads: vi.fn((fn) => fn()),
 }));
 const LINES_TABLE = {
   title: 'Ledger Lines - 61000 Repairs', period: '01-01-2026 - 08-31-2026', subtitle: 'All entities',
@@ -90,11 +94,16 @@ const LINES_TABLE = {
 };
 vi.mock('./LedgerSearch', async () => {
   const { useEffect } = await import('react');
-  function LedgerSearchMock({ drill, term, onBusy, onExport, initialEntry }) {
+  function LedgerSearchMock({ drill, term, onBusy, onExport, initialEntry, onClose, backLabel }) {
     onBusy?.(false);
     // The real grid hands the report's Export menu a builder for its lines.
     useEffect(() => { onExport?.({ build: async () => LINES_TABLE, lines: 1, name: 'Ledger Lines - 61000 Repairs', title: 'Ledger Lines - 61000 Repairs' }); return () => onExport?.(null); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-    return <div data-testid="ledger-search" data-from={drill?.from} data-drill-dims={JSON.stringify(drill?.dims || null)} data-party={drill?.party?.code || ''} data-entry={initialEntry?.id || ''}>{drill ? `drill:${drill.account}:${drill.to}:${drill.book}` : `search:${term}`}</div>;
+    return (
+      <>
+        <div data-testid="ledger-search" data-from={drill?.from} data-drill-dims={JSON.stringify(drill?.dims || null)} data-party={drill?.party?.code || ''} data-entry={initialEntry?.id || ''}>{drill ? `drill:${drill.account}:${drill.to}:${drill.book}` : `search:${term}`}</div>
+        <button type="button" onClick={onClose}>{backLabel || 'Back to Report'}</button>
+      </>
+    );
   }
   return { default: LedgerSearchMock };
 });
@@ -108,9 +117,10 @@ vi.mock('../../egnyte/EgnyteFolderPick', () => ({
 }));
 
 import ReportsTab from './ReportsTab';
-import { api } from '../../api';
+import { api, withFreshReads } from '../../api';
 import { requestReportDrill, requestLedgerSearch } from './drill';
 import { resetAccountingPrefs } from './prefs';
+import { resetRefreshForTests } from '../../lib/refreshState';
 
 beforeEach(() => { localStorage.clear(); resetAccountingPrefs(); vi.clearAllMocks(); window.scrollTo = vi.fn(); });
 
@@ -188,13 +198,41 @@ describe('Cross-tab drill with filters (Oct 7)', () => {
   });
 });
 
+// Accounting call 10/23, item 07: lines opened from a vendor's record go Back
+// to Vendors & Customers, not to the Income Statement.
+describe('Back to the screen the lines came from (10/23)', () => {
+  it('names that screen on Back and returns to it', async () => {
+    const went = [];
+    const onNav = (e) => went.push(e.detail);
+    window.addEventListener('nexus:navigate', onNav);
+    try {
+      requestReportDrill({ from: '', to: '2026-10-23', party: { kind: 'vendor', code: 'V05212', name: '104 Ave Barcelona' }, back: { label: 'Back to Vendors', sub: 'partners' } });
+      render(<ReportsTab />);
+      await waitFor(() => expect(screen.getByTestId('ledger-search').dataset.party).toBe('V05212'));
+      went.length = 0;
+      fireEvent.click(screen.getByRole('button', { name: 'Back to Vendors' }));
+      expect(went).toEqual([{ view: 'accounting', sub: 'partners' }]);
+      expect(screen.queryByTestId('ledger-search')).toBeNull();
+    } finally {
+      window.removeEventListener('nexus:navigate', onNav);
+    }
+  });
+
+  it('keeps Back to Report for a drill from the report itself', async () => {
+    requestReportDrill({ account: '11452', accountName: 'GC Chase Chkg', from: '', to: '2026-08-31', entity: '32000' });
+    render(<ReportsTab />);
+    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('drill:11452:2026-08-31:accrual'));
+    expect(screen.getByRole('button', { name: 'Back to Report' })).toBeTruthy();
+  });
+});
+
 describe('ReportsTab controls', () => {
   it('is one row of dropdowns: report by name, no chips, no Refresh', async () => {
     render(<ReportsTab />);
     await screen.findByText('Rental Income');
     const report = screen.getByLabelText('Report');
     expect(report.tagName).toBe('SELECT');
-    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows', 'Actual vs Budget']);
+    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Credit Card Activity', 'Bank Activity', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows', 'Actual vs Budget']);
     expect(screen.queryByText('Profit & Loss')).toBeNull();
     expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
     expect(screen.queryByText(/add filter/i)).toBeNull();
@@ -446,9 +484,10 @@ describe('ReportsTab controls', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Export/ }));
     fireEvent.click(screen.getByRole('menuitem', { name: /Share With a Teammate/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Share With a Teammate' });
-    const who = within(dialog).getByLabelText('Share With');
-    await waitFor(() => expect(who.options.length).toBe(2));
-    fireEvent.change(who, { target: { value: 'urmi.gor@greensglobal.com' } });
+    // Share With is the Tasks people picker: open, type, pick.
+    fireEvent.click(within(dialog).getByLabelText('Share With'));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'urm' } });
+    fireEvent.click(await within(screen.getByRole('listbox')).findByText('Urmi Gor'));
     fireEvent.change(within(dialog).getByLabelText('Saved As'), { target: { value: 'September P&L' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Share' }));
     await waitFor(() => expect(api.shareAccountingReport).toHaveBeenCalled());
@@ -750,5 +789,181 @@ describe('ReportsTab controls', () => {
     await new Promise((r) => setTimeout(r, 400));
     expect(api.getAccountingPnl.mock.calls.length).toBe(before + 1);
     expect(api.getAccountingPnl.mock.calls.at(-1)[4]).toBe('cash');
+  });
+});
+
+// Oct 22 (Neil, item 07): Reports > Banking & Credit Cards.
+describe('Credit Card Activity and Bank Activity', () => {
+  const TB = { org: 'Greens Global', generated_at: '2026-10-22', totals: {}, rows: [
+    { account_no: '11310', title: 'Chase Checking 6532', type: 'cash_bank', section: 'asset', opening: 1000, debit: 400, credit: 200, closing: 1200 },
+    { account_no: '21500', title: 'Amex Credit Card 1001', type: 'liability', section: 'liability', opening: -400, debit: 0, credit: 50, closing: -450 },
+    { account_no: '20000', title: 'Accounts Payable', type: 'liability', section: 'liability', opening: -5000, debit: 0, credit: 0, closing: -5000 },
+  ] };
+
+  it('offers only credit cards to pick', async () => {
+    api.getAccountingTrialBalance.mockResolvedValue(TB);
+    render(<ReportsTab report="card-activity" />);
+    const picker = await screen.findByRole('combobox', { name: 'Credit Card' });
+    await waitFor(() => expect([...picker.options].map((o) => o.textContent)).toEqual(['Pick a Credit Card...', '21500 Amex Credit Card 1001']));
+    expect(await screen.findByText(/Pick a credit card under Credit Card/)).toBeTruthy();
+  });
+
+  it('opens a dashboard link on its account with a running balance', async () => {
+    api.getAccountingTrialBalance.mockResolvedValue(TB);
+    api.searchAccountingLedger.mockResolvedValue({ total: 2, rows: [
+      { entry_id: 'e2', entry_no: 'GJ-2', entry_date: '2026-09-20', description: 'Rent', vendor_name: 'Sunbelt Realty', debit: 0, credit: 200 },
+      { entry_id: 'e1', entry_no: 'GJ-1', entry_date: '2026-09-02', description: 'Deposit', debit: 400, credit: 0 },
+    ] });
+    // The entity list answers after the lines are on screen: that must not
+    // read the ledger again (and blank the table while it does).
+    let listEntities;
+    api.getAccountingLocations.mockImplementationOnce(() => new Promise((r) => { listEntities = r; }));
+    const link = { report: 'bank-activity', account: '11310', entity: '32000', from: '2026-09-01', to: '2026-09-30', book: '' };
+    render(<ReportsTab report="bank-activity" link={link} />);
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Bank Account' }).value).toBe('11310'));
+    expect(await screen.findByText('Sunbelt Realty')).toBeTruthy();
+    await act(async () => { listEntities({ entities: [{ code: '32000', name: 'Greens Capital', parent_code: null }] }); });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(api.searchAccountingLedger).toHaveBeenCalledTimes(1);
+    expect(api.searchAccountingLedger).toHaveBeenCalledWith(expect.objectContaining({ account: '11310', location: '32000', from: '2026-09-01', to: '2026-09-30' }));
+    const heads = [...document.querySelectorAll('thead tr:first-child th')].map((th) => th.getAttribute('aria-label'));
+    expect(heads).toEqual(['Date', 'Description', 'Vendor', 'Amount', 'Running Balance', 'Entity', 'Entry']);
+    // The last running balance is the closing balance (1,000 + 400 - 200).
+    const rows = [...document.querySelectorAll('tbody tr')];
+    expect(rows.at(-2).textContent).toContain('1,200.00');
+    expect(rows.at(-1).textContent).toMatch(/^Closing Balance.*1,200\.00/);
+  });
+});
+
+// Oct 23 (Viral, Charmi - items 10 and 18): the column headings and the filter
+// boxes under them stay at the top of the report's box while it scrolls, and
+// the box is sized to the window so the page above it does not move.
+describe('ReportsTab pinned headings (items 10 and 18)', () => {
+  it('pins every heading, not only the first, with the filter boxes as one block', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    const box = screen.getByTestId('report-box');
+    expect(box.className).toContain('acct-scroll-box');
+    const table = box.querySelector('table');
+    expect(table.className).toContain('acct-sticky-head');
+    // Before: every heading but the first carried an inline position: relative
+    // and scrolled away with the rows (change-19-a).
+    table.querySelectorAll('thead th').forEach((th) => expect(th.style.position).toBe(''));
+    expect(table.querySelector('thead .acct-filter-row')).toBeTruthy();
+  });
+
+  it('keeps the rules in style.css: the heading block pins, the box takes the window height', () => {
+    const css = fs.readFileSync(path.join(__dirname, '..', '..', 'style.css'), 'utf8');
+    expect(css).toMatch(/\.acct-sticky-head\.acct-sticky-head thead \{ position: sticky; top: 0; z-index: 3; \}/);
+    expect(css).toMatch(/\.acct-sticky-head\.acct-sticky-head thead td \{ position: relative; top: auto; \}/);
+    expect(css).toMatch(/\.acct-report-wrap\.acct-scroll-box \{ max-height: max\(300px, calc\(100vh - 340px\)\); \}/);
+    // The ledger lines box takes the height LedgerSearch measures (UI test 10/23).
+    expect(css).toMatch(/\.acct-lines-wrap\.acct-scroll-box \{ max-height: var\(--acct-lines-h, /);
+  });
+
+  it('keeps the pinned first column solid on hover and on the Total row (UI test 10/23)', () => {
+    const css = fs.readFileSync(path.join(__dirname, '..', '..', 'style.css'), 'utf8').replace(/\r\n/g, '\n');
+    const at = css.indexOf('.acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label,\n.acct-report.acct-gl');
+    expect(at).toBeGreaterThan(-1);
+    const rule = css.slice(at, css.indexOf('}', at));
+    // Flagged rows are not left out: on hover the pinned cell takes the solid tint too.
+    expect(rule).not.toContain('acct-flag');
+    expect(rule).toContain('.acct-report tbody tr.acct-grand td.acct-label');
+    expect(rule).toContain('linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card)');
+  });
+});
+
+// Oct 23 (Charmi, item 17): "When you do refresh it should take you back to the
+// same screen" - the report, the period, the filters and the narrowed lines.
+describe('ReportsTab after a reload (item 17)', () => {
+  const KEY = 'nexus.refresh.acct.report.||';
+  beforeEach(() => { sessionStorage.clear(); resetRefreshForTests(); });
+
+  it('reopens on the period, book and entity that were set', async () => {
+    sessionStorage.setItem(KEY, JSON.stringify({ config: { report: 'pnl', preset: 'custom', from: '2026-08-01', to: '2026-08-31', book: 'cash', cols: 'total', entities: ['32000'] }, drill: null }));
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    expect(screen.getByLabelText('Period').value).toBe('custom');
+    expect(screen.getByLabelText('From').value).toBe('2026-08-01');
+    expect(screen.getByLabelText('To').value).toBe('2026-08-31');
+    expect(screen.getByLabelText('Book').value).toBe('cash');
+    const [from, to, location] = api.getAccountingPnl.mock.calls.at(-1);
+    expect([from, to, location]).toEqual(['2026-08-01', '2026-08-31', '32000']);
+  });
+
+  it('reopens the narrowed lines (Back to Report) that were on screen', async () => {
+    sessionStorage.setItem(KEY, JSON.stringify({ config: { report: 'pnl' }, drill: { account: '11261', accountName: 'Gr FLP- CNB - 6766', from: '2026-01-01', to: '2026-10-22', book: 'accrual' } }));
+    render(<ReportsTab />);
+    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('drill:11261:2026-10-22:accrual'));
+  });
+
+  it('closes the lines when another statement is picked from the menu (UI test 10/23)', async () => {
+    sessionStorage.setItem('nexus.refresh.acct.report.general-ledger||', JSON.stringify({ config: { report: 'general-ledger' }, drill: { account: '11261', accountName: 'Gr FLP- CNB - 6766', from: '2026-01-01', to: '2026-10-22', book: 'accrual' } }));
+    const { rerender } = render(<ReportsTab report="general-ledger" />);
+    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('drill:11261:2026-10-22:accrual'));
+    rerender(<ReportsTab report="pnl" view="pnl-t12" />);
+    await waitFor(() => expect(screen.getByLabelText('Report').value).toBe('pnl'));
+    expect(screen.queryByTestId('ledger-search')).toBeNull();
+  });
+
+  it('keeps each change for the next reload, per screen', async () => {
+    render(<ReportsTab report="balance-sheet" />);
+    await waitFor(() => expect(screen.getByLabelText('Report').value).toBe('balance-sheet'));
+    fireEvent.change(screen.getByLabelText('Book'), { target: { value: 'cash' } });
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem('nexus.refresh.acct.report.balance-sheet||')).config).toMatchObject({ report: 'balance-sheet', book: 'cash' }));
+  });
+
+  it('opens fresh when you come back inside Nexus - only a reload restores', async () => {
+    const { unmount } = render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.change(screen.getByLabelText('Book'), { target: { value: 'cash' } });
+    unmount();
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    expect(screen.getByLabelText('Book').value).toBe('accrual');
+  });
+
+  it('a memorized report opened from the Report Center still wins over what was kept', async () => {
+    sessionStorage.setItem(KEY, JSON.stringify({ config: { report: 'pnl', book: 'cash' }, drill: null }));
+    const { parkSavedReport } = await import('./drill');
+    parkSavedReport({ id: 'r9', name: 'Lender', mine: true, config: { report: 'pnl', book: 'accrual' } });
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    expect(screen.getByLabelText('Book').value).toBe('accrual');
+  });
+});
+
+// 10/23 Accounting meeting: the control bar is the shared one-line ControlBar
+// (item 02), and its Sync reads this statement again - fresh, past the
+// server's cache - and nothing else, with the figures left on screen (item 13).
+describe('ReportsTab control bar and Sync (10/23 items 02, 13)', () => {
+  it('draws the controls in one ControlBar, the actions grouped at its end', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    const bar = document.querySelector('.acct-controlbar');
+    expect(bar).toBeTruthy();
+    const end = bar.querySelector('.acct-bar-end');
+    expect(within(end).getByRole('button', { name: 'Sync' })).toBeTruthy();
+    expect(within(end).getByRole('button', { name: 'Customize' })).toBeTruthy();
+    expect(within(end).getByRole('button', { name: 'Export' })).toBeTruthy();
+    // The period list is as wide as the period picked, not its longest option.
+    expect(screen.getByLabelText('Period').style.width).toMatch(/^clamp\(/);
+  });
+
+  it('Sync reads the statement again, fresh, and keeps it on screen while it does', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    const before = api.getAccountingPnl.mock.calls.length;
+    const locations = api.getAccountingLocations.mock.calls.length;
+    let release;
+    api.getAccountingPnl.mockImplementationOnce(() => new Promise((r) => { release = () => r(pnl); }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sync' }));
+    await waitFor(() => expect(api.getAccountingPnl.mock.calls.length).toBe(before + 1));
+    expect(withFreshReads).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Rental Income')).toBeTruthy();
+    expect(screen.queryByRole('status', { name: 'Loading the report' })).toBeNull();
+    await act(async () => { release(); });
+    expect(screen.getByText('Rental Income')).toBeTruthy();
+    expect(api.getAccountingLocations.mock.calls.length).toBe(locations);
   });
 });

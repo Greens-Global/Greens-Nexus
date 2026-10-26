@@ -11,7 +11,7 @@ import { api } from '../api';
 import { Spinner } from './AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { currencyOptions } from '../asset/lib/currency';
-import { DateField } from '../tasks/components';
+import { DateField, PersonSelect } from '../tasks/components';
 
 export const OPEN_REIMBURSEMENTS = 'nexus:open-reimbursements';
 const CATEGORIES = [
@@ -197,10 +197,9 @@ function ClaimForm({ people, editing = null, onDone, flash }) {
         <textarea id="rb-details" className="form-input" rows={2} style={{ ...full, resize: 'vertical' }} value={f.details} onChange={set('details')}
           placeholder={kind.purposeHint} />
         <label style={lbl} htmlFor="rb-approver">Who Approves It</label>
-        <select id="rb-approver" className="form-input" style={full} value={f.approver} onChange={set('approver')}>
-          <option value="">My Manager</option>
-          {people.map((p) => <option key={p.email} value={p.email}>{p.name ? `${p.name} (${p.email})` : p.email}</option>)}
-        </select>
+        <PersonSelect id="rb-approver" value={f.approver || null} onChange={(v) => setF((x) => ({ ...x, approver: v || '' }))}
+          people={people.map((p) => ({ email: p.email, name: p.name || p.email }))} placeholder="My Manager" noneLabel="My Manager"
+          style={{ borderRadius: 10, padding: '9px 13px', fontSize: 13.5, fontWeight: 400 }} />
         <label style={lbl}>Receipts{editing && editing.receipts.length ? ` (${editing.receipts.length} already attached)` : ''}</label>
         <ReceiptPicker files={files} onFiles={setFiles} />
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>No receipt yet? Send it now and add it later. HR approves it once the receipt is attached.</div>

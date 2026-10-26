@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
 // Workday > Reimbursements (Oct 18 2026): file one (category, currency, a
 // pasted receipt, the approver), the approver sends back / rejects with a
@@ -29,6 +29,8 @@ vi.mock('../api', () => ({
     getPeopleDirectory: (...a) => people(...a),
   },
 }));
+
+vi.mock('./PersonHoverCard', () => ({ default: ({ children }) => children }));
 
 const { default: ReimbursementsTile, PersonReimbursements, OPEN_REIMBURSEMENTS } = await import('./Reimbursements');
 
@@ -83,6 +85,22 @@ describe('Reimbursements', () => {
       item: 'Parking', amount: 12.5, currency: 'EUR', category: 'other', category_other: 'Parking',
       details: 'Client visit', approver_email: '', receipts: [{ path: 'reimbursements/me/x.png', name: 'x.png' }] }));
     expect(flash).toHaveBeenCalledWith('Sent to Neil Test for approval');
+  });
+
+  it('the approver field searches the People list and sends the picked email', async () => {
+    render(<ReimbursementsTile />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Reimbursements' }));
+    fireEvent.click(screen.getByRole('button', { name: /New Reimbursement/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Other/ }));
+    fireEvent.change(screen.getByLabelText('What Was It?'), { target: { value: 'Parking' } });
+    fireEvent.change(screen.getByLabelText('Amount Paid'), { target: { value: '12.5' } });
+    fireEvent.change(screen.getByLabelText('Business Purpose'), { target: { value: 'Client visit' } });
+    expect(screen.getByLabelText('Who Approves It').textContent).toContain('My Manager');
+    fireEvent.click(screen.getByLabelText('Who Approves It'));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'neil' } });
+    fireEvent.click(await within(screen.getByRole('listbox')).findByText('Neil Test'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send for Approval' })); });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ approver_email: 'neil@x.com' }));
   });
 
   it('the approver sends it back with a note; the employee fixes and resubmits', async () => {

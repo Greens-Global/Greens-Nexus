@@ -1302,6 +1302,22 @@ def _run_migrations():
             # Feature requests are tickets (Oct 23 2026) - see the Postgres list.
             "ALTER TABLE changelog_feedback ADD COLUMN ticket_id VARCHAR DEFAULT ''",
             "ALTER TABLE ticket_teams_message ADD COLUMN kind VARCHAR DEFAULT 'dm'",
+            # Management Fees threshold rule (CR-03) - see the Postgres list.
+            "ALTER TABLE accounting_ama_agreements ADD COLUMN threshold_amount FLOAT",
+            "ALTER TABLE accounting_ama_agreements ADD COLUMN threshold_basis VARCHAR DEFAULT ''",
+            # AMA bookkeepers (CR-13, Oct 23) - see the Postgres list.
+            "ALTER TABLE accounting_ama_settings ADD COLUMN bookkeepers JSON DEFAULT '[]'",
+            # AMA push edits the original (CR-13 rework) - see the Postgres list.
+            "ALTER TABLE accounting_ama_settings ADD COLUMN closed_through VARCHAR DEFAULT ''",
+            # Build Mode v2 (Oct 24 2026) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN owner_email VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN owner_name VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN owner_released_by VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN owner_released_at VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN preview JSON DEFAULT '{}'",
+            "ALTER TABLE dev_notes ADD COLUMN preview_verdict VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN preview_verdict_at VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN regression_case_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3004,6 +3020,36 @@ def _run_migrations():
         # DM it always held). Additive only.
         "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS ticket_id VARCHAR DEFAULT ''",
         "ALTER TABLE ticket_teams_message ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'dm'",
+        # Management Fees threshold rule (Charmi, Oct 22 call, CR-03): "X% of
+        # gross if gross > threshold, else a flat amount". NULL / '' on every
+        # older agreement = the defaults in accounting_assumptions.py.
+        "ALTER TABLE accounting_ama_agreements ADD COLUMN IF NOT EXISTS threshold_amount DOUBLE PRECISION",
+        "ALTER TABLE accounting_ama_agreements ADD COLUMN IF NOT EXISTS threshold_basis VARCHAR DEFAULT ''",
+        # AMA notes and reclass approval (Charmi, CR-13, Oct 23): who may push
+        # a reclass ('' row; [] = the env fallback), and the per-line Notes /
+        # reclass table - new, so explicit RLS. models.AccountingAmaSetting /
+        # AccountingAmaLineReview.
+        "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS bookkeepers JSON DEFAULT '[]'",
+        "ALTER TABLE accounting_ama_line_reviews ENABLE ROW LEVEL SECURITY",
+        # AMA push edits the original Intacct entry (Neil, 23 Oct, CR-13
+        # rework): the books-closed-through date, the previews a push must
+        # name, and the append-only push log - new tables, so explicit RLS.
+        # models.AccountingAmaSetting / AccountingAmaPushPreview / AccountingAmaPushLog.
+        "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS closed_through VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_ama_push_previews ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_ama_push_log ENABLE ROW LEVEL SECURITY",
+        # Build Mode v2 (Neil, Oct 24 2026, docs/Build-Mode.md "v2"): the owner a
+        # pin is held for (code_owners.py), who released it to Claude Code, the
+        # Ready To Check local preview and its verdict, and the regression test
+        # an accepted bug became. models.DevNote. Additive only.
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_email VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_name VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_released_by VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS owner_released_at VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview JSON DEFAULT '{}'",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict_at VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS regression_case_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3631,22 +3677,6 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] checklist ID evidence backfill skipped: {e}")
-    # Hiring Setup (Oct 23 2026): the built-in Job Description page the "@jd"
-    # marker prints, and - once - a role's old description kept as its duties
-    # now that role_paperwork no longer falls back to it (hiring_setup.py).
-    try:
-        from database import SessionLocal
-        import hiring_setup
-        db = SessionLocal()
-        try:
-            hiring_setup.ensure_builtin_jd(db)
-            n = hiring_setup.copy_duties_once(db)
-            if n:
-                print(f"[startup] hiring setup: kept the description of {n} role(s) as their duties")
-        finally:
-            db.close()
-    except Exception as e:
-        print(f"[startup] hiring setup seed skipped: {e}")
 
 
 @asynccontextmanager
@@ -3868,6 +3898,17 @@ async def lifespan(app: FastAPI):
                 print("[startup] screenshot retention sweep skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] screenshot retention sweep skipped: {e}")
+        # Build Mode: purge the media of pins closed 30+ days ago (deletes live
+        # storage, so deployed worker only - same gate as the sweep above).
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from routers.dev_notes import purge_media_loop
+                _tasks.append(_a.create_task(purge_media_loop()))
+            else:
+                print("[startup] Build Mode media purge skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Build Mode media purge skipped: {e}")
         try:
             from leader import is_deployed_worker
             if is_deployed_worker():
@@ -4239,6 +4280,8 @@ app.add_middleware(
     # thrown away.
     expose_headers=["Content-Disposition"],
 )
+# Oct 24 (Neil, item 13): a table's own Sync (fresh=1) reads past the accounting cache.
+app.add_middleware(accounting.AccountingFreshReads)
 
 
 @app.exception_handler(Exception)
@@ -4595,7 +4638,13 @@ from routers import ops_customer_map as ops_customer_map_router  # noqa: E402
 app.include_router(ops_customer_map_router.router)  # Operations > Customer Map: current customers around each facility, with rings (Neil, Oct 21 2026)
 from routers import contractor_invoices as contractor_invoices_router  # noqa: E402
 app.include_router(contractor_invoices_router.router)  # Contractor invoices: drafted at Time Sheet finalize, HR approves and sends the PDF (Pranshu + Neil, Oct 21 2026)
-from routers import hiring_setup as hiring_setup_router  # noqa: E402
-app.include_router(hiring_setup_router.router)  # Settings > Hiring > Hiring Setup: what each hire gets, per company (Oct 23 2026)
 from routers import task_labels as task_labels_router  # noqa: E402
 app.include_router(task_labels_router.router)      # Tasks: label colors, labels in use, Manage > Labels (Neil, Oct 22 2026)
+from routers import meeting_files as meeting_files_router  # noqa: E402
+app.include_router(meeting_files_router.router)    # Meeting files: Teams transcript/recording of a meeting you were in, whoever recorded it - for Nexus Bots (Visesh, Oct 24 2026)
+from routers import accounting_ask_review  # noqa: E402
+app.include_router(accounting_ask_review.router)   # Accounting > AMA: the other side of each line, Notes, GL reclass approved and pushed by a bookkeeper (Charmi, CR-13, Oct 23 2026)
+from routers import accounting_manual_je  # noqa: E402
+app.include_router(accounting_manual_je.router)    # Accounting > Audit & Insights > Manual Journal Entries: who keyed each entry, read from Intacct (Neil + Charmi, CR-10, Oct 23 2026)
+from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: create_all + _enable_rls_everywhere, no ALTER lines
+app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)

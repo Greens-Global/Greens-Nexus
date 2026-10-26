@@ -28,6 +28,9 @@ import { rootZoom } from '../lib/utils';
 // `style` styles the panel (background, border, padding, widths...); a
 // maxHeight/maxWidth there is honored but also capped to the viewport.
 // position, top/left and zIndex are owned here.
+//
+// side="right" (Oct 22, a submenu flyout): opens BESIDE the trigger, its top
+// level with the trigger's, and flips to the left when there is no room.
 
 const GAP = 6;    // trigger -> menu
 const EDGE = 8;   // menu -> viewport edge
@@ -43,7 +46,7 @@ const openStack = [];
 const cssLen = (v) => (typeof v === 'number' ? `${v}px` : v);
 
 export default function AnchoredMenu({
-  anchorRef, open, onClose, children, align = 'start', minWidth, style, className, role = 'menu', ...rest
+  anchorRef, open, onClose, children, align = 'start', side = null, minWidth, style, className, role = 'menu', ...rest
 }) {
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
@@ -77,6 +80,14 @@ export default function AnchoredMenu({
     const vLeft = vv?.offsetLeft || 0;
     const w = Math.min(m.offsetWidth * z, vw - EDGE * 2);
     const h = m.scrollHeight * z;
+    if (side === 'right') {
+      const room = vh - EDGE * 2;
+      const right = r.right + GAP / 2;
+      const left = right + w <= vLeft + vw - EDGE ? right : Math.max(vLeft + EDGE, r.left - GAP / 2 - w);
+      const top = Math.max(vTop + EDGE, Math.min(r.top - 4 * z, vTop + vh - EDGE - Math.min(h, room)));
+      setPos({ left: left / z, top: top / z, maxHeight: room / z, maxWidth: (vw - EDGE * 2) / z, up: false });
+      return;
+    }
     const below = vTop + vh - r.bottom - GAP - EDGE;
     const above = r.top - vTop - GAP - EDGE;
     const up = h > below && above > below;
@@ -84,7 +95,7 @@ export default function AnchoredMenu({
     const left = Math.max(vLeft + EDGE, Math.min(align === 'end' ? r.right - w : r.left, vLeft + vw - EDGE - w));
     const top = up ? Math.max(vTop + EDGE, r.top - GAP - Math.min(h, room)) : r.bottom + GAP;
     setPos({ left: left / z, top: top / z, maxHeight: room / z, maxWidth: (vw - EDGE * 2) / z, up });
-  }, [anchorRef, align, close]);
+  }, [anchorRef, align, side, close]);
 
   // Measure before paint so the menu never flashes at the wrong spot (a
   // reopen starts from the last spot, re-placed before the browser paints).

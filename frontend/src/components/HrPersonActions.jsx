@@ -13,21 +13,11 @@
 //                  the employee signs, then the manager. When it is fully
 //                  signed the role, access and pay change, and the letter is
 //                  filed in their Egnyte folder (My HR > My Documents).
-//
-// Promote and Offboard show What They Get (Hiring Setup round 2), live from
-// promotion/options and offboard/options: the letter or package this
-// employee's row resolves to, the new role's duties and who signs. A missing
-// promotion letter is amber and Review Letter stays off (Change Role Now still
-// works); a missing separation package never blocks - the offboarding runs
-// without documents. Set It Up / Add Duties open the Hiring Setup over the
-// form, which keeps its values.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Send, FileSignature, FolderOpen, TrendingUp, ArrowRight, AlertTriangle, LogOut, Shield } from 'lucide-react';
 import { api } from '../api';
 import { Spinner } from './AsyncState';
-import { usDay, EmailPreviewModal, Problem, PacketsModal } from './HiringPacket';
-import { WhatTheyGetCard, HrQuestionFields, splitAnswers, unanswered } from './OfferModal';
-import { EXIT_TYPE_LABELS } from '../lib/wordSamples';
+import { usDay, EmailPreviewModal, Problem } from './HiringPacket';
 import { usePeopleDirectory } from '../lib/queries';
 import { currencyOptions } from '../asset/lib/currency';
 import PersonSearchSelect from './PersonSearchSelect';
@@ -37,18 +27,6 @@ const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'bl
 const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
 const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-
-const card = { marginTop: 14, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 };
-const cardTitle = { fontSize: 13.5, fontWeight: 800 };
-
-// The Hiring Setup over Promote / Offboard, opened on the thing to fix.
-function SetupOver({ fix, companyId, onClose, toastErr }) {
-  if (!fix) return null;
-  return <PacketsModal initialCompanyId={companyId} focus={fix} toastOk={() => {}} toastErr={toastErr || (() => {})} onClose={onClose} />;
-}
-const fixOf = (g, companyId) => ({ entityId: g.fix.target?.entityId || companyId, ...(g.fix.target || {}) });
-// The preview's typed-in blanks: an empty one never overrides an HR answer typed since.
-const filled = o => Object.fromEntries(Object.entries(o).filter(([, v]) => String(v || '').trim()));
 
 function Warn({ children }) {
   return (
@@ -143,11 +121,6 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, onClose, onPro
   );
 }
 
-// Every question a letter asks HR is needed: an empty one prints as Unfilled and stops the letter at Verify.
-const allRequired = (qs) => (qs || []).map(q => ({ ...q, required: true }));
-const MissingAnswers = ({ list }) => (list.length > 0
-  ? <div role="status" style={{ ...hint, color: '#b45309' }}>Answer {list.map(q => q.label).join(', ')} before you review.</div> : null);
-
 export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClose, onSent, toastErr }) {
   const changeType = mode;
   const [roles, setRoles] = useState(null);
@@ -158,46 +131,17 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState('');
   const [mail, setMail] = useState(null);
-  const [opts, setOpts] = useState(null);           // promotion/options: the letter, the new role's duties, who signs
-  const [optsErr, setOptsErr] = useState('');
-  const [answers, setAnswers] = useState({});       // the letter's own HR Answers questions
-  const [fix, setFix] = useState(null);
-  const [reload, setReload] = useState(0);
-  const typed = useRef(false);                     // HR edited the duties: a later prefill never overwrites them
-  const prefilled = useRef('');
   useEffect(() => { api.hiringOptions(e.company || '').then(o => setRoles(o.roles || [])).catch(() => setRoles([])); }, [e.company]);
-  useEffect(() => {
-    let alive = true;
-    api.promotionOptions(e.id, f.role_id).then(o => {
-      if (!alive) return;
-      setOpts(o); setOptsErr('');
-      const text = o?.duties?.text || '';
-      if (o?.duties && !typed.current && text !== prefilled.current) {
-        prefilled.current = text;                                // untyped, so the box still holds the last prefill
-        setF(p => ({ ...p, responsibilities: text }));
-        setPreview(null);                                        // the shown letter had the old duties
-      }
-    }).catch(err => { if (alive) { setOpts(null); setOptsErr(err?.message || 'Could not find the promotion letter.'); } });
-    return () => { alive = false; };
-  }, [e.id, f.role_id, reload]);
   const set = (k, v) => { setF(p => ({ ...p, [k]: v })); setPreview(null); };
   const setP = (k, v) => { setPay(p => ({ ...p, [k]: v })); setPreview(null); };
   const name = [e.firstName, e.lastName].filter(Boolean).join(' ');
   const role = (roles || []).find(r => r.id === f.role_id);
   const past = f.effective_date && f.effective_date < todayIso();
-  const gets = opts?.whatTheyGet || [];
-  const blocked = gets.some(g => g.blocks);
-  const questions = allRequired(opts?.hrQuestions);
-  const toAnswer = unanswered(questions, answers, canSeePay);
-  const body = () => {
-    const { merge, payValues } = splitAnswers(questions, answers, canSeePay);
-    return {
-      inputs: { ...f, change_type: changeType, merge: { ...filled(extra), ...merge } },
-      pay: canSeePay && String(pay.base).trim() ? { ...pay, base: Number(pay.base) } : null,
-      pay_values: payValues,
-      excluded_ack: ack,
-    };
-  };
+  const body = () => ({
+    inputs: { ...f, change_type: changeType, merge: extra },
+    pay: canSeePay && String(pay.base).trim() ? { ...pay, base: Number(pay.base) } : null,
+    excluded_ack: ack,
+  });
   const missing = (preview?.unresolved || []).filter(k => !(extra[k] || '').trim());
 
   async function review() {
@@ -221,7 +165,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
     setBusy('send');
     try {
       const b = body();
-      const ev = await api.startPromotion(e.id, { inputs: b.inputs, pay: b.pay, pay_values: b.pay_values });
+      const ev = await api.startPromotion(e.id, { inputs: b.inputs, pay: b.pay });
       onSent({ ...ev, openReview: true });
     } catch (err) { toastErr(err?.message || 'Could not start the letter.'); setBusy(''); }
   }
@@ -251,37 +195,18 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: '0 14px' }}>
             <div><label style={lbl}>New Role *</label>
               <select className="form-input" style={{ width: '100%' }} value={f.role_id}
-                onChange={ev => { const r = (roles || []).find(x => x.id === ev.target.value); setF(p => ({ ...p, role_id: ev.target.value, job_title: r ? r.name : p.job_title })); setPreview(null); setOpts(null); }}>
+                onChange={ev => { const r = (roles || []).find(x => x.id === ev.target.value); setF(p => ({ ...p, role_id: ev.target.value, job_title: r ? r.name : p.job_title })); setPreview(null); }}>
                 <option value="">{roles === null ? 'Loading roles...' : '- pick a role -'}</option>
                 {(roles || []).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
               </select>
               <div style={hint}>The role sets their access in Nexus - it changes when the letter is signed.</div></div>
             {input('Title In The Letter', 'job_title', { placeholder: 'Defaults to the role name' })}
-            <div><label style={lbl}>Effective Date *</label>
-              <div className="form-input" style={{ width: '100%', display: 'flex', alignItems: 'center' }}>
-                <DateField value={f.effective_date} onChange={x => set('effective_date', x || '')} placeholder="MM/DD/YYYY" title="Effective date" style={{ width: '100%' }} />
-              </div></div>
+            {input('Effective Date *', 'effective_date', { type: 'date' })}
           </div>
           {past && <Warn>The effective date is in the past. Pay is dated from it; any time sheet from then that is already signed is flagged for HR to review, not changed.</Warn>}
-          <div aria-label="What They Get" style={card}>
-            <div style={cardTitle}>What They Get</div>
-            {!opts && optsErr ? <div role="alert" style={{ fontSize: 12.5, color: '#b45309', fontWeight: 600 }}>{optsErr}</div>
-              : !opts ? <Spinner size={16} />
-                : <WhatTheyGetCard lines={gets} blocked={opts.blocked} onFix={g => setFix(fixOf(g, e.company))} />}
-          </div>
-          <label style={lbl}>New Role's Duties</label>
-          <textarea className="form-input" rows={5} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} aria-label="New Role's Duties"
-            placeholder="What changes in their day-to-day - printed in the letter" value={f.responsibilities}
-            onChange={ev => { typed.current = true; set('responsibilities', ev.target.value); }} />
-          {opts?.duties?.text && (
-            <div style={hint}>From {opts.duties.versionId && opts.duties.versionLabel ? opts.duties.versionLabel : "the role's Standard"} - change them for this letter only. The role is not changed.</div>
-          )}
-          {questions.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 14px' }}>
-              <HrQuestionFields questions={questions} answers={answers} setAnswers={(fn) => { setAnswers(fn); setPreview(null); }} canSeePay={canSeePay} idPrefix="pr-q" />
-            </div>
-          )}
-          <MissingAnswers list={toAnswer} />
+          <label style={lbl}>New Responsibilities</label>
+          <textarea className="form-input" rows={3} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
+            placeholder="What changes in their day-to-day - printed in the letter" value={f.responsibilities} onChange={ev => set('responsibilities', ev.target.value)} />
           {canSeePay ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0 14px' }}>
               <div><label style={lbl}>New Pay</label>
@@ -375,7 +300,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
           {!preview ? (
-            <button className="primary-btn" onClick={review} disabled={!!busy || blocked || toAnswer.length > 0 || !f.role_id || !f.effective_date || !f.reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button className="primary-btn" onClick={review} disabled={!!busy || !f.role_id || !f.effective_date || !f.reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review Letter
             </button>
           ) : docsMode ? (
@@ -389,7 +314,6 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
           )}
         </div>
       </div>
-      <SetupOver fix={fix} companyId={e.company} toastErr={toastErr} onClose={() => { setFix(null); setReload(n => n + 1); }} />
     </div>
   );
 }
@@ -401,7 +325,8 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
 // (today = personal email, their access ends now; later = work email) and
 // when they become Left (today = now; later = Nexus does it on the day).
 // Labels per Charmi (Oct 20 2026); the stored keys stay as they were.
-const EXIT_TYPES = Object.entries(EXIT_TYPE_LABELS);
+const EXIT_TYPES = [['resignation', 'Voluntary Resignation'], ['resignation_no_notice', 'Job Abandonment'],
+  ['termination', 'Termination'], ['end_of_contract', 'End Of Contract'], ['retirement', 'Retirement'], ['death', 'Death']];
 
 export function OffboardModal({ employee: e, companyName, onClose, onSent, toastErr }) {
   const { data: people = [] } = usePeopleDirectory();
@@ -415,37 +340,16 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState('');
   const [mail, setMail] = useState(null);
-  const [opts, setOpts] = useState(null);           // offboard/options: the separation package, who signs
-  const [answers, setAnswers] = useState({});
-  const [fix, setFix] = useState(null);
-  const [reload, setReload] = useState(0);
-  const packTouched = useRef(false);               // HR set Send The Separation Package: options never undo it
-  useEffect(() => {
-    let alive = true;
-    // starts at what can be sent; an older API (no options) keeps today's default
-    api.offboardOptions(e.id).then(o => {
-      if (!alive) return;
-      setOpts(o);
-      if (!packTouched.current) setF(p => ({ ...p, send_package: !!o.canSendPackage }));
-    }).catch(() => {});
-    return () => { alive = false; };
-  }, [e.id, reload]);
   const set = (k, v) => { setF(p => ({ ...p, [k]: v })); setPreview(null); };
   const name = [e.firstName, e.lastName].filter(Boolean).join(' ');
   const nameOf = em => people.find(p => p.email === em)?.name || em;
   const immediate = f.last_day && f.last_day <= todayIso();
-  const noPackage = !!opts && !opts.canSendPackage;
-  const packageFix = (opts?.whatTheyGet || []).find(g => g.key === 'package' && g.fix);
-  const questions = allRequired(opts?.hrQuestions);
-  const toAnswer = unanswered(questions, answers, false);
   const body = () => ({
-    inputs: { ...f, merge: { ...filled(extra), ...splitAnswers(questions, answers, false).merge }, offboarding: { mailboxAction: mailbox, delegateTo: mailbox === 'share' ? trustees : [],
+    inputs: { ...f, merge: extra, offboarding: { mailboxAction: mailbox, delegateTo: mailbox === 'share' ? trustees : [],
       exportRequested, handoverTo } },
     excluded_ack: ack,
   });
-  // Documents engine: PacketReview names any blank, and the employee fills their own - only a PDF asks here.
-  const typedBlanks = preview?.engine === 'documents' ? [] : (preview?.unresolved || []);
-  const missing = typedBlanks.filter(k => !(extra[k] || '').trim());
+  const missing = (preview?.unresolved || []).filter(k => !(extra[k] || '').trim());
 
   async function review() {
     setBusy('preview');
@@ -482,9 +386,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
         <div style={{ overflowY: 'auto', flex: 1, padding: '6px 22px 18px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '0 14px' }}>
             <div><label style={lbl}>Last Day *</label>
-              <div className="form-input" style={{ width: '100%', display: 'flex', alignItems: 'center' }}>
-                <DateField value={f.last_day} onChange={x => set('last_day', x || '')} placeholder="MM/DD/YYYY" title="Last day" style={{ width: '100%' }} />
-              </div></div>
+              <DateField value={f.last_day} onChange={v => set('last_day', v || '')} placeholder="MM/DD/YYYY" title="Last day" style={{ width: '100%' }} /></div>
             <div><label style={lbl}>Why They Are Leaving *</label>
               <select className="form-input" style={{ width: '100%' }} value={f.exit_type} onChange={ev => set('exit_type', ev.target.value)}>
                 <option value="">- pick one -</option>
@@ -531,28 +433,10 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: 'pointer' }}>
               <input type="checkbox" checked={f.start_checklist} onChange={ev => set('start_checklist', ev.target.checked)} style={{ accentColor: 'var(--pine)' }} /> Start the offboarding checklist
             </label>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: noPackage ? 'not-allowed' : 'pointer', opacity: noPackage ? 0.6 : 1 }}>
-              <input type="checkbox" checked={f.send_package && !noPackage} disabled={noPackage} onChange={ev => { packTouched.current = true; set('send_package', ev.target.checked); }} style={{ accentColor: 'var(--pine)' }} /> Send the separation package through Nexus Sign
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={f.send_package} onChange={ev => set('send_package', ev.target.checked)} style={{ accentColor: 'var(--pine)' }} /> Send the separation package through Nexus Sign
             </label>
-            {noPackage && (
-              <div style={{ ...hint, marginTop: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span>{opts.noPackageText}</span>
-                {packageFix && <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={() => setFix(fixOf(packageFix, e.company))}>Set It Up</button>}
-              </div>
-            )}
           </div>
-          {opts && !noPackage && (
-            <div aria-label="What They Get" style={card}>
-              <div style={cardTitle}>What They Get</div>
-              <WhatTheyGetCard lines={opts.whatTheyGet || []} onFix={g => setFix(fixOf(g, e.company))} />
-            </div>
-          )}
-          {questions.length > 0 && f.send_package && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 14px' }}>
-              <HrQuestionFields questions={questions} answers={answers} setAnswers={(fn) => { setAnswers(fn); setPreview(null); }} canSeePay={false} idPrefix="ob-q" />
-            </div>
-          )}
-          {f.send_package && <MissingAnswers list={toAnswer} />}
 
           {preview && (
             <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--mist)' }}>
@@ -594,9 +478,9 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
                   </div>
                 </div>
               ) : <div style={{ fontSize: 12.5, marginTop: 6 }}>No paperwork - only the offboarding itself.</div>}
-              {typedBlanks.length > 0 && (
+              {(preview.unresolved || []).length > 0 && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 14px' }}>
-                  {typedBlanks.map(k => (
+                  {preview.unresolved.map(k => (
                     <div key={k}><label style={lbl}>{k.replace(/_/g, ' ')}</label>
                       <input className="form-input" style={{ width: '100%' }} value={extra[k] || ''} onChange={ev => setExtra(p => ({ ...p, [k]: ev.target.value }))} /></div>
                   ))}
@@ -615,7 +499,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
           {!preview ? (
-            <button className="primary-btn" onClick={review} disabled={!!busy || !f.last_day || !f.exit_type || (mailbox === 'share' && !trustees.length) || (f.send_package && toAnswer.length > 0)}
+            <button className="primary-btn" onClick={review} disabled={!!busy || !f.last_day || !f.exit_type || (mailbox === 'share' && !trustees.length)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review
             </button>
@@ -629,7 +513,6 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
           )}
         </div>
       </div>
-      <SetupOver fix={fix} companyId={e.company} toastErr={toastErr} onClose={() => { setFix(null); setReload(n => n + 1); }} />
     </div>
   );
 }

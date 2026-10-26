@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, ChevronLeft, ChevronRight, Settings, X } from 'lucide-react';
 import { api } from '../../api';
 import { formatDate } from '../../lib/datetime';
-import { control } from './reportControls';
+import { control, fitSelect } from './reportControls';
 import { EgnyteField } from './LoanDialogs';
 
 // What MRI (LeasingTab) and MRE (MreTab) share (Oct 22): the period control,
@@ -43,7 +44,8 @@ export function PeriodPicker({ year, onYear, period, onPeriod, custom, onCustom 
       <button type="button" style={arrow} aria-label="Previous year" onClick={() => onYear(year - 1)}><ChevronLeft size={16} /></button>
       <strong style={{ fontSize: '0.86rem', minWidth: 40, textAlign: 'center' }}>{year}</strong>
       <button type="button" style={arrow} aria-label="Next year" disabled={year >= new Date().getFullYear() + 1} onClick={() => onYear(year + 1)}><ChevronRight size={16} /></button>
-      <select value={period} onChange={(e) => onPeriod(e.target.value)} aria-label="Months" style={control}>
+      {/* As wide as the period picked (item 02, round 3): "Q1" no longer holds the width of "Custom Months". */}
+      <select value={period} onChange={(e) => onPeriod(e.target.value)} aria-label="Months" style={{ ...control, ...fitSelect(PERIODS.find((p) => p.key === period)?.label) }}>
         {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
       </select>
       {period === 'custom' && (
@@ -102,9 +104,11 @@ export function RecurringSettingsButton({ onChecked }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" className="secondary-btn" onClick={() => setOpen(true)} aria-haspopup="dialog" title="Possibly Ended check and vendor folders"
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}><Settings size={14} /> Settings</button>
-      {open && <RecurringSettingsDialog onClose={() => setOpen(false)} onChecked={onChecked} />}
+      <button type="button" className="secondary-btn" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-label="Settings" title="Possibly Ended check and vendor folders"
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}><Settings size={14} /> <span className="acct-bar-label">Settings</span></button>
+      {/* On the page, not inside the bar: from the bar's More menu (item 02) it
+          would sit under the menu's layer and hide when the menu closes. */}
+      {open && createPortal(<RecurringSettingsDialog onClose={() => setOpen(false)} onChecked={onChecked} />, document.body)}
     </>
   );
 }

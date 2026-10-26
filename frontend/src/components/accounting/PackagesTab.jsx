@@ -7,7 +7,7 @@ import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { control } from './reportControls';
 import { bookLabel, downloadBlob, entityText, periodText, reportDef, resolveConfig, runReport, withAdjustments } from './reportModel';
-import { SkeletonBlocks as Blocks } from '../AsyncState';
+import { isBuilderConfig } from './builderModel';
 
 // Accounting -> Packages (Neil, Sep 25). A lender asks for the same set of
 // statements every quarter, for every property with a loan. A package is that
@@ -42,7 +42,8 @@ export default function PackagesTab() {
   const [adjusting, setAdjusting] = useState(null);   // index of the statement whose adjustments are open
 
   const load = useCallback(() => Promise.all([api.getAccountingPackages(), api.getAccountingSavedReports()])
-    .then(([p, r]) => { setPackages(p || []); setReports(r || []); setError(''); return p || []; })
+    // A package is built from statements; Report Builder reports stay out of it (Oct 23).
+    .then(([p, r]) => { setPackages(p || []); setReports((r || []).filter((x) => !isBuilderConfig(x.config))); setError(''); return p || []; })
     .catch((e) => { setPackages((cur) => cur || []); setError(e?.message || 'Could not load the packages.'); return []; }), []);
   useEffect(() => {
     load().then((p) => setDraft((d) => d || (p[0] ? { ...p[0] } : null)));
@@ -323,7 +324,7 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
             <span style={{ marginLeft: 'auto', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>{list.length} {list.length === 1 ? 'line' : 'lines'} · net adjustment <strong><Amount value={total} /></strong></span>
           </div>
           {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{error}</div>}
-          {!result && !error && <Blocks count={4} />}
+          {!result && !error && <SkeletonBlocks count={4} />}
           {result && (
             <div className="acct-lines-wrap" style={{ maxHeight: 'calc(92vh - 230px)' }}>
               <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>

@@ -757,7 +757,69 @@ def _serialize(p: TimePunch, geo: dict = None) -> dict:
     return out
 
 
+# A READ-ONLY roster pass over a date range (Accounting > Compensation, Oct 23
+# 2026) prices one card per person per month. preload_range() reads the
+# range's punches, finalizations, idle frames and pending punch requests in
+# four queries and parks them on the session; the per-card readers below
+# answer from it when the asked range lies inside, and from the database
+# otherwise - same rows, same order, same pay. Always paired with
+# clear_range_preload() in a finally (ca_breaks.preload's pattern).
+_RANGE_PRELOAD = "timeclock_range_preload"
+
+
+def preload_range(db: Session, start: str, end: str) -> None:
+    pre = {"start": start, "end": end, "punches": {}, "finals": {}, "idle": {}, "requests": {}}
+    for p in (db.query(TimePunch).filter(TimePunch.voided == 0, TimePunch.local_date >= start,
+                                         TimePunch.local_date <= end).order_by(TimePunch.at).all()):
+        pre["punches"].setdefault(p.employee_email, []).append(p)
+    for a in (db.query(TimeApproval).filter(TimeApproval.revoked == 0, TimeApproval.kind == "final",
+                                            TimeApproval.period_start <= end, TimeApproval.period_end >= start).all()):
+        pre["finals"].setdefault(a.employee_email, []).append(a)
+    for em, ld in (db.query(TimeScreenshot.employee_email, TimeScreenshot.local_date)
+                   .filter(TimeScreenshot.local_date >= start, TimeScreenshot.local_date <= end,
+                           TimeScreenshot.idle_sec >= 240).all()):
+        pre["idle"].setdefault(em, []).append(ld or "")
+    for r in (db.query(PunchRequest).filter(PunchRequest.status == "pending", PunchRequest.local_date >= start,
+                                            PunchRequest.local_date <= end).order_by(PunchRequest.at.asc()).all()):
+        pre["requests"].setdefault(r.employee_email, []).append(r)
+    db.info[_RANGE_PRELOAD] = pre
+
+
+def clear_range_preload(db: Session) -> None:
+    db.info.pop(_RANGE_PRELOAD, None)
+
+
+def _range_pre(db: Session, start: str, end: str):
+    pre = db.info.get(_RANGE_PRELOAD) if hasattr(db, "info") else None
+    if pre is not None and start and end and pre["start"] <= start and end <= pre["end"]:
+        return pre
+    return None
+
+
+def _idle_frame_count(db: Session, em: str, start: str, end: str) -> int:
+    pre = _range_pre(db, start, end)
+    if pre is not None:
+        return sum(1 for ld in pre["idle"].get(em, ()) if start <= ld <= end)
+    return (db.query(TimeScreenshot)
+            .filter(TimeScreenshot.employee_email == em,
+                    TimeScreenshot.local_date >= start, TimeScreenshot.local_date <= end,
+                    TimeScreenshot.idle_sec >= 240).count())
+
+
+def _pending_punch_requests(db: Session, em: str, start: str, end: str) -> list:
+    pre = _range_pre(db, start, end)
+    if pre is not None:
+        return [r for r in pre["requests"].get(em, ()) if start <= (r.local_date or "") <= end]
+    return (db.query(PunchRequest)
+            .filter(PunchRequest.employee_email == em, PunchRequest.status == "pending",
+                    PunchRequest.local_date >= start, PunchRequest.local_date <= end)
+            .order_by(PunchRequest.at.asc()).all())
+
+
 def _live_punches(db: Session, email: str, start: str = "", end: str = ""):
+    pre = _range_pre(db, start, end)
+    if pre is not None:
+        return [p for p in pre["punches"].get(email, ()) if start <= (p.local_date or "") <= end]
     q = db.query(TimePunch).filter(TimePunch.employee_email == email, TimePunch.voided == 0)
     if start:
         q = q.filter(TimePunch.local_date >= start)
@@ -1641,6 +1703,12 @@ def _finalized_row(db: Session, email: str, d_start: str, d_end: str = ""):
     """The non-revoked HR FINALIZATION covering [d_start, d_end or d_start] -
     a finalized period is LOCKED: no punch edits, adds, voids, or re-approvals
     until HR unlocks it. Mirrors SwipeClock's '(finalized)' periods."""
+    pre = _range_pre(db, d_start, d_end or d_start)
+    if pre is not None:
+        de = d_end or d_start
+        return next((a for a in pre["finals"].get(email, ())
+                     if a.period_start is not None and a.period_end is not None
+                     and a.period_start <= d_start and a.period_end >= de), None)
     return (db.query(TimeApproval)
             .filter(TimeApproval.employee_email == email,
                     TimeApproval.revoked == 0,
@@ -10240,10 +10308,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # idle time. Only meaningful while the browser capture was actively sharing;
     # 0 otherwise. Capped at worked so active never goes negative.
     interval_min = max(1, int(_get_policy(db, _company_of(db, em)).interval_minutes or 5))
-    idle_frames = (db.query(TimeScreenshot)
-                   .filter(TimeScreenshot.employee_email == em,
-                           TimeScreenshot.local_date >= start, TimeScreenshot.local_date <= end,
-                           TimeScreenshot.idle_sec >= 240).count())
+    idle_frames = _idle_frame_count(db, em, start, end)
     idle_min = min(worked_min, idle_frames * interval_min)
     active_min = max(0, worked_min - idle_min)
 
@@ -10280,10 +10345,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # (grouped by their local date) so HR can approve/reject in-context, not only
     # from the separate Punch requests tab. Inline time EDITS already ride on their
     # segment; these are the add/remove asks that have no existing punch to attach to.
-    preqs = (db.query(PunchRequest)
-             .filter(PunchRequest.employee_email == em, PunchRequest.status == "pending",
-                     PunchRequest.local_date >= start, PunchRequest.local_date <= end)
-             .order_by(PunchRequest.at.asc()).all())
+    preqs = _pending_punch_requests(db, em, start, end)
     pending_requests = [{"id": r.id, "action": r.action, "punchKind": r.punch_kind,
                          "at": r.at, "localDate": r.local_date, "reason": r.reason,
                          "targetPunchId": r.target_punch_id, "employeeName": r.employee_name,
@@ -10562,33 +10624,28 @@ class TimecardBonusIn(BaseModel):
     amount: float
 
 
-def _bonus_guard(db: Session, user: dict, em: str, day: str, what: str) -> str:
-    """Who may change a bonus, and the review step it triggers - the same
-    lock as the hours: a bonus after approval reopens it (manager) or asks
-    the employee to sign again (HR). Returns the review status before."""
+def _bonus_guard(db: Session, user: dict, em: str, day: str) -> None:
+    """Who may change a bonus. Neil, Oct 23: "a bonus should not require anyone
+    to reapprove. It can be added at the very end by HR also. No employee will
+    need to validate the bonus as it was not guaranteed base pay" - so it is
+    NOT locked like the hours: no review step, no new signature, and HR adds
+    it even to a finalized period (a manager up to finalization)."""
     import timesheet_review
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
         raise HTTPException(403, "Outside your team")
     if em == (user.get("email") or "").lower():
         raise HTTPException(403, "A bonus on your own Time Sheet is added by someone else")
-    if _finalized_row(db, em, day):
-        raise HTTPException(403, "This pay period is signed and finalized. Add the bonus on the current pay "
-                                 "period, or ask HR to unlock this one - the employee then signs it again.")
-    r = timesheet_review.review_covering(db, em, day)
-    before = r.status if r else ""
-    timesheet_review.guard_edit(db, em, day, user["email"], what=what)
-    return before
+    if _finalized_row(db, em, day) and not timesheet_review.is_hr(db, user.get("email") or "", em):
+        raise HTTPException(403, "This pay period is finalized - only HR can add or remove a bonus on it now.")
 
 
-def _bonus_told(db: Session, user: dict, row: TimecardBonus, added: bool, before: str) -> dict:
+def _bonus_told(db: Session, user: dict, row: TimecardBonus, added: bool) -> None:
     """Tell the employee - always, with the amount: nothing about their pay
-    changes without them hearing (Neil / Pranshu, Oct 22). Returns the next
-    step for the person who made the change."""
+    changes without them hearing (Neil / Pranshu, Oct 22). Nothing for them to
+    do: a bonus needs no approval or signature (Neil, Oct 23)."""
     import timesheet_review
     start, end, _pt = timesheet_review.period_for(db, row.employee_email, row.date)
-    r = timesheet_review.review_covering(db, row.employee_email, row.date)
-    after = r.status if r else ""
     rr = db.query(PayrollRate).filter(PayrollRate.employee_email == row.employee_email).first()
     import timesheet_pdf
     amt = timesheet_pdf.money(row.amount, (rr.currency if rr else "") or "USD")
@@ -10598,25 +10655,17 @@ def _bonus_told(db: Session, user: dict, row: TimecardBonus, added: bool, before
         title, line = "Bonus Added to Your Time Sheet", f"{who} added a bonus to your time sheet for {span}: {row.description} - {amt}."
     else:
         title, line = "Bonus Removed from Your Time Sheet", f"{who} removed the bonus \"{row.description}\" ({amt}) from your time sheet for {span}."
-    if after == "approved" and before in ("approved", "signing"):
-        nxt = "Review your updated time sheet and sign it again."
-    elif after == "with_manager" and before in ("approved", "signing"):
-        nxt = "Your time sheet goes back to your manager to approve, then to you to sign again."
-    else:
-        nxt = "You will see it on your time sheet and on the copy you sign for this period."
-    _hr_notify(db, row.employee_email, title, f"{line} {nxt}", ref_id=row.id, requested_by=user["email"],
-               action={"view": "timeclock", "sub": "timecard", "email": row.employee_email, "start": start, "payType": _pt},
-               priority=1 if after == "approved" else 0)
-    return {"reviewStatus": after, "reopened": before in ("approved", "signing") and after == "with_manager",
-            "signAgain": before in ("approved", "signing") and after == "approved"}
+    _hr_notify(db, row.employee_email, title, f"{line} Nothing for you to do - a bonus needs no approval or signature.",
+               ref_id=row.id, requested_by=user["email"],
+               action={"view": "timeclock", "sub": "timecard", "email": row.employee_email, "start": start, "payType": _pt})
 
 
 @router.post("/bonuses")
 def add_timecard_bonus(body: TimecardBonusIn, user: dict = Depends(require_team_write),
                        _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """A manager or HR adds a bonus to one person's pay period, with why
-    (Neil, Oct 22). It changes pay, so it is locked like hours: not on a
-    finalized period, and through the review's one-side-at-a-time rule."""
+    (Neil, Oct 22). No approval or signature follows (Neil, Oct 23) - see
+    _bonus_guard."""
     em = (body.email or "").strip().lower()
     day = (body.date or "").strip()[:10]
     try:
@@ -10628,14 +10677,14 @@ def add_timecard_bonus(body: TimecardBonusIn, user: dict = Depends(require_team_
         raise HTTPException(400, "Say what the bonus is for")
     if not math.isfinite(body.amount) or body.amount <= 0 or body.amount > 10_000_000:
         raise HTTPException(400, "Enter a bonus amount above zero")
-    before = _bonus_guard(db, user, em, day, f"added a bonus: {desc[:80]}")
+    _bonus_guard(db, user, em, day)
     row = TimecardBonus(id=str(uuid.uuid4()), employee_email=em, date=day, description=desc,
                         amount=round(body.amount, 2), created_by=user["email"], created_at=_now_iso())
     db.add(row)
     db.info.pop("_bonus_emails", None)
-    out = {"id": row.id, **_bonus_told(db, user, row, True, before)}
+    _bonus_told(db, user, row, True)
     db.commit()
-    return out
+    return {"id": row.id}
 
 
 @router.delete("/bonuses/{bonus_id}")
@@ -10644,12 +10693,12 @@ def remove_timecard_bonus(bonus_id: str, user: dict = Depends(require_team_write
     row = db.query(TimecardBonus).filter(TimecardBonus.id == bonus_id, TimecardBonus.removed_at == "").first()
     if row is None:
         raise HTTPException(404, "Bonus not found")
-    before = _bonus_guard(db, user, row.employee_email, row.date, f"removed the bonus: {(row.description or '')[:80]}")
+    _bonus_guard(db, user, row.employee_email, row.date)
     row.removed_by, row.removed_at = user["email"], _now_iso()
     db.info.pop("_bonus_emails", None)
-    out = {"ok": True, **_bonus_told(db, user, row, False, before)}
+    _bonus_told(db, user, row, False)
     db.commit()
-    return out
+    return {"ok": True}
 
 
 class MyTimecardNoteIn(BaseModel):

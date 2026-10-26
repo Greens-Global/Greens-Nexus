@@ -248,11 +248,6 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
 
   useEffect(() => { load(); }, [category, search, statusFilter]);
   useEffect(() => { api.getDocLetterheads().then(setLetterheads).catch(() => setLetterheads([])); }, []);
-  // Templates a hiring packet or offer letter uses (Oct 23) - HR only; anyone else gets no badges.
-  const [inHiring, setInHiring] = useState(() => new Set());
-  useEffect(() => {
-    Promise.resolve().then(() => api.getPackets()).then(p => setInHiring(new Set((p?.settings || []).flatMap(s => s.docTemplateIds || [])))).catch(() => {});
-  }, []);
   useEffect(() => { if (openCreateSignal) setCreateOpen(true); }, [openCreateSignal]);
 
   const seedStarters = () => {
@@ -364,11 +359,6 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
                           : t.status === 'draft' ? 'rgba(245,158,11,0.13)' : 'var(--mist)' }}>
                       {t.status === 'active' ? 'Active' : t.status === 'draft' ? 'Draft' : 'Archived'}
                     </span>
-                    {inHiring.has(t.id) && (
-                      <span title="A hiring packet or offer letter uses it" style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 800, color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.12)' }}>
-                        Used In Hiring - Manage In Set Up Hiring
-                      </span>
-                    )}
                     {/* HR packets print the PUBLISHED version (Oct 14) - these
                         say which active templates still need a Publish. */}
                     {t.status === 'active' && (!t.publishedVersion || t.hasUnpublishedChanges) && (

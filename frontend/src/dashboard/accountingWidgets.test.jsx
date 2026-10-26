@@ -68,7 +68,7 @@ describe('Find a Transaction', () => {
     await type('sunbelt');
     fireEvent.click(await screen.findByText('Sunbelt Rentals - scissor lift, Hwy 50 site'));
     window.removeEventListener('nexus:navigate', onNav);
-    expect(seen).toEqual([{ view: 'accounting', sub: 'reports' }]);
+    expect(seen).toEqual([{ view: 'accounting', sub: 'rpt-pnl' }]);
     expect(takePendingDrill()).toEqual({ q: 'sunbelt', entryId: 'e1', entryNo: 'IA-1293173' });
   });
 

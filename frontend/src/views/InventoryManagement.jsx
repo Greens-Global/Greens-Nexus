@@ -9,6 +9,8 @@ import { api }              from '../api';
 import { usePeopleDirectory } from '../lib/queries';
 import { supabase }         from '../lib/supabase';
 import { useMsal }          from '@azure/msal-react';
+import { matchPeople } from '../lib/peopleSearch';
+import { useListNav } from '../lib/listNav';
 import { cleanName }        from '../lib/utils';
 import { useNameResolver }  from '../lib/useNameResolver';
 import { formatDate, formatDateLong, formatDateTime, formatMonthDay, formatTime, formatWeekday } from '../lib/datetime';
@@ -224,30 +226,24 @@ function PersonTypeahead({ valueName, onPick, placeholder = 'Type a name…' }) 
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
   const q = text.trim().toLowerCase();
-  const matches = useMemo(() => {
-    if (!q) return [];
-    return dir
-      .filter(d => (d.name || '').toLowerCase().includes(q) || (d.email || '').toLowerCase().includes(q))
-      .sort((a, b) => {
-        // closest match first: a name that STARTS with the query beats a mere contains
-        const as = (a.name || '').toLowerCase().startsWith(q) ? 0 : 1;
-        const bs = (b.name || '').toLowerCase().startsWith(q) ? 0 : 1;
-        return as - bs || (a.name || '').localeCompare(b.name || '');
-      })
-      .slice(0, 6);
-  }, [dir, q]);
+  // Closest match first - the same order as every people picker (first-name
+  // start, then another name word, then any name/email hit; Oct 25 2026).
+  const matches = useMemo(() => (q ? matchPeople(dir, q, { limit: 6 }) : []), [dir, q]);
 
   function pick(p) { onPick({ email: p.email || '', name: p.name || '' }); setText(p.name || ''); setOpen(false); }
+  // Up / Down / Enter over the matches; Enter with no list keeps the typed name.
+  const nav = useListNav(matches, { open: open && matches.length > 0, query: q, onPick: pick });
 
   return (
     <div ref={boxRef} style={{ position:'relative' }}>
       <input className="form-input" style={{ width:'100%' }} value={text} placeholder={placeholder}
         onChange={e => { setText(e.target.value); setOpen(true); onPick({ email:'', name: e.target.value }); }}
-        onFocus={() => setOpen(true)} />
+        onFocus={() => setOpen(true)} {...nav.inputProps}
+        onKeyDown={e => { if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false); return; } nav.onKeyDown(e); }} />
       {open && matches.length > 0 && (
         <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:30, marginTop:4, background:'var(--card)', border:'1px solid var(--line)', borderRadius:8, boxShadow:'var(--shadow-lg)', maxHeight:220, overflowY:'auto' }}>
-          {matches.map(p => (
-            <div key={p.email || p.name} onMouseDown={e => { e.preventDefault(); pick(p); }}
+          {matches.map((p, i) => (
+            <div key={p.email || p.name} {...nav.optionProps(i)} onMouseDown={e => { e.preventDefault(); pick(p); }}
               style={{ padding:'8px 12px', cursor:'pointer', display:'flex', flexDirection:'column' }}
               onMouseEnter={e => { e.currentTarget.style.background = 'var(--mist)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
@@ -5168,11 +5164,12 @@ export function SendAlertModal({ onClose, toast }) {
       .finally(() => setUsersLoading(false));
   }, []);
 
-  const filteredUsers = users.filter(u => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return (u.name || u.display_name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
-  });
+  // Name or email, first names first (Oct 25 2026 - the people-picker order);
+  // nothing typed keeps the list as loaded.
+  const filteredUsers = useMemo(() => matchPeople(users.map(u => ({ ...u, name: u.name || u.display_name || '' })), search),
+    [users, search]);
+  // Up / Down / Enter ticks the highlighted person once something is typed.
+  const nav = useListNav(filteredUsers, { open: !!search.trim(), query: search, onPick: u => toggleUser(u.email) });
 
   function toggleUser(email) {
     setSelected(prev => {
@@ -5226,7 +5223,8 @@ export function SendAlertModal({ onClose, toast }) {
             <label style={FL}>Recipients{selected.size > 0 ? ` (${selected.size} selected)` : ''}</label>
             <div className="search-bar" style={{ marginBottom:8 }}>
               <Users size={13} style={{ flexShrink:0 }} />
-              <input placeholder="Search by name or email…" value={search} onChange={e => setSearch(e.target.value)} />
+              <input placeholder="Search by name or email…" value={search} onChange={e => setSearch(e.target.value)}
+                {...nav.inputProps} onKeyDown={nav.onKeyDown} />
               {search && <button className="search-clear" onClick={() => setSearch('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
             </div>
             <div style={{ border:'1px solid var(--line)', borderRadius:10, maxHeight:180, overflowY:'auto' }}>
@@ -5234,10 +5232,10 @@ export function SendAlertModal({ onClose, toast }) {
                 <LoadingState label="Loading users…" />
               ) : filteredUsers.length === 0 ? (
                 <div style={{ padding:'16px', textAlign:'center', color:'var(--muted)', fontSize:13 }}>No users found.</div>
-              ) : filteredUsers.map(u => {
+              ) : filteredUsers.map((u, i) => {
                 const checked = selected.has(u.email);
                 return (
-                  <label key={u.email} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px', cursor:'pointer', borderBottom:'1px solid var(--line)', background: checked ? 'hsla(var(--color-green),0.06)' : 'transparent' }}>
+                  <label key={u.email} {...nav.optionProps(i)} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px', cursor:'pointer', borderBottom:'1px solid var(--line)', background: checked ? 'hsla(var(--color-green),0.06)' : 'transparent' }}>
                     <input type="checkbox" checked={checked} onChange={() => toggleUser(u.email)} style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:600, fontSize:13 }}>{u.name || u.display_name || auditName(u.email)}</div>

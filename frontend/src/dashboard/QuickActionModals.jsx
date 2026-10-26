@@ -12,6 +12,7 @@ import { api } from '../api';
 import { sendMail, createEvent } from '../m365';
 import { TasksProvider } from '../tasks/TasksContext';
 import CreateTaskModal from '../tasks/CreateTaskModal';
+import { PersonSelect } from '../tasks/components';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 // "Add Personal Link" is the Links tab's own form (src/links/), not a copy.
@@ -72,7 +73,7 @@ function usePeopleDirectory() {
   return people;
 }
 
-// Flat add-and-list picker: a select to add, hairline-separated rows to review.
+// Flat add-and-list picker: the Tasks people picker to add (search, Recent), hairline-separated rows to review.
 function PeoplePicker({ value, onChange, people, label, placeholder }) {
   const remaining = useMemo(
     () => people.filter((p) => !value.includes(p.email)),
@@ -81,11 +82,9 @@ function PeoplePicker({ value, onChange, people, label, placeholder }) {
   return (
     <div>
       <Label>{label}</Label>
-      <select className="form-input" value="" style={{ width: '100%' }}
-        onChange={(e) => { if (e.target.value) onChange([...value, e.target.value]); }}>
-        <option value="">{placeholder}</option>
-        {remaining.map((p) => <option key={p.email} value={p.email}>{p.name} - {p.email}</option>)}
-      </select>
+      <PersonSelect addButton value={null} people={remaining} placeholder={placeholder} ariaLabel={label}
+        onChange={(email) => { if (email) onChange([...value, email]); }}
+        style={{ borderRadius: '8px 0 0 8px', padding: '9px 13px', fontSize: 13.5, fontWeight: 400 }} />
       {value.length > 0 && (
         <div style={{ marginTop: 8 }}>
           {value.map((email) => {

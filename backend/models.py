@@ -6074,9 +6074,9 @@ class AccountingAmaAgreement(Base):
     entity_code         = Column(String, nullable=False, index=True)  # the managed ledger entity
     manager_entity_code = Column(String, default="")                  # the entity that earns / bills the fee
     status              = Column(String, default="Active")            # Active | Pending Review | Ended
-    fee_basis           = Column(String, default="percent_revenue")   # percent_revenue | flat
-    fee_rate            = Column(Float, nullable=True)                # percent, for percent_revenue
-    flat_amount         = Column(Float, nullable=True)                # per billing period, for flat
+    fee_basis           = Column(String, default="percent_revenue")   # percent_revenue | flat | percent_or_flat
+    fee_rate            = Column(Float, nullable=True)                # percent, for percent_revenue / percent_or_flat
+    flat_amount         = Column(Float, nullable=True)                # per billing period (flat); the "else" fee (percent_or_flat)
     billing_frequency   = Column(String, default="Monthly")           # Monthly | Quarterly | Annually
     start_date          = Column(String, default="")                  # YYYY-MM-DD
     end_date            = Column(String, default="")                  # '' = open-ended
@@ -6087,6 +6087,12 @@ class AccountingAmaAgreement(Base):
     created_at          = Column(String, default="")
     updated_by          = Column(String, default="")
     updated_at          = Column(String, default="")
+    # Oct 23 (Charmi, CR-03): percent_or_flat charges fee_rate % of gross when
+    # the gross is above threshold_amount, else flat_amount. threshold_basis
+    # annual | period ('' = accounting_assumptions default). Additive, NULL on
+    # every older agreement.
+    threshold_amount    = Column(Float, nullable=True)
+    threshold_basis     = Column(String, default="")
 
 
 class Announcement(Base):
@@ -6814,6 +6820,59 @@ class AccountingAmaSetting(Base):
     accountants = Column(JSON, default=list)                       # ['person@greensglobal.com', ...]
     updated_by  = Column(String, default="")
     updated_at  = Column(String, default="")
+    # CR-13 (Oct 23): who may approve and push an AMA reclass (the '' row
+    # only). Empty = accounting_assumptions.AMA_BOOKKEEPERS_FALLBACK.
+    bookkeepers = Column(JSON, default=list)
+    # CR-13 rework (Oct 23): no AMA push edits an entry dated on or before
+    # this day ('' = accounting_assumptions.AMA_BOOKS_CLOSED_THROUGH).
+    closed_through = Column(String, default="")
+
+
+class AccountingAmaLineReview(Base):
+    """CR-13 (Charmi, Oct 22): what Nexus keeps against one Ask My Accountant
+    ledger line - the Notes typed in the grid and the GL reclass proposed for
+    it. A reclass runs Awaiting Bookkeeper -> (Sent Back -> Awaiting
+    Bookkeeper) -> Pushing -> Pushed; only a bookkeeper approves and pushes.
+    A push creates a NEW reclass entry (never edits the original); with the
+    Intacct switch off it is recorded for the GL import file instead
+    (push_mode 'import'). `line_ref` = the ledger line id, else "k:" + the
+    entry / account / amount / date key. routers/accounting_ask_review.py.
+    New table - create_all builds it; RLS by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_line_reviews"
+    id               = Column(String, primary_key=True)            # uuid
+    line_ref         = Column(String, unique=True, index=True)
+    entity_code      = Column(String, default="", index=True)
+    entry_id         = Column(String, default="")
+    entry_no         = Column(String, default="")
+    line_id          = Column(String, default="")
+    account_no       = Column(String, default="")                  # the AMA account
+    account_title    = Column(String, default="")
+    entry_date       = Column(String, default="")                  # YYYY-MM-DD
+    amount           = Column(Float, default=0.0)                  # debit - credit
+    description      = Column(String, default="")
+    department_id    = Column(String, default="")
+    note             = Column(Text, default="")
+    note_by          = Column(String, default="")
+    note_at          = Column(String, default="")
+    reclass_status   = Column(String, default="", index=True)      # '' | Awaiting Bookkeeper | Sent Back | Pushing | Pushed
+    reclass_ref      = Column(String, default="")                  # R-xxxxxxxx, on the reclass entry
+    to_account       = Column(String, default="")
+    to_account_title = Column(String, default="")
+    party_kind       = Column(String, default="")                  # '' | vendor | customer
+    party_id         = Column(String, default="")
+    party_name       = Column(String, default="")
+    reclass_memo     = Column(String, default="")
+    proposed_by      = Column(String, default="")
+    proposed_at      = Column(String, default="")
+    review_note      = Column(String, default="")                  # the bookkeeper's Send Back note
+    approved_by      = Column(String, default="")
+    approved_at      = Column(String, default="")
+    push_mode        = Column(String, default="")                  # edit (the original, CR-13 rework) | intacct | import (new_entry mode)
+    push_started_at  = Column(String, default="")
+    intacct_ref      = Column(String, default="")                  # RECORDNO of the reclass entry
+    push_error       = Column(String, default="")
+    history          = Column(JSON, default=list)                  # [{at, by, event}]
+    updated_at       = Column(String, default="")
 
 
 class ShiftNoShowAlert(Base):
@@ -8116,3 +8175,147 @@ class TimecardBonus(Base):
     created_at     = Column(String, default="")
     removed_by     = Column(String, default="")
     removed_at     = Column(String, default="")
+
+
+class AccountingAmaPushPreview(Base):
+    """CR-13 rework (Neil, 23 Oct 2026: "The push should edit the original
+    ... CAREFUL TO GET THIS RIGHT"): what a bookkeeper was SHOWN before a
+    push - for each Intacct entry the reclasses touch, the entry as read
+    (`entries[].before`), the exact update that would be sent
+    (`entries[].update`) and a fingerprint of the entry. A push names its
+    preview: it must be this person's, unused and fresh, for the same lines,
+    and the entry must read the same again or nothing is sent.
+    routers/accounting_ask_review.py. New table - create_all builds it; RLS
+    by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_push_previews"
+    id          = Column(String, primary_key=True)                 # uuid
+    created_by  = Column(String, default="", index=True)
+    created_at  = Column(String, default="")
+    expires_at  = Column(String, default="")
+    review_ids  = Column(JSON, default=list)                       # the AccountingAmaLineReview ids, sorted
+    source      = Column(String, default="")                       # intacct | ledger
+    live        = Column(Boolean, default=False)                   # AMA_PUSH_TO_INTACCT when previewed
+    entries     = Column(JSON, default=list)                       # [{key, fingerprint, before, update, changes}]
+    used_at     = Column(String, default="")
+
+
+class AccountingAmaPushLog(Base):
+    """CR-13 rework: one row per Intacct entry a push touched (or, with the
+    push switched off, would have touched) - who, when, the entry before,
+    exactly what was sent, what Intacct answered, the entry read again after,
+    and the outcome (edited | dry_run | failed | unconfirmed | already_done |
+    stale). APPEND-ONLY: never updated or deleted by code.
+    routers/accounting_ask_review.py. New table - create_all builds it; RLS
+    by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_push_log"
+    id          = Column(String, primary_key=True)                 # uuid
+    at          = Column(String, default="", index=True)
+    by          = Column(String, default="")
+    preview_id  = Column(String, default="", index=True)
+    review_ids  = Column(JSON, default=list)
+    entry_key   = Column(String, default="", index=True)           # Intacct GLBATCH RECORDNO (else the ledger entry id)
+    entry_no    = Column(String, default="")
+    mode        = Column(String, default="")                       # live | dry_run
+    source      = Column(String, default="")                       # intacct | ledger
+    before      = Column(JSON, default=dict)
+    sent        = Column(JSON, default=dict)                       # the update, as sent (or as it would be)
+    sent_xml    = Column(Text, default="")
+    response    = Column(Text, default="")
+    after       = Column(JSON, default=dict)
+    outcome     = Column(String, default="")
+    error       = Column(Text, default="")
+# ── Build Mode (Neil, Oct 24 2026) ─────────────────────────────────────────────
+# Pins, Build Sessions and Build Tokens for routers/dev_notes.py. Brand-new
+# tables: create_all builds them and main.py's _enable_rls_everywhere turns RLS
+# on at startup, so they need no ALTER lines in the migration lists. A column
+# added to one of them AFTER its first release does - in BOTH lists.
+class DevNote(Base):
+    """One Pin: a comment plus markup on one element of the live app, with the
+    captured context (route, viewport, selector, console and network tails,
+    screenshots, recording), its thread with Claude Code, and the PR that
+    fixed it. Status machine in docs/Build-Mode.md."""
+    __tablename__ = "dev_notes"
+    id                = Column(String, primary_key=True)
+    session_id        = Column(String, default="", index=True)   # dev_note_sessions.id ('' = none yet)
+    number            = Column(Integer, default=0)               # pin number on screen, per session
+    kind              = Column(String, default="bug")            # bug | change | question | edit
+    priority          = Column(String, default="normal")         # blocking | normal | nice
+    status            = Column(String, default="open", index=True)
+    comment           = Column(Text, default="")
+    thread            = Column(JSON, default=list)               # [{id, by, at, kind, text, image_url}]
+    route             = Column(String, default="")               # activeView
+    sub               = Column(String, default="")               # activeSub
+    url               = Column(String, default="")
+    build_id          = Column(String, default="")
+    viewport          = Column(JSON, default=dict)               # {w, h, dpr, ua, phone, theme}
+    target            = Column(JSON, default=dict)
+    markup            = Column(JSON, default=dict)
+    edit              = Column(JSON, default=dict)
+    screenshot_url    = Column(String, default="")
+    page_shot_url     = Column(String, default="")
+    video_url         = Column(String, default="")
+    contact_sheet_url = Column(String, default="")
+    transcript        = Column(Text, default="")
+    attachments       = Column(JSON, default=list)               # [url]
+    console_log       = Column(JSON, default=list)               # [{level, text, at}] max 50
+    network_log       = Column(JSON, default=list)               # [{method, path, status, ms, at}] max 30
+    dispatch_target   = Column(String, default="local")          # local | github (github reserved)
+    dispatched_at     = Column(String, default="")
+    progress          = Column(String, default="")
+    progress_at       = Column(String, default="")
+    branch            = Column(String, default="")
+    pr_url            = Column(String, default="")
+    pr_number         = Column(Integer, default=0, index=True)
+    github_issue      = Column(Integer, default=0)               # reserved
+    fixed_build_id    = Column(String, default="")               # merge commit sha
+    fixed_at          = Column(String, default="")
+    verified_by       = Column(String, default="")
+    verified_at       = Column(String, default="")
+    reopen_count      = Column(Integer, default=0)
+    created_by        = Column(String, default="", index=True)
+    created_at        = Column(String, default="")
+    updated_at        = Column(String, default="")
+    actions           = Column(JSON, default=list)               # last 30 user actions before the pin [{t, type, label, selector, value, view, sub}]
+    state             = Column(JSON, default=dict)               # the target's React props/state snapshot (client-capped)
+    verification      = Column(JSON, default=dict)               # written by the CLI: {repro, styleCheck, visual}
+    purge_at          = Column(String, default="")               # done/dismissed + 30 days: media objects are purged after this
+    # Build Mode v2 (Oct 24 2026) - ALTER lines in BOTH of main.py's migration lists.
+    owner_email        = Column(String, default="")              # code_owners.owner_of(target.source.file), set by the server on create
+    owner_name         = Column(String, default="")
+    owner_released_by  = Column(String, default="")              # who released a held pin to Claude Code
+    owner_released_at  = Column(String, default="")
+    preview            = Column(JSON, default=dict)              # Ready To Check: {url, branch, prNumber, host, startedAt}; {} = none
+    preview_verdict    = Column(String, default="")              # '' | accepted | reopened
+    preview_verdict_at = Column(String, default="")
+    regression_case_id = Column(String, default="")              # qa_test_cases.id once promoted (= the pin id)
+
+
+class DevNoteSession(Base):
+    """One Build Session: the pins a person collected together and sent to
+    Claude Code in one go. A person has at most one `collecting` session."""
+    __tablename__ = "dev_note_sessions"
+    id            = Column(String, primary_key=True)
+    title         = Column(String, default="")
+    status        = Column(String, default="collecting")   # collecting | sent | building | pr_open | fixed | done
+    created_by    = Column(String, default="", index=True)
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+    dispatched_at = Column(String, default="")
+    branch        = Column(String, default="")
+    pr_url        = Column(String, default="")
+    pr_number     = Column(Integer, default=0)
+    note_count    = Column(Integer, default=0)
+
+
+class DevNoteToken(Base):
+    """A Build Token for the local watcher / CLI: `nxbn_` + 43 urlsafe chars,
+    stored only as its sha256, 30 days, shown once, revocable."""
+    __tablename__ = "dev_note_tokens"
+    id           = Column(String, primary_key=True)
+    email        = Column(String, nullable=False, index=True)
+    label        = Column(String, default="")
+    token_hash   = Column(String, nullable=False, index=True)
+    created_at   = Column(String, default="")
+    expires_at   = Column(String, default="")
+    last_used_at = Column(String, default="")
+    revoked_at   = Column(String, default="")

@@ -33,9 +33,38 @@ describe('PayrollExportCodes', () => {
     expect(screen.getByLabelText('Double Time (2x) code').getAttribute('placeholder')).toBe('Double-time Pay');
     expect(screen.getAllByRole('textbox')).toHaveLength(8);   // seven pay classes + the QuickBooks company name
     expect(apiMock.timeExportCodesGet).toHaveBeenCalledWith('co-a');
-    // Nothing changed yet: both buttons wait.
-    expect(screen.getByRole('button', { name: 'Save' }).disabled).toBe(true);
-    expect(screen.getByRole('button', { name: 'Reset to Default' }).disabled).toBe(true);
+    // Nothing changed and nothing custom yet: no Save, no Reset.
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reset to Default' })).toBeNull();
+  });
+
+  it('shows Save and Discard Changes only once a box changes', async () => {
+    render(<PayrollExportCodes />);
+    const sick = await screen.findByLabelText('Sick code');
+    fireEvent.change(sick, { target: { value: 'SICK' } });
+    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
+    expect(sick.value).toBe('');
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+  });
+
+  it('names the meal and rest premium classes instead of showing their keys', async () => {
+    apiMock.timeExportCodesGet.mockReset().mockResolvedValue({
+      ...payload('co-a'),
+      classes: [{ key: 'mealPremium', default: 'Meal Premium', code: 'Meal Premium', custom: false },
+        { key: 'restPremium', default: 'Rest Premium', code: 'Rest Premium', custom: false }],
+    });
+    render(<PayrollExportCodes />);
+    expect(await screen.findByLabelText('Meal Premium code')).toBeTruthy();
+    expect(screen.getByLabelText('Rest Premium code')).toBeTruthy();
+    expect(screen.queryByText('mealPremium')).toBeNull();
+  });
+
+  it('reports whether a fixed company has names of its own', async () => {
+    const onOverride = vi.fn();
+    render(<PayrollExportCodes company="co-b" onOverride={onOverride} />);
+    await waitFor(() => expect(onOverride).toHaveBeenCalledWith(true));
+    expect(screen.queryByLabelText('Company')).toBeNull();
   });
 
   it('saves the typed names for the picked company', async () => {
@@ -69,7 +98,7 @@ describe('PayrollExportCodes', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(apiMock.timeExportCodesSet).toHaveBeenCalled());
     expect(apiMock.timeExportCodesSet.mock.calls[0][2]).toBe('Greens Global, Inc.');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Reset to Default' }).disabled).toBe(false));
+    expect(await screen.findByRole('button', { name: 'Reset to Default' })).toBeTruthy();
   });
 
   it('shows an error with Retry when the codes cannot load', async () => {

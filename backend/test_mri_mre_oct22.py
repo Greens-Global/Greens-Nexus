@@ -85,12 +85,14 @@ PROD_SHAPED = [
 
 
 def receipts_for(leases, pay):
-    """{(customer, 'YYYY-MM'): {'41101': amount}} from {lease id: {month: amount}}."""
+    """{(entity, customer, 'YYYY-MM'): {'41101': amount}} from {lease id: {month: amount}} -
+    keyed as _receipts keys a lease with an entity (item 24); no entity = (customer, month)."""
     by = {l["id"]: l for l in leases}
     out = {}
     for lid, months in pay.items():
         for m, v in months.items():
-            out[(by[lid]["customerId"], f"2026-{m:02d}")] = {"41101": v}
+            l = by[lid]
+            out[((l["entityCode"], l["customerId"]) if l["entityCode"] else (l["customerId"],)) + (f"2026-{m:02d}",)] = {"41101": v}
     return out
 
 
@@ -210,7 +212,7 @@ class Frequency(unittest.TestCase):
 
     def test_custom_and_its_off_cycle_months(self):
         l = lease(frequency="custom", frequencyMonths=4)
-        roll = leasing.rent_roll([l], {}, {("C1", "2026-05"): {"41101": 3000.0}}, 2026, TODAY)["rows"][0]
+        roll = leasing.rent_roll([l], {}, {("12014", "C1", "2026-05"): {"41101": 3000.0}}, 2026, TODAY)["rows"][0]
         self.assertEqual([c["expected"] for c in roll["months"][:6]], [3000.0, 0, 0, 0, 3000.0, 0])
         self.assertTrue(roll["months"][1].get("offCycle"))
         self.assertEqual(roll["months"][1]["status"], "none")

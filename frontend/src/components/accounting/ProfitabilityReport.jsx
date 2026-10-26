@@ -3,7 +3,9 @@ import { X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import Amount, { Figure } from './Amount';
-import { control, EntitiesPicker, ExportMenu } from './reportControls';
+import { BarMore, ControlBar, control, EntitiesPicker, ExportMenu, SyncButton, fitSelect } from './reportControls';
+import { useFitHeight } from './tableHooks';
+import { useTableSync } from './tableSync';
 import { downloadBlob, iso, presetRange } from './reportModel';
 import { requestReportDrill } from './drill';
 import { linesFile } from './linesExport';
@@ -33,7 +35,8 @@ const thLeft = { ...th, textAlign: 'left', minWidth: 200, position: 'sticky', le
 const td = { padding: '5px 8px', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const tdLeft = { ...td, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--bg-card)', whiteSpace: 'normal' };
 const cellBtn = { border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3 };
-const label = { fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: 3 };
+// 10/23 meeting, item 02 (fix 10/24): the words sit beside the controls, not above them, so the bar is one line.
+const inline = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' };
 
 const rangeOf = (key) => { const [f, t] = presetRange(key); return [iso(f), iso(t)]; };
 
@@ -56,15 +59,19 @@ export default function ProfitabilityReport({ limited = false }) {
     return () => { alive = false; };
   }, []);
 
-  const load = useCallback(() => {
-    if (!from || !to || from > to) { setState({ loading: false, error: 'The start date must be on or before the end date.' }); return; }
-    setState({ loading: true, error: '' });
-    setOpen(null);
-    api.getProfitability(from, to, { locations: picked, book, expand })
+  // `quiet` (a Sync, 10/23 meeting item 13): the sheet and an open breakdown stay on screen while it reads.
+  const load = useCallback((quiet = false) => {
+    if (!from || !to || from > to) { setState({ loading: false, error: 'The start date must be on or before the end date.' }); return undefined; }
+    if (quiet === true) setState((s) => ({ ...s, syncing: true }));
+    else { setState({ loading: true, error: '' }); setOpen(null); }
+    return api.getProfitability(from, to, { locations: picked, book, expand })
       .then((d) => { setData(d); setState({ loading: false, error: '' }); })
       .catch((e) => { setData(null); setState({ loading: false, error: e?.message || 'Could not build the Profitability Sheet.' }); });
   }, [from, to, picked, book, expand]);
   useEffect(() => { load(); }, [load]);
+  const ts = useTableSync(useCallback(() => load(true), [load]));
+  const [box, setBox] = useState(null);
+  const fit = useFitHeight(box);   // item 05: the sheet scrolls inside its own box
 
   const pickPeriod = (key) => { setPeriod(key); if (key !== 'custom') setRange(rangeOf(key)); };
   const rows = useMemo(() => orderedRows(data), [data]);
@@ -99,49 +106,53 @@ export default function ProfitabilityReport({ limited = false }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ ...card, padding: 12, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
-        <label style={label}>Period
-          <select value={period} onChange={(e) => pickPeriod(e.target.value)} style={control} aria-label="Period">
-            {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-          </select>
-        </label>
-        <label style={label}>From
-          <input type="date" value={from} onChange={(e) => { setPeriod('custom'); setRange([e.target.value, to]); }} style={control} aria-label="From" />
-        </label>
-        <label style={label}>To
-          <input type="date" value={to} onChange={(e) => { setPeriod('custom'); setRange([from, e.target.value]); }} style={control} aria-label="To" />
-        </label>
-        <div style={label}>Entities
-          <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} />
-        </div>
-        <label style={label}>Book
-          <select value={book} onChange={(e) => setBook(e.target.value)} style={control} aria-label="Book">
-            <option value="accrual">Accrual</option>
-            <option value="cash">Cash</option>
-          </select>
-        </label>
-        <label style={label}>Compare On
-          <select value={compareOn} onChange={(e) => setCompareOn(e.target.value)} style={control} aria-label="Compare On">
+      <ControlBar style={{ ...card, padding: '8px 10px' }}>
+        <select value={period} onChange={(e) => pickPeriod(e.target.value)} style={{ ...control, ...fitSelect(PERIODS.find((p) => p.key === period)?.label) }} aria-label="Period" title="Period">
+          {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+        </select>
+        <span style={inline}>
+          <input type="date" value={from} onChange={(e) => { setPeriod('custom'); setRange([e.target.value, to]); }} style={control} aria-label="From" title="From" />
+          to
+          <input type="date" value={to} onChange={(e) => { setPeriod('custom'); setRange([from, e.target.value]); }} style={control} aria-label="To" title="To" />
+        </span>
+        <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} />
+        <select value={book} onChange={(e) => setBook(e.target.value)} style={{ ...control, ...fitSelect(book === 'cash' ? 'Cash' : 'Accrual') }} aria-label="Book" title="Book">
+          <option value="accrual">Accrual</option>
+          <option value="cash">Cash</option>
+        </select>
+        <BarMore level={2} active={compareOn !== COMPARE_ON[0].key ? 1 : 0}>
+        <label style={inline}>
+          <span className="acct-bar-label-2">Compare On</span>
+          <select value={compareOn} onChange={(e) => setCompareOn(e.target.value)} style={{ ...control, ...fitSelect(COMPARE_ON.find((c) => c.key === compareOn)?.label) }} aria-label="Compare On" title="Compare On">
             {COMPARE_ON.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
         </label>
-        <label style={{ ...label, flexDirection: 'row', alignItems: 'center', gap: 6, height: 30, color: 'var(--text-primary)', fontSize: '0.78rem' }}>
-          <input type="checkbox" checked={expand} onChange={(e) => setExpand(e.target.checked)} /> Show Sub-Entities
-        </label>
-        <div style={{ marginLeft: 'auto' }}>
+        </BarMore>
+        <BarMore level={1} active={expand ? 1 : 0}>
+          <label style={{ ...inline, color: 'var(--text-primary)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={expand} onChange={(e) => setExpand(e.target.checked)} /> Show Sub-Entities
+          </label>
+        </BarMore>
+        {/* Round 3 (item 02): on a short row Sync is the fourth to move into More, Export the fifth. */}
+        <div className="acct-bar-end">
+          <BarMore level={4}>
+          <SyncButton onSync={ts.sync} busy={!!state.syncing} syncedAt={ts.syncedAt} />
+          </BarMore>
+          <BarMore level={5}>
           <ExportMenu disabled={!data || !rows.length} items={[
             { key: 'excel', label: 'Excel', hint: 'Workbook with the totals as formulas', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'pdf', label: 'PDF', hint: 'Landscape, ready to print', onPick: () => exportAs('pdf'), busy: busy === 'pdf' },
             { key: 'csv', label: 'CSV', onPick: () => exportAs('csv'), busy: busy === 'csv' },
           ]} />
+          </BarMore>
         </div>
-      </div>
+      </ControlBar>
 
-      <AsyncSection loading={state.loading} error={!!state.error} errorMessage={state.error} onRetry={load} skeleton={<SkeletonBlocks count={2} />}
+      <AsyncSection loading={state.loading} error={!!state.error} errorMessage={state.error} onRetry={() => load()} skeleton={<SkeletonBlocks count={2} />}
         isEmpty={!!data && !rows.length}
         emptyContent={<div style={{ ...card, padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>Nothing posted to income or expense accounts for these entities in this period.</div>}>
         {data && (
-          <div style={{ ...card, overflow: 'auto' }}>
+          <div className="acct-scroll-box" ref={setBox} data-testid="profitability-box" style={{ ...card, ...fit }}>
             <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'baseline' }}>
               <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Profitability Sheet</h3>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{entityLabel} · {periodLine(data)}{withPrior ? ` · compared with ${priorLine(data)}` : ''}</span>
