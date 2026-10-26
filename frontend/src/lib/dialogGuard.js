@@ -75,6 +75,13 @@ export function hasDirtyDialog() {
   return !!(top && top.hasAttribute('data-nx-dirty'));
 }
 
+// Inline forms with unsaved work - the Settings groups (lib/groupDirty.js):
+// no backdrop to watch, so the shell says so itself. Leaving the page or
+// the module asks for them too; a backdrop click or Escape is not theirs.
+const inlineDirty = new Map();
+export function setInlineDirty(key, dirty) { if (dirty) inlineDirty.set(key, true); else inlineDirty.delete(key); }
+export function hasUnsavedWork() { return hasDirtyDialog() || inlineDirty.size > 0; }
+
 // Ask the person. Resolves true to discard (proceed), false to keep editing.
 export function confirmDiscard() {
   if (pending) return pending.promise;
@@ -128,7 +135,7 @@ function onKeyCapture(e) {
 }
 
 function onBeforeUnload(e) {
-  if (!hasDirtyDialog()) return;
+  if (!hasUnsavedWork()) return;
   e.preventDefault();
   e.returnValue = '';
 }

@@ -80,3 +80,45 @@ describe('Composer - ownership', () => {
     expect(screen.queryByTestId('bm-owner-line')).toBeNull();
   });
 });
+
+describe('Composer - the words first (Oct 26 2026)', () => {
+  const type = (d, text) => {
+    const onChange = vi.fn();
+    render(<Composer pick={pickAt('src/tasks/Home.jsx')} draft={{ ...draft, ...d }} onChange={onChange} onCancel={vi.fn()} onSave={vi.fn()} settings={{}} view="tasks" />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Comment' }), { target: { value: text } });
+    return onChange.mock.calls.at(-1)[0];
+  };
+
+  it('the kind follows the words until the person picks one', () => {
+    expect(type({}, 'Can we add a filter for owner')).toEqual({ comment: 'Can we add a filter for owner', kind: 'change' });
+    cleanup();
+    expect(type({}, 'Where do I find last week')).toEqual({ comment: 'Where do I find last week', kind: 'question' });
+    cleanup();
+    expect(type({}, 'The total is wrong after I filter')).toEqual({ comment: 'The total is wrong after I filter', kind: 'bug' });
+    cleanup();
+    expect(type({ kind: 'bug', kindSet: true }, 'Can we add a filter')).toEqual({ comment: 'Can we add a filter' });
+  });
+
+  it('kind and priority sit under More Options; picking a kind there stops the guessing', () => {
+    const onChange = vi.fn();
+    render(<Composer pick={pickAt('src/tasks/Home.jsx')} draft={draft} onChange={onChange} onCancel={vi.fn()} onSave={vi.fn()} settings={{}} view="tasks" />);
+    const more = screen.getByText('More Options').closest('details');
+    expect(more.open).toBe(false);
+    expect(more.textContent).toContain('Bug · Normal');
+    fireEvent.click(screen.getAllByRole('radio', { name: 'Question', hidden: true })[0]);
+    expect(onChange).toHaveBeenLastCalledWith({ kind: 'question', kindSet: true });
+  });
+});
+
+describe('guessKind', () => {
+  it('reads questions, change requests and bugs', async () => {
+    const { guessKind } = await import('./meta');
+    expect(guessKind('')).toBe('bug');
+    expect(guessKind('Why is this empty?')).toBe('question');
+    expect(guessKind('how do i export')).toBe('question');
+    expect(guessKind('It would be nice to see the owner here')).toBe('change');
+    expect(guessKind('Please add a due date column')).toBe('change');
+    expect(guessKind('Button does nothing when clicked')).toBe('bug');
+    expect(guessKind('Shows the wrong date')).toBe('bug');
+  });
+});

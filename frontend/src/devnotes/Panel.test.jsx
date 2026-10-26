@@ -136,4 +136,64 @@ describe('Panel', () => {
     expect(screen.getAllByText('python3 tools/build_notes/watch.py').length).toBeGreaterThan(0);
     await screen.findByRole('button', { name: /Mint Token/ });
   });
+
+  it('the Queue says where your comments are, by module, and Save Report saves their session', async () => {
+    const row = (id, number, route) => ({ id, number, kind: 'bug', priority: 'normal', status: 'open', comment: `Pin ${number}`, sessionId: 's1', route, sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] });
+    notes = [row('p1', 1, 'tasks'), row('p2', 2, 'tasks'), row('p3', 3, 'tickets')];
+    const { api } = await import('../api');
+    api.devNotesSessionReport = vi.fn(() => Promise.resolve({ blob: new Blob(['<html></html>'], { type: 'text/html' }), filename: 'Build Session.html' }));
+    URL.createObjectURL = vi.fn(() => 'blob:x');
+    URL.revokeObjectURL = vi.fn();
+    render(<Panel {...props} />);
+    const line = await screen.findByTestId('bm-by-module');
+    expect(line.textContent).toMatch(/Tasks.* 2 · .*Tickets.* 1/);
+    const save = screen.getByRole('button', { name: /Save Report/ });
+    await waitFor(() => expect(save).not.toBeDisabled());
+    save.click();
+    await waitFor(() => expect(api.devNotesSessionReport).toHaveBeenCalledWith('s1'));
+  });
+
+  it('Settings has Show All Tools, off by default, remembered in this browser', async () => {
+    localStorage.removeItem('nexus:build-mode:all-tools');
+    render(<Panel {...props} tab="settings" />);
+    const sw = screen.getByRole('switch', { name: 'Show All Tools' });
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+    sw.click();
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Show All Tools' }).getAttribute('aria-checked')).toBe('true'));
+    expect(localStorage.getItem('nexus:build-mode:all-tools')).toBe('1');
+  });
+});
+
+describe('Panel - Post To Teams (Oct 26 2026)', () => {
+  const pinRow = { id: 'p1', number: 1, kind: 'bug', priority: 'normal', status: 'open', comment: 'Broken', sessionId: 's1', route: 'tasks', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] };
+
+  it('the first Post opens your chats and picking one posts there - nothing to Claude Code', async () => {
+    notes = [pinRow];
+    const { api } = await import('../api');
+    api.timeMyChats = vi.fn(() => Promise.resolve({ chats: [{ id: '19:g', chatType: 'group', name: 'Nexus - Feedback and Bugs' }, { id: '19:p', chatType: 'oneOnOne', name: 'Neil Kadakia' }] }));
+    api.devNotesTeamsPost = vi.fn(() => Promise.resolve({ posted: 1, chatName: 'Neil Kadakia' }));
+    api.devNotesDispatch.mockClear();          // earlier tests in this file sent pins
+    const onSettings = vi.fn(() => Promise.resolve());
+    render(<Panel {...props} onSettings={onSettings} />);
+    await screen.findByText('Broken');
+    const post = screen.getByRole('button', { name: /^Post To Teams$/ });
+    await waitFor(() => expect(post).not.toBeDisabled());
+    post.click();
+    (await screen.findByRole('option', { name: /Neil Kadakia/ })).click();
+    await waitFor(() => expect(api.devNotesTeamsPost).toHaveBeenCalledWith({ teamsChatId: '19:p', teamsChatName: 'Neil Kadakia' }));
+    expect(onSettings).toHaveBeenCalledWith({ teamsChatId: '19:p', teamsChatName: 'Neil Kadakia' });
+    expect(api.devNotesDispatch).not.toHaveBeenCalled();
+  });
+
+  it('with a chat already picked, Post To Teams posts straight there', async () => {
+    notes = [pinRow];
+    const { api } = await import('../api');
+    api.devNotesTeamsPost = vi.fn(() => Promise.resolve({ posted: 1, chatName: 'Dev chat' }));
+    render(<Panel {...props} settings={{ ...props.settings, teamsChatId: '19:d', teamsChatName: 'Dev chat' }} />);
+    await screen.findByText('Broken');
+    const post = screen.getByRole('button', { name: 'Post To Teams - Dev chat' });
+    await waitFor(() => expect(post).not.toBeDisabled());
+    post.click();
+    await waitFor(() => expect(api.devNotesTeamsPost).toHaveBeenCalledWith({ teamsChatId: '19:d', teamsChatName: 'Dev chat' }));
+  });
 });

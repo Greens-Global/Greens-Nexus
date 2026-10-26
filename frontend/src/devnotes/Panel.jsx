@@ -4,14 +4,17 @@
 // strip; Settings = Send Instantly, Dispatch Target, Pins On Load, Build
 // Tokens and the watcher one-liner for VS Code.
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { X, Send, ExternalLink, Copy, Check, Loader2, Trash2, Pencil, RotateCcw, KeyRound } from 'lucide-react';
+import { X, Send, ExternalLink, Copy, Check, Loader2, Trash2, Pencil, RotateCcw, KeyRound, MessageSquare, Download, ChevronDown } from 'lucide-react';
 import { api } from '../api';
+import { graphTokenSilent, listMyChats } from '../teamsGraph';
 import { formatDateTime, formatDate } from '../lib/datetime';
 import { toViewUrl } from '../lib/storageView';
 import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
 import { pinMeta, pinReady, pinHeld, pinReopened, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND } from './meta';
-import { toast } from './store';
+import { toast, useBuildStore, setAllTools } from './store';
+import { MODULES } from '../contexts/RoleContext';
+import { wantsTabCapture, setWantsTabCapture, startTabCapture, stopTabCapture } from './lib/screenshot';
 
 const TABS = [{ id: 'queue', label: 'Queue' }, { id: 'sessions', label: 'Sessions' }, { id: 'settings', label: 'Settings' }];
 
@@ -81,8 +84,92 @@ function PinRow({ pin, onOpen, onChanged }) {
   );
 }
 
-function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, onDispatched, myEmail }) {
+// Post To Teams (Pranshu, Oct 26 2026): your open pins - on every screen - as
+// ONE card in a Teams chat you pick (any group or person you chat with; your
+// own list, loaded through the server's delegated token like
+// TeamsTargetPicker, MSAL only as the fallback), screenshots inline. Nothing
+// goes to Claude Code. The pick is remembered in your Build Mode settings;
+// the first Post opens the list and picking a chat posts.
+function TeamsPost({ settings, onSettings, count = 0, onPosted }) {
+  const [chats, setChats] = useState(null);     // null = not loaded
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [postOnPick, setPostOnPick] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const picked = settings?.teamsChatId || '';
+  const pickedName = settings?.teamsChatName || '';
+  const post = async (id, name) => {
+    setPosting(true);
+    try {
+      const r = await api.devNotesTeamsPost({ teamsChatId: id, teamsChatName: name });
+      const n = r?.posted || 0;
+      toast(`${n} pin${n === 1 ? '' : 's'} posted to ${r?.chatName || name || 'Teams'}`);
+      onPosted?.();
+    } catch (e) { toast(e?.message || 'Nothing was posted.'); }
+    finally { setPosting(false); }
+  };
+  const load = async () => {
+    if (chats || loading) return;
+    setLoading(true);
+    try {
+      const r = await api.timeMyChats();
+      if (r?.chats?.length) { setChats(r.chats); return; }
+      const tok = await graphTokenSilent();
+      setChats(tok ? await listMyChats(tok) : []);
+      if (!tok) toast(r?.reason ? `Could not load your Teams chats - ${r.reason}` : 'Could not load your Teams chats.');
+    } catch (e) { setChats([]); toast(e?.message || 'Could not load your Teams chats.'); }
+    finally { setLoading(false); }
+  };
+  const pick = async (c) => {
+    setOpen(false);
+    try { await onSettings?.({ teamsChatId: c.id, teamsChatName: c.name || '' }); }
+    catch (e) { toast(e?.message || 'The chat was not saved.'); }
+    if (postOnPick) { setPostOnPick(false); await post(c.id, c.name || ''); }
+  };
+  const openList = (thenPost) => { setPostOnPick(thenPost); setOpen((o) => !o); load(); };
+  return (
+    <div className="bm-chat-pick">
+      <span className="bm-split">
+        <button type="button" className="bm-btn bm-btn-sm" disabled={!count || posting}
+          onClick={() => (picked ? post(picked, pickedName) : openList(true))}
+          title={count ? 'Post your open pins, with their screenshots, to a Teams chat - a group or a person' : 'Nothing to post yet'}>
+          {posting ? <Loader2 size={13} className="bm-spin" /> : <MessageSquare size={13} />} {picked ? `Post To Teams - ${pickedName || 'chat'}` : 'Post To Teams'}
+        </button>
+        <button type="button" className="bm-btn bm-btn-sm bm-split-more" onClick={() => openList(false)} aria-expanded={open} aria-haspopup="listbox"
+          aria-label="Pick the Teams chat" title="Pick the Teams chat"><ChevronDown size={13} /></button>
+      </span>
+      {open && (
+        <div className="bm-chat-menu" role="listbox" aria-label="Teams chat">
+          {loading && <div className="bm-dim bm-small bm-chat-note"><Loader2 size={12} className="bm-spin" /> Loading your chats…</div>}
+          {chats && !chats.length && !loading && <div className="bm-dim bm-small bm-chat-note">No chats found. Sign in to Teams once and try again.</div>}
+          {(chats || []).map((c) => (
+            <button key={c.id} type="button" role="option" aria-selected={picked === c.id} className={`bm-chat-opt${picked === c.id ? ' is-on' : ''}`} onClick={() => pick(c)}>
+              {c.name || 'Chat'} <span className="bm-dim bm-small">{c.chatType === 'group' ? 'group' : c.chatType === 'oneOnOne' ? 'person' : ''}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Save Report: one HTML file of a Build Session - every pin, its module,
+// comment and marked-up shot - that opens anywhere, no login, attaches to an email.
+async function downloadReport(sessionId) {
+  try {
+    const { blob, filename } = await api.devNotesSessionReport(sessionId);
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: url, download: filename || 'Build Session.html' });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch (e) { toast(e?.message || 'The report could not be saved.'); }
+}
+
+const ROUTE_LABEL = Object.fromEntries((MODULES || []).map((m) => [m.id, m.label]));
+
+function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, onDispatched, myEmail, settings, onSettings }) {
   const [sending, setSending] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
   const bySession = new Map();
   for (const n of notes) { const k = n.sessionId || ''; if (!bySession.has(k)) bySession.set(k, []); bySession.get(k).push(n); }
@@ -104,6 +191,12 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
   // so the Queue says it up top: the author's pins waiting on their check.
   const mineReady = notes.filter((n) => pinReady(n) && (!myEmail || n.createdBy === myEmail));
   const heldLine = mineHeld.map((n) => `Pin #${n.number} waits for ${n.ownerName || firstNameOf(n.ownerEmail)}`).join(', ');
+  // Where your comments are, by module ("Tasks 3 · Tickets 2"), and the
+  // session they collect in - Save Report saves that one.
+  const byModule = Object.entries(mineAll.reduce((m, n) => ({ ...m, [n.route || 'other']: (m[n.route || 'other'] || 0) + 1 }), {}))
+    .map(([r, c]) => `${ROUTE_LABEL[r] || r} ${c}`).join(' · ');
+  const reportSession = mineAll[0]?.sessionId || '';
+  const report = async () => { setReporting(true); await downloadReport(reportSession); setReporting(false); };
   const send = async () => {
     setSending(true);
     try {
@@ -124,6 +217,7 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
         <div>
           <div className="bm-h2">{notes.length} pin{notes.length === 1 ? '' : 's'} in the queue</div>
           <div className="bm-dim bm-small">{canSend ? `${mineOpen.length} of yours ready to send.` : mineHeld.length ? 'Nothing of yours to send to Claude Code.' : 'Your collecting session is empty - pin something first.'}{heldLine ? ` ${heldLine}.` : ''}</div>
+          {byModule && <div className="bm-small" data-testid="bm-by-module">{byModule}</div>}
         </div>
         {mineReady.length > 0 && (
           <button type="button" className="bm-ready-note" onClick={() => onOpenPin?.(mineReady[0])} data-testid="bm-ready-count" title="Open the first one">
@@ -131,6 +225,10 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
             <span className="bm-small">{mineReady.length === 1 ? 'Pin' : 'Pins'} {mineReady.map((n) => `#${n.number}`).join(', ')} - open on the preview and Accept or Reopen.</span>
           </button>
         )}
+        <TeamsPost settings={settings} onSettings={onSettings} count={mineAll.length} onPosted={onDispatched} />
+        <button type="button" className="bm-btn bm-btn-sm" onClick={report} disabled={!reportSession || reporting} title="Save one HTML file with every comment and screenshot">
+          {reporting ? <Loader2 size={13} className="bm-spin" /> : <Download size={13} />} Save Report
+        </button>
         <button type="button" className="bm-btn bm-btn-primary" onClick={send} disabled={!canSend || sending} title={canSend ? 'Send your open pins to the watcher in your terminal' : 'Nothing to send yet'}>
           {sending ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Send To Claude Code
         </button>
@@ -186,7 +284,9 @@ function Stats({ stats }) {
 function SessionRow({ s, onChanged, counts }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(s.title || '');
+  const [saving, setSaving] = useState(false);
   const m = sessionMeta(s.status);
+  const report = async () => { setSaving(true); await downloadReport(s.id); setSaving(false); };
   const save = async () => {
     const t = title.trim();
     setEditing(false);
@@ -210,6 +310,9 @@ function SessionRow({ s, onChanged, counts }) {
           {s.branch && <><span className="bm-dot-sep" /><code>{s.branch}</code></>}
         </div>
       </div>
+      <button type="button" className="bm-btn bm-btn-sm" onClick={report} disabled={saving || !(s.noteCount > 0)} title="Save one HTML file with every pin, comment and screenshot">
+        {saving ? <Loader2 size={13} className="bm-spin" /> : <Download size={13} />} Save Report
+      </button>
       {s.prUrl && <a className="bm-btn bm-btn-sm" href={s.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={13} /> PR #{s.prNumber}</a>}
     </div>
   );
@@ -295,6 +398,8 @@ function Tokens() {
 
 function SettingsTab({ settings, onSettings }) {
   const [busy, setBusy] = useState('');
+  const [tabCapture, setTabCapture] = useState(wantsTabCapture);   // per browser, like the draft
+  const allTools = useBuildStore((s) => s.allTools);
   const change = async (patch) => {
     setBusy(Object.keys(patch)[0]);
     try { await onSettings(patch); } catch (e) { toast(e?.message || 'The setting was not saved.'); } finally { setBusy(''); }
@@ -315,6 +420,9 @@ function SettingsTab({ settings, onSettings }) {
       <section className="bm-settings-sec">
         <div className="bm-sec-title">On Screen</div>
         <Switch label="Pins On Load" hint="Show everyone's pins on a screen as soon as Build Mode turns on. Off = toggle them from the strip." checked={settings.pinsOnLoad !== false} disabled={busy === 'pinsOnLoad'} onChange={(v) => change({ pinsOnLoad: v })} />
+        <Switch label="Higher Quality Screenshots" hint="Screenshots are taken from the page automatically. On = Chrome asks once to share this tab, for an exact picture (charts, embedded files)." checked={tabCapture}
+          onChange={(v) => { setWantsTabCapture(v); setTabCapture(v); if (v) startTabCapture(); else stopTabCapture(); }} />
+        <Switch label="Show All Tools" hint="The whole strip: every drawing tool, Edit, Hide Pins and the Queue. Off = the simple strip - Browse, Comment, Draw, Talk, Record and Done." checked={allTools} onChange={setAllTools} />
       </section>
       <Tokens />
       <section className="bm-settings-sec">
@@ -376,7 +484,7 @@ export default function Panel({ open, tab = 'queue', onTab, onClose, settings, o
           <button type="button" className="bm-icon-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
         <div className="bm-sheet-body">
-          {tab === 'queue' && <QueueTab notes={notes} dismissed={dismissed} sessions={sessions} loading={loading} onOpenPin={onOpenPin} onChanged={replace} onDispatched={() => { load(); onDispatched?.(); }} myEmail={myEmail} />}
+          {tab === 'queue' && <QueueTab notes={notes} dismissed={dismissed} sessions={sessions} loading={loading} onOpenPin={onOpenPin} onChanged={replace} onDispatched={() => { load(); onDispatched?.(); }} myEmail={myEmail} settings={settings || {}} onSettings={onSettings} />}
           {tab === 'sessions' && <SessionsTab sessions={sessions} notes={notes} stats={stats} loading={loading} onChanged={replaceSession} />}
           {tab === 'settings' && <SettingsTab settings={settings || {}} onSettings={onSettings} />}
         </div>

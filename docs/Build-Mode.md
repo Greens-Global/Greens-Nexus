@@ -397,6 +397,68 @@ themselves as it does for every router.
 Status words on screen: Open, Dispatched, Building, Needs Input, PR Open,
 Fixed - Verify, Done, Dismissed.
 
+### Post To Teams, Browse and Save Report (Oct 26 2026)
+
+- **Post To Teams** (`backend/build_mode_chat.py`, `POST /dev-notes/
+  teams-post`): its own button in the Queue, independent of Send To Claude
+  Code - nothing is dispatched and the pins stay open (each gets a "Posted
+  To Teams - <chat>" entry). The person's OWN chats (groups and 1:1s,
+  through `/timeclock/my-chats`, MSAL as the fallback); the first Post opens
+  the list and picking a chat posts, the ▾ changes the chat; the pick is
+  remembered in their Build Mode settings (`teamsChatId` / `teamsChatName`).
+  ONE card for their open pins on every screen (or one session's, with
+  `sessionId`) on the ticket Teams queue (`ticket_teams_message`, kind
+  `build_mode`, `ticket_id` = session id): pins grouped by module with kind,
+  comment, Where line, link, and each pin's marked-up element shot inline as
+  Graph `hostedContents` (never the full-page shot; a shot that cannot be
+  read is dropped, the card still goes). Posted AS THE PERSON with their
+  delegated token - the scopes feature requests already use, nothing new to
+  consent. No chat = 400 "Pick a Teams chat first". The pin stays the
+  record; the chat only points at it. (Posting on Send To Claude Code, and
+  Claude's "needs your answer" / "fixed" posts, are on hold with the
+  own-Claude-Code work in PR #786 and `feat/build-mode-own-terminal`.)
+- **Browse** tool (B, first on the strip): the overlay stops taking clicks
+  so the person can move to another module, open a record or a tab with the
+  mode still on; Pin brings the overlay back. The strip shows one plain
+  sentence saying what a click does now, the hover label says `"Mark All
+  Read" button` instead of a selector, and the composer's line reads "You
+  picked ... in Tasks > Home" (the component and source stamp stay in its
+  tooltip and on the pin).
+- **Save Report** (Sessions tab, `GET /sessions/{id}/report`, author or
+  admin): one self-contained HTML file - every pin grouped by module with
+  kind, priority, status, comment, Where line and the marked-up shot embedded
+  as base64 - that opens anywhere with no login.
+
+### The simple strip (Oct 26 2026)
+
+For people who are not technical (Pranshu: "make it as easy as that"):
+
+- The strip is simple by default: **Browse** (B), **Comment** (the Pin
+  tool, P), **Draw ›** (unfolds Edit, the markup tools, Undo and Color in
+  place - the freehand tool is now "Pen", D), **Record** (V), **Talk** (M),
+  **Done (n)** and Off. A markup tool picked by its key shows while it is
+  the tool. Settings > **Show All Tools** (per browser,
+  `nexus:build-mode:all-tools`, `store.setAllTools`) brings back the whole
+  strip (Hide Pins, Queue) for the dev team; `SIMPLE_TOOLS` in `meta.js`.
+- **Done (n)** counts YOUR open, unheld comments on every screen
+  (`GET /dev-notes?status=open&mine=1`, refreshed on every save and when the
+  panel closes); its tooltip says where they are ("Tasks 2 · Tickets 1");
+  it opens the Queue.
+- The Queue says the same by module (`bm-by-module`) and has **Save
+  Report** for the session your comments collect in, next to Post To Teams
+  and Send To Claude Code.
+- The composer puts the words first: the comment box, Hold To Talk and
+  Record; **More Options** (folded, its summary shows the current choice)
+  holds Kind and Priority. Kind follows the words (`guessKind`: a question
+  mark or question words = Question; "can we", "please add", "would be
+  nice", "instead of"... = Change; else Bug) until the person picks one
+  there (`kindSet` on the draft). An Edit pin keeps kind Edit.
+- A box (Rect) finished with no comment open opens the composer on it
+  (Pranshu, Oct 27): the box's area is the pick (`mode: 'region'`) and the
+  box stays on the comment (`addMarkup` in `BuildModeApp.jsx`). With a
+  comment already open, a box is markup on that comment, as before; the
+  other drawing tools never open the composer.
+
 ---------------------------------------------------------------------------
 ## 6. Frontend - `frontend/src/devnotes/`
 
@@ -450,10 +512,24 @@ Pieces (one file each, all under `frontend/src/devnotes/`):
 - `lib/capture.js` (selector, text, headings, html, fiber components via the
   `__reactFiber$` key, record ids from `data-*` and the React Query cache
   through `window.__nexusQueryClient` if exposed - else skip);
-- `lib/screenshot.js` (one `getDisplayMedia` tab stream per mode-on,
-  `preferCurrentTab`, frame grab to canvas, DPR-aware crop, markup burned
-  in, redact rectangles blurred BEFORE upload; declining the prompt = no
-  images, everything else still works);
+- `lib/screenshot.js` - since Oct 26 2026 a pin's picture needs NO prompt:
+  `grabAreaFrame` draws the area around the pinned element (the element
+  plus `AREA_PAD` = 96px, clamped to the viewport) from a copy of the DOM
+  with `modern-screenshot` (SVG foreignObject, so every CSS feature
+  renders; `restoreScrollPosition` on, or a scrolled list is drawn from its
+  top). Only the area is copied: the copy starts at the smallest ancestor
+  holding it, leaves out everything below / right of it (`beyond`) and the
+  leading rows of one-column lists that end above it (`pruneAbove`; the
+  list's copy gets their height as top padding, `padCopy`), because copying
+  is reading every element's computed style - the whole Tickets screen
+  takes the browser 7 s, the area about 3 s. That picture gives the
+  element shot (with 96px of context) and no full-page shot. The
+  `getDisplayMedia` tab stream (one per mode-on, `preferCurrentTab`) is
+  now opt-in - Settings > Higher Quality Screenshots, per browser
+  (`nexus:build-mode:tab-capture`) - and gives both shots, as before;
+  video still asks for it. Markup is burned in and redact rectangles and
+  sensitive fields are blacked out BEFORE upload in both cases. No picture
+  within 8 s = the pin saves without one;
 - `lib/recorder.js` (screenRecorder + SpeechRecognition + contact sheet);
 - `lib/buffers.js` (console ring buffer by wrapping console.error/warn and
   window 'error'/'unhandledrejection' while on; network buffer subscribed

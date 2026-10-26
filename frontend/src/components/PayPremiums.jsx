@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useGroupDirty } from '../lib/groupDirty';
 import { Plus, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner } from './AsyncState';
@@ -95,6 +96,7 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
 
   useEffect(() => { if (data && scoped) onOverride?.(!!data.enabled); }, [data, scoped, onOverride]);
   const dirty = !!data && !!draft && JSON.stringify(bodyOf(draft)) !== JSON.stringify(bodyOf(draftOf(data)));
+  useGroupDirty(dirty);
   const setRule = (i, patch) => setDraft((d) => ({ ...d, differentials: d.differentials.map((r, j) => (j === i ? { ...r, ...patch } : r)) }));
   const toggleIn = (list, v) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v].sort());
   const sites = data?.sites || [];

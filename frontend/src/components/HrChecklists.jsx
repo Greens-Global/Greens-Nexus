@@ -16,6 +16,7 @@
 // ticks steps it can see for itself (a finished provisioning run, a signed
 // envelope, a status change) - this file only shows and edits them.
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useGroupDirty } from '../lib/groupDirty';
 import {
   ListChecks, CheckCircle2, Circle, MinusCircle, AlertTriangle, CalendarDays,
   Pencil, X, ChevronDown, ChevronRight, Sparkles, Play, RotateCcw, Plus,
@@ -1202,6 +1203,7 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, 
   const [editIdx, setEditIdx] = useState(-1);
   const [picked, setPicked] = useState(() => new Set());   // row indexes ticked for a bulk action
   const touch = () => { setDirty(true); };
+  useGroupDirty(dirty);
   const set = (i, patch) => { setRows(r => r.map((x, j) => j === i ? { ...x, ...patch } : x)); touch(); };
   const move = (i, d) => { setRows(r => { const n = [...r]; const t = n[i]; n[i] = n[i + d]; n[i + d] = t; return n; }); setEditIdx(i + d); setPicked(new Set()); touch(); };
   const remove = (i) => { setRows(x => x.filter((_, j) => j !== i)); setEditIdx(-1); setPicked(new Set()); touch(); };
@@ -1485,13 +1487,14 @@ function TaskPlaceCard({ entityId, kinds, toastOk, toastErr }) {
   useEffect(() => {
     api.getChecklistTaskPlace(entityId).then(d => { setData(d); setDraft(placeDraft(d.place)); }).catch(() => setData(false));
   }, [entityId]);
+  const dirty = !!data && !!draft && JSON.stringify(placeOut(draft)) !== JSON.stringify(placeOut(placeDraft(data.place)));
+  useGroupDirty(dirty);
   if (data === null) return <SkeletonBlocks count={1} height={110} />;
   if (data === false) return <div style={{ ...card, padding: 18, marginBottom: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load where checklist tasks go.</div>;
   const projects = data.projects || [];
   const auto = data.auto;
   const pick = k => (draft.perKind ? draft[k] : draft.default);
   const target = k => (pick(k).projectId ? pick(k) : { projectId: auto?.projectId || '', sectionId: '' });
-  const dirty = JSON.stringify(placeOut(draft)) !== JSON.stringify(placeOut(placeDraft(data.place)));
   const moving = (data.openTasks || []).filter(t => { const p = target(t.kind); return t.projectId !== p.projectId || t.sectionId !== (p.sectionId || ''); }).length;
   const setPick = (k, v) => setDraft(d => ({ ...d, [k]: { ...d[k], ...v } }));
   async function save() {

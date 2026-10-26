@@ -237,6 +237,11 @@ def deliver_ticket_row(db, row) -> bool:
         # not a DM: feature_requests.deliver picks who posts it.
         import feature_requests
         return feature_requests.deliver(db, row)
+    if (getattr(row, "kind", "") or "") == "build_mode":
+        # A Build Session card for the chat its author picked, screenshots
+        # inline (build_mode_chat.py).
+        import build_mode_chat
+        return build_mode_chat.deliver(db, row)
     try:
         tok = bff_session.graph_token_for_email(db, row.agent_email)
         if not tok:
