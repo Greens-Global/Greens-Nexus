@@ -99,6 +99,175 @@ export async function withUiHidden(fn) {
   }
 }
 
+// ── The picture without a prompt (Oct 26 2026) ─────────────────────────────
+// A pin's screenshot no longer needs the "Share this tab" prompt (Pranshu:
+// people who are not technical must not have to take screenshots). The area
+// around the pinned element is drawn by the browser itself from a copy of the
+// DOM (modern-screenshot -> SVG foreignObject): every CSS feature Nexus uses
+// renders (color-mix and all), and scrolled panes keep their scroll (the
+// library's restoreScrollPosition shifts the copy's children; the live page
+// is never moved).
+//
+// Only the AREA is copied, never the whole page: copying means reading every
+// element's computed style, and on Tickets that alone takes the browser 7 s
+// (5,000 elements x ~350 properties). The copy starts at the smallest
+// ancestor that holds the element plus AREA_PAD on each side and leaves out
+// everything below or right of the area - dropping what comes after cannot
+// move what is shown; what is above stays (a pane's scroll offset counts it).
+// So a DOM picture gives the element shot (with context) and no full-page
+// shot; the tab stream above still gives both when the person turns on
+// Higher Quality Screenshots, and is what video uses.
+// shortcut: cross-origin images that refuse a fetch show blank, <video> and
+// <iframe> are left out - fine for a bug picture; Higher Quality covers them.
+
+const TAB_CAPTURE_KEY = 'nexus:build-mode:tab-capture';
+export const wantsTabCapture = () => { try { return localStorage.getItem(TAB_CAPTURE_KEY) === '1'; } catch { return false; } };
+export const setWantsTabCapture = (on) => { try { localStorage.setItem(TAB_CAPTURE_KEY, on ? '1' : '0'); } catch { /* storage blocked */ } };
+
+export const AREA_PAD = 96;              // CSS px of context around the element in a DOM picture
+const AREA_SHOT_TIMEOUT_MS = 8000;
+const isOurs = (node) => node instanceof Element && (node.hasAttribute('data-nx-devnotes') || node.tagName === 'VIDEO' || node.tagName === 'IFRAME');
+
+/** The element's rect grown by `pad`, clamped to the viewport (viewport CSS px). */
+export function areaAround(rect, vw, vh, pad = AREA_PAD) {
+  const x = Math.max(0, Math.floor(rect.x - pad)), y = Math.max(0, Math.floor(rect.y - pad));
+  return { x, y, w: Math.max(1, Math.min(vw, Math.ceil(rect.x + rect.w + pad)) - x), h: Math.max(1, Math.min(vh, Math.ceil(rect.y + rect.h + pad)) - y) };
+}
+
+const holds = (r, a) => r.left <= a.x + 1 && r.top <= a.y + 1 && r.right >= a.x + a.w - 1 && r.bottom >= a.y + a.h - 1;
+
+/** The smallest ancestor of `start` (itself included) whose box holds the area; body at worst. */
+export function areaRoot(start, area) {
+  for (let el = start; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+    if (holds(el.getBoundingClientRect(), area)) return el;
+  }
+  return document.body;
+}
+
+/** Entirely below or right of the area: left out of the copy. */
+export function beyond(node, area) {
+  if (!(node instanceof Element)) return false;
+  const r = node.getBoundingClientRect();
+  return (r.width > 0 || r.height > 0) && (r.top >= area.y + area.h || r.left >= area.x + area.w);
+}
+
+// Rows ABOVE the area cost as much to copy as visible ones (a list scrolled
+// 900px: 10 s, past the time limit). They are left out too, and the list's
+// copy gets that much top padding instead, so everything after sits exactly
+// where it was and the library's scroll shift still lands right. Only for
+// containers that stack children in one column - removing cards from a
+// multi-column grid would reflow the rest into other columns.
+function stacksVertically(cs) {
+  if (/^(block|flow-root|list-item|table|table-row-group)$/.test(cs.display)) return true;
+  if (/flex$/.test(cs.display)) return cs.flexDirection === 'column' && cs.flexWrap === 'nowrap';
+  if (/grid$/.test(cs.display)) return cs.gridAutoFlow.startsWith('row') && cs.gridTemplateColumns.trim().split(/\s+/).length === 1;
+  return false;
+}
+
+function cuttableAbove(el, area) {
+  if (el.getBoundingClientRect().bottom > area.y) return false;
+  const cs = getComputedStyle(el);
+  return cs.display === 'none' || (cs.position !== 'absolute' && cs.position !== 'fixed'
+    && (cs.getPropertyValue('float') || 'none') === 'none' && cs.display !== 'contents');
+}
+
+/** The leading children of one-column containers that end above the area:
+ *  { cut: Set<Element>, undo }. Each such container is tagged data-bm-pad
+ *  with the height its cut children took (their first box to the first
+ *  kept child), for the copy's top padding. */
+export function pruneAbove(root, area) {
+  const cut = new Set();
+  const tagged = [];
+  for (const c of [root, ...root.querySelectorAll('*')]) {
+    const kids = c.children;
+    if (kids.length < 2 || kids[0].getBoundingClientRect().bottom > area.y) continue;
+    if (!stacksVertically(getComputedStyle(c))) continue;
+    let k = 0;
+    while (k < kids.length && cuttableAbove(kids[k], area)) k++;
+    if (k === 0 || k === kids.length) continue;
+    const first = [...kids].slice(0, k).find((n) => n.getClientRects().length);
+    const shift = first ? Math.round(kids[k].getBoundingClientRect().top - first.getBoundingClientRect().top) : 0;
+    if (shift <= 0) continue;
+    for (let i = 0; i < k; i++) cut.add(kids[i]);
+    c.setAttribute('data-bm-pad', String(shift));
+    tagged.push(c);
+  }
+  return { cut, undo: () => tagged.forEach((n) => n.removeAttribute('data-bm-pad')) };
+}
+
+/** On the copy: a tagged container takes its cut children's height as top padding. */
+export function padCopy(node) {
+  const pad = node.getAttribute?.('data-bm-pad');
+  if (!pad) return;
+  node.style.paddingTop = `calc(${node.style.paddingTop || '0px'} + ${pad}px)`;
+  node.removeAttribute('data-bm-pad');
+}
+
+function opaqueBackground(el) {
+  for (let n = el; n; n = n.parentElement) {
+    const c = getComputedStyle(n).backgroundColor;
+    if (c && c !== 'transparent' && !/rgba\([^)]*,\s*0\)$/.test(c)) return c;
+  }
+  return '#ffffff';
+}
+
+/** The page's own element under the area's centre (our overlay is on top of it). */
+function pageElementAt(area) {
+  const pts = document.elementsFromPoint(area.x + area.w / 2, area.y + area.h / 2);
+  return pts.find((n) => !n.closest('[data-nx-devnotes]')) || document.body;
+}
+
+/**
+ * The area around `rect` (viewport CSS px) drawn from the DOM into a
+ * viewport-sized canvas (device px, at most 2x) at its place - blank
+ * elsewhere, so makeShots crops it like a tab frame. `el` = the picked
+ * element (null for a dragged region). Null on failure or after 8 s.
+ */
+export async function grabAreaFrame(el, rect) {
+  if (typeof document === 'undefined' || !rect) return null;
+  const run = async () => {
+    const { domToCanvas } = await import('modern-screenshot');
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const scale = Math.min(window.devicePixelRatio || 1, 2);
+    const area = areaAround(rect, vw, vh);
+    const start = el && el.isConnected && !isOurs(el) && !el.closest('[data-nx-devnotes]') ? el : pageElementAt(area);
+    const root = areaRoot(start, area);
+    const rr = root.getBoundingClientRect();
+    const { cut, undo } = pruneAbove(root, area);
+    let pic;
+    try {
+      pic = await domToCanvas(root, {
+        scale,
+        // Off by default in the library: without it a scrolled list is drawn from its top (wrong rows).
+        features: { restoreScrollPosition: true },
+        filter: (node) => !isOurs(node) && !cut.has(node) && !beyond(node, area),
+        onCloneEachNode: padCopy,
+        backgroundColor: opaqueBackground(root),
+        timeout: AREA_SHOT_TIMEOUT_MS - 1000,
+      });
+    } finally { undo(); }
+    const k = rr.width ? pic.width / rr.width : scale;     // the copy's own px per CSS px
+    const frame = document.createElement('canvas');
+    frame.width = Math.round(vw * scale); frame.height = Math.round(vh * scale);
+    frame.getContext('2d').drawImage(pic, (area.x - rr.left) * k, (area.y - rr.top) * k, area.w * k, area.h * k,
+      area.x * scale, area.y * scale, area.w * scale, area.h * scale);
+    return frame;
+  };
+  try {
+    return await Promise.race([run(), new Promise((r) => setTimeout(() => r(null), AREA_SHOT_TIMEOUT_MS))]);
+  } catch { return null; }
+}
+
+/** The best picture there is: the shared tab when it is live (whole page),
+ *  else the DOM picture of the area. `whole` = a full-page shot is possible. */
+export async function grabBestFrame(el, rect) {
+  if (status === 'live') {
+    const f = await withUiHidden(() => grabFrame());
+    if (f) return { frame: f, whole: true };
+  }
+  return { frame: await grabAreaFrame(el, rect), whole: false };
+}
+
 // ── Pure geometry and drawing (tested in screenshot.test.js) ────────────────
 
 /** Frame pixels per viewport CSS pixel on each axis. */
@@ -234,7 +403,7 @@ export function paintBoxes(ctx, boxes, scale) {
   return n;
 }
 
-export async function makeShots({ frame, rect, markup, vp, boxes = [] }) {
+export async function makeShots({ frame, rect, markup, vp, boxes = [], whole = true, pad = 24 }) {
   if (!frame) return { page: null, element: null };
   const scale = frameScale(frame.width, frame.height, vp.w, vp.h);
   const page = document.createElement('canvas');
@@ -247,13 +416,14 @@ export async function makeShots({ frame, rect, markup, vp, boxes = [] }) {
   burnMarkup(ctx, items, scale);
   let element = null;
   if (rect && rect.w > 0 && rect.h > 0) {
-    const c = cropRect(rect, scale, { w: page.width, h: page.height });
+    const c = cropRect(rect, scale, { w: page.width, h: page.height }, pad);
     const el = document.createElement('canvas');
     el.width = c.w; el.height = c.h;
     el.getContext('2d').drawImage(page, c.x, c.y, c.w, c.h, 0, 0, c.w, c.h);
     element = await toBlob(el);
   }
-  return { page: await toBlob(page), element };
+  // A DOM picture holds only the area around the element: no page shot from it.
+  return { page: whole ? await toBlob(page) : null, element };
 }
 
 /** A small copy of a frame (for the contact sheet). */

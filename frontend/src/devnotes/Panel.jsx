@@ -12,6 +12,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
 import { pinMeta, pinReady, pinHeld, pinReopened, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND } from './meta';
 import { toast } from './store';
+import { wantsTabCapture, setWantsTabCapture, startTabCapture, stopTabCapture } from './lib/screenshot';
 
 const TABS = [{ id: 'queue', label: 'Queue' }, { id: 'sessions', label: 'Sessions' }, { id: 'settings', label: 'Settings' }];
 
@@ -295,6 +296,7 @@ function Tokens() {
 
 function SettingsTab({ settings, onSettings }) {
   const [busy, setBusy] = useState('');
+  const [tabCapture, setTabCapture] = useState(wantsTabCapture);   // per browser, like the draft
   const change = async (patch) => {
     setBusy(Object.keys(patch)[0]);
     try { await onSettings(patch); } catch (e) { toast(e?.message || 'The setting was not saved.'); } finally { setBusy(''); }
@@ -315,6 +317,8 @@ function SettingsTab({ settings, onSettings }) {
       <section className="bm-settings-sec">
         <div className="bm-sec-title">On Screen</div>
         <Switch label="Pins On Load" hint="Show everyone's pins on a screen as soon as Build Mode turns on. Off = toggle them from the strip." checked={settings.pinsOnLoad !== false} disabled={busy === 'pinsOnLoad'} onChange={(v) => change({ pinsOnLoad: v })} />
+        <Switch label="Higher Quality Screenshots" hint="Screenshots are taken from the page automatically. On = Chrome asks once to share this tab, for an exact picture (charts, embedded files)." checked={tabCapture}
+          onChange={(v) => { setWantsTabCapture(v); setTabCapture(v); if (v) startTabCapture(); else stopTabCapture(); }} />
       </section>
       <Tokens />
       <section className="bm-settings-sec">

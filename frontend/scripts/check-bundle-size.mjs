@@ -284,8 +284,15 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // The same condition as vite.config.js decides whether stamps are on. The
 // two bigger stamp modes (text elements too: +718 KB; every element:
 // +1919 KB) do not fit any budget and stay local-only.
+// Oct 26 2026: 14600 -> 14700. dev read 14586 KB on CI; Build Mode's
+// screenshots with no prompt (#796, the modern-screenshot dependency, 22 KB)
+// and the simpler Build Mode strip (#797) measured 14611 / 14618 KB. The
+// library is a dynamic import in its own chunk (vendor-screenshot in
+// vite.config.js) - left in the catch-all it pushed vendor-react, the
+// first-paint chunk, to 1009 KB - so nobody downloads it until a pin's
+// screenshot is taken. Deliberate (Pranshu).
 const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE_NX_SRC;
-const TOTAL_KB     = 14600 + (NX_SRC_ON ? 350 : 0);
+const TOTAL_KB     = 14700 + (NX_SRC_ON ? 350 : 0);
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

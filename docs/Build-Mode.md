@@ -450,10 +450,24 @@ Pieces (one file each, all under `frontend/src/devnotes/`):
 - `lib/capture.js` (selector, text, headings, html, fiber components via the
   `__reactFiber$` key, record ids from `data-*` and the React Query cache
   through `window.__nexusQueryClient` if exposed - else skip);
-- `lib/screenshot.js` (one `getDisplayMedia` tab stream per mode-on,
-  `preferCurrentTab`, frame grab to canvas, DPR-aware crop, markup burned
-  in, redact rectangles blurred BEFORE upload; declining the prompt = no
-  images, everything else still works);
+- `lib/screenshot.js` - since Oct 26 2026 a pin's picture needs NO prompt:
+  `grabAreaFrame` draws the area around the pinned element (the element
+  plus `AREA_PAD` = 96px, clamped to the viewport) from a copy of the DOM
+  with `modern-screenshot` (SVG foreignObject, so every CSS feature
+  renders; `restoreScrollPosition` on, or a scrolled list is drawn from its
+  top). Only the area is copied: the copy starts at the smallest ancestor
+  holding it, leaves out everything below / right of it (`beyond`) and the
+  leading rows of one-column lists that end above it (`pruneAbove`; the
+  list's copy gets their height as top padding, `padCopy`), because copying
+  is reading every element's computed style - the whole Tickets screen
+  takes the browser 7 s, the area about 3 s. That picture gives the
+  element shot (with 96px of context) and no full-page shot. The
+  `getDisplayMedia` tab stream (one per mode-on, `preferCurrentTab`) is
+  now opt-in - Settings > Higher Quality Screenshots, per browser
+  (`nexus:build-mode:tab-capture`) - and gives both shots, as before;
+  video still asks for it. Markup is burned in and redact rectangles and
+  sensitive fields are blacked out BEFORE upload in both cases. No picture
+  within 8 s = the pin saves without one;
 - `lib/recorder.js` (screenRecorder + SpeechRecognition + contact sheet);
 - `lib/buffers.js` (console ring buffer by wrapping console.error/warn and
   window 'error'/'unhandledrejection' while on; network buffer subscribed

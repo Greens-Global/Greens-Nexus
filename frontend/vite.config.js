@@ -179,6 +179,9 @@ export default defineConfig(({ command }) => ({
           // shipped on first paint for every user of every module.
           if (id.includes('heic2any') || id.includes('libheif')) return 'vendor-heic';
           if (id.includes('exifr'))                   return 'vendor-exif';
+          // Build Mode's screenshots (devnotes/lib/screenshot.js, a dynamic import):
+          // only when a pin is taken, never on first paint (Oct 26).
+          if (id.includes('modern-screenshot'))       return 'vendor-screenshot';
           // Google Photorealistic 3D Tiles (Site Map "Realistic 3D", Oct 20 2026):
           // the tiles renderer and the glTF / Draco loaders it pulls from three's
           // examples stay in that view's own lazy chunk (no manual chunk: a named
