@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, CheckCircle2, Lightbulb, Paperclip, Download, Upload, X, Trash2, CalendarX, Compass,
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, ArrowRight, ImageIcon,
-  MessageSquare, Send, Ticket as TicketIcon,
+  MessageSquare, Send, Ticket as TicketIcon, ArrowLeft, ListChecks,
 } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, btn, card, chip, input as inputStyle } from './theme';
@@ -148,8 +148,12 @@ export function RequestThread({ row, nameOf = (e) => e, onBeforeOpen }) {
   );
 }
 
-// Anyone: what happened to what I asked for, and a box to ask for more.
+// Anyone: a box to ask for something, and - behind the My Requests button -
+// what happened to everything asked for so far (Sagar, Oct 27 2026: the list
+// used to sit under the form; now the form fills the popup's 60% and the list
+// is one click away, landing there after a request is sent).
 export function MyRequestsDialog({ onClose, onOpenEntry, nameOf }) {
+  const [view, setView] = useState('new');   // 'new' | 'mine'
   const [rows, setRows] = useState(null);
   const [note, setNote] = useState('');
   const [module, setModule] = useState('');
@@ -164,47 +168,66 @@ export function MyRequestsDialog({ onClose, onOpenEntry, nameOf }) {
       await api.raiseChangelogRequest({ note: note.trim(), module: module.trim() });
       setNote(''); setModule('');
       await load();
+      setView('mine');   // show it with the rest, and its status
     } catch (e) { setError(e?.message || 'Could not send the request.'); } finally { setSending(false); }
   };
+  const count = rows ? rows.length : 0;
   return (
     <Modal title="Feature Request" onClose={onClose} isDirty={!!note.trim()}>
-      <div style={{ ...card, padding: 14, marginBottom: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: NX.ink }}><Lightbulb size={14} />Request a Feature</div>
-        <p style={{ margin: '4px 0 10px', fontSize: 12, color: NX.dim }}>Tell the Nexus team what would make your work easier. It becomes a Feature Request ticket and is shared with the Nexus team on Teams. You will see its status and replies here, and your bell rings when it changes.</p>
-        <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} aria-label="What would you like?"
-          placeholder="What would you like Nexus to do?" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
-        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          <input value={module} onChange={(e) => setModule(e.target.value)} placeholder="Module (optional), e.g. Time Clock" aria-label="Module"
-            style={{ ...inputStyle, flex: '1 1 200px' }} />
-          <button type="button" onClick={send} disabled={!note.trim() || sending} style={{ ...btn('primary'), opacity: note.trim() && !sending ? 1 : 0.5 }}>Send Request</button>
+      {view === 'new' ? (
+        <div className="nx-fill" style={{ ...card, padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}><Lightbulb size={14} />Request a Feature</div>
+            <button type="button" onClick={() => setView('mine')} style={{ ...btn('outline'), fontSize: 12.5, padding: '5px 10px' }}>
+              <ListChecks size={14} />My Requests{count ? ` (${count})` : ''}
+            </button>
+          </div>
+          <p style={{ margin: '4px 0 10px', fontSize: 12, color: NX.dim }}>Tell the Nexus team what would make your work easier. It becomes a Feature Request ticket and is shared with the Nexus team on Teams. You will see its status and replies under My Requests, and your bell rings when it changes.</p>
+          <div className="nx-fill">
+            <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} aria-label="What would you like?"
+              placeholder="What would you like Nexus to do?" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <input value={module} onChange={(e) => setModule(e.target.value)} placeholder="Module (optional), e.g. Time Clock" aria-label="Module"
+              style={{ ...inputStyle, flex: '1 1 200px' }} />
+            <button type="button" onClick={send} disabled={!note.trim() || sending} style={{ ...btn('primary'), opacity: note.trim() && !sending ? 1 : 0.5 }}>Send Request</button>
+          </div>
+          {error && <div role="alert" style={{ marginTop: 6, fontSize: 12, color: NX.red }}>{error}</div>}
         </div>
-        {error && <div role="alert" style={{ marginTop: 6, fontSize: 12, color: NX.red }}>{error}</div>}
-      </div>
-      <h3 style={{ ...label11, margin: '0 0 8px' }}>What You Asked For</h3>
-      {rows === null ? <LoadingState /> : rows.length === 0 ? (
-        <div style={{ borderRadius: 12, border: `1px dashed ${NX.border}`, padding: '28px 0', textAlign: 'center', fontSize: 13, color: NX.dim }}>You have not asked for anything yet.</div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {rows.map((r) => (
-            <div key={r.id} style={{ ...card, padding: '10px 14px' }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                <RequestStatusChip status={r.status} />
-                <span style={{ fontSize: 12, color: NX.faint }}>
-                  {r.entryTitle ? `On "${r.entryTitle}"` : (r.module || 'General')} · {formatDateTime(r.at)}
-                </span>
-              </div>
-              <div style={{ marginTop: 6, fontSize: 13, color: NX.ink, whiteSpace: 'pre-wrap' }}>{r.note}</div>
-              {r.statusNote && <div style={{ marginTop: 6, fontSize: 12.5, color: NX.dim }}><strong>Nexus team:</strong> {r.statusNote}</div>}
-              {r.status === 'Shipped' && r.shippedEntryId && (
-                r.shippedReleased ? (
-                  <button type="button" onClick={() => { onClose(); onOpenEntry?.(r.shippedEntryId); }} style={{ ...btn('ghost'), padding: 0, marginTop: 6, color: NX.blue, fontSize: 12.5 }}>
-                    Shipped In: {r.shippedTitle} <ArrowRight size={13} />
-                  </button>
-                ) : <div style={{ marginTop: 6, fontSize: 12.5, color: NX.dim }}>Goes out with &quot;{r.shippedTitle}&quot; soon.</div>
-              )}
-              <RequestThread row={r} nameOf={nameOf} onBeforeOpen={onClose} />
+        <div className="nx-fill">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <h3 style={{ ...label11, margin: 0, flex: 1 }}>My Requests{count ? ` (${count})` : ''}</h3>
+            <button type="button" onClick={() => setView('new')} style={{ ...btn('outline'), fontSize: 12.5, padding: '5px 10px' }}>
+              <ArrowLeft size={14} />New Request
+            </button>
+          </div>
+          {rows === null ? <LoadingState /> : rows.length === 0 ? (
+            <div style={{ borderRadius: 12, border: `1px dashed ${NX.border}`, padding: '28px 0', textAlign: 'center', fontSize: 13, color: NX.dim }}>You have not asked for anything yet.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {rows.map((r) => (
+                <div key={r.id} style={{ ...card, padding: '10px 14px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                    <RequestStatusChip status={r.status} />
+                    <span style={{ fontSize: 12, color: NX.faint }}>
+                      {r.entryTitle ? `On "${r.entryTitle}"` : (r.module || 'General')} · {formatDateTime(r.at)}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 13, color: NX.ink, whiteSpace: 'pre-wrap' }}>{r.note}</div>
+                  {r.statusNote && <div style={{ marginTop: 6, fontSize: 12.5, color: NX.dim }}><strong>Nexus team:</strong> {r.statusNote}</div>}
+                  {r.status === 'Shipped' && r.shippedEntryId && (
+                    r.shippedReleased ? (
+                      <button type="button" onClick={() => { onClose(); onOpenEntry?.(r.shippedEntryId); }} style={{ ...btn('ghost'), padding: 0, marginTop: 6, color: NX.blue, fontSize: 12.5 }}>
+                        Shipped In: {r.shippedTitle} <ArrowRight size={13} />
+                      </button>
+                    ) : <div style={{ marginTop: 6, fontSize: 12.5, color: NX.dim }}>Goes out with &quot;{r.shippedTitle}&quot; soon.</div>
+                  )}
+                  <RequestThread row={r} nameOf={nameOf} onBeforeOpen={onClose} />
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
     </Modal>
