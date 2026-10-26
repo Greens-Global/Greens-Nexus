@@ -86,6 +86,10 @@ import ModuleTabs from '../components/ModuleTabs';
 import { ModalLoading, SkeletonBlocks, Spinner } from '../components/AsyncState';
 import { useIsMobile } from '../lib/useIsMobile';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
+import SaveRow from '../components/SaveRow';
+import { useDraft } from '../lib/useDraft';
+import { GroupDirtyContext, useGroupDirty } from '../lib/groupDirty';
+import { setInlineDirty } from '../lib/dialogGuard';
 import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
@@ -194,18 +198,18 @@ const SUBJECTS = [
     desc: 'Each legal entity: its profile, managers, departments and holiday calendar.' },
   { key: 'locations', section: 'org', wide: true,  label: 'Locations',           Icon: MapPinned, faces: 'both',
     desc: 'Where people punch in, and each location\'s geofence.' },
-  { key: 'access', section: 'org', wide: true,     label: 'People & Access',     Icon: Shield, adminOnly: true, faces: 'both',
+  { key: 'access', section: 'org', wide: true,     label: 'People & Access',     Icon: Shield, faces: 'both',
     desc: 'Who can open which module, access groups and roles.' },
-  { key: 'security', section: 'org',   label: 'Security',            Icon: ShieldCheck, adminOnly: true, faces: 'org',
+  { key: 'security', section: 'org',   label: 'Security',            Icon: ShieldCheck, faces: 'org',
     desc: 'How people sign in, how long sessions last and the policy everyone accepts.' },
-  { key: 'branding', section: 'org',   label: 'Branding & Email',    Icon: Palette, adminOnly: true, faces: 'both',
+  { key: 'branding', section: 'org',   label: 'Branding & Email',    Icon: Palette, faces: 'both',
     desc: 'The brand color, how emails look, signatures and letterheads.' },
   { key: 'emails', section: 'comms',     label: 'Emails & Reminders',  Icon: Mail, faces: 'org',
     desc: 'Every scheduled email and how early reminders go out.' },
   { key: 'tickets', section: 'comms', wide: true,    label: 'Tickets',             Icon: Headset, faces: 'both',
     desc: 'Where tickets go, who works them and how fast.' },
   // Time Clock pay rules (Charmi, Sep 30): moved off the timecard's Options popover.
-  { key: 'pay', section: 'work',        label: 'Time & Pay',          Icon: Clock, adminOnly: true, faces: 'both',
+  { key: 'pay', section: 'work',        label: 'Time & Pay',          Icon: Clock, faces: 'both',
     desc: 'The rules every time sheet and payroll run follow.' },
   { key: 'analytics', section: 'work',  label: 'Workforce Analytics', Icon: MonitorDot, faces: 'both',
     desc: 'App ratings, the location trail and what each company captures.' },
@@ -240,6 +244,8 @@ const LEGACY_SUBJECTS = {
 
 // scope: 'org' = one value for all of Nexus; 'company' = one per company;
 // 'layered' = an organization default a company may override.
+// needs: who may open the group - what its save route demands, declared once
+// here so the shell shows nothing the server would refuse (see mayOpen).
 // face: which scope the group shows under ('org' = Every company, 'company'
 // = with a company picked, 'both' = either - the panel takes the company
 // from the scope). A company-only group asked for at "Every company"
@@ -247,107 +253,138 @@ const LEGACY_SUBJECTS = {
 const GROUPS = [
   // Companies
   { id: 'company-list', subject: 'companies', face: 'org', scope: 'org', icon: Building2, title: 'Companies',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true, anyScope: true },
     sub: 'Every legal entity, and the group manager above them all. Open a company to set its profile, departments and holiday calendar.',
     keywords: 'company companies legal entity add company group manager escalation list' },
   { id: 'company-profile', subject: 'companies', face: 'company', scope: 'company', icon: Building2, title: 'Company',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Profile and logo, managers and HR contact, contractor invoice recipients, email domains, departments and their heads, and the holiday calendar.',
     keywords: 'company profile legal name country tax id ein gstin signatory manager hr contact invoice recipients address phone logo social links email domains notes departments department head holiday calendar holidays' },
   // Locations
   { id: 'work-sites', subject: 'locations', face: 'org', scope: 'org', icon: MapPinned, title: 'Location Library',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Every location employees can punch in at, with its geofence. Pick the companies that use each one right here, or with a company picked.',
     keywords: 'geofence location address time clock punch map work site' },
   { id: 'company-sites', subject: 'locations', face: 'company', scope: 'company', icon: MapPinned, title: 'Locations',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The locations this company\'s people punch in at, picked from the library.',
     keywords: 'company locations work sites geofence punch' },
   // People & Access
   // Rendered whole (not in a card): it is a full screen of its own.
   { id: 'access', subject: 'access', face: 'org', scope: 'org', icon: Shield, title: 'People & Access Groups',
+    needs: { role: 'administrator' },
     sub: 'Each person\'s effective access, access groups that add modules on top of a job role, the roles shared by every company, and the full access matrix.',
     keywords: 'roles permissions people groups modules grant level viewer editor owner matrix audit walls shared roles' },
-  { id: 'company-roles', subject: 'access', face: 'company', scope: 'company', icon: Shield, title: 'Roles', adminOnly: true,
+  { id: 'company-roles', subject: 'access', face: 'company', scope: 'company', icon: Shield, title: 'Roles',
+    needs: { role: 'administrator' },
     sub: 'This company\'s job roles, grouped by department, with what each one opens and the checklist steps it adds.',
     keywords: 'job roles company roles department access checklists' },
   // Security
   { id: 'sign-in-sessions', subject: 'security', face: 'org', scope: 'org', icon: ShieldCheck, title: 'Sign-In & Sessions',
+    needs: { role: 'administrator' },
     sub: 'How long web, Act As and Credential Vault sessions last, and guest sign-in codes.',
     keywords: 'session timeout idle act as vault unlock guest partner code lockout invite security' },
   { id: 'signin-policy', subject: 'security', face: 'org', scope: 'org', icon: FileCheck, title: 'Sign-In Policy',
+    needs: { role: 'administrator' },
     sub: 'The company policies and monitoring disclosure everyone accepts at sign-in, and who has not accepted the current version.',
     keywords: 'policy terms monitoring disclosure acknowledgment accept consent version publish report' },
   // Branding & Email
   { id: 'brand-color', subject: 'branding', face: 'org', scope: 'org', icon: Palette, title: 'Brand Color',
+    needs: { role: 'administrator' },
     sub: 'The accent color used across Nexus and on the sign-in screen.',
     keywords: 'accent theme green blue login color' },
   { id: 'email-appearance', subject: 'branding', face: 'org', scope: 'org', icon: Mail, title: 'Email Appearance',
+    needs: { role: 'administrator' },
     sub: 'One logo, accent color and footer for every email Nexus sends: tasks, tickets, Nexus Sign, invitations and welcome emails.',
     keywords: 'email template logo header footer accent color address preview notifications' },
   { id: 'letterheads', subject: 'branding', face: 'org', scope: 'org', icon: FileText, title: 'Letterheads',
+    needs: { role: 'administrator' },
     sub: 'The letterheads documents and letters print on, and which one is the default.',
     keywords: 'letterhead logo address default documents templates print' },
   { id: 'email-signature', subject: 'branding', face: 'both', scope: 'company', icon: Signature, title: 'Email Signature',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Choose each company\'s signature template and set custom signatures for specific addresses. Names, titles and contact details come from each employee\'s directory record, and employees choose their own sign-off in Profile.',
     keywords: 'template sign-off logo sender override shared inbox branding' },
   // Emails & Reminders
   { id: 'task-notifications', subject: 'emails', face: 'org', scope: 'org', icon: Bell, title: 'Task Notifications',
+    needs: { role: 'manager' },
     sub: 'The mailbox task emails come from, due-date reminders, how updates are batched into one email, and how email replies are posted.',
     keywords: 'email mailbox reminders overdue batch replies delivery log tasks notifications' },
   { id: 'daily-briefing', subject: 'emails', face: 'org', scope: 'org', icon: Mail, title: 'Daily Briefing',
+    needs: { role: 'administrator' },
     sub: 'A daily summary email for each employee. Send it to everyone, or to a few test recipients first.',
     keywords: 'digest summary email morning test recipients' },
   { id: 'weekly-digest', subject: 'emails', face: 'org', scope: 'org', icon: Mail, title: 'Weekly Digest',
+    needs: { role: 'administrator' },
     sub: "A Monday email listing each employee's overdue tasks with their due dates, sent before their shift. Send it to everyone, or to a few test recipients first.",
     keywords: 'weekly digest summary email overdue tasks due dates extend monday shift test recipients' },
   { id: 'workforce-scorecard', subject: 'emails', face: 'org', scope: 'org', icon: Mail, title: 'Workforce Scorecard',
+    needs: { role: 'administrator' },
     sub: 'A weekly email to managers scoring each hourly person\'s punched hours against their expected hours (US 8h, India 9h, or their shift) - who worked, who was short, who was absent.',
     keywords: 'workforce analytics scorecard attendance hours expected worked absent late weekly manager email shift standard day india hourly test recipients' },
   { id: 'hr-reminders', subject: 'emails', face: 'org', scope: 'org', icon: CalendarClock, title: 'HR & Compliance Reminders',
+    needs: { role: 'administrator', grant: ['hr', 'full'] },
     sub: 'Choose how many days ahead HR is warned about visa and right-to-work expiry, contract ends, new starters, expiring documents and unsigned signature requests.',
     keywords: 'hr people visa right to work immigration expiry expiring contract end new starter onboarding document compliance e-sign signature chase nudge reminder days before alerts timing bell' },
   { id: 'equipment-reminders', subject: 'emails', face: 'org', scope: 'org', icon: CalendarClock, title: 'Equipment Reminders',
+    needs: { role: 'administrator', grant: ['inventory', 'full'] },
     sub: 'Chase items that are checked out past their due date, and choose how early asset managers are warned about warranties, inspections, registration, insurance and service.',
     keywords: 'items inventory checkout overdue return late borrower asset property vehicle equipment warranty inspection registration insurance service manager reminder days before alerts timing bell' },
   // Tickets - one group, seven tabs (Pranshu, Sep 26: routing, ticket email
   // and SLAs are one subject to an admin).
   { id: 'service-desk', subject: 'tickets', face: 'both', scope: 'org', icon: Headset, title: 'Ticket Manager',
+    needs: { role: 'manager' },
     sub: 'Everything about tickets: who receives and escalates them, which events send email, and the response targets and ticket types requesters choose from.',
     keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields help topics what do you need help with saved replies canned responses default assignee auto assign ai summary suggested help topic' },
   { id: 'ticket-property-rules', subject: 'tickets', face: 'org', scope: 'org', icon: MapPinned, title: 'Property Rules',
+    needs: { role: 'administrator', grant: ['tickets', 'full'] },
     sub: 'Which tickets must name the property they are about, by service area and by help topic.',
     keywords: 'property tickets required service area help topic facility unit link suggest' },
   // Time & Pay
   { id: 'timeclock-policy', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Pay Rules', flush: true,
+    needs: { role: 'administrator' },
     sub: 'Punch rounding (off by default), the auto-lunch deduction and California paid rest breaks - the default for every time sheet, and each company\'s own.',
     keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california time sheet' },
   { id: 'payroll-export-codes', subject: 'pay', face: 'both', scope: 'company', icon: FileText, title: 'Payroll Export Codes',
+    needs: { role: 'administrator' },
     sub: 'The payroll item name each pay class carries in the QuickBooks IIF and the Intacct payroll memo, and the QuickBooks company name, per company.',
     keywords: 'payroll export codes earnings codes payroll items quickbooks iif intacct memo company name pay class' },
   { id: 'pay-premiums', subject: 'pay', face: 'both', scope: 'company', icon: Clock, title: 'Shift Differentials & Call-Back Pay',
+    needs: { role: 'administrator' },
     sub: 'Extra pay per hour at night, on weekends or at certain sites, and a minimum paid time when someone is called back - per company, off by default.',
     keywords: 'shift differential night weekend site premium call-back callback minimum paid hours hourly' },
   { id: 'payroll-readiness', subject: 'pay', face: 'both', scope: 'layered', icon: ClipboardList, title: 'Payroll Readiness', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'What counts as a big change or an unusual week when checking who is ready for payroll - a default, and each company\'s own.',
     keywords: 'payroll readiness thresholds percent hours big change unusual week export check flags' },
   { id: 'ca-min-wage', subject: 'pay', face: 'org', scope: 'org', icon: Clock, title: 'California Minimum Wage',
+    needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
     sub: 'The state minimum wage the California review checks pay rates against; it also prices the split-shift premium.',
     keywords: 'california minimum wage ca review split shift premium pay rate' },
   { id: 'leave-policies', subject: 'pay', face: 'org', scope: 'org', icon: CalendarClock, title: 'Leave Policies',
+    needs: { role: 'administrator', grant: ['hr', 'full'] },
     sub: 'The vacation and sick policies people are assigned - hours earned per hour worked, caps and carry-over.',
     keywords: 'leave policies vacation sick accrual balance hours earned per hour start date cutover pto carry over' },
   { id: 'time-off-reasons', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Time-Off Reasons',
+    needs: { role: 'manager', grant: ['hr', 'editor'], people: true },
     sub: 'The reasons staff can pick when requesting time off, beyond the built-in Vacation, Sick, Personal, Unpaid, 1/2 Day and Other.',
     keywords: 'time off reasons request jury duty bereavement custom' },
   { id: 'intacct-nightly', subject: 'pay', face: 'both', scope: 'company', icon: FileText, title: 'Intacct Nightly Sync',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Which companies have their employee codes filled in from Intacct once a night, and how the last run went.',
     keywords: 'intacct employee codes nightly sync automatic payroll' },
   // Workforce Analytics
   { id: 'app-ratings', subject: 'analytics', face: 'org', scope: 'org', icon: MonitorDot, title: 'App & Website Ratings',
+    needs: { role: 'manager', grant: [['hr', 'editor'], ['employee-tracking', 'full']] },
     sub: 'Every application and website seen on company computers, rated productive, neutral or unproductive - the split the Workforce Analytics dashboard shows.',
     keywords: 'apps websites ratings productive neutral unproductive workforce analytics activity' },
   // Moved out of Shift Settings (Oct 25): managers see the trail in Workforce Analytics.
   { id: 'location-trail', subject: 'analytics', face: 'both', scope: 'layered', icon: MapPinned, title: 'Location Trail', part: 'trail', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Share each person\'s location while they are clocked in, for managers in Workforce Analytics. Off unless turned on.',
     keywords: 'location trail gps clocked in live position map workforce analytics privacy shifts' },
   { id: 'company-policy', subject: 'analytics', face: 'company', scope: 'company', icon: MonitorDot, title: 'Workforce Analytics Policy',
+    needs: { role: 'administrator', grant: ['employee-tracking', 'full'] },
     sub: 'Whether work on company computers is captured for this company, how often, and what is tracked.',
     keywords: 'workforce analytics monitoring policy capture screenshots interval tracking employee tracking' },
   // Shifts & Scheduling
@@ -355,59 +392,107 @@ const GROUPS = [
   // long card was hard to scan); `part` is the slice ShiftSettingsPanel
   // shows. 'shift-settings' keeps its id so old links still land.
   { id: 'shift-settings', subject: 'shifts', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Schedule Basics', part: 'basics', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The team time zone, the day each schedule week starts on, and the grace before a start counts as late.',
     keywords: 'shifts schedule shift settings time zone week start sunday monday default grace late' },
   { id: 'shift-requests', subject: 'shifts', face: 'both', scope: 'layered', icon: Users, title: 'Requests & Visibility', part: 'requests', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'What staff may request - open shifts, swaps, offers, time off, releasing a shift - and what they see of their teammates.',
     keywords: 'shifts requests swap offer open shift time off release pool across teams visibility teammates notes reasons' },
   { id: 'shift-attendance', subject: 'shifts', face: 'both', scope: 'layered', icon: Clock, title: 'Attendance',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     part: 'attendance', flush: true, sub: 'No-show and left-early alerts, escalating unapproved time sheets, and the break and meal reminders.',
     keywords: 'attendance no-show no show left early escalate unapproved time sheets break reminder meal reminder california usual hours' },
   { id: 'shift-overtime-alerts', subject: 'shifts', face: 'both', scope: 'layered', icon: Bell, title: 'Overtime Alerts', part: 'overtime', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Warn managers before someone who is clocked in reaches daily or weekly overtime.',
     keywords: 'overtime alerts warning daily weekly managers clocked in' },
   { id: 'shift-rules', subject: 'shifts', face: 'both', scope: 'layered', icon: ListChecks, title: 'Rules', part: 'rules', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Rest between shifts, days in a row, overtime and weekly hours - warnings on the schedule, never blocks - and the reason to share past them.',
     keywords: 'shift rules rest days in a row daily overtime weekly overtime most hours week warnings share publish reason' },
   { id: 'shift-sharing', subject: 'shifts', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Sharing', part: 'sharing', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Shared shifts on people\'s Outlook calendars, and asking people to confirm a shared schedule.',
     keywords: 'sharing outlook calendar free busy confirm schedule share' },
   { id: 'shift-types', subject: 'shifts', face: 'both', scope: 'layered', icon: Clock, title: 'Shift Types',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The reusable shifts managers place with one click - name, code, color, times, time zone and days. A person\'s usual hours are one of these.',
     keywords: 'shifts presets shift type code color times usual hours grace break time zone days' },
   { id: 'shift-groups', subject: 'shifts', face: 'both', scope: 'layered', icon: Users, title: 'Groups',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Who is scheduled together, the order they appear in, who may build each group\'s schedule, and the Teams chat its BOD / EOD messages go to.',
     keywords: 'shifts groups teams members schedulers order teams chat bod eod' },
   { id: 'shift-weather', subject: 'shifts', face: 'both', scope: 'company', icon: CloudRain, title: 'Weather Alerts',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], wide: true },
     sub: 'Which companies the weather watch runs for, what counts as major rain, quiet hours, and the heads-up line in Teams. Nexus advises; a manager makes the weather call.',
     keywords: 'weather rain forecast alerts advisory storm thunderstorm warning nws quiet hours deciders weather call' },
   // Hiring & Onboarding
   { id: 'hiring-documents', subject: 'hiring', face: 'both', scope: 'company', icon: FileText, title: 'Hiring Documents',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Offer letters, hiring packets, promotion letters and separation packages: which documents each company sends, for which roles and kind of hire, who signs, and Ready To Send.',
     keywords: 'packets offer letter hiring packet promotion separation nda confidentiality agreement documents signers' },
   { id: 'interview-questionnaires', subject: 'hiring', face: 'org', scope: 'org', icon: ClipboardList, title: 'Interview Questionnaires',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The questions asked in each role\'s interview - the Interview Room shows them to the interviewer.',
     keywords: 'questions interview questionnaire role character competence availability' },
   // Neil, Oct 19: "copy from company or have a common library".
   { id: 'checklist-library', subject: 'hiring', face: 'org', scope: 'layered', icon: ListChecks, title: 'Checklist Library',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The steps every new onboarding, promotion, offboarding and leave checklist starts with, whatever the role, and who does each step (the head and backup of the HR, IT and Accounting departments). Each company adds its own with the company picked, and each role its own (People & Access > the company > Roles > a role > Checklists).',
     keywords: 'checklist onboarding promotion offboarding leave steps template library owners copy standardize' },
   { id: 'company-checklists', subject: 'hiring', face: 'company', scope: 'company', icon: ListChecks, title: 'Checklists',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'This company\'s baseline steps, which departments own steps, and the steps its onboarding, promotion, offboarding and leave checklists add, role by role.',
     keywords: 'company checklists baseline onboarding promotion offboarding leave steps departments owners roles missing' },
   // Items & Equipment
   { id: 'item-types', subject: 'items', face: 'org', scope: 'org', icon: Tag, title: 'Item Types & Custom Fields',
+    needs: { role: 'manager', grant: ['inventory', 'editor'] },
     sub: 'The item types and extra fields available to everyone when adding or editing items.',
     keywords: 'inventory equipment catalog fields types' },
   // Operations
   { id: 'ops-cubby-push', subject: 'operations', face: 'org', scope: 'org', icon: Warehouse, title: 'Push to Cubby',
+    needs: { role: 'administrator', grant: ['operations', 'full'] },
     sub: 'Off by default: Nexus only reads from Cubby and staff mark changes Entered in Cubby. On: approved rate and rent changes can be pushed to Cubby from Nexus.',
     keywords: 'cubby push sync write rates rent ecri rate management revenue management storage facilities operations locked switch' },
   { id: 'ops-unit-rules', subject: 'operations', face: 'org', scope: 'org', icon: Warehouse, title: 'Unit Rules',
+    needs: { role: 'manager', grant: ['operations', 'editor'] },
     sub: 'Which Cubby unit types are mailboxes, and which records are not units at all, by the words in the unit type name.',
     keywords: 'unit types mailbox excluded words cubby facility operations units' },
 ];
 const GROUP_META = Object.fromEntries(GROUPS.map(g => [g.id, g]));
+
+// Who may open a group (Oct 23): each group's `needs` says what its save
+// route demands, so the rail, the filter and the page show nothing the
+// server would answer 403 to - in one place, instead of a different
+// read-only note or hidden button in every panel (those stay as the
+// backstop where a panel has one, such as Sign-In & Sessions, which opens
+// for an IT Admin but saves only for a Global Admin).
+//   role     the role tier that passes outright: 'manager', 'administrator'
+//            (IT Admin) or 'owner' (Global Admin)
+//   grant    [module, level], or a list of them: an Access Group grant that
+//            passes below that tier (canAccessModule)
+//   people   a People (/hr) route: the manager tier, which sees only its own
+//            team, never passes; a caller whose People access is limited to
+//            some companies opens the group with one of those companies
+//            picked - at "Every company" the library, the shared records and
+//            the tenant default need company-wide access (`anyScope` lets
+//            the company list through, since it is how they reach theirs)
+//   wide     needs company-wide People access at every scope
+// Without `needs`, administrators only. `company` is the picked company's
+// id, '' for "Every company", or undefined to ask whether it opens anywhere.
+function mayOpen(g, { can, canAccessModule, hrScope, hrTeam }, company) {
+  const n = g.needs || { role: 'administrator' };
+  const grants = n.grant ? (Array.isArray(n.grant[0]) ? n.grant : [n.grant]) : [];
+  if (!can(n.role) && !grants.some(([m, l]) => canAccessModule?.(m, n.role, l))) return false;
+  if (!n.people && !n.wide) return true;
+  if (hrTeam) return false;
+  const limited = Array.isArray(hrScope);
+  if (!limited) return true;
+  if (n.wide) return false;
+  if (company === undefined) return true;
+  return company ? hrScope.includes(company) : !!n.anyScope;
+}
 
 // Every word typed has to appear somewhere in the group's title,
 // description, keywords or subject name.
@@ -852,7 +937,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   const [data, setData] = useState(null);       // { templates (with html), template }
   const [selectedTemplate, setSelectedTemplate] = useState('classic');
   const [previewBusy, setPreviewBusy] = useState(false);
-  const [saveBusy, setSaveBusy] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [zoomTemplate, setZoomTemplate] = useState(null);   // { label, html } | null - full-size eye-icon preview
 
   // Sender Template Overrides - global, not per-company (Sep 22, Pranshu:
@@ -862,8 +947,14 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   // company branding to render a sample against, unlike `data.templates`.
   const [overrideTemplates, setOverrideTemplates] = useState([]);
   const [overrides, setOverrides] = useState([]);
+  const [savedOverrides, setSavedOverrides] = useState([]);   // what the server holds; `overrides` is the draft
   const [overrideModal, setOverrideModal] = useState(null);   // 'new' | index into `overrides` | null
-  const [overridesSaveBusy, setOverridesSaveBusy] = useState(false);
+  // One Save for the group (the Settings save pattern, Oct 23): the template
+  // and the overrides are a draft until it is clicked.
+  const templateDirty = !!data && !!companyId && selectedTemplate !== data.template;
+  const overridesDirty = !company && JSON.stringify(overrides) !== JSON.stringify(savedOverrides);
+  const dirty = templateDirty || overridesDirty;
+  useGroupDirty(dirty);
 
   const loadPreview = useCallback((id) => {
     if (!id) return;
@@ -883,7 +974,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
     }).catch(() => {}).finally(() => setLoaded(true));
     if (!company) {
       api.getSignatureSenderOverrides()
-        .then(d => { setOverrideTemplates(d.templates || []); setOverrides(d.senderOverrides || []); })
+        .then(d => { setOverrideTemplates(d.templates || []); setOverrides(d.senderOverrides || []); setSavedOverrides(d.senderOverrides || []); })
         .catch(() => {});
     }
   }, [loadPreview, company]);
@@ -898,26 +989,29 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
     setOverrides(rows => rows.filter((_, i) => i !== idx));
   }
 
-  async function saveTemplate() {
-    if (!companyId || saveBusy) return;
-    setSaveBusy(true);
+  async function save() {
+    if (busy || !dirty) return;
+    setBusy(true);
     try {
-      await api.updateEntity(companyId, { signature_template: selectedTemplate });
-      toastOk('Signature template saved. It applies to every employee at this company.');
+      if (templateDirty) {
+        await api.updateEntity(companyId, { signature_template: selectedTemplate });
+        setData(d => (d ? { ...d, template: selectedTemplate } : d));
+      }
+      if (overridesDirty) {
+        const d = await api.saveSignatureSenderOverrides(overrides);
+        setOverrideTemplates(d.templates || []);
+        setOverrides(d.senderOverrides || []);
+        setSavedOverrides(d.senderOverrides || []);
+      }
+      toastOk(templateDirty && !overridesDirty
+        ? 'Signature template saved. It applies to every employee at this company.'
+        : 'Email signature settings saved.');
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
-    setSaveBusy(false);
+    setBusy(false);
   }
-
-  async function saveOverrides() {
-    if (overridesSaveBusy) return;
-    setOverridesSaveBusy(true);
-    try {
-      const d = await api.saveSignatureSenderOverrides(overrides);
-      setOverrideTemplates(d.templates || []);
-      setOverrides(d.senderOverrides || []);
-      toastOk('Sender template overrides updated.');
-    } catch (e) { toastErr(e?.message || 'Could not save.'); }
-    setOverridesSaveBusy(false);
+  function discard() {
+    if (data) setSelectedTemplate(data.template);
+    setOverrides(savedOverrides);
   }
 
   return (
@@ -967,11 +1061,6 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
                   );
                 })}
               </div>
-
-              <button className="primary-btn" onClick={saveTemplate} disabled={saveBusy}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: saveBusy ? 0.6 : 1 }}>
-                {saveBusy ? <Spinner size={14} /> : <Check size={14} />} Save
-              </button>
             </>
           )}
         </>
@@ -1019,11 +1108,12 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
             <span style={{ fontSize: 11.5, fontWeight: 600 }}>Add Override</span>
           </div>
         </div>
-        <button className="primary-btn" onClick={saveOverrides} disabled={overridesSaveBusy}
-          style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: overridesSaveBusy ? 0.6 : 1 }}>
-          {overridesSaveBusy ? <Spinner size={14} /> : <Check size={14} />} Save
-        </button>
       </div>}
+
+      {entities.length > 0 && (
+        <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={discard}
+          note={company ? 'The template applies to every employee at this company.' : 'The template applies to every employee at the company picked; overrides apply in every company.'} />
+      )}
 
       {zoomTemplate && (
         <SignatureZoomModal title={zoomTemplate.label} html={zoomTemplate.html} onClose={() => setZoomTemplate(null)} />
@@ -1359,17 +1449,18 @@ const COMPANY_FACE_TABS = {
 // and a subject opens on its own page with a way back. Subject, group and
 // company live in the URL sub (see AdminConsole below); the filter text and
 // the last jump are local (a jump scrolls, it adds no history entry).
-function SettingsBody({ subject, group, company, home = false, onHome, onNavigate, entities, refreshEntities, toast, toastOk, toastErr }) {
-  const { can } = useRole();
+function SettingsBody({ subject, group, company, home = false, onHome, onNavigate, onDirtyChange, entities, refreshEntities, toast, toastOk, toastErr }) {
+  const who = useRole();
   const narrow = useIsMobile('(max-width: 900px)');
   const [query, setQuery] = useState('');
   const needle = query.trim().toLowerCase();
-  // Access, Security, Branding and Time & Pay are administrator-only (their
-  // panels and routes say so too), so they are left out of the rail and the
-  // filter for anyone else.
-  const isAdmin = can('administrator');
-  const subjects = useMemo(() => SUBJECTS.filter(s => !s.adminOnly || isAdmin), [isAdmin]);
-  const groups = useMemo(() => GROUPS.filter(g => (!g.adminOnly || isAdmin) && subjects.some(s => s.key === g.subject)), [subjects, isAdmin]);
+  // What this person may open (mayOpen, from each group's `needs`): a
+  // subject is in the rail when one of its groups opens somewhere; the groups
+  // on the page are the ones that open at this scope - a company-only group
+  // at "Every company" opens if it opens for some company, since picking the
+  // company is the next click.
+  const subjects = SUBJECTS.filter(s => GROUPS.some(g => g.subject === s.key && mayOpen(g, who, undefined)));
+  const groups = GROUPS.filter(g => mayOpen(g, who, g.face === 'company' && !company ? undefined : company));
 
   const entity = company ? entities.find(e => e.id === company) : null;
   const companyName = entity?.name || '';
@@ -1377,30 +1468,40 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
   // rest stay where they are in the rail, dimmed, and open at Every company -
   // the rail never reshuffles when the scope changes.
   const isLive = useCallback((s) => !company || s.faces !== 'org', [company]);
-  const live = useMemo(() => subjects.filter(isLive), [subjects, isLive]);
+  const live = subjects.filter(isLive);
   const activeSubject = live.find(s => s.key === subject) || live[0];
 
   // The groups a subject shows at this scope: its company face with a
   // company picked; otherwise its organization face, or (a per-company
   // subject such as Workforce Analytics) its company groups as pickers.
-  const groupsFor = useCallback((s) => {
+  const groupsFor = (s) => {
     const own = groups.filter(g => g.subject === s.key);
     if (company) return own.filter(g => g.face !== 'org');
     const org = own.filter(g => g.face !== 'company');
     return org.length ? org : own.filter(g => g.face === 'company');
-  }, [groups, company]);
-  const searchable = useMemo(() => (company ? groups.filter(g => g.face !== 'org') : groups), [groups, company]);
-  const matches = useMemo(() => (needle ? searchable.filter(g => groupMatches(g, needle)) : null), [needle, searchable]);
-  const counts = useMemo(() => {
-    if (!matches) return null;
-    const m = {};
-    for (const g of matches) m[g.subject] = (m[g.subject] || 0) + 1;
-    return m;
-  }, [matches]);
+  };
+  const searchable = company ? groups.filter(g => g.face !== 'org') : groups;
+  const matches = needle ? searchable.filter(g => groupMatches(g, needle)) : null;
+  const counts = matches ? matches.reduce((m, g) => ({ ...m, [g.subject]: (m[g.subject] || 0) + 1 }), {}) : null;
 
-  // The Company profile form is the one group with unsaved state of its own;
-  // leaving it mid-edit (another subject, another scope) asks first.
-  const [dirty, setDirty] = useState(false);
+  // Every group with unsaved changes (lib/groupDirty.js: a form says so
+  // through the context its group binds in renderGroup; the Company profile
+  // form through onDirtyChange). Leaving any of them - another subject or
+  // scope here, another top tab or module above - asks first.
+  const [dirtyIds, setDirtyIds] = useState(() => new Set());
+  const reportDirty = useCallback((id, d) => setDirtyIds(prev => {
+    if (prev.has(id) === !!d) return prev;
+    const next = new Set(prev);
+    if (d) next.add(id); else next.delete(id);
+    return next;
+  }), []);
+  const reporters = useRef(new Map());
+  const reporterFor = (id) => {
+    if (!reporters.current.has(id)) reporters.current.set(id, (d) => reportDirty(id, d));
+    return reporters.current.get(id);
+  };
+  const dirty = dirtyIds.size > 0;
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   const [pending, setPending] = useState(null);
   const go = useCallback((target) => { setQuery(''); setPending(null); onNavigate(target); }, [onNavigate]);
   const nav = useCallback((target) => { if (dirty) setPending(target); else go(target); }, [dirty, go]);
@@ -1438,6 +1539,13 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
   const bareId = !matches && sections[0]?.items.length === 1 ? sections[0].items[0].id : '';
 
   function renderGroup(g) {
+    return (
+      <GroupDirtyContext.Provider key={`${g.id}-${company}`} value={reporterFor(g.id)}>
+        {renderGroupBody(g)}
+      </GroupDirtyContext.Provider>
+    );
+  }
+  function renderGroupBody(g) {
     const id = g.id;
     const chrome = { bare: id === bareId, highlight: id === group, company: companyName, flush: !!g.flush };
     const key = `${id}-${company}`;
@@ -1470,7 +1578,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       return (
         <Group key={key} {...g} {...chrome}>
           <CompanyPage entities={entities} refreshEntities={refreshEntities} entityId={company} tabs={COMPANY_FACE_TABS[id]}
-            onDirtyChange={id === 'company-profile' ? setDirty : undefined} toastOk={toastOk} toastErr={toastErr} />
+            onDirtyChange={id === 'company-profile' ? reporterFor(id) : undefined} toastOk={toastOk} toastErr={toastErr} />
         </Group>
       );
     }
@@ -1479,7 +1587,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
         return (
           <Group key={key} {...g} {...chrome}>
             <CompanyPage entities={entities} refreshEntities={refreshEntities} onOpen={cid => nav({ subject: 'companies', group: '', company: cid })}
-              onDirtyChange={setDirty} toastOk={toastOk} toastErr={toastErr} />
+              onDirtyChange={reporterFor(id)} toastOk={toastOk} toastErr={toastErr} />
           </Group>
         );
       case 'email-signature':      return <EmailSignatureSection key={key} chrome={chrome} company={company} toastOk={toastOk} toastErr={toastErr} />;
@@ -1582,6 +1690,12 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
   const alsoOrg = company && activeSubject && !matches
     ? groups.filter(g => g.subject === activeSubject.key && g.face === 'org') : [];
 
+  // A subject with nothing to show at this scope: for someone whose access
+  // is limited to some companies, Every company holds nothing of theirs.
+  const nothingHere = Array.isArray(who.hrScope) && !company
+    ? 'These settings are set per company for you - pick one in the Scope box.'
+    : 'Nothing to set here.';
+
   const head = matches ? (
     <div className="nx-set-head">
       <div className="nx-set-head-text">
@@ -1610,7 +1724,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
               <div style={{ marginBottom: 12 }}>No settings match "{query.trim()}"{company ? ` for ${companyName}` : ''}.</div>
               <button className="secondary-btn" onClick={() => setQuery('')}>Clear Filter</button>
             </>
-          ) : 'Nothing to set here.'}
+          ) : nothingHere}
         </div>
       ) : sections.map(({ s, items }) => (
         <section key={s.key} aria-label={matches ? s.label : undefined}>
@@ -1621,6 +1735,9 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
           )}
           {s === activeSubject && differs}
           {items.map(renderGroup)}
+          {items.length === 0 && (
+            <div style={{ padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>{nothingHere}</div>
+          )}
           {s === activeSubject && alsoOrg.length > 0 && (
             <div className="nx-set-diff" style={{ marginTop: -8 }}>
               <Globe size={14} aria-hidden="true" />
@@ -1786,8 +1903,16 @@ export default function AdminConsole({ activeSub, onSubChange }) {
 
   const resolved = resolveSub(activeSub);
   const topTab = TOP_TABS.some(t => t.key === resolved.tab) ? resolved.tab : 'settings';
-  const setTopTab = (id) => onSubChange?.(id === 'settings' ? buildSub(resolved) : id);
+  const applyTopTab = (id) => onSubChange?.(id === 'settings' ? buildSub(resolved) : id);
   const navigate = useCallback((target) => onSubChange?.(buildSub(target)), [onSubChange]);
+
+  // A Settings group with unsaved changes: the top tabs ask before moving,
+  // and lib/dialogGuard.js hears about it so the sidebar and the browser
+  // tab ask too.
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [pendingTab, setPendingTab] = useState(null);
+  useEffect(() => { setInlineDirty('settings', settingsDirty); return () => setInlineDirty('settings', false); }, [settingsDirty]);
+  const setTopTab = (id) => { if (settingsDirty && id !== topTab) setPendingTab(id); else applyTopTab(id); };
 
   // The companies, once, for the scope picker and every company page.
   const [entities, setEntities] = useState([]);
@@ -1831,8 +1956,12 @@ export default function AdminConsole({ activeSub, onSubChange }) {
       ) : (
         <SettingsBody subject={resolved.subject} group={resolved.group} company={resolved.company} onNavigate={navigate}
           home={!!resolved.home} onHome={() => onSubChange?.(resolved.company ? `settings@${resolved.company}` : 'settings')}
-          entities={entities} refreshEntities={refreshEntities}
+          onDirtyChange={setSettingsDirty} entities={entities} refreshEntities={refreshEntities}
           toast={showToast} toastOk={toastOk} toastErr={toastErr} />
+      )}
+
+      {pendingTab && (
+        <UnsavedChangesPrompt onKeepEditing={() => setPendingTab(null)} onDiscard={() => { const id = pendingTab; setPendingTab(null); applyTopTab(id); }} />
       )}
 
       {toast && (
@@ -1881,92 +2010,105 @@ function PolicyNumber({ label, value, onChange, min = 0, max = 999, unit = 'min'
 // `company` (Settings' scope picker, Oct 23): that company's own rules over
 // the defaults - each card says whether the company has one of its own and
 // offers the default back; '' edits the defaults for every company.
+const RULE_SETTERS = {
+  rounding: (body, company) => api.timeRoundingSet(body, company),
+  autoLunch: (body, company) => api.timeAutoLunchSet(body, company),
+  breakPolicy: (body, company) => api.timeBreakPolicySet(body, company),
+};
+const RULE_LABELS = { rounding: 'Punch rounding', autoLunch: 'Auto-lunch', breakPolicy: 'CA paid breaks' };
+const num = (v, fallback) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : fallback; };
+// What a save writes: each rule whole, with its numbers clamped (the server
+// echoes the saved rule back).
+const cleanRules = (d) => ({
+  rounding: { enabled: !!d.rounding.enabled, nearestMin: Math.min(30, Math.max(1, num(d.rounding.nearestMin, 5))) },
+  autoLunch: { enabled: !!d.autoLunch.enabled, afterMin: num(d.autoLunch.afterMin, 360), deductMin: num(d.autoLunch.deductMin, 30) },
+  breakPolicy: { enabled: !!d.breakPolicy.enabled, paidBreakMin: num(d.breakPolicy.paidBreakMin, 10), restMaxMin: num(d.breakPolicy.restMaxMin, 20), longBreakMin: num(d.breakPolicy.longBreakMin, 75) },
+});
+
 function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   const [cfg, setCfg] = useState(null);     // { rounding, autoLunch, breakPolicy } | null while loading
-  const [saved, setSaved] = useState(null); // what the server holds - a card's Save shows only when its numbers differ
   // Any rule of the company's own = the group reads Overridden.
   useEffect(() => { if (cfg && company) onOverride?.(['rounding', 'autoLunch', 'breakPolicy'].some(k => cfg[k]?.hasOverride)); }, [cfg, company, onOverride]);
   const [err, setErr] = useState('');
-  const [busy, setBusy] = useState('');     // which card is saving
+  const [busy, setBusy] = useState(false);
+  const [resetting, setResetting] = useState('');   // which card is going back to the default
   const load = useCallback(() => {
     setErr('');
     setCfg(null);
     Promise.all([api.timeRoundingGet(company), api.timeAutoLunchGet(company), api.timeBreakPolicyGet(company)])
-      .then(([rounding, autoLunch, breakPolicy]) => { setCfg({ rounding, autoLunch, breakPolicy }); setSaved({ rounding, autoLunch, breakPolicy }); })
+      .then(([rounding, autoLunch, breakPolicy]) => setCfg({ rounding, autoLunch, breakPolicy }))
       .catch(e => setErr(e?.message || 'Could not load the Time Clock settings.'));
   }, [company]);
   useEffect(() => { load(); }, [load]);
 
-  // Each save writes the whole rule, so a number typed and a switch flipped
-  // never race each other; the server echoes the saved rule back.
-  const save = async (key, next, label) => {
-    setBusy(key);
+  // The three cards are one form (the Settings save pattern, Oct 23): the
+  // switches and numbers are a draft until Save, which writes only the
+  // rules that changed. Use the Default drops a company's own rule at once.
+  const { draft, patch, dirty, reset } = useDraft(cfg);
+  useGroupDirty(dirty);
+  const edit = (key, p) => patch({ [key]: { ...draft[key], ...p } });
+
+  const save = async () => {
+    if (!dirty || busy) return;
+    const next = cleanRules(draft), was = cleanRules(cfg);
+    const changed = Object.keys(next).filter(k => JSON.stringify(next[k]) !== JSON.stringify(was[k]));
+    if (!changed.length) { reset(); return; }
+    setBusy(true);
+    const out = { ...cfg };
     try {
-      const saved = key === 'rounding' ? await api.timeRoundingSet(next, company)
-        : key === 'autoLunch' ? await api.timeAutoLunchSet(next, company)
-        : await api.timeBreakPolicySet(next, company);
-      setCfg(c => ({ ...c, [key]: saved }));
-      setSaved(s => ({ ...s, [key]: saved }));
-      toastOk?.(next.reset ? `${label}: back to the default.` : `${label} saved.`);
-    } catch (e) { toastErr?.(e?.message || `Could not save ${label.toLowerCase()}.`); }
-    setBusy('');
+      for (const k of changed) out[k] = await RULE_SETTERS[k](next[k], company);
+      setCfg(out);
+      toastOk?.(company ? 'Pay rules saved for this company.' : 'Pay rules saved.');
+    } catch (e) {
+      toastErr?.(e?.message || 'Could not save the pay rules.');
+      setCfg(out);   // what did save, saved; the rest stays a draft
+    }
+    setBusy(false);
   };
-  const num = (v, fallback) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : fallback; };
-  // One save pattern (Oct 25): the switch saves on click; a card's Save shows
-  // only once one of its numbers was changed.
-  const changed = (key, fields) => !!saved && fields.some(f => String(cfg[key][f] ?? '') !== String(saved[key][f] ?? ''));
-  // With a company picked: whose rule the card shows, and the way back to the default.
-  // Only a rule the company has of its own says so (the group's badge says
-  // Inherited otherwise), with the way back to the default.
-  const foot = (key, rule, label) => (company && rule.hasOverride ? (
+  const backToDefault = async (key) => {
+    setResetting(key);
+    try {
+      const saved = await RULE_SETTERS[key]({ reset: true }, company);
+      setCfg(c => ({ ...c, [key]: saved }));
+      toastOk?.(`${RULE_LABELS[key]}: back to the default.`);
+    } catch (e) { toastErr?.(e?.message || `Could not reset ${RULE_LABELS[key].toLowerCase()}.`); }
+    setResetting('');
+  };
+  // With a company picked, only a rule the company has of its own says so
+  // (the group's badge says Inherited otherwise), with the way back to the default.
+  const foot = (key, rule) => (company && rule.hasOverride ? (
     <>
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: rule.hasOverride ? 'var(--nx-own)' : 'var(--line)', flexShrink: 0 }} aria-hidden="true" />
-      {rule.hasOverride ? 'This company has a rule of its own.' : 'Using the default; a change here is this company\'s alone.'}
-      {rule.hasOverride && <button type="button" className="secondary-btn" style={{ fontSize: 11.5 }} disabled={busy === key} onClick={() => save(key, { reset: true }, label)}>Use the Default</button>}
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--nx-own)', flexShrink: 0 }} aria-hidden="true" />
+      This company has a rule of its own.
+      <button type="button" className="secondary-btn" style={{ fontSize: 11.5 }} disabled={busy || resetting === key} onClick={() => backToDefault(key)}>Use the Default</button>
     </>
   ) : null);
 
   if (err) return <ErrorLine text={err} onRetry={load} />;
-  if (!cfg) return <SkeletonBlocks count={3} height={64} borderRadius={12} />;
-  const { rounding, autoLunch, breakPolicy } = cfg;
+  if (!cfg || !draft) return <SkeletonBlocks count={3} height={64} borderRadius={12} />;
+  const { rounding, autoLunch, breakPolicy } = draft;
   return (
     <div>
-      <PolicyCard id="rounding" title="Punch Rounding" busy={busy === 'rounding'} enabled={rounding.enabled} foot={foot('rounding', rounding, 'Punch rounding')}
+      <PolicyCard id="rounding" title="Punch Rounding" busy={resetting === 'rounding'} enabled={rounding.enabled} foot={foot('rounding', cfg.rounding)}
         desc={`Round every clock-in and clock-out to the nearest ${rounding.nearestMin || 5} minutes before computing hours (SwipeClock's model; the raw times stay on record and can be shown on the time sheet). Off by default - turn it on only if the company has a rounding policy.`}
-        onToggle={on => save('rounding', { enabled: on, nearestMin: rounding.nearestMin || 5 }, 'Punch rounding')}>
-        <PolicyNumber label="Nearest" min={1} max={30} value={rounding.nearestMin}
-          onChange={v => setCfg(c => ({ ...c, rounding: { ...c.rounding, nearestMin: v } }))} />
-        {changed('rounding', ['nearestMin']) && (
-          <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={busy === 'rounding'}
-            onClick={() => save('rounding', { enabled: true, nearestMin: Math.min(30, Math.max(1, num(rounding.nearestMin, 5))) }, 'Punch rounding')}>Save</button>
-        )}
+        onToggle={on => edit('rounding', { enabled: on })}>
+        <PolicyNumber label="Nearest" min={1} max={30} value={rounding.nearestMin} onChange={v => edit('rounding', { nearestMin: v })} />
       </PolicyCard>
-      <PolicyCard id="auto-lunch" title="Auto-Lunch Deduction" busy={busy === 'autoLunch'} enabled={autoLunch.enabled} foot={foot('autoLunch', autoLunch, 'Auto-lunch')}
+      <PolicyCard id="auto-lunch" title="Auto-Lunch Deduction" busy={resetting === 'autoLunch'} enabled={autoLunch.enabled} foot={foot('autoLunch', cfg.autoLunch)}
         desc={`Deduct ${autoLunch.deductMin} minutes of lunch from any shift longer than ${Math.round((autoLunch.afterMin || 0) / 60 * 10) / 10} hours that has no recorded break (the person forgot to clock lunch).`}
-        onToggle={on => save('autoLunch', { enabled: on, afterMin: num(autoLunch.afterMin, 360), deductMin: num(autoLunch.deductMin, 30) }, 'Auto-lunch')}>
-        <PolicyNumber label="Shifts over" min={0} max={1440} value={autoLunch.afterMin}
-          onChange={v => setCfg(c => ({ ...c, autoLunch: { ...c.autoLunch, afterMin: v } }))} />
-        <PolicyNumber label="Deduct" min={0} max={240} value={autoLunch.deductMin}
-          onChange={v => setCfg(c => ({ ...c, autoLunch: { ...c.autoLunch, deductMin: v } }))} />
-        {changed('autoLunch', ['afterMin', 'deductMin']) && (
-          <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={busy === 'autoLunch'}
-            onClick={() => save('autoLunch', { enabled: true, afterMin: num(autoLunch.afterMin, 360), deductMin: num(autoLunch.deductMin, 30) }, 'Auto-lunch')}>Save</button>
-        )}
+        onToggle={on => edit('autoLunch', { enabled: on })}>
+        <PolicyNumber label="Shifts over" min={0} max={1440} value={autoLunch.afterMin} onChange={v => edit('autoLunch', { afterMin: v })} />
+        <PolicyNumber label="Deduct" min={0} max={240} value={autoLunch.deductMin} onChange={v => edit('autoLunch', { deductMin: v })} />
       </PolicyCard>
-      <PolicyCard id="ca-breaks" title="California Paid Rest Breaks" busy={busy === 'breakPolicy'} enabled={breakPolicy.enabled} foot={foot('breakPolicy', breakPolicy, 'CA paid breaks')}
+      <PolicyCard id="ca-breaks" title="California Paid Rest Breaks" busy={resetting === 'breakPolicy'} enabled={breakPolicy.enabled} foot={foot('breakPolicy', cfg.breakPolicy)}
         desc={`Pay the first ${breakPolicy.paidBreakMin} minutes of each short break (up to ${breakPolicy.restMaxMin} minutes long) - one per 4 hours worked, as California requires. Meal-length breaks stay unpaid. Only employees on the California overtime rule; the long-break flags are always on.`}
-        onToggle={on => save('breakPolicy', { ...breakPolicy, enabled: on, paidBreakMin: num(breakPolicy.paidBreakMin, 10), restMaxMin: num(breakPolicy.restMaxMin, 20), longBreakMin: num(breakPolicy.longBreakMin, 75) }, 'CA paid breaks')}>
-        <PolicyNumber label="Paid per break" min={0} max={60} value={breakPolicy.paidBreakMin}
-          onChange={v => setCfg(c => ({ ...c, breakPolicy: { ...c.breakPolicy, paidBreakMin: v } }))} />
-        <PolicyNumber label="Rest break up to" min={1} max={120} value={breakPolicy.restMaxMin}
-          onChange={v => setCfg(c => ({ ...c, breakPolicy: { ...c.breakPolicy, restMaxMin: v } }))} />
-        <PolicyNumber label="Flag breaks over" min={15} max={600} value={breakPolicy.longBreakMin}
-          onChange={v => setCfg(c => ({ ...c, breakPolicy: { ...c.breakPolicy, longBreakMin: v } }))} />
-        {changed('breakPolicy', ['paidBreakMin', 'restMaxMin', 'longBreakMin']) && (
-          <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={busy === 'breakPolicy'}
-            onClick={() => save('breakPolicy', { enabled: true, paidBreakMin: num(breakPolicy.paidBreakMin, 10), restMaxMin: num(breakPolicy.restMaxMin, 20), longBreakMin: num(breakPolicy.longBreakMin, 75) }, 'CA paid breaks')}>Save</button>
-        )}
+        onToggle={on => edit('breakPolicy', { enabled: on })}>
+        <PolicyNumber label="Paid per break" min={0} max={60} value={breakPolicy.paidBreakMin} onChange={v => edit('breakPolicy', { paidBreakMin: v })} />
+        <PolicyNumber label="Rest break up to" min={1} max={120} value={breakPolicy.restMaxMin} onChange={v => edit('breakPolicy', { restMaxMin: v })} />
+        <PolicyNumber label="Flag breaks over" min={15} max={600} value={breakPolicy.longBreakMin} onChange={v => edit('breakPolicy', { longBreakMin: v })} />
       </PolicyCard>
+      <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} style={{ margin: 0, padding: '12px 18px' }}
+        note={company ? 'A rule saved here is this company\'s own.' : 'Saved rules shape every time sheet from then on.'} />
     </div>
   );
 }

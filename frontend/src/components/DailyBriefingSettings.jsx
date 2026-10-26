@@ -63,7 +63,7 @@ export default function DailyBriefingSettings() {
   if (!can('administrator')) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>
-        Global-Admin access is required to view Daily Briefing settings.
+        Administrator access is required to view Daily Briefing settings.
       </div>
     );
   }

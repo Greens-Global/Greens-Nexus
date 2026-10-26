@@ -8,6 +8,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, X, Check, MessageSquare, Search, ChevronUp, ChevronDown, Pencil, Hash, CloudRain, CalendarDays } from 'lucide-react';
 import { api } from '../../api';
+import { useDraft } from '../../lib/useDraft';
+import { useGroupDirty } from '../../lib/groupDirty';
+import SaveRow from '../../components/SaveRow';
 import TeamsTargetPicker from '../TeamsTargetPicker';
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../UnsavedChangesPrompt';
@@ -200,9 +203,17 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
   // Sticky across reloads so the picker stays put while a company loads.
   const [canPick, setCanPick] = useState(false);
   const [companies, setCompanies] = useState([]);
-  const [graceDraft, setGraceDraft] = useState(null);   // null = not being typed
   const failed = useRef('');
   const me = useRef({});
+  // The typed numbers of the part(s) on screen are one form (the Settings
+  // save pattern, Oct 23): a draft beside the saved values and one Save row
+  // at the foot; only the keys that changed go to the API. Switches and
+  // selects save the moment they change. Each part drafts only its own
+  // numbers, so a sibling group's save never wipes this one's edits.
+  const numKeys = NUM_KEYS.filter((k) => !part || SHIFT_SETTING_PARTS[part].includes(k));
+  const { draft: nums, patch: patchNum, dirty: numsDirty, reset: resetNums } = useDraft(cfg ? numbersOf(cfg, numKeys) : null);
+  useGroupDirty(numsDirty);
+  const [savingNums, setSavingNums] = useState(false);
   useEffect(() => {
     let live = true;
     setError(null);
@@ -233,7 +244,6 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
     return () => window.removeEventListener(SAVED_EVENT, on);
   }, [company]);
   const tell = (detail) => window.dispatchEvent(new CustomEvent(SAVED_EVENT, { detail: { company, from: me.current, ...detail } }));
-  const graceShown = graceDraft ?? String(cfg?.defaultGraceMin ?? 10);
   const companyName = companyNameOf(companies, company);
   // Only the key(s) that changed go to the API: a company's override stays
   // sparse (the server stores what differs from the tenant and says whether
@@ -255,16 +265,23 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
       loadShiftSettings(company).then((r) => { if (r) setCfg(r); }).catch(() => {});
     }
   }
-  function saveGrace() {
-    if (graceDraft === null) return;
-    const typed = Number(graceDraft);
-    setGraceDraft(null);
-    if (graceDraft.trim() === '' || !Number.isFinite(typed)) return;
-    const n = Math.max(0, Math.min(120, Math.round(typed)));
-    if (n !== (cfg.defaultGraceMin ?? 10)) save({ defaultGraceMin: n });
+  async function saveNums() {
+    const patch = {};
+    const was = numbersOf(cfg, numKeys);
+    for (const k of numKeys) {
+      const typed = String(nums?.[k] ?? '').trim();
+      if (typed === was[k]) continue;
+      const n = Number(typed);
+      if (typed === '' || !Number.isFinite(n)) continue;
+      patch[k] = Math.max(0, Math.min(NUM_MAX[k], Math.round(n)));
+    }
+    if (!Object.keys(patch).length) { resetNums(); return; }
+    setSavingNums(true);
+    await save(patch);
+    setSavingNums(false);
   }
   async function useDefaults() {
-    const ok = await dialog.confirm(`Drop the shift settings ${companyName} has of its own? It then follows the default settings, and whatever changes there.`, { title: 'Use the Defaults', confirmText: 'Use the Defaults' });
+    const ok = await dialog.confirm(`Drop the shift settings ${companyName} has of its own? It then follows the default settings, and whatever changes there.`, { title: 'Use the Default', confirmText: 'Use the Default' });
     if (!ok) return;
     try { await api.shiftRequestSettingsReset(company); toastOk?.(`${companyName} now uses the default settings.`); setTick((t) => t + 1); tell({ reload: true }); }
     catch (e) { toastErr?.(e?.message || 'Could not drop the settings.'); }
@@ -292,7 +309,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                     ? `${companyName} has its own settings. Changes ${part ? 'in any shift group' : 'here'} apply to ${companyName} only.`
                     : `Using the default settings. Changing anything here saves settings for ${companyName} only.`}
                 </span>
-                {cfg.hasOverride && <button type="button" className="link-btn" onClick={useDefaults} style={{ marginTop: 0, color: 'var(--wk-brand)' }}>Use the Defaults</button>}
+                {cfg.hasOverride && <button type="button" className="link-btn" onClick={useDefaults} style={{ marginTop: 0, color: 'var(--wk-brand)' }}>Use the Default</button>}
               </div>
             )}
             {block('requests', 'Requests And Visibility', (
@@ -322,28 +339,28 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                     </select>
                   )} />
                 <SettingRow title="Default Grace" desc="Late starts this many minutes after the shift start for a shift with no shift type. A shift type carries its own grace."
-                  control={<NumberBox label="Default grace" min={0} max={120} unit="minutes" value={graceShown} onChange={setGraceDraft} onBlur={saveGrace} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />} />
+                  control={<NumberBox label="Default grace" min={0} max={120} unit="minutes" value={nums?.defaultGraceMin ?? ''} onChange={(v) => patchNum({ defaultGraceMin: v })} />} />
               </>
             ))}
             {block('attendance', 'Attendance', (
               <>
-                <MinutesField label="No-Show Alert" aria="No-show alert" value={cfg.noShowAlertMin} fallback={10} onSave={(n) => save({ noShowAlertMin: n })}
+                <MinutesField label="No-Show Alert" aria="No-show alert" value={nums?.noShowAlertMin} fallback={10} onChange={(v) => patchNum({ noShowAlertMin: v })}
                   hint="Tells the person's manager, their backup manager and the team's schedulers when a shared shift has started, the grace has passed, and this many minutes have gone by with no clock-in. The alert always lands inside the six hours after the start. 0 turns it off." />
                 <SwitchRow id="shift-noShowOnUsualHours" nested title="Alert for usual hours too" checked={cfg.noShowOnUsualHours === true} onChange={(on) => save({ noShowOnUsualHours: on })}
                   desc="Also alerts for office staff who have usual hours but no shift on the schedule that day. Time off and holidays excuse those." />
-                <MinutesField label="Left Early" aria="Left early" value={cfg.leftEarlyMin} fallback={15} onSave={(n) => save({ leftEarlyMin: n })}
+                <MinutesField label="Left Early" aria="Left early" value={nums?.leftEarlyMin} fallback={15} onChange={(v) => patchNum({ leftEarlyMin: v })}
                   hint="Clocking out this many minutes before the shift's end counts as leaving early on the schedule." />
                 {/* Stalled Time Sheet escalation (Oct 19 2026, timesheet_alerts.py). */}
                 <MinutesField label="Escalate Unapproved Time Sheets After (Days)" aria="Escalate unapproved time sheets after" unit="days" max={30}
-                  value={cfg.timesheetEscalateDays} fallback={2} onSave={(n) => save({ timesheetEscalateDays: n })}
+                  value={nums?.timesheetEscalateDays} fallback={2} onChange={(v) => patchNum({ timesheetEscalateDays: v })}
                   hint="Days after a pay period ends before a time sheet still waiting on its approver is sent up to the approver's own manager, or else the company's HR contact. 0 turns it off." />
                 {/* A break that never ended (Oct 20 2026, break_watch.py). */}
                 <MinutesField label="Still on Break Reminder" aria="Still on break reminder" max={240}
-                  value={cfg.breakNudgeMin} fallback={60} onSave={(n) => save({ breakNudgeMin: n })}
+                  value={nums?.breakNudgeMin} fallback={60} onChange={(v) => patchNum({ breakNudgeMin: v })}
                   hint="Minutes on a break that has not ended before the person is asked if they are still on break. Their manager hears at twice this. 0 turns it off." />
                 {/* California meal reminder (Charmi + Neil, Oct 20 2026, meal_watch.py). */}
                 <MinutesField label={`Meal Reminder: Send at ${mealHours(cfg.mealReminderMin ?? 270)}`} aria="Meal reminder" max={295}
-                  value={cfg.mealReminderMin} fallback={270} onSave={(n) => save({ mealReminderMin: n })}
+                  value={nums?.mealReminderMin} fallback={270} onChange={(v) => patchNum({ mealReminderMin: v })}
                   hint="Minutes of work in a day before people who work in California (hourly and salaried, with time tracking) are reminded to take their 30-minute meal break before the 5th hour. Not sent once they have taken a 30-minute meal, are on a break or have clocked out. 0 turns it off." />
               </>
             ))}
@@ -352,9 +369,9 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
                 {/* Live overtime alert (Oct 17 2026, overtime_watch.py). */}
                 <SwitchRow id="shift-otAlertOn" title="Alert managers before overtime" checked={cfg.otAlertOn === true} onChange={(on) => save({ otAlertOn: on })}
                   desc="Off unless turned on here. Tells the person's manager and their backup manager once, from the actual punches, when someone clocked in is about to reach overtime." />
-                <MinutesField nested muted={cfg.otAlertOn !== true} label="Daily Overtime Warning" aria="Daily overtime warning" value={cfg.otAlertDailyLeadMin} fallback={30} onSave={(n) => save({ otAlertDailyLeadMin: n })}
+                <MinutesField nested muted={cfg.otAlertOn !== true} label="Daily Overtime Warning" aria="Daily overtime warning" value={nums?.otAlertDailyLeadMin} fallback={30} onChange={(v) => patchNum({ otAlertDailyLeadMin: v })}
                   hint="Minutes before 8 worked hours in a day. People on the California overtime rule only. 0 turns it off." />
-                <MinutesField nested muted={cfg.otAlertOn !== true} label="Weekly Overtime Warning" aria="Weekly overtime warning" max={480} value={cfg.otAlertWeeklyLeadMin} fallback={120} onSave={(n) => save({ otAlertWeeklyLeadMin: n })}
+                <MinutesField nested muted={cfg.otAlertOn !== true} label="Weekly Overtime Warning" aria="Weekly overtime warning" max={480} value={nums?.otAlertWeeklyLeadMin} fallback={120} onChange={(v) => patchNum({ otAlertWeeklyLeadMin: v })}
                   hint="Minutes before 40 hours of regular time in a payroll week (Sunday to Saturday). 0 turns it off." />
               </>
             ))}
@@ -366,15 +383,15 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
             {block('rules', 'Rules', (
               <>
                 <div className="nx-set-note" style={{ borderTop: 'none', borderBottom: '1px solid var(--line)' }}>0 turns a rule off. Rules warn on the schedule; they never block.</div>
-                <MinutesField label="Minimum Rest Between Shifts" aria="Minimum rest between shifts" unit="hours" max={24} value={cfg.ruleMinRestHours} fallback={0} onSave={(n) => save({ ruleMinRestHours: n })}
+                <MinutesField label="Minimum Rest Between Shifts" aria="Minimum rest between shifts" unit="hours" max={24} value={nums?.ruleMinRestHours} fallback={0} onChange={(v) => patchNum({ ruleMinRestHours: v })}
                   hint="Warns when someone's next shift starts sooner than this after their last one ends." />
-                <MinutesField label="Most Days In A Row" aria="Most days in a row" unit="days" max={14} value={cfg.ruleMaxDaysInRow} fallback={0} onSave={(n) => save({ ruleMaxDaysInRow: n })}
+                <MinutesField label="Most Days In A Row" aria="Most days in a row" unit="days" max={14} value={nums?.ruleMaxDaysInRow} fallback={0} onChange={(v) => patchNum({ ruleMaxDaysInRow: v })}
                   hint="Warns when someone is scheduled more days in a row than this." />
-                <MinutesField label="Daily Overtime After" aria="Daily overtime after" unit="hours" max={24} value={cfg.ruleDailyOtHours} fallback={0} onSave={(n) => save({ ruleDailyOtHours: n })}
+                <MinutesField label="Daily Overtime After" aria="Daily overtime after" unit="hours" max={24} value={nums?.ruleDailyOtHours} fallback={0} onChange={(v) => patchNum({ ruleDailyOtHours: v })}
                   hint="California daily overtime; applies to people on the California overtime rule. Someone with no payroll rate follows their country: US people get the California rule, everyone else has no overtime rules." />
-                <MinutesField label="Weekly Overtime After" aria="Weekly overtime after" unit="hours" max={80} value={cfg.ruleWeeklyOtHours} fallback={0} onSave={(n) => save({ ruleWeeklyOtHours: n })}
+                <MinutesField label="Weekly Overtime After" aria="Weekly overtime after" unit="hours" max={80} value={nums?.ruleWeeklyOtHours} fallback={0} onChange={(v) => patchNum({ ruleWeeklyOtHours: v })}
                   hint="Warns when the hours scheduled in the payroll week, Sunday to Saturday, pass this - whatever day the grid starts on." />
-                <MinutesField label="Most Hours Per Week" aria="Most hours per week" unit="hours" max={100} value={cfg.ruleMaxWeekHours} fallback={0} onSave={(n) => save({ ruleMaxWeekHours: n })}
+                <MinutesField label="Most Hours Per Week" aria="Most hours per week" unit="hours" max={100} value={nums?.ruleMaxWeekHours} fallback={0} onChange={(v) => patchNum({ ruleMaxWeekHours: v })}
                   hint="Warns when the hours scheduled in the week shown on the grid pass this. Applies to everyone." />
                 <SwitchRow id="shift-publishReasonRequired" title="Require a reason to share a schedule that has warnings" checked={cfg.publishReasonRequired === true} onChange={(on) => save({ publishReasonRequired: on })}
                   desc={`Rule warnings, approved time off and holidays ask for it; a pending request, availability or an overlap only shows. Managers see the reason in the history of the shifts it applies to. A company that does not want to be asked turns this off here${reasonHint}.`} />
@@ -397,6 +414,11 @@ export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverr
               </>
             ))}
             {!company && !part && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Time-off reasons are under Time &amp; Pay &gt; Time-Off Reasons.</div>}
+            {numKeys.length > 0 && (
+              <SaveRow dirty={numsDirty} busy={savingNums} onSave={saveNums} onDiscard={resetNums}
+                style={part ? { margin: 0, padding: '12px 18px' } : { marginTop: 2 }}
+                note={part ? undefined : 'Switches and lists save as you go; the numbers above save together.'} />
+            )}
           </div>
         )}
       </AsyncSection>
@@ -440,9 +462,8 @@ export function CalendarSyncStatus() {
   );
 }
 
-// A minutes field that saves on blur or Enter, clamped to 0-`max` - the
-// Default Grace idiom (Shifts Phase 1: the attendance thresholds; Phase 2:
-// the rules, in hours or days).
+// A minutes field of the numbers form, clamped to 0-`max` on Save (Shifts
+// Phase 1: the attendance thresholds; Phase 2: the rules, in hours or days).
 // 270 -> "4.5 Hours", 240 -> "4 Hours", 0 -> "Off" (the meal reminder's label).
 function mealHours(min) {
   const n = Number(min) || 0;
@@ -451,23 +472,29 @@ function mealHours(min) {
   return `${h} ${h === 1 ? 'Hour' : 'Hours'}`;
 }
 
-function MinutesField({ label, aria, value, fallback, max = 240, unit = 'minutes', hint, onSave, nested = false, muted = false }) {
-  const [draft, setDraft] = useState(null);   // null = not being typed
-  const current = value ?? fallback;
-  function commit() {
-    if (draft === null) return;
-    const typed = Number(draft);
-    setDraft(null);
-    if (draft.trim() === '' || !Number.isFinite(typed)) return;
-    const n = Math.max(0, Math.min(max, Math.round(typed)));
-    if (n !== current) onSave(n);
-  }
-  // A setting row (Oct 25): the box sits on the right with its unit after it,
-  // never squeezed under it (the unit used to run over Daily Overtime After).
+// The numeric keys of the shift settings, with the most each accepts - one
+// form, saved together by the Save row (Oct 23; each used to save on blur).
+const NUM_MAX = {
+  defaultGraceMin: 120, noShowAlertMin: 240, leftEarlyMin: 240, timesheetEscalateDays: 30, breakNudgeMin: 240, mealReminderMin: 295,
+  otAlertDailyLeadMin: 240, otAlertWeeklyLeadMin: 480,
+  ruleMinRestHours: 24, ruleMaxDaysInRow: 14, ruleDailyOtHours: 24, ruleWeeklyOtHours: 80, ruleMaxWeekHours: 100,
+};
+const NUM_DEFAULT = {
+  defaultGraceMin: 10, noShowAlertMin: 10, leftEarlyMin: 15, timesheetEscalateDays: 2, breakNudgeMin: 60, mealReminderMin: 270,
+  otAlertDailyLeadMin: 30, otAlertWeeklyLeadMin: 120,
+  ruleMinRestHours: 0, ruleMaxDaysInRow: 0, ruleDailyOtHours: 0, ruleWeeklyOtHours: 0, ruleMaxWeekHours: 0,
+};
+const NUM_KEYS = Object.keys(NUM_MAX);
+// What the boxes show, as text: the saved value, else the default - so a
+// default typed back in is no change, and a blank box saves nothing.
+const numbersOf = (cfg, keys = NUM_KEYS) => Object.fromEntries(keys.map((k) => [k, String(cfg?.[k] ?? NUM_DEFAULT[k])]));
+
+// A setting row (Oct 25): the box sits on the right with its unit after it,
+// never squeezed under it (the unit used to run over Daily Overtime After).
+function MinutesField({ label, aria, value, fallback, max = 240, unit = 'minutes', hint, onChange, nested = false, muted = false }) {
   return (
     <SettingRow title={label} desc={hint} nested={nested} muted={muted}
-      control={<NumberBox label={aria} min={0} max={max} unit={unit} value={draft ?? String(current)} onChange={setDraft} onBlur={commit}
-        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />} />
+      control={<NumberBox label={aria} min={0} max={max} unit={unit} value={value ?? String(fallback)} onChange={onChange} />} />
   );
 }
 

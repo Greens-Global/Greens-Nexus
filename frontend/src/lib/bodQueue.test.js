@@ -114,3 +114,31 @@ describe('replayPendingBods', () => {
     expect(timeBodRecord).toHaveBeenCalledTimes(1);
   });
 });
+
+// Miranda (Oct 26): the BOD got a 401 (sign-in expired while the tab sat
+// open), api.js sent the page to sign in, and the message was gone.
+describe('a sign-in that expired while the tab sat open', () => {
+  it('keeps a message that got a 401 parked, without retrying, and replays it after sign-in', async () => {
+    timeBodRecord.mockRejectedValue(httpErr(401, 'Not signed in'));
+    const r = await run(() => bodDurable({ kind: 'bod', message: 'morning', html: 'x' }));
+    expect(r.ok).toBe(false);
+    expect(r.queued).toBe(true);
+    expect(timeBodRecord).toHaveBeenCalledTimes(1);
+    expect(readPendingBods()).toHaveLength(1);
+    timeBodRecord.mockReset().mockResolvedValue({ ok: true });
+    const out = await replayPendingBods();
+    expect(out.sent).toBe(1);
+    expect(timeBodRecord.mock.calls[0][0].id).toBe(r.id);
+    expect(readPendingBods()).toEqual([]);
+  });
+
+  it('is parked while it is being sent, so a page that leaves mid-send keeps it', async () => {
+    let answer;
+    timeBodRecord.mockImplementation(() => new Promise((res) => { answer = res; }));
+    const p = bodDurable({ kind: 'bod', message: 'morning', html: 'x' });
+    expect(readPendingBods()).toHaveLength(1);
+    answer({ ok: true });
+    expect((await p).ok).toBe(true);
+    expect(readPendingBods()).toEqual([]);
+  });
+});

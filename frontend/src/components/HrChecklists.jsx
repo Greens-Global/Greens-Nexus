@@ -16,6 +16,7 @@
 // ticks steps it can see for itself (a finished provisioning run, a signed
 // envelope, a status change) - this file only shows and edits them.
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useGroupDirty } from '../lib/groupDirty';
 import {
   ListChecks, CheckCircle2, Circle, MinusCircle, AlertTriangle, CalendarDays,
   Pencil, X, ChevronDown, ChevronRight, Sparkles, Play, RotateCcw, Plus,
@@ -1202,6 +1203,7 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, 
   const [editIdx, setEditIdx] = useState(-1);
   const [picked, setPicked] = useState(() => new Set());   // row indexes ticked for a bulk action
   const touch = () => { setDirty(true); };
+  useGroupDirty(dirty);
   const set = (i, patch) => { setRows(r => r.map((x, j) => j === i ? { ...x, ...patch } : x)); touch(); };
   const move = (i, d) => { setRows(r => { const n = [...r]; const t = n[i]; n[i] = n[i + d]; n[i + d] = t; return n; }); setEditIdx(i + d); setPicked(new Set()); touch(); };
   const remove = (i) => { setRows(x => x.filter((_, j) => j !== i)); setEditIdx(-1); setPicked(new Set()); touch(); };
@@ -1485,13 +1487,14 @@ function TaskPlaceCard({ entityId, kinds, toastOk, toastErr }) {
   useEffect(() => {
     api.getChecklistTaskPlace(entityId).then(d => { setData(d); setDraft(placeDraft(d.place)); }).catch(() => setData(false));
   }, [entityId]);
+  const dirty = !!data && !!draft && JSON.stringify(placeOut(draft)) !== JSON.stringify(placeOut(placeDraft(data.place)));
+  useGroupDirty(dirty);
   if (data === null) return <SkeletonBlocks count={1} height={110} />;
   if (data === false) return <div style={{ ...card, padding: 18, marginBottom: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load where checklist tasks go.</div>;
   const projects = data.projects || [];
   const auto = data.auto;
   const pick = k => (draft.perKind ? draft[k] : draft.default);
   const target = k => (pick(k).projectId ? pick(k) : { projectId: auto?.projectId || '', sectionId: '' });
-  const dirty = JSON.stringify(placeOut(draft)) !== JSON.stringify(placeOut(placeDraft(data.place)));
   const moving = (data.openTasks || []).filter(t => { const p = target(t.kind); return t.projectId !== p.projectId || t.sectionId !== (p.sectionId || ''); }).length;
   const setPick = (k, v) => setDraft(d => ({ ...d, [k]: { ...d[k], ...v } }));
   async function save() {
@@ -1693,7 +1696,9 @@ function BaselineCard({ companyName, entityId, templates, kinds, meta, onCopy, o
   );
 }
 
-export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartments, toastOk, toastErr }) {
+// `embedded` (Settings, Oct 23): the group card already carries the title and
+// the description, so the header here is skipped and only its button stays.
+export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartments, toastOk, toastErr, embedded = false }) {
   const [loaded, setLoaded] = useState({ entityId: null, templates: null });
   const [kind, setKind] = useState('onboarding');
   const [meta, setMeta] = useState(null);
@@ -1715,21 +1720,28 @@ export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartme
   const companyName = entityId ? (entities.find(e => e.id === entityId)?.name || 'This company') : '';
   return (
     <div style={{ fontFamily: FONT }}>
-      {/* What these settings apply to, stated once at the top. */}
-      <section style={{ ...card, padding: '14px 18px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-        <span className="dk-chip dk-chip--brand"><ListChecks /></span>
-        <div style={{ flex: '1 1 260px', minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>{entityId ? `Checklists For ${companyName}` : 'Checklist Library'}</div>
-          <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
-            {entityId
-              ? 'Each role builds its own onboarding, promotion, offboarding and leave steps (People & Access > Roles > a role > Checklists). Below: the baseline steps every hire gets first, whatever the role, then which roles are built and what is still missing.'
-              : 'The standard steps every new checklist starts with, whatever the role. Each role\'s own steps are built on the role (People & Access, with the company picked > Roles > a role > Checklists).'}
-          </div>
-        </div>
-        {!entityId && entities.length > 0 && (
+      {/* What these settings apply to, stated once at the top - or, embedded
+          in a Settings group that already says it, only the copy button. */}
+      {embedded ? (!entityId && entities.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
           <button onClick={() => setCopying('to')} style={ghostBtn}><Copy size={13} /> Copy To Companies…</button>
-        )}
-      </section>
+        </div>
+      )) : (
+        <section style={{ ...card, padding: '14px 18px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <span className="dk-chip dk-chip--brand"><ListChecks /></span>
+          <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>{entityId ? `Checklists For ${companyName}` : 'Checklist Library'}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
+              {entityId
+                ? 'Each role builds its own onboarding, promotion, offboarding and leave steps (People & Access > Roles > a role > Checklists). Below: the baseline steps every hire gets first, whatever the role, then which roles are built and what is still missing.'
+                : 'The standard steps every new checklist starts with, whatever the role. Each role\'s own steps are built on the role (People & Access, with the company picked > Roles > a role > Checklists).'}
+            </div>
+          </div>
+          {!entityId && entities.length > 0 && (
+            <button onClick={() => setCopying('to')} style={ghostBtn}><Copy size={13} /> Copy To Companies…</button>
+          )}
+        </section>
+      )}
 
       {entityId
         ? <DepartmentOwnersCard key={entityId} entityId={entityId} people={people} onOpenDepartments={onOpenDepartments} onTicked={loadMeta} toastOk={toastOk} toastErr={toastErr} />
@@ -1890,7 +1902,7 @@ function RoleAudit({ entityId, companyName, kinds, toastOk, toastErr }) {
 // Global Settings > Hiring > Checklist Library: the standard steps.
 export function ChecklistLibrary({ toastOk, toastErr }) {
   const { data: entities = [] } = useEntities();
-  return <ChecklistSettings entityId="" entities={entities} toastOk={toastOk} toastErr={toastErr} />;
+  return <ChecklistSettings entityId="" entities={entities} toastOk={toastOk} toastErr={toastErr} embedded />;
 }
 
 // --- Team > Role Checklists (Neil, Oct 19) ----------------------------------

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { CloudRain, Check, Play, Building2 } from 'lucide-react';
 import { api } from '../../api';
+import { useGroupDirty } from '../../lib/groupDirty';
+import SaveRow from '../../components/SaveRow';
 import AsyncSection, { Spinner, SkeletonBlocks } from '../AsyncState';
-import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
-import UnsavedChangesPrompt from '../UnsavedChangesPrompt';
 import { formatDateTime } from '../../lib/datetime';
 
 // Settings > Global Settings > Shifts > Weather Alerts (Weather Call,
@@ -76,7 +76,7 @@ export default function WeatherSettingsPanel({ toastOk, toastErr, company = '' }
     } catch (e) { toastErr?.(e?.message || 'The check could not run.'); }
     setChecking(false);
   }
-  const guard = useUnsavedGuard(dirty, () => { setForm(JSON.parse(baseline.current)); }, save);
+  useGroupDirty(dirty);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const num = (k) => (e) => set(k, e.target.value === '' ? '' : Number(e.target.value));
 
@@ -148,19 +148,13 @@ export default function WeatherSettingsPanel({ toastOk, toastErr, company = '' }
           </div>
           </>)}
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 5 }}><CloudRain size={11} /> Forecast by Open-Meteo. Warnings by the National Weather Service (US sites).</div>
+          <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={() => setForm(JSON.parse(baseline.current))} style={{ marginTop: 4 }}
+            note={data.lastAdvisoryAt ? `Last notice sent ${formatDateTime(data.lastAdvisoryAt)}.` : 'No notice has been sent yet.'}>
             <button type="button" className="secondary-btn" onClick={checkNow} disabled={checking || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               {checking ? <Spinner size={13} /> : <Play size={13} />} Check Now
             </button>
-            <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1 }}>
-              {data.lastAdvisoryAt ? `Last notice sent ${formatDateTime(data.lastAdvisoryAt)}.` : 'No notice has been sent yet.'}
-            </span>
-            <button type="button" className="primary-btn" onClick={save} disabled={busy || !dirty} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {busy ? <Spinner size={13} /> : <Check size={13} />} Save
-            </button>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 5 }}><CloudRain size={11} /> Forecast by Open-Meteo. Warnings by the National Weather Service (US sites).</div>
-          {guard.confirming && <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={() => setForm(JSON.parse(baseline.current))} onSave={guard.saveAndClose} saving={guard.saving || busy} />}
+          </SaveRow>
         </div>
       )}
     </AsyncSection>
