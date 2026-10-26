@@ -126,8 +126,14 @@ const BASE_TABS = [
         rpt('pnl-t12', 'T12', TrendingUp),
         rpt('pnl-ytd-py', 'YTD vs. Prior Year', TrendingUp),
         rpt('pnl-mom', 'This Month vs. Last Month', TrendingUp),
+        // 10/27 item 16 (Charmi; Neil: "Income Statement - not Profit & Loss").
+        rpt('pnl-customer', 'Income Statement by Customer', Users),
+        rpt('pnl-job', 'Income Statement by Job', Hammer),
+        rpt('pnl-department', 'Income Statement by Department', Building2),
       ] },
       rpt('general-ledger', 'General Ledger', BookOpen),
+      // 10/27 item 17 (Charmi: "pull a report by vendor name").
+      rpt('vendor-spend', 'Spend by Vendor', Receipt),
       rpt('cash-flow', 'Statement of Cash Flows', ArrowLeftRight),
       rpt('cash-position', 'Cash Position', Wallet),
     ] },
@@ -162,6 +168,10 @@ const BASE_TABS = [
       { key: 'manual-je', label: 'Manual Journal Entries', Icon: UserPen },
       // Oct 15: per-entity NOI / net income / debt service vs prior year.
       { key: 'profitability', label: 'Profitability', Icon: ChartColumn },
+    ] },
+    // 10/27 item 18 (Neil, Viral): tax forms from the ledger - Schedule C first.
+    { key: 'grp-tax', label: 'Tax', Icon: Landmark, items: [
+      rpt('schedule-c', 'Schedule C (Draft)', FileText),
     ] },
   ] },
   // Oct 2 (Neil and Charmi): loans set up from the ledger and reviewed per

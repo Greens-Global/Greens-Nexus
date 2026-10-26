@@ -53,6 +53,6 @@ describe('report quick views', () => {
 
   it('knows only its own views', () => {
     expect(viewConfig('nope', now)).toBeNull();
-    expect(Object.keys(REPORT_VIEWS)).toEqual(['pnl-t12', 'pnl-ytd-py', 'pnl-mom', 'budget-ytd', 'budget-mtd']);
+    expect(Object.keys(REPORT_VIEWS)).toEqual(['pnl-t12', 'pnl-ytd-py', 'pnl-mom', 'budget-ytd', 'budget-mtd', 'pnl-customer', 'pnl-job', 'pnl-department']);
   });
 });

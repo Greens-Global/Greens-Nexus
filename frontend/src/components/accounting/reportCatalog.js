@@ -9,6 +9,15 @@ import { builderSummary, isBuilderConfig, isPublished } from './builderModel';
 
 // Statements of REPORTS the menu does not list on their own, and where they belong.
 const EXTRA_HOME = { pnl: 'grp-financial', budget: 'grp-budget' };
+// What a standard entry is, under its name (10/27 items 16-18).
+const DIM_ABOUT = (what, filter) => `One column per ${what} plus a Total, with the period, entity and export controls of the Income Statement. Filters > ${filter} limits which ones show.`;
+export const STANDARD_ABOUT = {
+  'rpt-pnl-customer': DIM_ABOUT('customer', 'Customer'),
+  'rpt-pnl-job': `${DIM_ABOUT('job (the Intacct Project dimension)', 'Project-Job')}`,
+  'rpt-pnl-department': DIM_ABOUT('department', 'Department'),
+  'rpt-vendor-spend': 'What each vendor was paid for: cost of sales and expense lines by vendor, by period, every amount a click from its lines. Search vendors by name or number.',
+  'rpt-schedule-c': 'Draft for review. Each entity\'s income statement accounts mapped to IRS Schedule C lines (Part I income, Part II expenses 8-27, lines 28-31), with an editable mapping kept in Nexus and unmapped accounts listed. Schedule E, Form 4562 (asset depreciation) and the 1040, 1120, 1120-S and 1065 returns come later.',
+};
 
 /** The menu's Reports group as catalogue rows: { key, label, group, groupKey }. */
 export function standardEntries(groups) {
@@ -16,7 +25,9 @@ export function standardEntries(groups) {
   const walk = (items, group, prefix) => items.forEach((t) => {
     if (t.items) { walk(t.items, group, [...prefix, t.label]); return; }
     if (t.key === 'reports') return;
-    out.push({ key: t.key, label: [...prefix, t.label].join(', '), group: group.label, groupKey: group.key });
+    // "Income Statement, Income Statement by Job" reads as the item's own name.
+    const label = prefix.length && t.label.startsWith(prefix[prefix.length - 1]) ? [...prefix.slice(0, -1), t.label].join(', ') : [...prefix, t.label].join(', ');
+    out.push({ key: t.key, label, group: group.label, groupKey: group.key, ...(STANDARD_ABOUT[t.key] ? { about: STANDARD_ABOUT[t.key] } : {}) });
   });
   groups.forEach((g) => (g.items ? walk(g.items, g, []) : null));
   const listed = new Set(out.map((e) => e.key));

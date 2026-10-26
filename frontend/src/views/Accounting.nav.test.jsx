@@ -168,14 +168,14 @@ describe('Accounting navigation', () => {
   it('groups Reports into flyouts, Report Center first', async () => {
     render(<Harness start="overview" />);
     fireEvent.click(await screen.findByRole('button', { name: /^Reports/ }));
-    expect(menuLabels('Reports')).toEqual(['Report Center', 'Financial', 'Banking & Credit Cards', 'Budget', 'Payroll & People', 'Audit & Insights']);
+    expect(menuLabels('Reports')).toEqual(['Report Center', 'Financial', 'Banking & Credit Cards', 'Budget', 'Payroll & People', 'Audit & Insights', 'Tax']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Report Center' }));
     expect(menuLabels('Report Center')).toEqual(['Report Center', 'Report Builder', 'Packages']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Financial' }));
     expect(screen.queryByRole('menu', { name: 'Report Center' })).toBeNull();
-    expect(menuLabels('Financial')).toEqual(['Balance Sheet', 'Trial Balance', 'Income Statement', 'General Ledger', 'Statement of Cash Flows', 'Cash Position', 'PFS']);
+    expect(menuLabels('Financial')).toEqual(['Balance Sheet', 'Trial Balance', 'Income Statement', 'General Ledger', 'Spend by Vendor', 'Statement of Cash Flows', 'Cash Position', 'PFS']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Income Statement' }));
-    expect(menuLabels('Income Statement')).toEqual(['T12', 'YTD vs. Prior Year', 'This Month vs. Last Month']);
+    expect(menuLabels('Income Statement')).toEqual(['T12', 'YTD vs. Prior Year', 'This Month vs. Last Month', 'Income Statement by Customer', 'Income Statement by Job', 'Income Statement by Department']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Banking & Credit Cards' }));
     expect(menuLabels('Banking & Credit Cards')).toEqual(['Credit Card Activity', 'Bank Activity']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Budget' }));
@@ -377,7 +377,7 @@ describe('Accounting navigation', () => {
     expect(screen.getByTestId('sub').textContent).toBe('reports');
     const center = await screen.findByTestId('tab-report-center');
     expect(screen.queryByTestId('tab-reports')).toBeNull();
-    expect(center.getAttribute('data-groups')).toBe('Report Center|Financial|Banking & Credit Cards|Budget|Payroll & People|Audit & Insights');
+    expect(center.getAttribute('data-groups')).toBe('Report Center|Financial|Banking & Credit Cards|Budget|Payroll & People|Audit & Insights|Tax');
     // A memorized report opened from the catalogue lands on its statement.
     fireEvent.click(screen.getByRole('button', { name: 'Open Memorized' }));
     expect(screen.getByTestId('sub').textContent).toBe('rpt-balance-sheet');
