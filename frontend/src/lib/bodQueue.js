@@ -19,6 +19,9 @@ import { api } from '../api';
 //      connection is back, or when the tab becomes visible again.
 //
 // A message the server REFUSED (4xx) is never parked - that is an answer.
+// A 401 is not one: the sign-in expired while the tab sat open and api.js is
+// sending the page to sign in (Miranda, Oct 26). The message is parked BEFORE
+// it is sent, so that redirect cannot take it, and replays after sign-in.
 
 const KEY = 'nexus:pendingBods';
 const ATTEMPTS = 3;
@@ -27,7 +30,7 @@ const ATTEMPTS = 3;
 const MAX_AGE_MS = 48 * 3600 * 1000;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-const isUnknownOutcome = (e) => !e?.status || e.status >= 500;
+const isUnknownOutcome = (e) => !e?.status || e.status === 401 || e.status >= 500;
 
 export function newBodId() {
   try { if (crypto?.randomUUID) return crypto.randomUUID(); } catch { /* fall through */ }
@@ -70,6 +73,8 @@ function unpark(id) {
  */
 export async function bodDurable(body) {
   const payload = { ...body, id: body.id || newBodId() };
+  // Parked first: the row id makes a replay of a message that did land harmless.
+  const queued = park({ id: payload.id, body: payload, queued_at: new Date().toISOString() });
   let lastErr = null;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     try {
@@ -78,11 +83,11 @@ export async function bodDurable(body) {
       return { ok: true, resp, id: payload.id };
     } catch (e) {
       lastErr = e;
-      if (!isUnknownOutcome(e)) return { ok: false, error: e, id: payload.id };   // a real refusal
+      if (!isUnknownOutcome(e)) { unpark(payload.id); return { ok: false, error: e, id: payload.id }; }   // a real refusal
+      if (e?.status === 401) break;   // signed out: stays parked for after sign-in
       if (attempt < ATTEMPTS) await sleep(700 * attempt);
     }
   }
-  const queued = park({ id: payload.id, body: payload, queued_at: new Date().toISOString() });
   return { ok: false, error: lastErr, unreachable: true, queued, id: payload.id };
 }
 

@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 
-const punchMock = vi.hoisted(() => ({ punchDurable: vi.fn(), replayPending: vi.fn(async () => null), readPending: vi.fn(() => null) }));
+const punchMock = vi.hoisted(() => ({ punchDurable: vi.fn(), holdPunch: vi.fn((_, run) => run()), signedIn: vi.fn(async () => true), replayPending: vi.fn(async () => null), readPending: vi.fn(() => null) }));
 const timeStatus = vi.hoisted(() => ({ status: null, applyPunch: vi.fn() }));
 vi.mock('../lib/useTimeStatus', () => ({ useTimeStatus: () => ({ status: timeStatus.status, reload: vi.fn() }), applyPunch: timeStatus.applyPunch }));
 vi.mock('../lib/punchQueue', () => punchMock);
