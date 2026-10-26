@@ -2829,6 +2829,16 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
   const isBreak = type === 'Break';
   // What's missing on this day and therefore addable (self can only ADD, not overwrite).
   const needIn = !seg?.inId, needOut = !seg?.outId;
+  // Which missing punch to add (Pranshu, Oct 26): each one is ticked to be
+  // added, so someone still at work asks for - or a manager adds - only the
+  // clock-in. Today starts with the clock-out unticked: it is still to come,
+  // and a time in the future is refused (Miranda, Oct 26: her 5 PM clock-out
+  // sank the whole request).
+  const nowInput = utcToInput(new Date().toISOString().slice(0, 19));
+  const isToday = day.date === nowInput.slice(0, 10);
+  const [addIn, setAddIn] = useState(true);
+  const [addOut, setAddOut] = useState(!isToday);
+  const hasIn = !needIn || addIn, hasOut = !needOut || addOut;   // a time the save ends up with
   // Type is offered when adding a whole block - a manager on any new pair, an
   // employee on a day they ask to add time to (Pranshu, Oct 13).
   const canAddBreak = !seg;
@@ -2841,7 +2851,19 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
   async function save(opts) {
     setErr('');
     const confirmLong = opts?.confirmLong === true;
-    if (!isBreak && !confirmLong) {
+    if (!isBreak && !(needIn && addIn) && !(needOut && addOut) && (self || !seg)) {
+      fail(self ? 'Tick Clock In or Clock Out - whichever you are asking for.' : 'Tick Clock In or Clock Out to add.'); return;
+    }
+    // A punch is never in the future (the server refuses it too): that one is
+    // still to come - leave it unticked and punch it as usual.
+    const ahead = (v) => Date.parse(`${inputToUtc(v)}Z`) > Date.now() + 5 * 60000;
+    if (isBreak ? ahead(inAt) || ahead(outAt) : (hasIn && ahead(inAt)) || (hasOut && ahead(outAt))) {
+      fail(!isBreak && hasOut && ahead(outAt) && !(hasIn && ahead(inAt))
+        ? 'That clock-out is still to come. Untick Clock Out and punch out as usual, or add it once it has happened.'
+        : 'A punch cannot be in the future.');
+      return;
+    }
+    if (!isBreak && !confirmLong && hasIn && hasOut) {
       const issue = checkTypedPunches([], [{ kind: 'in', at: inAt }, { kind: 'out', at: outAt }]);
       if (issue) { setLongWarn(issue); return; }
     }
@@ -2851,16 +2873,16 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     // defaulting to the in-time, leaving it unchanged trips this - forcing the real
     // time in - and it also catches a time accidentally typed into the reason field.
     const inRef = (seg?.inId && !needIn) ? utcToInput(seg.in) : inAt;
-    if (needOut && inRef && new Date(outAt) <= new Date(inRef)) {
+    if (needOut && addOut && hasIn && inRef && new Date(outAt) <= new Date(inRef)) {
       fail('Set the clock-out time - it has to be after the clock-in.'); return;
     }
     // ...and a clock-in added in front of an existing clock-out comes first (Oct 1).
-    if (needIn && !needOut && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out))) {
+    if (needIn && addIn && !needOut && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out))) {
       fail('Set the clock-in time - it has to be before the clock-out.'); return;
     }
     // Whichever side changed, the clock-out never ends up before the clock-in
     // (Oct 1) - the server refuses it too (_guard_punch_order).
-    if (inAt && outAt && new Date(outAt) <= new Date(inAt)) {
+    if (hasIn && hasOut && inAt && outAt && new Date(outAt) <= new Date(inAt)) {
       fail('The clock-out has to be after the clock-in.'); return;
     }
     // A pair of requests goes in whole or not at all: when the second half is
@@ -2912,11 +2934,13 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
       setBusy(true);
       try {
         const adds = [];
-        if (needIn) adds.push(['in', inAt]);
-        if (needOut) adds.push(['out', outAt]);
+        if (needIn && addIn) adds.push(['in', inAt]);
+        if (needOut && addOut) adds.push(['out', outAt]);
         await sendRequests(adds.map(([kind, at]) => ({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim(),
           category: kind === 'in' && LEAVE_TYPES.includes(type) ? type : '', ...(confirmLong ? { confirm_long: true } : {}) })));
-        toastOk?.('Request sent to your approver - it shows on your time sheet as Not Yet Approved until they decide.');
+        toastOk?.(needIn && addIn && !(needOut && addOut) && !seg
+          ? 'Request sent. Once your approver approves it you are clocked in - punch out as usual.'
+          : 'Request sent to your approver - it shows on your time sheet as Not Yet Approved until they decide.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));   // refresh the request stack
         onDone();
       } catch (e) { fail(e?.message || 'Could not send the request.'); }
@@ -2948,7 +2972,9 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
       // would sit it after the old out for a moment, which the server refuses
       // as a clock-out before a clock-in. Then the out goes first.
       const outFirst = !!(seg?.outId && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out)));
-      if (outFirst) { await saveOut(); await saveIn(); } else { await saveIn(); await saveOut(); }
+      // An unticked missing punch is left out (an open shift stays open).
+      const doIn = hasIn ? saveIn : async () => {}, doOut = hasOut ? saveOut : async () => {};
+      if (outFirst) { await doOut(); await doIn(); } else { await doIn(); await doOut(); }
       toastOk?.('Time sheet updated - original times stay on record.'); onDone();
     } catch (e) { fail(e?.message || 'Could not save.'); }
     setBusy(false);
@@ -2990,6 +3016,28 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     || cat !== (seg?.category || '') || reason.trim() !== '' || type !== initialType;
   const guard = useUnsavedGuard(dirty, onClose, save);
 
+  // A time box; a MISSING punch gets a tick to add it, and unticked it is
+  // left out of the save (a break is always both times).
+  const timeRow = ({ text, pickText, value, set, missing, on, setOn, autoFocus, off = 'Not added.' }) => {
+    const locked = self && !missing;
+    const box = (
+      <input aria-label={text} autoFocus={autoFocus} type="datetime-local" className="form-input" value={value} disabled={locked}
+        onChange={e => set(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: locked ? 0.6 : 1 }} />
+    );
+    if (!missing) return <label style={{ fontSize: 11, color: 'var(--muted)' }}>{text}{box}</label>;
+    // One shape with or without the tick, so picking Break never remounts the box.
+    return (
+      <div style={{ fontSize: 11, color: 'var(--muted)', display: 'grid', gap: 4 }}>
+        {isBreak ? <span>{text}</span> : (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+            <input type="checkbox" checked={on} onChange={e => setOn(e.target.checked)} style={{ margin: 0 }} /> {pickText}
+          </label>
+        )}
+        {on || isBreak ? box : <span style={{ fontSize: 12 }}>{off}</span>}
+      </div>
+    );
+  };
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
@@ -3009,8 +3057,9 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
                 options={['Regular', ...(canAddBreak ? ['Break'] : []), ...LEAVE_TYPES]} />
             </div>
           )}
-          {(!self || needIn) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>{isBreak ? 'Break start time' : 'Clock in time'}<input autoFocus={self && needIn} type="datetime-local" className="form-input" value={inAt} disabled={self && !needIn} onChange={e => setInAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needIn ? 0.6 : 1 }} /></label>}
-          {(!self || needOut) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>{isBreak ? 'Break end time' : 'Clock out time'}<input autoFocus={self && needOut && !needIn} type="datetime-local" className="form-input" value={outAt} disabled={self && !needOut} onChange={e => setOutAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needOut ? 0.6 : 1 }} /></label>}
+          {(!self || needIn) && timeRow({ text: isBreak ? 'Break start time' : 'Clock in time', pickText: 'Clock In', value: inAt, set: setInAt, missing: needIn, on: addIn, setOn: setAddIn, autoFocus: self && needIn })}
+          {(!self || needOut) && timeRow({ text: isBreak ? 'Break end time' : 'Clock out time', pickText: 'Clock Out', value: outAt, set: setOutAt, missing: needOut, on: addOut, setOn: setAddOut, autoFocus: self && needOut && !needIn,
+            off: isToday ? 'Not added - it is still to come. Punch out as usual, or tick it once it has happened.' : 'Not added.' })}
           {self && (
             <label className="nx-fill" style={{ fontSize: 11, color: 'var(--muted)' }}>Reason (sent to your approver - not the time)
               <textarea className="form-input" rows={3} value={reason} onChange={e => setReason(e.target.value)} placeholder="Why you're adding it - e.g. forgot to clock out" style={{ width: '100%', fontSize: 13, fontFamily: 'inherit' }} />

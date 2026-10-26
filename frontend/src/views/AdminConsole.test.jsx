@@ -13,10 +13,19 @@ vi.mock('../api', () => ({
       : k === 'getEntitySignatureTemplates' ? () => Promise.resolve({ templates: [], template: 'classic' })
         : vi.fn(() => Promise.resolve([]))) }),
 }));
-const roleState = { admin: true };
+// Who is looking: an IT Admin by default. `grants` = Access Group grants by
+// module ({ hr: 'editor' }); `hrScope` = the companies their People access is
+// limited to (null = company-wide); `hrTeam` = the manager tier (own team).
+const LEVELS = { employee: 1, supervisor: 2, manager: 3, administrator: 4, owner: 5 };
+const RANKS = { viewer: 1, editor: 2, full: 3, owner: 4 };
+const roleState = { role: 'administrator', grants: {}, hrScope: null, hrTeam: false };
+const asRole = (role, extra = {}) => Object.assign(roleState, { role, grants: {}, hrScope: null, hrTeam: false }, extra);
 vi.mock('../contexts/RoleContext', () => ({
   useRole: () => ({
-    can: (min) => (min === 'administrator' ? roleState.admin : true),
+    can: (min) => LEVELS[roleState.role] >= (LEVELS[min] ?? 1),
+    canAccessModule: (m, minRole, lvl = 'viewer') => LEVELS[roleState.role] >= (LEVELS[minRole] ?? 1)
+      || (RANKS[roleState.grants[m]] ?? 0) >= (RANKS[lvl] ?? 1),
+    hrScope: roleState.hrScope, hrTeam: roleState.hrTeam,
     myGrantedModules: new Set(), actingAs: null,
     startActAs: vi.fn(), stopActAs: vi.fn(),
   }),
@@ -48,7 +57,13 @@ vi.mock('../components/shifts/ShiftSettingsSections', () => ({
   ShiftGroupsPanel: () => <div>Groups panel</div>,
   TimeOffReasons: () => <div>Time-off reasons panel</div>,
 }));
-vi.mock('../components/shifts/WeatherSettings', () => ({ default: ({ company }) => <div>Weather panel{company ? ` ${company}` : ''}</div> }));
+// The weather panel can stand in for any form with unsaved changes: it
+// reports `dirtyState.weather` through the shared hook (lib/groupDirty.js).
+const dirtyState = { weather: false };
+vi.mock('../components/shifts/WeatherSettings', async () => {
+  const { useGroupDirty } = await import('../lib/groupDirty');
+  return { default: function WeatherPanel({ company }) { useGroupDirty(dirtyState.weather); return <div>Weather panel{company ? ` ${company}` : ''}</div>; } };
+});
 // With a company fixed, the export codes say the company has names of its own.
 vi.mock('../components/PayrollExportCodes', async () => {
   const { useEffect } = await import('react');
@@ -81,7 +96,7 @@ vi.mock('./SettingsPanels', () => ({
 
 const AdminConsole = (await import('./AdminConsole')).default;
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); roleState.admin = true; });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); asRole('administrator'); dirtyState.weather = false; });
 
 const rail = () => screen.getByRole('navigation', { name: 'Settings subjects' });
 // Lazy panels on a slow machine: give a find a little longer than the default second.
@@ -169,13 +184,80 @@ describe('AdminConsole', () => {
     expect(await find('Access panel')).toBeInTheDocument();
     cleanup();
 
-    roleState.admin = false;
+    // The manager tier (own team, no grants): the groups a manager may save -
+    // task emails, the ticket desk, item types, app ratings, unit rules - and
+    // nothing that is a People route or an administrator's.
+    asRole('manager', { hrTeam: true, hrScope: [] });
     render(<AdminConsole activeSub="access" onSubChange={() => {}} />);
-    for (const name of ['People & Access', 'Security', 'Branding & Email', 'Time & Pay']) {
+    for (const name of ['People & Access', 'Security', 'Branding & Email', 'Time & Pay', 'Companies', 'Locations', 'Hiring & Onboarding', 'Shifts & Scheduling']) {
       expect(within(rail()).queryByRole('button', { name })).not.toBeInTheDocument();
     }
-    // Falls back to the first subject it can show.
-    expect(screen.getByRole('heading', { name: 'Companies' })).toBeInTheDocument();
+    for (const name of ['Emails & Reminders', 'Tickets', 'Items & Equipment', 'Workforce Analytics', 'Operations']) {
+      expect(within(rail()).getByRole('button', { name })).toBeInTheDocument();
+    }
+    // Falls back to the first subject it can show, with only its open group
+    // (a lone group renders bare under the subject heading).
+    expect(screen.getByRole('heading', { name: 'Emails & Reminders' })).toBeInTheDocument();
+    expect(await find('Task notify panel')).toBeInTheDocument();
+    expect(screen.queryByText('Daily Briefing')).not.toBeInTheDocument();
+  });
+
+  it('opens each group for exactly who its save route lets in (the registry gates, Oct 23)', async () => {
+    // A supervisor with a People (hr) editor grant limited to Greens Global:
+    // Companies, Locations, Shifts and Hiring are theirs - with their company
+    // picked. At Every company the library, the shared records and the
+    // tenant defaults are not, so the page says to pick the company.
+    asRole('supervisor', { grants: { hr: 'editor' }, hrScope: ['c1'] });
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    // (Branding & Email stays: the company's Email Signature is a People route.)
+    for (const name of ['Companies', 'Locations', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Branding & Email']) {
+      expect(within(rail()).getByRole('button', { name })).toBeInTheDocument();
+    }
+    for (const name of ['People & Access', 'Security', 'Tickets', 'Items & Equipment', 'Operations']) {
+      expect(within(rail()).queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    expect(screen.getByText(/set per company for you - pick one in the Scope box/)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Shift Types' })).not.toBeInTheDocument();
+    cleanup();
+    render(<AdminConsole activeSub="shifts@c1" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Shift Types' })).toBeInTheDocument();
+    expect(await find('Shift settings panel basics c1')).toBeInTheDocument();
+    // Weather Alerts are set for every company at once: company-wide access only.
+    expect(screen.queryByRole('region', { name: 'Weather Alerts' })).not.toBeInTheDocument();
+    cleanup();
+
+    // An Operations editor grant (any tier) opens Unit Rules, not Push to Cubby.
+    asRole('employee', { grants: { operations: 'editor' } });
+    render(<AdminConsole activeSub="operations" onSubChange={() => {}} />);
+    expect(screen.getByRole('heading', { name: 'Operations' })).toBeInTheDocument();
+    expect(await find('Unit rules panel')).toBeInTheDocument();
+    expect(screen.queryByText('Push to Cubby')).not.toBeInTheDocument();
+    expect(within(rail()).queryByRole('button', { name: 'Tickets' })).not.toBeInTheDocument();
+  });
+
+  it('asks before leaving a group with unsaved changes - another subject, scope or top tab (one save pattern, Oct 23)', async () => {
+    const { hasUnsavedWork } = await import('../lib/dialogGuard');
+    dirtyState.weather = true;
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
+    expect(await find('Weather panel')).toBeInTheDocument();
+    expect(hasUnsavedWork()).toBe(true);   // the sidebar and the browser tab ask too
+    fireEvent.click(within(rail()).getByRole('button', { name: 'Companies' }));
+    expect(onSubChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Editing' }));
+    expect(onSubChange).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Applies To'), { target: { value: 'c1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
+    expect(onSubChange).toHaveBeenCalledWith('shifts@c1');
+    cleanup();
+    render(<AdminConsole activeSub="shifts" onSubChange={onSubChange} />);
+    expect(await find('Weather panel')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Tools$/ }));
+    expect(onSubChange).not.toHaveBeenCalledWith('tools');
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
+    expect(onSubChange).toHaveBeenCalledWith('tools');
+    cleanup();
+    expect(hasUnsavedWork()).toBe(false);   // unmounted: nothing left to guard
   });
 
   it('has Shifts & Scheduling with the settings, shift types, groups and weather, all open (Charmi, 09/30)', async () => {

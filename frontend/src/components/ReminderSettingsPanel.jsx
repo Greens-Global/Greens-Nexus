@@ -13,6 +13,7 @@
 //   nums:   [{ field, label, suffix, min, max }]
 //   checks: [{ field, label }] }
 import { useEffect, useMemo, useState } from 'react';
+import { useGroupDirty } from '../lib/groupDirty';
 import { X, Plus, RotateCcw, Save, Info } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from './AsyncState';
 import { formatDateTime } from '../lib/datetime';
@@ -186,6 +187,7 @@ export default function ReminderSettingsPanel({ load: loadFn, save: saveFn, rows
   const saved = useMemo(() => normalize(state?.config), [state]);
   const defaults = useMemo(() => normalize(state?.defaults), [state]);
   const dirty = !!draft && JSON.stringify(normalize(draft)) !== JSON.stringify(saved);
+  useGroupDirty(dirty);
   const atDefaults = !!draft && JSON.stringify(normalize(draft)) === JSON.stringify(defaults);
 
   if (loadErr) return <ErrorBanner message={`Could not load reminder settings: ${loadErr}`} onRetry={load} />;

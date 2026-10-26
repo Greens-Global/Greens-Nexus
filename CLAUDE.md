@@ -156,6 +156,16 @@ keep the diff minimal.
   half.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
+- **Settings saves one way (Oct 23 2026):** a switch, a select, a chip list
+  or a reorder saves on change, with a toast; a form with typed fields keeps
+  a draft beside the saved value (`lib/useDraft.js`) and has ONE Save row at
+  the group's foot (`components/SaveRow.jsx`: Save disabled until something
+  changed, Discard Changes beside it, "Use the Default" on the left for a
+  company's own copy of a layered setting) - never a Save per card or per
+  field, never a save on blur. Every form says `useGroupDirty(dirty)`
+  (`lib/groupDirty.js`), so the Settings shell asks before the subject, the
+  scope, the top tab, the module or the browser tab changes; the hook is a
+  no-op wherever else the panel renders.
 
 ## Domain rules
 
@@ -330,12 +340,16 @@ keep the diff minimal.
   sub is `<subject>[:<group>][@<companyId>]`; every pre-merge key
   (`global`, `global-<category>`, `company`, `access`, `actas`) still lands
   (`resolveSub`). A new setting = one `GROUPS` entry (subject, face, scope,
-  keywords) + one `renderGroup` case; the panel stays the component its
-  module owns - never a second copy. Panels draw controls with
+  keywords, and `needs` - who may open it, exactly what its save route
+  demands: the role tier, an Access Group grant, `people` for an /hr route;
+  `mayOpen` is the ONE visibility rule, so never hide a group from inside
+  its panel instead) + one `renderGroup` case; the panel stays the
+  component its module owns - never a second copy. Panels draw controls with
   `components/settings/SettingsUI.jsx` (Neil, Oct 25 2026: "world class") -
   `SwitchRow` / `SettingRow` / `NumberBox`: title and description left,
-  control right, hairline rows; a switch saves on click, a form's Save shows
-  only once something changed; a group made of rows sets `flush: true`.
+  control right, hairline rows; a switch saves on click, typed fields save
+  through the group's one `SaveRow` (see "Settings saves one way" under
+  Frontend conventions); a group made of rows sets `flush: true`.
   Styles are the `.nx-set-*` rules in style.css; never hand-roll another
   switch. Settings holds what defines the shape
   of a module or a company and is changed rarely by an administrator; a

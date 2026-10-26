@@ -6,7 +6,7 @@ import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useTimeStatus, applyPunch } from '../lib/useTimeStatus';
 import { useLocationTrail } from '../lib/useLocationTrail';
-import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
+import { punchDurable, replayPending, readPending, holdPunch, signedIn } from '../lib/punchQueue';
 import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
 import { askPunchPosition } from '../lib/punchLocation';
 import { replayPendingBods, bodDurable } from '../lib/bodQueue';
@@ -404,6 +404,9 @@ export default function TimeclockWidget() {
     // prompt cancels it. Role-flagged people (bodExempt: field workers who
     // cannot type) punch straight through.
     if (!status?.bodExempt) {
+      // A sign-in that expired while the tab sat open is found before the
+      // message is typed, not after (the page goes to sign in now).
+      if (!(await signedIn())) { setBreakBusy(false); punchFlight.current = false; return false; }
       breakClickRef.current = new Date().toISOString().slice(0, 19);
       breakPosRef.current = punchPosition(kind);   // runs while they type
       setBreakGate(kind === 'break_start' ? 'break' : 'break_end');
@@ -416,11 +419,17 @@ export default function TimeclockWidget() {
     // from here read "Location off" on the timecard (Charmi, Sep 29).
     let res;
     try {
-      const first = (await (breakPosRef.current || punchPosition(kind))) ?? await punchPosition(kind);   // a miss asks once more, as before
-      breakPosRef.current = null;
-      // Still no fix: ask them to share it, or punch without (Visesh, Oct 20).
-      const { pos, locationOff } = await askPunchPosition(first);
-      res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, locationOff, clickedAt: breakClickRef.current || undefined });
+      const tzOffsetMin = new Date().getTimezoneOffset();
+      const clickedAt = breakClickRef.current || undefined;
+      // Held on the device from here (punchQueue.holdPunch): a sign-in
+      // redirect during the location wait lost the punch.
+      res = await holdPunch({ kind, clickedAt, tzOffsetMin }, async () => {
+        const first = (await (breakPosRef.current || punchPosition(kind))) ?? await punchPosition(kind);   // a miss asks once more, as before
+        breakPosRef.current = null;
+        // Still no fix: ask them to share it, or punch without (Visesh, Oct 20).
+        const { pos, locationOff } = await askPunchPosition(first);
+        return punchDurable({ kind, tzOffsetMin, pos, locationOff, clickedAt });
+      });
       if (res.ok) {
         setLostOut(false);
         applyPunch(res.punch);   // the chip flips now; the re-read confirms
@@ -469,13 +478,21 @@ export default function TimeclockWidget() {
     // the shift open with nobody told. Now it retries, parks for replay, and -
     // since this capsule is the only surface the person is looking at - says so.
     if (status?.eodRequired && !status?.bodExempt && !eodAckRef.current) {
-      setEodGate(true); setBusy(false);
+      // A sign-in that expired while the tab sat open is found before the
+      // message is typed, not after (the page goes to sign in now).
+      if (await signedIn()) setEodGate(true);
+      setBusy(false);
       return false;
     }
     eodAckRef.current = false;
-    // No fix: ask them to share it, or clock out without (Visesh, Oct 20).
-    const { pos, locationOff } = await askPunchPosition(punchPosition('out'));   // short budget: the punch landing comes first
-    const res = await punchDurable({ kind: 'out', tzOffsetMin: new Date().getTimezoneOffset(), pos, locationOff });
+    const tzOffsetMin = new Date().getTimezoneOffset();
+    // Held on the device from here (punchQueue.holdPunch): a sign-in
+    // redirect during the location wait lost the punch.
+    const res = await holdPunch({ kind: 'out', tzOffsetMin }, async () => {
+      // No fix: ask them to share it, or clock out without (Visesh, Oct 20).
+      const { pos, locationOff } = await askPunchPosition(punchPosition('out'));   // short budget: the punch landing comes first
+      return punchDurable({ kind: 'out', tzOffsetMin, pos, locationOff });
+    });
     if (res.ok) {
       setLostOut(false);
       stopCapture();

@@ -6,6 +6,7 @@
 // Workforce Analytics dashboard rates from). Everything else Settings shows
 // is the component its module owns, borrowed by AdminConsole.jsx.
 import { useCallback, useEffect, useState } from 'react';
+import { useGroupDirty } from '../lib/groupDirty';
 import { Check } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -38,6 +39,7 @@ export function TicketPropertyRulesPanel({ toastOk, toastErr }) {
   const toggle = (key) => setAreas((a) => (a.includes(key) ? a.filter((k) => k !== key) : [...a, key]));
   const dirty = !!rules && (JSON.stringify([...areas].sort()) !== JSON.stringify([...(rules.requiredServiceAreas || [])].sort())
     || topics.split(',').map((t) => t.trim()).filter(Boolean).join(', ') !== (rules.requiredTopics || []).join(', '));
+  useGroupDirty(dirty);
 
   async function save() {
     setBusy(true);
@@ -91,7 +93,7 @@ export function TicketPropertyRulesPanel({ toastOk, toastErr }) {
 // load. Managers (level 3) or an Operations editor grant save, as the route
 // requires.
 export function UnitRulesPanel() {
-  const { can } = useRole();
+  const { canAccessModule } = useRole();
   const [rules, setRules] = useState(null);
   const [err, setErr] = useState('');
   const load = useCallback(() => {
@@ -101,7 +103,7 @@ export function UnitRulesPanel() {
   useEffect(() => { load(); }, [load]);
   if (err) return <ErrorBanner message={err} onRetry={load} />;
   if (!rules) return <SkeletonBlocks count={2} height={44} borderRadius={10} />;
-  return <UnitClasses rules={rules} canEdit={can('manager')} onSaved={load} />;
+  return <UnitClasses rules={rules} canEdit={canAccessModule('operations', 'manager', 'editor')} onSaved={load} />;
 }
 
 // ── Workforce Analytics > App & Website Ratings ──────────────────────────────

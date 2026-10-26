@@ -117,6 +117,14 @@ class NoSelfEditTests(SelfTimeCase):
                                                            "at": f"{self.day}T14:00:00", "note": "Forgot"})
         self.assertEqual(res.status_code, 200, res.text)
 
+    def test_a_manager_cannot_add_a_punch_in_the_future(self):
+        # A 5 PM clock-out added at 10 AM jammed the person's clock until 5 (Oct 26).
+        self._as(MGR)
+        later = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S")
+        res = self.client.post("/timeclock/punches", json={"employee_email": EMP, "kind": "out", "at": later})
+        self.assertEqual(res.status_code, 400, res.text)
+        self.assertIn("future", res.json()["detail"])
+
     def test_a_manager_cannot_move_or_void_their_own_punch(self):
         self._as(MGR)
         for body in ({"at": f"{self.day}T14:00:00"}, {"void": True}, {"category": "Sick Day"}):
