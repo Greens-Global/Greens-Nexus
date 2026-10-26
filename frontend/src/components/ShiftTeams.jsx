@@ -3,6 +3,8 @@ import { ChevronDown, ChevronUp, Search, X, Users, Check } from 'lucide-react';
 import { Spinner } from './AsyncState';
 import { api } from '../api';
 import { useListNav } from '../lib/listNav';
+import { matchPeople } from '../lib/peopleSearch';
+import { recentRows, noteRecentPerson } from '../lib/recentPeople';
 import { Avatar } from './ShiftScheduleExtras';
 
 // Teams on the schedule grid (Neil, Sep 30 - Microsoft Teams Shifts parity):
@@ -123,12 +125,34 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
     return () => { live = false; };
   }, []);
   const have = useMemo(() => new Set((team.members || []).map(m => m.toLowerCase())), [team]);
-  const list = (people || []).filter(p => emailOf(p) && !have.has(emailOf(p)))
-    .filter(p => !q.trim() || `${nameOf(p)} ${emailOf(p)}`.toLowerCase().includes(q.trim().toLowerCase()))
-    .sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
-  const toggle = (em) => setPicked(ps => (ps.includes(em) ? ps.filter(x => x !== em) : [...ps, em]));
+  const avail = useMemo(() => (people || []).filter(p => emailOf(p) && !have.has(emailOf(p)))
+    .sort((a, b) => nameOf(a).localeCompare(nameOf(b)))
+    .map(p => ({ name: nameOf(p), email: emailOf(p), p })), [people, have]);
+  // First-name matches first, as in every people picker (lib/peopleSearch.js).
+  const list = matchPeople(avail, q).map(x => x.p);
+  // People picked lately anywhere, while nothing is typed - read once the
+  // list has loaded, so ticking someone never reshuffles it.
+  const [recent, setRecent] = useState(null);
+  if (recent === null && people) setRecent(recentRows(avail).map(x => x.p));
+  const top = q.trim() || !recent ? [] : recent;
+  const toggle = (em) => {
+    if (!picked.includes(em)) noteRecentPerson(em);
+    setPicked(ps => (ps.includes(em) ? ps.filter(x => x !== em) : [...ps, em]));
+  };
   // Up / Down / Enter in the search box (lib/listNav.js), once typed.
-  const nav = useListNav(list, { open: !!q.trim(), query: q, onPick: p => toggle(emailOf(p)) });
+  const nav = useListNav([...top, ...list], { open: !!q.trim(), query: q, onPick: p => toggle(emailOf(p)) });
+  const row = (p, i, keyPrefix = '') => {
+    const em = emailOf(p);
+    return (
+      <label key={keyPrefix + em} {...nav.optionProps(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)' }}>
+        <input type="checkbox" checked={picked.includes(em)} onChange={() => toggle(em)} aria-label={`Add ${nameOf(p)}`} />
+        <Avatar name={nameOf(p)} photoUrl={p.photoUrl || p.photo_url || ''} size={24} />
+        <span style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700 }}>{nameOf(p)}{p.external === true && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 999, padding: '0 6px' }}>External</span>}</div>
+        </span>
+      </label>
+    );
+  };
   return (
     <div style={MODAL_BACK} onClick={e => e.target === e.currentTarget && onClose()}>
       <div role="dialog" aria-label="Add Members" className="nx-popup" style={MODAL_CARD}>
@@ -148,18 +172,10 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
         <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
           {people === null && <div style={{ padding: 16, textAlign: 'center', color: 'var(--muted)' }}><Spinner size={16} /></div>}
           {people !== null && !list.length && <div style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>Nobody else to add.</div>}
-          {list.map((p, i) => {
-            const em = emailOf(p);
-            return (
-              <label key={em} {...nav.optionProps(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)' }}>
-                <input type="checkbox" checked={picked.includes(em)} onChange={() => toggle(em)} aria-label={`Add ${nameOf(p)}`} />
-                <Avatar name={nameOf(p)} photoUrl={p.photoUrl || p.photo_url || ''} size={24} />
-                <span style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700 }}>{nameOf(p)}{p.external === true && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 999, padding: '0 6px' }}>External</span>}</div>
-                </span>
-              </label>
-            );
-          })}
+          {top.length > 0 && <div style={HEAD}>Recent</div>}
+          {top.map((p, i) => row(p, i, 'r:'))}
+          {top.length > 0 && <div style={HEAD}>All</div>}
+          {list.map((p, i) => row(p, top.length + i))}
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
           {onManage && <button type="button" onClick={onManage} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-green))', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, padding: 0 }}>Manage Group</button>}

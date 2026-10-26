@@ -74,12 +74,6 @@ PAY_MODES = ("", "always", "auto")
 EVENT_NOUN = {"offer": "offer letter", "hire": "hiring packet", "promotion": "promotion letter",
               "separation": "separation package"}
 CANDIDATE_KINDS = ("offer", "hire")
-# Where a hiring packet's job description page goes (Hiring Setup, Oct 23
-# 2026): this id in doc_template_ids is filled at the event with the role's
-# formatted Job Description, else the built-in one when there are duties to
-# print, else dropped. Never a template.
-JD_MARKER = "@jd"
-BUILTIN_JD_ID = "builtin-job-description"
 
 
 class PacketProblem(ValueError):
@@ -295,8 +289,6 @@ def load_snaps(db: Session, template_ids: list) -> tuple:
     from routers.documents import TemplateNotPublished, published_snapshot
     snaps, problems = [], []
     for tid in template_ids or []:
-        if tid == JD_MARKER:
-            continue
         tpl = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
         if not tpl:
             problems.append("A document in this packet no longer exists in Documents - remove it from the packet.")
@@ -554,13 +546,8 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
     out = []
     if not (setting.name or "").strip():
         out.append("Give the packet a name.")
-    if not [t for t in (setting.doc_template_ids or []) if t != JD_MARKER]:
+    if not (setting.doc_template_ids or []):
         out.append("Add at least one document from Documents > Templates.")
-    if JD_MARKER in (setting.doc_template_ids or []):
-        if setting.event == "offer":
-            out.append("An offer letter never carries the job description - it goes in the hiring packet.")
-        elif setting.event == "separation":
-            out.append("A separation package never carries the job description - take it out of this one.")
     out += list(snap_problems or [])
     flow = clean_flow(setting.flow)
     for step in flow:
@@ -739,10 +726,6 @@ def ser_flow(db: Session, setting: HrPacketSetting) -> list:
 def ser_documents(db: Session, setting: HrPacketSetting) -> list:
     out = []
     for tid in setting.doc_template_ids or []:
-        if tid == JD_MARKER:
-            out.append({"id": JD_MARKER, "name": "Job Description - Goes Here", "marker": True, "status": "active",
-                        "publishedVersion": 1, "hasUnpublishedChanges": False, "signs": []})
-            continue
         tpl = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
         if not tpl:
             out.append({"id": tid, "name": "A template that no longer exists", "missing": True})
@@ -787,9 +770,7 @@ def event_values(db: Session, kind: str, d: dict) -> dict:
                     "job_title": d.get("job_title", ""), "old_role": d.get("old_role_name") or d.get("old_title", ""),
                     "new_role": d.get("role_name", ""), "department": d.get("department", ""),
                     "effective_date": d.get("effective_date", ""),
-                    "responsibilities": d.get("responsibilities", ""),
-                    # The built-in Job Description page (the "@jd" marker) prints these.
-                    "role_description": d.get("role_description") or d.get("responsibilities", "")})
+                    "responsibilities": d.get("responsibilities", "")})
         if d.get("manager_email"):
             out["manager"] = name_of(db, d["manager_email"])
     elif kind == "separation":
@@ -815,11 +796,9 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
          extra_template_ids: Optional[list] = None) -> dict:
     """The packet as it would go out: its documents (with what is still
     unfilled in each), the signing order with real names, the verifier, and
-    every problem. Writes nothing. An event's resolved order (extra_template_ids,
-    from template_ids_for) is the order its documents are generated in - the
-    job description page where the marker put it, a role's document in the
-    place of the one it replaces."""
-    ids = list(extra_template_ids) if extra_template_ids else list(setting.doc_template_ids or [])
+    every problem. Writes nothing."""
+    ids = list(setting.doc_template_ids or [])
+    ids += [t for t in (extra_template_ids or []) if t and t not in ids]
     snaps, snap_problems = load_snaps(db, ids)
     snaps = signed_snaps(setting, snaps)
     problems = config_problems(db, setting, snaps, snap_problems)
@@ -951,7 +930,7 @@ def event_plan(db: Session, ev, setting: HrPacketSetting, *, sender: str, can_se
     p["restrictedHash"] = values_hash(answer_values(form, event_answers(ev))[1])
     p["form"] = form
     extra = []
-    missing = missing_answers(form, event_answers(ev))
+    missing = missing_answers(form, event_answers(ev)) if ev.kind in ("hire", "offer") else []
     if missing:
         extra.append("Still needed on the Details Form: " + ", ".join(missing) + ".")
     for s in p["signOnce"]:
@@ -1567,50 +1546,16 @@ def with_role_docs(ids: list, role_docs) -> list:
 def template_ids_for(setting: Optional[HrPacketSetting], inputs: dict, kind: str) -> list:
     """Every template a packet prints for one person: its own documents, the
     ones for their team and role, then (not on an offer) their job
-    description - where the packet's JD_MARKER puts it (the role's formatted
-    one, else the built-in page when there are duties), else at the end as
-    before (a legacy jd_template_id, the role's formatted one, else the
-    built-in page - unless a document prints the duties inside)."""
+    description."""
     d = inputs or {}
     ids = list((setting.doc_template_ids or []) if setting is not None else [])
     ids += [t for t in block_ids(setting, d.get("department", ""), d.get("role_id", "")) if t not in ids]
-    if kind == "offer":
-        return [t for t in ids if t != JD_MARKER]
-    role_docs = d.get("role_docs") or []
-    if kind == "promotion":   # only the role's formatted JD, only into the marker
-        role_docs = [r for r in role_docs if isinstance(r, dict) and r.get("replaces") == JD_MARKER] if JD_MARKER in ids else []
-    is_jd = [isinstance(r, dict) and r.get("replaces") == JD_MARKER for r in role_docs]
-    if any(is_jd) and JD_MARKER not in ids and _prints_inside(setting, ids):
-        role_docs = [r for r, j in zip(role_docs, is_jd) if not j]   # the duties print inside - never twice
-    ids = with_role_docs(ids, role_docs)               # a role doc replacing "@jd" takes the marker's place
-    legacy = d.get("jd_template_id") or ""
-    if JD_MARKER in ids:
-        fill = (legacy if legacy and legacy not in ids
-                else BUILTIN_JD_ID if (d.get("role_description") or "").strip() and BUILTIN_JD_ID not in ids else "")
-        ids = [fill if t == JD_MARKER else t for t in ids if t != JD_MARKER or fill]
-    elif legacy and legacy not in ids:
-        ids.append(legacy)                             # today's behavior, untouched
-    elif (not legacy and kind == "hire" and setting is not None and not any(is_jd) and BUILTIN_JD_ID not in ids
-          and (d.get("role_description") or "").strip() and not _prints_inside(setting, ids)):
-        ids.append(BUILTIN_JD_ID)                      # no marker, nothing inside: its own page at the end, as before
+    if kind != "offer":
+        ids = with_role_docs(ids, d.get("role_docs"))
+    jd = d.get("jd_template_id") or "" if kind != "offer" else ""
+    if jd and jd not in ids:
+        ids.append(jd)
     return ids
-
-
-def prints_duties(snaps: list, event: str = "hire") -> bool:
-    """A document prints the role's duties itself ({{role_description}}, or
-    a promotion letter's {{responsibilities}}) - no separate job description
-    page is needed."""
-    tokens = {"role_description"} | ({"responsibilities"} if event == "promotion" else set())
-    return any(tokens & s.tokens for s in snaps)
-
-
-def _prints_inside(setting: Optional[HrPacketSetting], ids: list) -> bool:
-    """Whether these packet documents print the duties themselves. Reads
-    through the setting's own session so template_ids_for keeps its
-    signature; a setting with no session counts as not printing them."""
-    from sqlalchemy.orm import object_session
-    db = object_session(setting) if setting is not None else None
-    return bool(db is not None and prints_duties(load_snaps(db, ids)[0], setting.event or "hire"))
 
 
 def event_template_ids(ev, setting: Optional[HrPacketSetting]) -> list:
@@ -1865,7 +1810,7 @@ def unfilled_variables(setting: HrPacketSetting, snaps: list) -> list:
     return out
 
 
-def readiness(db: Session, setting: HrPacketSetting, entity: Optional[HrEntity] = None) -> list:
+def readiness(db: Session, setting: HrPacketSetting) -> list:
     """The packet's Ready To Send checklist: what is fine, what stops a hire
     from going out (block) and what would come out wrong (warn) - each with
     the fix the screen offers. A team's or role's documents are checked too."""
@@ -1886,9 +1831,7 @@ def readiness(db: Session, setting: HrPacketSetting, entity: Optional[HrEntity] 
     out.append(_check("signing", not order, "Signing Order", order[0] if order else "Every signature block has a signer"))
     # 3. The company holds every role the packet needs (a company's packet;
     #    a packet for every company is checked per company when it starts).
-    # entity given (Hiring Setup): a shared row is checked for that company too.
-    if entity is None:
-        entity = db.query(HrEntity).filter(HrEntity.id == setting.entity_id).first() if setting.entity_id else None
+    entity = db.query(HrEntity).filter(HrEntity.id == setting.entity_id).first() if setting.entity_id else None
     verify = setting.verify_role or "hr"
     if entity is not None:
         ctx = {"entity": entity, "owners": hc.role_owners(db, entity.id)}
@@ -1947,9 +1890,9 @@ def readiness(db: Session, setting: HrPacketSetting, entity: Optional[HrEntity] 
                       "Nothing fills " + ", ".join(m["label"] for m in missing[:6]) + ("..." if len(missing) > 6 else "") +
                       (" - in the template mark each one Ask The Person or HR Answers, give it a Default Value, "
                        "or add it to the Details Form."
-                       if setting.event != "offer" else
+                       if setting.event == "hire" else
                        " - in the template mark each one HR Answers, or give it a Default Value."),
-                      fix={"kind": "addToForm" if setting.event != "offer" else "template", "variables": missing,
+                      fix={"kind": "addToForm" if setting.event == "hire" else "template", "variables": missing,
                            "templateId": missing[0]["templateId"] if missing else ""}))
     # 8. No fill-in line is left that nothing fills - it would print empty.
     blanks = [(s, b) for s in snaps for b in [fill_in_blanks(s.content)] if b]

@@ -5,7 +5,7 @@ in timesheet_review.py; this file only decides who may call what.
 Signing itself happens in Nexus Sign (/esign/mine/{party_id}/...), which calls
 back into timesheet_review when a party signs, declines, or completes it.
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -234,6 +234,15 @@ def approve_bulk(body: ApproveBulkIn, user: dict = Depends(require_approval_writ
         results.append({**line, **out, "id": out.get("id") or line["id"]})
     count = {k: sum(1 for x in results if x["status"] == k) for k in ("approved", "skipped", "failed")}
     return {"results": results, **count}
+
+
+@router.get("/print")
+def print_paper(email: str, start: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """HR / Global Admin: the period's time sheet as a PDF to print and sign on
+    paper (Neil, Oct 23 2026). `start` = any date in the period. Changes nothing."""
+    pdf, name = tsr.paper_pdf(db, email, (start or "").strip(), (user.get("email") or "").lower())
+    safe = "".join(ch for ch in name if ch.isalnum() or ch in " .-_") or "Time Sheet.pdf"
+    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{safe}"'})
 
 
 @router.post("/finalize-unsigned")

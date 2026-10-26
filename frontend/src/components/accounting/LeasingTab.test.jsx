@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Render-smoke for Accounting -> Leasing (Neil and Charmi, Sep 25): the rent
@@ -49,14 +49,24 @@ vi.mock('../../api', () => ({
     searchAccountingLedger: vi.fn(async () => ({ rows: [] })),
     getAccountingEntry: vi.fn(async () => ({ entry: { entry_no: 'JE-1042' }, lines: [], intacct: [] })),
   },
+  withFreshReads: vi.fn((fn) => fn()),
 }));
 
-import LeasingTab, { leaseTermLabel, parseLeaseTerm } from './LeasingTab';
-import { api } from '../../api';
+import LeasingTab, { leaseTermLabel, parseLeaseTerm, fitRollHeight } from './LeasingTab';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const css = fs.readFileSync(path.resolve(__dirname, '../../style.css'), 'utf8');
+import { api, withFreshReads } from '../../api';
 import { resetAccountingPrefs } from './prefs';
+import { dialog as appDialog } from '../../ui/dialog';
 
 beforeEach(() => { vi.clearAllMocks(); try { localStorage.clear(); } catch { /* none */ } resetAccountingPrefs(); });
 
+
+// The standard table view's panels load on first use (10/23 item 01): fetched
+// once up front, so a busy run never waits on them inside a test.
+beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('LeasingTab', () => {
   it('shows every month of every lease and what is owed', async () => {
     render(<LeasingTab canEdit />);
@@ -159,6 +169,51 @@ describe('LeasingTab - the 10/04 feedback', () => {
   const full = { ...roll, rows: [{ ...roll.rows[0], expired: false, customerActive: true, lease: lease({ teamNote: { text: 'Promised by the 15th', by: 'charmi@greensglobal.com', byName: 'Charmi Desai', at: '2026-10-01T16:00:00Z' } }) }, { ...prepaid, expired: false, customerActive: true }, ended, gone], linked: [] };
   beforeEach(() => { api.getLeasingRentRollFor.mockResolvedValue(full); });
 
+  it('has the standard table view on the Income Roll: a rule narrows it, the figures and the Received line follow, Total sorts (10/23, item 01)', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const panel = await screen.findByRole('dialog', { name: 'Filters' });
+    fireEvent.click(within(panel).getByRole('button', { name: /Add Filter/ }));
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 field' }), { target: { value: 'balance' } });
+    fireEvent.change(within(panel).getByRole('combobox', { name: 'Rule 1 condition' }), { target: { value: 'gt' } });
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'Rule 1 value' }), { target: { value: '0' } });
+    expect(screen.queryByText('47385 RCR, Temecula')).toBeNull();
+    const grand = screen.getByText(/Received - 1 source/).closest('tr');
+    expect(within(grand).getByText('8,955.00')).toBeTruthy();
+    expect(screen.getByText('Received').closest('span').textContent).toContain('8,955.00');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Delete rule 1' }));
+    // Total, largest first: Temecula (16,000) above San Clemente (8,955).
+    fireEvent.click(screen.getByRole('button', { name: /^Total - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Total column' })).getByRole('menuitemradio', { name: /Sort Descending/ }));
+    const names = [...document.querySelectorAll('.acct-roll tbody tr')].map((tr) => tr.textContent).filter((t) => /Temecula|San Clemente/.test(t)).map((t) => (t.includes('Temecula') ? 'T' : 'S'));
+    expect(names).toEqual(['T', 'S']);
+    // The property stays pinned first: it neither moves nor hides.
+    fireEvent.click(screen.getByRole('button', { name: /^Property or Source - column menu/ }));
+    const menu = await screen.findByRole('menu', { name: 'Property or Source column' });
+    expect(within(menu).queryByRole('menuitem', { name: /Move Right/ })).toBeNull();
+  });
+
+  it('Outstanding and Payers have their own views (10/23, item 01)', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: /Outstanding/ }));
+    await screen.findByText(/Total Outstanding - 1 tenant/);
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Payer by value' }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Payer values' })).getByRole('checkbox', { name: /Overstie Management/ }));
+    expect(screen.getByText('Nobody behind passes the filters.')).toBeTruthy();
+    // Payers: its own view - the Outstanding filter is not on it.
+    fireEvent.click(screen.getByRole('button', { name: /^Payers/ }));
+    expect(await screen.findByText('47385 RCR, Temecula')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Filters' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Landlord - column menu/ }));
+    fireEvent.click(within(await screen.findByRole('menu', { name: 'Landlord column' })).getByRole('menuitem', { name: /Hide Column/ }));
+    expect(screen.queryByRole('columnheader', { name: 'Landlord' })).toBeNull();
+    // Back on the Income Roll, its view is untouched.
+    fireEvent.click(screen.getByRole('button', { name: /^Income Roll/ }));
+    expect(await screen.findByText(/Received - 2 sources/)).toBeTruthy();
+  });
+
   it('adds a Total column and a Balance, where a prepayment is a credit', async () => {
     render(<LeasingTab canEdit />);
     const row = (await screen.findByText('910 SECR - Ste 100, San Clemente')).closest('tr');
@@ -200,7 +255,10 @@ describe('LeasingTab - the 10/04 feedback', () => {
     // Off again: the text filter still finds the ended lease, marked.
     fireEvent.click(screen.getByLabelText(/Show Inactive Leases/));
     await waitFor(() => expect(screen.queryByText('Suite 300, Escondido')).toBeNull());
-    fireEvent.change(screen.getByLabelText('Filter by property, payer or account'), { target: { value: 'old tenant' } });
+    // The search is an icon until it is used (10/23 meeting, item 02).
+    expect(screen.queryByRole('textbox', { name: 'Filter by property, payer or account' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by property, payer or account' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter by property, payer or account' }), { target: { value: 'old tenant' } });
     expect(within(screen.getByText('Suite 300, Escondido').closest('tr')).getByText('Expired')).toBeTruthy();
   });
 
@@ -257,6 +315,10 @@ describe('LeasingTab - the 10/04 feedback', () => {
     fireEvent.click(screen.getByRole('button', { name: /Sync Now/ }));
     expect(await screen.findByText(/Linked 1 lease to the Intacct customer by name/)).toBeTruthy();
     expect(screen.getByText(/Added 1 new tenant from the ledger: New Tenant Inc. at Greens Escondido/)).toBeTruthy();
+    // 10/23 meeting, item 13: the rent roll is read again past the server's cache, without an error.
+    await waitFor(() => expect(withFreshReads).toHaveBeenCalledTimes(1));
+    expect(api.getLeasingRentRollFor).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/Could not sync with the ledger/)).toBeNull();
   });
 });
 
@@ -419,12 +481,12 @@ describe('LeasingTab - one list of every income source (10/07)', () => {
     expect(api.setLeasingMonth).not.toHaveBeenCalled();
   });
 
-  it('asks before a changed lease is clicked off', async () => {
+  it('asks before a changed lease is closed', async () => {
     render(<LeasingTab canEdit />);
     fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
     const dialog = screen.getByRole('dialog', { name: 'Change lease' });
     fireEvent.change(within(dialog).getByLabelText('Region'), { target: { value: 'San Diego' } });
-    fireEvent.click(dialog.parentElement);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
     expect(screen.getByRole('alertdialog', { name: 'Unsaved changes' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Discard Edits' }));
     expect(screen.queryByRole('dialog', { name: 'Change lease' })).toBeNull();
@@ -485,6 +547,51 @@ describe('LeasingTab shared controls', () => {
     expect(screen.getByText(/Received - 2 sources/)).toBeTruthy();       // the total row counts both
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(await screen.findByText('47385 RCR, Temecula')).toBeTruthy();
+  });
+
+  it('pins the Received total to the bottom of a box that ends on the screen (Viral, 10/22)', async () => {
+    render(<LeasingTab canEdit />);
+    const label = (await screen.findByText(/Received - 2 sources/)).closest('td');
+    // The pinning lives in style.css (.acct-roll .acct-grand), not an inline
+    // style that would leave the label under the month totals.
+    expect(label.className).toBe('acct-roll-label');
+    expect(label.style.position).toBe('');
+    expect(label.closest('table').className).toContain('acct-roll');
+    expect(label.closest('.acct-lines-wrap').style.maxHeight).toBeTruthy();
+    expect(css).toMatch(/\.acct-lines\.acct-roll tbody tr\.acct-grand td \{ position: sticky; bottom: 0; z-index: 3; background: var\(--bg-secondary\); \}/);
+    expect(css).toMatch(/\.acct-lines\.acct-roll tbody tr\.acct-grand td\.acct-roll-label \{ left: 0; z-index: 4; \}/);
+  });
+
+  it('fits the Income Roll box to what is left of the screen, 74% at most, 320px at least', () => {
+    expect(fitRollHeight(330, 768)).toBe(426);         // 1366x768: ends 12px above the bottom
+    expect(fitRollHeight(200, 1440)).toBe(1066);       // a tall screen keeps the 74% cap
+    expect(fitRollHeight(600, 700)).toBe(240);         // a short one still shows rows (320 ran past a 1100 x 700 window, item 02 round 3)
+    expect(fitRollHeight(400, 700, 12)).toBe(288);     // 1100 x 700: ends on the screen, the page does not scroll
+    // 10/23 meeting, item 05 (UI test 10/24): the pager and the note under the
+    // roll are taken off too, so the page itself does not scroll.
+    expect(fitRollHeight(330, 768, 110)).toBe(328);
+  });
+
+  it('Outstanding and Payers scroll in a box fitted to the window too, like the Income Roll', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    expect(document.querySelector('.acct-roll').closest('.acct-lines-wrap').style.maxHeight).toMatch(/px$/);
+    fireEvent.click(screen.getByRole('button', { name: /Outstanding/ }));
+    await waitFor(() => expect(screen.getByTestId('mri-outstanding-box').style.maxHeight).toMatch(/px$/));
+    fireEvent.click(screen.getByRole('button', { name: /^Payers/ }));
+    await waitFor(() => expect(screen.getByTestId('mri-tenants-box').style.maxHeight).toMatch(/px$/));
+  });
+
+  // Round 3 (item 05, UI test 10/24: Payers' headings scrolled away with the rows): each heading
+  // keeps position: relative for its drag handle, so the heading block pins as one piece instead.
+  it('pins the headings of the Income Roll, Outstanding and Payers to the top of their box', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    expect(document.querySelector('.acct-roll').classList.contains('acct-sticky-head')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /Outstanding/ }));
+    await waitFor(() => expect(screen.getByTestId('mri-outstanding-box').querySelector('table').classList.contains('acct-sticky-head')).toBe(true));
+    fireEvent.click(screen.getByRole('button', { name: /^Payers/ }));
+    await waitFor(() => expect(screen.getByTestId('mri-tenants-box').querySelector('table').classList.contains('acct-sticky-head')).toBe(true));
   });
 
   it('has a resize handle on the Income Roll columns', async () => {
@@ -693,5 +800,81 @@ describe('LeasingTab shared controls', () => {
     expect(within(dialog).getByLabelText('Mailing Address').value).toBe('');
     expect(within(dialog).getByLabelText('Phone').value).toBe('949-400-2788');
     expect(within(dialog).getByLabelText('Intacct Customer Code').value).toBe('C00498');
+  });
+});
+
+// Accounting call 10/23, items 03 and 04: a lease opens in a panel on the
+// right with the list still there, its fields in Tenant Info, Lease Info and
+// Comments, Save pinned at the bottom.
+describe('LeasingTab - side panel (10/23)', () => {
+  it('opens the lease on the right in three titled groups, with Open Full and a close', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const panel = screen.getByRole('dialog', { name: 'Change lease' });
+    expect(panel.getAttribute('aria-modal')).toBe('false');
+    expect(panel.className).toContain('acct-side-panel');
+    const groups = within(panel).getAllByRole('region').map((r) => r.getAttribute('aria-label'));
+    expect(groups).toEqual(['Tenant Info', 'Lease Info', 'Comments']);
+    const tenant = within(panel).getByRole('region', { name: 'Tenant Info' });
+    for (const f of ['Tenant Name', 'Intacct Customer Code', 'Primary Contact', 'Phone', 'Email', 'Mailing Address', 'Tenant Is']) expect(within(tenant).getByLabelText(f)).toBeTruthy();
+    const leaseInfo = within(panel).getByRole('region', { name: 'Lease Info' });
+    for (const f of ['Type', 'Property or Space', 'Region', 'Status', 'Lease Term', 'Frequency', 'Security Deposit', 'Late Fee', 'Rent Due on Day', 'Rental Income Accounts']) expect(within(leaseInfo).getByLabelText(f)).toBeTruthy();
+    expect(within(within(panel).getByRole('region', { name: 'Comments' })).getByLabelText('Notes')).toBeTruthy();
+    // The list is still on screen behind it.
+    expect(screen.getByRole('button', { name: '47385 RCR, Temecula' })).toBeTruthy();
+    // Open Full widens it; Side Panel brings it back.
+    fireEvent.click(within(panel).getByRole('button', { name: /Open Full/ }));
+    expect(panel.className).toContain('is-full');
+    fireEvent.click(within(panel).getByRole('button', { name: /Side Panel/ }));
+    expect(panel.className).not.toContain('is-full');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'Change lease' })).toBeNull();
+  });
+
+  it('Open Full is for that one open: the next lease opens in the side panel again', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    let panel = screen.getByRole('dialog', { name: 'Change lease' });
+    fireEvent.click(within(panel).getByRole('button', { name: /Open Full/ }));
+    expect(panel.className).toContain('is-full');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    // Not kept with the person's preferences.
+    expect(JSON.parse(localStorage.getItem('nexus-accounting-prefs') || '{}').sidePanelFull).toBeUndefined();
+    fireEvent.click(screen.getByRole('button', { name: '47385 RCR, Temecula' }));
+    panel = screen.getByRole('dialog', { name: 'Change lease' });
+    expect(panel.className).not.toContain('is-full');
+    expect(within(panel).getByRole('button', { name: /Open Full/ }).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('saves from the pinned Save as before', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const panel = screen.getByRole('dialog', { name: 'Change lease' });
+    fireEvent.change(within(panel).getByLabelText('Notes'), { target: { value: 'Pays by check' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateLeasingLease).toHaveBeenCalled());
+    expect(api.updateLeasingLease.mock.calls[0][0]).toBe('L1');
+    expect(api.updateLeasingLease.mock.calls[0][1].notes).toBe('Pays by check');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Change lease' })).toBeNull());
+  });
+
+  it('clicking another lease swaps the panel; unsaved edits are asked about first', async () => {
+    const ask = vi.spyOn(appDialog, 'confirm').mockResolvedValue(false);
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    // Unchanged: straight to the next lease.
+    fireEvent.click(screen.getByRole('button', { name: '47385 RCR, Temecula' }));
+    await waitFor(() => expect(within(screen.getByRole('dialog', { name: 'Change lease' })).getByLabelText('Property or Space').value).toBe('47385 RCR, Temecula'));
+    expect(ask).not.toHaveBeenCalled();
+    // Changed: asked, and Keep Editing keeps it.
+    fireEvent.change(within(screen.getByRole('dialog', { name: 'Change lease' })).getByLabelText('Region'), { target: { value: 'San Diego' } });
+    fireEvent.click(screen.getByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
+    expect(within(screen.getByRole('dialog', { name: 'Change lease' })).getByLabelText('Region').value).toBe('San Diego');
+    // Discard: the other lease opens.
+    ask.mockResolvedValueOnce(true);
+    fireEvent.click(screen.getByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    await waitFor(() => expect(within(screen.getByRole('dialog', { name: 'Change lease' })).getByLabelText('Property or Space').value).toBe('910 SECR - Ste 100, San Clemente'));
+    ask.mockRestore();
   });
 });

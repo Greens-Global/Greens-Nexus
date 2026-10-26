@@ -639,13 +639,7 @@ def intake_email(db: Session, ev: HrLifeEvent, link: str) -> tuple:
     role = escape((ev.inputs or {}).get("job_title") or "your new role")
     expires = _long((ev.intake_expires_on or "")[:10])
     accent = "#15803d"
-    doc = {"promotion": "Promotion Letter", "separation": "Separation Package"}.get(ev.kind, "")
-    if doc:
-        # An employee's promotion letter or separation package (Oct 23 2026).
-        head = _heading(f"Hi {first}, a few details first", accent)
-        intro = _p(f"Before HR sends your {doc.lower()}, please fill in a few details. They are saved to your record.")
-        after = "It takes a few minutes and works on your phone - no password needed."
-    elif (ev.inputs or {}).get("after_offer"):
+    if (ev.inputs or {}).get("after_offer"):
         # The offer is signed (Oct 14) - this is the onboarding paperwork.
         head = _heading(f"Welcome aboard, {first}!", accent)
         intro = _p(f"Thank you for accepting your offer for <b>{role}</b> at {escape(company)}. The next step is "
@@ -669,12 +663,10 @@ def intake_email(db: Session, ev: HrLifeEvent, link: str) -> tuple:
     brand = (f'<span style="font-family:{FONT};font-size:17px;font-weight:800;color:{INK}">'
              f'{escape(company)}</span>')
     top = _band(brand, pad="22px 40px", extra=f"border-bottom:4px solid {accent}")
-    pre = _preheader(f"A few details for your {doc.lower()}" if doc else "Confirm your details for your hiring documents")
+    pre = _preheader("Confirm your details for your hiring documents")
     html = (f'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>'
             f'<body style="margin:0;padding:0;background:#ffffff;font-family:{FONT}">{pre}{top}'
             f'{_band(body, pad="40px 40px 36px")}</body></html>')
-    if doc:
-        return f"A Few Details For Your {doc} - {company}", html
     return f"{company} - please confirm your details", html
 
 

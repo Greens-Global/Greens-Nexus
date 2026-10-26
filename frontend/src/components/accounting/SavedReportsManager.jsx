@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Check, Pencil, Search, Trash2, Users, X } from 'lucide-react';
 import { formatDate } from '../../lib/datetime';
 import { control } from './reportControls';
-import { columnModes, entityText, presetLabel, reportDef, resolveConfig } from './reportModel';
+import { columnModes, entityText, periodOf, presetLabel, reportDef, resolveConfig } from './reportModel';
 
 // Accounting -> Reports -> Manage Saved Reports (Charmi, call of 09/29: "the
 // dropdown is too small for fifty reports - it needs its own screen to
@@ -23,7 +23,7 @@ const summarize = (config) => {
   const filters = Object.values(c.dims || {}).reduce((n, v) => n + (v?.length || 0), 0) + (c.accounts?.length || 0);
   return {
     report: def.label,
-    period: def.period === 'asof' ? (c.asofToday === false ? `As of ${formatDate(c.asof)}` : 'As of today') : c.preset === 'custom' ? `${formatDate(c.from)} - ${formatDate(c.to)}` : presetLabel(c.preset),
+    period: periodOf(c) === 'asof' ? (c.asofToday === false ? `As of ${formatDate(c.asof)}` : 'As of today') : c.preset === 'custom' ? `${formatDate(c.from)} - ${formatDate(c.to)}` : presetLabel(c.preset),
     columns: cols && cols !== 'Total Only' ? cols : '',
     book: c.book === 'accrual' ? '' : c.book === 'cash' ? 'Cash' : 'Accrual and Cash',
     entities: entityText(c, []),

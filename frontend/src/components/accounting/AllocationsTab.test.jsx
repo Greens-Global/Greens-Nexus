@@ -49,6 +49,22 @@ beforeEach(() => {
 });
 
 describe('AllocationsTab', () => {
+  // 10/23 meeting, item 05 (fix 10/24; Viral: "remove Global Scrolling ... mostly on every screen").
+  it('is as tall as the window: the basis, the entry preview and the runs kept each scroll in their own card', async () => {
+    render(<AllocationsTab canEdit />);
+    await screen.findByText('Pat Test');
+    const stack = screen.getByTestId('allocations-stack');
+    expect(stack.className).toBe('acct-fit-stack');
+    await waitFor(() => expect(stack.style.getPropertyValue('--acct-box-h')).toMatch(/px$/));
+    for (const title of [/^Basis/, /^Entry Preview/, /^Runs Kept/]) {
+      const box = screen.getByRole('heading', { name: title }).closest('.acct-stack-card');
+      expect(box.parentElement).toBe(stack);
+      expect(box.style.overflow).toBe('');     // the card scrolls (style.css), so its headings pin to it
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Account Mapping' }));
+    expect(screen.getByRole('heading', { name: 'Account Mapping' }).closest('.acct-stack-card').parentElement).toBe(stack);
+  });
+
   it('shows the basis and the entry preview, flagging what is unmapped', async () => {
     render(<AllocationsTab canEdit />);
     expect(await screen.findByText('Pat Test')).toBeTruthy();

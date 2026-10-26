@@ -4,7 +4,7 @@ import { monthLong, shiftKey } from '../../../accounting/dashboard/model/months'
 import { SCOPE_LABEL } from '../../../accounting/dashboard/model/scope';
 import { useDash } from './DashContext';
 import { card, input, pill } from './Bits';
-import { EntityPicker } from '../reportControls';
+import { BarMore, BarSummary, ControlBar, EntityPicker } from '../reportControls';
 import { formatDateTime, formatTime } from '../../../lib/datetime';
 
 // The dashboard's global filter row: scope (consolidation group or one
@@ -110,7 +110,7 @@ export function RefreshButton() {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       {updatedAt || synced ? (
-        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+        <span className="acct-bar-label-2" style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
           {updatedAt ? `Updated ${formatTime(updatedAt)}` : ''}{updatedAt && synced ? ' · ' : ''}{synced ? `Ledger synced from Intacct ${synced}` : ''}
         </span>
       ) : null}
@@ -126,18 +126,24 @@ export function RefreshButton() {
  *  card row, directly under the tabs and left aligned, that Reports, Budget,
  *  Vendors & Customers and Allocations draw. */
 export function Toolbar({ right, hidePeriod }) {
-  const { ix, scope } = useDash();
+  const { ix, scope, book } = useDash();
   const partners = ['ALL', 'CTL', 'NC'].includes(scope) ? '' : ix.byCode.get(scope)?.partners;
   return (
-    <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+    // 10/23 meeting, item 02: the shared one-line control bar (reportControls).
+    // Round 3 (UI test 10/24: still two rows at 1366): the partner note
+    // shortens with "..." first; then the tab's own controls, then the book,
+    // move into the More menu.
+    <ControlBar style={{ ...card, padding: '8px 10px' }}>
       <ScopeSelect />
       {!hidePeriod ? <MonthStepper /> : null}
-      <BookPills />
-      {partners ? <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Partner entity · {partners}</span> : null}
-      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-        {right}
+      <BarMore level={2} active={book !== 'accrual' ? 1 : 0}>
+        <BookPills />
+      </BarMore>
+      {partners ? <BarSummary style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Partner entity · {partners}</BarSummary> : null}
+      <div className="acct-bar-end">
+        {right ? <BarMore level={1}>{right}</BarMore> : null}
         <RefreshButton />
       </div>
-    </div>
+    </ControlBar>
   );
 }

@@ -1,9 +1,10 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Download, FileDown, FileSpreadsheet, Funnel, ListFilter, Loader2, Search, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
+import { Fragment, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Download, FileDown, FileSpreadsheet, Funnel, ListFilter, Loader2, MoreHorizontal, RefreshCw, Search, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import AnchoredMenu from '../AnchoredMenu';
-import { formatDate } from '../../lib/datetime';
+import { formatDate, formatTime } from '../../lib/datetime';
 import { EMPTY_DIMS, JOURNAL_KINDS, NUM_OPS, POPOVER_DIMS, PRESETS, countDims, isHistorical, isHistoricalEntity, iso, presetRange, stepAsOf, stepRange } from './reportModel';
 
 // The Reports toolbar's controls (Neil and Charmi, Sep 25): everything is a
@@ -96,7 +97,8 @@ export function filterOptions(options, query) {
 // 10/06); `plain` rows (a picker's extra top options) have no code shown.
 // `onPick(code)` turns it into a single-select list: a click or Enter picks.
 // Arrow keys move through the rows, Enter ticks / picks the highlighted one.
-function OptionList({ options, value, onChange, onPick, placeholder, empty, loading, error, allLabel, codeFirst = false, maxHeight = LIST_HEIGHT }) {
+// `onFree(text)` (Oct 23) offers a typed code that is not on the list.
+function OptionList({ options, value, onChange, onPick, onFree, placeholder, empty, loading, error, allLabel, codeFirst = false, maxHeight = LIST_HEIGHT }) {
   const [q, setQ] = useState('');
   const [active, setActive] = useState(-1);
   const listRef = useRef(null);
@@ -116,6 +118,8 @@ function OptionList({ options, value, onChange, onPick, placeholder, empty, load
     if (active < 0) return;
     listRef.current?.querySelector(`[data-opt-index="${active}"]`)?.scrollIntoView?.({ block: 'nearest' });
   }, [active]);
+  const typed = q.trim();
+  const free = onFree && typed && !options.some((o) => o.code.toLowerCase() === typed.toLowerCase()) ? typed : '';
   const onKeyDown = (e) => {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
@@ -126,6 +130,7 @@ function OptionList({ options, value, onChange, onPick, placeholder, empty, load
     e.preventDefault();
     const target = active >= 0 ? shown[active] : q.trim() ? shown[step(-1, 1)] : null;
     if (target && !target.dim) toggle(target.code);
+    else if (!target && free) onFree(free);
   };
   return (
     <>
@@ -141,6 +146,12 @@ function OptionList({ options, value, onChange, onPick, placeholder, empty, load
           <button type="button" style={row(!value.length)} onClick={() => onChange([])}>
             <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{!value.length ? <Check size={14} /> : null}</span>
             <span style={{ flex: 1, fontWeight: 600 }}>{allLabel}</span>
+          </button>
+        )}
+        {free && (
+          <button type="button" style={row(false)} onClick={() => onFree(free)}>
+            <span style={{ width: 14 }} />
+            <span style={{ flex: 1 }}>Use &quot;{free}&quot;</span>
           </button>
         )}
         {shown.map((o, i) => {
@@ -232,7 +243,7 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, sho
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label="Entities" title={label}>
         <Building2 size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        <span className={value.length ? undefined : 'acct-bar-label-2'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Entities" aria-multiselectable="true" style={panel(540)}>
@@ -300,6 +311,46 @@ export function EntityPicker({ entities, value = '', onChange, extra = [], group
   );
 }
 
+// ONE GL account, searchable by number or title (Charmi, 10/22 call on the
+// Management Fees dialog: "I should be able to search it. It's not
+// searchable."). The list loads on first open through `load()` (a promise of
+// { accounts: [{ code, title }] }); a code with no activity yet can still be
+// typed and used, and a saved code always stays listed.
+export function GlAccountPicker({ value = '', onChange, load, noneLabel = 'None', placeholder = 'Pick a GL Account', ariaLabel = 'GL Account', align = 'left', style = null }) {
+  const [open, setOpen, ref] = usePopover();
+  const [list, setList] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!open || list) return undefined;
+    let alive = true;
+    Promise.resolve().then(load)
+      .then((d) => { if (alive) setList(d?.accounts || []); })
+      .catch((e) => { if (alive) { setList([]); setError(e?.message || 'Could not read the GL accounts.'); } });
+    return () => { alive = false; };
+  }, [open, list, load]);
+  const options = useMemo(() => {
+    const body = (list || []).map((a) => ({ code: a.code, name: a.title || '' }));
+    if (value && !body.some((o) => o.code === value)) body.unshift({ code: value, name: '' });
+    return [...(noneLabel ? [{ code: '', name: noneLabel, plain: true }] : []), ...body];
+  }, [list, value, noneLabel]);
+  const title = (list || []).find((a) => a.code === value)?.title;
+  const label = value ? (title ? `${value} ${title}` : value) : placeholder;
+  const pick = (code) => { setOpen(false); if (code !== value) onChange(code); };
+  return (
+    <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
+      <button type="button" style={{ ...button(!!value), ...(style || {}) }} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} title={label}>
+        <ListFilter size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, textAlign: 'left' }}>{label}</span>
+        <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+      </button>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} style={panel(460)}>
+        <OptionList options={options} value={[value]} onPick={pick} onFree={pick} codeFirst loading={list === null} error={error}
+          placeholder="Search account by name or GL code" empty="No GL accounts with activity on the ledger yet." />
+      </PopoverPanel>
+    </div>
+  );
+}
+
 // A header checkbox for a list of rows: ticked when every row is, a dash
 // (indeterminate) when some are, empty when none (Oct 7, item 45). Clicking
 // it ticks all when not all are ticked, else clears all.
@@ -322,7 +373,9 @@ export function SelectAllCheckbox({ checked, total, onChange, label = 'Select Al
 // that is open. `kinds` (optional, Oct 7) narrows the list - Reports leaves
 // Journals out while the accounting app lists none. `onNames` hands the names of each list up as it loads, so
 // the chips under the report can say "Vendor: Amazon" instead of a code.
-export function FiltersButton({ dims, onChange, onNames, showHistorical = false, align = 'left', kinds = POPOVER_DIMS }) {
+// `label` (round 3): a screen whose table has its own Filters names this one
+// for what it picks (Manual JE: "Journals"), so the two never share a name.
+export function FiltersButton({ dims, onChange, onNames, showHistorical = false, align = 'left', kinds = POPOVER_DIMS, label = 'Filters' }) {
   const [open, setOpen, ref] = usePopover();
   const [kind, setKind] = useState(kinds[0] || POPOVER_DIMS[0]);
   const [lists, setLists] = useState({});       // kind -> { values } | { error } | { unavailable }
@@ -363,13 +416,13 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
   const unavailable = !!lists[kind.kind]?.unavailable;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" style={button(n > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} aria-label="Filters">
+      <button type="button" style={button(n > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} aria-label={label} title={label}>
         <Funnel size={14} style={{ flexShrink: 0, color: n ? 'inherit' : 'var(--text-muted)' }} />
-        Filters
+        <span className="acct-bar-label-2">{label}</span>
         {n > 0 && <span style={count}>{n}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Filters" style={{ ...panel(640), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label={label} style={{ ...panel(640), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
         <div style={{ display: 'grid', gap: 1, alignContent: 'start' }}>
           <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', padding: '2px 8px 6px' }}>Filter this report by</div>
           {kinds.map((k) => {
@@ -413,7 +466,9 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
 
 // Which accounts the statement shows: every account it could show, by
 // section, with a tick per account. Nothing ticked = all of them.
-export function AccountsPicker({ accounts, value, onChange, showHistorical = false, align = 'left' }) {
+// Oct 23 (Report Builder): `allLabel` names an empty pick ("No accounts yet"
+// on a row group) and `ariaLabel` tells several pickers on one screen apart.
+export function AccountsPicker({ accounts, value, onChange, showHistorical = false, align = 'left', allLabel = 'All accounts', ariaLabel = 'Accounts' }) {
   const [open, setOpen, ref] = usePopover();
   const options = useMemo(() => {
     const known = new Set(accounts.map((a) => a.code));
@@ -425,16 +480,16 @@ export function AccountsPicker({ accounts, value, onChange, showHistorical = fal
     value.forEach((code) => { if (!known.has(code)) list.push({ code, name: '', group: 'Not on this statement' }); });
     return list;
   }, [accounts, value, showHistorical]);
-  const label = !value.length ? 'All accounts' : value.length === 1 ? `Account ${value[0]}` : `${value.length} accounts`;
+  const label = !value.length ? allLabel : value.length === 1 ? `Account ${value[0]}` : `${value.length} accounts`;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label="Accounts" title={label}>
+      <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} title={label}>
         <ListFilter size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        <span className={value.length ? undefined : 'acct-bar-label-2'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Accounts" aria-multiselectable="true" style={panel(480)}>
-        <OptionList options={options} value={value} onChange={onChange} allLabel="All accounts" codeFirst
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} aria-multiselectable="true" style={panel(480)}>
+        <OptionList options={options} value={value} onChange={onChange} allLabel={allLabel} codeFirst
           placeholder="Search account by name or GL code" empty="No accounts with activity for this selection." />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Totals add up the picked accounts only.{showHistorical ? '' : ' Customize > Show historical accounts lists the (H) ones too.'}</span>
@@ -448,6 +503,12 @@ export function AccountsPicker({ accounts, value, onChange, showHistorical = fal
 // The period, with an arrow on each side (the accounting app's stepper): the
 // dropdown names the period, the arrows move one month, quarter or year back
 // or forward. A statement as of a date steps from month-end to month-end.
+const periodLabel = (key) => {
+  const p = PRESETS.find((x) => x.key === key);
+  if (!p || key === 'custom') return 'Custom Dates';
+  const r = presetRange(key).map(iso);
+  return `${p.label} · ${formatDate(r[0])} - ${formatDate(r[1])}`;
+};
 const arrow = { ...control, width: 26, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)' };
 export function PeriodStepper({ config, period, onChange }) {
   const group = { display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' };
@@ -473,11 +534,9 @@ export function PeriodStepper({ config, period, onChange }) {
   return (
     <div role="group" aria-label="Report period" style={custom ? group : { ...group, flexWrap: 'nowrap', minWidth: 0, maxWidth: '100%' }}>
       <button type="button" style={{ ...arrow, flexShrink: 0 }} onClick={() => step(-1)} aria-label="Previous period" title="Previous period"><ChevronLeft size={14} /></button>
-      <select value={config.preset} onChange={(e) => onChange({ preset: e.target.value })} aria-label="Period" style={{ ...control, maxWidth: 300, minWidth: 0 }}>
-        {PRESETS.map((p) => {
-          const r = p.key === 'custom' ? null : presetRange(p.key).map(iso);
-          return <option key={p.key} value={p.key}>{r ? `${p.label} · ${formatDate(r[0])} - ${formatDate(r[1])}` : 'Custom Dates'}</option>;
-        })}
+      {/* Item 02 (10/23): as wide as the period picked - "Custom Dates" no longer holds the width of its longest option. */}
+      <select value={config.preset} onChange={(e) => onChange({ preset: e.target.value })} aria-label="Period" style={{ ...control, ...fitSelect(periodLabel(config.preset), { max: 300 }) }}>
+        {PRESETS.map((p) => <option key={p.key} value={p.key}>{periodLabel(p.key)}</option>)}
       </select>
       {config.preset === 'custom' && (
         <>
@@ -575,8 +634,8 @@ export function CustomizeButton({ density, onDensity, pageSize = 0, onPageSize, 
   const on = !!showZero || !!showHistorical || !!showHistoricalAccounts || !!showInactiveAccounts || !!active;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" style={button(on)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
-        <SlidersHorizontal size={14} style={{ flexShrink: 0, color: on ? 'inherit' : 'var(--text-muted)' }} /> Customize
+      <button type="button" style={button(on)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} title="Customize">
+        <SlidersHorizontal size={14} style={{ flexShrink: 0, color: on ? 'inherit' : 'var(--text-muted)' }} /> <span className="acct-bar-label">Customize</span>
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Customize" style={{ ...panel(340), display: 'grid', gap: 12 }}>
         {onDensity && (
@@ -698,9 +757,9 @@ export function ExportMenu({ items, disabled = false, align = 'right' }) {
   const busy = items.some((i) => i.busy);
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" className="primary-btn" onClick={() => setOpen((v) => !v)} disabled={disabled} aria-haspopup="menu" aria-expanded={open}
+      <button type="button" className="primary-btn" onClick={() => setOpen((v) => !v)} disabled={disabled} aria-haspopup="menu" aria-expanded={open} title="Export"
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-        {busy ? <Loader2 size={14} className="spin" /> : <Download size={14} />} Export <ChevronDown size={13} />
+        {busy ? <Loader2 size={14} className="spin" /> : <Download size={14} />} <span className="acct-bar-label">Export</span> <ChevronDown size={13} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="menu" aria-label="Export" style={{ ...panel(270), padding: 6 }}>
         {items.map((it, i) => {
@@ -745,8 +804,8 @@ export function MemorizeButton({ onSave, suggestion, align = 'right' }) {
   };
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" style={button(false)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
-        <BookmarkPlus size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} /> Memorize
+      <button type="button" style={button(false)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} title="Memorize">
+        <BookmarkPlus size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} /> <span className="acct-bar-label">Memorize</span>
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Memorize this report" style={panel(330)}>
         <form onSubmit={save} style={{ display: 'grid', gap: 8 }}>
@@ -783,7 +842,7 @@ export function SavedReportsMenu({ reports, loading, error, activeId, onOpen, on
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(!!active)} onClick={() => { setOpen((v) => !v); setConfirm(''); }} aria-haspopup="menu" aria-expanded={open} title={active ? active.name : 'Saved Reports'}>
         <Bookmark size={14} style={{ flexShrink: 0, color: active ? 'inherit' : 'var(--text-muted)' }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{active ? active.name : 'Saved Reports'}</span>
+        <span className={active ? undefined : 'acct-bar-label'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{active ? active.name : 'Saved Reports'}</span>
         {!active && reports.length > 0 && <span style={{ ...count, background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>{reports.length}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
@@ -864,6 +923,360 @@ export function ClearButton({ onClick, label }) {
     <button type="button" onClick={onClick} aria-label={label}
       style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}>
       <X size={14} />
+    </button>
+  );
+}
+
+// ── The control bar (10/23 meeting, item 02) ────────────────────────────────
+// Viral: "whenever we select the custom date, actually it became two line
+// control bar"; Neil: "basic responsiveness ... based on the size of the
+// screen". Every Accounting screen's filters, search, Sync, Export and the
+// rest sit in ONE ControlBar. It keeps them on one line by folding words
+// away before anything wraps: first the action words (Saved Reports,
+// Memorize, Customize, Export, Sync - `acct-bar-label`), then the words of
+// pickers still at their default (All entities, Filters, All accounts -
+// `acct-bar-label-2`). The icon, the count and the tooltip stay, so no
+// control is lost. Only on a window too narrow for even that does the row
+// wrap - cleanly, as whole controls, never on top of each other. The fold is
+// measured on the real row (no guessed breakpoints) whenever its width or
+// content changes. Put the right-hand group in `<div className="acct-bar-end">`.
+//
+// Fix 10/24 (UI test: still two lines on 7 screens at 1366 / 1440, wrapping
+// instead of folding at 1100): when the icons alone still do not fit, the
+// controls a screen marks as less used (<BarMore level={1}>, then level 2...)
+// move into a More menu (...) at the end of the row, one level at a time, and
+// come back out when the row is wide enough again. Nothing gets smaller and
+// nothing is lost: the More menu holds the same live controls, with their
+// words. <BarSearch> is a search that stays an icon until it is used.
+//
+// Round 3 (UI test 10/24: Loans, Management Fees, MRE, Flux Analysis and
+// Allocations still two lines at 1366 / 1440; most list screens wrapping at
+// 1100): the order is now words, then the summary, then the More levels -
+//   1. the action words fold, then the default picker words (as before);
+//   2. a <BarSummary> ("Loans 14 · Balance ...") shortens with "..." down to
+//      SUMMARY_MIN, its full text in the tooltip;
+//   3. the More levels move, as many at once as the row needs (measured on
+//      the row, so the sidebar opening or closing counts), and come back,
+//      as many as fit, when it widens again.
+// While a menu opened from the bar is open nothing moves (a panel never loses
+// the button it hangs from); the bar fits itself again once it closes.
+const FOLDS = ['', '1', '2'];
+const SUMMARY_MIN = 120;   // px a summary keeps before a control moves into More
+const SLACK = 12;          // room a level needs beyond its own width to come back
+const LINE = 46;           // a box taller than this has wrapped inside itself (a control is 30 px)
+const MORE_W = 38;         // the More button and its gap, before it is drawn
+const BarContext = createContext(null);
+/** The boxes on the row, in order (the More menu's own box is not on it). */
+function barBoxes(el) {
+  const boxes = [];
+  const collect = (node) => {
+    for (const kid of node.children) {
+      const d = getComputedStyle(kid).display;
+      if (d === 'none' || kid.tagName === 'STYLE' || kid.hidden || kid.classList.contains('acct-bar-more-panel') || kid.classList.contains('acct-bar-break')) continue;
+      if (d === 'contents') collect(kid);
+      else if (kid.classList.contains('acct-bar-end')) collect(kid);
+      else boxes.push(kid);
+    }
+  };
+  collect(el);
+  return boxes;
+}
+const isSummary = (k) => k.classList.contains('acct-bar-summary');
+/** Does the row hold its controls on more than one line? Exported for the tests. */
+export function barWraps(el) {
+  const sized = barBoxes(el).map((k) => k.getBoundingClientRect()).filter((b) => b.width > 0 || b.height > 0);
+  // A box twice a control's height has wrapped inside itself (custom dates).
+  if (sized.some((b) => b.height > LINE)) return true;
+  if (sized.length < 2) return false;
+  const firstBottom = Math.min(...sized.map((b) => b.bottom));
+  return sized.some((b) => b.top >= firstBottom - 1);
+}
+const px = (v) => parseFloat(v) || 0;
+const gapOf = (el) => px(getComputedStyle(el).columnGap) || 8;
+/** A box's width; `short`: a summary counted at the most it shortens to. */
+const boxWidth = (k, short) => { const w = k.getBoundingClientRect().width; return short && isSummary(k) ? Math.min(w, SUMMARY_MIN) : w; };
+/** How wide the row would have to be for its boxes on one line. */
+function barNeed(el, short = false) {
+  const widths = barBoxes(el).map((k) => boxWidth(k, short)).filter((w) => w > 0);
+  const cs = getComputedStyle(el);
+  return widths.reduce((s, w) => s + w, 0) + gapOf(el) * Math.max(0, widths.length - 1) + px(cs.paddingLeft) + px(cs.paddingRight);
+}
+/** How much of the row the controls of one More level take while they are on it (a summary at its shortest). */
+function groupWidth(el, level) {
+  let sum = 0;
+  const add = (k) => {
+    if (getComputedStyle(k).display === 'contents') { [...k.children].forEach(add); return; }
+    const w = boxWidth(k, true);
+    if (w > 0) sum += w + gapOf(el);
+  };
+  el.querySelectorAll(`.acct-bar-more[data-more-level="${level}"]`).forEach((g) => [...g.children].forEach(add));
+  return sum;
+}
+/**
+ * Shortens the summaries on the row (last first, never below SUMMARY_MIN) by
+ * what the row is over. True when the row then holds one line; else the
+ * summaries are put back as they were.
+ */
+function shortenSummaries(el) {
+  const sums = barBoxes(el).filter(isSummary);
+  if (!sums.length) return false;
+  const over = barNeed(el) - el.clientWidth + 2;
+  const room = sums.reduce((s, k) => s + Math.max(0, k.getBoundingClientRect().width - SUMMARY_MIN), 0);
+  if (over > 0 && over <= room) {
+    let left = over;
+    [...sums].reverse().forEach((k) => {
+      const w = k.getBoundingClientRect().width;
+      const take = Math.min(left, Math.max(0, w - SUMMARY_MIN));
+      if (take > 0) { k.style.maxWidth = `${Math.floor(w - take)}px`; left -= take; }
+    });
+    if (!barWraps(el)) return true;
+  }
+  sums.forEach((k) => { k.style.maxWidth = ''; });
+  return false;
+}
+/** A menu opened from the bar (or the More menu itself) is open: leave the row as it is. */
+const menuOpen = (el) => !!el.querySelector('[aria-haspopup][aria-expanded="true"]');
+export function ControlBar({ children, className = '', style = null, ...rest }) {
+  const ref = useRef(null);
+  const moreRef = useRef(null);
+  const [level, setLevel] = useState(0);       // BarMore groups up to this level are in the More menu
+  const levelRef = useRef(0);
+  const [panel, setPanel] = useState(null);    // the More menu's box; BarMore portals into it
+  const [open, setOpen] = useState(false);
+  const groups = useRef(new Map());            // BarMore id -> { level, active }
+  const [groupList, setGroupList] = useState([]);   // the same, for drawing the More button
+  const groupW = useRef([]);                   // groupW[l]: what level l took on the row
+  const flips = useRef(0);                     // fold / unfold turns this frame (a guard, never a loop)
+  const tried = useRef(null);                  // the last unfold: { from, width }
+  const blocked = useRef(new Set());           // `${level}@${width}`: an unfold that did not fit there
+  const fit = useCallback(() => {
+    const el = ref.current;
+    const width = el?.clientWidth || 0;
+    // Not laid out (a hidden tab, or a test with no layout): nothing to measure.
+    if (!el || !width || flips.current > 8 || menuOpen(el)) return;
+    const setLvl = (l) => {
+      flips.current += 1;
+      if (flips.current === 1) requestAnimationFrame(() => { flips.current = 0; });
+      levelRef.current = l;
+      setLevel(l);
+    };
+    el.querySelectorAll('.acct-bar-summary').forEach((k) => { k.style.maxWidth = ''; });
+    const lvl = levelRef.current;
+    const top = Math.max(0, ...[...groups.current.values()].map((g) => g.level));
+    // The screen dropped the controls of the deepest levels (another tab).
+    if (lvl > top) { setLvl(top); return; }
+    // 1. Room again for what moved into More? Bring back as many levels as fit.
+    if (lvl > 0 && !blocked.current.has(`${lvl}@${width}`)) {
+      el.dataset.fold = '2';
+      const more = moreRef.current ? moreRef.current.getBoundingClientRect().width + gapOf(el) : MORE_W;
+      let need = barNeed(el, true);
+      let to = lvl;
+      while (to > 0 && groupW.current[to] !== undefined) {
+        const add = groupW.current[to] - (to === 1 ? more : 0);
+        if (need + add + SLACK > width) break;
+        need += add;
+        to -= 1;
+      }
+      if (to < lvl) { tried.current = { from: lvl, width }; setLvl(to); return; }
+    }
+    // 2. Fold the words.
+    for (const f of FOLDS) {
+      if (f) el.dataset.fold = f; else delete el.dataset.fold;
+      if (!barWraps(el)) return;
+    }
+    // 3. Shorten the summary.
+    if (shortenSummaries(el)) return;
+    // 4. Move the next levels into More - as many as the row needs.
+    if (lvl < top) {
+      // An unfold that has to go straight back: not again at this width.
+      if (tried.current && tried.current.width === width && tried.current.from > lvl) blocked.current.add(`${tried.current.from}@${width}`);
+      tried.current = null;
+      let need = barNeed(el, true) + (lvl === 0 ? MORE_W : 0);
+      let to = lvl;
+      while (to < top) {
+        to += 1;
+        groupW.current[to] = groupWidth(el, to);
+        need -= groupW.current[to];
+        if (need <= width) break;
+      }
+      setLvl(to);
+      return;
+    }
+    // 5. Nothing left to move (a phone): the summary at its shortest, and the
+    // row wraps as whole controls.
+    barBoxes(el).filter(isSummary).forEach((k) => { k.style.maxWidth = `${SUMMARY_MIN}px`; });
+  }, []);
+  // What the screen draws in the bar changed: an unfold that failed may fit now.
+  useLayoutEffect(() => { blocked.current.clear(); }, [children]);
+  // After every render (a picker's label or a new button changes the width
+  // the row needs) and whenever the row itself is resized.
+  useLayoutEffect(fit);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    let w = el.clientWidth;
+    const ro = new ResizeObserver(() => { if (el.clientWidth !== w) { w = el.clientWidth; fit(); } });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fit]);
+  // A control that changes on its own (a menu closing, a label, Syncing...)
+  // without the screen drawing the bar again: fit on the next frame.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof MutationObserver === 'undefined') return undefined;
+    let frame = 0;
+    const mo = new MutationObserver(() => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; fit(); });
+    });
+    mo.observe(el, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-expanded'] });
+    return () => { mo.disconnect(); if (frame) cancelAnimationFrame(frame); };
+  }, [fit]);
+  // The More menu closes on a click outside it (a dropdown opened from inside
+  // it counts as inside) and on Escape.
+  const inMore = level > 0 && groupList.some((g) => g.level <= level);
+  const shown = open && inMore;
+  useEffect(() => {
+    if (!shown) return undefined;
+    const onDown = (e) => {
+      if (ref.current?.contains(e.target) || e.target.closest?.('.nx-anchored')) return;
+      setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') { setOpen(false); moreRef.current?.focus(); } };
+    document.addEventListener('pointerdown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('pointerdown', onDown); window.removeEventListener('keydown', onKey); };
+  }, [shown]);
+  const register = useCallback((id, l, active) => { groups.current.set(id, { level: l, active }); setGroupList([...groups.current.values()]); }, []);
+  const unregister = useCallback((id) => { groups.current.delete(id); setGroupList([...groups.current.values()]); }, []);
+  const ctx = useMemo(() => ({ level, panel, refit: fit, register, unregister }), [level, panel, fit, register, unregister]);
+  // What is changed inside the More menu shows as a count on its button.
+  const changed = groupList.reduce((s, g) => s + (g.level <= level ? g.active || 0 : 0), 0);
+  return (
+    <BarContext.Provider value={ctx}>
+      <div ref={ref} className={`acct-controlbar${className ? ` ${className}` : ''}`} style={style || undefined} data-more-open={shown || undefined} {...rest}
+        onClick={(e) => {
+          rest.onClick?.(e);
+          // In the More menu, a plain action closes it; one that opens its own
+          // dropdown keeps it, and so does a click inside such a dropdown
+          // drawn in place. (The menu's controls are portaled, so their
+          // clicks reach this row, not the menu's own box.)
+          const b = shown ? e.target.closest?.('button') : null;
+          if (b && b.closest('.acct-bar-more-panel') && !b.closest('[role="listbox"], [role="dialog"], [role="menu"]')
+            && !b.hasAttribute('aria-haspopup') && !b.hasAttribute('aria-expanded') && b.getAttribute('role') !== 'switch') setOpen(false);
+        }}>
+        {children}
+        {inMore && (
+          <button ref={moreRef} type="button" className="acct-bar-more-btn" onClick={() => setOpen((v) => !v)} aria-haspopup="true" aria-expanded={shown}
+            aria-label={changed ? `More (${changed} changed)` : 'More'} title="More controls" style={button(changed > 0)}>
+            <MoreHorizontal size={14} style={{ flexShrink: 0 }} />{changed > 0 && <span>{changed}</span>}
+          </button>
+        )}
+        <div ref={setPanel} className="acct-bar-more-panel" role="group" aria-label="More controls" hidden={!shown} style={{ position: 'absolute' }} />
+      </div>
+    </BarContext.Provider>
+  );
+}
+
+/**
+ * Controls that may move into the bar's More menu when the row runs out of
+ * room - level 1 first, then 2. `active`: how many of them are changed from
+ * their default (shown on the More button while they are in it).
+ *   <BarMore level={1}><SavedReportsButton .../><MemorizeButton .../></BarMore>
+ */
+export function BarMore({ level = 1, active = 0, children }) {
+  const bar = useContext(BarContext);
+  const id = useId();
+  const register = bar?.register;
+  const unregister = bar?.unregister;
+  useLayoutEffect(() => {
+    if (!register) return undefined;
+    register(id, level, active);
+    return () => unregister(id);
+  }, [register, unregister, id, level, active]);
+  if (!bar) return children;
+  if (bar.level >= level && bar.panel) {
+    return createPortal(<div className="acct-bar-more-group" data-more-level={level}>{children}</div>, bar.panel);
+  }
+  return <span className="acct-bar-more" data-more-level={level} style={{ display: 'contents' }}>{children}</span>;
+}
+
+/**
+ * The figures a screen sums up in its bar ("Loans 14 · Balance 16,975,000.00",
+ * round 3 of item 02). When the row is short it shortens with "..." before
+ * any control moves into More, the full text in its tooltip; `level` (with
+ * `active`, as BarMore) moves it into the More menu, in full, on a row too
+ * narrow even for that.
+ */
+const fullText = (el) => { if (el) el.title = (el.textContent || '').replace(/\s+/g, ' ').trim(); };
+export function BarSummary({ level = 0, active = 0, children, style = null, ...rest }) {
+  const ref = useRef(null);
+  // The tooltip follows the text, and is there again when the summary moves into More.
+  useLayoutEffect(() => { fullText(ref.current); });
+  const attach = useCallback((el) => { ref.current = el; fullText(el); }, []);
+  const body = <span ref={attach} className="acct-bar-summary" style={style || undefined} {...rest}>{children}</span>;
+  return level ? <BarMore level={level} active={active}>{body}</BarMore> : body;
+}
+
+/**
+ * A search that is an icon until it is used (10/23 meeting: "there is only
+ * one icon ... we can save space in the control bar"): a click opens the box;
+ * it closes again when left empty, Escape clears it. `label` names it.
+ */
+export function BarSearch({ value, onChange, label, placeholder = '', width = 240 }) {
+  const [open, setOpen] = useState(false);
+  const input = useRef(null);
+  const bar = useContext(BarContext);
+  const refit = bar?.refit;
+  const shown = open || !!value;
+  useLayoutEffect(() => { refit?.(); }, [shown, refit]);
+  if (!shown) {
+    return (
+      <button type="button" onClick={() => { setOpen(true); requestAnimationFrame(() => input.current?.focus()); }} aria-label={label} title={label}
+        style={{ ...button(false), justifyContent: 'center', width: 30, padding: 0, color: 'var(--text-secondary)' }}>
+        <Search size={14} />
+      </button>
+    );
+  }
+  return (
+    <div style={{ position: 'relative', flex: `0 1 ${width}px`, minWidth: 150 }}>
+      <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />
+      <input ref={input} type="text" value={value} onChange={(e) => onChange(e.target.value)} aria-label={label} placeholder={placeholder} autoFocus={open && !value}
+        onBlur={() => { if (!value) setOpen(false); }} onKeyDown={(e) => { if (e.key === 'Escape') { onChange(''); setOpen(false); } }}
+        style={{ ...control, width: '100%', paddingLeft: 28, paddingRight: value ? 26 : 9 }} />
+      {value && <ClearButton onClick={() => { onChange(''); setOpen(false); }} label={`Clear ${label.toLowerCase()}`} />}
+    </div>
+  );
+}
+
+/**
+ * A select as wide as the option picked, not its longest option (item 02):
+ * the period list's "This Quarter · 10/01/2026 - 12/31/2026" no longer holds
+ * 280px of the row while it reads "Custom Dates". The list still opens with
+ * every option in full. `label` is the picked option's text.
+ */
+export function fitSelect(label, { min = 64, max = 320 } = {}) {
+  const chars = String(label || '').length;
+  return { width: `clamp(${min}px, calc(${chars}ch + 34px), ${max}px)`, minWidth: 0 };
+}
+
+/**
+ * One table's own Sync (10/23 meeting, item 13; Neil in the chat: "sync should
+ * be table level and not just overall"). Reads only this table again, past the
+ * server's short cache (useTableSync in ./tableSync); what is open - a popup,
+ * a side panel, the filters, the search, the sort, where the table is scrolled
+ * - stays as it is, because the rows are swapped in place, never cleared.
+ * `what` names the table in the tooltip and, when a screen has several tables,
+ * in the button's name ("Sync Runs").
+ */
+export function SyncButton({ onSync, busy = false, syncedAt = null, what = '' }) {
+  const name = what ? `Sync ${what}` : 'Sync';
+  const when = syncedAt ? ` Last synced ${formatTime(syncedAt)}.` : '';
+  return (
+    <button type="button" style={{ ...button(false), cursor: busy ? 'default' : 'pointer' }} onClick={() => { if (!busy) onSync(); }} aria-busy={busy || undefined}
+      aria-label={name} title={`Read ${what ? `the ${what.toLowerCase()}` : 'this table'} again from the ledger. Nothing else on the screen reloads.${when}`}>
+      <RefreshCw size={14} className={busy ? 'spin' : undefined} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+      <span className="acct-bar-label">{busy ? 'Syncing...' : 'Sync'}</span>
     </button>
   );
 }

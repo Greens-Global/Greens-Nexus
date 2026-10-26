@@ -53,7 +53,9 @@ export function useListNav(items, { onPick, onTab, query = '', open = true, star
     if (e.key === 'ArrowDown') { e.preventDefault(); if (n) move(Math.min(active + 1, n - 1)); return true; }
     if (e.key === 'ArrowUp') { e.preventDefault(); if (n) move(Math.max(active - 1, 0)); return true; }
     if (e.key === 'Enter') {
-      if (e.nativeEvent?.isComposing || active < 0) return false;
+      // Not on a list that is not showing (an always-on filter list passes
+      // open = something typed): Enter in an empty box must pick nobody.
+      if (!open || e.nativeEvent?.isComposing || active < 0) return false;
       e.preventDefault();
       onPick?.(items[active], active);
       return true;

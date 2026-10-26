@@ -28,6 +28,7 @@ vi.mock('../../api', () => ({
     getPeopleDirectory: vi.fn(async () => [{ email: 'urmi.gor@greensglobal.com', name: 'Urmi Gor' }, { email: 'priyanka.sahu@greensglobal.com', name: 'Priyanka Sahu' }]),
   },
 }));
+vi.mock('../PersonHoverCard', () => ({ default: ({ children }) => children }));
 vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@greensglobal.com', myRole: role.myRole }) }));
 
 import AccessTab from './AccessTab';
@@ -60,7 +61,10 @@ describe('Accounting > Access - PFS', () => {
     expect(within(section).queryByRole('combobox', { name: 'PFS access for Neil Kadakia' })).toBeNull();
     // Archana has no Accounting access: she is added here, then given Viewer. Nobody is granted until picked.
     expect(api.setPfsAccessLevel).not.toHaveBeenCalled();
-    fireEvent.change(within(section).getByRole('combobox', { name: 'Give PFS Access to a Person' }), { target: { value: 'archana@kadakia.com' } });
+    // The Tasks people picker (add mode): open, type, pick.
+    fireEvent.click(within(section).getByRole('button', { name: /^Give PFS Access to a Person:/ }));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'arch' } });
+    fireEvent.click(within(screen.getByRole('listbox')).getByText('Archana Kadakia'));
     const archana = within(section).getByRole('combobox', { name: 'PFS access for Archana Kadakia' });
     expect(archana.value).toBe('none');
     fireEvent.change(archana, { target: { value: 'viewer' } });

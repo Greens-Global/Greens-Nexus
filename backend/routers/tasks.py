@@ -273,6 +273,10 @@ class TaskUpdate(BaseModel):
     parent_task_id:   Optional[str] = None
     subtask_ids:      Optional[list] = None
     subtask_order:    Optional[str] = None    # "" (due date, then priority) | "manual"
+    # Opening a private task again: True keeps its subtasks that are private
+    # only because of it private (Keep Them Private, Oct 23 2026 -
+    # _cascade_level). Not a column; read and dropped by update_task.
+    keep_subtasks_private: Optional[bool] = None
     blocked_by_ids:   Optional[list] = None
     blocking_ids:     Optional[list] = None
     dependency_types: Optional[dict] = None
@@ -1049,7 +1053,8 @@ def _narrow_to_parent(level, parent) -> str:
     return theirs if (mine == "org" and theirs != "org") else mine
 
 
-def _cascade_level(db: Session, user: dict, t: models.Task, prev_level: str) -> list:
+def _cascade_level(db: Session, user: dict, t: models.Task, prev_level: str,
+                   keep_private: bool = False) -> list:
     """What `t`'s own level change does to the tasks under it (Oct 22 2026).
 
     Made private (org -> restricted): every org-wide row of its subtree goes
@@ -1066,10 +1071,18 @@ def _cascade_level(db: Session, user: dict, t: models.Task, prev_level: str) -> 
     meanwhile is locked as well), so a concurrent edit of one of them is
     seen, never overwritten. One activity row on `t` says how many
     went (their ids in its field_change). Returns the ids changed (the caller
-    fires one realtime event for them)."""
+    fires one realtime event for them).
+    `keep_private` (opening again only - "Keep Them Private", Oct 23 2026):
+    the rows that would come back stay private instead and become private by
+    hand (the marker cleared - _pin_private), so a later change of `t`
+    leaves them alone; the rows under them keep following them."""
     now_level = t.access_level or "org"
     if prev_level == now_level or "org" not in (prev_level, now_level):
         return []
+    # Keeping them private is a choice about OPENING again only; sent with a
+    # make-private edit it is ignored (that edit narrows the subtree the
+    # usual way - ignoring the flag never widens anything).
+    keep_private = keep_private and now_level == "org"
     ids = [r.id for r in _subtree_rows(db, t.id)[0]]
     if not ids:
         return []
@@ -1099,22 +1112,70 @@ def _cascade_level(db: Session, user: dict, t: models.Task, prev_level: str) -> 
                 continue
             pid = r.parent_task_id or ""
             above = level.get(pid) or ((by_id[pid].access_level or "org") if pid in by_id else "restricted")
+            if keep_private and r.deleted_at:
+                # A trashed row is left as it is - it follows the usual rules
+                # when restored - and so is everything under it.
+                level[r.id] = r.access_level or "org"
+                continue
             if inherits_privacy(r) and above == "org":
-                r.access_level, r.narrowed_by = "org", ""
+                if keep_private:
+                    r.narrowed_by = ""
+                else:
+                    r.access_level, r.narrowed_by = "org", ""
                 changed.append(r)
             level[r.id] = r.access_level or "org"
-        what = "opened to everyone again"
+        what = "kept private" if keep_private else "opened to everyone again"
     if not changed:
         return []
+    joined = _pin_private(db, user, changed) if keep_private else []
     for r in changed:
         if not r.deleted_at:
             r.modified_at = stamp
     n = len(changed)
     t.activity_ids = list(t.activity_ids or []) + [log_activity(
         db, type="subtasks_access", actor_email=user["email"], entity_id=t.id, entity_code=t.code,
-        entity_title=t.title, detail=f"{n} subtask{'s' if n != 1 else ''} {what}",
-        change={"subtaskIds": [r.id for r in changed], "to": now_level})]
+        entity_title=t.title, detail=f"{n} subtask{'s' if n != 1 else ''} {what}"
+        + (f", joined {len(joined)} as a collaborator" if joined else ""),
+        change={"subtaskIds": [r.id for r in changed], "to": now_level if not keep_private else "restricted",
+                **({"kept": True} if keep_private else {})})]
     return [r.id for r in changed]
+
+
+def _pin_private(db: Session, user: dict, rows: list) -> list:
+    """Keep these subtasks private by hand (Oct 23 2026, Keep Private): the
+    caller has already cleared each one's narrowed_by, so the people who saw
+    it only through the task above it (task_util.inherits_privacy) lose that
+    sight - the point of the choice. The person making it never does: one who
+    would no longer see a row by its own grants (task_is_visible - the rule
+    the lists apply, never the project hop a single read allows) is added to
+    its collaborators, so nobody locks themselves out of what they just
+    protected - never on a row over their company wall. A manager sees
+    everything and is never added; nor is an
+    external, who never saw a row through the task above it (task_is_visible)
+    and so loses nothing - adding one would hand a guest rows they never
+    had. Returns the rows they were added to."""
+    if is_manager(user) or user.get("external"):
+        return []
+    me = (user.get("email") or "").strip().lower()
+    if not me:
+        return []
+    # Never across the company wall: a row the person's company scope does not
+    # admit is not theirs to join (wall_tasks; a no-op with the walls off).
+    inside = {r.id for r in wall_tasks(db, user, rows)}
+    visible = None
+    added = []
+    for r in rows:
+        if r.id not in inside:
+            continue
+        if task_is_visible(r, user, set()):
+            continue
+        if visible is None:
+            visible = visible_project_ids(db, user)
+        if task_is_visible(r, user, visible):
+            continue
+        r.follower_emails = list(r.follower_emails or []) + [me]
+        added.append(r)
+    return added
 
 
 def _copy_level(src, new_parent) -> tuple:
@@ -3004,6 +3065,43 @@ _MODIFIED_FIELD_LABELS = {"title": "Title changed", "description": "Description 
                          "priority": "Priority changed"}
 
 
+@router.post("/{task_id}/keep-private")
+def keep_task_private(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Keep Private (Oct 23 2026): a subtask private only because of the task
+    above it (task_util.inherits_privacy) becomes private by hand - it stays
+    private when that task is shared with everyone again (_cascade_level
+    leaves it), and the people who saw it only through that task no longer
+    do. It cuts people out, so the bar is the one for opening a task up
+    (_may_open_up): the subtask's owner or creator, an editor of its project
+    by the project's own roles, or a manager - never an assignee as such, and
+    never a guest. The person keeping it never loses it (_pin_private).
+    Answers the task."""
+    t = _get_task(db, task_id)
+    assert_task_wall(db, user, t)
+    require_task_role(db, user, t, "editor")
+    if user.get("external") or not _may_open_up(db, user, t):
+        raise HTTPException(403, "Only the subtask's owner, its creator, a project editor or a manager can "
+                                 "keep it private.")
+    _lock_task_rows(db, [t.id])
+    db.refresh(t)
+    if not inherits_privacy(t):
+        if t.parent_task_id and (t.access_level or "org") != "org":
+            return task_to_dict(t)          # already private by hand: nothing to do
+        raise HTTPException(422, "Only a subtask that is private because of its main task can be kept private.")
+    t.narrowed_by = ""
+    joined = bool(_pin_private(db, user, [t]))
+    t.modified_at = now_iso()
+    t.activity_ids = list(t.activity_ids or []) + [log_activity(
+        db, type="access_kept_private", actor_email=user["email"], entity_id=t.id, entity_code=t.code,
+        entity_title=t.title,
+        detail="kept this subtask private when its main task is shared"
+               + (" and joined it as a collaborator" if joined else ""))]
+    db.commit()
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return task_to_dict(t)
+
+
 @router.patch("/{task_id}")
 def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -3013,6 +3111,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # The assignee counts on their OWN task - see require_task_role.
     require_task_role(db, user, t, "editor")
     data = upd.model_dump(exclude_unset=True)
+    keep_subtasks_private = bool(data.pop("keep_subtasks_private", None))
     validate_task_payload(db, data, task_id=task_id)
     if "subtask_order" in data and data["subtask_order"] not in ("", "manual"):
         data["subtask_order"] = ""
@@ -3179,7 +3278,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         t.narrowed_by = ""
     # Made private / opened again (Oct 22 2026): the subtree follows - see
     # _cascade_level.
-    cascaded = _cascade_level(db, user, t, prev_level)
+    cascaded = _cascade_level(db, user, t, prev_level, keep_private=keep_subtasks_private)
 
     # APPROVAL BEFORE AUTOMATION (Oct 22 2026, automation gaps review). The
     # person's own due-date move is decided HERE, before the rules run: the

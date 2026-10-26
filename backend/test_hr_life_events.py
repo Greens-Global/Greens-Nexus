@@ -245,6 +245,17 @@ class HiringPacketTests(LifeEventCase):
         self.db.commit()
         self.assertEqual(self._send().status, "sent")
 
+    def test_a_packet_the_old_hiring_setup_archived_stays_out_of_use(self):
+        # Hiring Setup's Use The Same (retired Oct 24) set archived_at; the row
+        # stays in the table but is never resolved, offered or listed again.
+        self.db.add(models.HrPacketSetting(id="set-hire-old", entity_id=ENTITY, event="hire", worker_type="employee",
+                                           template_id="tpl-offer", subject_role="employee",
+                                           archived_at="2026-10-23T18:00:00", archived_by=HR))
+        self.db.commit()
+        self.assertEqual(hle.resolve_setting(self.db, ENTITY, "hire", "employee", "").id, "set-hire")
+        self.assertNotIn("set-hire-old", [r.id for r in hle.packet_choices(self.db, ENTITY, "hire")])
+        self.assertIsNotNone(self.db.get(models.HrPacketSetting, "set-hire-old"))
+
     def test_the_person_signs_first_whatever_the_templates_order(self):
         for roles in ([{"key": "employee", "order": 1}, {"key": "company", "order": 2}],
                       [{"key": "company", "order": 1}, {"key": "employee", "order": 2}]):

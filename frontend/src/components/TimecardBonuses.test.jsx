@@ -5,7 +5,7 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 // description and an amount, read-only on a locked card. The employee sees
 // theirs read only - who added it, when and why (Oct 22: nothing hidden).
 
-const add = vi.fn(() => Promise.resolve({ id: 'b2', reopened: true, signAgain: false }));
+const add = vi.fn(() => Promise.resolve({ id: 'b2' }));
 vi.mock('../api', () => ({ api: { timecardBonusAdd: (...a) => add(...a), timecardBonusRemove: () => Promise.resolve({}) } }));
 
 import TimecardBonuses from './TimecardBonuses';
@@ -29,7 +29,7 @@ describe('TimecardBonuses', () => {
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
     expect(add).toHaveBeenCalledWith({ email: 'emp@x.com', date: '2026-10-11', description: 'Holiday cover', amount: 75.5 });
     // Already approved: the adder is told it goes back for approval and a new signature.
-    expect(toastOk.mock.calls[0][0]).toMatch(/goes back to the manager to approve again, then to the employee to sign/);
+    expect(toastOk.mock.calls[0][0]).toMatch(/no new approval or signature is needed/);
   });
 
   it('is read-only when locked', () => {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock, Printer } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
@@ -33,6 +33,7 @@ import { registerTour } from '../lib/tours';
 import { confirmExportReadiness } from '../lib/payrollReadiness';
 import { checkLongShift, checkTypedPunches } from '../lib/longShift';
 import LongShiftWarning from './LongShiftWarning';
+import { readRefresh, saveRefresh } from '../lib/refreshState';
 
 // Launch (Neil, 10/16): the only sign-off is review + Nexus Sign, so the HR
 // "Finalize Without Signatures" override is hidden. Flip to true to show it.
@@ -547,6 +548,7 @@ const _tcKey = (self, email, start, end) => self ? `self:${start}` : (email ? `$
 // Aarav Mehta's time card"): the last employee and period opened, kept for
 // this browser tab. A deep link (?timecard=) still wins over it.
 const _LAST_KEY = 'nexus.payroll.last';
+const _SELF_KEY = 'timeclock.my-time-sheet';
 const _lastOpened = () => { try { return JSON.parse(sessionStorage.getItem(_LAST_KEY) || 'null') || {}; } catch { return {}; } };
 
 // The period anchor for a review's period start (Sep 29): a salaried month
@@ -562,7 +564,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const self = selfMode;   // employee viewing their OWN timecard (from /my-payroll)
   const [people, setPeople] = useState([]);
   const [peopleLoaded, setPeopleLoaded] = useState(false);   // the team list answered (even empty)
-  const last = useMemo(() => (selfMode || initialEmail) ? {} : _lastOpened(), [selfMode, initialEmail]);
+  // My own Time Sheet (Workday > Time Clock) keeps its period across a reload
+  // too (Charmi, 10/22, item 17 - lib/refreshState); HR's card keeps its own above.
+  const last = useMemo(() => initialEmail ? {} : selfMode ? (readRefresh(_SELF_KEY) || {}) : _lastOpened(), [selfMode, initialEmail]);
   const [email, setEmail] = useState(initialEmail || last.email || '');
   // Jump to a specific employee when the caller changes initialEmail (e.g. the
   // "N to review" badge in TimeAdmin opens that person's card).
@@ -571,8 +575,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // link, the card open before a reload): start there, and don't let the
   // first-load snaps move it.
   const seedStart = initialStart || last.start, seedType = initialPayType || last.payType;
-  const seeded = useRef(!selfMode && !!anchorForStart(seedStart, seedType));
-  const [pStart, setPStart] = useState(() => (!selfMode && anchorForStart(seedStart, seedType)) || periodStartFor(new Date()));
+  const selfSeed = selfMode ? anchorForStart(last.start, last.payType) : null;
+  const seeded = useRef(selfMode ? !!selfSeed : !!anchorForStart(seedStart, seedType));
+  const [pStart, setPStart] = useState(() => (selfMode ? selfSeed : anchorForStart(seedStart, seedType)) || periodStartFor(new Date()));
   // A notice about my own Time Sheet opens its period (lib/openTarget.js).
   // Hourly periods start on a Sunday, so any other start is a salaried month.
   useEffect(() => {
@@ -652,6 +657,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     }).catch(() => setPeopleLoaded(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [self, start, end]);
+  useEffect(() => {
+    if (self) saveRefresh(_SELF_KEY, { start: isoDate(pStart), payType: data?.payType || '' });
+  }, [self, pStart, data?.payType]);
   useEffect(() => {
     if (self || !email) return;
     try { sessionStorage.setItem(_LAST_KEY, JSON.stringify({ email, start: isoDate(pStart), payType: data?.payType || '' })); }
@@ -1781,7 +1789,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {/* Summary + acknowledgment */}
       {T && (
         <div style={{ marginTop: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <div data-tour="pr-summary" style={{ flex: 1, minWidth: 300, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
+          <div data-tour="pr-summary" style={{ flex: '0 1 620px', minWidth: 300, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
             {(() => {
               // SwipeClock shows both clock time and decimal - "58:30 (58.50)" -
               // so payroll can be keyed either way without converting by hand.
@@ -1862,6 +1870,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <span>Paid breaks</span><span style={{ fontWeight: 700, color: 'hsl(var(--color-green))' }}>+{T.paidBreakMin}m</span>
               </div>
             )}
+            {!self && data?.review?.isHr && <PrintTimeSheetButton email={email} start={perStart} toastErr={toastErr} />}
             {!self && showPay && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <button className="secondary-btn" disabled={exporting} onClick={() => exportFile(() => api.timeExportCsv(start, end, 'punches'), 'CSV', [start, end])} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
@@ -1906,7 +1915,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         </p>
       )}
 
-      {T && <TimecardBonuses card={data} periodStart={perStart} self={self} locked={noEdit} fmtM={fmtM} showPay={showPay}
+      {T && <TimecardBonuses card={data} periodStart={perStart} self={self} locked={ownCard || (!!fin && !data.review?.isHr)} fmtM={fmtM} showPay={showPay}
         onChanged={load} toastOk={toastOk} toastErr={toastErr} />}
 
       {/* Review + Nexus Sign (Sep 2026): the employee submits, the manager sends
@@ -2325,7 +2334,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 
       {/* Monthly pay summary - payroll's, never the manager tier's */}
       <div style={{ marginTop: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, minWidth: 300, display: showPay ? undefined : 'none', border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
+        <div style={{ flex: '0 1 620px', minWidth: 300, display: showPay ? undefined : 'none', border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
           {(() => {
             const rows = [
               [data.contractor ? (fixedSplit ? 'Fee this month (pro-rated by day)' : 'Monthly fee') : (fixedSplit ? 'Salary this month (pro-rated by day)' : 'Monthly salary'), fmtM(T.salaryForPeriod ?? T.monthlySalary)],
@@ -2366,6 +2375,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               <span>Pending edits</span><span>{T.pendingEdits}</span>
             </div>
           )}
+          {!self && data.review?.isHr && <PrintTimeSheetButton email={email} start={data.periodStart} toastErr={toastErr} />}
           {!self && ((fin && data.review?.canUnlock) || (isAdmin && LEGACY_FINALIZE)) && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               {fin && data.review?.canUnlock && (
@@ -2378,7 +2388,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         </div>
       </div>
 
-      <TimecardBonuses card={data} periodStart={data.periodStart} self={self} locked={noEdit} fmtM={fmtM} showPay={showPay}
+      <TimecardBonuses card={data} periodStart={data.periodStart} self={self} locked={ownCard || (!!fin && !data.review?.isHr)} fmtM={fmtM} showPay={showPay}
         onChanged={load} toastOk={toastOk} toastErr={toastErr} />
 
       {/* Review + Nexus Sign (same as hourly) - at the top on the employee's own sheet */}
@@ -2410,6 +2420,35 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 
 // The key to the In / Out color banding (Pranshu, Oct 19), above the grid on
 // the manager / HR card. Classes live in style.css so dark mode has its own shades.
+// Print Time Sheet (Neil, Oct 23 2026): HR / Global Admin print the period to
+// be signed on paper, not through Nexus Sign - any period, in review, finalized
+// or locked, hourly or salaried. The tab opens before the fetch so the browser
+// does not treat it as a pop-up.
+function PrintTimeSheetButton({ email, start, toastErr }) {
+  const [printing, setPrinting] = useState(false);
+  async function printSheet() {
+    const tab = window.open('', '_blank');
+    setPrinting(true);
+    try {
+      const res = await api.printTimeSheet(email, start);
+      const url = URL.createObjectURL(res.blob);
+      if (tab) tab.location.href = url;
+      else downloadBlob(res.filename || 'Time Sheet.pdf', res.blob);
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      tab?.close();
+      toastErr?.(e?.message || 'Could not print the time sheet.');
+    } finally { setPrinting(false); }
+  }
+  return (
+    <button className="secondary-btn" disabled={printing} onClick={printSheet}
+      title="A PDF of this period to print and sign on paper, not through Nexus Sign. HR and Global Admins only."
+      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 10 }}>
+      {printing ? <Spinner size={13} /> : <Printer size={13} />} Print Time Sheet
+    </button>
+  );
+}
+
 function TimeColorKey() {
   return (
     <div className="pt-time-key" aria-label="Time colors">

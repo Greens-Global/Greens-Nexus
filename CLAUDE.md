@@ -44,7 +44,10 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 | Area | Owner | Files |
 |---|---|---|
 | Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
-| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `backend/routers/assets.py`, property models/tables |
+| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/assets.py`, `backend/routers/property_assets.py`, property models/tables |
+
+Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
+the build-notes skill refuses commits by it) - change both together.
 
 **Do not modify the other developer's files** — ask them instead.
 Shared files (`backend/models.py`, `backend/main.py` migrations list,
@@ -331,7 +334,13 @@ keep the diff minimal.
   demands: the role tier, an Access Group grant, `people` for an /hr route;
   `mayOpen` is the ONE visibility rule, so never hide a group from inside
   its panel instead) + one `renderGroup` case; the panel stays the
-  component its module owns - never a second copy. Settings holds what defines the shape
+  component its module owns - never a second copy. Panels draw controls with
+  `components/settings/SettingsUI.jsx` (Neil, Oct 25 2026: "world class") -
+  `SwitchRow` / `SettingRow` / `NumberBox`: title and description left,
+  control right, hairline rows; a switch saves on click, a form's Save shows
+  only once something changed; a group made of rows sets `flush: true`.
+  Styles are the `.nx-set-*` rules in style.css; never hand-roll another
+  switch. Settings holds what defines the shape
   of a module or a company and is changed rarely by an administrator; a
   module keeps what its managers maintain daily (Tasks > Manage, KB
   collections, Accounting's own tools stay put). Copy says "Settings >

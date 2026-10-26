@@ -53,12 +53,12 @@ describe('Branding & Email subject', () => {
   it('renders its groups for administrators, and the old global-branding link lands on it', () => {
     render(<AdminConsole activeSub="global-branding" onSubChange={() => {}} />);
     expect(screen.getByRole('heading', { name: 'Branding & Email' })).toBeInTheDocument();
-    for (const t of ['Brand Color', 'Email Appearance', 'Email Signature']) expect(screen.getByText(t)).toBeInTheDocument();
+    for (const t of ['Brand Color', 'Email Appearance', 'Email Signature']) expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
     // The Sign-In Policy is a Security matter now.
     expect(screen.queryByText('Sign-In Policy')).not.toBeInTheDocument();
     cleanup();
     render(<AdminConsole activeSub="security" onSubChange={() => {}} />);
-    expect(screen.getByText('Sign-In Policy')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Sign-In Policy' })).toBeInTheDocument();
   });
 
   it('is hidden from non-administrators', () => {

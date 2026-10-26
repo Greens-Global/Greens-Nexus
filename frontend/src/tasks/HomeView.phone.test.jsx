@@ -80,22 +80,25 @@ describe('Tasks Home on a phone', () => {
   it('drops the summary tiles and keeps the range picker in the Tasks card', async () => {
     render(<HomeView onNavigate={() => {}} />);
     await flush();
-    expect(screen.queryByTitle('Open my tasks')).toBeNull();          // the Priority tile
+    expect(screen.queryByTitle('Show overdue tasks')).toBeNull();     // the Overdue tile
     expect(screen.queryByText('Priority')).toBeNull();
-    const picker = screen.getByText('My Week');
-    expect(picker.closest('div').parentElement.textContent).toContain('Tasks');
+    const picker = screen.getByText('This Week');
+    expect(picker.closest('[data-home-tasks]')).toBeTruthy();          // in the Tasks card
     fireEvent.click(picker);
-    fireEvent.click(screen.getByText('My Day'));
-    expect(screen.queryByText('My Month')).toBeNull();                 // the menu closed...
-    expect(screen.getByText('My Day').tagName).toBe('BUTTON');         // ...and the pick is on the button
-    expect(screen.queryByText('My Week')).toBeNull();
+    // "Today" is also a day label elsewhere on the screen - take the menu's button.
+    const todayButtons = () => screen.getAllByText('Today').filter((el) => el.tagName === 'BUTTON');
+    expect(todayButtons()).toHaveLength(1);
+    fireEvent.click(todayButtons()[0]);
+    expect(screen.queryByText('This Month')).toBeNull();                 // the menu closed...
+    expect(todayButtons()).toHaveLength(1);                             // ...and the pick is on the button
+    expect(screen.queryByText('This Week')).toBeNull();
   });
 
   it('keeps the tiles at a desk', async () => {
     mobile = false;
     render(<HomeView onNavigate={() => {}} />);
     await flush();
-    expect(screen.getByTitle('Open my tasks')).toBeTruthy();
+    expect(screen.getByTitle('Show overdue tasks')).toBeTruthy();
   });
 });
 
@@ -167,8 +170,8 @@ describe('the Updates card', () => {
     savedHome = { widgets: ['week'], introduced: ['updates'] };   // all three were taken off
     render(<HomeView onNavigate={() => {}} />);
     await flush();
-    // The Tasks card's title is a button, so the headings start at Updates.
-    expect([...document.querySelectorAll('h2')].map((h) => h.textContent)).toEqual(['Updates', 'Bookmarks', 'Week Ahead']);
+    // Every card has a heading (the Tasks title is a link inside its h2).
+    expect([...document.querySelectorAll('h2')].map((h) => h.textContent)).toEqual(['Tasks', 'Updates', 'Bookmarks', 'Week Ahead']);
     expect(activity).toHaveBeenCalledTimes(1);
     const tasksCard = screen.getByText('Create Task');
     expect(tasksCard.compareDocumentPosition(screen.getByText('Updates')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

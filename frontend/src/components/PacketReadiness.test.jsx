@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 
 // Ready To Send (Oct 14): each check shows its fix - the company's HR contact
 // set right here, Sign Once for the holder, the variables added to the form.
@@ -12,6 +12,7 @@ vi.mock('../api', () => ({
     updateEntity: (...a) => updateEntity(...a),
   },
 }));
+vi.mock('./PersonHoverCard', () => ({ default: ({ children }) => children }));
 const { default: PacketReadiness } = await import('./PacketReadiness');
 const { readinessSummary } = await import('../lib/packetFlow');
 
@@ -38,8 +39,11 @@ describe('PacketReadiness', () => {
     const onChanged = vi.fn(); const onSignOnce = vi.fn(); const onAddToForm = vi.fn();
     render(<PacketReadiness checks={CHECKS} meEmails={['charmi@x.com']} onChanged={onChanged}
       onSignOnce={onSignOnce} onAddToForm={onAddToForm} />);
-    await waitFor(() => expect(screen.getByText('Charmi Shah')).toBeTruthy());
-    fireEvent.change(screen.getByLabelText('HR Contact'), { target: { value: 'charmi@x.com' } });
+    // The HR contact is the Tasks people picker: open, type, pick.
+    await waitFor(() => expect(screen.getByLabelText(/^HR Contact:/).disabled).toBe(false));
+    fireEvent.click(screen.getByLabelText(/^HR Contact:/));
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), { target: { value: 'cha' } });
+    fireEvent.click(within(screen.getByRole('listbox')).getByText('Charmi Shah'));
     fireEvent.click(screen.getByText('Set'));
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
     expect(updateEntity).toHaveBeenCalledWith('co', { hr_contact_email: 'charmi@x.com' });

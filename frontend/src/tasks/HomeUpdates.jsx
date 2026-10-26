@@ -20,7 +20,7 @@
 // handed to me, Approve / Decline an extension, Accept / Keep a proposed date.
 // Days older than yesterday read as their date; Load More reads further back.
 import { useMemo, useState } from 'react';
-import { Check, CornerDownRight, ThumbsUp } from 'lucide-react';
+import { Activity, Check, CornerDownRight, ThumbsUp } from 'lucide-react';
 import { Avatar } from './components';
 import { NX, FONT, btn, card, input } from './theme';
 import { api } from '../api';
@@ -253,8 +253,12 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
       ...card, borderRadius: 16, padding: isMobile ? '14px 14px 12px' : 20,
       ...(fill ? { height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' } : {}),
     }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Updates</h2>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        {/* The Home cards' one header (homeWidgets.WidgetHeader): a soft chip, then the title. */}
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span aria-hidden="true" style={{ width: 28, height: 28, borderRadius: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `${NX.blue}1f`, color: NX.blue }}><Activity size={15} /></span>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Updates</h2>
+        </span>
         <span style={{ fontSize: 12.5, color: NX.faint }}>
           {newCount > 0 && <span style={{ color: NX.blue, fontWeight: 600 }}>{newCount} New · </span>}
           On your tasks, last 14 days
