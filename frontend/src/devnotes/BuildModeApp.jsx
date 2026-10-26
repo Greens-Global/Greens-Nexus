@@ -103,6 +103,15 @@ export default function BuildModeApp({ view, sub }) {
   }, [loadPins, s.version]);
   useEffect(() => { if (!s.panelOpen) loadPins(); }, [s.panelOpen]);  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Is your own Claude Code listening? (every 15 s while visible) ────────
+  useEffect(() => {
+    const check = () => Promise.resolve(api.devNotesClaudeConnection?.())
+      .then((c) => { if (c && typeof c === 'object') store.set({ claude: c }); })
+      .catch(() => { /* keep the last answer */ });
+    check();
+    return pollWhileVisible(check, 15000);
+  }, []);
+
   // ── Your open comments on every screen (the strip's Done count) ──────────
   const [mine, setMine] = useState([]);
   useEffect(() => {
@@ -404,6 +413,7 @@ export default function BuildModeApp({ view, sub }) {
       <Pins pins={pins} me={me} openPinId={s.openPinId} show={s.showPins} onOpen={(id) => store.set({ openPinId: id, pick: null })} onClose={() => store.set({ openPinId: '' })} onChanged={onPinChanged} />
       {s.pick && draft && (
         <Composer pick={s.pick} draft={draft} onChange={updateDraft} onCancel={cancelComposer} onSave={save} saving={saving} settings={s.settings} view={view}
+          claudeConnected={s.claude?.connected !== false}
           capture={s.capture} recording={s.recording} onRecord={toggleRecord} onStopRecord={() => stopRecording()} recorded={recorded}
           askRecord={askRecord} onRecordChoice={beginRecord} onRecordAskCancel={() => setAskRecord(false)} onToggleAudio={toggleRecordAudio}
           voiceOn={voiceOn} interim={interim} onVoiceStart={startVoice} onVoiceStop={stopVoice}

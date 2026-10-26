@@ -429,6 +429,28 @@ Fixed - Verify, Done, Dismissed.
   kind, priority, status, comment, Where line and the marked-up shot embedded
   as base64 - that opens anywhere with no login.
 
+### Your own Claude Code (Oct 26 2026)
+
+Pranshu: with Neil's, Visesh's and my watchers all running, a pin I send
+must start MY Claude Code in MY VS Code terminal - nobody else's.
+
+- `dev_notes.dispatched_by` (model + both migration lists): who sent the
+  pin (`_dispatch_notes(by=...)` - the Send click, Send Instantly, a reopen,
+  a released pin's author). `/cli/wait` returns only pins whose sender is
+  the token's owner (`dispatched_by`, or the author for rows sent before the
+  column existed - `sent_by`), answered pins included; `/cli/claim` skips
+  the rest with "Pin #n was sent to <Name>'s Claude Code, not yours".
+- `GET /dev-notes/claude-connection` -> `{connected, lastSeen, apiBase}`:
+  connected = one of the caller's live Build Tokens was used in the last
+  150 s (`CONNECTED_SEC`; the watcher asks every ~25 s). The shell checks
+  it every 15 s (`store.claude`).
+- Connected: the Queue says so and offers Send To Claude Code. Not
+  connected: no Send - **Connect Claude Code First**, and the card **Connect
+  My Claude Code** mints a token and shows one line for a VS Code terminal
+  (`tools/build_notes/connect.py <token> --api <this Nexus's API>` - the
+  page's own API address, the server's public one only in cookie mode). The
+  composer then offers Save Pin only. See `tools/build_notes/README.md`.
+
 ### The simple strip (Oct 26 2026)
 
 For people who are not technical (Pranshu: "make it as easy as that"):

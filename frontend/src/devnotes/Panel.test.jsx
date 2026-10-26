@@ -15,6 +15,7 @@ vi.mock('../api', () => ({
   },
   onApiRequest: vi.fn(() => () => {}),
   setApiBodyCapture: vi.fn(),
+  API_BASE: '/api',          // relative, as in cookie mode: the connect line takes the server's address
 }));
 
 // These cover Send To Claude Code and the Settings tab, which are off while
@@ -200,5 +201,36 @@ describe('Panel - Post To Teams (Oct 26 2026)', () => {
     await waitFor(() => expect(post).not.toBeDisabled());
     post.click();
     await waitFor(() => expect(api.devNotesTeamsPost).toHaveBeenCalledWith({ teamsChatId: '19:d', teamsChatName: 'Dev chat' }));
+  });
+});
+
+describe('Panel - your own Claude Code (Oct 26 2026)', () => {
+  const pinRow = { id: 'p1', number: 1, kind: 'bug', priority: 'normal', status: 'open', comment: 'Broken', sessionId: 's1', route: 'tasks', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] };
+  afterEach(async () => { (await import('./store')).store.set({ claude: null }); });
+
+  it('not connected: no Send - Connect Claude Code First, and Connect gives the one line to paste', async () => {
+    notes = [pinRow];
+    const { store } = await import('./store');
+    store.set({ claude: { connected: false, lastSeen: '', apiBase: 'https://api.example' } });
+    const { api } = await import('../api');
+    api.devNotesTokenCreate = vi.fn(() => Promise.resolve({ id: 't1', token: 'nxbn_abc', label: 'Claude Code', expiresAt: '2026-11-25T00:00:00Z' }));
+    render(<Panel {...props} />);
+    await screen.findByText('Broken');
+    expect(screen.queryByRole('button', { name: /Send To Claude Code/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Connect Claude Code First/ })).toBeTruthy();
+    screen.getByRole('button', { name: /Connect My Claude Code/ }).click();
+    const line = await screen.findByText(/tools\/build_notes\/connect\.py nxbn_abc --api https:\/\/api\.example/);
+    expect(line.textContent).toMatch(/^python3? tools/);
+    expect(screen.getByText(/Waiting for your Claude Code/)).toBeTruthy();
+  });
+
+  it('connected: Send To Claude Code, and the Queue says your Claude Code is connected', async () => {
+    notes = [pinRow];
+    const { store } = await import('./store');
+    store.set({ claude: { connected: true, lastSeen: '2026-10-26T10:00:00Z', apiBase: '' } });
+    render(<Panel {...props} />);
+    await screen.findByText('Broken');
+    await waitFor(() => expect(screen.getByRole('button', { name: /Send To Claude Code/ })).not.toBeDisabled());
+    expect(screen.getByTestId('bm-claude-connected').textContent).toMatch(/Your Claude Code is connected/);
   });
 });

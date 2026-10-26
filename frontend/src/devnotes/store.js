@@ -41,6 +41,9 @@ let state = {
   pendingPin: pendingPinFromUrl() || (typeof window !== 'undefined' ? (read(sessionStorage, PENDING_PIN_KEY) || '') : ''),
   blockedRoutes: [],             // views where nothing is captured (the server names them: pfs, credvault)
   tool: 'pin',
+  // Your own Claude Code (GET /dev-notes/claude-connection): null = not known
+  // yet, else { connected, lastSeen, apiBase }. Send To Claude Code goes only to it.
+  claude: null,
   // The whole strip (every markup tool, Edit, Hide Pins) instead of the simple one - per browser.
   allTools: typeof window !== 'undefined' && read(localStorage, ALL_TOOLS_KEY) === '1',
   color: '#ef4444',

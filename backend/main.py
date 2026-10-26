@@ -1318,6 +1318,8 @@ def _run_migrations():
             "ALTER TABLE dev_notes ADD COLUMN preview_verdict VARCHAR DEFAULT ''",
             "ALTER TABLE dev_notes ADD COLUMN preview_verdict_at VARCHAR DEFAULT ''",
             "ALTER TABLE dev_notes ADD COLUMN regression_case_id VARCHAR DEFAULT ''",
+            # Build Mode: a sent pin goes to its sender's Claude Code only (Oct 26) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN dispatched_by VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3050,6 +3052,9 @@ def _run_migrations():
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict VARCHAR DEFAULT ''",
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict_at VARCHAR DEFAULT ''",
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS regression_case_id VARCHAR DEFAULT ''",
+        # Build Mode (Oct 26): who sent a pin - only that person's Claude Code
+        # (their Build Token's watcher) sees and claims it. models.DevNote.
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS dispatched_by VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
