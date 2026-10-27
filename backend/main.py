@@ -1322,6 +1322,8 @@ def _run_migrations():
             "ALTER TABLE dev_notes ADD COLUMN dispatched_by VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_seen_at VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_check JSON",
+            # Employee custom fields (Oct 27 2026) - see the Postgres list.
+            "ALTER TABLE nexus_employees ADD COLUMN custom_fields JSON",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3067,6 +3069,11 @@ def _run_migrations():
         "ALTER TABLE accounting_tax_lines ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_seen_at VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_check JSON",
+        # Employee custom fields (Neil, Oct 27 2026, hr_custom_fields.py): the
+        # values on each person, and the definitions table (new - explicit RLS).
+        # models.NexusEmployee.custom_fields, models.EmployeeCustomField.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS custom_fields JSON",
+        "ALTER TABLE employee_custom_fields ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4669,3 +4676,6 @@ from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: cr
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
 from routers import accounting_liability_recon  # noqa: E402
 app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
+from routers import hr_custom_fields as hr_custom_fields_router  # noqa: E402 - new table: create_all + explicit RLS line above
+app.include_router(hr_custom_fields_router.router)     # People > More Details: HR-defined custom fields on employee records (Neil, Oct 27 2026)
+app.include_router(hr_custom_fields_router.my_router)  # My HR > More Details: the fields an employee may see or edit

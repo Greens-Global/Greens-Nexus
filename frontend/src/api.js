@@ -3012,6 +3012,18 @@ export const api = {
   // { owner: {name, email} | null, held } for a source stamp - the composer
   // asks before saving whether the pin would be held for that owner.
   devNotesOwnerOf: (path) => req(`/dev-notes/owner-of?${new URLSearchParams({ path: path || "" }).toString()}`),
+  // ── More Details: custom fields on employee records (Oct 27 2026) ──
+  // Definitions (Settings > People & Access); one person's values in People
+  // ({ fields, values, canEdit } - HR Only ones only for HR); My HR's own.
+  // A save sends only the changed fields: { [fieldKey]: value }.
+  hrCustomFields: (includeArchived = false) => req(`/hr/custom-fields${includeArchived ? "?include_archived=true" : ""}`),
+  hrCustomFieldCreate: (data) => req("/hr/custom-fields", { method: "POST", body: JSON.stringify(data) }),
+  hrCustomFieldUpdate: (id, data) => req(`/hr/custom-fields/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  hrCustomFieldsReorder: (ids) => req("/hr/custom-fields/reorder", { method: "POST", body: JSON.stringify({ ids }) }),
+  hrEmployeeCustomFields: (eid) => req(`/hr/employees/${encodeURIComponent(eid)}/custom-fields`),
+  hrEmployeeCustomFieldsSave: (eid, values) => req(`/hr/employees/${encodeURIComponent(eid)}/custom-fields`, { method: "PUT", body: JSON.stringify({ values }) }),
+  myHrCustomFields: () => req("/myhr/custom-fields"),
+  myHrCustomFieldsSave: (values) => req("/myhr/custom-fields", { method: "PUT", body: JSON.stringify({ values }) }),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()

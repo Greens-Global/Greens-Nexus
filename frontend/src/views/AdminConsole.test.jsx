@@ -93,6 +93,7 @@ vi.mock('./SettingsPanels', () => ({
   UnitRulesPanel: () => <div>Unit rules panel</div>,
   AppRatingsPanel: () => <div>App ratings panel</div>,
 }));
+vi.mock('../components/EmployeeCustomFieldsSettings', () => ({ default: ({ company }) => <div>More details panel{company ? ` ${company}` : ''}</div> }));
 
 const AdminConsole = (await import('./AdminConsole')).default;
 
@@ -209,11 +210,12 @@ describe('AdminConsole', () => {
     // tenant defaults are not, so the page says to pick the company.
     asRole('supervisor', { grants: { hr: 'editor' }, hrScope: ['c1'] });
     render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
-    // (Branding & Email stays: the company's Email Signature is a People route.)
-    for (const name of ['Companies', 'Locations', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Branding & Email']) {
+    // (Branding & Email stays: the company's Email Signature is a People route;
+    // People & Access too: its More Details Fields are HR's, Oct 27 2026.)
+    for (const name of ['Companies', 'Locations', 'People & Access', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Branding & Email']) {
       expect(within(rail()).getByRole('button', { name })).toBeInTheDocument();
     }
-    for (const name of ['People & Access', 'Security', 'Tickets', 'Items & Equipment', 'Operations']) {
+    for (const name of ['Security', 'Tickets', 'Items & Equipment', 'Operations']) {
       expect(within(rail()).queryByRole('button', { name })).not.toBeInTheDocument();
     }
     expect(screen.getByText(/set per company for you - pick one in the Scope box/)).toBeInTheDocument();
@@ -224,6 +226,12 @@ describe('AdminConsole', () => {
     expect(await find('Shift settings panel basics c1')).toBeInTheDocument();
     // Weather Alerts are set for every company at once: company-wide access only.
     expect(screen.queryByRole('region', { name: 'Weather Alerts' })).not.toBeInTheDocument();
+    cleanup();
+    // People & Access for them is More Details Fields, with their company
+    // picked - never the access groups, which are administrators' alone.
+    render(<AdminConsole activeSub="access@c1" onSubChange={() => {}} />);
+    expect(await find('More details panel c1')).toBeInTheDocument();
+    expect(screen.queryByText('Access panel')).not.toBeInTheDocument();
     cleanup();
 
     // An Operations editor grant (any tier) opens Unit Rules, not Push to Cubby.

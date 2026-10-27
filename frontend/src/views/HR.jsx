@@ -17,7 +17,7 @@ import {
   Building2, Trash2, MapPinned, Wallet, Receipt, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw, ArrowLeftRight,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
-  ListChecks, RefreshCw, Hourglass,
+  ListChecks, RefreshCw, Hourglass, ListPlus,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -66,6 +66,8 @@ import RecordsAudit from '../components/RecordsAudit';
 import { ApprovalDelegationsAdmin } from '../components/DelegateApprovals';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { PersonReimbursements } from '../components/Reimbursements';
+import { EmployeeMoreDetails } from '../components/EmployeeCustomFields';
+import { formatFieldValue, matchesFieldFilter } from '../lib/employeeCustomFields';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -1746,6 +1748,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const directReport = teamView && !!mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase();
   const tabs = (teamView ? [
     ['overview', 'Overview', Contact],
+    ['details', 'More Details', ListPlus],
     ['access', 'Role', Shield],
     directReport && ['pay', 'Pay & Benefits', Wallet],
     directReport && ['expenses', 'Reimbursements', Receipt],
@@ -1754,6 +1757,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     ['bod', 'Work Logs', Clock],
   ] : [
     ['overview', 'Overview', Contact],
+    // HR's own fields (Oct 27 2026) - HR Only ones never reach a manager.
+    ['details', 'More Details', ListPlus],
     // Everyone in People sees Role (Pranshu, Oct 14): the pending role
     // change and the role history; managing access stays admin-only.
     ['access', 'Role', Shield],
@@ -2021,6 +2026,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {row(Heart, 'Emergency contact', e.personal?.emergency?.name ? [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone, e.personal.emergency.email].filter(Boolean).join(' · ') : '')}
             </div>
           </>
+        )}
+
+        {tab === 'details' && (
+          <EmployeeMoreDetails employee={e} readOnly={teamView || isRemoved || !canEditProfile} toastOk={toastOk} toastErr={toastErr} />
         )}
 
         {tab === 'pay' && (canSeeComp || directReport) && (
@@ -6063,6 +6072,11 @@ export default function HR({ activeSub, onSubChange }) {
   // Inactive tab. The status dropdown narrows further inside a lens.
   const [listTab,   setListTab]   = useState('active');
   const [typeF,     setTypeF]     = useState('All');   // All | employee | contractor | external
+  // More Details (Oct 27 2026): pick a field to see it on every row, and
+  // optionally narrow to a value. Only the fields this viewer may see arrive.
+  const [cfDefs,    setCfDefs]    = useState([]);
+  const [cfKey,     setCfKey]     = useState('');
+  const [cfF,       setCfF]       = useState('');
   // DELETED_F is a view, not a status: a removed person keeps whatever status
   // they had, so it cannot live in STATUS_META alongside active/onboarding.
   const [deletedEmployees, setDeletedEmployees] = useState([]);
@@ -6173,6 +6187,9 @@ export default function HR({ activeSub, onSubChange }) {
   const loadSites = () => api.getWorkSites().then(setSites).catch(() => setSites([]));
   useEffect(load, []);
   useEffect(() => { loadEntities(); loadSites(); }, []);
+  useEffect(() => { api.hrCustomFields().then(r => setCfDefs(Array.isArray(r) ? r : [])).catch(() => setCfDefs([])); }, []);
+  const cfField = cfDefs.find(f => f.fieldKey === cfKey) || null;
+  const cfShown = e => (cfField ? formatFieldValue(cfField, e.customFields?.[cfField.fieldKey]) : '');
   // Every person action (offboard, hire, status change, remove, restore,
   // provision, push to M365...) calls refreshPeople, so the tiles, the
   // directory, its counts, the open profile and the checklist chips all
@@ -6215,6 +6232,7 @@ export default function HR({ activeSub, onSubChange }) {
       if (typeF === 'external' && !isExtRow(e)) return false;
       if (companyF !== 'All' && e.company !== companyF) return false;
       if (deptF !== 'All' && e.department !== deptF) return false;
+      if (cfField && !matchesFieldFilter(cfField, e.customFields?.[cfField.fieldKey], cfF)) return false;
       // Skipped while showing removed people - they keep their old status, so
       // matching on it here would filter the list down to nothing.
       if (!showingDeleted && statusF !== 'All' && e.status !== statusF) return false;
@@ -6224,7 +6242,7 @@ export default function HR({ activeSub, onSubChange }) {
       }
       return true;
     });
-  }, [employees, extEmployees, deletedEmployees, showingDeleted, typeF, companyF, deptF, statusF, search, listTab]);
+  }, [employees, extEmployees, deletedEmployees, showingDeleted, typeF, companyF, deptF, statusF, search, listTab, cfField, cfF]);
   // Tab counts over the whole directory (not the other filters), so the
   // Inactive count reads the same whichever company or department is open.
   const tabCounts = useMemo(() => {
@@ -6250,7 +6268,7 @@ export default function HR({ activeSub, onSubChange }) {
   // directory - a match "on page 10" simply becomes page 1 of the results.
   const PAGE_SIZE = 12;
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [search, companyF, deptF, statusF, typeF]);
+  useEffect(() => { setPage(1); }, [search, companyF, deptF, statusF, typeF, cfKey, cfF]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const curPage = Math.min(page, totalPages);
   const paged = useMemo(() => filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE),
@@ -6505,6 +6523,28 @@ export default function HR({ activeSub, onSubChange }) {
                   {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
                   <option value={DELETED_F}>Deleted</option>
                 </select>
+                {cfDefs.length > 0 && (
+                  <select className="form-input" aria-label="Show a More Details field" value={cfKey}
+                    onChange={e => { setCfKey(e.target.value); setCfF(''); }}
+                    title="Show one of the More Details fields on every row, and narrow the list by it"
+                    style={{ ...(isMobile ? PHONE_FILTER : { width: 165 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                    <option value="">More Details field</option>
+                    {cfDefs.map(f => <option key={f.fieldKey} value={f.fieldKey}>{f.label}</option>)}
+                  </select>
+                )}
+                {cfField && (cfField.fieldType === 'dropdown' || cfField.fieldType === 'checkbox' ? (
+                  <select className="form-input" aria-label={`Filter by ${cfField.label}`} value={cfF} onChange={e => setCfF(e.target.value)}
+                    style={{ ...(isMobile ? PHONE_FILTER : { width: 150 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                    <option value="">Any {cfField.label}</option>
+                    {cfField.fieldType === 'checkbox'
+                      ? <><option value="yes">Yes</option><option value="no">No</option></>
+                      : <>{(cfField.options || []).map(o => <option key={o} value={o}>{o}</option>)}<option value="__empty">No value</option></>}
+                  </select>
+                ) : (
+                  <input className="form-input" aria-label={`Filter by ${cfField.label}`} value={cfF} onChange={e => setCfF(e.target.value)}
+                    placeholder={`${cfField.label} contains…`}
+                    style={{ ...(isMobile ? PHONE_FILTER : { width: 160 }), padding: '7px 10px', fontSize: 13.5, height: 38 }} />
+                ))}
               </div>
             </div>
             {!showingDeleted && statusF === 'All' && (
@@ -6545,6 +6585,7 @@ export default function HR({ activeSub, onSubChange }) {
                     <th>Employee</th>
                     <th className="ppl-col-secondary">Position</th>
                     <th className="ppl-col-secondary">Department</th>
+                    {cfField && <th>{cfField.label}</th>}
                     <th>Status</th>
                     <th style={{ width: 34 }} aria-label="Open profile" />
                   </tr>
@@ -6570,6 +6611,7 @@ export default function HR({ activeSub, onSubChange }) {
                         </td>
                         <td className="ppl-col-secondary">{e.jobTitle || '-'}</td>
                         <td className="ppl-col-secondary">{e.department || '-'}</td>
+                        {cfField && <td>{cfShown(e) || '-'}</td>}
                         <td>
                           <span style={{ padding: '4px 11px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, background: sm.bg, color: sm.fg, whiteSpace: 'nowrap' }}>{sm.label}</span>
                           {(clProgress[e.id] || []).map(p => <div key={p.checklistId} style={{ marginTop: 4 }}><ChecklistChip p={p} compact onClick={() => openChecklistOf(e.id)} /></div>)}
@@ -6610,6 +6652,11 @@ export default function HR({ activeSub, onSubChange }) {
                                 <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                             </div>
                             <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>
+                            {cfField && (
+                              <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <span style={{ fontWeight: 600 }}>{cfField.label}:</span> {cfShown(e) || '-'}
+                              </div>
+                            )}
                             {(clProgress[e.id] || []).length > 0 && (
                               <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                                 {clProgress[e.id].map(p => <ChecklistChip key={p.checklistId} p={p} compact onClick={() => openChecklistOf(e.id)} />)}

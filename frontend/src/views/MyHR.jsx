@@ -16,6 +16,7 @@ import MyShifts from '../components/MyShifts';
 import ReimbursementsTile from '../components/Reimbursements';
 import { usePopupNudge } from '../lib/usePopupNudge';
 import { PurchaseRequestTile } from '../components/PurchaseRequests';
+import { MyMoreDetails } from '../components/EmployeeCustomFields';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -586,6 +587,10 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                   </div>
                 )}
               </div>
+
+              {/* More Details (Oct 27 2026): the fields HR shares with employees -
+                  nothing at all until there is one. */}
+              <MyMoreDetails />
 
               {/* ── My Equipment ── */}
               <div className="dash-card">

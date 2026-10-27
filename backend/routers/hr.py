@@ -251,6 +251,9 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
               .filter(NexusEmployee.deleted_at != "", NexusEmployee.deleted_at.isnot(None)))
     rows = q.order_by(NexusEmployee.first_name, NexusEmployee.last_name).all()
     out = [_team_view(_serialize(e)) for e in rows] if is_team_scope(scope) else [_serialize(e) for e in rows]
+    # More Details values (Oct 27 2026), filtered per caller - never HR Only for a manager.
+    import hr_custom_fields
+    hr_custom_fields.attach_list_values(db, user, rows, out)
     # Who covers each person when their manager is out (Neil, Oct 13): the
     # effective Backup Manager and where it comes from - 'set' on the profile,
     # 'manager' (the manager's manager) or 'hr' (the company HR contact).

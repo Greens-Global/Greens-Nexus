@@ -124,6 +124,7 @@ const CompanySetupPage = fromHR('CompanySetupPage');
 const PacketsModal = lazy(() => import('../components/HiringPacket').then(m => ({ default: m.PacketsModal })));
 const QuestionnairesModal = lazy(() => import('../components/Interviews').then(m => ({ default: m.QuestionnairesModal })));
 const ChecklistLibrary = lazy(() => import('../components/HrChecklists').then(m => ({ default: m.ChecklistLibrary })));
+const EmployeeCustomFieldsSettings = lazy(() => import('../components/EmployeeCustomFieldsSettings'));
 const WorkSiteLibrary = fromHR('WorkSiteLibrary');
 // Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
@@ -279,6 +280,12 @@ const GROUPS = [
     needs: { role: 'administrator' },
     sub: 'This company\'s job roles, grouped by department, with what each one opens and the checklist steps it adds.',
     keywords: 'job roles company roles department access checklists' },
+  // More Details (Neil, Oct 27 2026): HR's own fields on employee records -
+  // every company's at Every company, a company's own with it picked.
+  { id: 'employee-custom-fields', subject: 'access', face: 'both', scope: 'org', icon: ListChecks, title: 'More Details Fields', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'Extra fields on employee records - text, number, date, dropdown or checkbox - and who sees each: HR only, or the employee too. Archiving hides a field and keeps its values.',
+    keywords: 'custom fields more details employee record extra field dropdown checkbox hr only employee can see employee can edit required archive merge variable documents' },
   // Security
   { id: 'sign-in-sessions', subject: 'security', face: 'org', scope: 'org', icon: ShieldCheck, title: 'Sign-In & Sessions',
     needs: { role: 'administrator' },
@@ -1633,6 +1640,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'ticket-property-rules': return <LazyPanelSection key={key} id={id} Panel={TicketPropertyRulesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'ops-unit-rules':       return <LazyPanelSection key={key} id={id} Panel={UnitRulesPanel} chrome={chrome} />;
       case 'app-ratings':          return <LazyPanelSection key={key} id={id} Panel={AppRatingsPanel} chrome={chrome} />;
+      case 'employee-custom-fields': return <LazyPanelSection key={key} id={id} Panel={EmployeeCustomFieldsSettings} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       default:                     return null;
     }
   }

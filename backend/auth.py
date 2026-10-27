@@ -762,6 +762,8 @@ TEAM_ALLOWED_HR_ROUTES = frozenset({
     ("GET", "/hr/employees/{eid}/geofence"),        # Work Mode tab
     ("GET", "/hr/employees/{eid}/bod"),             # Work Logs tab
     ("GET", "/hr/employees/{eid}/access"),          # Access tab, read only
+    ("GET", "/hr/employees/{eid}/custom-fields"),   # More Details tab, read only - never an HR Only field (Oct 27 2026)
+    ("GET", "/hr/custom-fields"),                   # the field names for the list filter - HR Only ones left out
     ("GET", "/hr/employees/{eid}/compensation"),    # Pay & Benefits, read only - DIRECT reports only,
     ("GET", "/hr/employees/{eid}/paystubs"),        # no bank accounts (hr.py checks each record; Oct 7)
     ("GET", "/hr/documents/{did}/url"),             # opening one of those paystubs - nothing else

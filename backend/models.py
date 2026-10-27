@@ -980,6 +980,10 @@ class NexusEmployee(Base):
     # out, with the manager's rights over them. '' = the default - the
     # manager's manager, else the company's HR contact (backup_manager.py).
     backup_manager_email     = Column(String, default="")
+    # Custom fields (Neil, Oct 27 2026): {field_key: value} for the fields HR
+    # defines in Settings > People & Access (EmployeeCustomField). Never in
+    # hr._serialize - hr_custom_fields.py filters HR Only values per caller.
+    custom_fields            = Column(JSON, default=dict)
 
 
 class HrRemovedIdentity(Base):
@@ -8403,3 +8407,27 @@ class AccountingLiabilityReconLog(Base):
     by_name   = Column(String, default="")
     at        = Column(String, default="")
     detail    = Column(JSON, default=dict)
+
+
+class EmployeeCustomField(Base):
+    """An HR-defined extra field on employee records (Neil, Oct 27 2026,
+    hr_custom_fields.py). The value for each person lives in
+    NexusEmployee.custom_fields keyed by `field_key`, which never changes once
+    the field exists (it is also the {{custom.<field_key>}} merge variable).
+    company_id '' = every company. Archiving hides the field; values are never
+    deleted. New table - create_all builds it; RLS on dev and prod at release."""
+    __tablename__ = "employee_custom_fields"
+    id          = Column(String, primary_key=True)                 # uuid
+    field_key   = Column(String, nullable=False, index=True)       # stable key in NexusEmployee.custom_fields
+    label       = Column(String, nullable=False)
+    field_type  = Column(String, default="text")                   # text | number | date | dropdown | checkbox
+    options     = Column(JSON, default=list)                       # dropdown choices
+    company_id  = Column(String, default="", index=True)           # '' = every company, else an HrEntity id
+    required    = Column(Integer, default=0)
+    sort_order  = Column(Integer, default=0)
+    visibility  = Column(String, default="hr_only")                # hr_only | employee_view | employee_edit
+    archived    = Column(Integer, default=0)
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    updated_by  = Column(String, default="")
+    updated_at  = Column(String, default="")
