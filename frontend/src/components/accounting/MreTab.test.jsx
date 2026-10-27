@@ -291,11 +291,11 @@ describe('MreTab Oct 14 feedback', () => {
     expect(frequencyLabel({ frequency: 'semi_annual' })).toBe('Semi-Annual');
   });
 
-  it('shows the vendor number on the left in the grid and the optional columns under Customize', async () => {
+  it('shows the vendor number under the name in the grid (10/27 call) and the optional columns under Customize', async () => {
     api.getMreGrid.mockImplementationOnce(async () => ({ ...grid, rows: [{ ...grid.rows[0], line: { ...grid.rows[0].line, accountNumber: 'ACCT-9', contactInfo: 'Billing, 800-411-7343', variancePct: 5 } }, ...grid.rows.slice(1)] }));
     render(<MreTab canEdit />);
     const vendor = await screen.findByText('San Diego Gas & Electric');
-    expect(vendor.textContent.indexOf('V-SDGE')).toBe(0);
+    expect(within(vendor.closest('td')).getByTestId('vendor-code').textContent).toBe('V-SDGE');
     expect(screen.queryByRole('columnheader', { name: 'Account Number' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
     fireEvent.click(screen.getByLabelText(/Show Account Number/));
@@ -483,5 +483,102 @@ describe('MreTab sticky header block', () => {
     expect(rule('.acct-report.mre-grid tbody tr td.acct-label {')).toMatch(/background: var\(--bg-card\)/);
     const hover = css.slice(css.indexOf('.acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label'));
     expect(hover.slice(0, hover.indexOf('}'))).toMatch(/linear-gradient\(var\(--wk-brand-tint, #e8ecfd\), var\(--wk-brand-tint, #e8ecfd\)\), var\(--bg-card\)/);
+  });
+});
+
+// Call of 10/27 with Charmi, items 04, 05, 07 and 08.
+describe('MreTab call of 10/27', () => {
+  it('04: Vendor and Entity show the name first, the code underneath, in narrower columns; filters and sort unchanged', async () => {
+    api.getMreGrid.mockImplementationOnce(async () => ({ ...grid, rows: [{ ...grid.rows[0], line: { ...grid.rows[0].line, possiblyEnded: { since: '2026-10-21', lastPaid: '' } } }, ...grid.rows.slice(1)] }));
+    render(<MreTab />);
+    const name = await screen.findByText('San Diego Gas & Electric');
+    const vendorCell = name.closest('td');
+    const code = within(vendorCell).getByTestId('vendor-code');
+    expect(code.textContent).toBe('V-SDGE');
+    expect(code.closest('.mre-sub')).toBeTruthy();
+    // The name's line comes first; the chip sits beside the code, not the name.
+    expect(name.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(code.closest('.mre-sub')).getByTestId('possibly-ended')).toBeTruthy();
+    const entityCell = name.closest('tr').cells[1];
+    expect(entityCell.querySelector('.mre-main').textContent).toBe('Greens Escondido, LLC.');
+    expect(within(entityCell).getByTestId('entity-code').textContent).toBe('15000');
+    // Narrower by default: 200 and 170 px, clipped with "...".
+    expect(vendorCell.style.width).toBe('200px');
+    expect(entityCell.style.width).toBe('170px');
+    // The filter boxes still find a line by its code or its name.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Vendor' }), { target: { value: 'V-MSFT' } });
+    expect(screen.queryByText('San Diego Gas & Electric')).toBeNull();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Vendor' }), { target: { value: '' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Entity' }), { target: { value: '56000' } });
+    expect(screen.getByText('Microsoft')).toBeTruthy();
+    expect(screen.queryByText('San Diego Gas & Electric')).toBeNull();
+  });
+
+  it('05: every month column has a drag handle and a narrow default width; a dragged width is the person\'s', async () => {
+    render(<MreTab />);
+    await screen.findByText('San Diego Gas & Electric');
+    for (const m of ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']) {
+      expect(screen.getByRole('separator', { name: `Resize the ${m} column` })).toBeTruthy();
+    }
+    const jan = screen.getByRole('columnheader', { name: /^Jan/ });
+    expect(jan.style.width).toBe('74px');
+    expect(jan.classList.contains('mre-m')).toBe(true);
+    // A double-click fits the column to its content (jsdom has no layout: the
+    // table view's 40 px floor); the heading, the cells and Total Paid follow.
+    fireEvent.doubleClick(screen.getByRole('separator', { name: 'Resize the Jan column' }));
+    await waitFor(() => expect(screen.getByRole('columnheader', { name: /^Jan/ }).style.width).toBe('40px'));
+    const row = screen.getByText('San Diego Gas & Electric').closest('tr');
+    expect(within(row).getByLabelText(/Jan 2026 - Paid/).style.width).toBe('40px');
+    expect(screen.getByRole('columnheader', { name: /^Feb/ }).style.width).toBe('74px');
+    // The stylesheet lets a month's filter box give way.
+    expect(css).toMatch(/\.acct-report\.mre-grid \.acct-filter-row td\.mre-m \.acct-op-filter input \{ min-width: 22px/);
+  });
+
+  it('07: the legend chips filter the lines, several at once, the figures follow, Clear resets', async () => {
+    const quiet = { line: line({ id: 'L4', vendorId: 'V-ATT', vendorName: 'AT&T' }), months: months(['paid', 'paid', 'paid', 'paid', 'paid', 'paid', 'paid', 'paid', 'paid', 'upcoming', 'upcoming', 'upcoming'], Array(9).fill(410)),
+      paidTotal: 3690, expectedYear: 4920, expectedToDate: 3690, paidToDate: 3690, balance: 0, monthsMissed: 0, unread: false, vendorInactive: false };
+    api.getMreGrid.mockImplementationOnce(async () => ({ ...grid, rows: [...grid.rows, quiet] }));
+    render(<MreTab />);
+    await screen.findByText('AT&T');
+    const legend = screen.getByRole('group', { name: /Legend/ });
+    const chip = (n) => within(legend).getByRole('button', { name: n });
+    expect(chip('Missed').getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(chip('Missed'));
+    expect(chip('Missed').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByText('AT&T')).toBeNull();
+    expect(screen.getByText('San Diego Gas & Electric')).toBeTruthy();
+    // The figures are the lines left: San Diego only.
+    expect(screen.getByText('Paid to Date').querySelector('strong').textContent).toBe('3,280.00');
+    // Several at once: Missed or Paid - both lines.
+    fireEvent.click(chip('Paid'));
+    expect(screen.getByText('AT&T')).toBeTruthy();
+    expect(screen.getByText('Paid to Date').querySelector('strong').textContent).toBe('6,970.00');
+    fireEvent.click(within(legend).getByRole('button', { name: 'Clear the legend filter' }));
+    expect(chip('Missed').getAttribute('aria-pressed')).toBe('false');
+    expect(chip('Paid').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByText('AT&T')).toBeTruthy();
+    expect(within(legend).queryByRole('button', { name: 'Clear the legend filter' })).toBeNull();
+  });
+
+  it('07: only the months shown count, and the rule is MRI\'s', async () => {
+    const { rowInStates } = await import('./MreTab');
+    const r = grid.rows[0];      // Missed in March only
+    expect(rowInStates(r, [], [0, 11])).toBe(true);
+    expect(rowInStates(r, ['missed'], [0, 11])).toBe(true);
+    expect(rowInStates(r, ['missed'], [3, 5])).toBe(false);
+    expect(rowInStates(r, ['short', 'over'], [0, 2])).toBe(true);
+    expect(visibleRows(grid.rows, { states: ['missed'] }).map((x) => x.line.id)).toEqual(['L1']);
+  });
+
+  it('08: Expected Amount sits on the left of its box in Add and Edit', async () => {
+    render(<MreTab canEdit />);
+    const name = await screen.findByText('San Diego Gas & Electric');
+    fireEvent.click(within(name.closest('tr')).getByRole('button', { name: 'Edit San Diego Gas & Electric' }));
+    expect(screen.getByLabelText('Expected Amount').style.textAlign).toBe('left');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.click(within(screen.getByRole('menu', { name: 'Add a recurring expense' })).getAllByRole('menuitem')[0]);
+    expect(screen.getByRole('dialog', { name: 'Add recurring expense' })).toBeTruthy();
+    expect(screen.getByLabelText('Expected Amount').style.textAlign).toBe('left');
   });
 });

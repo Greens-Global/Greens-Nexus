@@ -226,7 +226,7 @@ function RecurringSettingsDialog({ onClose, recheck }) {
                 <label style={lbl} htmlFor="rs-months">Possibly Ended After (Months)</label>
                 <input id="rs-months" type="number" min={1} max={24} step={1} value={s.staleMonths} onChange={(e) => setS({ ...s, staleMonths: e.target.value })} style={{ ...control, width: 120 }} />
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                  Once a day, and right away when a new number is saved, an active MRI source or MRE line with nothing posted in this many months (at least one full cycle of its frequency) is flagged Possibly Ended, and one accounting task is opened for it - assigned to the entity&apos;s accountants in Ask My Accountant&apos;s settings. The task closes itself when money posts again or the line is ended. Nothing about the line is changed.
+                  Once a day, and right away when a new number is saved, an active line with nothing posted for a while is flagged Possibly Ended: on MRE a monthly line after this many months in a row, a quarterly, semi-annual or annual one after one cycle and a month (4, 7 or 13 months); on MRI a source after this many months (at least one full cycle of its frequency). One accounting task is opened for it - assigned to the entity&apos;s accountants in Ask My Accountant&apos;s settings. The task closes itself when money posts again or the line is ended. Nothing about the line is changed.
                 </div>
                 <div data-testid="last-check" style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 4 }}>
                   {recheck.status === 'running' ? 'Checking now...' : lastCheckText(last)}

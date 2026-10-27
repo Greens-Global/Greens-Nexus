@@ -2831,6 +2831,16 @@ html { overflow-x: hidden; }
 .acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td.acct-label { background: linear-gradient(color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%), color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%)), var(--bg-card); }
 .acct-report.mre-grid tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label,
 .acct-report.mre-grid tbody tr.acct-grand td.acct-label { background: linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card); }
+/* MRE (Charmi, call of 10/27, items 04 and 05): Vendor and Entity read the
+   name, its code underneath in small muted text; the month columns pad less
+   and their filter boxes give way, so a month can be dragged down to ~60 px
+   and nine fit at 1440 with the side menu open. */
+.acct-report.mre-grid .mre-main { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-report.mre-grid .mre-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.68rem; font-weight: 500; line-height: 1.3; color: var(--text-muted); }
+.acct-report.mre-grid th.mre-m, .acct-report.mre-grid td.mre-m { padding-left: 5px; padding-right: 5px; }
+.acct-report.mre-grid .acct-filter-row td.mre-m { padding-left: 3px; padding-right: 3px; }
+.acct-report.mre-grid .acct-filter-row td.mre-m .acct-op-filter select { max-width: 30px; padding: 0 1px; }
+.acct-report.mre-grid .acct-filter-row td.mre-m .acct-op-filter input { min-width: 22px; padding: 0 4px; }
 /* The same on every statement (UI test 10/23): the pinned first column keeps
    the hover and Total tints painted over the card color, so the figures
    scrolling sideways under it never show through - flagged rows on hover
