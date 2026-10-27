@@ -88,6 +88,7 @@ const EmployeeTracking    = lazy(() => import("./components/TimeTrackingAdmin"))
 const Shifts              = lazy(() => import("./views/Shifts"));
 const MyBriefing          = lazy(() => import("./views/MyBriefing"));
 const WhatsNew            = lazy(() => import("./tasks/ChangelogView"));   // What's New as a page (Oct 12)
+const Approvals           = lazy(() => import("./views/Approvals"));       // everything waiting on my decision (Neil, Oct 27 2026)
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
@@ -396,6 +397,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "privacy-policy":     return <Legal activeSub="privacy" onSubChange={(sub) => onNavigate("legal", sub)} />;
     case "terms-conditions":   return <Legal activeSub="terms" onSubChange={(sub) => onNavigate("legal", sub)} />;
     case "briefing":           return <MyBriefing />;
+    case "approvals":          return <Approvals activeSub={activeSub} onSubChange={onSubChange} />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
 }

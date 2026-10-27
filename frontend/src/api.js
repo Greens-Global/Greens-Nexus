@@ -3012,6 +3012,10 @@ export const api = {
   // { owner: {name, email} | null, held } for a source stamp - the composer
   // asks before saving whether the pin would be held for that owner.
   devNotesOwnerOf: (path) => req(`/dev-notes/owner-of?${new URLSearchParams({ path: path || "" }).toString()}`),
+  // Approvals (Oct 27 2026): everything waiting on my decision, across
+  // modules - {rows, counts, groups, groupLabels, errors, total}. The
+  // decisions go to each module's own endpoint (lib/approvalActions.js).
+  approvalsInbox: () => req("/approvals/inbox"),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()

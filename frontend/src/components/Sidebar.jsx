@@ -18,6 +18,7 @@ import {
   HardDrive, FolderOpen, ClipboardList,
   MonitorDot, Gauge, CalendarClock,
   Map as MapIcon,
+  Inbox,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
 import InsightsChart from "./icons/InsightsChart";
@@ -86,6 +87,10 @@ export const NAV = [
       { subview: "contact",  label: "Contact",          icon: Contact },
     ],
   },
+  // Approvals (Neil, Oct 27 2026): everything waiting on your decision,
+  // across modules (views/Approvals.jsx). Everyone - an employee has swaps
+  // and signatures too; its count is the Approvals registry's total.
+  { view: "approvals", code: "APR", label: "Approvals", icon: Inbox },
   { divider: true },
   // Tasks + Tickets are grant-driven like every other module (Aug 10): they
   // only appear when an Access Group / job role grants them (most job roles

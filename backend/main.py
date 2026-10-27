@@ -4669,3 +4669,5 @@ from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: cr
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
 from routers import accounting_liability_recon  # noqa: E402
 app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
+from routers import approvals as approvals_router  # noqa: E402
+app.include_router(approvals_router.router)        # Approvals: everything waiting on my decision, across modules (Neil, Oct 27 2026)
