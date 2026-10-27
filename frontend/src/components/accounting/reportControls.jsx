@@ -81,10 +81,16 @@ export function PopoverPanel({ anchor, open, setOpen, align, ...rest }) {
 // (rows carrying `parent`) - every ancestor of a match, flagged `dim`, so the
 // hierarchy still reads (Charmi, 10/06: "66001-1" alone says nothing about
 // where it sits). Order is kept. Exported for the tests.
+// 10/27 item 17 (Charmi: "pull a report by vendor name"): every word typed
+// must be in the code or the name, in any order, punctuation aside - "depot
+// home" and "home depot inc" both find "The Home Depot, Inc.".
+const plainText = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9&]+/g, ' ');
 export function filterOptions(options, query) {
   const s = (query || '').trim().toLowerCase();
   if (!s) return options;
-  const hit = (o) => o.code.toLowerCase().includes(s) || (o.name || '').toLowerCase().includes(s);
+  const words = plainText(s).split(' ').filter(Boolean);
+  const hit = (o) => o.code.toLowerCase().includes(s) || (o.name || '').toLowerCase().includes(s)
+    || (words.length > 0 && words.every((w) => plainText(`${o.code} ${o.name || ''}`).includes(w)));
   const matched = new Set(options.filter(hit).map((o) => o.code));
   const byCode = new Map(options.map((o) => [o.code, o]));
   const need = new Set(matched);
@@ -392,7 +398,9 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
   const [open, setOpen, ref] = usePopover();
   const [kind, setKind] = useState(kinds[0] || POPOVER_DIMS[0]);
   const [lists, setLists] = useState({});       // kind -> { values } | { error } | { unavailable }
-  const n = countDims(dims);
+  // One kind (Spend by Vendor's Vendors button, 10/27): just its list, and the count is its picks.
+  const single = kinds.length === 1;
+  const n = single ? (dims[kinds[0].key] || []).length : countDims(dims);
   // A picked kind loads its names even while the panel is closed, for the chips.
   const wanted = kinds.filter((k) => (dims[k.key] || []).length && !lists[k.kind]).map((k) => k.kind);
   const need = open && !lists[kind.kind] ? kind.kind : wanted[0];
@@ -431,12 +439,13 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(n > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} aria-label={label} title={label}>
         <Funnel size={14} style={{ flexShrink: 0, color: n ? 'inherit' : 'var(--text-muted)' }} />
-        <span className="acct-bar-label-2">{label}</span>
+        {/* A one-kind button (Vendors) keeps its word, so it never reads as a second Filters funnel. */}
+        <span className={single ? undefined : 'acct-bar-label-2'}>{label}</span>
         {n > 0 && <span style={count}>{n}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label={label} style={{ ...panel(640), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
-        <div style={{ display: 'grid', gap: 1, alignContent: 'start' }}>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label={label} style={single ? panel(460) : { ...panel(640), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
+        {!single && <div style={{ display: 'grid', gap: 1, alignContent: 'start' }}>
           <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', padding: '2px 8px 6px' }}>Filter this report by</div>
           {kinds.map((k) => {
             const c = (dims[k.key] || []).length;
@@ -448,7 +457,7 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
             );
           })}
           {n > 0 && <button type="button" style={{ ...link, textAlign: 'left', padding: '8px 8px 0' }} onClick={() => onChange({ ...EMPTY_DIMS })}>Clear all</button>}
-        </div>
+        </div>}
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
             <strong style={{ fontSize: '0.8rem' }}>{kind.label}{picked.length ? ` · ${picked.length} selected` : ''}</strong>

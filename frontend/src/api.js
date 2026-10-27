@@ -2163,6 +2163,9 @@ export const api = {
     req(`/accounting/manual-entries?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${journals.length ? `&journals=${encodeURIComponent(journals.join(','))}` : ''}${user ? `&user=${encodeURIComponent(user)}` : ''}${edited ? '' : '&edited=false'}`, { timeoutMs: 120_000 }),
   getAccountingFluxNotes:  (entity, period) => req(`/accounting/flux-notes?entity=${encodeURIComponent(entity || 'all')}&period=${encodeURIComponent(period)}`),
   saveAccountingFluxNote:  (body)           => req('/accounting/flux-notes', { method: 'PUT', body: JSON.stringify(body) }),
+  // 10/27 item 18: Schedule C (Draft) account-to-line mapping, kept in Nexus only. entity '' = every entity.
+  getAccountingTaxLines:   (form = 'schedule_c', entity = '') => req(`/accounting/tax-lines?form=${encodeURIComponent(form)}${entity ? `&entity=${encodeURIComponent(entity)}` : ''}`),
+  saveAccountingTaxLines:  (body)           => req('/accounting/tax-lines', { method: 'PUT', body: JSON.stringify(body) }),
 
   // ── Accounting, Oct 2 (Charmi and Neil, 10/01 call) ──
   // Budget per entity and year (contract B1/B2 through the backend proxy).

@@ -44,6 +44,15 @@ export const REPORTS = [
   // saved in Nexus (Accounting > Budget) - with Variance $ and Variance %, as
   // a report of its own; the Income Statement keeps it as a Columns choice.
   { key: 'budget', label: 'Actual vs Budget', period: 'range' },
+  // Spend by Vendor (Charmi, 10/27 triage item 17: "pull a report by vendor
+  // name"): what each vendor was paid for - cost of sales and expense lines
+  // by the vendor on them - by period, every account a click from its lines
+  // (vendorSpend.js, loaded on first use).
+  { key: 'vendor-spend', label: 'Spend by Vendor', period: 'range' },
+  // Schedule C, first draft (Neil, Viral, 10/27 triage item 18): each
+  // entity's income statement accounts mapped to the IRS Schedule C lines,
+  // the mapping kept in Nexus (scheduleC.js, loaded on first use).
+  { key: 'schedule-c', label: 'Schedule C (Draft)', period: 'range' },
 ];
 /** The flag thresholds a Flux Analysis starts with: both must be passed for a line to be flagged. */
 export const FLUX_DEFAULTS = { fluxPct: 10, fluxAmount: 5000 };
@@ -83,6 +92,13 @@ export const REPORT_VIEWS = {
   'pnl-mom': { report: 'pnl', preset: 'this-month', cols: 'prior_period' },
   'budget-ytd': { report: 'budget', preset: 'ytd' },
   'budget-mtd': { report: 'budget', preset: 'mtd' },
+  // Income Statement by Customer / Job / Department (Charmi, 10/27 triage
+  // item 16; Neil: "Income Statement - not Profit & Loss"): one column per
+  // customer, Project-Job (Intacct's Project dimension is the Job) or
+  // department plus a Total; Filters limits which ones show.
+  'pnl-customer': { report: 'pnl', preset: 'ytd', cols: 'customer' },
+  'pnl-job': { report: 'pnl', preset: 'ytd', cols: 'project' },
+  'pnl-department': { report: 'pnl', preset: 'ytd', cols: 'department' },
 };
 /** The config changes a quick view makes, as of `now`; null for an unknown view. */
 export function viewConfig(key, now = new Date()) {
@@ -108,6 +124,7 @@ const BS_COLUMNS = [
   ['quarter', 'Last 4 Quarter-Ends'], ['prior_month', 'vs Prior Month-End'], ['prior_year', 'vs Same Date Last Year'], ['year_end', 'vs Last Year-End'],
 ];
 const FLUX_COLUMNS = [['prior_period', 'vs Prior Period'], ['prior_year', 'vs Prior Year']];
+const SPEND_COLUMNS = [['total', 'Total Only'], ['month', 'By Month'], ['quarter', 'By Quarter'], ['year', 'By Year']];
 const pair = (rows) => rows.map(([key, label]) => ({ key, label }));
 // Which filter a column layout splits by, for "(2 picked)" on its label.
 const MODE_PICKS = { department: 'departments', vendor: 'vendor', customer: 'customer', employee: 'employee', project: 'project', item: 'item' };
@@ -117,7 +134,8 @@ const MODE_PICKS = { department: 'departments', vendor: 'vendor', customer: 'cus
  * two employees picked must be two columns, not one combined figure).
  */
 export function columnModes(report, config = null) {
-  const base = report === 'pnl' ? pair(PNL_COLUMNS) : report === 'balance-sheet' ? pair(BS_COLUMNS) : report === 'flux' ? pair(FLUX_COLUMNS) : pair([['total', 'Total Only']]);
+  const base = report === 'pnl' ? pair(PNL_COLUMNS) : report === 'balance-sheet' ? pair(BS_COLUMNS) : report === 'flux' ? pair(FLUX_COLUMNS)
+    : report === 'vendor-spend' ? pair(SPEND_COLUMNS) : pair([['total', 'Total Only']]);
   if (!config) return base;
   return base.map((m) => {
     const n = m.key === 'entity' ? (config.entities || []).length : (config.dims?.[MODE_PICKS[m.key]] || []).length;
@@ -173,13 +191,17 @@ export function bookOptions(config = null) {
 export const bookLabel = (key) => BOOKS.find((b) => b.key === key)?.label || userBooks.find((b) => b.key === key)?.label || (isUserBook(key) ? key.toUpperCase() : 'Accrual');
 /** The book in words for a title: "Accrual Book", "Fair Market Journal Book", "Accrual and Cash Books". */
 export const bookTitle = (key) => (key === 'both' ? 'Accrual and Cash Books' : `${bookLabel(key)} Book`);
+// An Income Statement split by customer, Project-Job or department is named
+// for it (10/27 item 16): "Income Statement by Job".
+const DIM_TITLES = { customer: 'Income Statement by Customer', project: 'Income Statement by Job', department: 'Income Statement by Department' };
+export const dimTitle = (config) => (config?.report === 'pnl' && !(config.book === 'both') ? DIM_TITLES[config.cols] || '' : '');
 /**
  * A report's title with its book (Charmi / Urmi, 10/15: "different books in
  * Intacct" - which book a figure came from is part of its name): on the
  * screen, in Excel, the PDF, the CSV and an email. "Income Statement (Cash Book)".
  */
 export function reportTitle(config, name = '') {
-  const label = name || reportDef(config?.report).label;
+  const label = name || dimTitle(config) || reportDef(config?.report).label;
   if (!config || !canPickBook(config)) return label;
   const suffix = `(${bookTitle(config.book)})`;
   return label.endsWith(suffix) ? label : `${label} ${suffix}`;
@@ -466,7 +488,7 @@ function readTrialBalance(api, from, to, location, dims, book) {
   if (viaUserBook(api, book)) return api.readAccountingReport('trial-balance', { from, to, location, ...flatDims(dims), book });
   return api.getAccountingTrialBalance(from, to, location, dims, book);
 }
-function fetchStatement(api, config, range, book) {
+export function fetchStatement(api, config, range, book) {
   const { location, dims } = placeOf(config);
   if (config.report === 'cash-position') return api.getAccountingCashPosition(range.asof, location, config.entities.length > 1 ? config.entities : undefined);
   if (viaUserBook(api, book)) {
@@ -941,6 +963,9 @@ export async function runReport(api, config, entities = []) {
   if (isActivity(config)) return { ...base, ...(await accountActivity(api, config, book, drillCur)) };
   if (config.report === 'cash-flow') return { ...base, ...(await cashFlowReport(api, config)) };
   if (config.report === 'flux') return { ...base, ...(await fluxAnalysis(api, config, book)) };
+  // Loaded on first use, so the statements screen stays small.
+  if (config.report === 'vendor-spend') return { ...base, ...(await (await import('./vendorSpend')).vendorSpend(api, config, book)) };
+  if (config.report === 'schedule-c') return { ...base, ...(await (await import('./scheduleC')).scheduleC(api, config, book)) };
   if (config.report === 'budget') {
     // The income statement read with the Budget beside the Actual.
     const pnlConfig = { ...config, report: 'pnl', cols: 'budget', book: config.book === 'both' ? 'accrual' : config.book };

@@ -8319,3 +8319,21 @@ class DevNoteToken(Base):
     expires_at   = Column(String, default="")
     last_used_at = Column(String, default="")
     revoked_at   = Column(String, default="")
+
+
+class AccountingTaxLine(Base):
+    """Which line of a tax form one GL account adds into (Neil, Viral, 10/27
+    triage item 18: Schedule C first; Schedule E, Form 4562 and the 1040 /
+    1120 / 1120-S / 1065 forms later). Kept in Nexus only - the figures stay
+    on the ledger, nothing is written to Intacct. `entity` '' is the mapping
+    for every entity; an entity's own row overrides it. `line` is the form's
+    line number ("8", "16a", "27b") or "skip" (not on this form). New table -
+    create_all builds it; RLS by the line in main.py and the startup sweep."""
+    __tablename__ = "accounting_tax_lines"
+    id         = Column(String, primary_key=True)                # uuid
+    form       = Column(String, default="schedule_c", index=True)
+    entity     = Column(String, default="", index=True)          # "" = every entity
+    account_no = Column(String, default="", index=True)
+    line       = Column(String, default="")
+    set_by     = Column(String, default="")
+    set_at     = Column(String, default="")
