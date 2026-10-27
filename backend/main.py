@@ -1322,6 +1322,11 @@ def _run_migrations():
             "ALTER TABLE dev_notes ADD COLUMN dispatched_by VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_seen_at VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_check JSON",
+            # Second Approval By HR on time off (Oct 27) - see the Postgres list.
+            "ALTER TABLE time_off_requests ADD COLUMN approval_stage VARCHAR DEFAULT ''",
+            "ALTER TABLE time_off_requests ADD COLUMN first_approver VARCHAR DEFAULT ''",
+            "ALTER TABLE time_off_requests ADD COLUMN first_decided_at VARCHAR DEFAULT ''",
+            "ALTER TABLE time_off_requests ADD COLUMN first_note VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3067,6 +3072,13 @@ def _run_migrations():
         "ALTER TABLE accounting_tax_lines ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_seen_at VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_check JSON",
+        # Second Approval By HR on time off (Neil, Oct 27 2026): whose turn a
+        # pending request is ('' manager, 'hr') and the first level's decision.
+        # models.TimeOffRequest.
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS approval_stage VARCHAR DEFAULT ''",
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS first_approver VARCHAR DEFAULT ''",
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS first_decided_at VARCHAR DEFAULT ''",
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS first_note VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

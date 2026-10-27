@@ -86,8 +86,12 @@ export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onR
     setBusyId(t.id);
     try {
       const r = await api.timeOffDecide(t.id, { status: approve ? 'approved' : 'rejected', note: notes[t.id] || '', ...(removeShifts ? { remove_shifts: true } : {}) });
-      const left = approve && !removeShifts ? (r?.conflicts || []) : [];
-      if (left.length) {
+      // Second Approval By HR (Oct 27 2026): the manager's approval sends it
+      // to HR - nothing is approved yet, so the shifts inside it stay.
+      const left = approve && !removeShifts && !r?.awaitingHr ? (r?.conflicts || []) : [];
+      if (r?.awaitingHr) {
+        toastOk?.('Approved - it now waits for HR approval. The shifts inside it stay until HR approves.');
+      } else if (left.length) {
         setRemoval((m) => ({ ...m, [t.id]: left }));
         toastOk?.(`Time off approved. ${left.length} shared shift${left.length === 1 ? '' : 's'} inside it still stand${left.length === 1 ? 's' : ''}.`);
       } else {

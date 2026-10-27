@@ -151,6 +151,10 @@ const TimeOffReasons = fromShifts('TimeOffReasons');
 const ReadinessThresholds = lazy(() => import('../components/PayrollReadiness').then(m => ({ default: m.ReadinessThresholds })));
 const MinWageForm = lazy(() => import('../components/CaReview').then(m => ({ default: m.MinWageForm })));
 const LeaveSetup = lazy(() => import('../components/LeaveBalances').then(m => ({ default: m.LeaveSetup })));
+// Leave year end and Second Approval By HR (Oct 27 2026, components/LeaveYearEnd.jsx).
+const fromLeaveYearEnd = lazyFrom(() => import('../components/LeaveYearEnd'));
+const LeaveYearEndSettings = fromLeaveYearEnd('LeaveYearEndSettings');
+const TimeOffApprovalSettings = fromLeaveYearEnd('TimeOffApprovalSettings');
 const IntacctNightlySync = lazy(() => import('../components/IntacctEmployeeCodes').then(m => ({ default: m.IntacctNightlySync })));
 const LetterheadsPanel = lazy(() => import('../components/DocumentTemplates').then(m => ({ default: m.LetterheadsPanel })));
 // ...and the three that had no screen of their own (views/SettingsPanels.jsx).
@@ -369,6 +373,14 @@ const GROUPS = [
     needs: { role: 'manager', grant: ['hr', 'editor'], people: true },
     sub: 'The reasons staff can pick when requesting time off, beyond the built-in Vacation, Sick, Personal, Unpaid, 1/2 Day and Other.',
     keywords: 'time off reasons request jury duty bereavement custom' },
+  { id: 'leave-year-end', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Leave Year-End', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'full'] },
+    sub: 'What happens to unused vacation and sick time when the leave year ends - Use It Or Lose It by default, or carry everything or up to a cap. California vacation never expires (required by law).',
+    keywords: 'leave year end carry over carryover rollover cap use it or lose it expire forfeit vacation sick pto anniversary calendar california labor code 227.3' },
+  { id: 'timeoff-approval', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Time-Off Approval', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'full'] },
+    sub: 'Whether a time-off request needs HR\'s approval after the manager\'s - per company, off by default.',
+    keywords: 'time off approval second approval by hr two level manager leave request awaiting hr' },
   { id: 'intacct-nightly', subject: 'pay', face: 'both', scope: 'company', icon: FileText, title: 'Intacct Nightly Sync',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Which companies have their employee codes filled in from Intacct once a night, and how the last run went.',
@@ -608,6 +620,8 @@ const COMPANY_STATE = {
     .then(rules => ownState(rules.some(r => r?.hasOverride))),
   'payroll-readiness': (cid) => api.payrollReadinessSettings(cid).then(m => ownState(!!m?.override)),
   'time-off-reasons': (cid) => api.timeOffTypes(cid).then(r => ownState(!!r?.hasOverride)),
+  'leave-year-end': (cid) => api.leaveYearEndSettings(cid).then(r => ownState(!!r?.hasOverride)),
+  'timeoff-approval': (cid) => api.timeOffApprovalGet(cid).then(r => ownState(!!r?.hasOverride)),
   'shift-settings': (cid) => api.shiftRequestSettingsGetFor(cid).then(r => ownState(!!r?.hasOverride)),
 };
 // What the layered footer says before the names.
@@ -1628,6 +1642,8 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'ca-min-wage':          return <LazyPanelSection key={key} id={id} Panel={MinWageForm} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'leave-policies':       return <LazyPanelSection key={key} id={id} Panel={LeaveSetup} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'time-off-reasons':     return <LazyPanelSection key={key} id={id} Panel={TimeOffReasons} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'leave-year-end':       return <LazyPanelSection key={key} id={id} Panel={LeaveYearEndSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'timeoff-approval':     return <LazyPanelSection key={key} id={id} Panel={TimeOffApprovalSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'intacct-nightly':      return <LazyPanelSection key={key} id={id} Panel={IntacctNightlySync} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} embedded />;
       case 'letterheads':          return <LazyPanelSection key={key} id={id} Panel={LetterheadsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'ticket-property-rules': return <LazyPanelSection key={key} id={id} Panel={TicketPropertyRulesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;

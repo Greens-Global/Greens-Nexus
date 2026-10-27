@@ -33,7 +33,6 @@ import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading } from
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
-import LeaveBalancesAdmin from '../components/LeaveBalances';
 import ModuleTabs from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
@@ -63,7 +62,6 @@ import { PersonSelect } from '../tasks/components';
 import { US_STATE_NAMES } from '../lib/usStates';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
 import RecordsAudit from '../components/RecordsAudit';
-import { ApprovalDelegationsAdmin } from '../components/DelegateApprovals';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { PersonReimbursements } from '../components/Reimbursements';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
@@ -109,9 +107,8 @@ const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'blo
 const AVATAR_HUES = ['215,75%,45%', '142,60%,35%', '30,80%,48%', '271,60%,48%', '350,65%,48%'];
 const fullName = e => [e.firstName, e.lastName].filter(Boolean).join(' ');
 // Rows for the Tasks people picker (PersonSelect) from employee records: name
-// and photo, keyed by the lowercased work email. pickRows is for a field that
-// saves the email; idPickRows for one that saves the employee id (anyone with
-// no work email yet is keyed by id, so they stay pickable).
+// and photo, keyed by the lowercased work email - for a field that saves the
+// email.
 const pickRows = (list) => {
   const seen = new Set();
   return list.filter(e => {
@@ -120,15 +117,6 @@ const pickRows = (list) => {
     seen.add(em);
     return true;
   }).map(e => ({ email: e.workEmail.toLowerCase(), name: fullName(e), external: isExternalPerson(e) }));
-};
-const idPickRows = (list) => {
-  const seen = new Set();
-  return list.map(e => {
-    let email = (e.workEmail || '').toLowerCase();
-    if (!email || seen.has(email)) email = `id:${e.id}`.toLowerCase();
-    seen.add(email);
-    return { id: e.id, email, name: fullName(e), external: isExternalPerson(e) };
-  });
 };
 // Directory rows ({ email, name }) for the same picker.
 const dirPickRows = (list) => list.filter(p => p.email).map(p => ({ email: p.email.toLowerCase(), name: p.name || p.email, external: !!p.external }));
@@ -3126,303 +3114,10 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, toas
   );
 }
 
-// ── Leave tracker (Phase 6) ───────────────────────────────────────────────────
-const LEAVE_TYPES = [['annual', 'Annual'], ['sick', 'Sick'], ['unpaid', 'Unpaid']];
-const LEAVE_STATUS = {
-  pending:  { label: 'Pending',  bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
-  approved: { label: 'Approved', bg: 'hsla(var(--color-green),0.1)',   fg: 'hsl(var(--color-green))' },
-  rejected: { label: 'Rejected', bg: 'hsla(var(--color-red),0.1)',     fg: 'hsl(var(--color-red))' },
-};
-
-function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
-  const [f, setF] = useState({ employee_id: '', leave_type: 'annual', start_date: '', end_date: '', days: 1, reason: '' });
-  const [busy, setBusy] = useState(false);
-  const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
-  const canSave = f.employee_id && f.start_date && f.days > 0;
-  async function save() {
-    if (!canSave || busy) return;
-    setBusy(true);
-    try { onSaved(await api.createLeave({ ...f, days: Number(f.days) })); onClose(); }
-    catch (err) { toastErr(err?.message || 'Could not record leave.'); setBusy(false); }
-  }
-  const dirty = !!(f.employee_id || f.start_date || f.end_date || f.reason.trim() || f.days !== 1);
-  const guard = useUnsavedGuard(dirty, onClose, canSave ? save : undefined);
-  const pickable = idPickRows(employees.filter(e => e.status !== 'offboarded'));
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>New Leave Request</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: 'auto auto auto 1fr', gap: 14 }}>
-          <div style={{ gridColumn: '1 / -1' }}><label style={FL}>EMPLOYEE *</label>
-            <PersonSelect value={pickable.find(p => p.id === f.employee_id)?.email || null}
-              onChange={v => set('employee_id', pickable.find(p => p.email === v)?.id || '')}
-              people={pickable} placeholder="Pick a person" allowNone={false} ariaLabel="Employee" style={PICK_BOX} /></div>
-          <div><label style={FL}>TYPE</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.leave_type} onChange={e => set('leave_type', e.target.value)}>
-              {LEAVE_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select></div>
-          <div><label style={FL}>DAYS *</label>
-            <input className="form-input" type="number" min="0.5" step="0.5" style={{ width: '100%' }} value={f.days} onChange={e => set('days', e.target.value)} /></div>
-          <div><label style={FL}>FROM *</label>
-            <input className="form-input" type="date" style={{ width: '100%' }} value={f.start_date} onChange={e => set('start_date', e.target.value)} /></div>
-          <div><label style={FL}>TO</label>
-            <input className="form-input" type="date" style={{ width: '100%' }} value={f.end_date} onChange={e => set('end_date', e.target.value)} /></div>
-          <div className="nx-fill" style={{ gridColumn: '1 / -1' }}><label style={FL}>REASON</label>
-            <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.reason} onChange={e => set('reason', e.target.value)} /></div>
-        </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={!canSave || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!canSave || busy) ? 0.6 : 1 }}>
-            {busy ? <Spinner size={14} /> : <Plus size={14} />} Submit
-          </button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={canSave ? guard.saveAndClose : undefined} saving={busy} />
-      )}
-    </div>
-  );
-}
-
-// Searchable multi-person filter: type to find people, pick several as chips.
-// Empty selection = everyone.
-function PeopleFilter({ employees, selected, onChange }) {
-  const [q, setQ] = useState('');
-  const [open, setOpen] = useState(false);
-  const boxRef = useRef(null);
-  // The suggestions match the search box's width, measured as it opens.
-  const [boxWidth, setBoxWidth] = useState();
-  const openList = () => { setBoxWidth(boxRef.current?.offsetWidth); setOpen(true); };
-  const selSet = new Set(selected);
-  const matches = q.trim()
-    ? employees.filter(e => !selSet.has(e.id) && fullName(e).toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8)
-    : [];
-  const pick = (e) => { onChange([...selected, e.id]); setQ(''); };
-  return (
-    <div ref={boxRef} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
-      border: '1px solid var(--line)', borderRadius: 10, padding: '5px 10px', background: 'var(--card)', minWidth: 260, flex: '0 1 460px' }}>
-      <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-      {selected.map(id => {
-        const e = employees.find(x => x.id === id);
-        return (
-          <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', borderRadius: 8, padding: '2px 8px' }}>
-            {e ? fullName(e) : id}
-            <X size={11} style={{ cursor: 'pointer' }} onClick={() => onChange(selected.filter(x => x !== id))} />
-          </span>
-        );
-      })}
-      <input className="nx-inline-edit" value={q} onChange={e => { setQ(e.target.value); openList(); }}
-        onFocus={openList} onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onKeyDown={e => {
-          if (e.key === 'Enter' && matches[0]) { e.preventDefault(); pick(matches[0]); }
-          if (e.key === 'Backspace' && !q && selected.length) onChange(selected.slice(0, -1));
-        }}
-        placeholder={selected.length ? 'Add another person…' : 'Filter by person - type a name…'}
-        style={{ flex: 1, minWidth: 140, border: 'none', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', padding: '3px 0' }} />
-      {selected.length > 0 && (
-        <button onClick={() => onChange([])} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}>Clear</button>
-      )}
-      <AnchoredMenu anchorRef={boxRef} open={open && matches.length > 0} onClose={() => setOpen(false)} role="listbox"
-        style={{ width: boxWidth, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)' }}>
-        {matches.map(e => (
-          <button key={e.id} onMouseDown={ev => { ev.preventDefault(); pick(e); }}
-            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)' }}
-            onMouseEnter={ev => ev.currentTarget.style.background = 'var(--mist)'}
-            onMouseLeave={ev => ev.currentTarget.style.background = 'none'}>
-            {fullName(e)} <span style={{ color: 'var(--muted)', fontSize: 11 }}>· {e.department || e.jobTitle || ''}</span>
-          </button>
-        ))}
-      </AnchoredMenu>
-    </div>
-  );
-}
-
-
-// "Who's out this week" - Mon–Sun strip merging both leave sources: HR-recorded
-// leave (HrLeaveRequest) and self-service time off (Time Clock / My HR).
-function WhosOutWeek({ employees, hrLeave, selIds = [] }) {
-  const [timeoff, setTimeoff] = useState([]);
-  useEffect(() => { api.timeOffList('').then(setTimeoff).catch(() => {}); }, []);
-  const byId = Object.fromEntries(employees.map(e => [e.id, e]));
-
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  // Sunday-first, ending Saturday - the app-wide calendar convention (Neil,
-  // Sept 7). getDay() is already 0=Sun, so the week's start needs no rotation.
-  const weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay());
-  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
-  const isoD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-  // Respect the people filter: empty selection = everyone.
-  const selSet = new Set(selIds);
-  const selEmails = new Set(selIds.map(id => (byId[id]?.workEmail || '').toLowerCase()).filter(Boolean));
-  const entries = [
-    ...(hrLeave || []).filter(r => ['approved', 'pending'].includes(r.status))
-      .filter(r => !selSet.size || selSet.has(r.employeeId)).map(r => ({
-        name: fullName(byId[r.employeeId] || { firstName: '?' }),
-        start: r.startDate || r.start_date || '', end: r.endDate || r.end_date || '',
-        status: r.status, type: r.leaveType || r.type || '',
-      })),
-    ...timeoff.filter(r => ['approved', 'pending'].includes(r.status))
-      .filter(r => !selSet.size || selEmails.has((r.email || '').toLowerCase())).map(r => ({
-        name: r.name || (r.email || '').split('@')[0].replace('.', ' '),
-        start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.type || '',
-      })),
-  ].filter(e => e.start && e.end);
-
-  const weekHasAnyone = days.some(d => entries.some(e => e.start <= isoD(d) && isoD(d) <= e.end));
-
-  return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: '12px 14px', marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 10 }}>
-        Who's out this week
-      </div>
-      {!weekHasAnyone ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Everyone's in - no approved or pending leave this week.</div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
-          {days.map(d => {
-            const key = isoD(d);
-            const isToday = key === isoD(today);
-            const out = entries.filter(e => e.start <= key && key <= e.end);
-            return (
-              <div key={key} style={{ borderRadius: 10, padding: '7px 8px', minHeight: 58, background: isToday ? 'hsla(var(--color-blue),0.06)' : 'var(--mist)', outline: isToday ? '1.5px solid hsla(var(--color-blue),0.4)' : 'none' }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: isToday ? 'hsl(var(--color-blue))' : 'var(--muted)', marginBottom: 5 }}>
-                  {d.toLocaleDateString('en-US', { weekday: 'short' })} {d.getDate()}
-                </div>
-                {out.length === 0 ? (
-                  <div style={{ fontSize: 10.5, color: 'var(--muted)', opacity: 0.6 }}>-</div>
-                ) : out.map((e, i) => (
-                  <div key={i} title={`${e.name} · ${e.type}${e.status === 'pending' ? ' (pending)' : ''}`}
-                    style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 6px', borderRadius: 8, marginBottom: 3,
-                      background: e.status === 'approved' ? 'hsla(var(--color-green),0.12)' : 'hsla(var(--color-orange),0.12)',
-                      color: e.status === 'approved' ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {e.name.split(' ')[0]}{e.status === 'pending' ? ' ?' : ''}
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-
-function LeaveTab({ employees, toastOk, toastErr }) {
-  const [leave, setLeave] = useState(null);
-  const [formOpen, setFormOpen] = useState(false);
-  const [selF, setSelF] = useState([]);          // people filter - empty = everyone
-  const [balances, setBalances] = useState(null);
-  const [busyId, setBusyId] = useState(null);
-  const [loadErr, setLoadErr] = useState(false);
-  const year = new Date().getFullYear();
-  const empF = selF.length === 1 ? selF[0] : 'All';   // balances show for exactly one person
-
-  const loadLeave = useCallback(() => {
-    setLoadErr(false); setLeave(null);
-    api.getLeave().then(setLeave).catch(() => setLoadErr(true));   // don't mask a failure as "no requests"
-  }, []);
-  useEffect(() => { loadLeave(); }, [loadLeave]);
-  useEffect(() => {
-    if (empF === 'All') { setBalances(null); return; }
-    api.getLeaveBalances(empF, year).then(setBalances).catch(() => setBalances(null));
-  }, [empF, year]);
-
-  const byId = Object.fromEntries(employees.map(e => [e.id, e]));
-
-  async function decide(r, action) {
-    setBusyId(r.id);
-    try {
-      const updated = await api.decideLeave(r.id, { action });
-      setLeave(prev => prev.map(x => x.id === r.id ? updated : x));
-      toastOk(`Leave ${action === 'approve' ? 'approved' : 'rejected'} for ${fullName(byId[r.employeeId] || { firstName: '?' })}.`);
-      if (empF === r.employeeId) api.getLeaveBalances(empF, year).then(setBalances).catch(() => {});
-    } catch (err) { toastErr(err?.message || 'Could not update request.'); }
-    setBusyId(null);
-  }
-
-  if (loadErr) return <ErrorBanner message="Couldn't load leave requests right now." onRetry={loadLeave} />;
-  if (leave === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Spinner size="section" /></div>;
-
-  const visible = selF.length === 0 ? leave : leave.filter(r => selF.includes(r.employeeId));
-  const pending = visible.filter(r => r.status === 'pending').length;
-
-  return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-        <PeopleFilter employees={employees} selected={selF} onChange={setSelF} />
-        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{pending} pending · {visible.length} shown</span>
-        {/* Employees request their own leave from My HR - this is the approve/track
-            view. HR keeps a de-emphasised "log on behalf" for phone-ins and
-            staff without portal access. */}
-        <button className="secondary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} onClick={() => setFormOpen(true)}>
-          <Plus size={13} /> Log on Behalf
-        </button>
-      </div>
-
-      <WhosOutWeek employees={employees} hrLeave={leave} selIds={selF} />
-
-      {/* Balance cards when a person is picked - used computes from approvals */}
-      {balances && (
-        <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-          {balances.map(b => (
-            <div key={b.leaveType} className={`kpi-card ${b.leaveType === 'annual' ? 'card-green' : b.leaveType === 'sick' ? 'card-orange' : 'card-blue'}`}>
-              <div className="kpi-label">{LEAVE_TYPES.find(([v]) => v === b.leaveType)?.[1]} {year}</div>
-              <div className="kpi-value">{b.used}<span style={{ fontSize: 14, color: 'var(--muted)', fontWeight: 600 }}> / {b.allocated || '∞'} used</span></div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {visible.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
-          <CalendarOff size={30} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
-          <div style={{ fontSize: 13.5 }}>No leave requests{empF !== 'All' ? ' for this person' : ''} yet.</div>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {visible.map(r => {
-            const e = byId[r.employeeId];
-            const lm = LEAVE_STATUS[r.status] || LEAVE_STATUS.pending;
-            return (
-              <div key={r.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', boxShadow: 'var(--shadow-sm)' }}>
-                {e ? <Avatar e={e} size={34} /> : null}
-                <div style={{ flex: 1, minWidth: 160 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{e ? fullName(e) : 'Unknown'} <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 12 }}>· {LEAVE_TYPES.find(([v]) => v === r.leaveType)?.[1]} · {r.days} day{r.days !== 1 ? 's' : ''}</span></div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
-                    {formatDate(r.startDate)}{r.endDate && r.endDate !== r.startDate ? ` → ${formatDate(r.endDate)}` : ''}{r.reason ? ` · ${r.reason}` : ''}
-                  </div>
-                  {r.decisionNote && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Note: {r.decisionNote}</div>}
-                </div>
-                <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: lm.bg, color: lm.fg, flexShrink: 0 }}>{lm.label}</span>
-                {r.status === 'pending' && (
-                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    <button onClick={() => decide(r, 'reject')} disabled={busyId === r.id}
-                      style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>
-                      Reject
-                    </button>
-                    <button className="primary-btn" onClick={() => decide(r, 'approve')} disabled={busyId === r.id}
-                      style={{ fontSize: 12, padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      {busyId === r.id ? <Spinner size={12} /> : <CheckCircle size={12} />} Approve
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {formOpen && <LeaveFormModal employees={employees} toastErr={toastErr} onClose={() => setFormOpen(false)}
-        onSaved={r => { setLeave(prev => [r, ...prev]); toastOk('Leave request recorded - pending approval.'); }} />}
-    </div>
-  );
-}
+// The People > Leave tab (the Phase 6 leave tracker) is retired (Neil, Oct
+// 27 2026): leave is requested, approved and balanced in Time Off. Its rows
+// stay readable in People > Time > Time Off > Leave History (Before Time Off)
+// - components/LeaveHistory.jsx - and old 'hr-leave' links land on Time Off.
 
 // ── Main view ─────────────────────────────────────────────────────────────────
 // ── Companies / legal entities manager (HR Section A) ────────────────────────
@@ -6023,10 +5718,11 @@ export default function HR({ activeSub, onSubChange }) {
   // hr-access moved to the Admin module (Pranshu, Sep 9) - old deep links
   // redirect there by the effect below, so it's not in this list any more.
   // Dashboard tiles open the Time tab on a specific inner list.
-  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices' };
+  // 'hr-leave' was the People > Leave tab until Oct 27 2026 - it is Time Off now.
+  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-leave': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices' };
   // The manager tier sees its own team in People (Oct 6): People and Time only.
   const { hrTeam } = useRole();
-  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'];
+  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-time', 'hr-checklists'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
     : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
@@ -6312,7 +6008,6 @@ export default function HR({ activeSub, onSubChange }) {
     { key: 'hr-people', label: 'People',    Icon: Users },
     { key: 'hr-hiring', label: 'Hiring',    Icon: UserPlus },
     { key: 'hr-org',    label: 'Org Chart', Icon: Network },
-    { key: 'hr-leave',  label: 'Leave',     Icon: CalendarOff },
     { key: 'hr-time',   label: 'Time',      Icon: Clock },
     { key: 'hr-checklists', label: 'Checklists', Icon: ListChecks },
     // The External tab is gone (Neil, Aug 24): external/guest people live in
@@ -6411,11 +6106,9 @@ export default function HR({ activeSub, onSubChange }) {
           }} />
       )}
       {sub === 'hr-org' && <OrgChartTab employees={employees} externals={extEmployees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-leave' && <LeaveBalancesAdmin toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
-      {/* Approval Delegations (Oct 17): HR sees and sets everyone's stand-ins. */}
-      {sub === 'hr-leave' && <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} toastOk={toastOk} toastErr={toastErr} />}
+      {/* Leave balances, the year end, approval stand-ins and the old Leave
+          history sit under Time > Time Off now (hrPanels, Oct 27 2026). */}
+      {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} hrPanels toastOk={toastOk} toastErr={toastErr} />}
       {/* Operations only (Neil, Oct 19: "once it's set up, we should be just
           operating it") - the steps are set up in Settings. */}
       {sub === 'hr-checklists' && (

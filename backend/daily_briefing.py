@@ -562,6 +562,8 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
         leave = _leave_labeler(db, email)
         for r in (db.query(models.TimeOffRequest)
                   .filter(models.TimeOffRequest.status == "pending",
+                          # approved by the manager, waiting for HR: not theirs now
+                          func.coalesce(models.TimeOffRequest.approval_stage, "") != "hr",
                           models.TimeOffRequest.employee_email.in_(list(my_reports))).all()):
             by_employee.setdefault((r.employee_email or "").lower(), []).append(r)
         for emp_email, reqs in by_employee.items():

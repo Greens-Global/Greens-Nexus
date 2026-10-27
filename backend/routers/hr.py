@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
-from task_due import us_date
 from notify_company import notification_company
 from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
 from routers.stepup import require_stepup
@@ -1293,81 +1292,28 @@ def leave_balances(employee_id: str, year: int, user: dict = Depends(require_hr_
     return [{"leaveType": t, "allocated": alloc.get(t, 0), "used": used[t]} for t in _LEAVE_TYPES]
 
 
+# The legacy HR Leave tracker is retired (Neil, Oct 27 2026): leave is
+# requested, approved and balanced in Time Off (routers/timeclock.py,
+# leave_balances.py). Its rows are kept - the GET routes above still read
+# them for People > Time > Time Off > Leave History (Before Time Off) - but
+# nothing writes to hr_leave_requests / hr_leave_balances any more.
+_LEAVE_RETIRED = ("Leave moved to Time Off - request and approve it in Workday > Time Off "
+                  "or People > Time > Time Off. Older leave stays readable in Leave History.")
+
+
 @router.put("/leave/balances")
-def set_balance(body: BalanceIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    if body.leave_type not in _LEAVE_TYPES:
-        raise HTTPException(400, f"leave_type must be one of {_LEAVE_TYPES}")
-    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == body.employee_id).first(), hr_scope(user, db))
-    row = db.query(HrLeaveBalance).filter(HrLeaveBalance.employee_id == body.employee_id,
-                                          HrLeaveBalance.year == body.year,
-                                          HrLeaveBalance.leave_type == body.leave_type).first()
-    if row:
-        row.allocated = body.allocated
-    else:
-        db.add(HrLeaveBalance(id=str(uuid.uuid4()), employee_id=body.employee_id,
-                              year=body.year, leave_type=body.leave_type, allocated=body.allocated))
-    db.commit()
-    return {"ok": True}
+def set_balance(body: BalanceIn, user: dict = Depends(require_hr_write)):
+    raise HTTPException(410, _LEAVE_RETIRED)
 
 
 @router.post("/leave")
-def create_leave(body: LeaveIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    if body.leave_type not in _LEAVE_TYPES:
-        raise HTTPException(400, f"leave_type must be one of {_LEAVE_TYPES}")
-    if body.days <= 0:
-        raise HTTPException(400, "days must be positive")
-    emp = db.query(NexusEmployee).filter(NexusEmployee.id == body.employee_id).first()
-    if not emp:
-        raise HTTPException(404, "Employee not found")
-    _assert_scope(emp, hr_scope(user, db))
-    now = datetime.now(timezone.utc).isoformat()
-    row = HrLeaveRequest(
-        id=str(uuid.uuid4()), employee_id=body.employee_id, leave_type=body.leave_type,
-        start_date=body.start_date, end_date=body.end_date or body.start_date,
-        days=body.days, reason=body.reason or "", created_by=user["email"], created_at=now,
-    )
-    db.add(row)
-    # New request -> the employee's manager gets the approval ask in their bell
-    # (unless the manager is the one recording it)
-    emp_name = f"{emp.first_name} {emp.last_name}".strip()
-    if emp.manager_email and emp.manager_email.lower() != user["email"].lower():
-        _hr_notify(db, emp.manager_email,
-                   f"Leave Request: {emp_name}",
-                   f"{emp_name} requested {body.days} day{'s' if body.days != 1 else ''} of {body.leave_type} leave"
-                   f" starting {us_date(body.start_date)}." + (f"\nReason: {body.reason.strip()}" if (body.reason or '').strip() else ''),
-                   ref_id=row.id, requested_by=user["email"])
-    db.commit()
-    return _ser_leave(row)
+def create_leave(body: LeaveIn, user: dict = Depends(require_hr_write)):
+    raise HTTPException(410, _LEAVE_RETIRED)
 
 
 @router.patch("/leave/{lid}")
-def decide_leave(lid: str, body: LeaveDecision, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    if body.action not in ("approve", "reject"):
-        raise HTTPException(400, "action must be approve or reject")
-    row = db.query(HrLeaveRequest).filter(HrLeaveRequest.id == lid).with_for_update().first()
-    if not row:
-        raise HTTPException(404, "Leave request not found")
-    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first(), hr_scope(user, db))
-    if row.status != "pending":
-        raise HTTPException(400, "Request already decided")
-    now = datetime.now(timezone.utc).isoformat()
-    row.status = "approved" if body.action == "approve" else "rejected"
-    row.decided_by = user["email"]
-    row.decided_at = now
-    row.decision_note = (body.note or "").strip()
-    # Bell notification to the employee if they have a Nexus identity
-    emp = db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first()
-    if emp and emp.work_email:
-        db.add(NexusNotification(
-            id=str(uuid.uuid4()), type="custom_alert", recipient=emp.work_email.lower(),
-            title=f"Leave {row.status.title()}",
-            body=f"Your {row.leave_type} leave ({us_date(row.start_date)}, {row.days} day{'s' if row.days != 1 else ''}) was {row.status}."
-                 + (f"\n\nNote: {row.decision_note}" if row.decision_note else ""),
-            ref_id=row.id, item_name="", requested_by=user["email"],
-            action="", actioned=False, read_by="", company=emp.company or "", created_at=now,
-        ))
-    db.commit()
-    return _ser_leave(row)
+def decide_leave(lid: str, body: LeaveDecision, user: dict = Depends(require_hr_write)):
+    raise HTTPException(410, _LEAVE_RETIRED)
 
 
 # ── Employee documents (Phase 3) - PRIVATE bucket, signed URLs only ──────────

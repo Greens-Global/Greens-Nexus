@@ -261,6 +261,16 @@ def default_policy_id(db: Session, email: str, emp=None) -> str:
     return "none"
 
 
+def on_ca_rule(db: Session, email: str, emp=None, pol: dict | None = None) -> bool:
+    """Whether a person is on the California rule - the detection the CA
+    sick policy uses (default_policy_id: US and the 'ca' overtime rule), or
+    the CA policy itself assigned to them. Either one is enough: the law it
+    stands for (leave_year_end.NO_FORFEIT_VACATION) must never be missed."""
+    if pol is not None and pol.get("id") == "us-ca":
+        return True
+    return default_policy_id(db, email, emp) == "us-ca"
+
+
 def policy_for(db: Session, email: str, emp=None, pols: dict | None = None) -> dict:
     pols = pols or policies(db)
     if emp is None:
@@ -321,10 +331,14 @@ def bucket_of(name: str) -> str:
 
 # ── The balance ─────────────────────────────────────────────────────────────
 
-def _rows(db: Session, email: str) -> list:
-    return (db.query(models.LeaveLedgerEntry)
-            .filter(models.LeaveLedgerEntry.employee_email == (email or "").strip().lower())
-            .order_by(models.LeaveLedgerEntry.effective_date.asc(), models.LeaveLedgerEntry.created_at.asc())
+def _rows(db: Session, email: str, exclude_ref: str = "") -> list:
+    q = (db.query(models.LeaveLedgerEntry)
+         .filter(models.LeaveLedgerEntry.employee_email == (email or "").strip().lower()))
+    if exclude_ref:
+        # The year-end rows of the closing being worked out (leave_year_end.py)
+        # are not part of the balance they close.
+        q = q.filter(models.LeaveLedgerEntry.ref_id != exclude_ref)
+    return (q.order_by(models.LeaveLedgerEntry.effective_date.asc(), models.LeaveLedgerEntry.created_at.asc())
             .all())
 
 
@@ -358,7 +372,7 @@ def request_hours(r, hours_per_day: float) -> float:
 
 
 def balances(db: Session, email: str, today: date | None = None, pols: dict | None = None,
-             emp=None, with_entries: bool = False) -> dict:
+             emp=None, with_entries: bool = False, exclude_ref: str = "") -> dict:
     """{live, cutover, policy, vacation: {...}, sick: {...}} for one person.
     Each bucket: available (hours, may be negative), plus how it was made."""
     email = (email or "").strip().lower()
@@ -377,9 +391,10 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
     cut_d = date.fromisoformat(cut)
     start = _start(emp)
     eligible = _eligible_type(emp, pol) and start is not None
-    rows = _rows(db, email)
+    rows = _rows(db, email, exclude_ref)
 
-    # Vacation: carries over. Opening + everything since the cutover + the
+    # Vacation: carries over (unless the company's year-end says otherwise -
+    # leave_year_end.py writes that as ledger rows, so it is in `rows`). Opening + everything since the cutover + the
     # anniversary grants that fell on or after the cutover.
     vac_rows = [r for r in rows if r.bucket == "vacation"
                 and (r.kind == "opening" or (r.effective_date or "") >= cut)
@@ -413,7 +428,8 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
                 next_tier = {"date": _anniversary(start, first).isoformat(), "hours": 0}
     vac_total += sum(g["hours"] for g in grants)
 
-    # Sick: this calendar year only (use it or lose it).
+    # Sick: this calendar year only (use it or lose it; a company that
+    # carries sick over gets a `carryover` row dated Jan 1 - leave_year_end.py).
     y0 = date(today.year, 1, 1).isoformat()
     sp = pol.get("sick") or {}
     sick_rows = [r for r in rows if r.bucket == "sick" and (r.effective_date or "")[:4] == str(today.year)

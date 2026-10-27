@@ -118,10 +118,18 @@ def _approver(db: Session, user: dict) -> dict:
 
 
 def _time_off_to_decide(db: Session, user: dict) -> int:
-    from routers.timeclock import list_timeoff, _TIMEOFF_LIST_LIMIT
-    rows = list_timeoff(status="pending", from_="", to="", limit=_TIMEOFF_LIST_LIMIT,
-                        user=_approver(db, user), db=db)
-    return sum(1 for r in rows if r.get("canDecide") is not False)
+    """Pending time off I may decide: my team's (first level), plus the ones
+    waiting for me as HR (Second Approval By HR, Oct 27 2026) - each once."""
+    from routers.timeclock import list_timeoff, timeoff_awaiting_hr, _TIMEOFF_LIST_LIMIT
+    ids = set()
+    try:
+        rows = list_timeoff(status="pending", from_="", to="", limit=_TIMEOFF_LIST_LIMIT,
+                            user=_approver(db, user), db=db)
+        ids |= {r["id"] for r in rows if r.get("canDecide") is not False}
+    except HTTPException:
+        pass                     # not an approver - HR may still owe a decision
+    ids |= {r["id"] for r in timeoff_awaiting_hr(user=user, db=db)}
+    return len(ids)
 
 
 def _shift_requests_to_decide(db: Session, user: dict) -> int:

@@ -27,6 +27,7 @@ import { timeOffLabel } from '../components/shiftScheduleLib';
 import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { LeaveBalanceCard, RequestBalanceHint, useMyLeaveBalance } from '../components/LeaveBalances';
+import TeamLeaveCalendar from '../components/TeamLeaveCalendar';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { pairLocalAgent } from '../lib/agentPair';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
@@ -1638,14 +1639,19 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                   {toCancelling === r.id ? <Spinner size={11} /> : <X size={11} />} Cancel
                 </button>
               )}
+              {/* Second Approval By HR (Oct 27 2026): approved by the manager,
+                  still pending until HR approves. */}
               <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 999, minWidth: 74, textAlign: 'center',
-                background: TO_TINT[r.status] || 'var(--mist)', color: TO_STATUS[r.status] || 'var(--muted)' }}>
-                {TO_STATUS_LABEL[r.status] || r.status}
+                background: TO_TINT[r.status] || 'var(--mist)', color: TO_STATUS[r.status] || 'var(--muted)' }}
+                title={r.awaitingHr ? 'Your manager approved it - HR approves next' : undefined}>
+                {r.awaitingHr ? 'Awaiting HR Approval' : (TO_STATUS_LABEL[r.status] || r.status)}
               </span>
             </div>
           );
         })}
       </div>
+      {/* Team Leave Calendar (Oct 27 2026): who on my team is out this month. */}
+      <TeamLeaveCalendar />
       {/* Delegate My Approvals (Neil, Oct 20): here on Time Off, collapsed -
           it opens up for the days you are off. Renders nothing for someone
           with nothing to approve. */}
