@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within, waitFor } from '@testing-library/react';
 
 // Settings (AdminConsole, one tab since Oct 23 2026): a rail of subjects, a
 // scope picker (Every company / one company), every group open, old links
@@ -333,7 +333,7 @@ describe('AdminConsole', () => {
     expect(onSubChange).toHaveBeenLastCalledWith('hiring@c1');
 
     rerender(<AdminConsole activeSub="hiring@c1" onSubChange={onSubChange} />);
-    expect(screen.getByLabelText('Applies To')).toHaveValue('c1');
+    await waitFor(() => expect(screen.getByLabelText('Applies To')).toHaveValue('c1'));   // the company list loads on its own
     expect(screen.getByRole('heading', { name: 'Hiring & Onboarding' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Back to every company' })).toBeInTheDocument();
     expect(await find('Company page c1: checklists')).toBeInTheDocument();
@@ -363,7 +363,7 @@ describe('AdminConsole', () => {
     const { rerender } = render(<AdminConsole activeSub="shifts@c1" onSubChange={() => {}} />);
     expect(await find('Shift settings panel basics c1')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Shifts & Scheduling' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Applies To')).toHaveValue('c1');
+    await waitFor(() => expect(screen.getByLabelText('Applies To')).toHaveValue('c1'));   // the company list loads on its own
     expect(await find('Weather panel c1')).toBeInTheDocument();
 
     rerender(<AdminConsole activeSub="pay@c1" onSubChange={() => {}} />);

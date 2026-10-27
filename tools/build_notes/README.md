@@ -8,7 +8,32 @@ the PR. Standard library only - plain `python3` runs them, no virtualenv.
 What Build Mode is, who can use it and the whole loop: `docs/Build-Mode.md`.
 The procedure Claude Code follows: `.claude/skills/build-notes/SKILL.md`.
 
-## Setup (once per machine)
+## Connect your Claude Code (once per machine, Oct 26 2026)
+
+In Nexus, turn Build Mode on > **Done** (or Settings) > **Connect My Claude
+Code**. Nexus shows one line; paste it into a terminal in VS Code at the
+repository root:
+
+```
+python tools/build_notes/connect.py nxbn_... --api https://...
+```
+
+`connect.py` saves the token and that Nexus's API (`~/.config/nexus/
+build-notes.token` / `build-notes.api` - the saved API beats an old
+`NEXUS_API_BASE`), checks them, adds the **Nexus: Build Notes Watcher** task
+to `.vscode/tasks.json` with `runOn: folderOpen` (VS Code asks once to allow
+automatic tasks; a tasks.json with comments is left alone and the task is
+printed for you to add), and starts the watcher in that terminal. Nexus
+shows **Your Claude Code is connected** within seconds.
+
+**Send To Claude Code goes to YOUR Claude Code only.** Each pin records who
+sent it (`dispatched_by`); a watcher's `/cli/wait` returns only the pins its
+token's owner sent, and `/cli/claim` refuses anyone else's ("Pin #n was sent
+to Neil's Claude Code, not yours"). With several watchers running - Neil's,
+Visesh's, yours - nothing crosses over. While your Claude Code is not
+connected Nexus does not offer Send at all (Connect Claude Code First).
+
+## Setup by hand (the older way)
 
 1. In Nexus open the profile menu (top right) > **Build Mode** > **Settings** >
    **Build Tokens**, mint a token with a label ("Neil's MacBook") and copy it -

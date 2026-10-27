@@ -13,7 +13,7 @@ export const DRAFTS_KEY = 'nexus:build-mode:drafts';
 export const PENDING_PIN_KEY = 'nexus:build-mode:open-pin';
 export const ALL_TOOLS_KEY = 'nexus:build-mode:all-tools';
 
-export const DEFAULT_SETTINGS = { sendInstantly: false, dispatchTarget: 'local', pinsOnLoad: true, teamsChatId: '', teamsChatName: '' };
+export const DEFAULT_SETTINGS = { sendInstantly: false, dispatchTarget: 'local', pinsOnLoad: true, onePr: false, teamsChatId: '', teamsChatName: '' };
 
 const read = (storage, key) => { try { return storage.getItem(key); } catch { return null; } };
 const write = (storage, key, value) => {
@@ -41,6 +41,9 @@ let state = {
   pendingPin: pendingPinFromUrl() || (typeof window !== 'undefined' ? (read(sessionStorage, PENDING_PIN_KEY) || '') : ''),
   blockedRoutes: [],             // views where nothing is captured (the server names them: pfs, credvault)
   tool: 'pin',
+  // Your own Claude Code (GET /dev-notes/claude-connection): null = not known
+  // yet, else { connected, lastSeen, apiBase }. Send To Claude Code goes only to it.
+  claude: null,
   // The whole strip (every markup tool, Edit, Hide Pins) instead of the simple one - per browser.
   allTools: typeof window !== 'undefined' && read(localStorage, ALL_TOOLS_KEY) === '1',
   color: '#ef4444',
@@ -52,7 +55,7 @@ let state = {
   openPinId: '',
   panelOpen: false,
   panelTab: 'queue',
-  postFromDone: false,   // the Queue opened from Done: Post To Teams first
+  postFromDone: false,   // the Queue opened from Done: Post To Teams first (only while Send to Claude Code is off)
   showPins: true,
   capture: 'idle',               // idle | live | off | unsupported - the tab-capture stream
   recording: null,               // { startedAt, transcript } while a recording runs

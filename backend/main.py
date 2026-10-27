@@ -1318,6 +1318,8 @@ def _run_migrations():
             "ALTER TABLE dev_notes ADD COLUMN preview_verdict VARCHAR DEFAULT ''",
             "ALTER TABLE dev_notes ADD COLUMN preview_verdict_at VARCHAR DEFAULT ''",
             "ALTER TABLE dev_notes ADD COLUMN regression_case_id VARCHAR DEFAULT ''",
+            # Build Mode: a sent pin goes to its sender's Claude Code only (Oct 26) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN dispatched_by VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_seen_at VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_check JSON",
         ]
@@ -3056,6 +3058,9 @@ def _run_migrations():
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict VARCHAR DEFAULT ''",
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict_at VARCHAR DEFAULT ''",
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS regression_case_id VARCHAR DEFAULT ''",
+        # Build Mode (Oct 26): who sent a pin - only that person's Claude Code
+        # (their Build Token's watcher) sees and claims it. models.DevNote.
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS dispatched_by VARCHAR DEFAULT ''",
         # Reports > Schedule C (draft) (Neil, Viral, 10/27 triage item 18): the
         # account-to-tax-line mapping, kept in Nexus only - never written to
         # Intacct. New table - explicit RLS. models.AccountingTaxLine.

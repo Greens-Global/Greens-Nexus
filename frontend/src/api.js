@@ -2998,6 +2998,7 @@ export const api = {
   devNotesSessionPatch: (id, data) => req(`/dev-notes/sessions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
   devNotesSessionReport: (id) => reqBlob(`/dev-notes/sessions/${encodeURIComponent(id)}/report`, { timeoutMs: 60000 }),
   devNotesTeamsPost: (data) => req("/dev-notes/teams-post", { method: "POST", body: JSON.stringify(data) }),
+  devNotesClaudeConnection: () => req("/dev-notes/claude-connection"),
   devNotesTokens: () => req("/dev-notes/tokens"),
   devNotesTokenCreate: (label) => req("/dev-notes/tokens", { method: "POST", body: JSON.stringify({ label }) }),
   devNotesTokenRevoke: (id) => req(`/dev-notes/tokens/${encodeURIComponent(id)}`, { method: "DELETE" }),

@@ -1,10 +1,11 @@
 // The card anchored to what was picked: the "You picked ..." line, the
 // comment (Ctrl+V pastes a screenshot into it), hold-to-talk, Record, More
 // Options (kind - guessed from the words until picked - and priority), and
-// Save Pin / Save And Send. The draft it edits lives in localStorage until
-// the pin is saved (store.js saveDraft).
+// one Save: Save Pin, or Save And Send when Settings > Send Instantly is on
+// (off, pins collect and Done > Send To Claude Code sends them together).
+// The draft it edits lives in localStorage until the pin is saved (store.js saveDraft).
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { X, Mic, MicOff, Video, CircleStop, Loader2, Send, Check, Trash2, Camera } from 'lucide-react';
+import { X, Mic, MicOff, Video, CircleStop, Loader2, Check, Trash2, Camera } from 'lucide-react';
 import { useIsMobile } from '../lib/useIsMobile';
 import { toViewUrl } from '../lib/storageView';
 import { filesFromPaste } from '../tasks/lib';
@@ -68,7 +69,7 @@ export default function Composer({
   capture = 'idle', recording = null, onRecord, onStopRecord, recorded = null,
   askRecord = false, onRecordChoice, onRecordAskCancel, onToggleAudio,
   voiceOn = false, interim = '', onVoiceStart, onVoiceStop,
-  markupCount = 0, onClearMarkup, view,
+  markupCount = 0, onClearMarkup, view, claudeConnected = true,
 }) {
   const isMobile = useIsMobile();
   const ref = useRef(null);
@@ -109,7 +110,10 @@ export default function Composer({
   // Someone else's area (v2): the server says the pin would be held for them,
   // so it is never sent to Claude Code from here - one button, Save For <Owner>.
   const owner = useHeldOwner(pick?.target?.source?.file || '');
-  const sendInstantly = CLAUDE_SEND_ON && !!settings?.sendInstantly && !owner;
+  // Your Claude Code is not listening: save only - Done > Connect sets it up,
+  // and nothing is sent to wait for a terminal that is not there.
+  const noClaude = !claudeConnected && !owner;
+  const sendInstantly = CLAUDE_SEND_ON && !!settings?.sendInstantly && !owner && !noClaude;
   const busy = !!saving || uploading > 0 || !!recording;
   const kindMeta = KINDS.find((k) => k.id === draft.kind) || KINDS[0];
   const hint = looksLike(pick?.target, view);
@@ -117,7 +121,7 @@ export default function Composer({
   return (
     <div ref={ref} className="bm-card bm-composer" role="dialog" aria-label="New Pin" data-testid="bm-composer"
       style={pos ? { left: pos.left, top: pos.top } : undefined}
-      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel?.(false); } if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); onSave?.(CLAUDE_SEND_ON && !owner && !sendInstantly); } }}>
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel?.(false); } if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); onSave?.(false); } }}>
       <div className="bm-card-head">
         <span className="bm-pin bm-pin-inline" style={{ '--c': kindMeta.color }} aria-hidden="true"><span className="bm-pin-no">+</span></span>
         <div className="bm-card-title">{draft.edit ? 'New Edit Pin' : 'New Pin'}{pick?.mode === 'region' ? <span className="bm-dim bm-small"> · region</span> : null}</div>
@@ -203,6 +207,7 @@ export default function Composer({
             {recorded.transcript && <details className="bm-details"><summary>Transcript</summary><pre className="bm-pre">{recorded.transcript}</pre></details>}
           </div>
         )}
+        {noClaude && <div className="bm-hint bm-small" data-testid="bm-no-claude">Your Claude Code is not connected - this saves the pin; connect it from Done to send.</div>}
         {err && <div className="bm-error" role="alert">{err}</div>}
       </div>
       <div className="bm-card-foot">
@@ -215,15 +220,8 @@ export default function Composer({
             {saving === 'save' ? <Loader2 size={14} className="bm-spin" /> : <Check size={14} />} Save For {owner.name}
           </button>
         ) : (
-          <button type="button" className={`bm-btn${sendInstantly || !CLAUDE_SEND_ON ? ' bm-btn-primary' : ''}`} onClick={() => onSave?.(false)} disabled={busy} title={CLAUDE_SEND_ON ? undefined : `${MOD}+Enter`}>
+          <button type="button" className="bm-btn bm-btn-primary" onClick={() => onSave?.(false)} disabled={busy} title={`${MOD}+Enter`}>
             {saving === 'save' ? <Loader2 size={14} className="bm-spin" /> : <Check size={14} />} {!CLAUDE_SEND_ON ? 'Save' : sendInstantly ? 'Save And Send' : 'Save Pin'}
-          </button>
-        )}
-        {/* Save And Send only while Send to Claude Code is on (meta.CLAUDE_SEND_ON):
-            otherwise a pin only saves, and Done posts your comments to Teams. */}
-        {CLAUDE_SEND_ON && !sendInstantly && !owner && (
-          <button type="button" className="bm-btn bm-btn-primary" onClick={() => onSave?.(true)} disabled={busy} title={`${MOD}+Enter`}>
-            {saving === 'send' ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Save And Send
           </button>
         )}
       </div>

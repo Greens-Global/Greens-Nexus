@@ -7214,6 +7214,11 @@ th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visibl
 .bm-chat-opt.is-on { background: var(--ink); color: var(--paper); }
 .bm-chat-opt.is-on .bm-dim { color: inherit; opacity: .7; }
 .bm-chat-note { padding: 7px 10px; display: flex; align-items: center; gap: 6px; }
+.bm-connect { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; margin: 10px 0 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--mist); }
+.bm-connect.is-ok { flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; font: 500 12.5px 'Inter', sans-serif; background: hsla(var(--color-green), .08); border-color: hsla(var(--color-green), .35); }
+.bm-connect .bm-code-row { width: 100%; }
+.bm-claude-dot { width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--color-green)); flex-shrink: 0; }
+.bm-steps { margin: 0; padding-left: 18px; }
 .bm-h2 { font-size: 14px; font-weight: 700; }
 .bm-list { display: flex; flex-direction: column; gap: 14px; }
 .bm-empty { color: var(--muted); font-size: 13.5px; padding: 28px 0; text-align: center; line-height: 1.5; }
