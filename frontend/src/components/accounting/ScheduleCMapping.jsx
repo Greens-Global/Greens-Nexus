@@ -5,7 +5,7 @@ import { Modal } from '../../tasks/components';
 import Amount from './Amount';
 import { control } from './reportControls';
 import { FORM, SCHEDULE_C_LINES, SKIP, lineText } from './scheduleC';
-import { ColumnFilterRow, useColumnFilters } from './columnFilters';
+import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
 import { filterCellOf } from './viewFilterColumns';
 
 // Schedule C (Draft) -> Line Mapping (10/27 triage item 18): which Schedule C
@@ -149,9 +149,9 @@ export default function ScheduleCMapping({ rows = [], entity = '', entityLabel =
                   </td>
                 </tr>
               ))}
-              {!listed.length && (
-                <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: 18 }}>{!rows.length ? 'No income statement accounts with activity in this period.' : filters.filtering && shown.length ? 'Nothing matches these column filters.' : 'No account matches.'}</td></tr>
-              )}
+              {!listed.length && (filters.filtering && rows.length && shown.length
+                ? <ColumnFiltersEmpty colSpan={5} onClear={filters.clear} style={{ textAlign: 'center', padding: 18 }} />
+                : <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: 18 }}>{!rows.length ? 'No income statement accounts with activity in this period.' : 'No account matches.'}</td></tr>)}
             </tbody>
           </table>
         </div>

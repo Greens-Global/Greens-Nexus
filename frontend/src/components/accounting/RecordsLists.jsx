@@ -6,7 +6,7 @@ import { useFitHeight, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
-import { ColumnFilterRow, useColumnFilters } from './columnFilters';
+import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
 import { filterColumnsOf } from './viewFilterColumns';
 import { downloadBlob } from './reportModel';
 import { linesFile } from './linesExport';
@@ -99,7 +99,9 @@ function RecordsTable({ tableKey, title, about, columns, rows, loading, error, n
                 <ColumnFilterRow columns={view.columns} filterColumns={filterCols} typed={filters.typed} onChange={filters.setFilter} />
               </thead>
               <tbody>
-                {!paged.rows.length && <tr><td colSpan={view.columns.length} style={{ padding: 16, color: 'var(--text-secondary)' }}>{filters.filtering ? 'Nothing matches these column filters.' : q || view.count ? 'Nothing matches the search and filters.' : 'Nothing to list.'}</td></tr>}
+                {!paged.rows.length && (filters.filtering
+                  ? <ColumnFiltersEmpty colSpan={view.columns.length} onClear={filters.clear} style={{ padding: 16 }} />
+                  : <tr><td colSpan={view.columns.length} style={{ padding: 16, color: 'var(--text-secondary)' }}>{q || view.count ? 'Nothing matches the search and filters.' : 'Nothing to list.'}</td></tr>)}
                 {paged.rows.map((r) => (
                   <tr key={columns[0].text(r)} style={r.inactive ? { color: 'var(--text-muted)' } : undefined}>
                     {view.columns.map((c) => <td key={c.key} style={cellStyle(c.width, c.type === 'number' ? { textAlign: 'right' } : null)} title={c.text(r)}>{c.text(r)}</td>)}

@@ -120,7 +120,13 @@ describe('Manual Journal Entries', () => {
     expect(table.textContent).not.toContain('Bank feed draft, edited');
     fireEvent.change(screen.getByRole('combobox', { name: 'Operator for Amount' }), { target: { value: '<' } });
     fireEvent.change(screen.getByRole('textbox', { name: 'Filter Amount' }), { target: { value: '300' } });
-    expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
+    expect(screen.getByText(/Nothing matches these column filters\./)).toBeTruthy();
+    // UI test 10/27: the link empties every box, the amount's included.
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Column Filters' }));
+    expect(table.textContent).toContain('RTP deposit fix');
+    expect(table.textContent).toContain('Bank feed draft, edited');
+    expect(screen.getByRole('textbox', { name: 'Filter Date' }).value).toBe('');
+    expect(screen.getByRole('textbox', { name: 'Filter Amount' }).value).toBe('');
   });
 
   it('explains when Intacct is not connected', async () => {

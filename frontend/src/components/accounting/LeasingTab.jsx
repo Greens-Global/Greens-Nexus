@@ -592,7 +592,8 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
           <BarSearch value={q} onChange={setQ} label="Filter by property, payer or account" placeholder="Filter by property, payer or account" width={240} />
           <TableViewBar key={section} view={sectionView} />
           <div className="acct-bar-end">
-            <BarMore level={3} active={gapCount(gaps) ? 1 : 0}>
+            {/* Gaps are not a change: More's count is what the person changed (UI test 10/27: "More (1 changed)" from gaps alone). */}
+            <BarMore level={3}>
             <CompletenessButton count={gapCount(gaps)} open={completeOpen} onClick={() => setCompleteOpen((o) => !o)} />
             </BarMore>
             <BarMore level={1} active={showInactive ? 1 : 0}>

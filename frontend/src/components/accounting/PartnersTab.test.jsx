@@ -299,8 +299,13 @@ describe('PartnersTab - the 10/23 call', () => {
     expect(text).toContain('Bay Electric');
     expect(text).not.toContain('Acme Plumbing');
     fireEvent.change(screen.getByRole('textbox', { name: 'Filter Email' }), { target: { value: 'nobody' } });
-    expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
+    expect(screen.getByText(/Nothing matches these column filters\./)).toBeTruthy();
     expect(screen.getByRole('textbox', { name: 'Filter Email' })).toBeTruthy();   // the boxes stay, to clear
+    // UI test 10/27: the link empties the boxes and the vendors come back.
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Column Filters' }));
+    expect(screen.getByText('Acme Plumbing')).toBeTruthy();
+    expect(screen.getByText('Bay Electric')).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Filter Email' }).value).toBe('');
   });
 
   it('has a box under every Requests heading too', async () => {
@@ -319,6 +324,11 @@ describe('PartnersTab - the 10/23 call', () => {
       fireEvent.change(screen.getByRole('textbox', { name: 'Filter Changes' }), { target: { value: 'email' } });
       expect(screen.getByText('Bay Electric', { selector: 'strong' })).toBeTruthy();
       expect(screen.queryByText('Acme Plumbing', { selector: 'strong' })).toBeNull();
+      fireEvent.change(screen.getByRole('textbox', { name: 'Filter Note' }), { target: { value: 'zzqqxx' } });
+      expect(screen.getByText(/Nothing matches these column filters\./)).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Clear Column Filters' }));
+      expect(screen.getByText('Bay Electric', { selector: 'strong' })).toBeTruthy();
+      expect(screen.getByText('Acme Plumbing', { selector: 'strong' })).toBeTruthy();
     } finally {
       api.getAccountingPartnerChanges.mockImplementation(async () => ({ changes }));
     }

@@ -12,7 +12,7 @@ import { useFitHeight } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
-import { ColumnFilterRow, useColumnFilters } from './columnFilters';
+import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
 import { filterColumnsOf } from './viewFilterColumns';
 import { useAccountingPrefs } from './prefs';
 import { MANUAL_JE_DEFAULT_PRESET, MANUAL_JE_GROUP_BY_USER } from './assumptions';
@@ -210,7 +210,9 @@ export default function ManualJournalEntries() {
                 <ColumnFilterRow columns={view.columns} filterColumns={MJE_FILTERS} typed={filters.typed} onChange={filters.setFilter} />
               </thead>
               <tbody>
-                {!rows.length && <tr><td colSpan={view.columns.length} style={{ padding: 16, color: 'var(--text-secondary)' }}>{filters.filtering ? 'Nothing matches these column filters.' : view.count ? 'No entry passes the filters.' : 'No manual journal entries in this period.'}</td></tr>}
+                {!rows.length && (filters.filtering
+                  ? <ColumnFiltersEmpty colSpan={view.columns.length} onClear={filters.clear} style={{ padding: 16 }} />
+                  : <tr><td colSpan={view.columns.length} style={{ padding: 16, color: 'var(--text-secondary)' }}>{view.count ? 'No entry passes the filters.' : 'No manual journal entries in this period.'}</td></tr>)}
                 {groups.map(([who, list]) => [
                   grouped ? (
                     <tr key={`g-${who}`} className="acct-section"><td colSpan={view.columns.length} style={{ fontWeight: 700 }}>
