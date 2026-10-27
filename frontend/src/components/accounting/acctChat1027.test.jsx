@@ -73,8 +73,21 @@ describe('completeness rules (07)', () => {
     expect(g[1].items.map((i) => i.text)).toEqual(['No expected amount']);
     expect(gapCount(g)).toBe(2);
     const custom = mreGaps([row(line({ frequency: 'custom', frequencyMonths: 0 }), Array(12).fill('none'))]);
-    expect(custom[0].items[0].text).toBe('No frequency');
+    // Worded the way the table reads the line: a Custom with no months runs every month.
+    expect(custom[0].items[0].text).toBe('Custom months not set - shown as Every Month');
+    expect(custom[0].subtitle).toMatch(/Every Month$/);
+    expect(mreGaps([row(line({ frequency: 'custom', frequencyMonths: 3 }), Array(12).fill('none'))])).toEqual([]);
+    expect(mreGaps([row(line({ frequency: 'custom', frequencyMonths: 1 }), Array(12).fill('none'))])).toEqual([]);
+    expect(mreGaps([row(line({ frequency: '' }), Array(12).fill('none'))])[0].items[0].text).toBe('No frequency set - shown as Monthly');
     expect(mreGaps([row(line({ status: 'ended' }), Array(12).fill('missed'))])).toEqual([]);
+  });
+
+  it('MRI: a Custom source with no months is named the way its table shows it', () => {
+    const src = (over) => ({ lease: { id: 'L9', propertyName: 'P', tenantName: 'T', entityCode: '12014', status: 'active', rates: [{ startDate: `${Y}-01-01`, rent: 100, cam: 0, other: 0 }], ...over }, months: [] });
+    const g = mriGaps([src({ frequency: 'custom', frequencyMonths: null })]);
+    expect(g[0].items.map((i) => i.text)).toEqual(['Custom months not set - shown as Every Month']);
+    expect(g[0].subtitle).toBe('T · 12014 · Every Month');
+    expect(mriGaps([src({ frequency: 'custom', frequencyMonths: 2 })])).toEqual([]);
   });
 
   it('MRE follows the period shown', () => {

@@ -592,7 +592,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
       {lines && <LedgerLines {...lines} onClose={() => setLines(null)} />}
       {completeOpen && (
         <CompletenessPanel caption={`MRE · ${entityLabel} · ${periodLabel}`} groups={gaps} note={completeNote} onPick={pickGap} onClose={() => setCompleteOpen(false)}
-          rule="A gap is a month that is over and reads Missed while the line has no note, or a line with no expected amount or no frequency. Ended lines are left out." />
+          rule="A gap is a month that is over and reads Missed while the line has no note, or a line with no expected amount, or no frequency (a Custom frequency without its number of months runs every month until it is set). Ended lines are left out." />
       )}
       {sending && (
         <SendReportDialog mode={sending} title={`Monthly Recurring Expenses ${year}`} baseName={`Monthly Recurring Expenses - ${year}`} what="lines"

@@ -23,7 +23,15 @@ import { frequencyLabel, stepMonths } from './recurringShared';
 export const PFS_STALE_DAYS = 90;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthText = (key) => `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
-const noFrequency = (line) => line?.frequency === 'custom' && stepMonths(line) === 1 && Number(line.frequencyMonths) !== 1;
+// The frequency gap reads the line the way its table does (stepMonths /
+// frequencyLabel): a Custom line with no month count runs every month there,
+// so the gap says so instead of "No frequency" (10/27 rerun).
+const customMonthsMissing = (line) => line?.frequency === 'custom' && stepMonths(line) === 1 && Math.floor(Number(line.frequencyMonths) || 0) !== 1;
+function frequencyGap(line, { blank = false } = {}) {
+  if (blank && !line?.frequency) return { key: 'frequency', text: `No frequency set - shown as ${frequencyLabel(line)}` };
+  if (customMonthsMissing(line)) return { key: 'frequency', text: `Custom months not set - shown as ${frequencyLabel(line)}` };
+  return null;
+}
 
 /** MRE: one group per line with gaps, in the months [from, to] of the grid shown. */
 export function mreGaps(rows, [from, to] = [0, 11]) {
@@ -33,7 +41,8 @@ export function mreGaps(rows, [from, to] = [0, 11]) {
     if (!l || l.status === 'ended') return;
     const items = [];
     if (!(Number(l.expectedAmount) > 0)) items.push({ key: 'amount', text: 'No expected amount' });
-    if (!l.frequency || noFrequency(l)) items.push({ key: 'frequency', text: 'No frequency' });
+    const freq = frequencyGap(l, { blank: true });
+    if (freq) items.push(freq);
     if (!(l.notes || '').trim()) {
       (r.months || []).slice(from, to + 1).forEach((c) => {
         if (c?.status === 'missed') items.push({ key: `missed-${c.month}`, text: `${monthText(c.month)} Missed, no note` });
@@ -53,11 +62,12 @@ export function mriGaps(rows, [from, to] = [0, 11]) {
     if ((l.status || 'active') !== 'active') return;
     const items = [];
     if (!(l.rates || []).some((x) => (Number(x.rent) || 0) + (Number(x.cam) || 0) + (Number(x.other) || 0) > 0)) items.push({ key: 'amount', text: 'No amount' });
-    if (noFrequency(l)) items.push({ key: 'frequency', text: 'No frequency' });
+    const freq = frequencyGap(l);
+    if (freq) items.push(freq);
     (r.months || []).slice(from, to + 1).forEach((c) => {
       if (c?.status === 'unpaid' && !(c.note || '').trim()) items.push({ key: `unpaid-${c.month}`, text: `${monthText(c.month)} Unpaid, no note` });
     });
-    if (items.length) out.push({ id: l.id, title: l.propertyName || l.tenantName || 'Unnamed source', subtitle: [l.tenantName || r.customer?.name || l.customerId, l.entityCode].filter(Boolean).join(' · '), items });
+    if (items.length) out.push({ id: l.id, title: l.propertyName || l.tenantName || 'Unnamed source', subtitle: [l.tenantName || r.customer?.name || l.customerId, l.entityCode, frequencyLabel(l)].filter(Boolean).join(' · '), items });
   });
   return out;
 }
