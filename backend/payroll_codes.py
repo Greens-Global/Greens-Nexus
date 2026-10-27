@@ -35,13 +35,18 @@ PAY_CLASSES = (
     # cards that carry a premium, so every other export is unchanged.
     ("mealPremium", "Meal Premium"),
     ("restPremium", "Rest Premium"),
+    # Salary advance repayments (salary_advance.py, Oct 27 2026): a deduction,
+    # not time - the Intacct memo and the CSV name it; the IIF (time only)
+    # never writes it. Only on a card that carries one.
+    ("advanceRepayment", "Salary Advance Repayment"),
 )
 DEFAULTS = dict(PAY_CLASSES)
 # How a pay class is named in a message to HR.
 LABELS = {"regular": "Regular", "overtime": "Overtime", "doubleTime": "Double Time", "holiday": "Holiday",
           "sick": "Sick", "vacation": "Vacation", "personal": "Personal",
           "shiftDifferential": "Shift Differential", "callBack": "Call-Back Pay",
-          "mealPremium": "Meal Premium", "restPremium": "Rest Premium"}
+          "mealPremium": "Meal Premium", "restPremium": "Rest Premium",
+          "advanceRepayment": "Salary Advance Repayment"}
 # QuickBooks Desktop caps a payroll item name at 31 characters.
 MAX_LEN = 31
 

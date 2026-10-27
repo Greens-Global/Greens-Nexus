@@ -306,7 +306,10 @@ PAY_KEYS = frozenset({"pay", "rate", "rateSet", "rateSplits", "amount", "regPay"
                       "diffPay", "callBackPay",
                       # CA meal / rest premiums (ca_breaks.py) - pay, like the rest.
                       "mealPremiumPay", "restPremiumPay",
-                      "bonusPay"})
+                      "bonusPay",
+                      # Salary advance repayments (salary_advance.py, Oct 27) -
+                      # the lines go whole, with the deduction and net pay.
+                      "advanceRepayments", "advanceRepayment", "netPay"})
 
 
 def strip_pay(o):
@@ -2315,6 +2318,14 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
         leave_balances.record_period(db, email, body.start, body.end, row.id, user["email"])
     except Exception as _leave_err:  # noqa: BLE001
         print(f"[leave] could not record {email} {body.start}-{body.end}: {_leave_err}")
+    # Salary advance repayments (salary_advance.py, Oct 27): record what this
+    # card takes for each installment in the period and carry any shortfall
+    # forward - before the contractor invoice, which reads it. Never blocks.
+    try:
+        import salary_advance
+        salary_advance.on_finalize(db, email, body.start, body.end, row.id, user["email"])
+    except Exception as _adv_err:  # noqa: BLE001
+        print(f"[salary-advance] could not record {email} {body.start}-{body.end}: {_adv_err}")
     # A contractor's invoice for the period (contractor_invoices.py, Oct 21):
     # a draft and a bell to HR only - the email goes on HR's click, never here.
     try:
@@ -2411,6 +2422,8 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(get_current_user)
     leave_balances.remove_period(db, row.id)
     from routers import contractor_invoices
     contractor_invoices.void_for_final(db, row.id)   # its draft invoice goes; a sent one stays
+    import salary_advance
+    salary_advance.on_unfinalize(db, row.id, user["email"])   # its repayments are taken again at the next finalize
     # The review is HR's to correct until the employee signs again (or the
     # corrected card is accepted after the wait) - never back to the manager.
     _tsr.start_correction(db, email, body.start, body.end, user["email"], reason[:500])
@@ -2742,6 +2755,18 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
         # only when someone in the file has one - every other file is unchanged.
         ca_prem = any((c["totals"].get("mealPremiumMin") or c["totals"].get("restPremiumMin")) for c in cards.values())
 
+        # Salary advance repayments (salary_advance.py, Oct 27): two more
+        # columns at the very END - the deduction and the net paid out - only
+        # when someone in the file has one. Total Pay stays the gross.
+        adv = any("advanceRepayment" in c["totals"] for c in cards.values())
+
+        def _acols(x: dict, total: bool) -> list:
+            if not adv:
+                return []
+            if not total or "advanceRepayment" not in x:
+                return ["", ""]
+            return [f"{x['advanceRepayment']:.2f}", f"{x['netPay']:.2f}"]
+
         def _pcols(x: dict) -> list:
             if not ca_prem:
                 return []
@@ -2755,7 +2780,8 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                     "Total Pay", "Approved"]
                    + (["Shift Differential Hours", "Shift Differential Pay", "Call-Back Hours", "Call-Back Pay"]
                       if prem else [])
-                   + (["Meal Premium Hours", "Meal Premium Pay", "Rest Premium Hours", "Rest Premium Pay"] if ca_prem else []))
+                   + (["Meal Premium Hours", "Meal Premium Pay", "Rest Premium Hours", "Rest Premium Pay"] if ca_prem else [])
+                   + (["Salary Advance Repayment", "Net Pay"] if adv else []))
         for r in rows:
             card = cards[r["email"]]
             cday = {d["date"]: d for d in card["days"]}
@@ -2777,7 +2803,7 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                             "yes" if (r["email"], date) in day_ok else ""]
                            + ([f"{cd.get('diffMin', 0) / 60:.2f}", f"{cd.get('diffPay', 0):.2f}",
                                f"{cd.get('callBackMin', 0) / 60:.2f}", f"{cd.get('callBackPay', 0):.2f}"] if prem else [])
-                           + _pcols(cd))
+                           + _pcols(cd) + _acols(cd, False))
             all_days_ok = bool(r["days"]) and all((r["email"], dt) in day_ok for dt in r["days"])
             w.writerow([r["name"], r["email"], "TOTAL", "", "",
                         f"{T['workedMin'] / 60:.2f}", f"{T['regMin'] / 60:.2f}",
@@ -2792,7 +2818,7 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                         "yes" if (r["email"] in approved or all_days_ok) else "no"]
                        + ([f"{T.get('diffMin', 0) / 60:.2f}", f"{T.get('diffPay', 0):.2f}",
                            f"{T.get('callBackMin', 0) / 60:.2f}", f"{T.get('callBackPay', 0):.2f}"] if prem else [])
-                       + _pcols(T))
+                       + _pcols(T) + _acols(T, True))
     buf.seek(0)
     fname = f"timeclock-{mode}-{start or 'all'}-to-{end or 'now'}.csv"
     return StreamingResponse(iter([buf.getvalue()]),
@@ -2992,7 +3018,7 @@ _INTACCT_PAY_CLASSES = (("regPay", "regular", "regMin"), ("otPay", "overtime", "
 
 
 def payroll_intacct_entries(cards: list[dict], *, start: str, end: str, journal: str, expense: str, clearing: str,
-                            location: str, description: str = "") -> list[dict]:
+                            location: str, description: str = "", advances: str = "") -> list[dict]:
     """The period's payroll as ONE Intacct GL entry (intacct_gl layout): per
     employee, a debit to the wage expense account per pay class (the memo
     names the class and the hours, DEPT_ID the person's department,
@@ -3000,7 +3026,11 @@ def payroll_intacct_entries(cards: list[dict], *, start: str, end: str, journal:
     clearing account for their total. `cards` are payroll cards with `name`,
     `department`, `employeeId` and `payType` added, and optionally
     `payCodes` (the company's export codes, payroll_codes.codebook). Pure, so
-    it is testable without punches."""
+    it is testable without punches.
+    A salary advance repayment (totals.advanceRepayment, salary_advance.py)
+    is not a wage: the wage lines stay gross, the repayment is a credit to
+    the employee advances account (`advances`, blank for Intacct to ask) and
+    the clearing credit is the net paid out."""
     lines = []
 
     def side(amount: float, debit_side: bool) -> dict:
@@ -3033,6 +3063,11 @@ def payroll_intacct_entries(cards: list[dict], *, start: str, end: str, journal:
                 lines.append({**base, "memo": f"{name} - {label}{hours}", **side(amt, True)})
                 total += amt
         total = round(total, 2)
+        repay = round(float(t.get("advanceRepayment") or 0), 2)
+        if repay:
+            label = (card.get("payCodes") or {}).get("advanceRepayment") or payroll_codes.DEFAULTS["advanceRepayment"]
+            lines.append({**base, "acct_no": advances, "memo": f"{name} - {label}", **side(repay, False)})
+            total = round(total - repay, 2)
         if total:
             lines.append({**base, "acct_no": clearing, "memo": f"{name} - Payroll {_us_date(start)} to {_us_date(end)}", **side(total, False)})
     for i, line in enumerate(lines):
@@ -3050,7 +3085,7 @@ def _us_date(ds: str) -> str:
 
 @router.get("/export-intacct.csv")
 def export_intacct(start: str = "", end: str = "", journal: str = "PYRJ", expense: str = "", clearing: str = "",
-                   location: str = "", user: dict = Depends(require_team_read_pay),
+                   location: str = "", advances: str = "", user: dict = Depends(require_team_read_pay),
                    _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """Intacct General Ledger import of the period's payroll by employee
     (Neil, 10/01: "payroll export from QB to Intacct employee"). Same column
@@ -3078,7 +3113,7 @@ def export_intacct(start: str = "", end: str = "", journal: str = "PYRJ", expens
         cards.append(card)
     entries = payroll_intacct_entries(cards, start=start, end=end, journal=(journal or "PYRJ").strip()[:20],
                                       expense=(expense or "").strip()[:40], clearing=(clearing or "").strip()[:40],
-                                      location=(location or "").strip()[:40])
+                                      location=(location or "").strip()[:40], advances=(advances or "").strip()[:40])
     body = intacct_gl.to_csv(entries)
     fname = f"Intacct GL Import - Payroll - {start} to {end}.csv"
     return PlainTextResponse(body, media_type="text/csv",
@@ -9404,6 +9439,9 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                       "personalDays": leave_days["personal"],
                       "deduction": deduction, "weekendBonus": weekend_bonus,
                       **({"bonusPay": _bt["bonusPay"]} if "bonusPay" in _bt else {}), "totalPay": total_pay}
+    # Salary advance repayments come off the month's pay as its own line (the
+    # grid's _compute_timecard put hourly figures there - replaced here).
+    _add_advance_repayments(card, card["totals"], db, em, m_start, m_end)
     card["periodStart"], card["periodEnd"] = m_start, m_end
     card["periodDays"] = days_in_month
     return card
@@ -10437,6 +10475,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     if _prem is not None:
         pay_premiums.add_totals(card["totals"], _prem)
     _add_bonuses(card, card["totals"], _bonus_rows(db, em, start, end), db)
+    _add_advance_repayments(card, card["totals"], db, em, start, end)
     return card
 
 
@@ -10621,6 +10660,25 @@ def _add_bonuses(card: dict, totals: dict, rows: list, db: Session) -> None:
                        for b in rows]
     totals["bonusPay"] = round(sum(x["amount"] for x in card["bonuses"]), 2)
     totals["totalPay"] = round(float(totals.get("totalPay") or 0) + totals["bonusPay"], 2)
+
+
+def _add_advance_repayments(card: dict, totals: dict, db: Session, em: str, start: str, end: str) -> None:
+    """Salary advance repayments (salary_advance.py, Neil, Oct 27 2026): one
+    "Salary Advance Repayment" line per installment in the period. A
+    deduction from what is paid out, not a cut in wages - `totalPay` stays the
+    gross the exports' wage lines and taxes read; `advanceRepayment` and
+    `netPay` ride only on a card that has a line, so every other card is
+    unchanged."""
+    import salary_advance
+    card.pop("advanceRepayments", None)
+    totals.pop("advanceRepayment", None)
+    totals.pop("netPay", None)
+    lines = salary_advance.card_lines(db, em, start, end, float(totals.get("totalPay") or 0), card.get("currency") or "")
+    if not lines:
+        return
+    card["advanceRepayments"] = lines
+    totals["advanceRepayment"] = round(sum(x["applied"] for x in lines), 2)
+    totals["netPay"] = round(float(totals.get("totalPay") or 0) - totals["advanceRepayment"], 2)
 
 
 class TimecardBonusIn(BaseModel):

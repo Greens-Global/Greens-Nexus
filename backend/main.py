@@ -3067,6 +3067,12 @@ def _run_migrations():
         "ALTER TABLE accounting_tax_lines ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_seen_at VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_check JSON",
+        # Salary advances (Neil, Oct 27 2026, salary_advance.py): the advance
+        # and its per-period repayments - new tables, so explicit RLS on top of
+        # the _enable_rls_everywhere sweep. models.SalaryAdvance /
+        # SalaryAdvanceInstallment.
+        "ALTER TABLE salary_advances ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE salary_advance_installments ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4669,3 +4675,5 @@ from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: cr
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
 from routers import accounting_liability_recon  # noqa: E402
 app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
+from routers import salary_advances as salary_advances_router  # noqa: E402 - new tables: create_all + explicit RLS lines
+app.include_router(salary_advances_router.router)  # Workday > Salary Advance: request (manager tier and up), HR decides, pays out, repaid from pay (Neil, Oct 27 2026)
