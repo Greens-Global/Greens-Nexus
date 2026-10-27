@@ -165,6 +165,8 @@ const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSett
 const OpsSettingsPanel = lazy(() => import('../operations/OpsSettings'));
 // Performance (Oct 27 2026): the goal and 1:1 reminders, layered per company.
 const PerformanceReminderSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceReminderSettings })));
+const ReviewScaleSettings = lazy(() => import('../performance/ReviewSettings').then(m => ({ default: m.ReviewScaleSettings })));
+const CompanyValuesSettings = lazy(() => import('../performance/ReviewSettings').then(m => ({ default: m.CompanyValuesSettings })));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone. Since Oct 20 the
 // tab is the unified Audit Log (components/audit/AuditLog.jsx): every module,
@@ -226,7 +228,7 @@ const SUBJECTS = [
     desc: 'How the storage facilities screens work with Cubby.' },
   // Performance (Oct 27 2026): goals and 1:1s - Workday > Performance.
   { key: 'performance', section: 'work', label: 'Performance',         Icon: Target, faces: 'both',
-    desc: 'Reminders for goals and 1:1s.' },
+    desc: 'Goal and 1:1 reminders, the review rating scale and the company values.' },
 ];
 const SUBJECT_KEYS = new Set(SUBJECTS.map(s => s.key));
 // The rail's four sections (Oct 25). `wide` subjects (whole screens: the
@@ -470,6 +472,14 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The reminder the day before a 1:1 with an empty agenda, and how long a goal may go without a check-in - a default, and each company\'s own.',
     keywords: 'performance goals check-in reminder one on one 1:1 agenda okr objectives' },
+  { id: 'performance-rating-scale', subject: 'performance', face: 'both', scope: 'layered', icon: Target, title: 'Review Rating Scale', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'The points and their labels every review question and value is rated on - 1 to 5 by default. A new review cycle copies it.',
+    keywords: 'performance review rating scale points labels meets exceeds expectations appraisal' },
+  { id: 'performance-values', subject: 'performance', face: 'both', scope: 'layered', icon: Target, title: 'Company Values',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'The values people and their managers rate in each review. A new review cycle copies them.',
+    keywords: 'performance review company values culture competencies appraisal' },
 ];
 const GROUP_META = Object.fromEntries(GROUPS.map(g => [g.id, g]));
 
@@ -621,6 +631,8 @@ const COMPANY_STATE = {
   'time-off-reasons': (cid) => api.timeOffTypes(cid).then(r => ownState(!!r?.hasOverride)),
   'shift-settings': (cid) => api.shiftRequestSettingsGetFor(cid).then(r => ownState(!!r?.hasOverride)),
   'performance-reminders': (cid) => api.perfSettings(cid).then(m => ownState(!!m?.override)),
+  'performance-rating-scale': (cid) => api.perfReviewSettings(cid).then(m => ownState(!!m?.override)),
+  'performance-values': (cid) => api.perfReviewSettings(cid).then(m => ownState(!!m?.override)),
 };
 // What the layered footer says before the names.
 const OWN_LINE = { 'shift-settings': 'Companies with shift settings of their own:' };
@@ -1646,6 +1658,8 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'ops-unit-rules':       return <LazyPanelSection key={key} id={id} Panel={UnitRulesPanel} chrome={chrome} />;
       case 'app-ratings':          return <LazyPanelSection key={key} id={id} Panel={AppRatingsPanel} chrome={chrome} />;
       case 'performance-reminders': return <LazyPanelSection key={key} id={id} Panel={PerformanceReminderSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'performance-rating-scale': return <LazyPanelSection key={key} id={id} Panel={ReviewScaleSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'performance-values':   return <LazyPanelSection key={key} id={id} Panel={CompanyValuesSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       default:                     return null;
     }
   }

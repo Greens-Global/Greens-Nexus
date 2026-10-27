@@ -1,4 +1,4 @@
-// People > Performance (Neil, Oct 27 2026): HR's view of the company's goals -
+// People > Performance (Neil, Oct 27 2026): HR's review cycles and the company's goals -
 // the company and department goals HR sets, and every person's goals in the
 // companies HR looks after, with the ones that need attention first. 1:1s are
 // not here on purpose: they are the manager's and the report's alone.
@@ -7,9 +7,10 @@ import { Target, Search } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { GoalList, GoalFormModal, GoalDetailModal, AddGoalButton } from './Goals';
+import ReviewCycles from './ReviewCycles';
 import { GOAL_STATUS, GOAL_STATUS_KEYS, card, cardHead, HD, LBL, muted } from './lib';
 
-export default function PerformanceAdmin({ toastOk, toastErr, children }) {
+export default function PerformanceAdmin({ toastOk, toastErr }) {
   const [ctx, setCtx] = useState(null);
   const [err, setErr] = useState('');
   const [company, setCompany] = useState('');
@@ -76,7 +77,7 @@ export default function PerformanceAdmin({ toastOk, toastErr, children }) {
           </span>
         </label>
       </div>
-      {children}
+      <ReviewCycles company={company} toastOk={toastOk} toastErr={toastErr} />
       <section style={card} aria-label="Company and Department Goals">
         <div style={cardHead}>
           <span className="wkc-chip"><Target size={14} /></span>

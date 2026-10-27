@@ -3076,6 +3076,10 @@ def _run_migrations():
         "ALTER TABLE hr_perf_meetings ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_perf_agenda_items ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_perf_action_items ENABLE ROW LEVEL SECURITY",
+        # Performance review cycles (Neil, Oct 27 2026) - new tables, explicit
+        # RLS. models.PerfReviewCycle / PerfReview.
+        "ALTER TABLE hr_perf_review_cycles ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_reviews ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4688,3 +4692,5 @@ from routers import accounting_liability_recon  # noqa: E402
 app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
 from routers import performance as performance_router  # noqa: E402 - new tables: create_all + explicit RLS lines, no ALTER columns
 app.include_router(performance_router.router)  # Performance: goals and 1:1s - Workday > Performance, People > Performance (Neil, Oct 27 2026)
+from routers import perf_reviews as perf_reviews_router  # noqa: E402 - new tables: create_all + explicit RLS lines, no ALTER columns
+app.include_router(perf_reviews_router.router)  # Performance: review cycles - People > Performance, Workday > Performance (Neil, Oct 27 2026)

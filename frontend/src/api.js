@@ -3036,6 +3036,28 @@ export const api = {
   perfActionUpdate: (id, data) => req(`/performance/actions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
   perfSettings: (company = "") => req(`/performance/settings?company=${encodeURIComponent(company || "")}`),
   perfSettingsSave: (data) => req("/performance/settings", { method: "PUT", body: JSON.stringify(data) }),
+
+  // Performance review cycles (Neil, Oct 27 2026) - routers/perf_reviews.py.
+  perfCycles: (company = "") => req(`/performance/cycles?company=${encodeURIComponent(company || "")}`),
+  perfCycle: (id) => req(`/performance/cycles/${encodeURIComponent(id)}`),
+  perfCycleCreate: (data) => req("/performance/cycles", { method: "POST", body: JSON.stringify(data) }),
+  perfCycleUpdate: (id, data) => req(`/performance/cycles/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  perfReviewDepartments: (company) => req(`/performance/review-departments?company=${encodeURIComponent(company || "")}`),
+  perfCycleParticipants: (id) => req(`/performance/cycles/${encodeURIComponent(id)}/participants`),
+  perfCycleLaunch: (id) => req(`/performance/cycles/${encodeURIComponent(id)}/launch`, { method: "POST", timeoutMs: 60000 }),
+  perfCycleClose: (id) => req(`/performance/cycles/${encodeURIComponent(id)}/close`, { method: "POST" }),
+  perfCycleNudge: (id, data = {}) => req(`/performance/cycles/${encodeURIComponent(id)}/nudge`, { method: "POST", body: JSON.stringify(data) }),
+  perfReviews: () => req("/performance/reviews"),
+  perfReview: (id) => req(`/performance/reviews/${encodeURIComponent(id)}`),
+  perfReviewSelf: (id, data) => req(`/performance/reviews/${encodeURIComponent(id)}/self`, { method: "PUT", body: JSON.stringify(data) }),
+  perfReviewManager: (id, data) => req(`/performance/reviews/${encodeURIComponent(id)}/manager`, { method: "PUT", body: JSON.stringify(data) }),
+  perfReviewHrNote: (id, note) => req(`/performance/reviews/${encodeURIComponent(id)}/hr-note`, { method: "PUT", body: JSON.stringify({ note }) }),
+  perfReviewReturn: (id, data) => req(`/performance/reviews/${encodeURIComponent(id)}/return`, { method: "POST", body: JSON.stringify(data) }),
+  perfReviewReviewer: (id, email) => req(`/performance/reviews/${encodeURIComponent(id)}/reviewer`, { method: "POST", body: JSON.stringify({ email }) }),
+  perfReviewShare: (id) => req(`/performance/reviews/${encodeURIComponent(id)}/share`, { method: "POST", timeoutMs: 60000 }),
+  perfReviewRecall: (id, note = "") => req(`/performance/reviews/${encodeURIComponent(id)}/recall`, { method: "POST", body: JSON.stringify({ note }) }),
+  perfReviewSettings: (company = "") => req(`/performance/review-settings?company=${encodeURIComponent(company || "")}`),
+  perfReviewSettingsSave: (data) => req("/performance/review-settings", { method: "PUT", body: JSON.stringify(data) }),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()

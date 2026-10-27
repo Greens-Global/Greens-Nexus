@@ -47,11 +47,12 @@ export function localTimeZone() {
 }
 
 // Workday sub keys: 'performance', 'performance:team',
-// 'performance:goal:<id>', 'performance:1on1:<id>'.
+// 'performance:goal:<id>', 'performance:1on1:<id>', 'performance:review:<id>'.
 export function parsePerfSub(sub) {
-  const m = String(sub || '').match(/^performance(?::(team|goal|1on1)(?::(.+))?)?$/);
+  const m = String(sub || '').match(/^performance(?::(team|goal|1on1|review)(?::(.+))?)?$/);
   if (!m) return null;
-  return { view: m[1] === 'team' ? 'team' : 'me', goal: m[1] === 'goal' ? m[2] || '' : '', oneOnOne: m[1] === '1on1' ? m[2] || '' : '' };
+  return { view: m[1] === 'team' ? 'team' : 'me', goal: m[1] === 'goal' ? m[2] || '' : '', oneOnOne: m[1] === '1on1' ? m[2] || '' : '',
+    review: m[1] === 'review' ? m[2] || '' : '' };
 }
 
 export const card = {
@@ -62,3 +63,13 @@ export const cardHead = { display: 'flex', alignItems: 'center', gap: 9, marginB
 export const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 export const LBL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 export const muted = { fontSize: 12.5, color: 'var(--muted)' };
+
+// Review stages (backend/perf_reviews.py STAGES) - soft labels.
+export const REVIEW_STAGE = {
+  self_review:    { label: 'Self Review',          color: NX.amber },
+  manager_review: { label: 'Manager Review',       color: NX.purple },
+  hr_review:      { label: 'HR Finalize',          color: NX.blue },
+  shared:         { label: 'Shared With Employee', color: NX.teal },
+  complete:       { label: 'Complete',             color: NX.green },
+};
+export const REVIEW_STAGE_KEYS = ['self_review', 'manager_review', 'hr_review', 'shared', 'complete'];
