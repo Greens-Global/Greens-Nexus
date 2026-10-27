@@ -683,6 +683,16 @@ def list_variables(user: dict = Depends(get_current_user), db: Session = Depends
     for token, label, group in BUILTIN_VARIABLES:
         seen[token] = {"token": token, "label": label, "group": group, "when": builtin_when(token, group),
                        "description": "", "source": "builtin", "usedBy": []}
+    # The More Details fields HR defines on employee records (Oct 27 2026):
+    # filled from the person, like the other Person variables.
+    import hr_custom_fields
+    for f in hr_custom_fields.all_fields(db):
+        token = f"custom.{f.field_key}"
+        if is_valid_token(token):
+            seen[token] = {"token": token, "label": f.label, "group": "More Details", "when": "person",
+                           "description": ("From More Details on the person's record"
+                                           + (" - HR Only: prints only in documents made by HR" if (f.visibility or "hr_only") == "hr_only" else "")),
+                           "source": "builtin", "usedBy": []}
     # Drafts count too: two templates written side by side should agree on a
     # shared field before either is activated.
     for t in db.query(DocTemplate).filter(DocTemplate.status != "archived").all():
@@ -2011,8 +2021,13 @@ def _export_prep(db: Session, did: str, user: dict):
     # template actually says rather than whatever someone typed months ago.
     source_tpl = (db.query(DocTemplate).filter(DocTemplate.id == row.template_id).first()
                   if row.template_id else None)
+    # HR Only More Details fields print only for someone who is HR for the person.
+    import hr_custom_fields
+    subject = (db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first()
+               if row.employee_id else None)
     merge = resolve_merge_data(db, employee_id=row.employee_id, entity_id=row.entity_id,
-                               overrides=row.merge_overrides or {}, template=source_tpl)
+                               overrides=row.merge_overrides or {}, template=source_tpl,
+                               custom_hr_only=hr_custom_fields.caller_is_hr_for(user, db, subject))
     merge = display_merge(merge, source_tpl.field_defs if source_tpl else [])
     return (row, *render_parts(db, row, merge))
 
