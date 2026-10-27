@@ -1476,6 +1476,9 @@ export const api = {
   // HR - compensation + bank (restricted: hr_comp grant / owner)
   getCompensation:  (id)       => req(`/hr/employees/${id}/compensation`),
   saveCompensation: (id, data) => req(`/hr/employees/${id}/compensation`, { method: 'PUT', body: JSON.stringify(data) }),
+  // Workers' comp rate per year (Charmi, 10/27 item 14): { rates, history }; adding one keeps the earlier ones.
+  getWorkersCompRates: (id)       => req(`/hr/employees/${id}/workers-comp`),
+  addWorkersCompRate:  (id, data) => req(`/hr/employees/${id}/workers-comp`, { method: 'POST', body: JSON.stringify(data) }),
 
   // HR - live assets (permanent assignments + active checkouts from Item Management)
   getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
@@ -2616,7 +2619,10 @@ export const api = {
   getProfitability:      (from, to, { locations = [], book = 'accrual', expand = false, compare = true } = {}) => req(`/accounting/profitability?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${book && book !== 'accrual' ? `&book=${encodeURIComponent(book)}` : ''}${expand ? '&expand=true' : ''}${compare ? '' : '&compare=false'}`, { timeoutMs: 120_000 }),
   // One attempt (noRetry): the server bounds the run and says why it stopped.
   getCompensationPeople: (from, to, { timeoutMs = 180_000 } = {}) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs, noRetry: true }),
-  getCompensationLedger: (from, to, by = 'department') => req(`/accounting/compensation/ledger?from=${from}&to=${to}&by=${by}`, { timeoutMs: 120_000 }),
+  // 10/27 call (items 11-17): the report from the Intacct ledger, and the ledger lines behind one figure
+  // (`accounts` = account numbers, "61903:d" / ":c" for one side only).
+  getCompensationReport: (from, to) => req(`/accounting/compensation/report?from=${from}&to=${to}`, { timeoutMs: 120_000 }),
+  getCompensationLines: ({ from, to, employees = [], accounts = [] }) => req(`/accounting/compensation/lines?from=${from}&to=${to}&employees=${encodeURIComponent(employees.join(','))}&accounts=${encodeURIComponent(accounts.join(','))}`, { timeoutMs: 120_000 }),
   // Flux Analysis review (Charmi, Oct 15): close (sign off) or reopen one
   // account's review - { entity, period, accountNo, closed }.
   saveAccountingFluxReview: (body) => req('/accounting/flux-notes/review', { method: 'PUT', body: JSON.stringify(body) }),
