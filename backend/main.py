@@ -3132,6 +3132,12 @@ def _run_migrations():
         "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS first_approver VARCHAR DEFAULT ''",
         "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS first_decided_at VARCHAR DEFAULT ''",
         "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS first_note VARCHAR DEFAULT ''",
+        # Salary advances (Neil, Oct 27 2026, salary_advance.py): the advance
+        # and its per-period repayments - new tables, so explicit RLS on top of
+        # the _enable_rls_everywhere sweep. models.SalaryAdvance /
+        # SalaryAdvanceInstallment.
+        "ALTER TABLE salary_advances ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE salary_advance_installments ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4781,3 +4787,5 @@ from routers import ask_hr as ask_hr_router  # noqa: E402
 app.include_router(ask_hr_router.router)  # Ask HR runs through Tickets: the confidential HR desk, Earlier Requests, the move (Neil, Oct 27 2026)
 from routers import hr_probation as hr_probation_router  # noqa: E402
 app.include_router(hr_probation_router.router)  # People > a person's probation: length, reminder, Confirm / Extend / End, the letter (Neil, Oct 27 2026)
+from routers import salary_advances as salary_advances_router  # noqa: E402 - new tables: create_all + explicit RLS lines
+app.include_router(salary_advances_router.router)  # Workday > Salary Advance: request (manager tier and up), HR decides, pays out, repaid from pay (Neil, Oct 27 2026)

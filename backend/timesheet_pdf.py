@@ -376,6 +376,9 @@ def hourly_summary(card: dict, full: bool = False) -> list:
     if worked is None:
         worked = int(t.get("regMin") or 0) + int(t.get("otMin") or 0) + int(t.get("dtMin") or 0)
     rows.append(("TOTALS", hd(worked), money(t.get("totalPay"), cur)))
+    if "advanceRepayment" in t:      # salary_advance.py: comes off what is paid out
+        rows += _advance_lines(card, cur, "-")
+        rows.append(("NET PAY", "", money(t.get("netPay"), cur)))
     rows.append(("TOTAL EDITED PUNCHES", str(int(t.get("editedPunches") or 0)), ""))
     rows.append(("MISSING PUNCHES", str(int(t.get("missingPunches") or 0)), ""))
     if full:     # HR's paper copy: the break lines the screen shows beside the totals
@@ -390,6 +393,13 @@ def _bonus_lines(card: dict, cur: str, hours: str = "-") -> list:
     """One summary line per bonus, with why (Neil, Oct 22) - already in totalPay."""
     return [(f"Bonus: {b.get('description') or ''}", hours, f"+{money(b.get('amount'), cur)}")
             for b in card.get("bonuses") or []]
+
+
+def _advance_lines(card: dict, cur: str, hours: str = "-") -> list:
+    """One line per salary advance installment taken this period
+    (salary_advance.py, Oct 27 2026)."""
+    return [("Salary Advance Repayment", hours, f"-{money(x.get('applied'), cur)}")
+            for x in card.get("advanceRepayments") or [] if float(x.get("applied") or 0) > 0]
 
 
 def fixed_rows(card: dict, ctx: dict) -> Table:
@@ -453,7 +463,8 @@ def fixed_summary(card: dict) -> list:
             (f"Weekend pay ({wk} day{'' if wk == 1 else 's'}, {card.get('weekendMultiplier') or 1.35} x daily by hours)",
              "", f"+{money(t['weekendBonus'], cur)}" if t.get("weekendBonus") else money(0, cur)),
             *_bonus_lines(card, cur, ""),
-            ("NET PAY THIS MONTH", "", money(t.get("totalPay"), cur)),
+            *_advance_lines(card, cur, ""),
+            ("NET PAY THIS MONTH", "", money(t.get("netPay", t.get("totalPay")), cur)),
             ("TOTAL HOURS WORKED", hd(t.get("workedMin")), ""),
             ("MISSING PUNCHES", str(int(t.get("missingPunches") or 0)), "")]
 

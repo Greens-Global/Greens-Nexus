@@ -8513,6 +8513,8 @@ class HrLetterRequest(Base):
     filing_error     = Column(Text, default="")
     filing_attempts  = Column(Integer, default=0)
     filing_next_at   = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
 
 
 class HrHeadcountRequest(Base):
@@ -8595,3 +8597,63 @@ class HrJobOpening(Base):
     created_by       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")
+
+
+class SalaryAdvance(Base):
+    """A salary advance (Neil, Oct 27 2026): pay given ahead of payday and
+    taken back out of later pay periods (salary_advance.py).
+
+    Who asks: a person whose role tier is manager or above, for themself.
+    Who decides: ONLY HR as on time sheets (timesheet_review.is_hr - the
+    company's HR contact, an administrator, a Full HR grant; never on their
+    own), who can also grant one to anyone directly.
+    status: requested -> approved -> paid_out; declined, canceled. Repaying /
+    Repaid are read off the installments, never stored. Every step is on
+    `history`; nothing is deleted. New table - RLS on dev and prod at release."""
+    __tablename__ = "salary_advances"
+    id              = Column(String, primary_key=True)                # uuid
+    employee_email  = Column(String, index=True, nullable=False)
+    employee_name   = Column(String, default="")
+    company         = Column(String, default="", index=True)          # HrEntity id
+    amount          = Column(Float, default=0.0)
+    currency        = Column(String, default="USD")
+    reason          = Column(Text, default="")
+    installments    = Column(Integer, default=1)                      # how many pay periods repay it
+    status          = Column(String, default="requested", index=True)
+    source          = Column(String, default="request")               # request | grant
+    requested_by    = Column(String, default="")
+    requested_at    = Column(String, default="")
+    decided_by      = Column(String, default="")
+    decided_at      = Column(String, default="")
+    decision_note   = Column(Text, default="")
+    paid_on         = Column(String, default="")                      # YYYY-MM-DD
+    paid_by         = Column(String, default="")
+    payment_method  = Column(String, default="")
+    payment_ref     = Column(String, default="")
+    history         = Column(JSON, default=list)                      # [{at, by, action, note, detail}]
+    created_at      = Column(String, default="")
+    updated_at      = Column(String, default="")
+
+
+class SalaryAdvanceInstallment(Base):
+    """One pay period's repayment of a salary advance. `date` is the first
+    day of the pay period it comes out of, so it lands on a bi-weekly or a
+    monthly card alike. scheduled -> deducted when that period is finalized
+    (deducted_amount = what the card took, final_approval_id = the
+    finalization); a period that paid less than the installment carries the
+    rest forward as a new row (`carried_from`). canceled rows stay as the
+    record. New table - RLS on dev and prod at release."""
+    __tablename__ = "salary_advance_installments"
+    id                = Column(String, primary_key=True)              # uuid
+    advance_id        = Column(String, index=True, nullable=False)
+    employee_email    = Column(String, index=True, nullable=False)
+    seq               = Column(Integer, default=1)
+    amount            = Column(Float, default=0.0)
+    currency          = Column(String, default="USD")
+    date              = Column(String, index=True, nullable=False)    # YYYY-MM-DD, the period's first day
+    status            = Column(String, default="scheduled", index=True)   # scheduled | deducted | canceled
+    deducted_amount   = Column(Float, default=0.0)
+    final_approval_id = Column(String, default="", index=True)        # TimeApproval(kind="final").id
+    carried_from      = Column(String, default="")
+    created_at        = Column(String, default="")
+    updated_at        = Column(String, default="")

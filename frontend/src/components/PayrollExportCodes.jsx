@@ -21,6 +21,7 @@ export const PAY_CLASS_LABELS = {
   callBack: 'Call-Back Pay',
   mealPremium: 'Meal Premium',
   restPremium: 'Rest Premium',
+  advanceRepayment: 'Salary Advance Repayment',
 };
 
 const draftOf = (data) => Object.fromEntries((data?.classes || []).map((c) => [c.key, c.custom ? c.code : '']));

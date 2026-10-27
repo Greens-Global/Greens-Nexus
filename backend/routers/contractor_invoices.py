@@ -185,6 +185,11 @@ def draft_for(db: Session, email: str, final_row) -> Optional[ContractorInvoice]
         totals = tc._compute_timecard(db, email, final_row.period_start, final_row.period_end).get("totals", {})
         amount = float(totals.get("totalPay") or 0)
         hours, rate = round(int(final_row.worked_min or 0) / 60, 2), float(snap.get("rate") or 0)
+    # A salary advance repaid from this period (salary_advance.on_finalize,
+    # which runs just before this) comes off what is invoiced - its own line.
+    import salary_advance
+    repaid = salary_advance.applied_in(db, email, final_row.period_start, final_row.period_end)
+    amount = round(amount - repaid, 2)
     tc._lock_person(db, email)
     contractor = dict(emp.contractor or {})
     try:
@@ -204,6 +209,8 @@ def draft_for(db: Session, email: str, final_row) -> Optional[ContractorInvoice]
     # Bonuses on the period (Neil, Oct 22) are in `amount`; each prints as its own line.
     snap_out["bonuses"] = [{"description": b.description or "", "amount": round(float(b.amount or 0), 2)}
                            for b in tc._bonus_rows(db, email, final_row.period_start, final_row.period_end)]
+    if repaid:
+        snap_out["deductions"] = [{"description": salary_advance.LINE_LABEL, "amount": repaid}]
     inv.snapshot = snap_out
     db.add(inv)
     _bell(db, emp, ent, inv)
@@ -361,10 +368,14 @@ def render_pdf(snap: dict) -> bytes:
                  f"{esc(_money(snap['rate'], cur, rupee_ok))} per hour</font>")
     total = _money(snap.get("amount", 0), cur, rupee_ok)
     bonuses = snap.get("bonuses") or []
-    services = float(snap.get("amount") or 0) - sum(float(b.get("amount") or 0) for b in bonuses)
+    deductions = snap.get("deductions") or []      # a salary advance repaid from the period
+    services = (float(snap.get("amount") or 0) - sum(float(b.get("amount") or 0) for b in bonuses)
+                + sum(float(x.get("amount") or 0) for x in deductions))
     lines = [[Paragraph(desc, S), Paragraph(esc(_money(services, cur, rupee_ok)), R)]]
     lines += [[Paragraph(f"Bonus: {esc(b.get('description') or '')}", S),
                Paragraph(esc(_money(b.get("amount", 0), cur, rupee_ok)), R)] for b in bonuses]
+    lines += [[Paragraph(f"Less: {esc(x.get('description') or '')}", S),
+               Paragraph("-" + esc(_money(x.get("amount", 0), cur, rupee_ok)), R)] for x in deductions]
     n = len(lines)
     items = Table([[Paragraph("DESCRIPTION", LBL), Paragraph("AMOUNT", ParagraphStyle("lr", parent=LBL, alignment=2))],
                    *lines,

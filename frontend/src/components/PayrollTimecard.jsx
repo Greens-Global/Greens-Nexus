@@ -1823,6 +1823,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 // Bonuses (Neil, Oct 22): one line each, with why; in totalPay.
                 ...(data.bonuses || []).map(b => [`Bonus: ${b.description}`, '-', showPay ? `+${fmtM(b.amount)}` : '']),
                 ['Totals', hd(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0))), fmtM(T.totalPay)],
+                // Salary advance repayments (Oct 27 2026): off what is paid out, not the wages.
+                ...(T.advanceRepayment !== undefined ? [
+                  ...(data.advanceRepayments || []).filter(x => x.applied > 0).map(x => ['Salary Advance Repayment', '-', `-${fmtM(x.applied)}`]),
+                  ['Net Pay', '', fmtM(T.netPay)],
+                ] : []),
               ];
               const last = rows.length - 1;
               return rows.map(([lbl, hrs, amt], i) => (
@@ -2366,7 +2371,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               </span>, T.deduction ? `−${fmtM(T.deduction)}` : fmtM(0)],
               [`Weekend pay (${T.weekendDaysWorked} day${T.weekendDaysWorked === 1 ? '' : 's'}, ${data.weekendMultiplier || 1.35} × daily by hours)`, T.weekendBonus ? `+${fmtM(T.weekendBonus)}` : fmtM(0)],
               ...(data.bonuses || []).map(b => [`Bonus: ${b.description}`, `+${fmtM(b.amount)}`]),
-              [data.contractor ? 'Invoice amount this month' : 'Net pay this month', fmtM(T.totalPay)],
+              // Salary advance repayments (Oct 27 2026): off what is paid out.
+              ...(data.advanceRepayments || []).filter(x => x.applied > 0).map(x => ['Salary Advance Repayment', `-${fmtM(x.applied)}`]),
+              [data.contractor ? 'Invoice amount this month' : 'Net pay this month', fmtM(T.netPay ?? T.totalPay)],
             ];
             const last = rows.length - 1;
             return rows.map(([lbl, amt], i) => (

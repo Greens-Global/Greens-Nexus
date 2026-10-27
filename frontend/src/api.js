@@ -3095,6 +3095,18 @@ export const api = {
   probationLetterPreview: (eid, data) => reqBlob(`/hr/employees/${encodeURIComponent(eid)}/probation/letter-preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), timeoutMs: 60000 }),
   probationSettings: (company = '') => req(`/hr/probation/settings?company=${encodeURIComponent(company || '')}`),
   probationSaveSettings: (data) => req('/hr/probation/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  // Workday > Salary Advance (Neil, Oct 27 2026): the manager tier and up ask,
+  // HR decides, pays out and changes the repayment schedule.
+  getSalaryAdvances:        ()          => req('/salary-advances'),
+  salaryAdvancesPending:    ()          => req('/salary-advances/pending'),
+  personSalaryAdvances:     (email)     => req(`/salary-advances/person/${encodeURIComponent(email)}`),
+  requestSalaryAdvance:     (body)      => req('/salary-advances', { method: 'POST', body: JSON.stringify(body) }),
+  grantSalaryAdvance:       (body)      => req('/salary-advances/grant', { method: 'POST', body: JSON.stringify(body) }),
+  decideSalaryAdvance:      (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify(body) }),
+  cancelSalaryAdvance:      (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  paySalaryAdvance:         (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/paid`, { method: 'POST', body: JSON.stringify(body) }),
+  moveSalaryAdvanceInstallment: (id, iid, body) => req(`/salary-advances/${encodeURIComponent(id)}/installments/${encodeURIComponent(iid)}/move`, { method: 'POST', body: JSON.stringify(body) }),
+  setSalaryAdvanceSchedule: (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/schedule`, { method: 'PUT', body: JSON.stringify(body) }),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()

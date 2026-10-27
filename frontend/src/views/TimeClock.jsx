@@ -81,7 +81,8 @@ const TAB_META = {
 // are the Overview with the Purchase Requests popup open - it is a popup like
 // Reimbursements, not a tab (Sagar, Oct 27); "purchase:new" opens its form too.
 const isPurchaseSub = (sub) => /^purchase(:|$)/.test(sub || '');
-const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || isPurchaseSub(sub) || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
+// "salary-advances" (a salary advance bell, Oct 27 2026) is the Overview with its card (HR: Manage open).
+const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || sub === 'salary-advances' || isPurchaseSub(sub) || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
   : sub === 'timecard' ? 'timesheet' : sub);
 // "shifts:confirm:<publish id>" (Shifts Phase 3a): a schedule to confirm - My Schedule shows its banner.
 const confirmOf = (sub) => (String(sub || '').match(/^shifts:confirm:(.+)$/) || [])[1] || '';
@@ -514,6 +515,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // A reimbursement bell lands on "reimbursements": open that panel (Oct 18 2026).
   const [openReimb, setOpenReimb] = useState(() => activeSub === 'reimbursements');
   useEffect(() => { if (activeSub === 'reimbursements') { setOpenReimb(true); window.dispatchEvent(new CustomEvent('nexus:open-reimbursements')); } }, [activeSub]);
+  // A salary advance bell lands on "salary-advances" (Oct 27 2026): HR gets Manage open.
+  const [openAdv, setOpenAdv] = useState(() => activeSub === 'salary-advances');
+  useEffect(() => { if (activeSub === 'salary-advances') { setOpenAdv(true); window.dispatchEvent(new CustomEvent('nexus:open-salary-advances')); } }, [activeSub]);
   // "purchase:new" opens the New Purchase Request form (each time it arrives).
   const [purchaseNewKey, setPurchaseNewKey] = useState(() => (activeSub === 'purchase:new' ? 1 : 0));
   const [purchaseSeenSub, setPurchaseSeenSub] = useState(activeSub);
@@ -532,7 +536,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     const t = tabFor(activeSub);
     if (TAB_META[t] && t !== tab) setTab(t);
     // An old 'clock' or 'shifts' address already shows Overview - rewrite it to say so.
-    else if ((activeSub === 'clock' || activeSub === 'reimbursements' || /^(shifts|purchase)(:|$)/.test(activeSub || '')) && activeSub !== tab && onSubChange) onSubChange(tab);
+    else if ((activeSub === 'clock' || activeSub === 'reimbursements' || activeSub === 'salary-advances' || /^(shifts|purchase)(:|$)/.test(activeSub || '')) && activeSub !== tab && onSubChange) onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSub]);
   useEffect(() => {
@@ -1372,7 +1376,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Nexus Sign documents waiting on me, signed here (Oct 18) - Documents needs a grant. */}
       {tab === 'overview' && <DocumentsToSign focusParty={signOf(activeSub)} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
       {tab === 'overview' && (
-        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setPurchaseOpen({ newForm: false })} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
+        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} openSalaryAdvances={openAdv} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setPurchaseOpen({ newForm: false })} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
 
       {/* Time sheets waiting on my signature - above my own timesheet. Renders

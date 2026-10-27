@@ -23,6 +23,7 @@ import { TICKET_STATUS_META, CLOSED_STATES } from '../tickets/ticketMeta';
 import { uploadTicketEvidence } from '../tickets/evidenceUpload';
 import { filesFromPaste } from '../tasks/lib';
 import { setPendingOpen } from '../lib/pendingOpen';
+import SalaryAdvancesCard from '../components/SalaryAdvances';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -143,7 +144,7 @@ function Stat({ label, value, hint, color, Icon, hero, title, onClick }) {
     : <div className={cls} style={{ cursor: 'default' }} title={title}>{body}</div>;
 }
 
-export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false }) {
+export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false, openSalaryAdvances = false }) {
   // A "confirm your schedule" bell or email (Shifts Phase 3a) lands here:
   // My Schedule shows that share's banner - bring the card into view.
   useEffect(() => {
@@ -532,6 +533,10 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
       {/* Onboarding / offboarding steps this person owns - a manager, IT or the
           new hire ticks them here. Renders nothing when there are none. */}
       <MyChecklistSteps />
+      {/* Salary Advance (Neil, Oct 27 2026): the manager tier and up ask, HR
+          decides and pays out. Renders nothing for anyone with no option,
+          no advance and no HR role. */}
+      <SalaryAdvancesCard autoOpen={openSalaryAdvances} flash={flash} />
       {/* Delegate My Approvals moved to the Time Off tab (Neil, Oct 20). */}
 
       {profErr ? (
