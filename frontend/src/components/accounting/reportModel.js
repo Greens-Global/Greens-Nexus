@@ -201,7 +201,10 @@ export const dimTitle = (config) => (config?.report === 'pnl' && !(config.book =
  * screen, in Excel, the PDF, the CSV and an email. "Income Statement (Cash Book)".
  */
 export function reportTitle(config, name = '') {
-  const label = name || dimTitle(config) || reportDef(config?.report).label;
+  // The exports hand in the report's plain name ("Income Statement") when no
+  // memorized name is set - that must not hide "by Customer" (10/27 rerun).
+  const plain = reportDef(config?.report).label;
+  const label = (name && name !== plain ? name : '') || dimTitle(config) || plain;
   if (!config || !canPickBook(config)) return label;
   const suffix = `(${bookTitle(config.book)})`;
   return label.endsWith(suffix) ? label : `${label} ${suffix}`;
@@ -2019,7 +2022,7 @@ export function csvFileName(result) {
   const stamp = periodOf(config) === 'asof' ? config.asof : `${config.from}_${config.to}`;
   const who = config.entities.length === 1 ? config.entities[0] : config.entities.length ? 'entities' : 'all-entities';
   const cols = activeColumns(config) === 'total' ? '' : `_${activeColumns(config)}`;
-  return `${def.label.replace(/[^A-Za-z]+/g, '-')}_${who}_${config.book}${cols}_${stamp}.csv`;
+  return `${(dimTitle(config) || def.label).replace(/[^A-Za-z]+/g, '-')}_${who}_${config.book}${cols}_${stamp}.csv`;
 }
 
 /**

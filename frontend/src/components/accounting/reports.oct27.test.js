@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { REPORTS, REPORT_VIEWS, columnModes, reportTitle, resolveConfig, viewConfig } from './reportModel';
+import { REPORTS, REPORT_VIEWS, columnModes, csvFileName, csvRows, reportDef, reportTitle, resolveConfig, viewConfig } from './reportModel';
 import { standardEntries } from './reportCatalog';
 import { filterOptions } from './reportControls';
 import { spendLayout, spendPeriods, vendorSpend, SPEND_MAX_COLUMNS } from './vendorSpend';
@@ -26,8 +26,25 @@ describe('Income Statement by Customer, Job and Department (item 16)', () => {
     expect(reportTitle(resolveConfig({ report: 'pnl', cols: 'month' }))).toBe('Income Statement (Accrual Book)');
     // A memorized report keeps its own name.
     expect(reportTitle(resolveConfig({ report: 'pnl', cols: 'customer' }), 'Tenants YTD')).toBe('Tenants YTD (Accrual Book)');
+    // The exports hand in the plain report name; it must not hide "by Customer".
+    expect(reportTitle(resolveConfig({ report: 'pnl', cols: 'customer' }), 'Income Statement')).toBe('Income Statement by Customer (Accrual Book)');
+    expect(reportTitle(resolveConfig({ report: 'pnl', cols: 'month' }), 'Income Statement')).toBe('Income Statement (Accrual Book)');
     const labels = [...REPORTS.map((r) => r.label), ...Object.keys(REPORT_VIEWS)].join(' ');
     expect(labels).not.toMatch(/Profit\s*(&|and)\s*Loss|P&L/i);
+  });
+
+  it('carries the full screen title into the CSV first line and file name, columns unchanged', () => {
+    const columns = [{ key: 'C1', label: 'C1 Acme' }, { key: 'total', label: 'Total' }];
+    const rows = [{ kind: 'section', label: 'Revenue', values: [100, 100] }, { kind: 'account', code: '41000', title: 'Rent', values: [100, 100] }];
+    [['customer', 'Income Statement by Customer'], ['project', 'Income Statement by Job'], ['department', 'Income Statement by Department']].forEach(([cols, title]) => {
+      const config = resolveConfig({ report: 'pnl', cols, preset: 'custom', from: '2026-01-01', to: '2026-10-27' });
+      const result = { config, def: reportDef('pnl'), columns, rows };
+      const out = csvRows(result);
+      expect(out[0]).toEqual([`${title} (Accrual Book)`]);
+      expect(out[5]).toEqual(['Section', 'Account', 'Title', 'C1 Acme', 'Total']);
+      expect(csvFileName(result)).toMatch(new RegExp(`^${title.replace(/ /g, '-')}_all-entities_accrual_${cols}_2026-01-01_2026-10-27\\.csv$`));
+      expect(out.flat().join(' ')).not.toMatch(/Profit\s*(&|and)\s*Loss|P&L/i);
+    });
   });
 
   it('lists in the Report Center under their own names, with what each does', () => {

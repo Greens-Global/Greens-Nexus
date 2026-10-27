@@ -683,7 +683,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
       </div>
       {completeOpen && !editing && (
         <CompletenessPanel caption={`MRI · ${entityLabel} · ${periodLabel}`} groups={gaps} note={completeNote} onPick={pickGap} onClose={() => setCompleteOpen(false)}
-          rule="A gap is a month that is over and reads Unpaid with no note on it, or an active source with no amount or no frequency. Ended and vacant sources are left out." />
+          rule="A gap is a month that is over and reads Unpaid with no note on it, or an active source with no amount, or no frequency (a Custom frequency without its number of months runs every month until it is set). Ended and vacant sources are left out." />
       )}
       {cell && <MonthDetail cell={cell} canEdit={canEdit} onClose={() => setCell(null)} onSaved={() => { setCell(null); reload(); }} />}
       {editing && <LeaseEditor key={`${editing.lease.id || `new-${editing.lease.incomeType}`}|${editing.replacing?.id || ''}`} lease={editing.lease} replacing={editing.replacing} canDelete={canDelete}
