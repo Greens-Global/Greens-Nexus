@@ -228,4 +228,14 @@ describe('Panel - your own Claude Code (Oct 26 2026)', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Send To Claude Code/ })).not.toBeDisabled());
     expect(screen.getByTestId('bm-claude-connected').textContent).toMatch(/Your Claude Code is connected/);
   });
+
+  it('opened from Done: Send To Claude Code is the way out - the Teams chat list stays shut (Pranshu, Oct 27)', async () => {
+    notes = [pinRow];
+    const { store } = await import('./store');
+    store.set({ claude: { connected: true, lastSeen: '2026-10-26T10:00:00Z', apiBase: '' } });
+    render(<Panel {...props} postFromDone />);
+    await screen.findByText('Broken');
+    await waitFor(() => expect(screen.getByRole('button', { name: /Send To Claude Code/ })).not.toBeDisabled());
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
 });

@@ -51,13 +51,13 @@ describe('Composer - ownership', () => {
     expect(onSave).toHaveBeenCalledWith(false);
   });
 
-  it('an owner who is me (held false): as before - Save Pin and Save And Send, no owner line', async () => {
+  it('an owner who is me (held false): as before - only Save Pin, no owner line', async () => {
     mount('src/asset/AssetShell.jsx');
     await waitFor(() => expect(api.devNotesOwnerOf).toHaveBeenCalledWith('src/asset/AssetShell.jsx'));
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByTestId('bm-owner-line')).toBeNull();
     expect(screen.getByRole('button', { name: /Save Pin/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Save And Send/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Save And Send/ })).toBeNull();
   });
 
   it('no source stamp: no lookup, the v1 buttons', async () => {
@@ -66,7 +66,20 @@ describe('Composer - ownership', () => {
     await new Promise((r) => setTimeout(r, 350));
     expect(api.devNotesOwnerOf).not.toHaveBeenCalled();
     expect(screen.queryByTestId('bm-owner-line')).toBeNull();
+    expect(screen.getByRole('button', { name: /Save Pin/ })).toBeTruthy();
+  });
+
+  it('Send Instantly off: only Save Pin, and Ctrl+Enter saves without sending (Pranshu, Oct 27)', () => {
+    const { onSave } = mount(null);
+    expect(screen.queryByRole('button', { name: /Save And Send/ })).toBeNull();
+    fireEvent.keyDown(screen.getByTestId('bm-composer'), { key: 'Enter', ctrlKey: true });
+    expect(onSave).toHaveBeenCalledWith(false);
+  });
+
+  it('Send Instantly on: the one button is Save And Send', () => {
+    mount(null, { sendInstantly: true });
     expect(screen.getByRole('button', { name: /Save And Send/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Save Pin/ })).toBeNull();
   });
 
   it('asks once per file: a second pick on the same file uses the cache', async () => {

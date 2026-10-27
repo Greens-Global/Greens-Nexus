@@ -297,7 +297,7 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
             <span className="bm-small">{mineReady.length === 1 ? 'Pin' : 'Pins'} {mineReady.map((n) => `#${n.number}`).join(', ')} - open on the preview and Accept or Reopen.</span>
           </button>
         )}
-        <TeamsPost settings={settings} onSettings={onSettings} count={mineAll.length} onPosted={onDispatched} primary={!CLAUDE_SEND_ON} autoOpen={postFromDone} />
+        <TeamsPost settings={settings} onSettings={onSettings} count={mineAll.length} onPosted={onDispatched} primary={!CLAUDE_SEND_ON} autoOpen={postFromDone && !CLAUDE_SEND_ON} />
         <button type="button" className="bm-btn bm-btn-sm" onClick={report} disabled={!reportSession || reporting} title="Save one HTML file with every comment and screenshot">
           {reporting ? <Loader2 size={13} className="bm-spin" /> : <Download size={13} />} Save Report
         </button>
@@ -491,7 +491,7 @@ function SettingsTab({ settings, onSettings }) {
       {claude && <section className="bm-settings-sec"><ConnectClaude claude={claude} /></section>}
       <section className="bm-settings-sec">
         <div className="bm-sec-title">Sending</div>
-        <Switch label="Send Instantly" hint="Every pin goes to Claude Code the moment it is saved, instead of collecting into a Build Session." checked={!!settings.sendInstantly} disabled={busy === 'sendInstantly'} onChange={(v) => change({ sendInstantly: v })} />
+        <Switch label="Send Instantly" hint="On: every pin goes to Claude Code the moment you save it. Off: pins collect in your Build Session and go together when you click Done > Send To Claude Code." checked={!!settings.sendInstantly} disabled={busy === 'sendInstantly'} onChange={(v) => change({ sendInstantly: v })} />
         <div className="bm-field-block">
           <div className="bm-switch-label">Dispatch Target</div>
           <div className="bm-radios" role="radiogroup" aria-label="Dispatch Target">
