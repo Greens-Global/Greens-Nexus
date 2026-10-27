@@ -264,6 +264,15 @@ def kpis(scope: str = "self", tz_offset_min: int = 0, user: dict = Depends(get_c
         # a "my" metric) - feeds the BI board's cross-module view of Support.
         safe("open_tickets", lambda: db.query(M.TaskTicket).filter(
             M.TaskTicket.status.notin_(["resolved", "closed"])).count())
+        # My Open Tickets (Oct 26 2026): open tickets assigned to me, with
+        # how many are past SLA and - for a desk member - how many wait for
+        # them to assign (my_work.ticket_focus_counts).
+        def my_tickets():
+            c = my_work.ticket_focus_counts(db, user, (email or "").strip().lower())
+            out["my_open_tickets_breached"] = c["breached"]
+            out["my_open_tickets_unassigned"] = c["unassigned"]
+            return c["mine"]
+        safe("my_open_tickets", my_tickets)
 
         def warranties():
             cutoff = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")

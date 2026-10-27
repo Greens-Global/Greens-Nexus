@@ -265,6 +265,33 @@ def _my_open_tickets(db: Session, user: dict, me: str, tz_offset_min: int = 0) -
     return out
 
 
+# The dashboard's My Open Tickets number (Neil, Oct 26 2026) - the ticket
+# twin of My Open Tasks. The headline is the open tickets assigned to the
+# caller; named under it instead of added in:
+#   breached    how many of those are past their SLA (ticket_sla.breached -
+#               a paused clock is never late)
+#   unassigned  for a desk member, the tickets waiting for them to assign
+#               (ticket_assign_alerts.waiting_for - the same rule as their
+#               Tickets to Assign priority notice, so the tile and the bar
+#               never disagree)
+# Both behind the company wall, exactly as list_tickets applies it.
+def ticket_focus_counts(db: Session, user: dict, me: str) -> dict:
+    import auth
+    import ticket_assign_alerts
+    T = models.TaskTicket
+    rows = (db.query(T)
+            .filter(or_(T.status.is_(None), T.status.notin_(TICKET_CLOSED)),
+                    func.lower(T.assignee_email) == me)
+            .all()) if me else []
+    unassigned = ticket_assign_alerts.waiting_for(db, me)
+    scope = auth.company_scope(user, db)
+    if scope is not None:
+        rows = [t for t in rows if (t.company_id or "") in scope]
+        unassigned = [t for t in unassigned if (t.company_id or "") in scope]
+    return {"mine": len(rows), "breached": sum(1 for t in rows if ticket_sla.breached(t)),
+            "unassigned": len(unassigned)}
+
+
 def group_items(items: list, today: str) -> dict:
     """Bucket, sort and cap - the whole rule, shared by the endpoint and tests."""
     groups = {"overdue": [], "today": [], "week": [], "later": []}

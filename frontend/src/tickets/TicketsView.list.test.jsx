@@ -134,3 +134,22 @@ describe('Ticket list - Oct 14 column and tile words', () => {
     expect(within(tile).queryByText('nobody working them')).toBeNull();
   });
 });
+
+// Tickets to Assign (Oct 26 2026): the priority notice and the dashboard's
+// My Open Tickets tile land on the desk's own list - a mounted screen hears
+// the event, a first visit drains the pending note.
+describe('Landing on a desk list', () => {
+  it('Unassigned from the live event, Assigned to Me from the pending note', async () => {
+    const { setPendingOpen } = await import('../lib/pendingOpen');
+    render(<TicketsView />);
+    await screen.findByText('Printer jam');
+    await act(async () => { window.dispatchEvent(new CustomEvent('nexus:ticket-filter', { detail: { filter: 'unassigned' } })); });
+    expect(screen.queryByText('Printer jam')).toBeNull();          // assigned to Ava
+    expect(screen.getByText('VPN down')).toBeTruthy();
+    cleanup();
+    setPendingOpen('ticketFilter', 'assigned');
+    render(<TicketsView />);
+    await screen.findByText('Printer jam');
+    expect(screen.queryByText('VPN down')).toBeNull();             // nobody's
+  });
+});
