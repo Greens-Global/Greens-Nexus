@@ -48,7 +48,7 @@ describe('People limited to my team', () => {
     expect(screen.getByText('Showing: Your Team')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Add Person/ })).toBeNull();
     expect(screen.getAllByText('Time').length).toBeGreaterThan(0);   // the strip is there...
-    for (const gone of ['Hiring', 'Org Chart', 'Leave', 'Checklists']) {   // ...without these
+    for (const gone of ['Hiring', 'Org Chart', 'Leave', 'Checklists', 'Analytics']) {   // ...without these
       expect(screen.queryByRole('button', { name: gone })).toBeNull();
     }
     expect(calls).not.toContain('getChecklistProgress');

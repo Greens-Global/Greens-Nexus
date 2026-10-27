@@ -17,7 +17,7 @@ import {
   Building2, Trash2, MapPinned, Wallet, Receipt, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw, ArrowLeftRight,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
-  ListChecks, RefreshCw, Hourglass, ListPlus,
+  ListChecks, RefreshCw, Hourglass, ListPlus, BarChart3,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -68,6 +68,7 @@ import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { PersonReimbursements } from '../components/Reimbursements';
 import { EmployeeMoreDetails } from '../components/EmployeeCustomFields';
 import { formatFieldValue, matchesFieldFilter } from '../lib/employeeCustomFields';
+import HrAnalytics from '../components/HrAnalytics';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -6035,7 +6036,9 @@ export default function HR({ activeSub, onSubChange }) {
   const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices' };
   // The manager tier sees its own team in People (Oct 6): People and Time only.
   const { hrTeam } = useRole();
-  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'];
+  // People Analytics (Oct 27 2026) is HR's: the manager tier's /hr allowlist
+  // does not open it either.
+  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists', 'hr-analytics'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
     : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
@@ -6333,6 +6336,9 @@ export default function HR({ activeSub, onSubChange }) {
     { key: 'hr-leave',  label: 'Leave',     Icon: CalendarOff },
     { key: 'hr-time',   label: 'Time',      Icon: Clock },
     { key: 'hr-checklists', label: 'Checklists', Icon: ListChecks },
+    // People Analytics (Neil, Oct 27 2026): the overview's headcount grown
+    // into trends, attrition, tenure, absence and leave liability.
+    { key: 'hr-analytics', label: 'Analytics', Icon: BarChart3 },
     // The External tab is gone (Neil, Aug 24): external/guest people live in
     // the People directory with a worker-type filter, and their lifecycle
     // actions sit on their profile card.
@@ -6434,6 +6440,9 @@ export default function HR({ activeSub, onSubChange }) {
       {/* Approval Delegations (Oct 17): HR sees and sets everyone's stand-ins. */}
       {sub === 'hr-leave' && <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-analytics' && (
+        <HrAnalytics onOpenPerson={id => { setOpenTab('overview'); setSelectedId(id); onSubChange?.('hr-people'); }} />
+      )}
       {/* Operations only (Neil, Oct 19: "once it's set up, we should be just
           operating it") - the steps are set up in Settings. */}
       {sub === 'hr-checklists' && (

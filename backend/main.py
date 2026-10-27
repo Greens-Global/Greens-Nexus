@@ -4679,3 +4679,5 @@ app.include_router(accounting_liability_recon.router)  # Accounting > Close > Ac
 from routers import hr_custom_fields as hr_custom_fields_router  # noqa: E402 - new table: create_all + explicit RLS line above
 app.include_router(hr_custom_fields_router.router)     # People > More Details: HR-defined custom fields on employee records (Neil, Oct 27 2026)
 app.include_router(hr_custom_fields_router.my_router)  # My HR > More Details: the fields an employee may see or edit
+from routers import hr_analytics as hr_analytics_router  # noqa: E402
+app.include_router(hr_analytics_router.router)  # People > Analytics: headcount, attrition, tenure, absence, leave liability (Neil, Oct 27 2026)

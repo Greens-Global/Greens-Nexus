@@ -3024,6 +3024,11 @@ export const api = {
   hrEmployeeCustomFieldsSave: (eid, values) => req(`/hr/employees/${encodeURIComponent(eid)}/custom-fields`, { method: "PUT", body: JSON.stringify({ values }) }),
   myHrCustomFields: () => req("/myhr/custom-fields"),
   myHrCustomFieldsSave: (values) => req("/myhr/custom-fields", { method: "PUT", body: JSON.stringify({ values }) }),
+  // ── People Analytics (Oct 27 2026): every number from backend/hr_analytics.py ──
+  // { company, type: employees|contractors|all, from_month, to_month (YYYY-MM), parts }
+  getHrAnalytics: (params = {}) => req(`/hr/analytics/summary?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))).toString()}`),
+  // The people behind one number: { metric, month, key } plus the same filters.
+  getHrAnalyticsPeople: (params = {}) => req(`/hr/analytics/people?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))).toString()}`),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()

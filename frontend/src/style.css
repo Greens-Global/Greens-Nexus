@@ -7534,3 +7534,35 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 }
 :where(.acct-sticky-head) .acct-op-filter input { min-width: 48px; width: 0; flex: 1 1 auto; text-align: right; }
 .req-table.acct-sticky-head thead th { background: var(--bg-card); }
+
+/* People > Analytics (components/HrAnalytics.jsx, Oct 27 2026): the Insights
+   board's cards with monthly bars. Each bar is a button that opens the
+   month's people; segments stack by flex-grow so their shares are exact. */
+.hra-bars { display: flex; align-items: flex-end; gap: 4px; height: 96px; }
+.hra-bar { flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center;
+  border: none; background: none; padding: 0; cursor: pointer; border-radius: 6px; }
+.hra-bar:disabled { cursor: default; }
+.hra-bar:not(:disabled):hover { background: var(--wk-hover); }
+.hra-bar:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 1px; }
+.hra-bar-stack { width: 100%; max-width: 22px; display: flex; flex-direction: column-reverse; border-radius: 5px; overflow: hidden; gap: 1px; }
+.hra-bar-stack > i { display: block; min-height: 2px; }
+.hra-pair { flex: 1 1 0; min-width: 0; height: 100%; display: flex; gap: 1px; }
+.hra-bar-axis { display: flex; gap: 4px; margin-top: 4px; font-size: 10.5px; color: var(--muted); }
+.hra-bar-axis > span { flex: 1 1 0; min-width: 0; text-align: center; white-space: nowrap; overflow: visible; }
+.hra-stage { width: calc(100% + 8px); border: none; background: none; padding: 3px 4px; margin: 0 -4px; border-radius: 6px; cursor: pointer; font-family: inherit; text-align: left; }
+.hra-stage:hover { background: var(--wk-hover); }
+.hra-legend-btn { display: inline-flex; align-items: center; gap: 6px; border: none; background: none; padding: 2px 4px; margin: 0 -4px;
+  border-radius: 6px; cursor: pointer; font: inherit; color: var(--muted); }
+.hra-legend-btn:hover { background: var(--wk-hover); color: var(--ink); }
+.hra-legend-btn i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.hra-legend-btn b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.hra-person { width: 100%; border: none; background: none; cursor: pointer; font-family: inherit; align-items: center; }
+.hra-person:hover { background: var(--wk-hover); }
+.hra-note { display: flex; align-items: flex-start; gap: 8px; padding: 10px 14px; border-radius: 12px; font-size: 12.5px; line-height: 1.5;
+  color: var(--muted); background: var(--card); border: 1px dashed var(--line); }
+.hra-note > svg { flex-shrink: 0; margin-top: 2px; }
+@media (max-width: 640px) {
+  .hra-bars { gap: 2px; }
+  .hra-bar-axis { gap: 2px; font-size: 10px; }
+  .hra-stage, .hra-legend-btn { min-height: 36px; }
+}
