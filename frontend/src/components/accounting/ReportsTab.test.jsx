@@ -232,7 +232,7 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     const report = screen.getByLabelText('Report');
     expect(report.tagName).toBe('SELECT');
-    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Credit Card Activity', 'Bank Activity', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows', 'Actual vs Budget']);
+    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Credit Card Activity', 'Bank Activity', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows', 'Actual vs Budget', 'Spend by Vendor', 'Schedule C (Draft)']);
     expect(screen.queryByText('Profit & Loss')).toBeNull();
     expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
     expect(screen.queryByText(/add filter/i)).toBeNull();

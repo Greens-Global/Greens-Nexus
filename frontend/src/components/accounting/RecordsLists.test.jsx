@@ -24,13 +24,16 @@ vi.mock('../../api', () => ({
     saveAccountingPrefs: vi.fn(async (p) => ({ prefs: p })),
   },
 }));
+vi.mock('./reportModel', async (importOriginal) => ({ ...(await importOriginal()), downloadBlob: vi.fn() }));
 
 import { EntitiesTab, GlAccountsTab } from './RecordsLists';
 import JournalTab from './JournalTab';
+import { downloadBlob } from './reportModel';
 import { resetAccountingPrefs } from './prefs';
 import { api } from '../../api';
 
 beforeEach(() => { vi.clearAllMocks(); resetAccountingPrefs(); });
+const readFile = (file) => new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
 
 describe('Records lists', () => {
   it('lists the chart of accounts, hides inactive ones until asked, and searches', async () => {
@@ -57,6 +60,53 @@ describe('Records lists', () => {
     render(<EntitiesTab />);
     const row = (await screen.findByText('GS Valley')).closest('tr');
     expect(row.textContent).toContain('12000 Greens Global, Inc.');
+  });
+});
+
+// Item 14 (Charmi, 10/26: "There should be search option for all"): a box
+// under every heading of both lists, pinned with the headings; Export follows.
+describe('Records lists column filters', () => {
+  it('filters the General Ledger Accounts by a column box, and Export takes only what is left', async () => {
+    render(<GlAccountsTab />);
+    await screen.findByText('Chase Checking');
+    const head = screen.getByTestId('records-box').querySelector('thead');
+    for (const l of ['Account', 'Title', 'Section', 'Type', 'Normal Balance', 'Category', 'Status']) expect(head.contains(screen.getByRole('textbox', { name: `Filter ${l}` }))).toBe(true);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Title' }), { target: { value: 'adv' } });
+    expect(screen.queryByText('Chase Checking')).toBeNull();
+    expect(screen.getByText('Advertising')).toBeTruthy();
+    expect(screen.getByText('1 of 2')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalled());
+    const text = await readFile(downloadBlob.mock.calls[0][1]);
+    expect(text).toContain('Advertising');
+    expect(text).not.toContain('Chase Checking');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Title' }), { target: { value: 'nothing here' } });
+    expect(screen.getByText(/Nothing matches these column filters\./)).toBeTruthy();
+    // UI test 10/27: the link empties the boxes and the accounts come back.
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Column Filters' }));
+    expect(screen.getByText('Chase Checking')).toBeTruthy();
+    expect(screen.getByText('Advertising')).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Filter Title' }).value).toBe('');
+  });
+
+  it('filters the Entities by a number box and a text box, and Export takes only what is left', async () => {
+    render(<EntitiesTab />);
+    await screen.findByText('GS Valley');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Operator for Ledger Lines' }), { target: { value: '>' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Ledger Lines' }), { target: { value: '100' } });
+    expect(screen.queryByText('GS Valley')).toBeNull();
+    expect(screen.getByText('Greens Global, Inc.')).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Ledger Lines' }), { target: { value: '' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Parent Entity' }), { target: { value: '12000' } });
+    expect(screen.getByText('GS Valley')).toBeTruthy();
+    expect(screen.queryByText('Greens Global, Inc.', { selector: 'td' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalled());
+    const lines = (await readFile(downloadBlob.mock.calls[0][1])).split(/\r?\n/).filter((l) => l.startsWith('12'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^12019,GS Valley,/);
   });
 });
 

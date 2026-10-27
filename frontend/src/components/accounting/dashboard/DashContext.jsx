@@ -46,6 +46,7 @@ const readLS = () => { try { return JSON.parse(localStorage.getItem(LS) || '{}')
 const writeLS = (patch) => { try { localStorage.setItem(LS, JSON.stringify({ ...readLS(), ...patch })); } catch { /* private mode */ } };
 const validMonth = (s) => (typeof s === 'string' && /^\d{4}-\d{2}$/.test(s) ? s : null);
 
+const NO_LIABILITY = {};
 const rowsOf = (d) => (d && Array.isArray(d.rows) ? d.rows : []);
 const n = (v) => Number(v ?? 0);
 
@@ -121,6 +122,10 @@ export function DashProvider({ children }) {
   const noiMonthQ = useQuery({ queryKey: [KEY, 'noi', mStart(period), to, book], queryFn: () => api.getAccountingDashNoi(mStart(period), to, book, fr()).then(rowsOf), staleTime: 60_000 });
   const noiT12Q = useQuery({ queryKey: [KEY, 'noi', mStart(shiftKey(period, 11)), to, book], queryFn: () => api.getAccountingDashNoi(mStart(shiftKey(period, 11)), to, book, fr()).then(rowsOf), staleTime: 5 * 60_000 });
   const tablesQ = useQuery({ queryKey: [KEY, 'tables', period], queryFn: () => api.getAccountingDashTables(period, fr()), staleTime: 10_000, refetchInterval: 60_000 });
+  // Mortgages, loans and credit lines reconciled in Nexus (10/27, item 09): per
+  // loan, this month's record and the last reconciled month. Nexus's own table,
+  // not the accounting app's - a failed read leaves the list as it was.
+  const liabilityQ = useQuery({ queryKey: [KEY, 'liability-recons', period], queryFn: () => api.getLiabilityRecons(period).then((d) => d?.loans || {}).catch(() => ({})), staleTime: 30_000 });
 
   // First run for the company: seed the close plan, calendar, cap rates and role views once.
   const seeded = useRef(false);
@@ -197,6 +202,7 @@ export function DashProvider({ children }) {
     ix, entities, currency, m,
     monthly: monthlyQ.data, ledger, ledgerNc, lines, budgetAhead: budgetAheadQ.data ?? [], cashEntities, cashSplit, noiRows, noiT12ByType,
     reconAccounts: reconAccountsQ.data ?? [], reconAccountsLoading: reconAccountsQ.isLoading,
+    liabilityRecons: liabilityQ.data ?? NO_LIABILITY,
     tables, tablesLoading: tablesQ.isLoading,
     loading: monthlyQ.isLoading || entitiesQ.isLoading,
     error: monthlyQ.error || entitiesQ.error || tablesQ.error || null,

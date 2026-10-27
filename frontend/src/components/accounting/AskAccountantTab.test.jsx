@@ -46,10 +46,11 @@ vi.mock('../../api', () => ({
     getAccountingEntry: vi.fn(async () => ({ entry: {}, lines: [], intacct: [] })),
     getAskOffsets: vi.fn(async () => ({ offsets: {}, errors: {} })),
     saveAskNote: vi.fn(async () => ({})),
+    relinkAskThread: vi.fn(),
   },
 }));
 
-import AskAccountantTab, { SettingsDialog, columnFilter, columnFiltering, exportTable, lineText, visibleRows } from './AskAccountantTab';
+import AskAccountantTab, { SettingsDialog, columnFilter, columnFiltering, exportTable, lineText, periodRange, visibleRows } from './AskAccountantTab';
 import { setPendingOpen, __clearPendingOpen } from '../../lib/pendingOpen';
 import { api } from '../../api';
 import { resetAccountingPrefs } from './prefs';
@@ -169,11 +170,12 @@ describe('AskAccountantTab', () => {
     expect(visibleRows(rows, { status: 'All', mine: 'assigned', me: ACCT }).map((r) => r.id)).toEqual(['T1', 'T2', 'T3']);
     expect(visibleRows(rows, { status: 'All', text: 'deposit' }).map((r) => r.id)).toEqual(['line:L2']);
     const t = exportTable(rows, { from: '2025-10-15', to: '2026-10-15' });
-    expect(t.columns.map((c) => c.label)).toEqual(['Date', 'Entity', 'Entry', 'Other Side', 'Description', 'Department', 'Vendor', 'Custom', 'Amount', 'Notes', 'GL Reclass', 'Question', 'Asked By', 'Accountant', 'Status', 'Last Reply']);
-    expect(t.rows[0].slice(0, 9)).toEqual(['09/15/2026', '15000', 'GJ-100', '', 'Home Depot card', '', '', '', 125]);
+    // Item 05 (chat triage 10/27): Amount, Question and Asked By right after Date and Description.
+    expect(t.columns.map((c) => c.label)).toEqual(['Date', 'Description', 'Amount', 'Question', 'Asked By', 'Entity', 'Entry', 'Other Side', 'Department', 'Vendor', 'Custom', 'Notes', 'GL Reclass', 'Accountant', 'Status', 'Last Reply']);
+    expect(t.rows[0].slice(0, 9)).toEqual(['09/15/2026', 'Home Depot card', 125, 'Which property is this for?', 'Val Viewer', '15000', 'GJ-100', '', '']);
     const withSide = { ...rows[0], note: 'Laborers', otherSide: { shown: [], all: [{ accountNo: '11000', accountTitle: 'Chase Checking', amount: -125 }] }, reclass: { toAccount: '61000', status: 'Awaiting Bookkeeper' } };
-    expect(exportTable([withSide], { from: '2025-10-15', to: '2026-10-15' }).rows[0].slice(3, 11))
-      .toEqual(['11000 Chase Checking', 'Home Depot card', '', '', '', 125, 'Laborers', '61000 Awaiting Bookkeeper']);
+    expect(exportTable([withSide], { from: '2025-10-15', to: '2026-10-15' }).rows[0].slice(7, 13))
+      .toEqual(['11000 Chase Checking', '', '', '', 'Laborers', '61000 Awaiting Bookkeeper']);
     expect(visibleRows([withSide, rows[1]], { status: 'All', mine: 'awaiting' }).map((r) => r.id)).toEqual(['T1']);
     expect(visibleRows([withSide, rows[1]], { status: 'All', text: 'chase' }).map((r) => r.id)).toEqual(['T1']);
   });
@@ -186,7 +188,7 @@ describe('AskAccountantTab', () => {
       department: '200 Operations', vendor: 'V00225 Amazon', custom: 'P7 Escondido' });
     expect(lineText(r)).toMatch(/^Charge Card Transaction/);
     const t = exportTable([r], { from: '2026-09-01', to: '2026-09-30' });
-    expect(t.rows[0].slice(4, 9)).toEqual(['Charge Card Transaction - GG - Amex - 1009: NEIL KADAKIA 1058 AMAZON MARKETPLACE', '200 Operations', 'V00225 Amazon', 'P7 Escondido', 125]);
+    expect([1, 8, 9, 10, 2].map((i) => t.rows[0][i])).toEqual(['Charge Card Transaction - GG - Amex - 1009: NEIL KADAKIA 1058 AMAZON MARKETPLACE', '200 Operations', 'V00225 Amazon', 'P7 Escondido', 125]);
     expect(lineText({ description: 'Only the entry', memo: '' })).toBe('Only the entry');
   });
 
@@ -260,6 +262,91 @@ describe('AskAccountantTab', () => {
     fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
     expect(await screen.findByRole('dialog', { name: 'AMA Settings' })).toBeTruthy();
     expect(screen.getByText(/Find them by title/)).toBeTruthy();
+  });
+
+  // Chat triage 10/27, item 04 (Urmi): Current Month / Previous Month / Custom,
+  // Previous Month the first time, then the person's last choice.
+  it('works out the periods, Previous Month by default', () => {
+    const oct = new Date(2026, 9, 27);
+    expect(periodRange(undefined, oct)).toEqual({ key: 'previous', from: '2026-09-01', to: '2026-09-30' });
+    expect(periodRange({ key: 'current' }, oct)).toEqual({ key: 'current', from: '2026-10-01', to: '2026-10-31' });
+    expect(periodRange({ key: 'previous' }, new Date(2026, 0, 5))).toEqual({ key: 'previous', from: '2025-12-01', to: '2025-12-31' });
+    expect(periodRange({ key: 'previous' }, new Date(2028, 2, 1))).toEqual({ key: 'previous', from: '2028-02-01', to: '2028-02-29' });
+    expect(periodRange({ key: 'custom', from: '2026-01-20', to: '2026-03-31' }, oct)).toEqual({ key: 'custom', from: '2026-01-20', to: '2026-03-31' });
+    expect(periodRange({ key: 'custom', from: '2026-03-31', to: '2026-01-20' }, oct)).toEqual({ key: 'custom', from: '2026-01-20', to: '2026-03-31' });
+    expect(periodRange({ key: 'custom' }, oct)).toEqual({ key: 'custom', from: '2026-09-01', to: '2026-09-30' });
+    expect(periodRange({ key: 'nonsense' }, oct).key).toBe('previous');
+  });
+
+  it('opens on Previous Month, follows the pick, and remembers it', async () => {
+    const prev = periodRange(undefined);
+    const { unmount } = render(<AskAccountantTab />);
+    await screen.findByText('Which property is this for?');
+    expect(api.getAskItems).toHaveBeenLastCalledWith(expect.objectContaining({ from: prev.from, to: prev.to }));
+    const pick = screen.getByRole('combobox', { name: 'Period' });
+    expect(pick.value).toBe('previous');
+    fireEvent.change(pick, { target: { value: 'current' } });
+    const cur = periodRange({ key: 'current' });
+    await waitFor(() => expect(api.getAskItems).toHaveBeenLastCalledWith(expect.objectContaining({ from: cur.from, to: cur.to })));
+    // Custom: MM/DD/YYYY boxes on every computer, starting from the range on screen.
+    fireEvent.change(screen.getByRole('combobox', { name: 'Period' }), { target: { value: 'custom' } });
+    expect(screen.getByTitle('Lines dated from').textContent).toContain(`${cur.from.slice(5, 7)}/01/${cur.from.slice(0, 4)}`);
+    expect(screen.getByTitle('Lines dated to')).toBeTruthy();
+    expect(document.querySelector('input[type="date"]')).toBeNull();
+    // The choice is the person's: saved with their layout, back on the next visit.
+    await waitFor(() => expect(api.saveAccountingPrefs).toHaveBeenCalledWith(expect.objectContaining({ amaPeriod: expect.objectContaining({ key: 'custom' }) })), { timeout: 3000 });
+    unmount();
+    resetAccountingPrefs();
+    render(<AskAccountantTab />);
+    await screen.findByText('Which property is this for?');
+    expect(screen.getByRole('combobox', { name: 'Period' }).value).toBe('custom');
+  });
+
+  // Item 05 (Urmi): Amount, Question and Asked By next to Date and
+  // Description; Full Width hides the side menu, per person.
+  it('puts Amount, Question and Asked By first and has Full Width', async () => {
+    const { unmount } = render(<AskAccountantTab />);
+    await screen.findByText('Which property is this for?');
+    const heads = screen.getAllByRole('columnheader').map((h) => h.getAttribute('aria-label') || h.textContent);
+    expect(heads.slice(0, 5)).toEqual(['Date', 'Description', 'Amount', 'Question', 'Asked By']);
+    expect(screen.queryByTestId('ama-full-width')).toBeNull();
+    const btn = screen.getByRole('button', { name: /Full Width/ });
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(btn);
+    expect(screen.getByTestId('ama-full-width').textContent).toMatch(/\.sidebar \{ display: none/);
+    expect(screen.getByRole('button', { name: /Exit Full Width/ }).getAttribute('aria-pressed')).toBe('true');
+    unmount();
+    expect(screen.queryByTestId('ama-full-width')).toBeNull();          // the side menu comes back off the screen
+    resetAccountingPrefs();
+    render(<AskAccountantTab />);
+    await screen.findByText('Which property is this for?');
+    expect(screen.getByTestId('ama-full-width')).toBeTruthy();          // remembered
+  });
+
+  // Item 06 (Urmi, Vinod): one line per card charge; a question asked on the
+  // batch summary line stays, flagged, and moves to the right charge.
+  it('lists card charges and moves a question from the batch summary line to a charge', async () => {
+    const charge = (id, amount, memo) => ({ lineId: id, lineNo: '', date: '2026-01-20', entryNo: 'IA-973886', accountNo: '63501', description: 'Credit card transactions(Bank-AMEX Amazon): 2026/01/20 Batch Summary Entry',
+      memo, party: 'American Express', department: '1000 Administration', vendor: 'V00225 American Express', custom: '', debit: amount, credit: 0, amount });
+    const c1 = charge('cc:973886:8001', 26.92, 'Charge Card Transaction - American Express: ARCHANA KADAKIA 1006 AMAZON.COM AMZN.COM/BILL WA');
+    const c2 = charge('cc:973886:8002', 20.69, 'Charge Card Transaction - American Express: ARCHANA KADAKIA 1006 AMAZON MARKETPLACE NAMZN.COM/BILL WA');
+    const summaryQ = thread({ entryNo: 'IA-973886', accountNo: '63501', date: '2026-01-20', debit: 47.61, amount: 47.61, description: c1.description, question: 'Whose card?', needsRelink: true, splitInto: [c1, c2] });
+    const chargeLine = { ...line, ...charge('cc:1:1', 12.38, 'Charge Card Transaction - GG - Amex - 1009: NEIL KADAKIA 1058 MARKET AT THE RAINBOW'), id: 'line:cc:1:1', kind: 'line', charge: true };
+    api.getAskItems.mockImplementation(async () => ({ ...items(), accounts: [{ code: '63501', title: 'Ask My Accountant' }], rows: [summaryQ, chargeLine], counts: { Open: 2, Answered: 0, Resolved: 0, All: 2 } }));
+    api.getAskThread.mockImplementation(async () => detail({ question: 'Whose card?' }));
+    api.relinkAskThread.mockImplementation(async () => detail({ question: 'Whose card?', lineId: c1.lineId, debit: 26.92, amount: 26.92 }));
+    render(<AskAccountantTab />);
+    expect(await screen.findByText(/MARKET AT THE RAINBOW/)).toBeTruthy();
+    const tr = screen.getByText('Whose card?').closest('tr');
+    expect(within(tr).getByText('Split: 2 Charges')).toBeTruthy();
+    fireEvent.click(tr);
+    const panel = await screen.findByRole('dialog', { name: 'Ask My Accountant Question' });
+    const box = within(panel).getByRole('note', { name: 'Card charges' });
+    expect(within(box).getByText(/AMAZON MARKETPLACE/)).toBeTruthy();
+    expect(within(box).getByText('20.69')).toBeTruthy();
+    fireEvent.click(within(box).getByRole('button', { name: /Move the question to .*AMAZON\.COM/ }));
+    await waitFor(() => expect(api.relinkAskThread).toHaveBeenCalledWith('T1', c1));
+    await waitFor(() => expect(api.getAskItems).toHaveBeenCalledTimes(2));            // the list follows
   });
 
   // Neil's review (Oct 20): a person limited to certain entities could not save

@@ -5406,19 +5406,27 @@ class AccountingPartnerChange(Base):
     approved row shows on the record as its current values with an "Awaiting
     Intacct" badge until someone keys it into Intacct from the export. New
     table - create_all builds it; RLS must be enabled on dev and prod at
-    release."""
+    release.
+
+    10/27/2026 (item 15): an approved row closes itself once a read of the
+    Intacct record shows it - `in_intacct` (Intacct holds the approved
+    values) or `intacct_changed` (Intacct holds a different value someone
+    keyed there since); `intacct_seen_at` is when, `intacct_check` what was
+    seen per field ({field: {"state", "intacct"}})."""
     __tablename__ = "accounting_partner_changes"
     id           = Column(String, primary_key=True)              # uuid
     kind         = Column(String, default="vendor", index=True)  # vendor | customer
     partner_id   = Column(String, default="", index=True)        # Intacct VENDORID / CUSTOMERID
     partner_name = Column(String, default="")
     changes      = Column(JSON, default=dict)                    # {field: {"from": .., "to": ..}}
-    status       = Column(String, default="pending", index=True)  # pending | approved | declined
+    status       = Column(String, default="pending", index=True)  # pending | approved | in_intacct | intacct_changed | declined
     requested_by = Column(String, default="", index=True)
     requested_at = Column(String, default="")
     decided_by   = Column(String, default="")
     decided_at   = Column(String, default="")
     note         = Column(String, default="")
+    intacct_seen_at = Column(String, default="")                 # when a read of Intacct closed it
+    intacct_check   = Column(JSON, default=dict)                 # {field: {"state": .., "intacct": ..}}
 
 
 class AccountingAllocationRun(Base):
@@ -8323,3 +8331,75 @@ class DevNoteToken(Base):
     expires_at   = Column(String, default="")
     last_used_at = Column(String, default="")
     revoked_at   = Column(String, default="")
+
+
+class AccountingTaxLine(Base):
+    """Which line of a tax form one GL account adds into (Neil, Viral, 10/27
+    triage item 18: Schedule C first; Schedule E, Form 4562 and the 1040 /
+    1120 / 1120-S / 1065 forms later). Kept in Nexus only - the figures stay
+    on the ledger, nothing is written to Intacct. `entity` '' is the mapping
+    for every entity; an entity's own row overrides it. `line` is the form's
+    line number ("8", "16a", "27b") or "skip" (not on this form). New table -
+    create_all builds it; RLS by the line in main.py and the startup sweep."""
+    __tablename__ = "accounting_tax_lines"
+    id         = Column(String, primary_key=True)                # uuid
+    form       = Column(String, default="schedule_c", index=True)
+    entity     = Column(String, default="", index=True)          # "" = every entity
+    account_no = Column(String, default="", index=True)
+    line       = Column(String, default="")
+    set_by     = Column(String, default="")
+    set_at     = Column(String, default="")
+
+
+class AccountingLiabilityRecon(Base):
+    """One month's reconciliation of a mortgage, loan or line of credit
+    (Charmi, 10/25-10/26, item 09; Neil: "Intacct doesn't have it. Should do
+    in Nexus."). The loan is a fin_loans row in the accounting app (lender,
+    entity, principal GL account); the person types the lender statement's
+    ending balance, Nexus reads the ledger balance of that GL in that entity
+    on the statement date and keeps the difference. The month can be marked
+    Reconciled only when the difference is 0.00; only an Accounting admin
+    reopens it, and every save, reconcile and reopen is written to
+    accounting_liability_recon_log. Saved in Nexus only - never sent to
+    Intacct. Amounts are what is OWED (a liability's credit balance as a
+    positive figure). One row per loan and month. New table - RLS on dev and
+    prod at release."""
+    __tablename__ = "accounting_liability_recons"
+    __table_args__ = (UniqueConstraint("loan_id", "period", name="uq_accounting_liability_recon"),)
+    id                = Column(String, primary_key=True)              # uuid
+    loan_id           = Column(String, nullable=False, index=True)    # fin_loans.id
+    entity_code       = Column(String, default="", index=True)
+    gl_account        = Column(String, default="")
+    account_name      = Column(String, default="")                    # the lender, as the list shows it
+    period            = Column(String, nullable=False, index=True)    # YYYY-MM
+    statement_date    = Column(String, default="")                    # YYYY-MM-DD, inside the period
+    statement_balance = Column(Float, nullable=True)
+    ledger_balance    = Column(Float, nullable=True)                  # read when saved
+    difference        = Column(Float, nullable=True)                  # statement - ledger
+    status            = Column(String, default="open")                # open | reconciled
+    statement_url     = Column(String, default="")                    # private task-files storage
+    statement_name    = Column(String, default="")
+    note              = Column(Text, default="")
+    saved_by          = Column(String, default="")
+    saved_at          = Column(String, default="")
+    reconciled_by     = Column(String, default="")
+    reconciled_at     = Column(String, default="")
+    reopened_by       = Column(String, default="")
+    reopened_at       = Column(String, default="")
+    reopen_reason     = Column(Text, default="")
+
+
+class AccountingLiabilityReconLog(Base):
+    """Append-only history of accounting_liability_recons: saved, reconciled,
+    reopened - who, when and the figures at that moment. Never edited or
+    deleted. New table - RLS on dev and prod at release."""
+    __tablename__ = "accounting_liability_recon_log"
+    id        = Column(String, primary_key=True)                      # uuid
+    recon_id  = Column(String, nullable=False, index=True)
+    loan_id   = Column(String, nullable=False, index=True)
+    period    = Column(String, default="")
+    action    = Column(String, default="")                            # saved | reconciled | reopened
+    by_email  = Column(String, default="")
+    by_name   = Column(String, default="")
+    at        = Column(String, default="")
+    detail    = Column(JSON, default=dict)

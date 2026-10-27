@@ -45,7 +45,9 @@ router = APIRouter(
 # Every key of REPORTS in frontend/src/components/accounting/reportModel.js
 # (test_accounting_reports.py holds the two lists together): Flux Analysis
 # (10/02) and the Statement of Cash Flows (item 26c, 10/07) included.
-_REPORTS = ("pnl", "balance-sheet", "trial-balance", "general-ledger", "card-activity", "bank-activity", "cash-position", "flux", "cash-flow", "budget")
+# 10/27 triage items 17 and 18: Spend by Vendor and Schedule C (Draft) memorize like the others.
+_REPORTS = ("pnl", "balance-sheet", "trial-balance", "general-ledger", "card-activity", "bank-activity", "cash-position", "flux", "cash-flow", "budget",
+            "vendor-spend", "schedule-c")
 _CONFIG_MAX = 8000     # characters of JSON - filters, never figures
 # Oct 23 (Neil, 10/22 call, items 05 / 11): a Report Builder definition is a
 # memorized report too - `kind: "builder"` with a `version` - so it is listed,

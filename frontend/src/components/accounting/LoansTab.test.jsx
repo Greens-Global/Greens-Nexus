@@ -201,6 +201,50 @@ describe('LoansTab', () => {
     expect(lines[1]).toContain('/Shared/Loans/F&M');
   });
 
+  it('a box under each heading narrows the loans with the filter box, the totals and the export follow (chat triage 10/27)', async () => {
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:x');
+    globalThis.URL.revokeObjectURL = vi.fn();
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    const table = document.querySelector('table.acct-loans');
+    // One pinned heading block: the boxes sit in the same <thead> as the headings.
+    expect(table.className).toContain('acct-sticky-head');
+    const head = table.querySelector('thead');
+    for (const l of ['Lender', 'Loan #', 'Entity', 'Type']) expect(head.contains(screen.getByRole('textbox', { name: `Filter ${l}` }))).toBe(true);
+    for (const l of ['Balance', 'Rate', 'DSCR']) expect(screen.getByRole('combobox', { name: `Operator for ${l}` })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Filter Maturity' }).getAttribute('placeholder')).toBe('MM/DD/YYYY');
+    const shown = () => [...document.querySelectorAll('tbody.loan tr.loan-row')].map((tr) => tr.textContent);
+    // Words: every word must appear, any case.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Entity' }), { target: { value: 'escondido' } });
+    expect(shown().some((t) => t.includes('Chase'))).toBe(false);
+    expect(shown().some((t) => t.includes('F&M Bank'))).toBe(true);
+    // An amount box stacks on it: Balance > 1,000,000 leaves F&M and Golden 1.
+    fireEvent.change(screen.getByRole('combobox', { name: 'Operator for Balance' }), { target: { value: '>' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Balance' }), { target: { value: '1,000,000' } });
+    expect(shown()).toHaveLength(2);
+    expect(within(screen.getByText('Total').closest('tr')).getByText('15,752,000.00')).toBeTruthy();
+    // ...and so does the filter box: nothing left, the boxes stay so they can be cleared.
+    fireEvent.click(screen.getByRole('button', { name: 'Filter loans' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter loans' }), { target: { value: 'chase' } });
+    expect(screen.getByText(/No loan matches these column filters/)).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Filter Entity' }).value).toBe('escondido');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter loans' }), { target: { value: '' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Lender' }), { target: { value: 'golden' } });
+    expect(shown()).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
+    const file = URL.createObjectURL.mock.calls[0][0];
+    const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
+    expect(text).toContain('Golden 1 Credit Union');
+    expect(text).not.toContain('F&M Bank');
+    expect(text).not.toContain('Chase');
+    // Clear Column Filters brings every open loan back.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Lender' }), { target: { value: 'nobody' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Column Filters' }));
+    expect(shown()).toHaveLength(4);
+  });
+
   it('filters by Internal / External and by text, and reads again for the entities picked', async () => {
     render(<LoansTab canEdit />);
     await rowOf('F&M Bank');

@@ -1320,6 +1320,8 @@ def _run_migrations():
             "ALTER TABLE dev_notes ADD COLUMN regression_case_id VARCHAR DEFAULT ''",
             # Build Mode: a sent pin goes to its sender's Claude Code only (Oct 26) - see the Postgres list.
             "ALTER TABLE dev_notes ADD COLUMN dispatched_by VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_seen_at VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_check JSON",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3040,6 +3042,10 @@ def _run_migrations():
         "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS closed_through VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_ama_push_previews ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_ama_push_log ENABLE ROW LEVEL SECURITY",
+        # Account Reconciliations: liability accounts reconciled in Nexus, never
+        # sent to Intacct (Charmi + Neil, 10/25-10/26, item 09). New tables.
+        "ALTER TABLE accounting_liability_recons ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_liability_recon_log ENABLE ROW LEVEL SECURITY",
         # Build Mode v2 (Neil, Oct 24 2026, docs/Build-Mode.md "v2"): the owner a
         # pin is held for (code_owners.py), who released it to Claude Code, the
         # Ready To Check local preview and its verdict, and the regression test
@@ -3055,6 +3061,12 @@ def _run_migrations():
         # Build Mode (Oct 26): who sent a pin - only that person's Claude Code
         # (their Build Token's watcher) sees and claims it. models.DevNote.
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS dispatched_by VARCHAR DEFAULT ''",
+        # Reports > Schedule C (draft) (Neil, Viral, 10/27 triage item 18): the
+        # account-to-tax-line mapping, kept in Nexus only - never written to
+        # Intacct. New table - explicit RLS. models.AccountingTaxLine.
+        "ALTER TABLE accounting_tax_lines ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_seen_at VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_check JSON",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4549,6 +4561,8 @@ from routers import accounting_loan_plans  # noqa: E402
 app.include_router(accounting_loan_plans.router)   # Accounting > Loans: amortization schedules + rate stress scenarios per loan (Oct 6)
 from routers import accounting_mre  # noqa: E402
 app.include_router(accounting_mre.router)          # Accounting > Reporting > MRE: monthly recurring expenses, paid read from the ledger (Oct 6)
+from routers import accounting_tax_lines  # noqa: E402
+app.include_router(accounting_tax_lines.router)    # Accounting > Reports > Schedule C (draft): account-to-line mapping, Nexus only (10/27 item 18)
 from routers import pfs_access, pfs_affiliates  # noqa: E402
 app.include_router(pfs_access.router)              # Accounting > PFS: one-time code per file, borrower notice, access log (Charmi, 10/04)
 app.include_router(pfs_affiliates.router)          # Accounting > PFS > Affiliated Entities + co-borrower executive profile (Charmi, 10/04)
@@ -4653,3 +4667,5 @@ from routers import accounting_manual_je  # noqa: E402
 app.include_router(accounting_manual_je.router)    # Accounting > Audit & Insights > Manual Journal Entries: who keyed each entry, read from Intacct (Neil + Charmi, CR-10, Oct 23 2026)
 from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: create_all + _enable_rls_everywhere, no ALTER lines
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
+from routers import accounting_liability_recon  # noqa: E402
+app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)

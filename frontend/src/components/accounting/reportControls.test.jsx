@@ -132,6 +132,39 @@ describe('EntitiesPicker', () => {
     const names = screen.getAllByRole('option').map((o) => o.textContent);
     expect(names.slice(0, 3)).toEqual(['9000Nine Thousand', '12000Greens Global Inc', '66000Greens Industrial']);
   });
+
+  // Chat 10/26, item 12 (Charmi: "Move the Done button on TOP"; Neil: "So it removes double scroll").
+  it('puts Done at the top beside the search, scrolls only the list, keeps the hint', () => {
+    render(<EntitiesPicker entities={ENTITIES} value={['12000']} onChange={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: /Entities|Greens Global/ }));
+    const panel = screen.getByRole('listbox', { name: 'Entities' });
+    const done = screen.getByRole('button', { name: 'Done' });
+    const search = screen.getByPlaceholderText('Search entity by name or code');
+    const list = panel.querySelector('[data-option-list]');
+    // Done shares the search's row, above the list.
+    expect(done.parentElement).toBe(search.parentElement.parentElement);
+    expect(done.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // One scroller: the panel is a column, the list fills it and scrolls.
+    expect(panel.style.display).toBe('flex');
+    expect(panel.style.flexDirection).toBe('column');
+    expect(list.style.overflowY).toBe('auto');
+    expect(list.style.flex).toMatch(/^1 1/);
+    expect(list.style.minHeight).toBe('96px');
+    // The hint stays under the list, outside the scroller.
+    const hint = screen.getByText(/An entity includes its sub-entities/);
+    expect(list.contains(hint)).toBe(false);
+    expect(hint.style.flexShrink).toBe('0');
+    fireEvent.click(done);
+    expect(screen.queryByRole('listbox', { name: 'Entities' })).toBeNull();
+  });
+
+  it('the one-entity picker scrolls only its list too', () => {
+    render(<EntityPicker entities={ENTITIES} value="" onChange={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Entity' }));
+    const panel = screen.getByRole('listbox', { name: 'Entity' });
+    expect(panel.style.display).toBe('flex');
+    expect(panel.querySelector('[data-option-list]').style.flex).toMatch(/^1 1/);
+  });
 });
 
 describe('CustomizeButton', () => {

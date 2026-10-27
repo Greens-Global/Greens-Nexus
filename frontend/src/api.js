@@ -1319,6 +1319,16 @@ export const api = {
   getAccountingDashTables: (period, fresh) => req(`/accounting/dashboard/tables?period=${period}${fresh ? "&fresh=1" : ""}`),
   accountingDashAction: (op, payload = {}) =>
     req("/accounting/dashboard/action", { method: "POST", body: JSON.stringify({ op, payload }) }),
+  // Mortgages, loans and credit lines reconciled in Nexus, never sent to
+  // Intacct (10/27, item 09; routers/accounting_liability_recon.py). `period`
+  // is YYYY-MM; amounts are what is owed.
+  getLiabilityRecons: (upto) => req(`/accounting/liability-recons?upto=${encodeURIComponent(upto)}`),
+  getLiabilityRecon: (loanId, period, date) =>
+    req(`/accounting/liability-recons/${encodeURIComponent(loanId)}/${encodeURIComponent(period)}${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+  saveLiabilityRecon: (loanId, period, body) =>
+    req(`/accounting/liability-recons/${encodeURIComponent(loanId)}/${encodeURIComponent(period)}`, { method: "PUT", body: JSON.stringify(body) }),
+  reopenLiabilityRecon: (loanId, period, reason) =>
+    req(`/accounting/liability-recons/${encodeURIComponent(loanId)}/${encodeURIComponent(period)}/reopen`, { method: "POST", body: JSON.stringify({ reason }) }),
 
   // Ops
   getOpsProjects: () => req("/ops-projects"),
@@ -2163,6 +2173,9 @@ export const api = {
     req(`/accounting/manual-entries?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${journals.length ? `&journals=${encodeURIComponent(journals.join(','))}` : ''}${user ? `&user=${encodeURIComponent(user)}` : ''}${edited ? '' : '&edited=false'}`, { timeoutMs: 120_000 }),
   getAccountingFluxNotes:  (entity, period) => req(`/accounting/flux-notes?entity=${encodeURIComponent(entity || 'all')}&period=${encodeURIComponent(period)}`),
   saveAccountingFluxNote:  (body)           => req('/accounting/flux-notes', { method: 'PUT', body: JSON.stringify(body) }),
+  // 10/27 item 18: Schedule C (Draft) account-to-line mapping, kept in Nexus only. entity '' = every entity.
+  getAccountingTaxLines:   (form = 'schedule_c', entity = '') => req(`/accounting/tax-lines?form=${encodeURIComponent(form)}${entity ? `&entity=${encodeURIComponent(entity)}` : ''}`),
+  saveAccountingTaxLines:  (body)           => req('/accounting/tax-lines', { method: 'PUT', body: JSON.stringify(body) }),
 
   // ── Accounting, Oct 2 (Charmi and Neil, 10/01 call) ──
   // Budget per entity and year (contract B1/B2 through the backend proxy).
@@ -2175,7 +2188,8 @@ export const api = {
   getAccountingPartnerChanges:  (status = '', kind = '') => req(`/accounting/partners/changes?status=${encodeURIComponent(status)}&kind=${encodeURIComponent(kind)}`),
   createAccountingPartnerChange: (body) => req('/accounting/partners/changes', { method: 'POST', body: JSON.stringify(body) }),
   decideAccountingPartnerChange: (id, decision, note = '') => req(`/accounting/partners/changes/${encodeURIComponent(id)}/${decision}`, { method: 'POST', body: JSON.stringify({ note }) }),
-  exportAccountingPartnerChanges: (status = 'approved', kind = '') => reqBlob(`/accounting/partners/changes/export.csv?status=${status}${kind ? `&kind=${kind}` : ''}`),
+  // format 'intacct' (approved vendors): Intacct's vendor import file (item 15, 10/27).
+  exportAccountingPartnerChanges: (status = 'approved', kind = '', format = '') => reqBlob(`/accounting/partners/changes/export.csv?status=${status}${kind ? `&kind=${kind}` : ''}${format ? `&format=${format}` : ''}`),
   // One vendor or customer drilled into (Charmi, 10/16): the record, its
   // change requests and its ledger activity.
   getAccountingPartnerRecord:   (kind, id) => req(`/accounting/partners/record/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`),
@@ -2285,6 +2299,8 @@ export const api = {
   getRecurringSettings:  () => req('/accounting/mre/settings'),
   saveRecurringSettings: (body) => req('/accounting/mre/settings', { method: 'PUT', body: JSON.stringify(body) }),
   runRecurringStaleCheck: () => req('/accounting/mre/stale-check', { method: 'POST' }),
+  // 10/27: whether that check (or the one a new months setting started) has finished.
+  getRecurringStaleCheck: () => req('/accounting/mre/stale-check'),
   suggestMreEgnyteFolder: (vendor) => req(`/accounting/mre/egnyte-suggest?vendor=${encodeURIComponent(vendor)}`),
 
   // PFS file lock + Affiliated Entities + an executive profile per borrower
@@ -2454,6 +2470,8 @@ export const api = {
   resolveAskThread:    (id, body = {}) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: JSON.stringify(body) }),
   reopenAskThread:     (id)       => req(`/accounting/ask/threads/${encodeURIComponent(id)}/reopen`, { method: 'POST', body: '{}' }),
   assignAskThread:     (id, accountant) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/accountant`, { method: 'PUT', body: JSON.stringify({ accountant }) }),
+  // Chat triage 10/27, item 06: move a question on a batch summary line to its card charge.
+  relinkAskThread:     (id, charge) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/relink`, { method: 'POST', body: JSON.stringify(charge) }),
   getAskSettings:      ()         => req('/accounting/ask/settings'),
   saveAskSettings:     (body)     => req('/accounting/ask/settings', { method: 'PUT', body: JSON.stringify(body) }),
   getAskChart:         ()         => req('/accounting/ask/chart'),

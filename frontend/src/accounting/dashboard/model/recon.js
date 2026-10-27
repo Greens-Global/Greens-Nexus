@@ -41,7 +41,7 @@ export function reconList(args) {
             out.push({
                 key, type, name: g.name, ref: g.entity_name, entityCode: g.entity, gl: g.gl_code,
                 thru, lag, openItems: 0, diff, mark: null, book, stmt, status: statusOf(lag, 0), nc: g.is_partner,
-                source: "intacct", intacctRef: g.intacct_ref ?? "", intacctAsOf: g.intacct_asof ?? null,
+                source: "intacct", intacctRef: g.intacct_ref ?? "", intacctAsOf: g.intacct_asof ?? null, intacctMatch: g.intacct_match ?? "entity",
             });
             continue;
         }
@@ -59,7 +59,7 @@ export function reconList(args) {
         out.push({
             key, type, name: g.name, ref: g.entity_name, entityCode: g.entity, gl: g.gl_code,
             thru, lag, openItems: 0, diff, mark, book, stmt, status: statusOf(lag, diff), nc: g.is_partner,
-            source: mark || latest ? "mark" : null,
+            source: mark || latest ? "mark" : null, intacctOther: g.intacct_other ?? "",
         });
     }
     for (const b of args.banks) {

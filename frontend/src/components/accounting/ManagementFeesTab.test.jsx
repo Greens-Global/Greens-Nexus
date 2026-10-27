@@ -93,6 +93,38 @@ describe('ManagementFeesTab', () => {
     expect(screen.queryByRole('button', { name: 'Filter Actions by value' })).toBeNull();
   });
 
+  it('a box under each heading narrows the agreements, the totals and the export follow (chat triage 10/27)', async () => {
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:x');
+    globalThis.URL.revokeObjectURL = vi.fn();
+    render(<ManagementFeesTab canEdit />);
+    await screen.findByText('15000 Greens Escondido, LLC.');
+    const table = document.querySelector('table.acct-ama');
+    expect(table.className).toContain('acct-sticky-head');
+    const head = table.querySelector('thead');
+    for (const l of ['Entity', 'Manager Entity', 'Status', 'Fee']) expect(head.contains(screen.getByRole('textbox', { name: `Filter ${l}` }))).toBe(true);
+    for (const l of ['Gross Revenue', 'Calculated Fee', 'Billed YTD', 'Difference']) expect(screen.getByRole('combobox', { name: `Operator for ${l}` })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Filter Next Billing' }).getAttribute('placeholder')).toBe('MM/DD/YYYY');
+    expect(screen.queryByRole('textbox', { name: 'Filter Actions' })).toBeNull();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Entity' }), { target: { value: 'mcd' } });
+    expect(screen.queryByText('15000 Greens Escondido, LLC.')).toBeNull();
+    expect(screen.getByText('56000 MCD Services, Inc.')).toBeTruthy();
+    expect(within(screen.getByText('Total').closest('tr')).getByText('3,500.00')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
+    const file = URL.createObjectURL.mock.calls[0][0];
+    const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
+    expect(text).toContain('MCD Services');
+    expect(text).not.toContain('Escondido');
+    // An amount box stacks: Billed YTD >= 500 leaves nothing (MCD's was not read) - the boxes stay to clear.
+    fireEvent.change(screen.getByRole('combobox', { name: 'Operator for Billed YTD' }), { target: { value: '>=' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Billed YTD' }), { target: { value: '500' } });
+    expect(screen.getByText(/No agreement matches these column filters/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Column Filters' }));
+    expect(screen.getByText('15000 Greens Escondido, LLC.')).toBeTruthy();
+    expect(screen.getByText('56000 MCD Services, Inc.')).toBeTruthy();
+  });
+
   it('opens the ledger lines behind Billed YTD', async () => {
     render(<ManagementFeesTab canEdit />);
     fireEvent.click(await screen.findByRole('button', { name: /Ledger lines behind the billed fee/ }));

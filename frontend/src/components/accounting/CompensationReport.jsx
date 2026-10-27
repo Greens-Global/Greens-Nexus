@@ -12,6 +12,8 @@ import { formatDate } from '../../lib/datetime';
 import { isStepUpRequired, StepUpNeeded } from '../../stepup/StepUp';
 import { buildingHint, compensationTable, emptyReason, HOUR_COLUMNS, hoursOf, LEDGER_SPLIT_COLUMNS, ledgerTable, loadErrorMessage, monthsBetween, payTypeLabel, rateLabel, viewRows, VIEWS } from './compensationModel';
 import { COMP_REQUEST_TIMEOUT_MS } from './assumptions';
+import { ColumnFilterRow, useColumnFilters } from './columnFilters';
+import { filterCellOf, filterColumnsOf } from './viewFilterColumns';
 
 // Accounting > Reporting > Employee Compensation (Neil, 10/15: "We still need
 // to make employee compensation report"). For a run of months: each person's
@@ -65,6 +67,24 @@ function compColumns(grouping) {
     { key: 'people', label: 'Employees', type: 'number', total: true, value: (r) => Number(r.people) || 0, text: (r) => String(r.people ?? '') },
     ...hours, wages,
   ];
+}
+
+// 10/27: the boxes under the headings (columnFilters.jsx, as on MRE). The
+// Employee box also finds the employee ID shown under the name.
+const compFilterColumns = (columns) => filterColumnsOf(columns, { instead: { name: (r) => `${r.name || ''} ${r.employeeId || ''}` } });
+const filterCell = filterCellOf();
+
+// The ledger table's boxes: the department or employee, then every amount.
+const LEDGER_AMOUNTS = [['wages', 'Wages'], ['taxes', 'Employer Taxes'], ['benefits', 'Benefits'], ...LEDGER_SPLIT_COLUMNS.map((c) => [c.key, c.label]), ['total', 'Total']];
+const ledgerFilterColumns = (head) => [
+  { key: 'label', label: head, text: (r) => `${r.label || ''} ${r.key || ''}` },
+  ...LEDGER_AMOUNTS.map(([key, label]) => ({ key, label, num: true, value: (r) => Number(r[key]) || 0 })),
+];
+/** The ledger figures over the rows the boxes leave: the same shape, the totals added up from them. */
+function ledgerShown(ledger, rows, filtering) {
+  if (!ledger || !filtering) return ledger;
+  const r2 = (n) => Math.round(n * 100) / 100;
+  return { ...ledger, rows, totals: Object.fromEntries(LEDGER_AMOUNTS.map(([k]) => [k, r2(rows.reduce((s, r) => s + (Number(r[k]) || 0), 0))])) };
 }
 
 /** The totals by currency over some rows (wages in USD and INR never add together). */
@@ -131,9 +151,17 @@ export default function CompensationReport() {
   // Item 01: the standard view over the rows of the grouping picked (each
   // grouping keeps its own); the totals follow it once it filters.
   const columns = useMemo(() => compColumns(view), [view]);
-  const tv = useTableView(`comp-${view}`, columns, all);
+  const boxes = useMemo(() => compFilterColumns(columns), [columns]);
+  const filters = useColumnFilters(all, boxes);
+  const tv = useTableView(`comp-${view}`, columns, filters.rows);
   const rows = tv.rows;
-  const totals = tv.count ? totalsOf(rows, view) : data?.totals || [];
+  const narrowed = !!tv.count || filters.filtering;
+  const totals = narrowed ? totalsOf(rows, view) : data?.totals || [];
+  // The ledger table's own boxes; its totals and its export follow them.
+  const ledgerBoxes = useMemo(() => ledgerFilterColumns(ledger?.by === 'employee' ? 'Employee' : 'Department'), [ledger?.by]);
+  const ledgerFilters = useColumnFilters(ledger?.rows, ledgerBoxes);
+  const shownLedger = ledgerShown(ledger, ledgerFilters.rows, ledgerFilters.filtering);
+  const pickView = (k) => { if (k !== view) filters.clear(); setView(k); };
   // Exactly what the view leaves, with one Total line per currency when there are several.
   const peopleTable = () => {
     const base = compensationTable(data, view, { period });
@@ -171,7 +199,7 @@ export default function CompensationReport() {
         <button type="button" className="primary-btn" onClick={run} disabled={!!rangeError || state.loading} style={{ height: 30, fontSize: '0.78rem' }}>Run Report</button>
         <BarMore level={1} active={view !== 'people' ? 1 : 0}>
         <div style={{ display: 'flex', gap: 4 }} role="group" aria-label="View">
-          {VIEWS.map((v) => <button key={v.key} type="button" style={seg(view === v.key)} aria-pressed={view === v.key} onClick={() => setView(v.key)}>{v.label}</button>)}
+          {VIEWS.map((v) => <button key={v.key} type="button" style={seg(view === v.key)} aria-pressed={view === v.key} onClick={() => pickView(v.key)}>{v.label}</button>)}
         </div>
         </BarMore>
         <TableViewBar key={view} view={tv} />
@@ -204,11 +232,12 @@ export default function CompensationReport() {
             <div className="acct-stack-card acct-stack-main" style={card}>
               <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'baseline' }}>
                 <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Compensation</h3>
-                <span style={muted}>{period} · {data.people.length} {data.people.length === 1 ? 'employee' : 'employees'}{tv.count ? ` · ${rows.length} of ${all.length} rows pass the filters` : ''}</span>
+                <span style={muted}>{period} · {data.people.length} {data.people.length === 1 ? 'employee' : 'employees'}{narrowed ? ` · ${rows.length} of ${all.length} rows pass the filters` : ''}</span>
               </div>
               {/* Item 05 (round 3): the heading block pins as one piece (acct-sticky-head) -
-                  each heading keeps position: relative for its drag handle, which stopped it pinning by itself. */}
-              <table className="acct-sticky-head" style={{ borderCollapse: 'collapse', width: '100%' }}>
+                  each heading keeps position: relative for its drag handle, which stopped it pinning by itself.
+                  10/27: the filter boxes are in that block, under the headings. */}
+              <table className="acct-sticky-head acct-comp" style={{ borderCollapse: 'collapse', width: '100%' }}>
                 <thead>
                   <tr>
                     {tv.columns.map((c) => {
@@ -216,8 +245,10 @@ export default function CompensationReport() {
                       return <ViewHead key={c.key} view={tv} col={c} aria-label={c.label} style={{ ...(c.type ? thNum : th), position: 'relative', ...(w ? { width: w, minWidth: w, maxWidth: w } : null) }} />;
                     })}
                   </tr>
+                  <ColumnFilterRow columns={tv.columns} filterColumns={boxes} typed={filters.typed} onChange={filters.setFilter} cellProps={filterCell} />
                 </thead>
                 <tbody>
+                  {!rows.length && <NoMatch span={tv.columns.length} onClear={filters.clear} />}
                   {rows.map((r) => (
                     <tr key={view === 'people' ? r.email : `${r.key}-${r.currency}`}>
                       {viewCells(tv, {
@@ -268,20 +299,23 @@ export default function CompensationReport() {
           <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
             <h3 style={{ margin: 0, fontSize: '0.95rem', flex: 1 }}>Payroll Expense on the Ledger</h3>
             <div style={{ display: 'flex', gap: 4 }} role="group" aria-label="Ledger Group By">
-              {[['department', 'By Department'], ['employee', 'By Employee']].map(([k, l]) => <button key={k} type="button" style={seg(by === k)} aria-pressed={by === k} onClick={() => setBy(k)}>{l}</button>)}
+              {[['department', 'By Department'], ['employee', 'By Employee']].map(([k, l]) => <button key={k} type="button" style={seg(by === k)} aria-pressed={by === k} onClick={() => { if (k !== by) ledgerFilters.clear(); setBy(k); }}>{l}</button>)}
             </div>
             <SyncButton onSync={ledgerSync.sync} busy={!!ledgerState.syncing} syncedAt={ledgerSync.syncedAt} what="Ledger" />
-            <ExportMenu disabled={!ledger?.rows?.length} items={exportItems('ledger', () => ledgerTable(ledger, { period }), !ledger)} />
+            <ExportMenu disabled={!shownLedger?.rows?.length} items={exportItems('ledger', () => ledgerTable(shownLedger, { period }), !ledger)} />
           </div>
           <AsyncSection loading={ledgerState.loading} error={!!ledgerState.error} errorMessage={ledgerState.error} onRetry={() => loadLedger(asked, by)} skeleton={<SkeletonBlocks count={1} height={80} />}
             isEmpty={!!ledger && !ledger.rows?.length}
             emptyContent={<p style={{ margin: 0, padding: '8px 12px 14px', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>No payroll accounts posted on the ledger in these months.</p>}>
             {ledger && (
-              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+              <table className="acct-sticky-head acct-comp" aria-label="Payroll Expense on the Ledger" style={{ borderCollapse: 'collapse', width: '100%' }}>
                 <thead><tr><th style={th}>{ledger.by === 'employee' ? 'Employee' : 'Department'}</th><th style={thNum}>Wages</th><th style={thNum}>Employer Taxes</th><th style={thNum}>Benefits</th>
-                  {LEDGER_SPLIT_COLUMNS.map((c) => <th key={c.key} style={thNum}>{c.label}</th>)}<th style={thNum}>Total</th></tr></thead>
+                  {LEDGER_SPLIT_COLUMNS.map((c) => <th key={c.key} style={thNum}>{c.label}</th>)}<th style={thNum}>Total</th></tr>
+                  <ColumnFilterRow columns={ledgerBoxes} typed={ledgerFilters.typed} onChange={ledgerFilters.setFilter} cellProps={filterCell} />
+                </thead>
                 <tbody>
-                  {ledger.rows.map((r) => (
+                  {!shownLedger.rows.length && <NoMatch span={ledgerBoxes.length} onClear={ledgerFilters.clear} />}
+                  {shownLedger.rows.map((r) => (
                     <tr key={r.key || 'none'}>
                       <td style={td}>{r.label}{r.key && r.key !== r.label ? <span style={muted}> {r.key}</span> : null}</td>
                       <td style={tdNum}><Amount value={r.wages} zero="dash" /></td>
@@ -295,11 +329,11 @@ export default function CompensationReport() {
                 <tfoot>
                   <tr>
                     <td style={{ ...td, fontWeight: 700 }}>Total</td>
-                    <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={ledger.totals.wages} zero="dash" /></td>
-                    <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={ledger.totals.taxes} zero="dash" /></td>
-                    <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={ledger.totals.benefits} zero="dash" /></td>
-                    {LEDGER_SPLIT_COLUMNS.map((c) => <td key={c.key} style={{ ...tdNum, fontWeight: 700 }}><Amount value={ledger.totals[c.key]} zero="dash" /></td>)}
-                    <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={ledger.totals.total} zero="dash" /></td>
+                    <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={shownLedger.totals.wages} zero="dash" /></td>
+                    <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={shownLedger.totals.taxes} zero="dash" /></td>
+                    <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={shownLedger.totals.benefits} zero="dash" /></td>
+                    {LEDGER_SPLIT_COLUMNS.map((c) => <td key={c.key} style={{ ...tdNum, fontWeight: 700 }}><Amount value={shownLedger.totals[c.key]} zero="dash" /></td>)}
+                    <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={shownLedger.totals.total} zero="dash" /></td>
                   </tr>
                 </tfoot>
               </table>
@@ -313,5 +347,17 @@ export default function CompensationReport() {
         </div>
       )}
     </div>
+  );
+}
+
+/** The row a table shows when the boxes under its headings leave nothing. */
+function NoMatch({ span, onClear }) {
+  return (
+    <tr>
+      <td colSpan={span || 1} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }}>
+        Nothing matches these column filters.
+        <button type="button" onClick={onClear} style={{ marginLeft: 8, border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', textDecoration: 'underline' }}>Clear Column Filters</button>
+      </td>
+    </tr>
   );
 }

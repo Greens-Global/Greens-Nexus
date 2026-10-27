@@ -204,21 +204,85 @@ def step_months(line: dict) -> int:
     return FREQUENCIES.get(freq) or 1
 
 
-def due_in_month(line: dict, year: int, month: int) -> bool:
-    """Whether the line falls due in this calendar month: inside its start /
-    end, and on its frequency counted from the start month."""
+def in_force(line: dict, year: int, month: int) -> bool:
+    """Whether the line runs in this calendar month: inside its start / end
+    (an ended line with no end date runs in none)."""
     start, end = line.get("startDate") or "", line.get("endDate") or ""
     key = f"{year}-{month:02d}"
     if start and key < start[:7]:
         return False
     if end and key > end[:7]:
         return False
-    if line.get("status") == "ended" and not end:
+    return not (line.get("status") == "ended" and not end)
+
+
+def due_in_month(line: dict, year: int, month: int) -> bool:
+    """Whether the line falls due in this calendar month: inside its start /
+    end, and on its frequency counted from the start month."""
+    if not in_force(line, year, month):
         return False
+    start = line.get("startDate") or ""
     step = step_months(line)
     if step == 1 or not start:
         return True
-    return (_month_index(key) - _month_index(start[:7])) % step == 0
+    return (_month_index(f"{year}-{month:02d}") - _month_index(start[:7])) % step == 0
+
+
+# 10/27 (Charmi: "If the charge is annual, then it should not say Missed on
+# any of the months as long as there is a one time charge between Jan and
+# Dec"): an Annual line is settled by one charge anywhere in the calendar
+# year, a Semi-Annual one by a charge anywhere in each half (Jan - Jun, Jul -
+# Dec), a Quarterly one anywhere in each calendar quarter. Custom (every N
+# months) keeps its due months.
+PERIODIC = ("quarterly", "semi_annual", "annual")
+
+
+def periodic(line: dict) -> bool:
+    return (line.get("frequency") or "monthly") in PERIODIC
+
+
+def period_cells(line: dict, paid: list[float], year: int, this_month: str) -> list[dict]:
+    """Month by month (12 cells: due, expected, status, period) for a
+    quarterly / semi-annual / annual line, from what was paid each month.
+
+    In each calendar period the line runs in:
+      - something paid: the period's amount is expected once, in the first
+        month paid; every month paid reads the period's Paid / Short / Over
+        (Short only once the period is over - until then Upcoming), the rest
+        nothing (a dash).
+      - nothing paid: the month it falls due (its frequency counted from the
+        start month - there is exactly one in each period) reads Upcoming
+        with the amount until the period is over, then Missed.
+    A period whose due month is outside the line's start / end expects
+    nothing, as before."""
+    step = step_months(line)
+    amount = _r2(line["expectedAmount"])
+    variance = line.get("variancePct") or 0
+    out: list[dict] = []
+    for first in range(1, 13, step):
+        block = list(range(first, min(first + step, 13)))
+        span = {"from": f"{year}-{block[0]:02d}", "to": f"{year}-{block[-1]:02d}"}
+        live = [m for m in block if in_force(line, year, m)]
+        anchor = next((m for m in live if due_in_month(line, year, m)), None)
+        hits = [m for m in live if paid[m - 1] > _POSTED] if anchor else []
+        got = _r2(sum(paid[m - 1] for m in live))
+        ended = bool(live) and f"{year}-{live[-1]:02d}" < this_month
+        if hits:
+            st = month_status(True, amount, got, f"{year}-{live[-1]:02d}", this_month, variance)
+        else:
+            st = "missed" if ended else "upcoming"
+        for m in block:
+            if anchor is None or m not in live:
+                cell = {"due": False, "expected": 0.0, "status": "over" if paid[m - 1] > _POSTED else "none"}
+            elif hits:
+                carrier = m == hits[0]
+                cell = {"due": carrier, "expected": amount if carrier else 0.0, "status": st if m in hits else "none"}
+            else:
+                cell = {"due": m == anchor, "expected": amount if m == anchor else 0.0, "status": st if m == anchor else "none"}
+            if anchor is not None and m in live:
+                cell["period"] = {**span, "expected": amount, "paid": got}
+            out.append(cell)
+    return out
 
 
 def month_status(due: bool, expected: float, paid: float, key: str, this_month: str, variance_pct: float = 0) -> str:
@@ -250,16 +314,24 @@ def grid(lines: list[dict], payments: dict, year: int, today: date, unread: Opti
         posted = payments.get(pair, {})
         accounts = set(line["expenseAccounts"])
         cells, expected_to_date, paid_to_date, paid_year, missed = [], 0.0, 0.0, 0.0, 0
+        paid_by = [_r2(sum(v for gl, v in posted.get(f"{year}-{m:02d}", {}).items() if gl in accounts)) for m in range(1, 13)]
+        plan = period_cells(line, paid_by, year, this_month) if periodic(line) and pair not in unread else None
         for m in range(1, 13):
             key = f"{year}-{m:02d}"
-            due = due_in_month(line, year, m)
-            expected = _r2(line["expectedAmount"]) if due else 0.0
-            paid = _r2(sum(v for gl, v in posted.get(key, {}).items() if gl in accounts))
-            if pair in unread:
-                status = "upcoming" if key > this_month else ("unknown" if due else "none")
+            paid = paid_by[m - 1]
+            extra = {}
+            if plan:
+                due, expected, status = plan[m - 1]["due"], plan[m - 1]["expected"], plan[m - 1]["status"]
+                if "period" in plan[m - 1]:
+                    extra["period"] = plan[m - 1]["period"]
             else:
-                status = month_status(due, expected, paid, key, this_month, line.get("variancePct") or 0)
-            cells.append({"month": key, "due": due, "expected": expected, "paid": paid, "status": status})
+                due = due_in_month(line, year, m)
+                expected = _r2(line["expectedAmount"]) if due else 0.0
+                if pair in unread:
+                    status = "upcoming" if key > this_month else ("unknown" if due else "none")
+                else:
+                    status = month_status(due, expected, paid, key, this_month, line.get("variancePct") or 0)
+            cells.append({"month": key, "due": due, "expected": expected, "paid": paid, "status": status, **extra})
             paid_year = _r2(paid_year + paid)
             totals[m - 1]["expected"] = _r2(totals[m - 1]["expected"] + expected)
             totals[m - 1]["paid"] = _r2(totals[m - 1]["paid"] + paid)
@@ -904,11 +976,15 @@ async def get_settings():
     posted a line is flagged Possibly Ended, and the Egnyte folder the vendor
     folders are looked for under."""
     import recurring_stale
-    return await asyncio.to_thread(recurring_stale.load_settings)
+    settings, last = await asyncio.gather(asyncio.to_thread(recurring_stale.load_settings), asyncio.to_thread(recurring_stale.load_last_check))
+    return {**settings, "lastCheck": last}
 
 
 @router.put("/settings")
 async def put_settings(body: SettingsBody, user: dict = Depends(_full)):
+    """Save the settings. A new number of months re-checks every MRI and MRE
+    line right away (10/27, Urmi) - `recheck.since` is when; the screen waits
+    for a finished check newer than it (lastCheck.startedAt), then reloads."""
     import recurring_stale
     patch: dict = {}
     if body.staleMonths is not None:
@@ -917,37 +993,56 @@ async def put_settings(body: SettingsBody, user: dict = Depends(_full)):
         patch["staleMonths"] = int(body.staleMonths)
     if body.egnyteRoot is not None:
         patch["egnyteRoot"] = _folder(body.egnyteRoot)
-    return await asyncio.to_thread(recurring_stale.save_settings, patch, user["email"])
+    before = await asyncio.to_thread(recurring_stale.load_settings)
+    saved = await asyncio.to_thread(recurring_stale.save_settings, patch, user["email"])
+    out = {**saved, "lastCheck": await asyncio.to_thread(recurring_stale.load_last_check)}
+    if saved["staleMonths"] != before["staleMonths"]:
+        out["recheck"] = start_stale_check()
+    return out
 
 
 _STALE_RUN: dict = {}
 
 
+def start_stale_check() -> dict:
+    """Run the Possibly Ended check now, in the background. A check already
+    running read the settings when it began, so one more pass follows it."""
+    import recurring_stale
+    since = _now()
+    task = _STALE_RUN.get("task")
+    if task is not None and not task.done():
+        _STALE_RUN["again"] = True
+        return {"started": False, "queued": True, "running": True, "since": since}
+
+    async def run():
+        while True:
+            _STALE_RUN["again"] = False
+            try:
+                _STALE_RUN["last"] = await recurring_stale.check()
+            except Exception as e:  # noqa: BLE001 - reported on the next GET
+                _STALE_RUN["last"] = {"error": str(e)}
+            if not _STALE_RUN.get("again"):
+                break
+    _STALE_RUN["task"] = asyncio.create_task(run())
+    return {"started": True, "running": True, "since": since}
+
+
 @router.post("/stale-check", status_code=202)
 async def stale_check(user: dict = Depends(_full)):
     """Start the daily Possibly Ended check now (MRI and MRE), in the
-    background - it reads the ledger once per MRE line (~180 on prod, about
-    two reads a second), longer than a request may wait. It only sets the
-    flags and opens / closes the tasks - never changes a line. One run at a
-    time per worker."""
-    import recurring_stale
-    task = _STALE_RUN.get("task")
-    if task is not None and not task.done():
-        return {"started": False, "running": True}
-
-    async def run():
-        try:
-            _STALE_RUN["last"] = await recurring_stale.check()
-        except Exception as e:  # noqa: BLE001 - reported on the next GET
-            _STALE_RUN["last"] = {"error": str(e)}
-    _STALE_RUN["task"] = asyncio.create_task(run())
-    return {"started": True, "running": True}
+    background. It only sets the flags and opens / closes the tasks - never
+    changes a line. One run at a time per worker; `since` is when it was
+    asked for (see put_settings)."""
+    out = start_stale_check()
+    return {**out, "started": True} if out.get("queued") else out
 
 
 @router.get("/stale-check")
 async def stale_check_status():
+    import recurring_stale
     task = _STALE_RUN.get("task")
-    return {"running": bool(task is not None and not task.done()), "last": _STALE_RUN.get("last")}
+    return {"running": bool(task is not None and not task.done()), "last": _STALE_RUN.get("last"),
+            "lastCheck": await asyncio.to_thread(recurring_stale.load_last_check)}
 
 
 def _norm_words(s: str) -> list[str]:

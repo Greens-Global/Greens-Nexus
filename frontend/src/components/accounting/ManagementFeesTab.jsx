@@ -12,6 +12,7 @@ import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './ta
 import { downloadBlob } from './reportModel';
 import { linesFile } from './linesExport';
 import { useTableSync } from './tableSync';
+import { ColumnFilterRow, useColumnFilters } from './columnFilters';
 import { cellStyle, headStyle } from './columnStyles';
 import { requestReportDrill } from './drill';
 import { Chip } from './LoanSetupDialog';
@@ -357,6 +358,25 @@ function feeColumns(entities, canEdit) {
   ];
 }
 
+// The box under every heading (columnFilters.jsx, chat triage 10/27): "contains"
+// for the words, =, >, <, >=, <= and Between for the figures, Next Billing as
+// it reads (MM/DD/YYYY). The row buttons get none.
+export function feeFilters(columns) {
+  return columns.filter((c) => !c.noFilter).map((c) => ({
+    key: c.key, label: c.label, text: c.text,
+    ...(c.type === 'amount' ? { num: true, value: c.value } : null),
+    ...(c.type === 'date' ? { placeholder: 'MM/DD/YYYY' } : null),
+  }));
+}
+// The filter row's look (the shared row draws plain cells; req-table has no rule for them).
+const FILTER_CSS = `.acct-ama .acct-filter-row td { padding: 3px 4px 4px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); }
+.acct-ama .acct-filter-row input, .acct-ama .acct-filter-row select { width: 100%; min-width: 0; box-sizing: border-box; height: 24px; padding: 0 6px; border: 1px solid var(--border-color); border-radius: 6px; font: inherit; font-size: 12px; font-weight: 400; background: var(--bg-card); color: var(--text-primary); }
+.acct-ama .acct-filter-row input::placeholder { color: var(--text-muted); opacity: .7; }
+.acct-ama .acct-filter-row input:not(:placeholder-shown) { border-color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }
+.acct-ama .acct-op-filter { display: flex; gap: 3px; align-items: center; min-width: 110px; }
+.acct-ama .acct-op-filter select { width: auto; flex: 0 0 auto; padding: 0 2px; }
+.acct-ama .acct-op-filter input { flex: 1 1 auto; min-width: 48px; text-align: right; }`;
+
 export default function ManagementFeesTab({ canEdit = false }) {
   const custom = useCustomizePrefs(['density', 'pageSize', 'historicalEntities']);
   const py = DENSITIES.find((x) => x.key === custom.density)?.py || '5px';
@@ -398,9 +418,13 @@ export default function ManagementFeesTab({ canEdit = false }) {
   // 10/23 meeting, item 01: the standard view over what the filter box leaves;
   // the widths dragged before it (saved as 'ama') are the defaults.
   const columns = useMemo(() => feeColumns(entities, canEdit), [entities, canEdit]);
-  const view = useTableView('mgmt-fees', columns, searched, { widthsKey: 'ama' });
+  // The boxes under the headings narrow what the filter box leaves; the view,
+  // the totals and the export follow them.
+  const filterColumns = useMemo(() => feeFilters(columns), [columns]);
+  const boxes = useColumnFilters(searched, filterColumns);
+  const view = useTableView('mgmt-fees', columns, boxes.rows, { widthsKey: 'ama' });
   const rows = view.rows;
-  const paged = usePaged(rows, custom.pageSize, [year, period, text, view.state]);
+  const paged = usePaged(rows, custom.pageSize, [year, period, text, view.state, JSON.stringify(boxes.typed)]);
   const [busy, setBusy] = useState('');
   const exportAs = async (format) => {
     setBusy(format);
@@ -427,7 +451,8 @@ export default function ManagementFeesTab({ canEdit = false }) {
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
-      <style>{`.acct-ama tbody > tr > td { padding-top: var(--ama-py, 5px); padding-bottom: var(--ama-py, 5px); }`}</style>
+      <style>{`.acct-ama tbody > tr > td { padding-top: var(--ama-py, 5px); padding-bottom: var(--ama-py, 5px); }
+${FILTER_CSS}`}</style>
       <div>
         <h3 style={{ margin: 0, fontSize: '1rem' }}>Management Fees</h3>
         <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -498,14 +523,14 @@ export default function ManagementFeesTab({ canEdit = false }) {
           <span>{canEdit ? 'Add one with + Add Agreement: the managed entity, the fee and how often it is billed.' : 'An editor on Accounting can add them here.'}</span>
         </div>
       )}
-      {!error && !loading && all.length > 0 && !rows.length && (
+      {!error && !loading && all.length > 0 && !rows.length && !boxes.filtering && (
         <div style={{ ...card, padding: 14, fontSize: '0.84rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span>No agreement matches the filters.</span>
           {view.dirty && <button type="button" className="secondary-btn" onClick={view.clear} style={{ fontSize: '0.76rem' }}>Clear</button>}
         </div>
       )}
 
-      {!error && (loading || rows.length > 0) && (
+      {!error && (loading || rows.length > 0 || (all.length > 0 && boxes.filtering)) && (
         <div style={{ ...card, padding: 0, overflow: 'hidden' }} aria-busy={loading}>
           {/* 10/23 meeting, item 05: the agreements scroll inside this box, headings pinned. */}
           <div className="req-table-wrapper acct-scroll-box" ref={setBox} data-testid="mgmt-fees-box" style={fit}>
@@ -516,8 +541,15 @@ export default function ManagementFeesTab({ canEdit = false }) {
                     <ViewHead key={c.key} view={view} col={c} aria-label={c.label} style={headStyle(view.manualWidth(c.key), c.type === 'amount' ? num : null)} />
                   )))}
                 </tr>
+                <ColumnFilterRow columns={view.columns} filterColumns={filterColumns} typed={boxes.typed} onChange={boxes.setFilter} />
               </thead>
               <tbody>
+                {!loading && !rows.length && (
+                  <tr><td colSpan={cols || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: '0.84rem' }}>
+                    No agreement matches these column filters.{' '}
+                    <button type="button" onClick={boxes.clear} style={{ border: 'none', background: 'none', font: 'inherit', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear Column Filters</button>
+                  </td></tr>
+                )}
                 {loading && !data ? <SkeletonRows cols={cols} /> : paged.rows.map((r) => {
                   const name = entityText(entities, r.entityCode);
                   const failed = !!r.error;

@@ -11,6 +11,8 @@ import { useAccountingPrefs } from './prefs';
 import { usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { cellStyle } from './columnStyles';
+import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
+import { filterColumnsOf } from './viewFilterColumns';
 import { useTableSync } from './tableSync';
 import { linesFile } from './linesExport';
 import SidePanel, { PanelSection } from './SidePanel';
@@ -60,6 +62,17 @@ import Amount from './Amount';
 //            list's own Sync: it reads the list again past the server's
 //            2-minute cache (Requests: the requests again); the open record,
 //            the search, the page and the scroll stay.
+//
+// Chat triage 10/27 (item 15, Charmi: "we did an update to a vendor in
+// Intacct and use the Sync option but it still did not update on Nexus"):
+//   - an approved change closes itself once Intacct is seen holding it
+//     ("In Intacct", the badge goes); a field someone changed in Intacct
+//     since shows Intacct's value with a note ("Changed In Intacct");
+//   - "Intacct data as of" beside Sync: when the accounting app's copy of the
+//     vendors and customers last caught up with Intacct (every 30 minutes);
+//   - Export Approved CSV on Vendors is Intacct's vendor import file.
+//   Two-way sync (approved here -> written to Intacct) is not built: it
+//   waits on Neil's decision to enable direct write from Nexus to Intacct.
 
 const KINDS = [{ key: 'vendor', label: 'Vendors' }, { key: 'customer', label: 'Customers' }];
 const SECTIONS = [{ key: 'records', label: 'Records' }, { key: 'requests', label: 'Requests' }];
@@ -81,8 +94,16 @@ const DEFAULT_PAGE_SIZE = 100;
 const STATUS = {
   pending: { label: 'Pending Approval', fg: '#92400e', bg: 'rgba(180,83,9,0.13)' },
   approved: { label: 'Approved - Awaiting Intacct', fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' },
+  in_intacct: { label: 'In Intacct', fg: 'var(--text-secondary)', bg: 'rgba(100,116,139,0.12)' },
+  intacct_changed: { label: 'Changed In Intacct', fg: '#92400e', bg: 'rgba(180,83,9,0.13)' },
   declined: { label: 'Declined', fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
 };
+/** What a request found in Intacct when it closed (item 15), one line per field Intacct changed since. */
+const seenNote = (r) => Object.entries(r.intacctCheck || {}).filter(([, v]) => v?.state === 'changed')
+  .map(([f, v]) => `${FIELD_LABEL[f] || f}: Intacct has ${v.intacct || '(blank)'}`);
+/** The fields Intacct changed after the approval, as the record's note says them. */
+const changedInIntacctText =(changed = {}) => Object.entries(changed)
+  .map(([f, v]) => `${FIELD_LABEL[f] || f} - Intacct has ${v.intacct || 'blank'} (Nexus approved ${v.approved || 'blank'}${v.approvedAt ? ` on ${formatDate(v.approvedAt)}` : ''})`).join('; ');
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const th = { textAlign: 'left', padding: '6px 8px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-color)' };
 const td = { padding: '5px 8px', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', verticalAlign: 'top' };
@@ -143,6 +164,16 @@ function partnerColumns(kind, fromLedger) {
     OPEN_COLUMN];
 }
 
+// The Requests list's filter boxes (item 14): what each cell reads, dates as MM/DD/YYYY.
+const REQUEST_FILTERS = [
+  { key: 'record', label: 'Record', text: (r) => `${r.partnerName || ''} ${r.partnerId || ''}` },
+  { key: 'changes', label: 'Changes', text: (r) => Object.entries(r.changes || {}).map(([f, v]) => `${FIELD_LABEL[f] || f}: ${v.from || '(blank)'} -> ${v.to || '(blank)'}`).join(' ') },
+  { key: 'requested', label: 'Requested', text: (r) => `${r.requestedByName || ''} ${formatDateTime(r.requestedAt)}`, placeholder: 'name or MM/DD/YYYY' },
+  { key: 'status', label: 'Status', text: (r) => `${STATUS[r.status]?.label || r.status || ''} ${r.decidedByName || ''} ${r.decidedAt ? formatDateTime(r.decidedAt) : ''}` },
+  { key: 'note', label: 'Note', text: (r) => [r.note, ...seenNote(r)].filter(Boolean).join(' ') },
+];
+const REQUEST_HEADS = [...REQUEST_FILTERS, { key: 'actions', label: '' }];
+
 // Oct 22 (Neil): Records > Vendors / Customers open this screen on that list (`initialKind`).
 export default function PartnersTab({ canApprove = false, initialKind = 'vendor' }) {
   const startKind = KINDS.some((k) => k.key === initialKind) ? initialKind : 'vendor';
@@ -157,6 +188,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
   const [searchOpen, setSearchOpen] = useState(() => !!restore?.q);
   const [records, setRecords] = useState(null);
   const [source, setSource] = useState('intacct');   // 'ledger': codes and names only, read-only
+  const [asOf, setAsOf] = useState('');              // when the accounting app's copy last caught up with Intacct
   const [recState, setRecState] = useState({ loading: false, error: '', notReady: false });
   const [requests, setRequests] = useState(null);
   const [reqStatus, setReqStatus] = useState('pending');
@@ -202,6 +234,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
       if (mine !== seq.current) return;
       setRecords(d?.partners || []);
       setSource(d?.source === 'ledger' ? 'ledger' : 'intacct');
+      if (d?.intacctAsOf) setAsOf(d.intacctAsOf);
       setRecState({ loading: false, error: '', notReady: false });
     }).catch((e) => {
       if (mine !== seq.current) return;
@@ -210,7 +243,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
     });
   }, []);
   const loadRequests = useCallback((status, k) => (
-    api.getAccountingPartnerChanges(status, k).then((d) => setRequests(d?.changes || [])).catch(() => setRequests([]))
+    api.getAccountingPartnerChanges(status, k).then((d) => { setRequests(d?.changes || []); if (d?.intacctAsOf) setAsOf(d.intacctAsOf); }).catch(() => setRequests([]))
   ), []);
   useEffect(() => { loadRecords(kind, ''); }, [kind, loadRecords]);
   useEffect(() => { loadRequests(reqStatus, kind); }, [reqStatus, kind, loadRequests]);
@@ -228,12 +261,23 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
   const [syncing, setSyncing] = useState(false);
   const onSync = () => { setSyncing(true); Promise.resolve(ts.sync()).finally(() => setSyncing(false)); };
   const syncButton = <SyncButton onSync={onSync} busy={syncing} syncedAt={ts.syncedAt} what={section === 'requests' ? 'Requests' : ''} />;
+  // Item 15: Sync reads the accounting app's copy; say how fresh that copy is.
+  const asOfLine = asOf && source !== 'ledger' ? (
+    <span data-testid="intacct-as-of" title="Vendor and customer details come from the accounting app's copy of Intacct, refreshed every 30 minutes. Sync reads that copy again."
+      style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Intacct data as of {formatDateTime(asOf)}</span>
+  ) : null;
   // Item 01: the standard view over the list the search and Customize leave.
   const fromLedger = source === 'ledger';
   const columns = useMemo(() => partnerColumns(kind, fromLedger), [kind, fromLedger]);
-  const view = useTableView(`partners-${kind}`, columns, shown);
+  // Item 14 (Charmi, 10/26: "There should be search option for all"): a box
+  // under every heading; the view, the pages and Export take what they leave.
+  const filterCols = useMemo(() => filterColumnsOf(columns), [columns]);
+  const filters = useColumnFilters(shown, filterCols);
+  const clearBoxes = filters.clear;
+  useEffect(() => { clearBoxes(); }, [kind, clearBoxes]);
+  const view = useTableView(`partners-${kind}`, columns, filters.rows);
   const listed = view.rows;
-  const paged = usePaged(listed, pageSize, `${kind}|${q.trim().toLowerCase()}|${showInactive}|${JSON.stringify(view.state)}`);
+  const paged = usePaged(listed, pageSize, `${kind}|${q.trim().toLowerCase()}|${showInactive}|${JSON.stringify(view.state)}|${JSON.stringify(filters.typed)}`);
   const { setPage } = paged;
 
   // Item 07: once the list is back, the parked page, record and scroll.
@@ -275,20 +319,23 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
     setBusy('');
   }
 
+  // Vendors: Intacct's vendor import file (item 15); customers: the change list until Intacct's customer template is set up.
   async function exportApproved() {
     setBusy('export');
-    try { const { blob, filename } = await api.exportAccountingPartnerChanges('approved', kind); downloadBlob(filename, blob); }
+    try { const { blob, filename } = await api.exportAccountingPartnerChanges('approved', kind, kind === 'vendor' ? 'intacct' : ''); downloadBlob(filename, blob); }
     catch (err) { await dialog.alert(err?.message || 'Could not export.', { title: 'Export' }); }
     setBusy('');
   }
 
   const kindLabel = kind === 'vendor' ? 'vendor' : 'customer';
+  const reqFilters = useColumnFilters(requests, REQUEST_FILTERS);
+  const reqHeads = canApprove ? REQUEST_HEADS : REQUEST_FILTERS;
 
   async function exportList(format) {
     setBusy(`export-${format}`);
     try {
       // Exactly what the view leaves: its rows, order and columns (item 01).
-      const about = partnersTable(listed, { kind, fromLedger, note: [q.trim() ? `matching "${q.trim()}"` : '', view.count ? 'filtered' : '', showInactive ? 'inactive included' : 'active only'].filter(Boolean).join(', ') });
+      const about = partnersTable(listed, { kind, fromLedger, note: [q.trim() ? `matching "${q.trim()}"` : '', view.count || filters.filtering ? 'filtered' : '', showInactive ? 'inactive included' : 'active only'].filter(Boolean).join(', ') });
       const table = viewTable(listed, view.columns, { title: about.title, subtitle: about.subtitle, totals: false });
       const file = await linesFile(table, format, `${table.title} - ${formatDate(iso(new Date())).replace(/\//g, '-')}.${format === 'excel' ? 'xlsx' : 'csv'}`);
       downloadBlob(file.name, file);
@@ -344,6 +391,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
             <TableViewBar view={view} />
             {/* Round 3 (item 02): on a short row Customize goes into More with Columns, Sync fourth, Export fifth. */}
             <div className="acct-bar-end">
+              {asOfLine}
               <BarMore level={4}>{syncButton}</BarMore>
               <BarMore level={1} active={showInactive ? 1 : 0}>
               <CustomizeButton active={showInactive} pageSize={pageSize} onPageSize={(n) => setPrefs({ partnersPageSize: Math.max(0, Math.floor(Number(n) || 0)) })}>
@@ -364,12 +412,16 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
             <select value={reqStatus} onChange={(e) => setReqStatus(e.target.value)} aria-label="Request status" style={control}>
               <option value="pending">Pending Approval</option>
               <option value="approved">Approved - Awaiting Intacct</option>
+              <option value="in_intacct">In Intacct</option>
+              <option value="intacct_changed">Changed In Intacct</option>
               <option value="declined">Declined</option>
               <option value="">All</option>
             </select>
             <div className="acct-bar-end">
+              {asOfLine}
               <BarMore level={4}>{syncButton}</BarMore>
-              <button type="button" className="secondary-btn" disabled={busy === 'export'} onClick={exportApproved} aria-label="Export Approved CSV" title="Export Approved CSV" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> <span className="acct-bar-label">Export Approved CSV</span></button>
+              <button type="button" className="secondary-btn" disabled={busy === 'export'} onClick={exportApproved} aria-label="Export Approved CSV"
+                title={kind === 'vendor' ? "Intacct's vendor import file: one row per vendor with its approved changes. Import it in Intacct under Accounts Payable > Vendors > Import; each change shows In Intacct after the next sync." : 'The approved changes, one row per field'} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> <span className="acct-bar-label">Export Approved CSV</span></button>
             </div>
           </>
         )}
@@ -401,20 +453,24 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
           )}
           <div style={card}>
             <div ref={boxRef} className="acct-partners-box" data-testid="partners-box">
-              {!listed.length ? (
+              {!listed.length && !filters.filtering ? (
                 <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>
                   {shown.length ? `No ${kindLabel}s pass the filters. Clear a filter to see more.` : `No ${hiddenInactive && !q ? `active ${kindLabel}s` : `${kindLabel}s`}${q ? ' match' : ' came back from the ledger'}.`}
                 </p>
               ) : (
-                <table className="acct-partners">
+                <table className="acct-partners acct-sticky-head">
                   <thead>
                     <tr>
                       {view.columns.map((c) => (c.key === 'open' ? <th key={c.key} style={th} aria-label="Actions" /> : (
-                        <ViewHead key={c.key} view={view} col={c} aria-label={c.label} style={{ ...th, position: 'sticky', ...(c.type === 'number' ? { textAlign: 'right' } : null), ...cellStyle(view.manualWidth(c.key), { overflow: 'visible' }) }} />
+                        <ViewHead key={c.key} view={view} col={c} aria-label={c.label} style={{ ...th, position: 'relative', ...(c.type === 'number' ? { textAlign: 'right' } : null), ...cellStyle(view.manualWidth(c.key), { overflow: 'visible' }) }} />
                       )))}
                     </tr>
+                    <ColumnFilterRow columns={view.columns} filterColumns={filterCols} typed={filters.typed} onChange={filters.setFilter} />
                   </thead>
                   <tbody>
+                    {!listed.length && (
+                      <ColumnFiltersEmpty colSpan={view.columns.length} onClear={clearBoxes} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }} />
+                    )}
                     {paged.rows.map((r) => {
                       const cell = (k, extra = null) => ({ ...td, ...(extra || {}), ...cellStyle(view.manualWidth(k)) });
                       return (
@@ -437,6 +493,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
                                 <strong>{r.displayName || r.name}</strong>
                                 {r.awaitingIntacct && <span style={{ ...chip(STATUS.approved), marginLeft: 6 }} title={`Approved changes not yet keyed into Intacct: ${Object.keys(r.intacctValues || {}).map((f) => FIELD_LABEL[f] || f).join(', ')}`}>Awaiting Intacct</span>}
                                 {r.pendingChange && <span style={{ ...chip(STATUS.pending), marginLeft: 6 }}>Pending Approval</span>}
+                                {Object.keys(r.intacctChanged || {}).length > 0 && <span style={{ ...chip(STATUS.intacct_changed), marginLeft: 6 }} title={`Changed in Intacct after the approval: ${changedInIntacctText(r.intacctChanged)}`}>Changed In Intacct</span>}
                               </td>
                             ),
                             email: <td style={cell('email')}>{r.email}</td>,
@@ -469,14 +526,18 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
 
       {section === 'requests' && (
         <AsyncSection loading={requests === null} skeleton={<SkeletonBlocks count={2} />}>
-          <div style={{ ...card, overflow: 'auto' }}>
+          <div className="acct-partners-box" style={card}>
             {!requests?.length ? (
               <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>No {reqStatus ? STATUS[reqStatus]?.label.toLowerCase() : ''} requests for {kindLabel}s.</p>
             ) : (
-              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-                <thead><tr><th style={th}>Record</th><th style={th}>Changes</th><th style={th}>Requested</th><th style={th}>Status</th><th style={th}>Note</th>{canApprove && <th style={th}></th>}</tr></thead>
+              <table className="acct-sticky-head" style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%' }}>
+                <thead>
+                  <tr>{reqHeads.map((c) => <th key={c.key} style={{ ...th, background: 'var(--bg-secondary)' }}>{c.label}</th>)}</tr>
+                  <ColumnFilterRow columns={reqHeads} filterColumns={REQUEST_FILTERS} typed={reqFilters.typed} onChange={reqFilters.setFilter} />
+                </thead>
                 <tbody>
-                  {requests.map((r) => (
+                  {!reqFilters.rows.length && <ColumnFiltersEmpty colSpan={reqHeads.length} onClear={reqFilters.clear} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }} />}
+                  {reqFilters.rows.map((r) => (
                     <tr key={r.id} className={canApprove && r.status === 'pending' ? 'nx-needs-you--row' : undefined}>
                       <td style={td}><strong>{r.partnerName || r.partnerId}</strong><div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{r.partnerId}</div></td>
                       <td style={td}>
@@ -485,8 +546,9 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
                         ))}
                       </td>
                       <td style={td}>{r.requestedByName}<div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{formatDateTime(r.requestedAt)}</div></td>
-                      <td style={td}><span style={chip(STATUS[r.status] || STATUS.pending)}>{STATUS[r.status]?.label || r.status}</span>{r.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{r.decidedByName} · {formatDateTime(r.decidedAt)}</div>}</td>
-                      <td style={{ ...td, whiteSpace: 'pre-wrap', maxWidth: 260 }}>{r.note}</td>
+                      <td style={td}><span style={chip(STATUS[r.status] || STATUS.pending)}>{STATUS[r.status]?.label || r.status}</span>{r.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{r.decidedByName} · {formatDateTime(r.decidedAt)}</div>}
+                        {r.intacctSeenAt && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>Seen in Intacct {formatDateTime(r.intacctSeenAt)}</div>}</td>
+                      <td style={{ ...td, whiteSpace: 'pre-wrap', maxWidth: 260 }}>{[r.note, ...seenNote(r)].filter(Boolean).join('\n')}</td>
                       {canApprove && (
                         <td style={{ ...td, whiteSpace: 'nowrap', textAlign: 'right' }}>
                           {r.status === 'pending' && (
@@ -585,6 +647,7 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
       {rec.status && <span style={chip(isInactive(rec) ? STATUS.declined : { fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' })}>{isInactive(rec) ? 'Inactive' : rec.status[0].toUpperCase() + rec.status.slice(1)}</span>}
       {rec.awaitingIntacct && <span style={chip(STATUS.approved)}>Awaiting Intacct</span>}
       {rec.pendingChange && <span style={chip(STATUS.pending)}>Pending Approval</span>}
+      {Object.keys(rec.intacctChanged || {}).length > 0 && <span style={chip(STATUS.intacct_changed)}>Changed In Intacct</span>}
     </>
   );
   return (
@@ -632,6 +695,11 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
           {rec.awaitingIntacct && (
             <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
               Approved changes not yet keyed into Intacct: {Object.entries(rec.intacctValues || {}).map(([f, v]) => `${FIELD_LABEL[f] || f} (Intacct has ${v || 'blank'})`).join(', ')}.
+            </p>
+          )}
+          {Object.keys(rec.intacctChanged || {}).length > 0 && (
+            <p role="note" style={{ margin: 0, fontSize: '0.76rem', color: '#92400e' }}>
+              Changed in Intacct after the approval, so Intacct&apos;s value is shown: {changedInIntacctText(rec.intacctChanged)}.
             </p>
           )}
           {fromLedger && <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--text-muted)' }}>Contact details show once the accounting app serves the full Intacct record.</p>}
@@ -693,8 +761,9 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
                           <div key={f}><span style={{ color: 'var(--text-secondary)' }}>{FIELD_LABEL[f] || f}:</span> <s style={{ color: 'var(--text-muted)' }}>{v.from || '(blank)'}</s> {'->'} <strong>{v.to || '(blank)'}</strong></div>
                         ))}
                       </td>
-                      <td style={td}><span style={chip(STATUS[h.status] || STATUS.pending)}>{STATUS[h.status]?.label || h.status}</span>{h.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{h.decidedByName} · {formatDateTime(h.decidedAt)}</div>}</td>
-                      <td style={{ ...td, whiteSpace: 'pre-wrap', maxWidth: 240 }}>{h.note}</td>
+                      <td style={td}><span style={chip(STATUS[h.status] || STATUS.pending)}>{STATUS[h.status]?.label || h.status}</span>{h.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{h.decidedByName} · {formatDateTime(h.decidedAt)}</div>}
+                        {h.intacctSeenAt && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>Seen in Intacct {formatDateTime(h.intacctSeenAt)}</div>}</td>
+                      <td style={{ ...td, whiteSpace: 'pre-wrap', maxWidth: 240 }}>{[h.note, ...seenNote(h)].filter(Boolean).join('\n')}</td>
                     </tr>
                   ))}
                 </tbody>
