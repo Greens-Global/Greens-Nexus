@@ -405,7 +405,7 @@ def _now_iso():
 
 def main(argv=None, preview=None):
     parser = argparse.ArgumentParser(prog="preview.py", description="Ready To Check: run a branch locally for the pin's author.")
-    parser.add_argument("--api", help="API base URL (default: NEXUS_API_BASE or the dev API)")
+    parser.add_argument("--api", help="API base URL (default: the Nexus connect.py connected, else NEXUS_API_BASE, else the dev API)")
     parser.add_argument("--token", help="Build Token (default: NEXUS_BUILD_TOKEN or ~/.config/nexus/build-notes.token)")
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("start", help="start the branch's preview and record it on the pins")

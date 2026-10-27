@@ -125,7 +125,7 @@ def wait_once(client, timeout):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Wait for Build Mode pins and hand them to Claude Code.")
     parser.add_argument("--once", action="store_true", help="handle one batch of pins, then exit")
-    parser.add_argument("--api", help="API base URL (default: NEXUS_API_BASE or the dev API)")
+    parser.add_argument("--api", help="API base URL (default: the Nexus connect.py connected, else NEXUS_API_BASE, else the dev API)")
     parser.add_argument("--token", help="Build Token (default: NEXUS_BUILD_TOKEN or ~/.config/nexus/build-notes.token)")
     parser.add_argument("--no-claude", action="store_true", help="print the pin ids and exit instead of running Claude Code")
     parser.add_argument("--claude-args", default="", help='extra arguments for the claude command, e.g. "--model opus"')

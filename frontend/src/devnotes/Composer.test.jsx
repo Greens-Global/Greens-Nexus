@@ -19,11 +19,6 @@ vi.mock('../api', () => ({
 }));
 vi.mock('../lib/supabase', () => ({ supabase: null, supabaseUrl: '', supabaseAnonKey: '' }));
 
-// The v1 buttons below (Save Pin + Save And Send) are the Send to Claude
-// Code ones - off while it is on hold (meta.CLAUDE_SEND_ON); tested switched
-// on here, as they come back. Composer.claudeOff.test.jsx covers it as shipped.
-vi.mock('./meta', async (importOriginal) => ({ ...(await importOriginal()), CLAUDE_SEND_ON: true }));
-
 const Composer = (await import('./Composer')).default;
 const { api } = await import('../api');
 
@@ -125,5 +120,17 @@ describe('guessKind', () => {
     expect(guessKind('Please add a due date column')).toBe('change');
     expect(guessKind('Button does nothing when clicked')).toBe('bug');
     expect(guessKind('Shows the wrong date')).toBe('bug');
+  });
+});
+
+describe('Composer - your Claude Code is not connected', () => {
+  it('only Save Pin, with a line saying how to send; Ctrl+Enter only saves', () => {
+    const onSave = vi.fn();
+    render(<Composer pick={pickAt('src/tasks/Home.jsx')} draft={draft} onChange={vi.fn()} onCancel={vi.fn()} onSave={onSave} settings={{ sendInstantly: true }} view="tasks" claudeConnected={false} />);
+    expect(screen.queryByRole('button', { name: /Save And Send/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Save Pin/ })).toBeTruthy();
+    expect(screen.getByTestId('bm-no-claude').textContent).toMatch(/not connected/);
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter', ctrlKey: true });
+    expect(onSave).toHaveBeenLastCalledWith(false);
   });
 });

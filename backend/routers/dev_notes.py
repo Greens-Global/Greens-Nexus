@@ -48,7 +48,7 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
-from sqlalchemy import func, or_, text as sa_text
+from sqlalchemy import and_, func, or_, text as sa_text
 from sqlalchemy.orm import Session
 
 import auth
@@ -87,11 +87,10 @@ PRIORITIES = ("blocking", "normal", "nice")
 STATUSES = ("open", "dispatched", "building", "needs_input", "pr_open", "fixed", "done", "dismissed")
 SESSION_STATUSES = ("collecting", "sent", "building", "pr_open", "fixed", "done")
 ATTACH_KINDS = ("after", "before", "paste")   # before-/after- files are the verify shots, paste- the rest
-# Send to Claude Code is on hold (Pranshu, Oct 27 2026): while this is off a
-# stored Send Instantly is read as off, so a saved pin never dispatches on its
-# own. The browser's switch is CLAUDE_SEND_ON in frontend/src/devnotes/meta.js
-# - turn both back on together.
-CLAUDE_SEND_ON = False
+# Send to Claude Code (on since Oct 27 2026). Off, a stored Send Instantly is
+# read as off, so a saved pin never dispatches on its own. The browser's switch
+# is CLAUDE_SEND_ON in frontend/src/devnotes/meta.js - flip both together.
+CLAUDE_SEND_ON = True
 
 DEFAULT_SETTINGS = {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True,
                     # The Teams chat the person last posted their pins to
@@ -720,6 +719,7 @@ def _dispatch_notes(db: Session, notes: list, by: str) -> list:
             raise HTTPException(400, "GitHub dispatch is not available yet")
         n.status = "dispatched"
         n.dispatched_at = now
+        n.dispatched_by = (by or "").lower()      # only this person's Claude Code picks it up
         n.updated_at = now
         s = _session(db, n.session_id)
         if s and s not in touched:
@@ -1268,6 +1268,26 @@ def mint_token(body: Optional[dict] = None, user: dict = Depends(require_build_m
     return {"id": row.id, "token": raw, "label": label, "expiresAt": row.expires_at}
 
 
+CONNECTED_SEC = 150   # the watcher asks every ~25 s and the token's last use is rewritten once a minute
+
+
+@router.get("/claude-connection")
+def claude_connection(user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Is the caller's own Claude Code listening? (Oct 26 2026: Send To
+    Claude Code goes only to the sender's watcher, so Nexus says whether it is
+    there before anyone sends.) Connected = one of their live Build Tokens was
+    used in the last CONNECTED_SEC. `apiBase` is this API's public address for
+    the connect command ('' when running locally - the browser knows it then)."""
+    from app_url import public_base
+    now = _now()
+    rows = (db.query(DevNoteToken)
+            .filter(DevNoteToken.email == user["email"].lower(), or_(DevNoteToken.revoked_at == "", DevNoteToken.revoked_at.is_(None)))
+            .all())
+    last = max((t.last_used_at for t in rows if t.last_used_at and (t.expires_at or "") > now), default="")
+    connected = bool(last) and (datetime.fromisoformat(now) - datetime.fromisoformat(last)).total_seconds() <= CONNECTED_SEC
+    return {"connected": connected, "lastSeen": last, "apiBase": public_base()}
+
+
 @router.get("/tokens")
 def list_tokens(user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
     q = db.query(DevNoteToken)
@@ -1595,19 +1615,31 @@ def _last_human_comment(n: DevNote) -> bool:
     return _answered(n.thread or [])
 
 
-def _pending_ids(db: Session) -> list:
-    """Ids of the pins Claude Code should pick up: dispatched ones, plus pins
+def sent_by(n) -> str:
+    """Whose Claude Code a pin belongs to: whoever sent it; a pin sent before
+    dispatched_by existed belongs to its author."""
+    return ((getattr(n, "dispatched_by", "") or "") or (n.created_by or "")).lower()
+
+
+def _pending_ids(db: Session, email: str) -> list:
+    """Ids of the pins THIS person's Claude Code should pick up (Pranshu,
+    Oct 26: several watchers run at once - Neil's, Visesh's, mine - and a pin
+    must never land in someone else's terminal): the ones they sent, plus pins
     Claude was waiting on whose author has answered. A claim clears the second
     kind by appending its own entry. Cheap on purpose - this runs every 2 s
-    per waiting watcher - so only id, status and thread are read."""
-    rows = (db.query(DevNote.id, DevNote.status, DevNote.thread)
-            .filter(DevNote.status.in_(("dispatched", "needs_input", "building")))
+    per waiting watcher - so only these columns are read."""
+    email = (email or "").lower()
+    rows = (db.query(DevNote.id, DevNote.status, DevNote.thread, DevNote.dispatched_by, DevNote.created_by)
+            .filter(DevNote.status.in_(("dispatched", "needs_input", "building")),
+                    or_(func.lower(DevNote.dispatched_by) == email,
+                        and_(or_(DevNote.dispatched_by == "", DevNote.dispatched_by.is_(None)),
+                             func.lower(DevNote.created_by) == email)))
             .order_by(DevNote.created_at.asc()).all())
     return [r.id for r in rows if r.status == "dispatched" or _answered(r.thread or [])]
 
 
-def _pending(db: Session) -> list:
-    ids = _pending_ids(db)
+def _pending(db: Session, email: str) -> list:
+    ids = _pending_ids(db, email)
     if not ids:
         return []
     rows = db.query(DevNote).filter(DevNote.id.in_(ids)).all()
@@ -1615,12 +1647,12 @@ def _pending(db: Session) -> list:
     return sorted(rows, key=lambda n: order.get(n.id, 0))
 
 
-def _poll_pending() -> tuple:
+def _poll_pending(email: str) -> tuple:
     """One poll on its own short-lived session (called in a thread); the full
     rows are loaded and serialized only on a hit."""
     db = database.SessionLocal()
     try:
-        notes = _pending(db)
+        notes = _pending(db, email)
         if not notes:
             return [], []
         sids = {n.session_id for n in notes if n.session_id}
@@ -1633,14 +1665,15 @@ def _poll_pending() -> tuple:
 @router.get("/cli/wait")
 async def cli_wait(timeout: int = Query(25, ge=0, le=WAIT_MAX_SEC),
                    user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
-    """Long poll: returns at once when a pin is waiting, else polls every 2 s
-    up to `timeout` and returns empty lists. Every query runs in a thread and
-    the sleep is asyncio's - nothing here may block the event loop."""
+    """Long poll: returns at once when a pin the caller sent is waiting, else
+    polls every 2 s up to `timeout` and returns empty lists. Every query runs
+    in a thread and the sleep is asyncio's - nothing here may block the event loop."""
     await asyncio.to_thread(db.close)   # give the pooled connection back for the wait
+    email = (user.get("email") or "").lower()
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while True:
-        notes, sessions = await asyncio.to_thread(_poll_pending)
+        notes, sessions = await asyncio.to_thread(_poll_pending, email)
         remaining = deadline - loop.time()
         if notes or remaining <= 0:
             return {"notes": notes, "sessions": sessions}
@@ -1657,7 +1690,8 @@ def cli_claim(body: dict, user: dict = Depends(require_build_mode_or_token), db:
     ids = _ids(body)
     if not ids:
         raise HTTPException(400, "noteIds is required")
-    notes, skipped = _batch(db, ids, ("dispatched", "needs_input", "building"), "cannot be claimed", skip_held=True)
+    notes, skipped = _batch(db, ids, ("dispatched", "needs_input", "building"), "cannot be claimed", skip_held=True,
+                            sent_to=(user.get("email") or "").lower())
     now = _now()
     out = []
     touched = []
@@ -1692,12 +1726,13 @@ def cli_claim(body: dict, user: dict = Depends(require_build_mode_or_token), db:
     return {"notes": out, "sessions": [_serialize_session(s) for s in touched], "skipped": skipped}
 
 
-def _batch(db: Session, ids: list, eligible: tuple, verb: str, skip_held: bool = False) -> tuple:
+def _batch(db: Session, ids: list, eligible: tuple, verb: str, skip_held: bool = False, sent_to: str = "") -> tuple:
     """The pins of a CLI batch that can take the step, plus `skipped`
     [{id, number, status, reason}] for the rest. Per pin on purpose: one
     dismissed pin in a batch must not stop the PR being recorded on the others.
     404 only when NO id exists, 409 only when NONE is eligible. `skip_held`
-    also skips pins held for another developer (code_owners.py)."""
+    also skips pins held for another developer (code_owners.py); `sent_to`
+    (claim) skips pins someone else sent - they belong to that person's Claude Code."""
     wanted = list(dict.fromkeys(ids))
     rows = {n.id: n for n in db.query(DevNote).filter(DevNote.id.in_(wanted)).with_for_update().all()}
     if not rows:
@@ -1710,6 +1745,9 @@ def _batch(db: Session, ids: list, eligible: tuple, verb: str, skip_held: bool =
         elif skip_held and _held(n):
             skipped.append({"id": i, "number": n.number or 0, "status": n.status,
                             "reason": f"{_waits_for(n)} - it is in their area"})
+        elif sent_to and sent_by(n) != sent_to:
+            skipped.append({"id": i, "number": n.number or 0, "status": n.status,
+                            "reason": f"Pin #{n.number} was sent to {_name_of(db, sent_by(n))}'s Claude Code, not yours"})
         elif n.status not in eligible:
             skipped.append({"id": i, "number": n.number or 0, "status": n.status,
                             "reason": f"Pin #{n.number} is {n.status} and {verb}"})
