@@ -9,6 +9,7 @@ import { perfTiles, variances, ytdVariance } from '../../../accounting/dashboard
 import { attentionItems } from '../../../accounting/dashboard/model/attention';
 import { inScope } from '../../../accounting/dashboard/model/scope';
 import { useDash } from './DashContext';
+import { applyLiabilityRecons } from './liabilityRecon';
 
 // Derived data hooks shared by widgets and tabs. Each combines the provider's
 // ledger with one of the shared tables and memoizes the pure-model result.
@@ -75,7 +76,7 @@ export function useCloseState() {
 const markRow = (m) => ({ ...m, thru_date: m.thru_date ? String(m.thru_date).slice(0, 10) : null, stmt_balance: m.stmt_balance == null || m.stmt_balance === '' ? null : Number(m.stmt_balance) });
 
 export function useRecon() {
-  const { period, scope, ix, ledger, tablesLoading, reconAccounts, reconAccountsLoading } = useDash();
+  const { period, scope, ix, ledger, tablesLoading, reconAccounts, reconAccountsLoading, liabilityRecons } = useDash();
   const banks = useTable('banks');
   const recons = useTable('recons');
   const marksRaw = useTable('reconMarks');
@@ -84,7 +85,7 @@ export function useRecon() {
   const holdingsRaw = useTable('holdings');
   const rows = useMemo(() => {
     const bal = ledger ? balancesAt(ledger, period) : new Map();
-    return reconList({
+    const list = reconList({
       period, scope, ix, banks, loans,
       marks: marksRaw.map(markRow),
       latestMarks: latestRaw.map(markRow),
@@ -94,7 +95,9 @@ export function useRecon() {
       glBalance: (id) => bal.get(id) ?? 0,
       glCode: (id) => ledger?.accounts.get(id)?.gl ?? '',
     });
-  }, [period, scope, ix, ledger, banks, recons, loans, holdingsRaw, marksRaw, latestRaw, reconAccounts]);
+    // Loans reconciled in Nexus (10/27, item 09) read like bank accounts.
+    return applyLiabilityRecons(list, { period, status: liabilityRecons, loans });
+  }, [period, scope, ix, ledger, banks, recons, loans, holdingsRaw, marksRaw, latestRaw, reconAccounts, liabilityRecons]);
   const reconciled = rows.filter((r) => r.status === 'Reconciled').length;
   return { rows, reconciled, remaining: rows.length - reconciled, behind: rows.filter((r) => r.status === 'Behind' || r.status === 'Difference').length, isLoading: tablesLoading || reconAccountsLoading };
 }
