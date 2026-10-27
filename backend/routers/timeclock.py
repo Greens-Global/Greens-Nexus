@@ -72,6 +72,7 @@ from currency import is_currency
 import ca_breaks
 import payroll_codes
 import pay_premiums
+import india_contractor_pay
 from shift_day import shift_day as _shift_day, shift_bounds_by_day as _shift_bounds_by_day
 import shift_log
 
@@ -309,7 +310,9 @@ PAY_KEYS = frozenset({"pay", "rate", "rateSet", "rateSplits", "amount", "regPay"
                       "bonusPay",
                       # Salary advance repayments (salary_advance.py, Oct 27) -
                       # the lines go whole, with the deduction and net pay.
-                      "advanceRepayments", "advanceRepayment", "netPay"})
+                      "advanceRepayments", "advanceRepayment", "netPay",
+                      # India Contractor Extra Time (india_contractor_pay.py, Oct 27 2026).
+                      "extraPay", "extraTimePay", "hourlyEquivalent"})
 
 
 def strip_pay(o):
@@ -2220,6 +2223,12 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
         exc = _blocking_exceptions(db, email, body.start, body.end)
         if exc:
             _exceptions_409(exc)
+        # India Contractor Extra Time (Oct 27 2026): pay is not final while a
+        # claim of the month waits on a decision.
+        from routers import extra_time
+        if extra_time.pending_count(db, email, body.start, body.end):
+            raise HTTPException(409, "An Extra Time claim for this month is still pending - approve or "
+                                     "decline it first.")
     _end_nx = (date.fromisoformat(body.end) + timedelta(days=1)).isoformat()
     # Freeze the pay rate + OT rule as of finalize, so a later change can't
     # re-price this locked, paid period (see _compute_timecard).
@@ -2229,10 +2238,17 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
     if _is_fixed:
         # PIN the whole fixed result as-of-finalize: statuses key off "today", so a
         # month finalized mid-month would otherwise re-price as its days elapse.
-        _ft = _fixed_card(db, email, body.start).get("totals", {})
+        _fcard = _fixed_card(db, email, body.start)
+        _ft = _fcard.get("totals", {})
         worked = _ft.get("workedMin", 0)   # unrounded - matches the fixed card + the sign
         _fixed_snap = {k: _ft.get(k) for k in ("totalPay", "deduction", "weekendBonus",
                        "missedFullDays", "missedHalfDays", "weekendDaysWorked", "missedReasons")}
+        # India Contractor policy (Oct 27 2026): the policy version and the
+        # whole reconciliation, day by day, so a later rule change, a leave
+        # balance moving or a claim never re-prices this month. Only an
+        # in-scope card carries the key.
+        if _fcard.get("indiaPolicy"):
+            _fixed_snap["indiaPolicy"] = india_contractor_pay.snapshot(_fcard)
     else:
         worked = sum(v["workedMin"] for k, v in _day_summaries(
             _live_punches(db, email, body.start, _end_nx), _round_min(db, email),
@@ -9224,6 +9240,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     # raise can't retro-price an already-paid month (mirrors the hourly freeze).
     _fin_snap = _finalized_row(db, em, m_start, m_end)
     _frozen = {}   # finalize-time totals - pin the whole result so it can't re-price
+    _icp_frozen = None   # the India Contractor reconciliation a finalized month was priced by
     if _fin_snap and _fin_snap.note:
         try:
             _sn = json.loads(_fin_snap.note)
@@ -9236,8 +9253,21 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                 if _sn.get("totalPay") is not None:
                     _frozen = {k: _sn.get(k) for k in ("totalPay", "deduction", "weekendBonus",
                                "missedFullDays", "missedHalfDays", "weekendDaysWorked", "missedReasons")}
+                # India Contractor policy (Oct 27 2026): a month finalized under
+                # it keeps its frozen reconciliation; one finalized without it
+                # keeps the old rules, whatever the switch says now.
+                if isinstance(_sn.get("indiaPolicy"), dict):
+                    _icp_frozen = _sn["indiaPolicy"]
         except Exception:   # noqa: BLE001 - a bad snapshot must not break the card
             pass
+    # India Contractor Work Hours and Extra Time Policy (Neil, Oct 27 2026,
+    # india_contractor_pay.py / docs/India-Contractor-Pay.md): None = the
+    # rules below, exactly as before.
+    if _fin_snap:
+        _icp = ({"applies": True, "version": _icp_frozen.get("version", ""), "startDate": _icp_frozen.get("startDate", ""),
+                 "constants": _icp_frozen.get("constants") or {}} if _icp_frozen is not None else None)
+    else:
+        _icp = india_contractor_pay.scope(db, em, rr, m_start)
 
     first = datetime.strptime(m_start, "%Y-%m-%d").date()
     last = datetime.strptime(m_end, "%Y-%m-%d").date()
@@ -9390,13 +9420,34 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                            "dailyRate": round(daily_d, 2),
                            "holidayName": (hol or {}).get("name", "")})
 
+    # India Contractor policy: the month is priced by its reconciliation
+    # instead (credits, the pool, recovery, Extra Time); the automatic weekend
+    # pay and its floor do not apply (Neil, Oct 27 2026: "that policy is
+    # overwritten now"). Nothing above changes for anyone else.
+    _icp_extra = 0.0
+    _icp_totals = None
+    if _icp is not None:
+        if _icp_frozen is not None:
+            _icp_res = {"days": _icp_frozen.get("days") or {}, "totals": _icp_frozen.get("reconciliation") or {},
+                        "claims": {ds: india_contractor_pay.claim_dict(c) for ds, c in
+                                   india_contractor_pay.live_claims(db, em, m_start, m_end).items()}}
+        else:
+            _icp_res = india_contractor_pay.price_month(
+                db, em, first=first, days_in_month=days_in_month, today=today, worked_by_day=worked_by_day,
+                leave_by_day=leave_by_day, leave_min_by_day=leave_min_by_day, open_by_day=open_by_day,
+                holidays=holidays, daily_on=_daily_on)
+        deduction, missed_full, missed_half, missed_reasons = _india_overlay(fixed_days, _icp_res, timeoff_by_day)
+        weekend_bonus = 0.0
+        _icp_totals = dict(_icp_res["totals"])
+        _icp_extra = float(_icp_totals.get("extraTimePay") or 0)
+
     weekend_bonus = round(weekend_bonus, 2)
     base_pay = round(base_pay, 2)
     # Absences never take more than the month's pay (Oct 23: Aarav, absent all
     # 22 working days of June at 1/261 of a year's fee each, was "owed" -344.83
     # before his bonus). A month with no work pays 0, not less.
     deduction = round(min(deduction, base_pay), 2)
-    total_pay = round(base_pay - deduction + weekend_bonus, 2)
+    total_pay = round(base_pay - deduction + weekend_bonus + _icp_extra, 2)
     _bt = {"totalPay": total_pay}
     _add_bonuses(card, _bt, _bonus_rows(db, em, m_start, m_end), db)
     total_pay = _bt["totalPay"]   # the finalize snapshot below already holds it
@@ -9444,7 +9495,71 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     _add_advance_repayments(card, card["totals"], db, em, m_start, m_end)
     card["periodStart"], card["periodEnd"] = m_start, m_end
     card["periodDays"] = days_in_month
+    if _icp is not None:
+        # The Month-End Reconciliation the card, the PDF and the invoice show
+        # (keys only on an in-scope card - every other card is unchanged).
+        card["weekendFloor"] = 0.0
+        card["indiaPolicy"] = {**_icp, "frozen": _icp_frozen is not None, "reconciliation": _icp_totals or {},
+                               "extraTime": {"multiplier": india_contractor_pay.EXTRA_TIME_MULT,
+                                             "hoursPerDay": india_contractor_pay.HOURS_PER_DAY,
+                                             "hourlyEquivalent": round(daily / india_contractor_pay.HOURS_PER_DAY, 2),
+                                             "rate": round(daily / india_contractor_pay.HOURS_PER_DAY
+                                                           * india_contractor_pay.EXTRA_TIME_MULT, 2)}}
+        _rt = _icp_totals or {}
+        card["totals"].update({"extraTimeMin": int(_rt.get("extraTimeMin") or 0),
+                               "extraTimePay": float(_rt.get("extraTimePay") or 0),
+                               "recoveredHalfDays": int(_rt.get("recoveredHalves") or 0),
+                               "unpaidHalfDays": int(_rt.get("unpaidHalves") or 0),
+                               "poolMin": int(_rt.get("poolMin") or 0)})
     return card
+
+
+# India Contractor policy: each day as the card shows it (Oct 27 2026).
+_ICP_REASON = {"none": "absent", "half": "half_day"}
+
+
+def _india_overlay(fixed_days: list, res: dict, timeoff_by_day: dict) -> tuple:
+    """Puts the reconciliation onto the card's days: each day's credit, pool
+    hours, claim and Extra Time, its deduction (the halves still unpaid after
+    recovery, at that day's rate), no weekend pay. Returns (deduction,
+    unpaid full days, unpaid half days, missed reasons) for the totals."""
+    days, claims = res.get("days") or {}, res.get("claims") or {}
+    deduction = 0.0
+    full = half = 0
+    reasons = {}
+    for fd in fixed_days:
+        ds = fd["date"]
+        r = days.get(ds)
+        if not r:
+            continue
+        kind, credit, state = r.get("kind"), r.get("credit"), r.get("state")
+        status = r.get("status") or fd["status"]
+        if not r.get("status"):
+            if kind == "scheduled" and state == "past" and not fd.get("leaveClass"):
+                status = {"full": "present", "half": "half", "none": "absent"}.get(credit, fd["status"])
+            elif kind == "holiday":
+                status = "holiday_worked" if fd.get("workedMin") else "holiday"
+        unpaid = int(r.get("unpaidHalves") or 0)
+        deduct = float(r.get("deduct") or 0)
+        fd.update({"status": status, "deduct": round(deduct, 2), "bonus": 0.0,
+                   "dayKind": kind, "credit": credit, "creditHalves": int(r.get("creditHalves") or 0),
+                   "leaveHalves": int(r.get("leaveHalves") or 0), "missingHalves": int(r.get("missingHalves") or 0),
+                   "recoveredHalves": int(r.get("recoveredHalves") or 0), "unpaidHalves": unpaid,
+                   "poolMin": int(r.get("poolMin") or 0), "claimableMin": int(r.get("claimableMin") or 0),
+                   "extraMin": int(r.get("extraMin") or 0), "extraPay": round(float(r.get("extraPay") or 0), 2),
+                   "leaveCovered": bool(r.get("leaveHalves")), "leaveUsedMin": int(r.get("leaveUsedMin") or 0),
+                   "leaveBucket": r.get("leaveBucket") or "", "claim": claims.get(ds)})
+        deduction += deduct
+        if unpaid:
+            if unpaid == 2:
+                full += 1
+            else:
+                half += 1
+            reason = (fd.get("leaveClass") or timeoff_by_day.get(ds)
+                      or ("holiday_half" if kind == "half_holiday" else _ICP_REASON.get(credit, "absent")))
+            slot = reasons.setdefault(reason, {"full": 0, "half": 0})
+            slot["full" if unpaid == 2 else "half"] += 1
+    return deduction, full, half, reasons
 
 
 def _pay_type(db: Session, em: str) -> str:
@@ -9595,6 +9710,50 @@ def set_rounding(body: RoundingIn, company: str = "", user: dict = Depends(requi
     cfg = {"enabled": bool(body.enabled), "nearestMin": min(30, max(0, int(body.nearestMin)))}
     _save_pay_rule(db, _ROUNDING_KEY, cfg, cid, body.reset, user)
     return _pay_rule_payload(db, _ROUNDING_KEY, _rounding_cfg(db, cid), cid)
+
+
+# ── India Contractor Policy (Neil, Oct 27 2026, india_contractor_pay.py) ─────
+# Per company: the switch (on by default for an India company) and Policy
+# Starts (11/01/2026 by default - months that start before it keep the old
+# rules, so October is never re-priced). Same permissions as Punch Rounding.
+
+def _india_policy_payload(db: Session, cid: str) -> dict:
+    cfg = india_contractor_pay.config(db, cid)
+    out = _pay_rule_payload(db, india_contractor_pay.SETTING_KEY, cfg, cid)
+    out.update({"defaultStart": india_contractor_pay.DEFAULT_START, "version": india_contractor_pay.POLICY_VERSION,
+                "companyCountry": india_contractor_pay.company_country(db, cid) if cid else "",
+                "enabled": india_contractor_pay.enabled_for_company(db, cid, cfg) if cid else None})
+    return out
+
+
+@router.get("/payroll/india-contractor-policy")
+def get_india_contractor_policy(company: str = "", user: dict = Depends(require_team_read),
+                                db: Session = Depends(get_db)):
+    return _india_policy_payload(db, _pay_company(db, company))
+
+
+class IndiaPolicyIn(BaseModel):
+    mode: str = ""            # '' = the default (on for an India company), 'on', 'off'
+    startDate: str = ""       # YYYY-MM-DD; '' = 11/01/2026
+    reset: bool = False       # a company: back to the default for every company
+
+
+@router.put("/payroll/india-contractor-policy")
+def set_india_contractor_policy(body: IndiaPolicyIn, company: str = "", user: dict = Depends(require_administrator),
+                                db: Session = Depends(get_db)):
+    cid = _pay_company(db, company)
+    mode = (body.mode or "").strip().lower()
+    if mode and mode not in india_contractor_pay.MODES:
+        raise HTTPException(400, "India Contractor Policy is on, off or the default.")
+    start = (body.startDate or "").strip()[:10]
+    if start:
+        try:
+            start = date.fromisoformat(start).isoformat()
+        except ValueError:
+            raise HTTPException(400, "Policy Starts must be a date.")
+    _save_pay_rule(db, india_contractor_pay.SETTING_KEY,
+                   {"mode": mode, "startDate": start or india_contractor_pay.DEFAULT_START}, cid, body.reset, user)
+    return _india_policy_payload(db, cid)
 
 
 # ── Payroll export codes (Neil, Oct 17 2026) ──────────────────────────────────
@@ -10532,6 +10691,11 @@ def payroll_timecard(email: str, start: str, end: str,
         card["notes"] = _timecard_notes(db, em, card["periodStart"], card["periodEnd"])
         card["zoneKey"] = _employee_zone_key(db, em)   # India staff open in India time (Oct 20)
         card.update(_invoice_keys(db, em, card["periodStart"], card["periodEnd"], user))
+        if card.get("indiaPolicy"):
+            # Approve / decline Extra Time on the card (Oct 27 2026): HR, the
+            # HR contact or a Global Admin - never the contractor themself.
+            from routers import extra_time
+            card["extraTimeCanDecide"] = extra_time.can_decide(db, user.get("email") or "", em)
         return _no_pay(db, user, card)
     card = _compute_timecard(db, em, start, end)
     if em == (user.get("email") or "").lower():
@@ -10835,6 +10999,10 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
         card["notes"] = _timecard_notes(db, user["email"], card["periodStart"], card["periodEnd"], own=True)
         card["zoneKey"] = _employee_zone_key(db, user["email"])
         card.update(_invoice_keys(db, user["email"], card["periodStart"], card["periodEnd"]))
+        if card.get("indiaPolicy"):
+            # Whether Claim Extra Time is still open for this month (Oct 27 2026).
+            from routers import extra_time
+            card["extraTimeFiling"] = extra_time.filing_state(db, user["email"], card["periodStart"], card["periodEnd"])
         return card
     p_start, p_end = _pay_period(anchor)
     card = _compute_timecard(db, user["email"], p_start, p_end)

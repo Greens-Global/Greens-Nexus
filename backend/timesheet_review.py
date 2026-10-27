@@ -230,6 +230,15 @@ def fingerprint(db: Session, email: str, start: str, end: str) -> str:
     prem = ca_breaks.premium_rows(db, email, start, end)
     if prem:
         body += sorted(["prem", p.id, p.local_date, p.kind] for p in prem)
+    # India Contractor Extra Time claims (Oct 27 2026) change the pay - only a
+    # card that has any adds them, so every other fingerprint is unchanged.
+    from models import ExtraTimeClaim
+    claims = (db.query(ExtraTimeClaim)
+              .filter(ExtraTimeClaim.employee_email == email, ExtraTimeClaim.status != "withdrawn",
+                      ExtraTimeClaim.local_date >= start, ExtraTimeClaim.local_date <= end).all())
+    if claims:
+        body += sorted(["xt", c.id, c.local_date, c.status, int(c.claimed_min or 0), int(c.approved_min or 0)]
+                       for c in claims)
     # Bonuses are NOT part of it (Neil, Oct 23): one added after an approval or
     # a signature never makes either go stale.
     return hashlib.sha256(json.dumps(body).encode()).hexdigest()
@@ -244,7 +253,10 @@ _SIGNED_KEYS = {
                ("vacationMin", "Vacation"), ("personalMin", "Personal"), ("workedMin", "Total Worked"),
                ("mealPremiumMin", "Meal Premium"), ("restPremiumMin", "Rest Premium")),
     "fixed": (("workedMin", "Worked"), ("missedFullDays", "Missed Full Days"),
-              ("missedHalfDays", "Missed Half Days"), ("weekendDaysWorked", "Weekend Days Worked")),
+              ("missedHalfDays", "Missed Half Days"), ("weekendDaysWorked", "Weekend Days Worked"),
+              # India Contractor policy (Oct 27 2026): approved Extra Time is
+              # pay the signature vouches for (0 on every other card).
+              ("extraTimeMin", "Approved Extra Time")),
 }
 TOTALS_CHANGED_NOTE = "Pay settings changed after approval - sent back for a fresh signature"
 
@@ -542,6 +554,14 @@ def approve_blocker(db: Session, email: str, start: str, end: str) -> str:
         # employee signs a card with nothing left open on it.
         return (f"{display_name(db, email)} has {pending} change{'' if pending == 1 else 's'} waiting for your "
                 f"decision on the time sheet above - approve or reject {'it' if pending == 1 else 'them'} first.")
+    # India Contractor Extra Time (Neil, Oct 27 2026): nothing is approved
+    # while a claim of the month is still waiting on a decision.
+    from routers import extra_time
+    xt = extra_time.pending_count(db, email, start, end)
+    if xt:
+        return (f"{display_name(db, email)} has {xt} Extra Time claim{'' if xt == 1 else 's'} pending for this "
+                f"month - approve or decline {'it' if xt == 1 else 'them'} first (on the time sheet above, or "
+                "People > Time > Extra Time).")
     return ""
 
 

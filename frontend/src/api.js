@@ -3159,6 +3159,18 @@ export const api = {
   perfReviewRecall: (id, note = "") => req(`/performance/reviews/${encodeURIComponent(id)}/recall`, { method: "POST", body: JSON.stringify({ note }) }),
   perfReviewSettings: (company = "") => req(`/performance/review-settings?company=${encodeURIComponent(company || "")}`),
   perfReviewSettingsSave: (data) => req("/performance/review-settings", { method: "PUT", body: JSON.stringify(data) }),
+  // India Contractor Policy (Neil, Oct 27 2026, docs/India-Contractor-Pay.md):
+  // the per-company switch and Policy Starts - { mode: '' | 'on' | 'off',
+  // startDate, enabled, companyCountry, hasOverride, companies }.
+  timeIndiaPolicyGet: (company = "") => req(`/timeclock/payroll/india-contractor-policy${company ? `?company=${encodeURIComponent(company)}` : ""}`),
+  timeIndiaPolicySet: (data, company = "") => req(`/timeclock/payroll/india-contractor-policy${company ? `?company=${encodeURIComponent(company)}` : ""}`, { method: "PUT", body: JSON.stringify(data) }),
+  // Extra Time claims: the contractor files / edits / withdraws; HR, the HR
+  // contact or a Global Admin approves (fewer hours allowed) or declines.
+  extraTimeFile: (data) => req("/extra-time/claims", { method: "POST", body: JSON.stringify(data) }),
+  extraTimeEdit: (id, data) => req(`/extra-time/claims/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }),
+  extraTimeWithdraw: (id) => req(`/extra-time/claims/${encodeURIComponent(id)}/withdraw`, { method: "POST" }),
+  extraTimeDecide: (id, data) => req(`/extra-time/claims/${encodeURIComponent(id)}/decide`, { method: "POST", body: JSON.stringify(data) }),
+  extraTimeQueue: () => req("/extra-time/queue"),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()

@@ -5875,7 +5875,7 @@ export default function HR({ activeSub, onSubChange }) {
   // redirect there by the effect below, so it's not in this list any more.
   // Dashboard tiles open the Time tab on a specific inner list.
   // 'hr-leave' was the People > Leave tab until Oct 27 2026 - it is Time Off now.
-  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-leave': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices' };
+  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-leave': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices', 'hr-time-extra': 'extra' };
   // The manager tier sees its own team in People (Oct 6): People and Time only.
   const { hrTeam } = useRole();
   // People Analytics (Oct 27 2026) is HR's: the manager tier's /hr allowlist

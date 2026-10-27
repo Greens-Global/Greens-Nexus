@@ -3154,6 +3154,10 @@ def _run_migrations():
         # RLS. models.PerfReviewCycle / PerfReview.
         "ALTER TABLE hr_perf_review_cycles ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_perf_reviews ENABLE ROW LEVEL SECURITY",
+        # India Contractor Extra Time claims (Neil, Oct 27 2026,
+        # docs/India-Contractor-Pay.md). New table - explicit RLS.
+        # models.ExtraTimeClaim.
+        "ALTER TABLE extra_time_claims ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4822,3 +4826,5 @@ from routers import performance as performance_router  # noqa: E402 - new tables
 app.include_router(performance_router.router)  # Performance: goals and 1:1s - Workday > Performance, People > Performance (Neil, Oct 27 2026)
 from routers import perf_reviews as perf_reviews_router  # noqa: E402 - new tables: create_all + explicit RLS lines, no ALTER columns
 app.include_router(perf_reviews_router.router)  # Performance: review cycles - People > Performance, Workday > Performance (Neil, Oct 27 2026)
+from routers import extra_time as extra_time_router  # noqa: E402
+app.include_router(extra_time_router.router)  # India Contractor Extra Time claims: file, approve, decline (Neil, Oct 27 2026, docs/India-Contractor-Pay.md)

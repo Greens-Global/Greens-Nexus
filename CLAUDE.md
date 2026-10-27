@@ -394,6 +394,20 @@ keep the diff minimal.
   else the module's own logo setting, else Email Appearance, else the
   wordmark - a mail with no recipient at hand keeps the theme's.
 
+- **India Contractor pay (Neil, Oct 27 2026, docs/India-Contractor-Pay.md -
+  never change these numbers without Neil).** Contractors on fixed monthly
+  pay who work in India, at a company with Settings > Pay > India Contractor
+  Policy on (default on for an India company), for months from its Policy
+  Starts (default 11/01/2026): credit by hours (8 h full, 4 h half), the
+  month-end pool (reading B) buys back missing half days at 4.5 h each with
+  a 1.5 h round-up, and approved Extra Time pays 1.35 x daily / 9 - the
+  automatic weekend pay and its Rs 500 floor are gone for them. ONE
+  calculation: `india_contractor_pay.reconcile`, called from `_fixed_card`;
+  claims in `routers/extra_time.py` (approver = the HR contact, else the
+  Global Admins; never your own; Review & Approve waits for every claim).
+  A finalized month carries `indiaPolicy` in its snapshot and never
+  re-prices; everyone else keeps the old fixed-pay rules exactly.
+
 ## Asana — removed (Sep 2026)
 
 The Asana workspace is gone and the two-way sync, import, OAuth, webhook and
