@@ -54,8 +54,8 @@ function CycleFormModal({ company, cycle = null, onClose, onSaved, toastErr }) {
     if (!f.name.trim()) { setErr('Name the cycle.'); return; }
     setBusy(true); setErr('');
     const body = {
-      name: f.name.trim(), period_start: f.periodStart, period_end: f.periodEnd, self_due: f.selfDue, manager_due: f.managerDue,
-      ...(draft ? { filters: { departments: f.departments, types: f.types, startedBy: f.startedBy },
+      name: f.name.trim(), self_due: f.selfDue, manager_due: f.managerDue,
+      ...(draft ? { period_start: f.periodStart, period_end: f.periodEnd, filters: { departments: f.departments, types: f.types, startedBy: f.startedBy },
         questions: f.questions.filter(q => q.text.trim()), include_goals: f.includeGoals } : {}),
     };
     try {

@@ -8,7 +8,7 @@ import { api } from '../api';
 import { SettingCard, SettingRow } from '../components/settings/SettingsUI';
 import { Spinner, ErrorBanner } from '../components/AsyncState';
 
-function useReviewSettings(company, onOverride) {
+function useReviewSettings(company, onOverride, part) {
   const [meta, setMeta] = useState(null);
   const [loadErr, setLoadErr] = useState('');
   const load = useCallback(() => {
@@ -16,11 +16,11 @@ function useReviewSettings(company, onOverride) {
       .catch(e => setLoadErr(e?.message || 'Could not load the settings.'));
   }, [company]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { if (meta && company) onOverride?.(!!meta.override); }, [meta, company, onOverride]);
+  useEffect(() => { if (meta && company) onOverride?.((meta.overrides || []).includes(part)); }, [meta, company, onOverride, part]);
   return [meta, setMeta, loadErr, load];
 }
 
-function Footer({ meta, company, dirty, busy, onSave, onDiscard, onReset }) {
+function Footer({ meta, company, part, dirty, busy, onSave, onDiscard, onReset }) {
   if (!meta.canEdit) {
     return (
       <p className="nx-set-pad" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
@@ -32,20 +32,20 @@ function Footer({ meta, company, dirty, busy, onSave, onDiscard, onReset }) {
     <div className="nx-set-pad" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
       {dirty && <button type="button" className="primary-btn" disabled={busy} onClick={onSave}>{busy ? 'Saving…' : 'Save'}</button>}
       {dirty && <button type="button" className="secondary-btn" disabled={busy} onClick={onDiscard}>Discard Changes</button>}
-      {!!company && !!meta.override && <button type="button" className="secondary-btn" disabled={busy} onClick={onReset}>Use the Default</button>}
+      {!!company && (meta.overrides || []).includes(part) && <button type="button" className="secondary-btn" disabled={busy} onClick={onReset}>Use the Default</button>}
     </div>
   );
 }
 
 export function ReviewScaleSettings({ company = '', onOverride, toastOk, toastErr }) {
-  const [meta, setMeta, loadErr, load] = useReviewSettings(company, onOverride);
+  const [meta, setMeta, loadErr, load] = useReviewSettings(company, onOverride, 'ratingScale');
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
   const scale = rows ?? meta?.ratingScale ?? [];
   async function save(reset = false) {
     setBusy(true);
     try {
-      const m = await api.perfReviewSettingsSave({ company, rating_scale: reset ? undefined : scale, reset });
+      const m = await api.perfReviewSettingsSave({ company, rating_scale: reset ? undefined : scale, reset, part: 'ratingScale' });
       setMeta(m); setRows(null);
       toastOk?.(reset ? 'Back to the default for every company.' : 'Rating scale saved.');
     } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
@@ -72,20 +72,20 @@ export function ReviewScaleSettings({ company = '', onOverride, toastOk, toastEr
         <div className="nx-set-pad"><button type="button" className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
           onClick={() => setRows([...scale, { value: (scale[scale.length - 1]?.value || 0) + 1, label: '' }])}><Plus size={14} /> Add a Point</button></div>
       )}
-      <Footer meta={meta} company={company} dirty={rows !== null} busy={busy} onSave={() => save(false)} onDiscard={() => setRows(null)} onReset={() => save(true)} />
+      <Footer meta={meta} company={company} part="ratingScale" dirty={rows !== null} busy={busy} onSave={() => save(false)} onDiscard={() => setRows(null)} onReset={() => save(true)} />
     </div>
   );
 }
 
 export function CompanyValuesSettings({ company = '', onOverride, toastOk, toastErr }) {
-  const [meta, setMeta, loadErr, load] = useReviewSettings(company, onOverride);
+  const [meta, setMeta, loadErr, load] = useReviewSettings(company, onOverride, 'values');
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
   const values = rows ?? meta?.values ?? [];
   async function save(reset = false) {
     setBusy(true);
     try {
-      const m = await api.perfReviewSettingsSave({ company, values: reset ? undefined : values.filter(v => v.name.trim()), reset });
+      const m = await api.perfReviewSettingsSave({ company, values: reset ? undefined : values.filter(v => v.name.trim()), reset, part: 'values' });
       setMeta(m); setRows(null);
       toastOk?.(reset ? 'Back to the default for every company.' : 'Company values saved.');
     } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
@@ -114,7 +114,7 @@ export function CompanyValuesSettings({ company = '', onOverride, toastOk, toast
         <div className="nx-set-pad"><button type="button" className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
           onClick={() => setRows([...values, { id: '', name: '', description: '' }])}><Plus size={14} /> Add a Value</button></div>
       )}
-      <Footer meta={meta} company={company} dirty={rows !== null} busy={busy} onSave={() => save(false)} onDiscard={() => setRows(null)} onReset={() => save(true)} />
+      <Footer meta={meta} company={company} part="values" dirty={rows !== null} busy={busy} onSave={() => save(false)} onDiscard={() => setRows(null)} onReset={() => save(true)} />
     </div>
   );
 }

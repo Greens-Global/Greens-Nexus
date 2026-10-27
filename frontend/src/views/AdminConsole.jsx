@@ -631,8 +631,8 @@ const COMPANY_STATE = {
   'time-off-reasons': (cid) => api.timeOffTypes(cid).then(r => ownState(!!r?.hasOverride)),
   'shift-settings': (cid) => api.shiftRequestSettingsGetFor(cid).then(r => ownState(!!r?.hasOverride)),
   'performance-reminders': (cid) => api.perfSettings(cid).then(m => ownState(!!m?.override)),
-  'performance-rating-scale': (cid) => api.perfReviewSettings(cid).then(m => ownState(!!m?.override)),
-  'performance-values': (cid) => api.perfReviewSettings(cid).then(m => ownState(!!m?.override)),
+  'performance-rating-scale': (cid) => api.perfReviewSettings(cid).then(m => ownState((m?.overrides || []).includes('ratingScale'))),
+  'performance-values': (cid) => api.perfReviewSettings(cid).then(m => ownState((m?.overrides || []).includes('values'))),
 };
 // What the layered footer says before the names.
 const OWN_LINE = { 'shift-settings': 'Companies with shift settings of their own:' };

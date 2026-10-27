@@ -2295,7 +2295,7 @@ def certificate_of_record(rid: str, user: dict = Depends(require_hr_read),
     if not req:
         raise HTTPException(404, "Request not found")
     import auth
-    if (req.link_kind or "") == "timesheet":
+    if (req.link_kind or "") in ("timesheet", "perf_review"):
         _require_view(db, req, user)
     else:
         auth.assert_company(auth.company_of(req.created_by or "", db), user, db)
@@ -2562,9 +2562,10 @@ def download_final(rid: str, user: dict = Depends(get_current_user), db: Session
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req or not req.final_pdf_path:
         raise HTTPException(404, "No completed document")
-    if (req.link_kind or "") == "timesheet":
+    if (req.link_kind or "") in ("timesheet", "perf_review"):
         # The approving manager opens it from the Time Sheet without an HR grant
-        # (Neil, Oct 20: "Valinda should be able to see this").
+        # (Neil, Oct 20: "Valinda should be able to see this"); a performance
+        # review opens for whoever may see the review (perf_reviews.py).
         _require_view(db, req, user)
     else:
         require_hr_read(user=user, db=db)

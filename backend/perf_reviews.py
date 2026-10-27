@@ -395,7 +395,8 @@ def save_manager(db: Session, user: dict, r: models.PerfReview, cycle: models.Pe
     r.overall_rating = _rating(overall, _scale_values(cycle))
     r.manager_summary = (summary or "")[:8000]
     r.manager_private_note = (private_note or "")[:4000]
-    if cycle.include_goals:
+    if cycle.include_goals and r.stage == "manager_review":
+        # Taken while the manager writes it - HR's later edit keeps what they attached.
         r.goals_snapshot = _goal_snapshot(db, r.employee_email) if attach_goals else []
     r.updated_at = _now()
     if r.stage == "hr_review":
@@ -578,7 +579,6 @@ def share(db: Session, user: dict, r: models.PerfReview, cycle: models.PerfRevie
     if r.stage != "hr_review":
         raise HTTPException(409, "Only a review with HR can be shared.")
     from routers import esign
-    emp = perf.employee(db, r.employee_email)
     pdf, spot = build_pdf(db, r, cycle)
     name = perf.name_of(db, r.employee_email)
     safe = esign._safe_filename(f"Performance Review {name} {cycle.name}")
@@ -590,11 +590,19 @@ def share(db: Session, user: dict, r: models.PerfReview, cycle: models.PerfRevie
                **dict(zip(("x", "y", "w", "h"), spot[kind])), "required": True} for kind in ("sign", "date")]
     parties = [esign.PartyIn(role_key="employee", name=name, email=r.employee_email, kind="internal",
                              ordinal=1, party_role="signer")]
-    r.finalized_by, r.finalized_at = a.me, _now()
+    # Shared BEFORE the envelope is made: _create_request commits partway, so
+    # this lands in the same commit and a second Share (a double click, a
+    # retry) finds the review no longer with HR. The envelope id follows.
+    now = _now()
+    r.finalized_by, r.finalized_at = a.me, now
+    r.stage, r.shared_at, r.sign_request_id = "shared", now, ""
     db.flush()
+    # employee_id stays empty on purpose: a signed envelope with an employee is
+    # filed to their People > Documents tab, which every HR reader opens. The
+    # person keeps their copy in My Documents as its signer.
     out = esign._create_request(
         db, {"email": a.me}, title=f"Performance Review - {name} - {cycle.name}", source="pdf",
-        template_id="", employee_id=(emp.id if emp else ""), candidate_id="",
+        template_id="", employee_id="", candidate_id="",
         entity_id=cycle.company_id or "", body_snapshot=[], pdf_storage_path=path,
         fields=esign._clean_fields(fields),
         message=f"Your performance review for {cycle.name} is ready. Please read it and sign to acknowledge you received it.",
@@ -602,7 +610,7 @@ def share(db: Session, user: dict, r: models.PerfReview, cycle: models.PerfRevie
         excluded_ack=True, document_class="employment", link_kind=LINK_KIND, link_id=r.id)
     rid = out["id"]
     r = db.get(models.PerfReview, r.id)
-    r.stage, r.sign_request_id, r.shared_at = "shared", rid, _now()
+    r.sign_request_id = rid
     _round(r, a.me, "shared")
     _tell(db, r.employee_email, f"perf-review:{cycle.id}", "Your Review Is Ready",
           f"{cycle.name}: your review is ready to read and sign.", f"performance:review:{r.id}",
@@ -618,7 +626,10 @@ def recall(db: Session, user: dict, r: models.PerfReview, note: str) -> None:
     if r.stage != "shared":
         raise HTTPException(409, "Only a shared review can be recalled.")
     from routers.esign import _log
-    req = db.get(models.HrSignRequest, r.sign_request_id) if r.sign_request_id else None
+    req = (db.query(models.HrSignRequest).filter(models.HrSignRequest.id == r.sign_request_id)
+           .with_for_update().populate_existing().first()) if r.sign_request_id else None
+    if req is not None and req.status == "completed":
+        raise HTTPException(409, "The employee already signed it.")
     if req is not None and req.status == "pending":
         req.status = "voided"
         _log(db, req.id, "voided", f"by {a.me}: review recalled")
@@ -632,7 +643,8 @@ def _for(db: Session, req) -> Optional[models.PerfReview]:
     if (getattr(req, "link_kind", "") or "") != LINK_KIND:
         return None
     r = db.get(models.PerfReview, req.link_id)
-    if r is None or r.stage != "shared" or r.sign_request_id != req.id:
+    # sign_request_id is '' only between Share's two commits.
+    if r is None or r.stage != "shared" or (r.sign_request_id or req.id) != req.id:
         return None
     return r
 
@@ -647,7 +659,7 @@ def on_completed(db: Session, req) -> None:
     who = perf.name_of(db, r.employee_email)
     if cycle:
         for to in set(hr_recipients(db, cycle) + ([r.manager_email] if r.manager_email else [])):
-            _tell(db, to, f"perf-review-hr:{cycle.id}", "Reviews to Finalize",
+            _tell(db, to, f"perf-review-done:{cycle.id}", "Reviews Acknowledged",
                   f"{who} signed to acknowledge their review ({cycle.name}).", f"performance:review:{r.id}",
                   cycle.company_id)
 
@@ -792,5 +804,5 @@ def nudge(db: Session, user: dict, cycle: models.PerfReviewCycle, ids: Optional[
         first = (mine or theirs)[0]
         _tell(db, to, f"perf-review-nudge:{cycle.id}", "Review Reminder",
               f"{cycle.name}: HR is waiting on " + " and ".join(parts) + ".",
-              f"performance:review:{first.id}", cycle.company_id, replace=True)
+              f"performance:review:{first.id}", cycle.company_id)
     return sum(len(v) for v in by_person.values())

@@ -8562,6 +8562,7 @@ class PerfReview(Base):
     signer) -> Complete. Seen by the person once shared, their manager chain
     and HR for the company - never by a peer."""
     __tablename__ = "hr_perf_reviews"
+    __table_args__ = (UniqueConstraint("cycle_id", "employee_email", name="uq_hr_perf_review_person"),)
     id                   = Column(String, primary_key=True)            # uuid
     cycle_id             = Column(String, nullable=False, index=True)
     company_id           = Column(String, default="", index=True)

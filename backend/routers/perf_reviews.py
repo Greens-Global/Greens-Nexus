@@ -197,7 +197,10 @@ def cycle_participants(cid: str, user: dict = Depends(get_current_user), db: Ses
 @router.post("/cycles/{cid}/launch")
 def launch_cycle(cid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     _me(user)
-    c = _cycle_or_404(db, user, cid)
+    _cycle_or_404(db, user, cid)
+    # Locked, so a double Launch waits and then finds the cycle active.
+    c = (db.query(models.PerfReviewCycle).filter(models.PerfReviewCycle.id == cid)
+         .with_for_update().populate_existing().first())
     n = pr.launch(db, user, c)
     db.commit()
     return {**cycle_dashboard(cid, user, db), "launched": n}
@@ -401,12 +404,14 @@ class ReviewSettingsIn(BaseModel):
     rating_scale: Optional[list] = None
     values: Optional[list] = None
     reset: Optional[bool] = False
+    part: Optional[str] = ""              # with reset: "ratingScale" or "values" - the one panel's own
 
 
 def _settings_payload(db: Session, user: dict, company: str) -> dict:
     reach = perf.hr_reach(db, user)
+    own = scoped_settings.saved(db, pr.SETTINGS_KEY, company, pr.DEFAULTS) if company else {}
     return {**pr.settings_for_company(db, company), "company": company,
-            "override": scoped_settings.has_override(db, pr.SETTINGS_KEY, company),
+            "override": bool(own), "overrides": sorted(own),
             "canEdit": reach is None or (bool(company) and reach is not False and company in reach),
             "canEditDefault": reach is None}
 
@@ -430,12 +435,23 @@ def save_review_settings(body: ReviewSettingsIn, user: dict = Depends(get_curren
     if reach is False or (not cid and reach is not None) or (cid and not perf.hr_for(db, user, cid)):
         raise HTTPException(403, "Only HR for every company can change the default." if not cid
                             else "Only HR for this company can change its settings.")
+    # Only what was sent is stored, on top of what this scope already keeps:
+    # saving the scale for a company must not pin its values to today's
+    # default (and the other way round). Reset with a part drops that part.
+    cfg = scoped_settings.saved(db, pr.SETTINGS_KEY, cid, pr.DEFAULTS)
     if body.reset and cid:
+        if body.part in ("ratingScale", "values"):
+            cfg.pop(body.part, None)
+        else:
+            cfg = {}
+    else:
+        if body.rating_scale is not None:
+            cfg["ratingScale"] = pr.clean_scale(body.rating_scale)
+        if body.values is not None:
+            cfg["values"] = pr.clean_values(body.values)
+    if cid and not cfg:
         scoped_settings.reset(db, pr.SETTINGS_KEY, cid)
     else:
-        cur = pr.settings_for_company(db, cid)
-        cfg = {"ratingScale": pr.clean_scale(body.rating_scale) if body.rating_scale is not None else cur["ratingScale"],
-               "values": pr.clean_values(body.values) if body.values is not None else cur["values"]}
         scoped_settings.save(db, pr.SETTINGS_KEY, cid, cfg, me)
     db.commit()
     return _settings_payload(db, user, cid)

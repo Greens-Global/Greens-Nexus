@@ -205,8 +205,15 @@ class FlowTests(ReviewCase):
         mine = self.get(rid, EMP)
         self.assertEqual((mine["overallRating"], mine["hrNote"]), (4, "Congratulations on the launch."))
         self.assertTrue(mine["signPartyId"])
+        # A second Share (a double click) finds it no longer with HR.
+        self.refused(lambda: api.share_review(rid, _Req(), U(HR), self.db), 409)
         self.sign(parties[0])
         self.db.expire_all()
+        # Not filed to People > Documents (every HR reader opens that tab);
+        # the sealed copy opens only through the review's own rule.
+        self.assertEqual(self.db.query(models.HrDocument).filter(models.HrDocument.storage_path.like("%Performance%")).count(), 0)
+        self.refused(lambda: esign.download_final(r.sign_request_id, U(PEER), self.db))
+        self.refused(lambda: esign.certificate_of_record(r.sign_request_id, U(OMGR), self.db))
         done = self.get(rid, HR)
         self.assertEqual(done["stage"], "complete")
         self.assertTrue(done["can"]["startPromotion"])
@@ -326,6 +333,14 @@ class SettingsTests(ReviewCase):
                                                             values=[{"name": "Own It"}, {"name": "Own It"}]), U(HR), self.db)
         self.assertEqual([s["label"] for s in out["ratingScale"]], ["Low", "Mid", "High"])
         self.assertEqual([v["name"] for v in out["values"]], ["Own It"])
+        # Saving one part for a company does not pin the other to today's default.
+        api.save_review_settings(api.ReviewSettingsIn(company=CO2, values=[{"name": "Care"}]), U(BOSS, 4), self.db)
+        api.save_review_settings(api.ReviewSettingsIn(company="", rating_scale=[{"value": 1, "label": "A"}, {"value": 2, "label": "B"}]),
+                                 U(BOSS, 4), self.db)
+        other = api.get_review_settings(CO2, U(BOSS, 4), self.db)
+        self.assertEqual((other["overrides"], [s["label"] for s in other["ratingScale"]]), (["values"], ["A", "B"]))
+        other = api.save_review_settings(api.ReviewSettingsIn(company=CO2, reset=True, part="values"), U(BOSS, 4), self.db)
+        self.assertEqual((other["override"], other["values"]), (False, []))
         c = self.cycle()
         self.assertEqual(len(c["ratingScale"]), 3)
         self.assertEqual(c["values"][0]["name"], "Own It")
