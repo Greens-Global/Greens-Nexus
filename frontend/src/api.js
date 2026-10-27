@@ -1319,6 +1319,16 @@ export const api = {
   getAccountingDashTables: (period, fresh) => req(`/accounting/dashboard/tables?period=${period}${fresh ? "&fresh=1" : ""}`),
   accountingDashAction: (op, payload = {}) =>
     req("/accounting/dashboard/action", { method: "POST", body: JSON.stringify({ op, payload }) }),
+  // Mortgages, loans and credit lines reconciled in Nexus, never sent to
+  // Intacct (10/27, item 09; routers/accounting_liability_recon.py). `period`
+  // is YYYY-MM; amounts are what is owed.
+  getLiabilityRecons: (upto) => req(`/accounting/liability-recons?upto=${encodeURIComponent(upto)}`),
+  getLiabilityRecon: (loanId, period, date) =>
+    req(`/accounting/liability-recons/${encodeURIComponent(loanId)}/${encodeURIComponent(period)}${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+  saveLiabilityRecon: (loanId, period, body) =>
+    req(`/accounting/liability-recons/${encodeURIComponent(loanId)}/${encodeURIComponent(period)}`, { method: "PUT", body: JSON.stringify(body) }),
+  reopenLiabilityRecon: (loanId, period, reason) =>
+    req(`/accounting/liability-recons/${encodeURIComponent(loanId)}/${encodeURIComponent(period)}/reopen`, { method: "POST", body: JSON.stringify({ reason }) }),
 
   // Ops
   getOpsProjects: () => req("/ops-projects"),

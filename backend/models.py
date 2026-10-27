@@ -8337,3 +8337,57 @@ class AccountingTaxLine(Base):
     line       = Column(String, default="")
     set_by     = Column(String, default="")
     set_at     = Column(String, default="")
+
+
+class AccountingLiabilityRecon(Base):
+    """One month's reconciliation of a mortgage, loan or line of credit
+    (Charmi, 10/25-10/26, item 09; Neil: "Intacct doesn't have it. Should do
+    in Nexus."). The loan is a fin_loans row in the accounting app (lender,
+    entity, principal GL account); the person types the lender statement's
+    ending balance, Nexus reads the ledger balance of that GL in that entity
+    on the statement date and keeps the difference. The month can be marked
+    Reconciled only when the difference is 0.00; only an Accounting admin
+    reopens it, and every save, reconcile and reopen is written to
+    accounting_liability_recon_log. Saved in Nexus only - never sent to
+    Intacct. Amounts are what is OWED (a liability's credit balance as a
+    positive figure). One row per loan and month. New table - RLS on dev and
+    prod at release."""
+    __tablename__ = "accounting_liability_recons"
+    __table_args__ = (UniqueConstraint("loan_id", "period", name="uq_accounting_liability_recon"),)
+    id                = Column(String, primary_key=True)              # uuid
+    loan_id           = Column(String, nullable=False, index=True)    # fin_loans.id
+    entity_code       = Column(String, default="", index=True)
+    gl_account        = Column(String, default="")
+    account_name      = Column(String, default="")                    # the lender, as the list shows it
+    period            = Column(String, nullable=False, index=True)    # YYYY-MM
+    statement_date    = Column(String, default="")                    # YYYY-MM-DD, inside the period
+    statement_balance = Column(Float, nullable=True)
+    ledger_balance    = Column(Float, nullable=True)                  # read when saved
+    difference        = Column(Float, nullable=True)                  # statement - ledger
+    status            = Column(String, default="open")                # open | reconciled
+    statement_url     = Column(String, default="")                    # private task-files storage
+    statement_name    = Column(String, default="")
+    note              = Column(Text, default="")
+    saved_by          = Column(String, default="")
+    saved_at          = Column(String, default="")
+    reconciled_by     = Column(String, default="")
+    reconciled_at     = Column(String, default="")
+    reopened_by       = Column(String, default="")
+    reopened_at       = Column(String, default="")
+    reopen_reason     = Column(Text, default="")
+
+
+class AccountingLiabilityReconLog(Base):
+    """Append-only history of accounting_liability_recons: saved, reconciled,
+    reopened - who, when and the figures at that moment. Never edited or
+    deleted. New table - RLS on dev and prod at release."""
+    __tablename__ = "accounting_liability_recon_log"
+    id        = Column(String, primary_key=True)                      # uuid
+    recon_id  = Column(String, nullable=False, index=True)
+    loan_id   = Column(String, nullable=False, index=True)
+    period    = Column(String, default="")
+    action    = Column(String, default="")                            # saved | reconciled | reopened
+    by_email  = Column(String, default="")
+    by_name   = Column(String, default="")
+    at        = Column(String, default="")
+    detail    = Column(JSON, default=dict)

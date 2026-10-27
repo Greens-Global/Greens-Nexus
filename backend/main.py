@@ -3038,6 +3038,10 @@ def _run_migrations():
         "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS closed_through VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_ama_push_previews ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_ama_push_log ENABLE ROW LEVEL SECURITY",
+        # Account Reconciliations: liability accounts reconciled in Nexus, never
+        # sent to Intacct (Charmi + Neil, 10/25-10/26, item 09). New tables.
+        "ALTER TABLE accounting_liability_recons ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_liability_recon_log ENABLE ROW LEVEL SECURITY",
         # Build Mode v2 (Neil, Oct 24 2026, docs/Build-Mode.md "v2"): the owner a
         # pin is held for (code_owners.py), who released it to Claude Code, the
         # Ready To Check local preview and its verdict, and the regression test
@@ -4654,3 +4658,5 @@ from routers import accounting_manual_je  # noqa: E402
 app.include_router(accounting_manual_je.router)    # Accounting > Audit & Insights > Manual Journal Entries: who keyed each entry, read from Intacct (Neil + Charmi, CR-10, Oct 23 2026)
 from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: create_all + _enable_rls_everywhere, no ALTER lines
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
+from routers import accounting_liability_recon  # noqa: E402
+app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)

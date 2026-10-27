@@ -7,7 +7,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 const dash = {
   period: '2026-09', fromKey: '2026-09', book: 'accrual', scope: 'ALL', reconAccounts: [{ gl_code: '11800', kind: 'bank' }],
-  m: (v) => `$${Number(v).toFixed(2)}`, ix: { byCode: new Map([['12000', { name: 'Greens Global, Inc.' }]]) }, act: vi.fn(),
+  m: (v) => `$${Number(v).toFixed(2)}`, ix: { byCode: new Map([['12000', { name: 'Greens Global, Inc.' }]]) }, act: vi.fn(), invalidate: vi.fn(),
 };
 vi.mock('./DashContext', () => ({ useDash: () => dash }));
 const RECON = {
@@ -31,6 +31,9 @@ vi.mock('./hooks', () => ({
 }));
 vi.mock('./closeViews', () => ({ TaskViewSwitch: () => null, useCloseViews: () => ({}) }));
 vi.mock('../drill', () => ({ requestReportDrill: vi.fn() }));
+vi.mock('../../../contexts/RoleContext', () => ({ useRole: () => ({ canAccessModule: (_m, _role, lvl) => lvl === 'editor' }) }));
+// The panel has its own tests (ReconPanel.test.jsx); here, what it is opened with.
+vi.mock('./ReconPanel', () => ({ default: (p) => <div data-testid="recon-panel">{p.row.name}|{p.fullLink || 'no-link'}|{p.entityName}|{String(p.canEdit)}|{String(p.canManage)}</div> }));
 
 import { ActivityWidget, ReconWidget, activityLink } from './CloseWidgets';
 
@@ -58,21 +61,42 @@ describe('ReconWidget', () => {
     expect(screen.getByText(/Charmi Desai/)).toBeTruthy();
   });
 
-  // Oct 22 (Charmi and Neil, item 07): every bank and card account opens its activity report, already filtered.
-  it('links every bank and card account to its activity report, already filtered', () => {
+  // Oct 27 (Charmi, item 08): every account name opens the right-side panel; the
+  // panel's full-page link is the account's activity report, already filtered
+  // (Oct 22, item 07) - none for a mortgage or a holding on a non-bank account.
+  it('opens every account in the side panel, with its activity report as the full page', () => {
     const nav = vi.fn();
     render(<ReconWidget onNavigate={nav} />);
+    const panel = () => screen.getByTestId('recon-panel').textContent;
     fireEvent.click(screen.getByRole('button', { name: 'Operating Checking' }));
-    expect(nav).toHaveBeenLastCalledWith('rpt-bank-activity:1010:12000:2026-09-01:2026-09-30');
+    expect(panel()).toBe('Operating Checking|rpt-bank-activity:1010:12000:2026-09-01:2026-09-30|Greens Global, Inc.|true|false');
     fireEvent.click(screen.getByRole('button', { name: 'Amex 1001' }));
-    expect(nav).toHaveBeenLastCalledWith('rpt-card-activity:21500:12000:2026-09-01:2026-09-30');
-    // A brokerage row whose GL account is a bank account on the ledger opens Bank Activity too.
+    expect(panel()).toBe('Amex 1001|rpt-card-activity:21500:12000:2026-09-01:2026-09-30|Greens Global, Inc.|true|false');
     fireEvent.click(screen.getByRole('button', { name: 'Schwab Brokerage' }));
-    expect(nav).toHaveBeenLastCalledWith('rpt-bank-activity:11800:12000:2026-09-01:2026-09-30');
-    // A mortgage (no GL account) and a holding on a non-bank account stay plain text.
-    expect(screen.queryByRole('button', { name: 'Wells Fargo Mortgage' })).toBeNull();
-    expect(screen.getByText('Wells Fargo Mortgage')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Fidelity Holdings' })).toBeNull();
+    expect(panel()).toContain('rpt-bank-activity:11800:12000:2026-09-01:2026-09-30');
+    fireEvent.click(screen.getByRole('button', { name: 'Wells Fargo Mortgage' }));
+    expect(panel()).toContain('Wells Fargo Mortgage|no-link');
+    fireEvent.click(screen.getByRole('button', { name: 'Fidelity Holdings' }));
+    expect(panel()).toContain('|no-link|');
+    expect(nav).not.toHaveBeenCalled();
+  });
+
+  it('opens the panel on the Close tab too (no navigator)', () => {
+    render(<ReconWidget />);
+    fireEvent.click(screen.getByRole('button', { name: 'Payroll Account' }));
+    expect(screen.getByTestId('recon-panel').textContent).toContain('Payroll Account|no-link');
+  });
+
+  // Oct 27 (Charmi, item 10): dates MM/DD/YYYY; no Intacct record is said, not "Never".
+  it('reads dates as MM/DD/YYYY and says when there is no Intacct bank record', () => {
+    const { container } = render(<ReconWidget />);
+    expect(container.textContent).toContain('through 09/30/2026');
+    expect(screen.getByText('09/30/2026')).toBeTruthy();
+    expect(container.textContent).not.toMatch(/Sep 30, 2026/);
+    // Operating Checking: a ledger cash account with no Intacct record and no mark.
+    expect(screen.getAllByText('No Intacct bank record').length).toBeGreaterThanOrEqual(2);
+    // A mortgage with nothing yet still reads "Never".
+    expect(screen.getAllByText('Never').length).toBeGreaterThanOrEqual(1);
   });
 
   it('carries the dashboard months, the Cash book and a one-entity scope', () => {
