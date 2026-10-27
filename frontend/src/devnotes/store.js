@@ -55,7 +55,7 @@ let state = {
   openPinId: '',
   panelOpen: false,
   panelTab: 'queue',
-  postFromDone: false,   // the Queue opened from Done: Post To Teams first
+  postFromDone: false,   // the Queue opened from Done: Post To Teams first (only while Send to Claude Code is off)
   showPins: true,
   capture: 'idle',               // idle | live | off | unsupported - the tab-capture stream
   recording: null,               // { startedAt, transcript } while a recording runs
