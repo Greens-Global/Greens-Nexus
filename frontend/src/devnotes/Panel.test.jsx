@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 
 // The Build Mode panel (Oct 24 2026): Send To Claude Code is disabled with a
 // hint while the collecting session is empty, enabled once an open pin is in.
@@ -169,6 +169,23 @@ describe('Panel', () => {
     sw.click();
     await waitFor(() => expect(screen.getByRole('switch', { name: 'Show All Tools' }).getAttribute('aria-checked')).toBe('true'));
     expect(localStorage.getItem('nexus:build-mode:all-tools')).toBe('1');
+  });
+});
+
+describe('Panel - Sent And Completed folds away (Oct 27 2026)', () => {
+  const row = (id, number, status, sessionId, comment) => ({ id, number, kind: 'bug', priority: 'normal', status, comment, sessionId, route: 'tasks', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] });
+
+  it('done and sent sessions sit collapsed under Sent And Completed; open and Needs Input stay out', async () => {
+    notes = [row('a', 1, 'open', 's1', 'Still collecting'), row('b', 1, 'needs_input', 's2', 'Asked a question'), row('c', 1, 'done', 's3', 'Already answered'), row('d', 2, 'building', 's3', 'Being fixed')];
+    render(<Panel {...props} />);
+    await screen.findByText('Still collecting');
+    expect(screen.getByText('Asked a question')).toBeTruthy();
+    expect(screen.getByText('2 pins in the queue')).toBeTruthy();
+    expect(screen.queryByText('Already answered')).toBeNull();
+    expect(screen.queryByText('Being fixed')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show Sent And Completed (2)' }));
+    expect(screen.getByText('Already answered')).toBeTruthy();
+    expect(screen.getByText('Being fixed')).toBeTruthy();
   });
 });
 

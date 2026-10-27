@@ -241,6 +241,7 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
   const claude = useBuildStore((st) => st.claude);
   const notConnected = claude?.connected === false;     // null = not known yet: Send as before
   const [showDismissed, setShowDismissed] = useState(false);
+  const [showSent, setShowSent] = useState(false);
   const bySession = new Map();
   for (const n of notes) { const k = n.sessionId || ''; if (!bySession.has(k)) bySession.set(k, []); bySession.get(k).push(n); }
   const sessionOf = (id) => sessions.find((s) => s.id === id);
@@ -250,6 +251,13 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
       if (ac !== bc) return ac - bc;
       return String(b.session?.createdAt || b.pins[0]?.createdAt || '').localeCompare(String(a.session?.createdAt || a.pins[0]?.createdAt || ''));
     });
+  // Sessions already sent or done fold away under Sent And Completed (Pranshu,
+  // Oct 27) - unless a pin in them still waits on someone: not sent yet,
+  // Needs Input, or Ready To Check.
+  const waiting = (p) => p.status === 'open' || p.status === 'needs_input' || pinReady(p);
+  const activeGroups = groups.filter((g) => g.pins.some(waiting));
+  const sentGroups = groups.filter((g) => !g.pins.some(waiting));
+  const queued = activeGroups.reduce((n, g) => n + g.pins.length, 0);
   // Every open pin of mine, whatever its session's status (v2: dispatch moves
   // held pins to a new collecting session). A pin on someone else's area
   // waits for them - never sent from here.
@@ -281,11 +289,27 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
     catch (e) { toast(e?.message || 'Nothing was sent.'); }
     finally { setSending(false); }
   };
+  const renderGroup = ({ id, pins, session }) => {
+    const sm = sessionMeta(session?.status || 'collecting');
+    return (
+      <section key={id || 'none'} className="bm-group">
+        <header className="bm-group-head">
+          <span className="bm-group-title">{session?.title || 'Build Session'}</span>
+          <StatusLabel label={sm.label} color={sm.color} size="sm" />
+          <span className="bm-dim bm-small">{pins.length} pin{pins.length === 1 ? '' : 's'}</span>
+          {pins.filter(pinReady).length > 0 && <StatusLabel label={`${pins.filter(pinReady).length} Ready To Check`} color={READY_META.color} size="sm" />}
+          {pins.filter(pinHeld).length > 0 && <StatusLabel label={`${pins.filter(pinHeld).length} Waiting For Owner`} color={HELD_COLOR} size="sm" />}
+          {session?.prUrl && <a className="bm-link" href={session.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={11} /> PR #{session.prNumber}</a>}
+        </header>
+        {pins.sort((a, b) => (a.number || 0) - (b.number || 0)).map((p) => <PinRow key={p.id} pin={p} onOpen={onOpenPin} onChanged={onChanged} />)}
+      </section>
+    );
+  };
   return (
     <>
       <div className="bm-queue-head">
         <div>
-          <div className="bm-h2">{notes.length} pin{notes.length === 1 ? '' : 's'} in the queue</div>
+          <div className="bm-h2">{queued} pin{queued === 1 ? '' : 's'} in the queue</div>
           <div className="bm-dim bm-small">{!CLAUDE_SEND_ON
             ? (mineAll.length ? `${mineAll.length} of yours ready to post - pick a Teams chat and Post.` : 'Nothing of yours to post yet - comment on something first.')
             : canSend ? `${mineOpen.length} of yours ready to send.` : mineHeld.length ? 'Nothing of yours to send to Claude Code.' : 'Your collecting session is empty - pin something first.'}{CLAUDE_SEND_ON && heldLine ? ` ${heldLine}.` : ''}</div>
@@ -317,22 +341,15 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
       <div className="bm-list nx-fill" data-testid="bm-queue">
         {loading && !notes.length && <div className="bm-dim">Loading…</div>}
         {!loading && !notes.length && <div className="bm-empty">No pins yet. Press P, click anything on the page and say what should change.</div>}
-        {groups.map(({ id, pins, session }) => {
-          const sm = sessionMeta(session?.status || 'collecting');
-          return (
-            <section key={id || 'none'} className="bm-group">
-              <header className="bm-group-head">
-                <span className="bm-group-title">{session?.title || 'Build Session'}</span>
-                <StatusLabel label={sm.label} color={sm.color} size="sm" />
-                <span className="bm-dim bm-small">{pins.length} pin{pins.length === 1 ? '' : 's'}</span>
-                {pins.filter(pinReady).length > 0 && <StatusLabel label={`${pins.filter(pinReady).length} Ready To Check`} color={READY_META.color} size="sm" />}
-                {pins.filter(pinHeld).length > 0 && <StatusLabel label={`${pins.filter(pinHeld).length} Waiting For Owner`} color={HELD_COLOR} size="sm" />}
-                {session?.prUrl && <a className="bm-link" href={session.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={11} /> PR #{session.prNumber}</a>}
-              </header>
-              {pins.sort((a, b) => (a.number || 0) - (b.number || 0)).map((p) => <PinRow key={p.id} pin={p} onOpen={onOpenPin} onChanged={onChanged} />)}
-            </section>
-          );
-        })}
+        {activeGroups.map(renderGroup)}
+        {sentGroups.length > 0 && (
+          <section className="bm-group" data-testid="bm-sent-groups">
+            <header className="bm-group-head">
+              <button type="button" className="bm-link-btn" onClick={() => setShowSent((v) => !v)} aria-expanded={showSent}>{showSent ? 'Hide' : 'Show'} Sent And Completed ({sentGroups.reduce((n, g) => n + g.pins.length, 0)})</button>
+            </header>
+          </section>
+        )}
+        {showSent && sentGroups.map(renderGroup)}
         {dismissed.length > 0 && (
           <section className="bm-group">
             <header className="bm-group-head">
