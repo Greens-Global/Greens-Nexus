@@ -1434,9 +1434,10 @@ def list_documents(eid: str, user: dict = Depends(require_hr_read), db: Session 
     _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == eid).first(), hr_scope(user, db))
     rows = (db.query(HrDocument).filter(HrDocument.employee_id == eid)
             .order_by(HrDocument.created_at.desc()).all())
-    # Paystubs are comp-restricted - hidden from plain hr viewers/editors.
+    # Paystubs and final settlement statements (exit_statement.py) are
+    # comp-restricted - hidden from plain hr viewers/editors.
     if not _has_comp(user, db):
-        rows = [d for d in rows if d.kind != "paystub"]
+        rows = [d for d in rows if d.kind not in ("paystub", "settlement")]
     return [_ser_doc(d) for d in rows]
 
 
@@ -1501,6 +1502,8 @@ def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = 
         _direct_report_or_404(user, emp, db)
     elif row.kind == "paystub" and not _has_comp(user, db):
         raise HTTPException(403, "Paystubs require the compensation grant")
+    elif row.kind == "settlement" and not _has_comp(user, db):
+        raise HTTPException(403, "This statement shows pay - Pay & Benefits access is needed")
     elif row.kind == "contract" and _contract_prints_pay(db, row) and not _has_comp(user, db):
         # A signed offer / promotion letter filed from Nexus Sign (Oct 14).
         raise HTTPException(403, "This document shows pay - Pay & Benefits access is needed")
@@ -1519,7 +1522,7 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
     if not row:
         return {"ok": True}
     _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first(), hr_scope(user, db))
-    if row.kind == "paystub" and not _has_comp(user, db):
+    if row.kind in ("paystub", "settlement") and not _has_comp(user, db):
         raise HTTPException(403, "Paystubs require the compensation grant")
     httpx.request("DELETE", f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{row.storage_path}",
                   headers=_storage_headers(), timeout=30)

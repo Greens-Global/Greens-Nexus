@@ -7,6 +7,7 @@ import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
 import { ProbationBadge, ProbationCard } from '../components/HrProbation';
 import MailboxExportResult from '../components/MailboxExportResult';
+import ExitsTab from '../components/ExitsTab';
 import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
@@ -5876,7 +5877,7 @@ export default function HR({ activeSub, onSubChange }) {
   const { hrTeam } = useRole();
   // People Analytics (Oct 27 2026) is HR's: the manager tier's /hr allowlist
   // does not open it either.
-  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-time', 'hr-checklists', 'hr-analytics'];
+  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-exits'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
     : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
@@ -6184,6 +6185,8 @@ export default function HR({ activeSub, onSubChange }) {
     // People Analytics (Neil, Oct 27 2026): the overview's headcount grown
     // into trends, attrition, tenure, absence and leave liability.
     { key: 'hr-analytics', label: 'Analytics', Icon: BarChart3 },
+    // Exits In Progress + the final settlement statement (Neil, Oct 27 2026).
+    { key: 'hr-exits', label: 'Exits', Icon: LogOut },
     // The External tab is gone (Neil, Aug 24): external/guest people live in
     // the People directory with a worker-type filter, and their lifecycle
     // actions sit on their profile card.
@@ -6296,6 +6299,8 @@ export default function HR({ activeSub, onSubChange }) {
           <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
         </>
       )}
+
+      {sub === 'hr-exits' && <ExitsTab toastOk={toastOk} toastErr={toastErr} />}
 
       {sub === 'hr-people' && (<>
         {!hrTeam && <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />}
