@@ -5,13 +5,14 @@ import Amount, { AmountInput, formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useAccountingPrefs } from './prefs';
-import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, OpFilter, Pager, PopoverPanel, SyncButton, control, fitSelect } from './reportControls';
+import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, SyncButton, control, fitSelect } from './reportControls';
 import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
 import EntryDetail from './EntryDetail';
-import { downloadBlob, iso, numberFilterHit } from './reportModel';
+import { downloadBlob, iso } from './reportModel';
+import { ColumnFilterRow, columnFiltersActive, filterRowsByColumns, useColumnFilters } from './columnFilters';
 import { linesFile } from './linesExport';
 import SendReportDialog from './SendReportDialog';
 import { ScanOutcome, ScanProgress, entitiesScannedText, mergeScans, useLedgerScan, useScanRetry, POLL_MS } from './LedgerScan';
@@ -274,23 +275,15 @@ function mreSummary(rows, [from, to]) {
   };
 }
 
-const opSet = (f) => !!f && typeof f === 'object' && !!(String(f.a ?? '').trim() || String(f.b ?? '').trim());
-const textSet = (v) => typeof v === 'string' && !!v.trim();
-/** Whether any of these column filters is typed. */
-export const mreFiltering = (columns, typed) => columns.some((c) => (c.num ? opSet(typed?.[c.key]) : textSet(typed?.[c.key])));
+/** Whether any of these column filters is typed (the shared columnFilters.jsx). */
+export const mreFiltering = (columns, typed) => columnFiltersActive(columns, typed);
 
 /** The rows every typed column filter lets through: a text column holds the
  *  words typed (each must appear, any case), an amount column compares. They
  *  stack. A filter on a column not shown (a month outside the period, an
  *  optional column turned off) is ignored. */
 export function mreColumnFilter(rows, typed = {}, columns = mreFilterColumns()) {
-  const active = columns.filter((c) => (c.num ? opSet(typed[c.key]) : textSet(typed[c.key])));
-  if (!active.length) return rows || [];
-  return (rows || []).filter((r) => active.every((c) => {
-    if (c.num) return numberFilterHit(c.value(r), typed[c.key]);
-    const hay = String(c.text(r) || '').toLowerCase();
-    return typed[c.key].trim().toLowerCase().split(/\s+/).every((w) => hay.includes(w));
-  }));
+  return filterRowsByColumns(rows, typed, columns);
 }
 
 // Sortable headers (Oct 22, Urmi), remembered per viewer (prefs.mreSort).
@@ -375,7 +368,6 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   const [q, setQ] = useState('');
   const [category, setCategory] = useState('');
   const [showZero, setShowZero] = useState(false);
-  const [typed, setTyped] = useState({});              // the filter boxes under the headings
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -416,8 +408,8 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   const visible = useMemo(() => visibleRows(data?.rows, { q, category, showEnded, showInactive, showZero }), [data, q, category, showEnded, showInactive, showZero]);
   const extraKey = extra.join(',');
   const filterColumns = useMemo(() => mreFilterColumns(extra, span), [extraKey, spanFrom, spanTo]); // eslint-disable-line react-hooks/exhaustive-deps
-  const filtering = mreFiltering(filterColumns, typed);
-  const boxed = useMemo(() => mreColumnFilter(visible, typed, filterColumns), [visible, typed, filterColumns]);
+  // The filter boxes under the headings (columnFilters.jsx, shared with AMA).
+  const { typed, setFilter: setTyped, clear: clearTyped, filtering, rows: boxed } = useColumnFilters(visible, filterColumns);
   // 10/23 meeting, item 01: the standard table view over what the boxes, the
   // search, the category and Customize leave. The header-click sort Urmi
   // asked for (10/22, prefs.mreSort) is the person's built-in default sort.
@@ -487,7 +479,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
     if (r && !rows.some((x) => x.line.id === g.id)) {
       setQ('');
       setCategory('');
-      setTyped({});
+      clearTyped();
       if (!r.paidTotal && !r.expectedYear) setShowZero(true);
       if (r.vendorInactive && !showInactive) setPrefs({ mreShowInactive: true });
     }
@@ -585,7 +577,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
             </span>
           </div>
         ) : (
-          <Grid view={view} filterColumns={filterColumns} typed={typed} onTyped={(k, v) => setTyped((t) => ({ ...t, [k]: v }))}
+          <Grid view={view} filterColumns={filterColumns} typed={typed} onTyped={setTyped}
             rows={rows} totals={data?.totals || []} year={year} density={density} loading={loading} canEdit={canEdit} span={span}
             pageSize={customize.pageSize} pageKey={[year, picked, q, category, showEnded, showInactive, showZero, period, spanFrom, spanTo, JSON.stringify(view.state), JSON.stringify(typed)]} onLines={setLines}
             focus={focus} onMissing={() => setCompleteNote("That line is hidden by the table view's filters. Clear them in the bar to see it.")}
@@ -649,7 +641,6 @@ function Grid({ view, filterColumns = [], typed = {}, onTyped = null, rows, tota
   const totalPaid = rows.reduce((s, r) => s + spanFigures(r, span).paid, 0);
   const totalBalance = rows.reduce((s, r) => s + spanFigures(r, span).balance, 0);
   const monthPaid = Object.fromEntries(idx.map((i) => [i, rows.reduce((s, r) => s + (r.months[i]?.paid || 0), 0)]));
-  const filterOf = Object.fromEntries(filterColumns.map((c) => [c.key, c]));
   const head = (c) => {
     const num = c.type === 'amount';
     if (c.key === 'vendor') return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className="acct-label acct-head" style={headStyle(w(c.key), { position: 'sticky', left: 0 })} />;
@@ -667,18 +658,8 @@ function Grid({ view, filterColumns = [], typed = {}, onTyped = null, rows, tota
         <thead>
           <tr>{view.columns.map(head)}</tr>
           {onTyped && (
-            <tr className="acct-filter-row">
-              {view.columns.map((col) => {
-                const c = filterOf[col.key];
-                return (
-                  <td key={col.key} className={col.key === 'vendor' ? 'acct-head' : undefined}>
-                    {!c ? null : c.num
-                      ? <OpFilter label={c.label} value={typed[c.key]} onChange={(v) => onTyped(c.key, v)} />
-                      : <input type="text" value={typed[c.key] || ''} onChange={(e) => onTyped(c.key, e.target.value)} aria-label={`Filter ${c.label}`} placeholder="contains" />}
-                  </td>
-                );
-              })}
-            </tr>
+            <ColumnFilterRow columns={view.columns} filterColumns={filterColumns} typed={typed} onChange={onTyped}
+              cellProps={(col) => ({ className: col.key === 'vendor' ? 'acct-head' : undefined })} />
           )}
         </thead>
         <tbody>

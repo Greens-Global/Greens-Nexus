@@ -3,7 +3,7 @@ import { Maximize2, MessageCircleQuestion, Minimize2, Plus, Send, Settings, Tras
 import { api } from '../../api';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import Amount, { formatAmount } from './Amount';
-import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, OpFilter, Pager, SyncButton, control, fitSelect } from './reportControls';
+import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, Pager, SyncButton, control, fitSelect } from './reportControls';
 import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { useTableSync } from './tableSync';
 import { useAccountingPrefs } from './prefs';
@@ -11,7 +11,8 @@ import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './ta
 import { Chip } from './LoanSetupDialog';
 import { Dialog } from './LoanDialogs';
 import { notAvailable } from './LoansTab';
-import { downloadBlob, numberFilterHit } from './reportModel';
+import { downloadBlob } from './reportModel';
+import { ColumnFilterRow, columnFiltersActive, filterRowsByColumns, useColumnFilters } from './columnFilters';
 import { linesFile } from './linesExport';
 import EntryDetail from './EntryDetail';
 import { takePendingOpen } from '../../lib/pendingOpen';
@@ -148,22 +149,14 @@ export function visibleRows(rows, { status = 'Open', mine = 'all', me = '', text
       .some((v) => String(v || '').toLowerCase().includes(q))));
 }
 
-const opSet = (f) => !!f && typeof f === 'object' && !!(String(f.a ?? '').trim() || String(f.b ?? '').trim());
-const textSet = (v) => typeof v === 'string' && !!v.trim();
-/** Whether any column filter is typed. */
-export const columnFiltering = (typed) => GRID_COLUMNS.some((c) => (c.num ? opSet(typed?.[c.key]) : textSet(typed?.[c.key])));
+/** Whether any column filter is typed (the shared columnFilters.jsx). */
+export const columnFiltering = (typed) => columnFiltersActive(GRID_COLUMNS, typed);
 
 /** The rows every typed column filter lets through: a text column holds the
  *  words typed (each must appear, any case), an amount column compares. They
  *  stack. */
 export function columnFilter(rows, typed = {}) {
-  const active = GRID_COLUMNS.filter((c) => (c.num ? opSet(typed[c.key]) : textSet(typed[c.key])));
-  if (!active.length) return rows || [];
-  return (rows || []).filter((r) => active.every((c) => {
-    if (c.num) return numberFilterHit(c.text(r), typed[c.key]);
-    const hay = String(c.text(r) || '').toLowerCase();
-    return typed[c.key].trim().toLowerCase().split(/\s+/).every((w) => hay.includes(w));
-  }));
+  return filterRowsByColumns(rows, typed, GRID_COLUMNS);
 }
 
 /** The grid as an export table (linesExport): the line memo as Description,
@@ -536,7 +529,6 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
   const [status, setStatus] = useState('Open');
   const [mine, setMine] = useState('all');
   const [text, setText] = useState('');
-  const [typed, setTyped] = useState({});        // the column filters (Oct 22)
   const [reloads, setReloads] = useState(0);
   const [res, setRes] = useState({ key: null, data: null, error: null });
   // The row in the side panel. The bell's "Open AMA" names a question
@@ -592,7 +584,9 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
   // (10/23 meeting, item 01) narrow the rows; the status tabs count what they
   // leave, so a count is always what its tab shows. Newest first unless the
   // view sorts otherwise.
-  const boxed = useMemo(() => columnFilter(visibleRows(all, { status: 'All', mine, me, text }), typed), [all, mine, me, text, typed]);
+  const shownLines = useMemo(() => visibleRows(all, { status: 'All', mine, me, text }), [all, mine, me, text]);
+  // The column filters (Oct 22; columnFilters.jsx, shared with MRE).
+  const { typed, setFilter, clear: clearTyped, filtering, rows: boxed } = useColumnFilters(shownLines, GRID_COLUMNS);
   const view = useTableView('ama-questions', AMA_VIEW_COLUMNS, boxed, { sort: AMA_SORT });
   const narrowed = view.rows;
   const rows = useMemo(() => narrowed.filter((r) => status === 'All' || r.status === status), [narrowed, status]);
@@ -610,7 +604,6 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
     narrowed.forEach((r) => { if (r.status in c) c[r.status] += 1; c.All += 1; });
     return c;
   }, [data, narrowed]);
-  const filtering = columnFiltering(typed);
   const outside = data?.outside?.count ? data.outside : null;
   const editor = canEdit || !!data?.canEdit;
   const accountsText = (data?.accounts || []).map((a) => `${a.code}${a.title ? ` ${a.title}` : ''}`).join(', ');
@@ -645,7 +638,6 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
     if (rv?.status === 'Pushed') load();        // the line (and any question on it) is Resolved now
   };
   const openSettings = () => api.getAskSettings().then(setSettings).catch(() => setSettings({}));
-  const setFilter = (k, v) => setTyped((t) => ({ ...t, [k]: v }));
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
@@ -765,7 +757,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
       {filtering && (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: '0.74rem', color: 'var(--text-muted)' }}>
           <span>Column filters on - {rows.length.toLocaleString('en-US')} {rows.length === 1 ? 'line matches' : 'lines match'}.</span>
-          <button type="button" onClick={() => setTyped({})} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear Column Filters</button>
+          <button type="button" onClick={clearTyped} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear Column Filters</button>
         </div>
       )}
 
@@ -782,15 +774,8 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
             <table className="req-table acct-ask acct-sticky-head" style={{ fontVariantNumeric: 'tabular-nums', '--ask-py': py }}>
               <thead>
                 <tr>{view.columns.map((c) => <ViewHead key={c.key} view={view} col={c} aria-label={c.label} style={{ position: 'relative', ...(c.num ? num : null), ...(view.manualWidth(c.key) ? { width: view.manualWidth(c.key), minWidth: view.manualWidth(c.key), maxWidth: view.manualWidth(c.key) } : null) }} />)}</tr>
-                <tr className="acct-filter-row">
-                  {view.columns.map((c) => (
-                    <td key={c.key} style={c.width ? { minWidth: Math.min(c.width, 180) } : undefined}>
-                      {c.num
-                        ? <OpFilter label={c.label} value={typed[c.key]} onChange={(v) => setFilter(c.key, v)} />
-                        : <input type="text" value={typed[c.key] || ''} onChange={(e) => setFilter(c.key, e.target.value)} aria-label={`Filter ${c.label}`} placeholder={c.placeholder || 'contains'} />}
-                    </td>
-                  ))}
-                </tr>
+                <ColumnFilterRow columns={view.columns} typed={typed} onChange={setFilter}
+                  cellProps={(c) => ({ style: c.width ? { minWidth: Math.min(c.width, 180) } : undefined })} />
               </thead>
               <tbody>
                 {loading && !data ? Array.from({ length: 5 }, (_x, i) => (
