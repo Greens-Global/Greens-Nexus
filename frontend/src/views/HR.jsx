@@ -69,6 +69,7 @@ import { PersonReimbursements } from '../components/Reimbursements';
 import { EmployeeMoreDetails } from '../components/EmployeeCustomFields';
 import { formatFieldValue, matchesFieldFilter } from '../lib/employeeCustomFields';
 import HrAnalytics from '../components/HrAnalytics';
+import { LetterRequestsPanel } from '../components/HrLetters';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -6456,6 +6457,8 @@ export default function HR({ activeSub, onSubChange }) {
 
       {sub === 'hr-people' && (<>
         {!hrTeam && <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />}
+        {/* HR letters waiting on HR (Oct 27 2026) - the server decides who sees them: the company's HR contact, administrators, Full HR. */}
+        <LetterRequestsPanel toastOk={toastOk} toastErr={toastErr} />
         {!hrTeam && <RecordsAudit entityName={entityName} refreshKey={employees} onOpen={id => { setOpenTab('documents'); setSelectedId(id); }} />}
         {/* Stat cards - headcount composition, status breakdown, department
             spread (real data, designed zero/loading states) */}

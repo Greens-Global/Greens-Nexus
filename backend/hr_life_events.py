@@ -2953,4 +2953,10 @@ async def life_events_loop():
             await asyncio.to_thread(timesheet_filing.process_due)
         except Exception as e:
             print(f"[life-events] time sheet filing retry failed: {e}")
+        try:
+            # Issued HR letters an employee requested (hr_letters.py, Oct 27 2026).
+            import hr_letters
+            await asyncio.to_thread(hr_letters.process_filing)
+        except Exception as e:
+            print(f"[life-events] HR letter filing failed: {e}")
         await asyncio.sleep(LOOP_EVERY_SEC)

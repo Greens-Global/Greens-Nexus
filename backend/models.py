@@ -8431,3 +8431,53 @@ class EmployeeCustomField(Base):
     created_at  = Column(String, default="")
     updated_by  = Column(String, default="")
     updated_at  = Column(String, default="")
+
+
+class HrLetterRequest(Base):
+    """A standard HR letter an employee asked for from My HR (Neil, Oct 27
+    2026, hr_letters.py): Employment Verification, Salary Certificate,
+    Experience Letter, Address Proof, Visa NOC. HR for the person's company
+    reviews the letter generated from the type's Documents template, edits
+    its values, then Issues it (a Nexus Sign envelope to the company
+    signatory, the only signer) or Declines it with a reason. Sealed, the
+    letter is in the employee's My HR documents and filed to their Egnyte
+    folder. Pay is never stored in `values`: a Salary Certificate's pay is
+    read from Pay & Benefits at render time, or from `pay_values` (what an
+    hr_comp holder typed), which only hr_comp holders ever see.
+    New table - create_all builds it; RLS on dev and prod at release."""
+    __tablename__ = "hr_letter_requests"
+    id               = Column(String, primary_key=True)                # uuid
+    employee_id      = Column(String, nullable=False, index=True)      # NexusEmployee.id
+    employee_email   = Column(String, default="", index=True)
+    employee_name    = Column(String, default="")
+    company_id       = Column(String, default="", index=True)          # HrEntity.id at request time
+    letter_type      = Column(String, nullable=False)                  # hr_letters.LETTER_TYPES key
+    purpose          = Column(Text, default="")
+    addressed_to     = Column(String, default="")
+    needed_by        = Column(String, default="")                      # ISO date
+    notes            = Column(Text, default="")
+    # requested | in_review | awaiting_signature | issued | declined
+    status           = Column(String, default="requested", index=True)
+    values           = Column(JSON, default=dict)                      # HR's edits to the letter's non-pay values
+    pay_values       = Column(JSON, default=dict)                      # RESTRICTED (hr_comp): HR's typed pay values
+    template_id      = Column(String, default="")                      # the Documents template it was issued from
+    template_version = Column(Integer, default=0)
+    signer_email     = Column(String, default="")
+    signer_name      = Column(String, default="")
+    sign_request_id  = Column(String, default="")                      # HrSignRequest.id once issued
+    decline_reason   = Column(Text, default="")
+    reviewed_by      = Column(String, default="")
+    reviewed_at      = Column(String, default="")
+    issued_by        = Column(String, default="")
+    issued_at        = Column(String, default="")                      # sent for the signature
+    completed_at     = Column(String, default="")                      # sealed
+    declined_by      = Column(String, default="")
+    declined_at      = Column(String, default="")
+    note             = Column(Text, default="")                        # the last thing that happened, for both sides
+    filing_status    = Column(String, default="")                      # '' | pending | filed | failed
+    filing_path      = Column(String, default="")
+    filing_error     = Column(Text, default="")
+    filing_attempts  = Column(Integer, default=0)
+    filing_next_at   = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")

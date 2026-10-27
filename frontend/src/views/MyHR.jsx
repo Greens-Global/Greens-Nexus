@@ -17,6 +17,7 @@ import ReimbursementsTile from '../components/Reimbursements';
 import { usePopupNudge } from '../lib/usePopupNudge';
 import { PurchaseRequestTile } from '../components/PurchaseRequests';
 import { MyMoreDetails } from '../components/EmployeeCustomFields';
+import { MyLettersCard } from '../components/HrLetters';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -713,6 +714,11 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                   });
                 })()}
               </div>
+              {/* HR Letters (Neil, Oct 27 2026): request an employment
+                  verification, salary certificate, visa NOC...; HR prepares
+                  it and the company signs it. Issued ones download here and
+                  sit in My Documents above. */}
+              <MyLettersCard flash={flash} />
               {previewFile && (
                 <EgnytePreview file={previewFile} onClose={() => setPreviewFile(null)}
                   fetchPreview={myhrFetchPreview} downloadFile={myhrDownloadFile} />

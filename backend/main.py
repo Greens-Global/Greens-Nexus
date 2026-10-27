@@ -3074,6 +3074,9 @@ def _run_migrations():
         # models.NexusEmployee.custom_fields, models.EmployeeCustomField.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS custom_fields JSON",
         "ALTER TABLE employee_custom_fields ENABLE ROW LEVEL SECURITY",
+        # HR letters an employee requests from My HR (Neil, Oct 27 2026,
+        # hr_letters.py). New table - explicit RLS. models.HrLetterRequest.
+        "ALTER TABLE hr_letter_requests ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4683,3 +4686,5 @@ from routers import hr_analytics as hr_analytics_router  # noqa: E402
 app.include_router(hr_analytics_router.router)  # People > Analytics: headcount, attrition, tenure, absence, leave liability (Neil, Oct 27 2026)
 from routers import approvals as approvals_router  # noqa: E402
 app.include_router(approvals_router.router)        # Approvals: everything waiting on my decision, across modules (Neil, Oct 27 2026)
+from routers import hr_letters as hr_letters_router  # noqa: E402 - new table hr_letter_requests: create_all + RLS line above
+app.include_router(hr_letters_router.router)  # HR letters employees request from My HR; HR issues them through Nexus Sign (Neil, Oct 27 2026)

@@ -3033,6 +3033,20 @@ export const api = {
   // modules - {rows, counts, groups, groupLabels, errors, total}. The
   // decisions go to each module's own endpoint (lib/approvalActions.js).
   approvalsInbox: () => req("/approvals/inbox"),
+  // HR letters (Neil, Oct 27 2026, routers/hr_letters.py): employees request
+  // them from My HR, HR for their company issues them through Nexus Sign.
+  hrLetterTypes: () => req('/letter-requests/types'),
+  hrLettersMine: () => req('/letter-requests/mine'),
+  hrLetterRequest: (data) => req('/letter-requests', { method: 'POST', body: JSON.stringify(data) }),
+  hrLetterQueue: (status = 'open') => req(`/letter-requests/queue?status=${encodeURIComponent(status)}`),
+  hrLetterReview: (id) => req(`/letter-requests/${encodeURIComponent(id)}/review`),
+  hrLetterStartReview: (id) => req(`/letter-requests/${encodeURIComponent(id)}/start-review`, { method: 'POST' }),
+  hrLetterSaveValues: (id, data) => req(`/letter-requests/${encodeURIComponent(id)}/values`, { method: 'PUT', body: JSON.stringify(data) }),
+  hrLetterPreview: (id, data) => reqBlob(`/letter-requests/${encodeURIComponent(id)}/preview`, { method: 'POST', body: JSON.stringify(data || {}), headers: { 'Content-Type': 'application/json' } }),
+  hrLetterIssue: (id, data) => req(`/letter-requests/${encodeURIComponent(id)}/issue`, { method: 'POST', body: JSON.stringify(data) }),
+  hrLetterDecline: (id, reason) => req(`/letter-requests/${encodeURIComponent(id)}/decline`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  hrLetterSettings: (companyId = '') => req(`/letter-requests/settings?company_id=${encodeURIComponent(companyId || '')}`),
+  hrLetterSettingsSave: (companyId, data) => req(`/letter-requests/settings?company_id=${encodeURIComponent(companyId || '')}`, { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()

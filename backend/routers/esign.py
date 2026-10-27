@@ -3055,6 +3055,13 @@ def _link_hook(event: str, db: Session, req: HrSignRequest, *args) -> None:
               "completed": ca_breaks.on_completed}.get(event)
         if fn:
             ca_breaks.safe(fn, db, req, *args)
+    elif kind == "hr_letter":
+        # A letter an employee requested from My HR (hr_letters.py, Oct 27 2026).
+        import hr_letters
+        fn = {"declined": hr_letters.on_declined, "voided": hr_letters.on_voided,
+              "completed": hr_letters.on_completed, "expired": hr_letters.on_expired}.get(event)
+        if fn:
+            hr_letters.safe(fn, db, req, *args)
 
 
 def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:
@@ -5025,11 +5032,13 @@ def _signed_folder(db: Session, req: HrSignRequest) -> str:
     emailed; losing the copy would be the worse outcome."""
     if (req.egnyte_folder or "").strip():
         return req.egnyte_folder.strip()
-    if (getattr(req, "link_kind", "") or "") == "life_event":
+    if (getattr(req, "link_kind", "") or "") in ("life_event", "hr_letter"):
         # Filed into the subject PERSON's folder by hr_life_events' filing pass
         # (the hire's folder does not exist until the packet is signed). The
         # requester fallback below would drop a new hire's offer letter into
-        # the HR sender's own work folder.
+        # the HR sender's own work folder. An employee's requested HR letter
+        # (hr_letters.py) is filed into their folder by its own pass, in a
+        # worker thread, outside this sealing transaction.
         return ""
     if (getattr(req, "link_kind", "") or "") == "timesheet":
         # The EMPLOYEE's person folder (Neil, Oct 16) - never a requester's

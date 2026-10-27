@@ -151,6 +151,8 @@ const TimeOffReasons = fromShifts('TimeOffReasons');
 // - the same components, borrowed from where they are owned.
 const ReadinessThresholds = lazy(() => import('../components/PayrollReadiness').then(m => ({ default: m.ReadinessThresholds })));
 const MinWageForm = lazy(() => import('../components/CaReview').then(m => ({ default: m.MinWageForm })));
+// HR letters employees request from My HR (Oct 27 2026): which a company offers, their templates, the letterhead.
+const HrLettersSettings = lazy(() => import('../components/HrLetters').then(m => ({ default: m.HrLettersSettings })));
 const LeaveSetup = lazy(() => import('../components/LeaveBalances').then(m => ({ default: m.LeaveSetup })));
 const IntacctNightlySync = lazy(() => import('../components/IntacctEmployeeCodes').then(m => ({ default: m.IntacctNightlySync })));
 const LetterheadsPanel = lazy(() => import('../components/DocumentTemplates').then(m => ({ default: m.LetterheadsPanel })));
@@ -452,6 +454,11 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'This company\'s baseline steps, which departments own steps, and the steps its onboarding, promotion, offboarding and leave checklists add, role by role.',
     keywords: 'company checklists baseline onboarding promotion offboarding leave steps departments owners roles missing' },
+  // HR letters (Neil, Oct 27 2026): an organization default a company may override.
+  { id: 'hr-letters', subject: 'hiring', face: 'both', scope: 'layered', icon: FileText, title: 'HR Letters',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'The letters employees request from My HR - employment verification, salary certificate, experience letter, address proof, visa NOC: which ones a company offers, the Documents template each prints from, and the letterhead.',
+    keywords: 'hr letters employment verification salary certificate experience letter address proof visa noc no objection certificate request my hr template letterhead signatory' },
   // Items & Equipment
   { id: 'item-types', subject: 'items', face: 'org', scope: 'org', icon: Tag, title: 'Item Types & Custom Fields',
     needs: { role: 'manager', grant: ['inventory', 'editor'] },
@@ -616,6 +623,7 @@ const COMPANY_STATE = {
   'payroll-readiness': (cid) => api.payrollReadinessSettings(cid).then(m => ownState(!!m?.override)),
   'time-off-reasons': (cid) => api.timeOffTypes(cid).then(r => ownState(!!r?.hasOverride)),
   'shift-settings': (cid) => api.shiftRequestSettingsGetFor(cid).then(r => ownState(!!r?.hasOverride)),
+  'hr-letters': (cid) => api.hrLetterSettings(cid).then(r => ownState(!!r?.hasOverride)),
 };
 // What the layered footer says before the names.
 const OWN_LINE = { 'shift-settings': 'Companies with shift settings of their own:' };
@@ -1637,6 +1645,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'time-off-reasons':     return <LazyPanelSection key={key} id={id} Panel={TimeOffReasons} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'intacct-nightly':      return <LazyPanelSection key={key} id={id} Panel={IntacctNightlySync} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} embedded />;
       case 'letterheads':          return <LazyPanelSection key={key} id={id} Panel={LetterheadsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'hr-letters':           return <LazyPanelSection key={key} id={id} Panel={HrLettersSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ticket-property-rules': return <LazyPanelSection key={key} id={id} Panel={TicketPropertyRulesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'ops-unit-rules':       return <LazyPanelSection key={key} id={id} Panel={UnitRulesPanel} chrome={chrome} />;
       case 'app-ratings':          return <LazyPanelSection key={key} id={id} Panel={AppRatingsPanel} chrome={chrome} />;
