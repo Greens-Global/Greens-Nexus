@@ -69,6 +69,7 @@ const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicIntake        = lazy(() => import("./views/PublicIntake"));
+const PublicCareers       = lazy(() => import("./views/PublicCareers"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
 const PublicUnitFinder    = lazy(() => import("./views/PublicUnitFinder"));
 const PublicFindUnit      = lazy(() => import("./views/PublicFindUnit"));   // /find/<token>: one customer's unit + route (Oct 20)
@@ -511,6 +512,16 @@ export default function App() {
     return (
       <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <PublicIntake token={token} />
+      </Suspense>
+    );
+  }
+  // The public careers page (/careers/<company>[/<opening>], Oct 27 2026) -
+  // job seekers have no login; it shows only Open openings.
+  if (parsePath().view === 'careers') {
+    const [, slug = '', openingId = ''] = window.location.pathname.split('/').filter(Boolean).map(x => { try { return decodeURIComponent(x); } catch { return x; } });
+    return (
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
+        <PublicCareers slug={slug} openingId={openingId} />
       </Suspense>
     );
   }

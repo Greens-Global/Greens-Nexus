@@ -77,6 +77,9 @@ const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').th
 const CompanyRoles = lazy(() => import('./CompanyRoles'));
 // Sync Employee Codes From Intacct (Charmi, Oct 21 2026) - HR only, lazy.
 const IntacctEmployeeCodes = lazy(() => import('../components/IntacctEmployeeCodes'));
+// Hiring > Openings and Headcount (Neil, Oct 27 2026) - lazy, own chunks.
+const JobOpenings = lazy(() => import('../components/hiring/JobOpenings'));
+const HeadcountRequests = lazy(() => import('../components/hiring/HeadcountRequests'));
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -2165,6 +2168,13 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [packetRefresh, setPacketRefresh] = useState(0);
   const { canAccessModule } = useRole();
   const canSeePay = canAccessModule('hr_comp', 'owner', 'viewer');
+  // Pipeline | Openings | Headcount (Neil, Oct 27 2026): hiring starts before the
+  // candidate - a headcount request, then the job opening the careers page lists.
+  const [hView, setHView] = useState('pipeline');
+  const [openings, setOpenings] = useState([]);
+  const [openingFilter, setOpeningFilter] = useState('');   // '' = every candidate
+  const loadOpenings = useCallback(() => { api.listOpenings().then(setOpenings).catch(() => {}); }, []);
+  useEffect(() => { loadOpenings(); }, [loadOpenings]);
   // Roles typed in as Other on Add Candidate that have no hiring packet yet
   // (Neil, Oct 12) - the Packets button carries the count until each has one.
   const [needPackets, setNeedPackets] = useState([]);
@@ -2207,8 +2217,31 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   // Neil, Oct 14: Hired and Rejected stay on the board ("there's no need to keep
   // this closed"); a rejected candidate leaves it when removed, or after 90 days.
   const inactive = candidates.filter(c => c.inactive);
-  const byStage = s => candidates.filter(c => c.stage === s && !c.inactive);
+  const byStage = s => candidates.filter(c => c.stage === s && !c.inactive && (!openingFilter || c.openingId === openingFilter));
   const LANES = [...STAGES, 'rejected'];
+  // The openings still taking candidates, with how many are on the board for each.
+  const activeOpenings = openings.filter(o => ['draft', 'open', 'paused'].includes(o.status) || o.id === openingFilter);
+  const viewTabs = (
+    <div className="scroll-tabs" role="tablist" aria-label="Hiring" style={{ display: 'flex', gap: 4 }}>
+      {[['pipeline', 'Pipeline'], ['openings', `Openings${activeOpenings.length ? ` (${activeOpenings.length})` : ''}`], ['headcount', 'Headcount']].map(([k, label]) => (
+        <button key={k} type="button" role="tab" aria-selected={hView === k} onClick={() => { setHView(k); if (k === 'pipeline') { refreshBoard(); loadOpenings(); } }}
+          className={hView === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 12.5, padding: '5px 12px' }}>{label}</button>
+      ))}
+    </div>
+  );
+  if (hView !== 'pipeline') {
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>{viewTabs}</div>
+        <Suspense fallback={<SkeletonBlocks count={3} height={64} />}>
+          {hView === 'openings'
+            ? <JobOpenings toastOk={toastOk} toastErr={toastErr} canSeePay={canSeePay}
+              onFilterPipeline={id => { setOpeningFilter(id); setHView('pipeline'); refreshBoard(); loadOpenings(); }} />
+            : <HeadcountRequests toastOk={toastOk} toastErr={toastErr} />}
+        </Suspense>
+      </div>
+    );
+  }
 
   // Drag a card to another stage (Neil, Oct 14: "you should be able to drag
   // and drop people ... you should be able to go backwards"). Each target runs
@@ -2321,6 +2354,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+        {viewTabs}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {/* Neil, Oct 14: the questionnaires and the documents are settings -
               set up in Settings > Hiring, never edited on the board. */}
@@ -2361,6 +2395,24 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           </div>
         ))}
       </div>
+
+      {activeOpenings.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginRight: 4 }}>Openings</span>
+          {[{ id: '', title: 'All Candidates' }, ...activeOpenings].map(o => {
+            const on = openingFilter === o.id;
+            const n = o.id ? candidates.filter(c => c.openingId === o.id && !c.inactive).length : null;
+            return (
+              <button key={o.id || 'all'} type="button" aria-pressed={on} onClick={() => setOpeningFilter(o.id)}
+                title={o.id ? `${o.statusLabel} - ${o.counts?.hired || 0} of ${o.seats} hired` : 'Every candidate'}
+                style={{ fontSize: 12, fontWeight: on ? 700 : 600, padding: '4px 10px', borderRadius: 999, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                  border: `1px solid ${on ? 'var(--pine, #15803d)' : 'var(--line)'}`, background: on ? 'hsla(var(--color-green),0.08)' : 'var(--card)', color: 'var(--ink)' }}>
+                {o.title}{n != null && <span style={{ color: 'var(--muted)', fontWeight: 600 }}> · {n}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {candidates.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>

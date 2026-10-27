@@ -1327,6 +1327,12 @@ def _run_migrations():
             # Duplicate Day (Oct 27) - see the Postgres list. models.TimePunch.
             "ALTER TABLE time_punches ADD COLUMN replaced_by_batch TEXT DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_time_punches_replaced_by_batch ON time_punches (replaced_by_batch)",
+            # Hiring careers page (Oct 27 2026) - see the Postgres list.
+            "ALTER TABLE hr_candidates ADD COLUMN opening_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN location VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN linkedin_url VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN consent_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN applied_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3084,6 +3090,18 @@ def _run_migrations():
         # punch, so undoing the batch restores it. models.TimePunch.
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS replaced_by_batch TEXT DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_time_punches_replaced_by_batch ON time_punches (replaced_by_batch)",
+        # Headcount requests, job openings and the public careers page (Neil,
+        # Oct 27 2026; routers/hiring.py, routers/careers.py). A candidate
+        # carries the opening they applied for and what the apply form asks.
+        # models.HrCandidate, HrHeadcountRequest, HrJobOpening. New tables -
+        # explicit RLS.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS opening_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS linkedin_url VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS consent_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS applied_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_headcount_requests ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_job_openings ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4695,3 +4713,7 @@ from routers import approvals as approvals_router  # noqa: E402
 app.include_router(approvals_router.router)        # Approvals: everything waiting on my decision, across modules (Neil, Oct 27 2026)
 from routers import hr_letters as hr_letters_router  # noqa: E402 - new table hr_letter_requests: create_all + RLS line above
 app.include_router(hr_letters_router.router)  # HR letters employees request from My HR; HR issues them through Nexus Sign (Neil, Oct 27 2026)
+from routers import hiring as hiring_router  # noqa: E402
+app.include_router(hiring_router.router)  # Hiring: headcount requests and job openings (Neil, Oct 27 2026)
+from routers import careers as careers_router  # noqa: E402
+app.include_router(careers_router.router)  # Public careers page + apply form, no login (Neil, Oct 27 2026)
