@@ -8,7 +8,7 @@ import EntryDetail from './EntryDetail';
 import AskAccountantDialog, { AskButton, lineFromSearch } from './AskAccountantDialog';
 import Amount from './Amount';
 import { useAccountingPrefs } from './prefs';
-import { OpFilter } from './reportControls';
+import { ColumnFilterRow, columnFiltersActive, filterRowsByColumns } from './columnFilters';
 import { linesBaseName } from './linesExport';
 import { useFitHeight, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, applyView, useTableView } from './tableView';
@@ -92,8 +92,22 @@ const LINE_TYPES = {
   debit: { type: 'amount', value: figure('debit'), total: true },
   credit: { type: 'amount', value: figure('credit'), total: true },
 };
+// The box under every heading (columnFilters.jsx, the one every Accounting
+// table uses since 10/27). The columns the ledger narrows by (`filter`) still
+// go to the server, so the totals and the pages follow; Memo, Project-Job and
+// Item, which it cannot, are checked here - on every line of the search, read
+// in full once one is typed, as the view's own filters are.
+const LINE_FILTERS = LINE_COLUMNS.map((c) => ({
+  key: c.key, label: c.label, text: c.text, server: !!c.filter,
+  ...(c.num ? { num: true, value: (r) => Number(r[c.key]) || 0 } : null),
+  ...(c.key === 'date' ? { placeholder: 'MM/DD/YYYY' } : null),
+}));
+const LOCAL_FILTERS = LINE_FILTERS.filter((c) => !c.server);
+// The filter row's cells: the shared row draws <td>, the lines grid styled <th>.
+const FILTER_CSS = '.acct-lines .acct-filter-row td { padding: 3px 4px 4px; background: var(--bg-card); }';
 // Oct 15 (Neil): the Ask My Accountant action at the end of every line.
 const ASK_WIDTH = 34;
+const ASK_CELL = { key: 'ask' };   // its filter cell stays empty
 const DENSITY_PY = { comfortable: '9px', compact: '5px', condensed: '2px' };
 
 const chip = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, fontSize: '0.75rem', cursor: 'pointer', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', maxWidth: 260, fontFamily: 'inherit' };
@@ -249,6 +263,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   // (10/07). A ledger that does not know them yet is caught below: the lines
   // it hands back are checked here instead.
   const [typed, setTyped] = useState({});
+  const setFilter = (k, v) => setTyped((t) => ({ ...t, [k]: v }));
   const [cols, setCols] = useState('');
   const [opQs, setOpQs] = useState('');
   useEffect(() => {
@@ -264,7 +279,9 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
     const t = setTimeout(() => { setCols(next); setOpQs(nextOps); }, 350);
     return () => clearTimeout(t);
   }, [typed]);
-  const filtering = LINE_COLUMNS.some((c) => (c.num ? opSet(typed[c.key]) : String(typed[c.key] || '').trim()));
+  const filtering = columnFiltersActive(LINE_FILTERS, typed);
+  const localOn = columnFiltersActive(LOCAL_FILTERS, typed);
+  const localKey = JSON.stringify(LOCAL_FILTERS.map((c) => typed[c.key] || ''));
   const opFiltersAll = LINE_COLUMNS.filter((c) => c.num && opSet(typed[c.key]) && (typed[c.key].op || '=') !== '=').map((c) => ({ c, f: typed[c.key] }));
 
   // A new drill-down replaces whatever was picked before it.
@@ -347,9 +364,12 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const loaded = allHere ? all.rows : data?.rows || [];
   const dimsMissed = !!effectiveDims && loaded.some((l) => !lineMatchesDims(l, effectiveDims));
   const base = useMemo(() => loaded.filter((l) => (!dimsMissed || lineMatchesDims(l, effectiveDims)) && passesOps(l)), [loaded, dimsMissed, effectiveDims, opKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const view = useTableView('ledger-lines', viewColumns, base, { onOpen: () => setWantKey(searchKey) });
+  // The boxes the ledger cannot apply (Memo, Project-Job, Item), checked here.
+  const boxed = useMemo(() => filterRowsByColumns(base, typed, LOCAL_FILTERS), [base, typed]);
+  const view = useTableView('ledger-lines', viewColumns, boxed, { onOpen: () => setWantKey(searchKey) });
   const viewOn = view.count > 0;
-  const engaged = viewOn || !!view.state.sort || wantAll;
+  const narrowed = viewOn || localOn;     // the lines on screen are fewer than the search's
+  const engaged = narrowed || !!view.state.sort || wantAll;
   // Everything is on screen already: the search fits on its first page, or all of it was read.
   const complete = allHere || (!!data && (data.rows || []).length >= total);
   const capped = engaged && total > ALL_CAP;
@@ -388,7 +408,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const sum = (key) => Math.round(view.rows.reduce((s, r) => s + (Number(r[key]) || 0), 0) * 100) / 100;
   // The figures over the lines: the view's own once it filters (Viral, 07:00:
   // "You can adjust the totals here"), else the ledger's for the whole search.
-  const shownTotals = viewOn && complete ? { lines: view.rows.length, debit: sum('debit'), credit: sum('credit') } : { lines: total, debit: Number(data?.debit) || 0, credit: Number(data?.credit) || 0 };
+  const shownTotals = narrowed && complete ? { lines: view.rows.length, debit: sum('debit'), credit: sum('credit') } : { lines: total, debit: Number(data?.debit) || 0, credit: Number(data?.credit) || 0 };
   const lastPage = complete ? paged.page >= paged.pages : page + 1 >= pages;
 
   const columns = view.columns;
@@ -410,18 +430,19 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   // a builder for the WHOLE result (walked 1,000 at a time, up to EXPORT_CAP),
   // in the columns on screen and their order, amounts as numbers. 10/24 (item
   // 01): exactly what the view leaves - its filters, its sort, its columns.
-  const exportKey = JSON.stringify([params, columns.map((c) => [c.key, c.width]), total, heading, periodText, entityName, book, opKey, view.state]);
+  const exportKey = JSON.stringify([params, columns.map((c) => [c.key, c.width]), total, heading, periodText, entityName, book, opKey, localKey, view.state]);
   useEffect(() => {
     if (!onExport) return undefined;
     if (!total) { onExport(null); return undefined; }
     const state = view.state;
+    const local = typed;
     const build = async () => {
       const got = [];
       for (let offset = 0; offset < Math.min(total, EXPORT_CAP); offset += 1000) {
         const d = await api.searchAccountingLedger({ ...params, offset, limit: 1000 });
         got.push(...(d?.rows || []).filter((l) => (!effectiveDims || lineMatchesDims(l, effectiveDims)) && passesOps(l)));
       }
-      const kept = applyView(got, viewColumns, state);
+      const kept = applyView(filterRowsByColumns(got, local, LOCAL_FILTERS), viewColumns, state);
       const firstNum = columns.findIndex((c) => c.num);
       const labelAt = columns.findIndex((c) => !c.num);
       const sums = Object.fromEntries(columns.filter((c) => c.num).map((c) => [c.key, kept.reduce((n, r) => n + (Number(r[c.key]) || 0), 0)]));
@@ -442,6 +463,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
 
   return (
     <div style={card}>
+      <style>{FILTER_CSS}</style>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         {/* A journal page (Records > Journals) is the lines themselves: no report to go back to. */}
         {onClose && (
@@ -484,11 +506,11 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           )}
           {account && <ActiveChip label={`Account: ${account.code} ${account.name || ''}`.trim()} onClear={() => { setAccount(null); if (drill) onClearDrill(); }} />}
           {journal && <ActiveChip label={`Journal: ${journal}`} onClear={() => setJournal('')} />}
-          {LINE_COLUMNS.filter((c) => (c.num ? opSet(typed[c.key]) : String(typed[c.key] || '').trim())).map((c) => (
+          {LINE_FILTERS.filter((c) => columnFiltersActive([c], typed)).map((c) => (
             <ActiveChip key={c.key} label={c.num ? opText(c.label, { op: '=', ...typed[c.key] }) : `${c.label} contains ${typed[c.key].trim()}`}
-              onClear={() => setTyped((t) => ({ ...t, [c.key]: c.num ? undefined : '' }))} />
+              onClear={() => setFilter(c.key, c.num ? undefined : '')} />
           ))}
-          {filtering && <button type="button" onClick={() => setTyped({})} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline' }}>Clear column filters</button>}
+          {filtering && <button type="button" onClick={() => setTyped({})} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline' }}>Clear Column Filters</button>}
         </div>
       )}
 
@@ -519,7 +541,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
               the count and totals follow them. */}
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 18px', fontSize: '0.8rem', marginBottom: 8, fontVariantNumeric: 'tabular-nums' }}>
             <span data-testid="ledger-lines-count">
-              <strong>{shownTotals.lines.toLocaleString('en-US')}</strong>{viewOn && complete ? ` of ${base.length.toLocaleString('en-US')}` : ''} lines
+              <strong>{shownTotals.lines.toLocaleString('en-US')}</strong>{narrowed && complete ? ` of ${base.length.toLocaleString('en-US')}` : ''} lines
             </span>
             <span>Debits <strong><Amount value={shownTotals.debit} /></strong></span>
             <span>Credits <strong><Amount value={shownTotals.credit} /></strong></span>
@@ -564,19 +586,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                   {columns.map((c) => <ViewHead key={c.key} view={view} col={c} className={c.num ? 'acct-num' : undefined} />)}
                   <th scope="col" aria-label="Ask My Accountant" />
                 </tr>
-                <tr className="acct-filter-row">
-                  {columns.map((c) => (
-                    <th key={c.key}>
-                      {c.filter && c.num ? (
-                        <OpFilter label={c.label} value={typed[c.key]} onChange={(v) => setTyped((t) => ({ ...t, [c.key]: v }))} />
-                      ) : c.filter ? (
-                        <input type="text" value={typed[c.key] || ''} onChange={(e) => setTyped((t) => ({ ...t, [c.key]: e.target.value }))}
-                          aria-label={`Filter ${c.label}`} placeholder={c.key === 'date' ? 'MM/DD/YYYY' : 'contains'} />
-                      ) : null}
-                    </th>
-                  ))}
-                  <th />
-                </tr>
+                <ColumnFilterRow columns={[...columns, ASK_CELL]} filterColumns={LINE_FILTERS} typed={typed} onChange={setFilter} />
               </thead>
               <tbody>
                 {rows.map((r) => (

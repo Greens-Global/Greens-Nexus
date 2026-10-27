@@ -82,8 +82,44 @@ describe('LedgerSearch grid', () => {
     fireEvent.change(screen.getByLabelText('Filter Debit'), { target: { value: '.46' } });
     await waitFor(() => expect(JSON.parse(api.searchAccountingLedger.mock.calls.at(-1)[0].cols || '{}')).toEqual({ date: '08/19/2026', description: '%mop', debit: '.46' }), { timeout: 2000 });
     expect(screen.getByText('Description contains %mop')).toBeTruthy();
-    fireEvent.click(screen.getByText('Clear column filters'));
+    fireEvent.click(screen.getByText('Clear Column Filters'));
     await waitFor(() => expect(api.searchAccountingLedger.mock.calls.at(-1)[0].cols).toBeUndefined(), { timeout: 2000 });
+  });
+
+  it('the boxes are the shared row; Memo, Project-Job and Item, which the ledger cannot narrow, are checked on every line and the export follows (chat triage 10/27)', async () => {
+    const other = { ...line, line_id: 'l2', entry_no: 'IA-2', description: 'Roof repair', memo: 'Roofing supplies', project_id: 'C-11', project_name: 'Escondido', debit: 600 };
+    api.searchAccountingLedger.mockResolvedValue({ rows: [line, other], total: 2, debit: 622.46, credit: 0, facets: {} });
+    let exporter = null;
+    render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} onExport={(x) => { exporter = x; }} />);
+    await screen.findByText('Roof repair');
+    // Every column shown has its box, the Ask column an empty cell, all inside the pinned head.
+    const head = document.querySelector('.acct-lines thead');
+    expect(head.querySelector('.acct-filter-row').children).toHaveLength(head.querySelector('tr').children.length);
+    expect(screen.getByLabelText('Filter Date').getAttribute('placeholder')).toBe('MM/DD/YYYY');
+    fireEvent.click(screen.getByRole('button', { name: 'Show or Hide Columns' }));
+    fireEvent.click(await screen.findByLabelText('Memo'));
+    fireEvent.click(screen.getByLabelText('Project-Job'));
+    const calls = api.searchAccountingLedger.mock.calls.length;
+    fireEvent.change(screen.getByLabelText('Filter Memo'), { target: { value: 'roofing' } });
+    expect(screen.queryByText('Amazon Marketplace Pay - Mop stainless steel')).toBeNull();
+    expect(screen.getByText('Roof repair')).toBeTruthy();
+    expect(screen.getByTestId('ledger-lines-count').textContent).toBe('1 of 2 lines');
+    expect(screen.getByText('Debits').textContent).toContain('600.00');
+    expect(screen.getByText('Memo contains roofing')).toBeTruthy();
+    // Memo is not a server filter: nothing new goes to the ledger for it.
+    await new Promise((r) => { setTimeout(r, 400); });
+    expect(api.searchAccountingLedger.mock.calls.slice(calls).every(([p]) => !p.cols)).toBe(true);
+    // A server box stacks on it (Description), still sent to the ledger.
+    fireEvent.change(screen.getByLabelText('Filter Description'), { target: { value: 'roof' } });
+    await waitFor(() => expect(JSON.parse(api.searchAccountingLedger.mock.calls.at(-1)[0].cols || '{}')).toEqual({ description: 'roof' }), { timeout: 2000 });
+    await waitFor(() => expect(exporter).toBeTruthy());
+    const table = await exporter.build();
+    const desc = table.columns.findIndex((c) => c.label === 'Description');
+    expect(table.rows.map((r) => r[desc])).toEqual(['Roof repair']);
+    expect(table.totals[table.columns.findIndex((c) => c.label === 'Debit')]).toBe(600);
+    // The chip's x lifts the Memo box; both lines are back.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Memo contains roofing' }));
+    expect(screen.getByText('Amazon Marketplace Pay - Mop stainless steel')).toBeTruthy();
   });
 
   it('sends several entities as a set, and a drill-down into its book', async () => {
