@@ -186,7 +186,7 @@ class FakeApi(BaseHTTPRequestHandler):
         q = parse_qs(parsed.query)
         st["calls"].append(("GET", path, q))
         if path == "/dev-notes/cli/whoami":
-            return self._json(200, {"email": "neil@greensglobal.com", "tokenLabel": "Neil's MacBook"})
+            return self._json(200, {"email": "neil@greensglobal.com", "tokenLabel": "Neil's MacBook", "onePr": bool(st.get("one_pr"))})
         if path == "/dev-notes/cli/wait":
             batches = st.get("wait_batches") or []
             if batches:
@@ -364,6 +364,7 @@ class BuildNotesToolsTest(unittest.TestCase):
     def setUp(self):
         self.server.state["calls"].clear()
         self.server.state["wait_batches"].clear()
+        self.server.state.pop("one_pr", None)
         self.server.state.pop("list_needs_session", None)
 
     # -- resolution ------------------------------------------------------------
@@ -429,6 +430,17 @@ class BuildNotesToolsTest(unittest.TestCase):
         code, out, err = run_cli(["--api", self.server.base, "whoami"])
         self.assertEqual(code, 0)
         self.assertIn("neil@greensglobal.com (Neil's MacBook)", out)
+        self.assertIn("Collect Fixes Into One PR: off", out)
+        self.server.state["one_pr"] = True
+        self.assertIn("Collect Fixes Into One PR: on", run_cli(["--api", self.server.base, "whoami"])[1])
+
+    def test_wait_blocks_until_pins_arrive_then_prints_their_ids(self):
+        self.server.state["wait_batches"].append({"notes": [], "sessions": []})
+        self.server.state["wait_batches"].append({"notes": [sample_note(self.server.base, with_media=False)], "sessions": []})
+        code, out, _ = run_cli(["--api", self.server.base, "wait"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "Pins arrived: " + NOTE_ID)
+        self.assertEqual(len([c for c in self.server.state["calls"] if c[1] == "/dev-notes/cli/wait"]), 2)
 
     def test_list_filters_by_status(self):
         code, out, _ = run_cli(["--api", self.server.base, "list", "--status", "dispatched"])

@@ -13,7 +13,7 @@ export const DRAFTS_KEY = 'nexus:build-mode:drafts';
 export const PENDING_PIN_KEY = 'nexus:build-mode:open-pin';
 export const ALL_TOOLS_KEY = 'nexus:build-mode:all-tools';
 
-export const DEFAULT_SETTINGS = { sendInstantly: false, dispatchTarget: 'local', pinsOnLoad: true, teamsChatId: '', teamsChatName: '' };
+export const DEFAULT_SETTINGS = { sendInstantly: false, dispatchTarget: 'local', pinsOnLoad: true, onePr: false, teamsChatId: '', teamsChatName: '' };
 
 const read = (storage, key) => { try { return storage.getItem(key); } catch { return null; } };
 const write = (storage, key, value) => {

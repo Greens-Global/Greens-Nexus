@@ -138,6 +138,13 @@ describe('Panel', () => {
     await screen.findByRole('button', { name: /Mint Token/ });
   });
 
+  it('Settings tab: Collect Fixes Into One PR saves as onePr (Pranshu, Oct 27)', async () => {
+    const onSettings = vi.fn(() => Promise.resolve());
+    render(<Panel {...props} tab="settings" onSettings={onSettings} />);
+    screen.getByRole('switch', { name: 'Collect Fixes Into One PR' }).click();
+    await waitFor(() => expect(onSettings).toHaveBeenCalledWith({ onePr: true }));
+  });
+
   it('the Queue says where your comments are, by module, and Save Report saves their session', async () => {
     const row = (id, number, route) => ({ id, number, kind: 'bug', priority: 'normal', status: 'open', comment: `Pin ${number}`, sessionId: 's1', route, sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] });
     notes = [row('p1', 1, 'tasks'), row('p2', 2, 'tasks'), row('p3', 3, 'tickets')];

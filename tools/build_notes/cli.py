@@ -31,6 +31,7 @@ import re
 import socket
 import subprocess
 import sys
+import time
 import urllib.parse
 from pathlib import Path
 
@@ -597,7 +598,29 @@ def cmd_whoami(client, args):
     me = client.get("/cli/whoami", timeout=30) or {}
     label = _g(me, "tokenLabel", "token_label", default="")
     print(str(_g(me, "email", default="?")) + ((" (" + str(label) + ")") if label else "") + " on " + client.api_base)
+    print("Collect Fixes Into One PR: " + ("on" if _g(me, "onePr", "one_pr", default=False) else "off"))
     return 0
+
+
+def cmd_wait(client, args):
+    """Block until pins you sent are waiting, print their ids, exit. Claude Code
+    runs this in the background between batches when Collect Fixes Into One PR
+    is on, so the next Send lands in the same session and branch."""
+    backoff = 2
+    while True:
+        try:
+            data = client.get("/cli/wait", query={"timeout": 25}, timeout=45) or {}
+            backoff = 2
+        except common.ApiError as exc:
+            if exc.status in (401, 403):
+                raise
+            time.sleep(backoff)   # a network blip: keep waiting
+            backoff = min(backoff * 2, 60)
+            continue
+        ids = [str(n.get("id")) for n in data.get("notes") or [] if n.get("id")]
+        if ids:
+            print("Pins arrived: " + " ".join(ids))
+            return 0
 
 
 def _print_list(notes, sessions=None):
@@ -1199,6 +1222,7 @@ def build_parser():
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("whoami", help="who owns this token").set_defaults(func=cmd_whoami)
+    sub.add_parser("wait", help="block until pins you sent are waiting, then print their ids").set_defaults(func=cmd_wait)
 
     p = sub.add_parser("list", help="list pins")
     p.add_argument("--status", help="open | dispatched | building | needs_input | pr_open | fixed | done | dismissed")

@@ -165,7 +165,7 @@ def test_grant_holder_and_global_admin_are_enabled():
     r = client.get("/dev-notes/enabled")
     assert r.json()["enabled"] is True
     assert r.json()["settings"] == {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True,
-                                    "teamsChatId": "", "teamsChatName": ""}
+                                    "onePr": False, "teamsChatId": "", "teamsChatName": ""}
     _as(GA)
     assert client.get("/dev-notes/enabled").json()["enabled"] is True
     assert client.get("/dev-notes").status_code == 200
@@ -317,7 +317,7 @@ def test_token_mint_use_and_revoke():
     assert listed[0]["label"] == "MacBook"
 
     r = client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"]))
-    assert r.status_code == 200 and r.json() == {"email": DEV["email"], "tokenLabel": "MacBook"}
+    assert r.status_code == 200 and r.json() == {"email": DEV["email"], "tokenLabel": "MacBook", "onePr": False}
     assert client.get("/dev-notes/tokens").json()[0]["lastUsedAt"] != ""
 
     assert client.get("/dev-notes/cli/whoami", headers=_hdr("nxbn_garbage")).status_code == 401
@@ -333,7 +333,14 @@ def test_token_mint_use_and_revoke():
     assert client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"])).status_code == 401
 
     # a signed-in user also passes the CLI gate, with no token label
-    assert client.get("/dev-notes/cli/whoami").json() == {"email": DEV["email"], "tokenLabel": ""}
+    assert client.get("/dev-notes/cli/whoami").json() == {"email": DEV["email"], "tokenLabel": "", "onePr": False}
+
+
+def test_one_pr_setting_reaches_the_cli():
+    # Collect Fixes Into One PR: saved in Settings, read by Claude Code through whoami
+    assert client.put("/dev-notes/settings", json={"onePr": True}).json()["onePr"] is True
+    assert client.get("/dev-notes/cli/whoami").json()["onePr"] is True
+    assert client.put("/dev-notes/settings", json={"onePr": False}).json()["onePr"] is False
 
 
 def test_token_reads_the_list_and_one_pin():
