@@ -2175,7 +2175,8 @@ export const api = {
   getAccountingPartnerChanges:  (status = '', kind = '') => req(`/accounting/partners/changes?status=${encodeURIComponent(status)}&kind=${encodeURIComponent(kind)}`),
   createAccountingPartnerChange: (body) => req('/accounting/partners/changes', { method: 'POST', body: JSON.stringify(body) }),
   decideAccountingPartnerChange: (id, decision, note = '') => req(`/accounting/partners/changes/${encodeURIComponent(id)}/${decision}`, { method: 'POST', body: JSON.stringify({ note }) }),
-  exportAccountingPartnerChanges: (status = 'approved', kind = '') => reqBlob(`/accounting/partners/changes/export.csv?status=${status}${kind ? `&kind=${kind}` : ''}`),
+  // format 'intacct' (approved vendors): Intacct's vendor import file (item 15, 10/27).
+  exportAccountingPartnerChanges: (status = 'approved', kind = '', format = '') => reqBlob(`/accounting/partners/changes/export.csv?status=${status}${kind ? `&kind=${kind}` : ''}${format ? `&format=${format}` : ''}`),
   // One vendor or customer drilled into (Charmi, 10/16): the record, its
   // change requests and its ledger activity.
   getAccountingPartnerRecord:   (kind, id) => req(`/accounting/partners/record/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`),

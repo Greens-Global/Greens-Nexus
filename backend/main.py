@@ -1318,6 +1318,8 @@ def _run_migrations():
             "ALTER TABLE dev_notes ADD COLUMN preview_verdict VARCHAR DEFAULT ''",
             "ALTER TABLE dev_notes ADD COLUMN preview_verdict_at VARCHAR DEFAULT ''",
             "ALTER TABLE dev_notes ADD COLUMN regression_case_id VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_seen_at VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_check JSON",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3050,6 +3052,8 @@ def _run_migrations():
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict VARCHAR DEFAULT ''",
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict_at VARCHAR DEFAULT ''",
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS regression_case_id VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_seen_at VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_check JSON",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

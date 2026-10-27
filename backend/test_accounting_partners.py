@@ -70,19 +70,25 @@ class PartnerChangeTests(unittest.TestCase):
             db.close()
         cache.module_grants.invalidate()
         self.calls = []
+        self.vendors = VENDORS
 
         async def fake_partners(params):
             self.calls.append(params)
-            return [dict(v) for v in VENDORS]
+            return [dict(v, address=dict(v.get("address") or {})) for v in self.vendors]
 
         async def fake_acct(path, params):
             return {"ok": True, "entities": ENTITIES}
+
+        async def fake_as_of():
+            return "2026-10-27T16:30:02Z"
         self._get, accounting_partners._get = accounting_partners._get, fake_partners
         self._acct, accounting._acct_get = accounting._acct_get, fake_acct
+        self._as_of, accounting_partners._intacct_as_of = accounting_partners._intacct_as_of, fake_as_of
 
     def tearDown(self):
         accounting_partners._get = self._get
         accounting._acct_get = self._acct
+        accounting_partners._intacct_as_of = self._as_of
         self._cleanup()
         auth.SKIP_AUTH = self._skip
         if self._email is None:
@@ -291,6 +297,153 @@ class PartnerChangeTests(unittest.TestCase):
         self.assertEqual(self.client.get("/accounting/partners/changes").json()["changes"], [])
         self.assertEqual(self.client.post("/accounting/partners/changes", json={"kind": "vendor", "partnerId": "V00014",
                                           "changes": {"phone": {"from": "", "to": "1"}}}).status_code, 403)
+
+    # ── Intacct catches up (chat triage 10/27/2026, item 15) ───────────────
+    def _approved(self, pid, changes, requested_at, name="Aarav Desai", status="approved"):
+        db = database.SessionLocal()
+        try:
+            row = models.AccountingPartnerChange(
+                id=f"chg-{pid}-{requested_at[11:16]}", kind="vendor", partner_id=pid, partner_name=name, changes=changes, status=status,
+                requested_by=REQUESTER, requested_at=requested_at, decided_by=MANAGER, decided_at=requested_at, note="")
+            db.add(row)
+            db.commit()
+            return row.id
+        finally:
+            db.close()
+
+    def _status(self, cid):
+        db = database.SessionLocal()
+        try:
+            r = db.query(models.AccountingPartnerChange).filter(models.AccountingPartnerChange.id == cid).first()
+            return r.status, r.intacct_seen_at, r.intacct_check
+        finally:
+            db.close()
+
+    def test_approved_change_closes_once_intacct_holds_it(self):
+        """V00045 (Charmi, 10/26): email and phone approved at 11:12, the phone
+        restyled at 11:21, then keyed into Intacct. The next read sees Intacct
+        holding them: both requests close as In Intacct, the badge goes and
+        the record shows Intacct's own values."""
+        first = self._approved("V00045", {"email": {"from": "", "to": "aaravsdesai@gmail.com"}, "phone": {"from": "", "to": "(949)745-3900"}},
+                               "2026-10-26T18:12:00+00:00")
+        second = self._approved("V00045", {"phone": {"from": "(949)745-3900", "to": "(949) 745-3900"}}, "2026-10-26T18:21:00+00:00")
+        self.vendors = VENDORS + [{"id": "V00045", "kind": "vendor", "name": "Aarav Desai", "email": "AaravSDesai@gmail.com ", "phone": "949-745-3900", "entity": ""}]
+        _as(REQUESTER)
+        body = self.client.get("/accounting/partners?kind=vendor").json()
+        self.assertEqual(body["intacctAsOf"], "2026-10-27T16:30:02Z")
+        rec = next(p for p in body["partners"] if p["id"] == "V00045")
+        self.assertFalse(rec["awaitingIntacct"])
+        self.assertEqual(rec["intacctValues"], {})
+        self.assertEqual(rec["intacctChanged"], {})
+        self.assertEqual(rec["phone"], "949-745-3900", "Intacct's value, not Nexus's")
+        for cid in (first, second):
+            status, seen_at, check = self._status(cid)
+            self.assertEqual(status, "in_intacct", cid)
+            self.assertTrue(seen_at)
+            self.assertEqual(check["phone"]["state"], "match")
+        self.assertEqual(self._status(first)[2]["email"], {"state": "match", "intacct": "AaravSDesai@gmail.com "})
+        # The requests list: nothing awaiting any more; the closed ones show under their own status.
+        changes = self.client.get("/accounting/partners/changes?status=approved&kind=vendor").json()
+        self.assertEqual(changes["changes"], [])
+        self.assertEqual(changes["intacctAsOf"], "2026-10-27T16:30:02Z")
+        seen = self.client.get("/accounting/partners/changes?status=in_intacct&kind=vendor").json()["changes"]
+        self.assertEqual(sorted(c["id"] for c in seen), sorted((first, second)))
+        self.assertTrue(all(c["intacctSeenAt"] and c["intacctCheck"] for c in seen))
+
+    def test_a_change_still_waiting_stays_laid_over_the_record(self):
+        """Intacct holds the approved email but still the old phone: only the
+        phone is laid over, the request stays Approved - Awaiting Intacct."""
+        cid = self._approved("V00012", {"email": {"from": "ap@acme.com", "to": "billing@acme.com"}, "phone": {"from": "760-555-0100", "to": "760-555-0199"}},
+                             "2026-10-26T18:12:00+00:00", name="Acme Plumbing")
+        self.vendors = [dict(VENDORS[0], email="billing@acme.com")] + VENDORS[1:]
+        _as(REQUESTER)
+        rec = next(p for p in self.client.get("/accounting/partners?kind=vendor").json()["partners"] if p["id"] == "V00012")
+        self.assertTrue(rec["awaitingIntacct"])
+        self.assertEqual(rec["intacctValues"], {"phone": "760-555-0100"})
+        self.assertEqual(rec["phone"], "760-555-0199")
+        self.assertEqual(rec["email"], "billing@acme.com")
+        self.assertEqual(self._status(cid)[0], "approved")
+        # The ledger's names-only list never closes anything (nothing to compare).
+        from fastapi import HTTPException
+
+        async def missing(params):
+            raise HTTPException(status_code=501, detail=accounting_partners._NOT_READY)
+
+        async def dims(path, params):
+            return {"ok": True, "values": [{"code": "V00012", "name": "Acme Plumbing"}]}
+        accounting_partners._get = missing
+        accounting._acct_get = dims
+        rec = self.client.get("/accounting/partners?kind=vendor").json()["partners"][0]
+        self.assertTrue(rec["awaitingIntacct"])
+        self.assertEqual(self._status(cid)[0], "approved")
+
+    def test_a_value_changed_in_intacct_after_approval_shows_with_a_note(self):
+        """Approved email, then someone keyed a different one in Intacct:
+        Intacct's value shows, with the approved one in a note, and the
+        request closes as Changed In Intacct (it is not exported again)."""
+        cid = self._approved("V00012", {"email": {"from": "ap@acme.com", "to": "billing@acme.com"}}, "2026-10-26T18:12:00+00:00", name="Acme Plumbing")
+        self.vendors = [dict(VENDORS[0], email="accounts@acme.com")] + VENDORS[1:]
+        _as(REQUESTER)
+        rec = self.client.get("/accounting/partners/record/vendor/V00012").json()["record"]
+        self.assertEqual(rec["email"], "accounts@acme.com")
+        self.assertFalse(rec["awaitingIntacct"])
+        self.assertEqual(rec["intacctChanged"], {"email": {"intacct": "accounts@acme.com", "approved": "billing@acme.com", "approvedAt": "2026-10-26T18:12:00+00:00"}})
+        status, _, check = self._status(cid)
+        self.assertEqual(status, "intacct_changed")
+        self.assertEqual(check, {"email": {"state": "changed", "intacct": "accounts@acme.com"}})
+        # Still noted on the next read, while Intacct keeps that value.
+        rec = next(p for p in self.client.get("/accounting/partners?kind=vendor").json()["partners"] if p["id"] == "V00012")
+        self.assertIn("email", rec["intacctChanged"])
+
+    def test_matching_ignores_spacing_case_and_phone_punctuation(self):
+        state = accounting_partners._field_state
+        self.assertEqual(state("phone", {"from": "", "to": "(949)745-3900"}, "949 745 3900"), "match")
+        self.assertEqual(state("email", {"from": "", "to": "a@b.com"}, " A@B.com"), "match")
+        self.assertEqual(state("address.line1", {"from": "1 Main St", "to": "2 Elm St"}, "1  main st"), "awaiting")
+        self.assertEqual(state("address.line1", {"from": "1 Main St", "to": "2 Elm St"}, "3 Oak St"), "changed")
+        self.assertEqual(state("email", {"from": "a@b.com", "to": "c@b.com"}, ""), "awaiting", "a blank in Intacct is not a change")
+        self.assertEqual(state("taxId", {"from": "", "to": "95-1234567"}, "*****4567"), "match", "the masked tax ID by its last 4")
+        self.assertEqual(state("taxId", {"from": "1111", "to": "95-1234567"}, "*****9999"), "awaiting", "never 'changed' on a masked value")
+
+    # ── Intacct's vendor import file (item 15) ──────────────────────────────
+    INTACCT_HEADER = "DONOTIMPORT,VENDOR_ID,NAME,TERM_NAME,ACTIVE,CONTACT_NAME,PRINT_AS,PHONE1,EMAIL1,ADDRESS1,ADDRESS2,CITY,STATE,ZIP,COUNTRY"
+
+    def test_intacct_template_is_intacct_standard_vendor_template(self):
+        t = accounting_partners.INTACCT_VENDOR_TEMPLATE
+        self.assertEqual(len(t), 98)
+        self.assertEqual(len(set(t)), 98)
+        self.assertEqual(t[:5], ("DONOTIMPORT", "VENDOR_ID", "NAME", "PARENT_ID", "TERM_NAME"))
+        self.assertEqual(t[48:50], ("R_CONTACT_NAME", "R_COMPANY_NAME"))
+        self.assertEqual(t[71:73], ("P_CONTACT_NAME", "P_COMPANY_NAME"))
+        self.assertEqual(t[-4:], ("APACCOUNT", "MERGE_PAYMENT_REQUESTS", "DEFAULT_LEAD_TIME", "BILLAPPROVERID"))
+        self.assertEqual(",".join(accounting_partners.intacct_vendor_columns()), self.INTACCT_HEADER)
+        self.assertNotIn("TAX_ID", accounting_partners.intacct_vendor_columns(), "Nexus holds the last 4 only - never blank or overwrite it")
+
+    def test_export_is_intacct_vendor_import_file(self):
+        """One row per vendor with Intacct's exact headers: the whole current
+        record with the approved change laid on, so the import changes the
+        phone and city and blanks nothing."""
+        cid = self._ask().json()["id"]
+        _as(MANAGER)
+        self.client.post(f"/accounting/partners/changes/{cid}/approve", json={"note": ""})
+        r = self.client.get("/accounting/partners/changes/export.csv?status=approved&kind=vendor&format=intacct")
+        self.assertEqual(r.status_code, 409, "no contact name from Intacct yet: refused, never guessed")
+        self.assertIn("V00012", r.json()["detail"])
+        self.vendors = [dict(VENDORS[0], contactName="Acme Plumbing(V00012)")] + VENDORS[1:]
+        r = self.client.get("/accounting/partners/changes/export.csv?status=approved&kind=vendor&format=intacct")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIn("attachment; filename=intacct-vendor-import-", r.headers["content-disposition"])
+        lines = r.text.strip().split("\r\n")
+        self.assertEqual(lines[0], self.INTACCT_HEADER)
+        self.assertEqual(lines[1:], [",V00012,Acme Plumbing,Net 30,T,Acme Plumbing(V00012),Acme Plumbing,760-555-0199,ap@acme.com,1 Main St,,San Marcos,CA,92025,US"])
+        self.assertEqual(self._status(cid)[0], "approved", "exporting does not close it; Intacct showing it does")
+        # Once Intacct holds it, it is no longer in the file.
+        self.vendors = [dict(VENDORS[0], contactName="Acme Plumbing(V00012)", phone="760-555-0199", address=dict(VENDORS[0]["address"], city="San Marcos"))] + VENDORS[1:]
+        r = self.client.get("/accounting/partners/changes/export.csv?status=approved&kind=vendor&format=intacct")
+        self.assertEqual(r.text.strip(), self.INTACCT_HEADER)
+        self.assertEqual(self._status(cid)[0], "in_intacct")
+        self.assertEqual(self.client.get("/accounting/partners/changes/export.csv?status=approved&kind=customer&format=intacct").status_code, 400)
+        self.assertEqual(self.client.get("/accounting/partners/changes/export.csv?format=xml").status_code, 400)
 
     def test_pending_check_takes_a_lock_on_postgres(self):
         """The one-pending-request check runs under a transaction-scoped

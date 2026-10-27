@@ -5406,19 +5406,27 @@ class AccountingPartnerChange(Base):
     approved row shows on the record as its current values with an "Awaiting
     Intacct" badge until someone keys it into Intacct from the export. New
     table - create_all builds it; RLS must be enabled on dev and prod at
-    release."""
+    release.
+
+    10/27/2026 (item 15): an approved row closes itself once a read of the
+    Intacct record shows it - `in_intacct` (Intacct holds the approved
+    values) or `intacct_changed` (Intacct holds a different value someone
+    keyed there since); `intacct_seen_at` is when, `intacct_check` what was
+    seen per field ({field: {"state", "intacct"}})."""
     __tablename__ = "accounting_partner_changes"
     id           = Column(String, primary_key=True)              # uuid
     kind         = Column(String, default="vendor", index=True)  # vendor | customer
     partner_id   = Column(String, default="", index=True)        # Intacct VENDORID / CUSTOMERID
     partner_name = Column(String, default="")
     changes      = Column(JSON, default=dict)                    # {field: {"from": .., "to": ..}}
-    status       = Column(String, default="pending", index=True)  # pending | approved | declined
+    status       = Column(String, default="pending", index=True)  # pending | approved | in_intacct | intacct_changed | declined
     requested_by = Column(String, default="", index=True)
     requested_at = Column(String, default="")
     decided_by   = Column(String, default="")
     decided_at   = Column(String, default="")
     note         = Column(String, default="")
+    intacct_seen_at = Column(String, default="")                 # when a read of Intacct closed it
+    intacct_check   = Column(JSON, default=dict)                 # {field: {"state": .., "intacct": ..}}
 
 
 class AccountingAllocationRun(Base):

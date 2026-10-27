@@ -17,10 +17,30 @@ written back.
 Until the accounting app ships the partners route it answers 404; that is
 passed on as 501 so the screen can say "not available yet". The requests
 list and export work regardless.
+
+Nexus chat triage 10/27/2026, item 15 (Charmi: "we did an update to a vendor
+in Intacct and use the Sync option but it still did not update on Nexus"):
+- An approved change no longer covers Intacct forever. Every read of the
+  Intacct record checks it (`_check_rows`): once Intacct holds the approved
+  value the request closes itself as "In Intacct" and the badge goes; when
+  Intacct holds a third value (someone changed it there since) Intacct's
+  value shows, with a note, and the request closes as "Changed In Intacct".
+  Nothing else closes an approved change - it stays "Approved - Awaiting
+  Intacct" until the CSV is imported by hand and the next read sees it.
+- The accounting app reads vendors and customers changed in Intacct on
+  every 30-minute run (it was once a day); the list says how fresh its copy
+  is ("Intacct data as of", from the accounting app's sync-status).
+- Export Approved CSV for vendors is Intacct's vendor import file
+  (INTACCT_VENDOR_TEMPLATE), one row per vendor.
+- Two-way sync (Charmi: "once the vendor is approved in Nexus, it should
+  auto sync with Intacct") is NOT built: it needs Nexus to write to Intacct,
+  which waits on Neil's decision to enable direct write. Nothing in this
+  module calls Intacct at all; it reads the accounting app's copy.
 """
 import asyncio
 import csv
 import io
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -47,9 +67,72 @@ router = APIRouter(
 _PATH = "/api/internal/partners"
 _NOT_READY = "Not available yet - the accounting app needs its update."
 _KINDS = ("vendor", "customer")
-_STATUSES = ("pending", "approved", "declined")
+_STATUSES = ("pending", "approved", "in_intacct", "intacct_changed", "declined")
+# Approved and since seen in Intacct (item 15): still read for which change
+# came last on a field, never laid over the record again.
+_SEEN = ("in_intacct", "intacct_changed")
 # The fields a request may change, in the order the export lists them.
 FIELDS = ("displayName", "name", "email", "phone", "address.line1", "address.line2", "address.city", "address.state", "address.zip", "address.country", "terms", "status", "taxId")
+# Approved vendors checked against Intacct per requests read or export.
+_SETTLE_MAX = 200
+
+# ── Intacct's vendor import file (item 15, 10/27/2026) ──────────────────────
+# Charmi: "the CSV export is not exactly matching the Intacct template so we
+# were not able to do the import". Sage Intacct's standard vendor import
+# template, header names in the template's order, from Intacct's field list
+# for it (Accounts Payable > Vendors > Import > Download template):
+# https://www.intacct.com/ia/docs/en_US/help_action/More/Uploading_Data/AP/import-vendors.htm
+# (the page lists VENDOR_ACCTNO twice; the template has it once). This is
+# the ONE place the columns live: to use Charmi's own template, replace this
+# tuple with its header row - the file follows its names and order.
+INTACCT_VENDOR_TEMPLATE = (
+    "DONOTIMPORT", "VENDOR_ID", "NAME", "PARENT_ID", "TERM_NAME", "VENDTYPE_NAME", "TAX_ID", "TAXGROUP", "CREDIT_LIMIT",
+    "VENDOR_ACCTNO", "ACCT_LABEL", "GL_ACCTNO", "BILLING_TYPE", "DISC_ON_CKSTUB", "ONHOLD", "COMMENTS", "FORM1099TYPE",
+    "FORM1099BOX", "NAME1099", "CURRENCY", "PAYMENTPRIORITY", "HIDEDISPLAYCONTACT", "ACTIVE",
+    "CONTACT_NAME", "COMPANY_NAME", "MRMS", "FIRST_NAME", "MI", "LAST_NAME", "PRINT_AS", "TAXABLE",
+    "PHONE1", "PHONE2", "CELLPHONE", "PAGER", "FAX", "EMAIL1", "EMAIL2", "URL1", "URL2",
+    "ADDRESS1", "ADDRESS2", "CITY", "STATE", "ZIP", "COUNTRY", "LATITUDE", "LONGITUDE",
+    *(f"{p}_{f}" for p in ("R", "P") for f in (
+        "CONTACT_NAME", "COMPANY_NAME", "MRMS", "FIRST_NAME", "MI", "LAST_NAME", "PRINT_AS", "TAXABLE", "PHONE1", "PHONE2",
+        "CELLPHONE", "PAGER", "FAX", "EMAIL1", "EMAIL2", "URL1", "URL2", "ADDRESS1", "ADDRESS2", "CITY", "STATE", "ZIP", "COUNTRY")),
+    "APACCOUNT", "MERGE_PAYMENT_REQUESTS", "DEFAULT_LEAD_TIME", "BILLAPPROVERID",
+)
+# What Nexus fills, by template header, from the Intacct record with the
+# approved changes laid on. ONLY these columns go in the file: Intacct's
+# import updates an existing vendor (matched on VENDOR_ID) with every column
+# it is given, and a blank cell CLEARS that field on the vendor (Intacct:
+# "if you leave a field blank in the import file, the blank entry will
+# overwrite any existing information"). So a column Nexus does not hold in
+# full - vendor type, 1099, GL group, credit limit, the pay-to and return-to
+# contacts, the tax ID (Nexus sees its last 4 only) - is left out rather
+# than sent blank, and every column sent carries the vendor's whole current
+# value, not just the changed field. CONTACT_NAME is how Intacct finds the
+# vendor's contact (the phone, email and address are the contact's).
+INTACCT_VENDOR_SOURCES = {
+    "DONOTIMPORT": lambda r: "",
+    "VENDOR_ID": lambda r: r["id"],
+    "NAME": lambda r: r["name"],
+    "TERM_NAME": lambda r: r["terms"],
+    "ACTIVE": lambda r: "F" if str(r["status"]).strip().lower().startswith("inactive") else "T",
+    "CONTACT_NAME": lambda r: r.get("contactName") or "",
+    "PRINT_AS": lambda r: r["displayName"],
+    "PHONE1": lambda r: r["phone"],
+    "EMAIL1": lambda r: r["email"],
+    "ADDRESS1": lambda r: r["address"]["line1"],
+    "ADDRESS2": lambda r: r["address"]["line2"],
+    "CITY": lambda r: r["address"]["city"],
+    "STATE": lambda r: r["address"]["state"],
+    "ZIP": lambda r: r["address"]["zip"],
+    "COUNTRY": lambda r: r["address"]["country"],
+}
+# The request fields the file carries (a tax ID change is keyed by hand).
+_IMPORT_FIELDS = {"name", "terms", "status", "displayName", "phone", "email", "address.line1", "address.line2",
+                  "address.city", "address.state", "address.zip", "address.country"}
+
+
+def intacct_vendor_columns() -> list[str]:
+    """The import file's header row: the template's columns Nexus fills, in the template's order."""
+    return [h for h in INTACCT_VENDOR_TEMPLATE if h in INTACCT_VENDOR_SOURCES]
 _CACHE: dict[str, tuple[float, list]] = {}
 _TTL = 120.0
 _NOTE_MAX = 1000
@@ -117,6 +200,7 @@ def _record(p: dict) -> dict:
         "address": {k: addr.get(k) or "" for k in ("line1", "line2", "city", "state", "zip", "country")},
         "terms": p.get("terms") or "",
         "status": p.get("status") or "",
+        "contactName": p.get("contactName") or p.get("contact_name") or "",
         "entity": p.get("entity") or "",
         "updatedAt": p.get("updatedAt") or p.get("updated_at") or "",
     }
@@ -135,36 +219,168 @@ def _get_field(rec: dict, field: str):
     return rec.get(field, "")
 
 
-def _overlay(records: list[dict], db: Session, kind: str) -> list[dict]:
+def _norm(field: str, value) -> str:
+    """A value as compared with Intacct's: spaces collapsed, case ignored; a
+    phone by its digits ("(949)745-3900" is "(949) 745-3900"); the tax ID by
+    its last 4 (Intacct's is served masked)."""
+    s = " ".join(str(value if value is not None else "").split())
+    if field == "phone":
+        return re.sub(r"\D", "", s)
+    if field == "taxId":
+        return re.sub(r"[^0-9A-Za-z]", "", s)[-4:].upper()
+    return s.casefold()
+
+
+def _field_state(field: str, fx: dict, intacct) -> str:
+    """One approved field against what Intacct holds now: "match" (Intacct
+    has the approved value), "changed" (Intacct has a third value - someone
+    changed it there since the request; never said of the masked tax ID),
+    else "awaiting" (Intacct still has the old value)."""
+    now = _norm(field, intacct)
+    if now == _norm(field, fx.get("to")):
+        return "match"
+    if field != "taxId" and now and now != _norm(field, fx.get("from")):
+        return "changed"
+    return "awaiting"
+
+
+def _check_rows(rec: dict, rows: list) -> dict[str, dict[str, dict]]:
+    """Each approved or seen row's fields against the Intacct record `rec`
+    (as Intacct has it - before any overlay): {row id: {field: {"state",
+    "intacct", "latest"}}}. A field a LATER approved change also sets takes
+    that change's state - the latest ask on a field is the one Intacct must
+    hold (V00045: the 11:12 phone was restyled by the 11:21 one)."""
+    out: dict[str, dict[str, dict]] = {}
+    latest: dict[str, str] = {}
+    for ch in sorted(rows, key=lambda r: r.requested_at or "", reverse=True):
+        fields: dict[str, dict] = {}
+        for field, fx in (ch.changes or {}).items():
+            if field not in FIELDS or not isinstance(fx, dict):
+                continue
+            cur = _get_field(rec, field)
+            if field in latest:
+                fields[field] = {"state": latest[field], "intacct": cur, "latest": False}
+            else:
+                st = _field_state(field, fx, cur)
+                latest[field] = st
+                fields[field] = {"state": st, "intacct": cur, "latest": True}
+        out[ch.id] = fields
+    return out
+
+
+def _settled(fields: dict[str, dict]) -> str:
+    """What an approved row becomes once every field is seen: "in_intacct",
+    "intacct_changed", or "" while any field still waits for Intacct."""
+    states = {f["state"] for f in fields.values()}
+    if not states or "awaiting" in states:
+        return ""
+    return "intacct_changed" if "changed" in states else "in_intacct"
+
+
+def _overlay(records: list[dict], db: Session, kind: str, check: bool = True) -> list[dict]:
     """Approved changes not yet in Intacct become the record's current values
     (badge "Awaiting Intacct"); a pending one is flagged so nobody files a
-    second ask for the same record."""
+    second ask for the same record.
+
+    `check` (records read from Intacct, not the ledger's names-only list):
+    each approved change is checked against the record first (item 15). One
+    Intacct already holds closes as "in_intacct"; a field Intacct changed to
+    something else since shows Intacct's value with a note
+    (`intacctChanged`), and a change made only of such fields closes as
+    "intacct_changed". Only fields still waiting are laid over the record.
+    Closing writes the request row in Nexus - never anything in Intacct."""
     ids = [r["id"] for r in records if r["id"]]
     if not ids:
         return records
+    wanted = ("pending", "approved", *_SEEN) if check else ("pending", "approved")
     rows = (db.query(models.AccountingPartnerChange)
             .filter(models.AccountingPartnerChange.kind == kind, models.AccountingPartnerChange.partner_id.in_(ids),
-                    models.AccountingPartnerChange.status.in_(("pending", "approved")))
+                    models.AccountingPartnerChange.status.in_(wanted))
             .order_by(models.AccountingPartnerChange.requested_at.asc()).all())
     by_id: dict[str, list] = {}
     for r in rows:
         by_id.setdefault(r.partner_id, []).append(r)
+    closed = False
     for rec in records:
         changes = by_id.get(rec["id"]) or []
         rec["awaitingIntacct"] = False
-        rec["pendingChange"] = False
+        rec["pendingChange"] = any(ch.status == "pending" for ch in changes)
         rec["intacctValues"] = {}
-        for ch in changes:
-            if ch.status == "pending":
-                rec["pendingChange"] = True
-                continue
+        rec["intacctChanged"] = {}
+        live = [ch for ch in changes if ch.status != "pending"]
+        checks = _check_rows(rec, live) if check else {}
+        overlay: dict[str, str] = {}
+        for ch in live:                                   # oldest first: a later change wins the field
+            seen = checks.get(ch.id)
+            if check and ch.status == "approved":
+                to = _settled(seen or {})
+                if to:
+                    ch.status, ch.intacct_seen_at = to, _now()
+                    ch.intacct_check = {f: {"state": v["state"], "intacct": v["intacct"]} for f, v in seen.items()}
+                    closed = True
             for field, fx in (ch.changes or {}).items():
                 if field not in FIELDS or not isinstance(fx, dict):
                     continue
-                rec["intacctValues"].setdefault(field, _get_field(rec, field))
-                _set_field(rec, field, fx.get("to", ""))
-                rec["awaitingIntacct"] = True
+                if not check:
+                    if ch.status == "approved":
+                        overlay[field] = fx.get("to", "")
+                    continue
+                f = (seen or {}).get(field) or {}
+                if not f.get("latest"):
+                    continue
+                if f["state"] == "awaiting" and ch.status == "approved":
+                    overlay[field] = fx.get("to", "")
+                elif f["state"] == "changed" and ch.status in ("approved", "intacct_changed"):
+                    rec["intacctChanged"][field] = {"intacct": f["intacct"], "approved": fx.get("to", ""), "approvedAt": ch.decided_at or ""}
+        for field, value in overlay.items():
+            rec["intacctValues"][field] = _get_field(rec, field)
+            _set_field(rec, field, value)
+            rec["awaitingIntacct"] = True
+    if closed:
+        db.commit()
     return records
+
+
+async def _intacct_record(kind: str, pid: str) -> dict | None:
+    """One partner as Intacct has it (no overlay), or None when the
+    accounting app does not have it. The accounting app not serving records
+    yet (501) is passed on."""
+    raw = await _get({"kind": kind, "q": pid})
+    found = next((p for p in raw if isinstance(p, dict) and str(p.get("id") or p.get("code") or "") == pid), None)
+    if not found:
+        return None
+    rec = _record(found)
+    rec["kind"] = rec["kind"] or kind
+    return rec
+
+
+async def _settle(db: Session, kinds: tuple[str, ...]) -> None:
+    """Close the approved changes Intacct now holds before the requests list
+    or the export is read (the same check the record list makes), so neither
+    offers a change that is already in Intacct. Best effort: while the
+    accounting app cannot serve the records nothing is closed."""
+    def pairs():
+        return (db.query(models.AccountingPartnerChange.kind, models.AccountingPartnerChange.partner_id)
+                .filter(models.AccountingPartnerChange.status == "approved", models.AccountingPartnerChange.kind.in_(kinds))
+                .distinct().limit(_SETTLE_MAX).all())
+    for k, pid in await asyncio.to_thread(pairs):
+        try:
+            rec = await _intacct_record(k, pid)
+        except Exception:  # noqa: BLE001 - the list and the export never fail on the check
+            return
+        if rec:
+            await asyncio.to_thread(_overlay, [rec], db, k)
+
+
+async def _intacct_as_of() -> str:
+    """When the accounting app's vendor and customer copy last caught up with
+    Intacct (ISO, UTC): its every-run read of changed records, else its daily
+    refresh. "" when it cannot say. Tests replace this."""
+    try:
+        d = await acct._acct_get("/api/internal/sync-status", {})
+    except Exception:  # noqa: BLE001 - a missing "as of" line never fails the list
+        return ""
+    return str(d.get("partners_synced_at") or d.get("last_dimensions_sync_at") or "")
 
 
 async def _ledger_dimension(kind: str) -> list:
@@ -197,13 +413,14 @@ async def _ledger_partners(kind: str, text: str, scope: dict, db: Session) -> di
         rec["lines"] = v.get("lines") if isinstance(v.get("lines"), int) else v.get("count")
         records.append(rec)
     records.sort(key=lambda r: (r["displayName"] or r["id"]).lower())
-    return {"kind": kind, "source": "ledger", "partners": await asyncio.to_thread(_overlay, records, db, kind)}
+    return {"kind": kind, "source": "ledger", "partners": await asyncio.to_thread(_overlay, records, db, kind, False)}
 
 
 @router.get("")
 async def list_partners(kind: str = "vendor", q: str = "", scope: dict = Depends(entity_scope), db: Session = Depends(get_db)):
     """Vendors or customers as Intacct has them, searched by `q`, with the
-    approved-but-not-yet-keyed changes shown as current values."""
+    approved-but-not-yet-keyed changes shown as current values, and
+    `intacctAsOf` - how fresh the accounting app's copy of Intacct is."""
     k = _kind(kind)
     text = (q or "").strip()[:120]
     try:
@@ -223,7 +440,8 @@ async def list_partners(kind: str = "vendor", q: str = "", scope: dict = Depends
     if scope["allowed"] is not None:
         reach = await _with_children(scope["allowed"]) if scope["allowed"] else set()
         records = [r for r in records if not r["entity"] or r["entity"] in reach]
-    return {"kind": k, "source": "intacct", "partners": await asyncio.to_thread(_overlay, records, db, k)}
+    partners = await asyncio.to_thread(_overlay, records, db, k)
+    return {"kind": k, "source": "intacct", "intacctAsOf": await _intacct_as_of(), "partners": partners}
 
 
 # ── Change requests ──────────────────────────────────────────────────────────
@@ -243,7 +461,8 @@ class DecisionBody(BaseModel):
 def _out(r: models.AccountingPartnerChange, db: Session) -> dict:
     return {"id": r.id, "kind": r.kind, "partnerId": r.partner_id, "partnerName": r.partner_name, "changes": r.changes or {},
             "status": r.status, "requestedBy": r.requested_by, "requestedByName": _display_name(r.requested_by, db), "requestedAt": r.requested_at,
-            "decidedBy": r.decided_by, "decidedByName": _display_name(r.decided_by, db) if r.decided_by else "", "decidedAt": r.decided_at, "note": r.note or ""}
+            "decidedBy": r.decided_by, "decidedByName": _display_name(r.decided_by, db) if r.decided_by else "", "decidedAt": r.decided_at, "note": r.note or "",
+            "intacctSeenAt": r.intacct_seen_at or "", "intacctCheck": r.intacct_check or {}}
 
 
 def _notify(db: Session, *, type: str, recipient: str, title: str, body: str, ref_id: str, requested_by: str) -> None:
@@ -314,10 +533,12 @@ def _within(rows: list, visible: set[tuple[str, str]] | None) -> list:
 async def list_changes(status: str = "", kind: str = "", scope: dict = Depends(entity_scope), db: Session = Depends(get_db)):
     """Change requests, newest first; `status` and `kind` narrow them. A
     caller limited to certain entities sees only the requests about partners
-    within their reach."""
+    within their reach. Approved ones Intacct now holds are closed first
+    (item 15), so "Approved - Awaiting Intacct" means what it says."""
     if status and status not in _STATUSES:
-        raise HTTPException(status_code=400, detail="status must be pending, approved or declined")
+        raise HTTPException(status_code=400, detail="status must be pending, approved, in_intacct, intacct_changed or declined")
     k = _kind(kind) if kind else ""
+    await _settle(db, (k,) if k else _KINDS)
     visible = await _visible_partners(scope, (k,) if k else _KINDS)
 
     def _read() -> dict:
@@ -329,7 +550,9 @@ async def list_changes(status: str = "", kind: str = "", scope: dict = Depends(e
         q = q.order_by(models.AccountingPartnerChange.requested_at.desc())
         rows = q.limit(500).all() if visible is None else _within(q.all(), visible)[:500]
         return {"changes": [_out(r, db) for r in rows]}
-    return await asyncio.to_thread(_read)
+    out = await asyncio.to_thread(_read)
+    out["intacctAsOf"] = await _intacct_as_of()
+    return out
 
 
 # Two-int-form advisory lock namespace for "one pending request per record"
@@ -432,15 +655,73 @@ def decline_change(change_id: str, body: DecisionBody, user: dict = Depends(_dec
 
 
 @router.get("/changes/export.csv")
-async def export_changes(status: str = Query("approved"), kind: str = "", scope: dict = Depends(entity_scope), db: Session = Depends(get_db)):
-    """The approved changes as a CSV, one row per field, for keying into
-    Intacct. Dates are MM/DD/YYYY. Held to the caller's entity reach, like
-    the list."""
+async def export_changes(status: str = Query("approved"), kind: str = "", format: str = Query("review"),
+                         scope: dict = Depends(entity_scope), db: Session = Depends(get_db)):
+    """`format=review`: the changes as a CSV, one row per field, with who
+    asked and who decided. Dates are MM/DD/YYYY. `format=intacct`: the
+    approved vendor changes as Intacct's vendor import file
+    (`_intacct_vendor_csv`). Held to the caller's entity reach, like the
+    list."""
     if status not in _STATUSES:
-        raise HTTPException(status_code=400, detail="status must be pending, approved or declined")
+        raise HTTPException(status_code=400, detail="status must be pending, approved, in_intacct, intacct_changed or declined")
+    if format not in ("review", "intacct"):
+        raise HTTPException(status_code=400, detail="format must be review or intacct")
     k = _kind(kind) if kind else ""
+    await _settle(db, (k,) if k else _KINDS)
     visible = await _visible_partners(scope, (k,) if k else _KINDS)
+    if format == "intacct":
+        if k != "vendor" or status != "approved":
+            raise HTTPException(status_code=400, detail="The Intacct import file is for approved vendor changes. Customer changes export as the change list until Intacct's customer template is set up.")
+        return await _intacct_vendor_csv(db, visible)
     return await asyncio.to_thread(_export_csv, db, status, k, visible)
+
+
+async def _intacct_vendor_csv(db: Session, visible: set[tuple[str, str]] | None) -> StreamingResponse:
+    """Approved vendor changes still waiting for Intacct as Intacct's vendor
+    import file (INTACCT_VENDOR_TEMPLATE / INTACCT_VENDOR_SOURCES): one row
+    per vendor, every column carrying the vendor's whole value - Intacct's
+    record with the waiting changes laid on - so the import changes what was
+    approved and blanks nothing. Changed-in-Intacct fields keep Intacct's
+    value. A vendor whose approved changes are only to the tax ID is not in
+    the file (Nexus sees its last 4 only - keyed by hand). Refused (409)
+    when a record cannot be read whole: a guessed or blank cell would
+    overwrite Intacct. Nothing is sent to Intacct; the file is imported by
+    hand (Accounts Payable > Vendors > Import), and each change closes as
+    "In Intacct" once the next sync shows it there."""
+    def waiting() -> list:
+        q = (db.query(models.AccountingPartnerChange)
+             .filter(models.AccountingPartnerChange.kind == "vendor", models.AccountingPartnerChange.status == "approved")
+             .order_by(models.AccountingPartnerChange.decided_at.asc()))
+        return _within(q.all(), visible)
+    rows = await asyncio.to_thread(waiting)
+    pids = list(dict.fromkeys(r.partner_id for r in rows if _IMPORT_FIELDS & set((r.changes or {}).keys())))
+    records, missing = [], []
+    for pid in pids:
+        try:
+            rec = await _intacct_record("vendor", pid)
+        except HTTPException as e:
+            if e.status_code == 501:
+                raise HTTPException(status_code=409, detail="The Intacct import file needs each vendor's full Intacct record, which the accounting app does not serve yet.")
+            raise
+        if rec is None:
+            missing.append(pid)
+        else:
+            records.append(rec)
+    if missing:
+        raise HTTPException(status_code=409, detail=f"Could not read the Intacct record of {', '.join(missing)}. The import file needs each vendor's current values so nothing in Intacct is blanked - press Sync and try again.")
+    records = await asyncio.to_thread(_overlay, records, db, "vendor")
+    records = [r for r in records if r.get("awaitingIntacct")]
+    no_contact = [r["id"] for r in records if not r.get("contactName")]
+    if no_contact:
+        raise HTTPException(status_code=409, detail=f"Intacct's contact name for {', '.join(no_contact)} has not reached Nexus yet, and Intacct's import needs it to update the phone, email and address. It arrives with the accounting app's next vendor sync.")
+    columns = intacct_vendor_columns()
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\r\n")
+    w.writerow(columns)
+    for r in sorted(records, key=lambda x: x["id"]):
+        w.writerow([INTACCT_VENDOR_SOURCES[c](r) for c in columns])
+    fname = f"intacct-vendor-import-{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
 def _export_csv(db: Session, status: str, kind: str, visible: set[tuple[str, str]] | None) -> StreamingResponse:
@@ -543,7 +824,7 @@ async def partner_record(kind: str, partner_id: str, scope: dict = Depends(entit
     rec["kind"] = rec["kind"] or k
 
     def work():
-        return _overlay([rec], db, k)[0], _history(db, k, pid)
+        return _overlay([rec], db, k, source == "intacct")[0], _history(db, k, pid)
     rec, history = await asyncio.to_thread(work)
     activity, activity_error = None, ""
     try:

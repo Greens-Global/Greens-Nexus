@@ -86,7 +86,40 @@ describe('PartnersTab', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(api.decideAccountingPartnerChange).toHaveBeenCalledWith('c1', 'approve', 'Please'));
     fireEvent.click(screen.getByRole('button', { name: /Export Approved CSV/ }));
-    await waitFor(() => expect(api.exportAccountingPartnerChanges).toHaveBeenCalledWith('approved', 'vendor'));
+    // Item 15 (10/27): on Vendors it is Intacct's vendor import file.
+    await waitFor(() => expect(api.exportAccountingPartnerChanges).toHaveBeenCalledWith('approved', 'vendor', 'intacct'));
+  });
+
+  it('says how fresh the Intacct copy is and shows a value changed in Intacct after approval (item 15)', async () => {
+    const changed = { ...vendors[0], email: 'accounts@acme.com', intacctChanged: { email: { intacct: 'accounts@acme.com', approved: 'billing@acme.com', approvedAt: '2026-10-26T18:12:00Z' } } };
+    api.getAccountingPartners.mockResolvedValueOnce({ kind: 'vendor', source: 'intacct', intacctAsOf: '2026-10-27T16:30:02Z', partners: [changed, vendors[1]] });
+    api.getAccountingPartnerRecord.mockResolvedValueOnce({ kind: 'vendor', source: 'intacct', record: changed, history: [], activity: null, activityError: '' });
+    render(<PartnersTab />);
+    const row = (await screen.findByText('Acme Plumbing')).closest('tr');
+    expect(within(row).getByText('Changed In Intacct')).toBeTruthy();
+    expect(within(row).getByText('accounts@acme.com')).toBeTruthy();
+    expect(screen.getByTestId('intacct-as-of').textContent).toMatch(/^Intacct data as of 10\/27\/2026/);
+    fireEvent.click(row);
+    const dialog = await screen.findByRole('dialog', { name: 'Vendor V00012' });
+    const note = await within(dialog).findByRole('note');
+    expect(note.textContent).toContain('Email - Intacct has accounts@acme.com (Nexus approved billing@acme.com on 10/26/2026)');
+  });
+
+  it('lists requests closed by Intacct under their own status (item 15)', async () => {
+    api.getAccountingPartnerChanges.mockResolvedValue({ intacctAsOf: '2026-10-27T16:30:02Z', changes: [
+      { ...changes[0], id: 'c9', status: 'intacct_changed', decidedByName: 'Charmi Desai', decidedAt: '2026-10-26T18:13:00Z', intacctSeenAt: '2026-10-27T16:31:00Z',
+        intacctCheck: { phone: { state: 'changed', intacct: '760-555-0111' } } },
+    ] });
+    render(<PartnersTab canApprove />);
+    await screen.findByText('Acme Plumbing');
+    fireEvent.click(screen.getByRole('button', { name: /Requests/ }));
+    const row = (await screen.findByText('Amy Bolanos')).closest('tr');
+    expect(within(row).getByText('Changed In Intacct')).toBeTruthy();
+    expect(within(row).getByText(/Seen in Intacct 10\/27\/2026/)).toBeTruthy();
+    expect(within(row).getByText('Phone: Intacct has 760-555-0111')).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'In Intacct' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Approve' }), 'only a pending request is decided').toBeNull();
+    api.getAccountingPartnerChanges.mockImplementation(async () => ({ changes }));
   });
 
   it('hides the decision buttons from someone who cannot approve', async () => {
