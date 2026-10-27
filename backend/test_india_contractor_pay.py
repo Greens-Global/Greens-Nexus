@@ -210,7 +210,8 @@ class Base(unittest.TestCase):
                   models.PayrollRateHistory, models.TimeApproval, models.ExtraTimeClaim, models.NexusNotification,
                   models.HrCompanyHoliday, models.NexusSetting, models.LeaveLedgerEntry, models.TimesheetReview,
                   models.ContractorInvoice, models.HrSignParty, models.HrSignRequest, models.HrSignConsent,
-                  models.HrSignDocument, models.HrSignSeal, models.HrSignOtpChallenge, models.TimecardBonus):
+                  models.HrSignDocument, models.HrSignSeal, models.HrSignOtpChallenge, models.TimecardBonus,
+                  models.SalaryAdvance, models.SalaryAdvanceInstallment):
             db.query(m).execution_options(include_deleted=True).delete()
         db.add(models.HrEntity(id=CO, name="Greens India", legal_name="Greens India Private Limited", country="IN",
                                hr_contact_email=HRC, invoice_recipients=["ap@greensglobal.com"]))
@@ -276,6 +277,46 @@ class CardTests(Base):
         self.assertEqual((sat["bonus"], sat["extraMin"], sat["extraPay"], sat["poolMin"]), (0.0, 300, 2025.0, 0))
         self.assertEqual(sat["claim"]["status"], "approved")
         self.assertEqual(self.day(c, LONG)["claimableMin"], 90)
+
+    def test_reconciliation_extra_time_and_an_advance_repayment_together(self):
+        # The release combines the policy (#821) with salary advances (#812):
+        # the month is priced by the reconciliation and Extra Time first, then
+        # the advance's installment comes off what is paid - on the card, in
+        # the finalize snapshot and on the contractor invoice.
+        _worked_example(self.db, CON)
+        _claim(self.db, CON, SAT, 300)
+        self.db.add(models.SalaryAdvance(id="adv-1", employee_email=CON, employee_name="Priya Test", company=CO,
+                                         amount=10000.0, currency="INR", installments=2, status="paid_out",
+                                         paid_on="2026-08-20", created_at="2026-08-18T00:00:00"))
+        for seq, day in ((1, MS), (2, "2026-10-01")):
+            self.db.add(models.SalaryAdvanceInstallment(id=f"inst-{seq}", advance_id="adv-1", employee_email=CON,
+                                                        seq=seq, amount=5000.0, currency="INR", date=day,
+                                                        status="scheduled", created_at="2026-08-20T00:00:00"))
+        self.db.commit()
+        self.db.info.pop("_advance_emails", None)
+        t = self.card()["totals"]
+        self.assertEqual((t["deduction"], t["extraTimePay"], t["totalPay"]), (2700.0, 2025.0, 58050.0))
+        self.assertEqual((t["advanceRepayment"], t["netPay"]), (5000.0, 53050.0))
+        tc.finalize_timecard(tc.FinalizeIn(email=CON, start=MS, end=ME, allow_exceptions=True), user=HR_USER,
+                             db=self.db)
+        self.db.expire_all()
+        snap = json.loads(self.db.query(models.TimeApproval).filter_by(employee_email=CON, kind="final").one().note)
+        self.assertEqual(snap["totalPay"], 58050.0)
+        self.assertEqual(snap["indiaPolicy"]["reconciliation"]["unpaidHalves"], 2)
+        self.assertEqual(self.db.get(models.SalaryAdvanceInstallment, "inst-1").status, "deducted")
+        self.assertEqual(self.db.get(models.SalaryAdvanceInstallment, "inst-2").status, "scheduled")
+        inv = self.db.query(models.ContractorInvoice).filter_by(employee_email=CON).one()
+        self.assertEqual(inv.amount, 53050.0)                    # the month less the repayment
+        self.assertEqual([(ln["description"].split(":")[0], ln["amount"]) for ln in inv.snapshot["lines"]],
+                         [("Monthly fee for September 2026", 58725.0), ("Less 1 unpaid day", -2700.0),
+                          ("Extra Time", 2025.0)])
+        self.assertEqual(inv.snapshot["deductions"], [{"description": "Salary Advance Repayment", "amount": 5000.0}])
+        from routers import contractor_invoices as ci
+        from pypdf import PdfReader
+        import io
+        text = " ".join(pg.extract_text() for pg in PdfReader(io.BytesIO(ci.render_pdf(inv.snapshot))).pages)
+        for words in ("Less 1 unpaid day", "Extra Time", "Salary Advance Repayment"):
+            self.assertIn(words, text)
 
     def test_declined_or_unclaimed_hours_go_to_the_pool(self):
         _worked_example(self.db, CON)
