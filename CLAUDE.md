@@ -240,6 +240,19 @@ keep the diff minimal.
   on only when its turn comes after the person, never at send).
   `hr_packet_docs.signing_flow` applies this to every packet, old saved
   configs included - never add an order around it.
+- Probation (Neil, Oct 27 2026, `hr_probation.py`): JSON on the person
+  (`nexus_employees.probation`); `{}` = Not Tracked. Existing people are
+  NEVER backfilled - only new hires (a hired candidate, or added in People
+  with a start date whose end is not already past) start by themselves.
+  Length = company setting (Settings > Hiring & Onboarding > Probation,
+  layered through `scoped_settings`) or the person's own; end = start +
+  calendar months. A manager's Confirm / Extend / End is a RECOMMENDATION;
+  only HR++ (company HR contact, administrator, Full People grant) finalizes.
+  Confirm / Extend send a Documents letter through Nexus Sign as a
+  `probation` life event, the employee its ONLY signer (company signatory
+  printed, never signed); End opens the existing Offboard flow - never a
+  second separation path. Confirm ticks ON-33 via the `probation_confirmed`
+  signal. The reminder (once per end date) runs in `reminders_loop`.
 - Accounting dashboard (Sep 22): the Accounting view's Overview / Cash /
   Performance / Close / Data tabs are the Nexus face of the finance dashboard
   in Nexus Accounting. Figures come ONLY through `backend/routers/

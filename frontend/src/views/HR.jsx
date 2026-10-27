@@ -5,6 +5,7 @@ import { SendHiringPacketModal, PacketSigner, PersonLifeEvents, PaperworkStatus,
 import PacketReview from '../components/PacketReview';
 import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
+import { ProbationBadge, ProbationCard } from '../components/HrProbation';
 import MailboxExportResult from '../components/MailboxExportResult';
 import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
@@ -111,6 +112,9 @@ const isExternalPerson = (e) => ['guest', 'external'].includes(e?.identityType |
 // LIST rather than filtering the current one. The sentinel cannot collide with a
 // real status value.
 const DELETED_F = '__deleted__';
+// "Probation Ending" (Oct 27 2026): people whose probation ends inside the
+// company's reminder window, or has passed undecided - a lens, not a status.
+const PROBATION_F = '__probation__';
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
@@ -1757,7 +1761,7 @@ function OfficeContact({ e, row, canSync, onSynced, toastOk, toastErr }) {
   );
 }
 
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged, onReload }) {
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], focusProbation = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged, onReload }) {
   // Removed from Nexus (soft delete) - the record is intact and restorable.
   const isRemoved = !!e.deletedAt;
   const [provisionOpen, setProvisionOpen] = useState(false);
@@ -1769,6 +1773,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   // HR's actions on an employee (Neil, Oct 8): promote / change role / offboard
   const [roleAction, setRoleAction] = useState(null);      // 'choose' (Change Role asks first) | 'promotion'
   const [offboardOpen, setOffboardOpen] = useState(false);
+  // End Employment on probation opens Offboard with Termination and the reason (Oct 27 2026).
+  const [offboardInitial, setOffboardInitial] = useState(null);
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a letter
   const [reviewEvent, setReviewEvent] = useState(null);    // a letter / package built from Documents, being reviewed (Oct 14)
   const [eventsKey, setEventsKey] = useState(0);
@@ -1914,6 +1920,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         </button>
         {/* Open onboarding / offboarding / leave checklist at a glance. */}
         {checklists.map(p => <ChecklistChip key={p.checklistId} p={p} onClick={() => setTab('checklist')} />)}
+        <ProbationBadge p={e.probation} />
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
@@ -2007,10 +2014,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
           else toastOk(`Letter sent - ${e.firstName} signs first, then their manager.`);
         }} />}
-      {offboardOpen && <OffboardModal employee={e} companyName={companyName} toastErr={toastErr}
-        onClose={() => setOffboardOpen(false)}
+      {offboardOpen && <OffboardModal employee={e} companyName={companyName} toastErr={toastErr} initial={offboardInitial}
+        onClose={() => { setOffboardOpen(false); setOffboardInitial(null); }}
         onSent={ev => {
-          setOffboardOpen(false); setEventsKey(n => n + 1);
+          setOffboardOpen(false); setOffboardInitial(null); setEventsKey(n => n + 1);
           // Left now, or scheduled with a checklist started: either way the
           // whole People page re-reads (tiles, lists, chips) right away.
           if (ev.applyStatus === 'applied') onEmployeeUpdated?.({ ...e, status: 'offboarded' });
@@ -2059,6 +2066,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       <div style={{ marginTop: 16 }}>
         {tab === 'overview' && (
           <>
+            {!isRemoved && (
+              <ProbationCard employee={e} focus={focusProbation} toastOk={toastOk} toastErr={toastErr}
+                onChanged={() => onReload?.()}
+                onOffboard={init => { setOffboardInitial(init); setOffboardOpen(true); }} />
+            )}
             <div>
               {row(Mail, 'Work email', e.workEmail)}
               {row(Mail, 'Personal', e.personalEmail)}
@@ -6241,6 +6253,13 @@ export default function HR({ activeSub, onSubChange }) {
     const m = String(activeSub || '').match(/^hr-role-change-(.+)$/);
     if (m) { setRoleDecisionId(m[1]); onSubChange?.('hr-people'); }
   }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The probation bell / email (Oct 27 2026) lands on hr-probation-<employee id>:
+  // their profile, Overview, the Probation section in view.
+  const [probationFocus, setProbationFocus] = useState('');
+  useEffect(() => {
+    const m = String(activeSub || '').match(/^hr-probation-(.+)$/);
+    if (m) { setProbationFocus(m[1]); setOpenTab('overview'); setSelectedId(m[1]); onSubChange?.('hr-people'); }
+  }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = !hrTeam && canAccessModule('hr_comp', 'owner', 'viewer');   // a team view never shows pay
   const isAdmin = can('administrator');   // Roles & Access tab is admin-only
@@ -6360,6 +6379,7 @@ export default function HR({ activeSub, onSubChange }) {
       : [...employees, ...extEmployees].sort((a, b) => fullName(a).localeCompare(fullName(b)));
     return source.filter(e => {
       if (!showingDeleted && statusF === 'All' && INACTIVE_STATUSES.has(e.status || 'active') !== (listTab === 'inactive')) return false;
+      if (statusF === PROBATION_F && (!e.probation?.ending || INACTIVE_STATUSES.has(e.status || 'active'))) return false;
       if (typeF === 'employee' && (isExtRow(e) || e.employmentType === 'contractor')) return false;
       if (typeF === 'contractor' && (isExtRow(e) || e.employmentType !== 'contractor')) return false;
       if (typeF === 'external' && !isExtRow(e)) return false;
@@ -6368,7 +6388,7 @@ export default function HR({ activeSub, onSubChange }) {
       if (cfField && !matchesFieldFilter(cfField, e.customFields?.[cfField.fieldKey], cfF)) return false;
       // Skipped while showing removed people - they keep their old status, so
       // matching on it here would filter the list down to nothing.
-      if (!showingDeleted && statusF !== 'All' && e.status !== statusF) return false;
+      if (!showingDeleted && statusF !== 'All' && statusF !== PROBATION_F && e.status !== statusF) return false;
       if (search.trim()) {
         const q = search.trim().toLowerCase();
         return [fullName(e), e.workEmail, e.employeeCode, e.jobTitle, e.department, e.externalCompany].some(v => (v || '').toLowerCase().includes(q));
@@ -6611,7 +6631,7 @@ export default function HR({ activeSub, onSubChange }) {
           </button>
           <EmployeeDetail key={selected.id} e={selected} employees={[...employees, ...extEmployees]} isMobile={isMobile} teamView={hrTeam}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
-            initialTab={openTab} checklists={clProgress[selected.id] || []}
+            initialTab={openTab} checklists={clProgress[selected.id] || []} focusProbation={probationFocus === selected.id}
             toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
             onExternalChanged={refreshPeople} onReload={refreshPeople}
             onEdit={emp => { setEditing(emp); setFormOpen(true); }}
@@ -6662,6 +6682,7 @@ export default function HR({ activeSub, onSubChange }) {
                   style={{ ...(isMobile ? PHONE_FILTER : { width: 135 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
                   <option value="All">All statuses</option>
                   {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+                  <option value={PROBATION_F}>Probation Ending</option>
                   <option value={DELETED_F}>Deleted</option>
                 </select>
                 {cfDefs.length > 0 && (
@@ -6755,6 +6776,7 @@ export default function HR({ activeSub, onSubChange }) {
                         {cfField && <td>{cfShown(e) || '-'}</td>}
                         <td>
                           <span style={{ padding: '4px 11px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, background: sm.bg, color: sm.fg, whiteSpace: 'nowrap' }}>{sm.label}</span>
+                          {e.probation?.ending && <div style={{ marginTop: 4 }}><ProbationBadge p={e.probation} /></div>}
                           {(clProgress[e.id] || []).map(p => <div key={p.checklistId} style={{ marginTop: 4 }}><ChecklistChip p={p} compact onClick={() => openChecklistOf(e.id)} /></div>)}
                         </td>
                         <td><ChevronRight size={14} style={{ color: 'var(--wk-faint)' }} /></td>
@@ -6798,6 +6820,7 @@ export default function HR({ activeSub, onSubChange }) {
                                 <span style={{ fontWeight: 600 }}>{cfField.label}:</span> {cfShown(e) || '-'}
                               </div>
                             )}
+                            {e.probation?.ending && <div style={{ marginTop: 4 }}><ProbationBadge p={e.probation} /></div>}
                             {(clProgress[e.id] || []).length > 0 && (
                               <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                                 {clProgress[e.id].map(p => <ChecklistChip key={p.checklistId} p={p} compact onClick={() => openChecklistOf(e.id)} />)}
@@ -6824,7 +6847,7 @@ export default function HR({ activeSub, onSubChange }) {
                   {selected ? (
                     <EmployeeDetail key={selected.id} e={selected} employees={[...employees, ...extEmployees]} isMobile={isMobile} teamView={hrTeam}
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
-                      initialTab={openTab} checklists={clProgress[selected.id] || []}
+                      initialTab={openTab} checklists={clProgress[selected.id] || []} focusProbation={probationFocus === selected.id}
                       toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
                       onExternalChanged={refreshPeople} onReload={refreshPeople}
                       onEdit={emp => { setEditing(emp); setFormOpen(true); }}

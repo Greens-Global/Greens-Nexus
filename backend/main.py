@@ -1338,6 +1338,8 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS ix_task_tickets_confidential_desk ON task_tickets (confidential_desk)",
             "ALTER TABLE hr_self_requests ADD COLUMN ticket_id VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_hr_self_requests_ticket_id ON hr_self_requests (ticket_id)",
+            # Probation tracking (Oct 27 2026) - see the Postgres list.
+            "ALTER TABLE nexus_employees ADD COLUMN probation JSON DEFAULT '{}'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3114,6 +3116,10 @@ def _run_migrations():
         "CREATE INDEX IF NOT EXISTS ix_task_tickets_confidential_desk ON task_tickets (confidential_desk)",
         "ALTER TABLE hr_self_requests ADD COLUMN IF NOT EXISTS ticket_id VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_hr_self_requests_ticket_id ON hr_self_requests (ticket_id)",
+        # Probation tracking (Neil, Oct 27 2026): status, dates, the manager's
+        # recommendation, the decision, the letter and the history, as JSON on
+        # the person. models.NexusEmployee.probation, hr_probation.py.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS probation JSON DEFAULT '{}'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3757,6 +3763,20 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] Ask HR move skipped: {e}")
+    # Probation (Oct 27 2026): the default Confirmation / Extension letters in
+    # Documents, and ON-33's probation_confirmed condition - each once.
+    try:
+        import hr_probation
+        db = SessionLocal()
+        try:
+            n = hr_probation.seed_templates(db)
+            m = hr_probation.backfill_checklist_signal(db)
+            if n or m:
+                print(f"[startup] probation: {n} letter template(s), ON-33 condition on {m} template(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] probation seeds skipped: {e}")
 
 
 @asynccontextmanager
@@ -4747,3 +4767,5 @@ from routers import careers as careers_router  # noqa: E402
 app.include_router(careers_router.router)  # Public careers page + apply form, no login (Neil, Oct 27 2026)
 from routers import ask_hr as ask_hr_router  # noqa: E402
 app.include_router(ask_hr_router.router)  # Ask HR runs through Tickets: the confidential HR desk, Earlier Requests, the move (Neil, Oct 27 2026)
+from routers import hr_probation as hr_probation_router  # noqa: E402
+app.include_router(hr_probation_router.router)  # People > a person's probation: length, reminder, Confirm / Extend / End, the letter (Neil, Oct 27 2026)

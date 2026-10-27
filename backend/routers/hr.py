@@ -235,7 +235,16 @@ def _serialize(e: NexusEmployee) -> dict:
         # Guest / external rows: the outside company (the org chart shows it
         # as the card's company line, Oct 14 2026).
         "externalCompany": getattr(e, "external_company", "") or "",
+        # Probation at a glance (Oct 27 2026, hr_probation.py): status, end
+        # date, days left, whether it is ending. The list re-reads it with
+        # each company's own reminder window; the profile card has the rest.
+        "probation":      _probation_summary(e),
     }
+
+
+def _probation_summary(e: NexusEmployee) -> dict:
+    import hr_probation
+    return hr_probation.summary(e)
 
 
 @router.get("/employees")
@@ -254,6 +263,10 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
     # More Details values (Oct 27 2026), filtered per caller - never HR Only for a manager.
     import hr_custom_fields
     hr_custom_fields.attach_list_values(db, user, rows, out)
+    import hr_probation
+    pro = hr_probation.summaries(db, rows)
+    for o in out:
+        o["probation"] = pro.get(o["id"], o.get("probation"))
     # Who covers each person when their manager is out (Neil, Oct 13): the
     # effective Backup Manager and where it comes from - 'set' on the profile,
     # 'manager' (the manager's manager) or 'hr' (the company HR contact).
@@ -369,6 +382,10 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         updated_at=now,
     )
     db.add(row)
+    # A new hire added with a start date is on probation from it (Oct 27 2026);
+    # added without one, it starts when the start date is filled in.
+    import hr_probation
+    hr_probation.start_for_new_hire(db, row, user["email"], "Added in People")
     # If this person was previously removed from Nexus, clear the tombstone so a
     # deliberate re-add is honored and future M365 syncs treat them normally.
     _wemail = (body.work_email or "").strip().lower()
@@ -395,6 +412,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
         raise HTTPException(400, "first_name cannot be empty")
     fields = body.model_dump(exclude_unset=True)
     changes: dict = {}
+    old_start = row.start_date or ""
     is_external = (row.identity_type or "internal") in ("guest", "external")
     for key, value in fields.items():
         if value is None:
@@ -416,6 +434,9 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     row.updated_at = datetime.now(timezone.utc).isoformat()
     if "work_email" in changes and not changes["work_email"][0]:
         adopt_pending_pay(db, row, user["email"])
+    if "start_date" in changes:   # probation follows the start date (hr_probation.py)
+        import hr_probation
+        hr_probation.on_profile_change(db, row, user["email"].lower(), old_start)
     if changes:   # work authorization, status, dates: the checklist's automatic steps tick now
         import hr_checklists
         hr_checklists.refresh_person(db, row.id, user["email"].lower())
@@ -1059,6 +1080,9 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
     # The role they were hired into adds its own steps - passed in, because
     # cand.employee_id is not flushed yet (autoflush is off).
     hr_checklists.start_on_hire(db, emp, actor, role_id=cand.role_id or "")
+    # And their probation, from the start date (Oct 27 2026, hr_probation.py).
+    import hr_probation
+    hr_probation.start_for_new_hire(db, emp, actor, "Hired")
     # Their interview recordings and transcripts come with them onto the
     # profile's Documents (routers/hr_interviews.py).
     try:

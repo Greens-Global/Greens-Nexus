@@ -984,6 +984,11 @@ class NexusEmployee(Base):
     # defines in Settings > People & Access (EmployeeCustomField). Never in
     # hr._serialize - hr_custom_fields.py filters HR Only values per caller.
     custom_fields            = Column(JSON, default=dict)
+    # Probation (Neil, Oct 27 2026, hr_probation.py): status, start / end
+    # dates, a per-person length, the manager's recommendation, the decision,
+    # the letter and the history. {} = Not Tracked - existing people are never
+    # backfilled; new hires get it automatically.
+    probation                = Column(JSON, default=dict)
 
 
 class HrRemovedIdentity(Base):

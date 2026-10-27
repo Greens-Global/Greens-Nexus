@@ -57,6 +57,22 @@ EVENT_TITLES = {"offer": "Offer Letter", "hire": "Hiring Packet", "promotion": "
                 "separation": "Separation Package"}
 DEFAULT_SUBFOLDERS = {"offer": "Hiring Documents", "hire": "Hiring Documents", "promotion": "Promotion Documents",
                       "separation": "Separation Documents"}
+# Probation letters (Oct 27 2026, hr_probation.py): a confirmation or an
+# extension, the employee its only signer. Not a packet setting - no EVENTS
+# entry - but it rides this engine for the signature, the Documents tab copy
+# and the Egnyte filing.
+EVENT_TITLES["probation"] = "Probation Letter"
+DEFAULT_SUBFOLDERS["probation"] = "Probation Documents"
+
+
+def event_title(ev) -> str:
+    """The title one event reads with: a probation letter says which one."""
+    if ev.kind == "probation":
+        return {"extend": "Probation Extension Letter"}.get((ev.inputs or {}).get("outcome"),
+                                                             "Probation Confirmation Letter")
+    return EVENT_TITLES.get(ev.kind, ev.kind)
+
+
 PAY_BASES = ("hourly", "salary")
 PAY_FREQUENCIES = ("weekly", "biweekly", "semimonthly", "monthly", "annual")
 # Minutes to wait before each filing retry; past the end the event is marked
@@ -462,7 +478,7 @@ def ser_event(db: Session, ev: HrLifeEvent, *, show_pay: bool) -> dict:
     # email can say what it went up by - salary data, hr_comp holders only.
     inputs = {k: v for k, v in (ev.inputs or {}).items() if show_pay or k != "old_pay"}
     out = {
-        "id": ev.id, "kind": ev.kind, "title": EVENT_TITLES.get(ev.kind, ev.kind),
+        "id": ev.id, "kind": ev.kind, "title": event_title(ev),
         "status": ev.status, "entityId": ev.entity_id, "candidateId": ev.candidate_id,
         "employeeId": ev.employee_id, "subjectName": ev.subject_name, "subjectEmail": ev.subject_email,
         "templateId": ev.template_id, "signRequestId": ev.sign_request_id,
@@ -2796,6 +2812,14 @@ def _apply_separation_signed(db: Session, ev: HrLifeEvent, req: HrSignRequest) -
 _APPLY["separation"] = _apply_separation_signed
 
 
+def _apply_probation_signed(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
+    import hr_probation
+    hr_probation.letter_signed(db, ev, req)
+
+
+_APPLY["probation"] = _apply_probation_signed
+
+
 # ── Egnyte filing ────────────────────────────────────────────────────────────
 
 def file_one(db: Session, ev: HrLifeEvent, folder: str = "") -> tuple:
@@ -2834,7 +2858,7 @@ def file_one(db: Session, ev: HrLifeEvent, folder: str = "") -> tuple:
     if not blob.is_success:
         return False, "Could not read the sealed packet from storage."
     day = (req.completed_at or _now())[:10]
-    name = f"{day} - {EVENT_TITLES.get(ev.kind, 'Document')} - {_safe_name(ev.subject_name, 60)} (signed).pdf"
+    name = f"{day} - {event_title(ev) or 'Document'} - {_safe_name(ev.subject_name, 60)} (signed).pdf"
     svc.upload_file(f"{target}/{name}", blob.content)
     req.egnyte_folder = target          # where it went; attachments follow it
     n_att = esign._egnyte_push_attachments(db, req)

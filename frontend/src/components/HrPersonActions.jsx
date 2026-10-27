@@ -328,9 +328,11 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
 const EXIT_TYPES = [['resignation', 'Voluntary Resignation'], ['resignation_no_notice', 'Job Abandonment'],
   ['termination', 'Termination'], ['end_of_contract', 'End Of Contract'], ['retirement', 'Retirement'], ['death', 'Death']];
 
-export function OffboardModal({ employee: e, companyName, onClose, onSent, toastErr }) {
+// `initial` ({ exit_type, reason }) prefills the form - End Employment on a
+// probation opens this with Termination and the probation reason (Oct 27 2026).
+export function OffboardModal({ employee: e, companyName, initial = null, onClose, onSent, toastErr }) {
   const { data: people = [] } = usePeopleDirectory();
-  const [f, setF] = useState({ last_day: todayIso(), exit_type: '', reason: '', send_package: true, start_checklist: true });
+  const [f, setF] = useState({ last_day: todayIso(), exit_type: initial?.exit_type || '', reason: initial?.reason || '', send_package: true, start_checklist: true });
   const [mailbox, setMailbox] = useState('remove');
   const [trustees, setTrustees] = useState(() => (e.managerEmail ? [e.managerEmail.toLowerCase()] : []));
   const [handoverTo, setHandoverTo] = useState('');

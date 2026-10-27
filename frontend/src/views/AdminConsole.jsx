@@ -125,6 +125,8 @@ const PacketsModal = lazy(() => import('../components/HiringPacket').then(m => (
 const QuestionnairesModal = lazy(() => import('../components/Interviews').then(m => ({ default: m.QuestionnairesModal })));
 const ChecklistLibrary = lazy(() => import('../components/HrChecklists').then(m => ({ default: m.ChecklistLibrary })));
 const EmployeeCustomFieldsSettings = lazy(() => import('../components/EmployeeCustomFieldsSettings'));
+// Probation (Oct 27 2026): the length, the reminder and the letters - a default, and each company's own.
+const ProbationSettings = lazy(() => import('../components/HrProbation').then(m => ({ default: m.ProbationSettings })));
 const WorkSiteLibrary = fromHR('WorkSiteLibrary');
 // Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
@@ -219,7 +221,7 @@ const SUBJECTS = [
   { key: 'shifts', section: 'work',     label: 'Shifts & Scheduling', Icon: CalendarClock, faces: 'both',
     desc: 'What staff may request and see, attendance, overtime, rules and sharing.' },
   { key: 'hiring', section: 'work',     label: 'Hiring & Onboarding', Icon: UserPlus, faces: 'both',
-    desc: 'Hiring documents, interview questions and onboarding checklists.' },
+    desc: 'Hiring documents, interview questions, onboarding checklists and probation.' },
   { key: 'items', section: 'ops',      label: 'Items & Equipment',   Icon: Package, faces: 'org',
     desc: 'The catalog options used when adding items.' },
   { key: 'operations', section: 'ops', label: 'Operations',          Icon: Warehouse, faces: 'org',
@@ -450,6 +452,10 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The steps every new onboarding, promotion, offboarding and leave checklist starts with, whatever the role, and who does each step (the head and backup of the HR, IT and Accounting departments). Each company adds its own with the company picked, and each role its own (People & Access > the company > Roles > a role > Checklists).',
     keywords: 'checklist onboarding promotion offboarding leave steps template library owners copy standardize' },
+  { id: 'probation', subject: 'hiring', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Probation', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'How long new hires are on probation, when the manager and the HR contact are reminded before it ends, and the confirmation and extension letters the employee signs.',
+    keywords: 'probation length months reminder confirmation extension letter end employment new hire trial period' },
   { id: 'company-checklists', subject: 'hiring', face: 'company', scope: 'company', icon: ListChecks, title: 'Checklists',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'This company\'s baseline steps, which departments own steps, and the steps its onboarding, promotion, offboarding and leave checklists add, role by role.',
@@ -622,6 +628,7 @@ const COMPANY_STATE = {
     .then(rules => ownState(rules.some(r => r?.hasOverride))),
   'payroll-readiness': (cid) => api.payrollReadinessSettings(cid).then(m => ownState(!!m?.override)),
   'time-off-reasons': (cid) => api.timeOffTypes(cid).then(r => ownState(!!r?.hasOverride)),
+  'probation': (cid) => api.probationSettings(cid).then(r => ownState(!!r?.override)),
   'shift-settings': (cid) => api.shiftRequestSettingsGetFor(cid).then(r => ownState(!!r?.hasOverride)),
   'hr-letters': (cid) => api.hrLetterSettings(cid).then(r => ownState(!!r?.hasOverride)),
 };
@@ -1634,6 +1641,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'pay-premiums':         return <LazyPanelSection key={key} id={id} Panel={PayPremiums} chrome={chrome} report={report} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'interview-questionnaires': return <HiringSetupSection key={key} id={id} Modal={QuestionnairesModal} label="Open Questionnaires" chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'checklist-library':    return <LazyPanelSection key={key} id={id} Panel={ChecklistLibrary} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'probation':            return <LazyPanelSection key={key} id={id} Panel={ProbationSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'shift-types':          return <LazyPanelSection key={key} id={id} Panel={ShiftTypesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'shift-weather':        return <LazyPanelSection key={key} id={id} Panel={WeatherSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
