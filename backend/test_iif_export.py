@@ -190,6 +190,22 @@ class IifExportTests(unittest.TestCase):
         rows = self.client.get(f"/timeclock/export-hours?start={START}&end={END}&finalized_only=true").json()["rows"]
         self.assertEqual([x["email"] for x in rows], [QUINN])
 
+    def test_preview_rows_say_who_is_finalized(self):
+        # Charmi, 10/27 call item 02: the Import Hub loads everyone and names who
+        # is not finalized, instead of an empty list (and an empty IIF).
+        rows = self.client.get(f"/timeclock/export-hours?start={START}&end={END}").json()["rows"]
+        self.assertEqual({x["email"]: x["finalized"] for x in rows if x["email"] in (PAT, QUINN)}, {PAT: False, QUINN: False})
+        self._finalize(QUINN)
+        rows = self.client.get(f"/timeclock/export-hours?start={START}&end={END}").json()["rows"]
+        self.assertEqual({x["email"]: x["finalized"] for x in rows if x["email"] in (PAT, QUINN)}, {PAT: False, QUINN: True})
+
+    def test_company_create_time_on_the_header(self):
+        # The TIMERHDR number from her QuickBooks Timer Lists export; digits only.
+        self.assertEqual(self._lines(f"&company={CO_A}&finalized_only=false&create_time=1234567890")[1],
+                         "TIMERHDR\t8\t0\tIIF Alpha Builders\tN\tY\t1234567890")
+        for bad in ("12ab", "1%0A2", "1234567890123", ""):
+            self.assertEqual(self._lines(f"&company={CO_A}&finalized_only=false&create_time={bad}")[1], HEADER_A, bad)
+
     # ── Company name ────────────────────────────────────────────────────────
     def test_company_name_is_the_exports_company(self):
         self.assertEqual(self._lines(f"&company={CO_A}&finalized_only=false")[1], HEADER_A)

@@ -2213,8 +2213,15 @@ export const api = {
   // finalized time sheets only unless finalizedOnly is false (a -DRAFT file, Oct 19).
   timeExportHours:      (start, end, { company = '', approvedOnly = false, finalizedOnly = false } = {}) =>
     req(`/timeclock/export-hours?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
-  timeExportIifFor:     (start, end, { company = '', approvedOnly = false, finalizedOnly = true } = {}) =>
-    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
+  // createTime (10/27 call item 02): the COMPANYCREATETIME from her QuickBooks Timer Lists export; '' keeps 0.
+  timeExportIifFor:     (start, end, { company = '', approvedOnly = false, finalizedOnly = true, createTime = '' } = {}) =>
+    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}${createTime ? `&create_time=${encodeURIComponent(createTime)}` : ''}`, { timeoutMs: 120_000 }),
+  // Import Hub > Bank Statement to Intacct (Charmi, 10/27 call item 01): the
+  // team's statement rules - matched in the browser, kept here.
+  getStatementRules:    () => req('/accounting/import-hub/rules'),
+  createStatementRule:  (body) => req('/accounting/import-hub/rules', { method: 'POST', body: JSON.stringify(body) }),
+  updateStatementRule:  (id, body) => req(`/accounting/import-hub/rules/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteStatementRule:  (id) => req(`/accounting/import-hub/rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Accounting > Loans & Financing (Oct 2): loans proposed from the ledger's
   // liability accounts, the ledger-driven review (balances, principal and
   // interest paid, NOI, DSCR) for a month, and the typed fields (rate,
