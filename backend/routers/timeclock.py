@@ -12464,6 +12464,10 @@ def add_time_undo(batch_id: str, user: dict = Depends(require_team_write), db: S
         raise HTTPException(404, "Nothing left to undo for this batch.")
     em = _add_time_scope(db, user, rows[0].employee_email)
     _refuse_own_time(user, em, _OWN_EDIT)
+    if batch_id.startswith(_DUP_PREFIX):
+        # HR's Duplicate Day (Oct 27 2026) may have replaced punches - only
+        # its own undo brings those back.
+        raise HTTPException(403, "This time was written by HR's Duplicate Day - undo it from there.")
     for ds in sorted({r.local_date for r in rows}):
         _guard_not_finalized(db, em, ds)
         _guard_review(db, em, ds, user["email"])
@@ -12482,6 +12486,407 @@ def add_time_undo(batch_id: str, user: dict = Depends(require_team_write), db: S
                             ref_id=batch_id)
     db.commit()
     return {"voided": len(rows)}
+
+
+# ── Duplicate Day (Neil, Oct 27 2026) ───────────────────────────────────────
+# HR fixing a time sheet that had to be kept by hand: enter one day (or pick
+# one already on the card) - its clock-ins and -outs, breaks and job / leave
+# type - and lay the same day onto other days: picked ones, All Working Days
+# (the person's shift days - shift_expect, the one rule - else Monday to
+# Friday, never a holiday or approved time off) or All Days of the period.
+# HR only (timesheet_review.is_hr: the company's HR contact, an administrator
+# or a Full HR grant, never on their own card) - enforced here, a plain
+# manager keeps Add Time as it is. Built on Add Time: the same day state,
+# the same finalized / review lock (guard_edit, HR's override line), a dry
+# run that IS the preview, a batch id on every punch so one undo takes it
+# all back. A day that already has punches is skipped unless HR ticks
+# Replace Existing; the punches it replaces are voided (kept for audit) and
+# carry the batch (replaced_by_batch), so the undo restores them.
+
+_DUP_PREFIX = "dup-"
+
+
+class DupBreak(BaseModel):
+    start_at: str = ""             # UTC ISO
+    end_at: str = ""               # UTC ISO
+
+
+class DuplicateDayIn(BaseModel):
+    employee_email: str
+    reason: str
+    source_date: str = ""          # copy this day's punches as they are, or...
+    fill_date: str = ""            # ...the local date the typed times below are on
+    in_at: str = ""                # UTC ISO
+    out_at: str = ""               # UTC ISO
+    breaks: List[DupBreak] = []
+    category: Optional[str] = ""   # job / leave type on the clock-in ("Sick Day", "Vacation"...)
+    mode: str = "days"             # days (the picked `targets`) | working | all (of start..end)
+    targets: List[str] = []
+    start: str = ""
+    end: str = ""
+    replace: bool = False          # overwrite days that already have punches
+    tz_offset_min: Optional[int] = 0          # the zone the times were typed in (JS getTimezoneOffset)
+    tz_offsets: Optional[dict] = None         # {date: offset} for each target (DST can differ)
+    dry_run: bool = False
+
+
+def _require_hr_for(db: Session, user: dict, em: str) -> None:
+    import timesheet_review
+    if not timesheet_review.is_hr(db, user.get("email") or "", em):
+        raise HTTPException(403, "Duplicate Day is for HR - the company's HR contact, an administrator "
+                                 "or a Full HR grant. Use Add Time instead.")
+
+
+def _dup_groups(punches: list) -> list:
+    """The punches as shifts, in time order: a clock-in opens one, its breaks
+    and the clock-out that closes it join it; a punch with no open clock-in
+    is a group of its own. A group belongs to its FIRST punch's day, so an
+    overnight shift's clock-out stays with the day it started."""
+    groups, cur = [], None
+    for p in sorted(punches, key=lambda x: (x.at or "", x.created_at or "")):
+        if p.kind == "in":
+            cur = [p]
+            groups.append(cur)
+        elif cur is not None:
+            cur.append(p)
+            if p.kind == "out":
+                cur = None
+        else:
+            groups.append([p])
+    return groups
+
+
+def _dup_well_formed(kinds: list) -> bool:
+    """in, (break_start, break_end)*, out."""
+    if len(kinds) < 2 or kinds[0] != "in" or kinds[-1] != "out":
+        return False
+    mid = kinds[1:-1]
+    return len(mid) % 2 == 0 and all(mid[i] == "break_start" and mid[i + 1] == "break_end"
+                                     for i in range(0, len(mid), 2))
+
+
+def _dup_minutes(at: str, tz: int, day: str) -> int:
+    """Minutes from `day`'s local midnight to the UTC instant `at`."""
+    t = _parse_iso(at)
+    return int(((t - timedelta(minutes=int(tz or 0))).replace(tzinfo=None)
+                - datetime.fromisoformat(day)).total_seconds() // 60)
+
+
+def _dup_template(db: Session, em: str, body: DuplicateDayIn) -> tuple:
+    """(source day, [shift]) where a shift is [{kind, min, category}] - the
+    day to copy as wall-clock minutes from its local midnight."""
+    src = (body.source_date or "")[:10]
+    if src:
+        try:
+            d0 = date.fromisoformat(src)
+        except ValueError:
+            raise HTTPException(400, f"Bad date: {body.source_date!r}")
+        around = _live_punches(db, em, (d0 - timedelta(days=1)).isoformat(), (d0 + timedelta(days=1)).isoformat())
+        groups = [g for g in _dup_groups(around) if g[0].local_date == src]
+        if not groups:
+            raise HTTPException(400, f"{_us_day(src)} has no punches to copy.")
+        if any(not _dup_well_formed([p.kind for p in g]) for g in groups):
+            raise HTTPException(400, f"{_us_day(src)} has an open shift, a break with no end or a stray punch - "
+                                     "fix that day first, then copy it.")
+        shifts = [[{"kind": p.kind, "min": _dup_minutes(p.at, p.tz_offset_min or 0, src),
+                    "category": (p.category or "") if p.kind == "in" else ""} for p in g] for g in groups]
+        return src, shifts
+    fill = (body.fill_date or "")[:10]
+    try:
+        date.fromisoformat(fill)
+    except ValueError:
+        raise HTTPException(400, "Pick the day to copy, or fill in the day's times.")
+    tz = int(body.tz_offset_min or 0)
+    t_in, t_out = _parse_iso(body.in_at), _parse_iso(body.out_at)
+    if not t_in or not t_out:
+        raise HTTPException(400, "Both a clock-in and a clock-out time are needed.")
+    if t_out <= t_in:
+        raise HTTPException(400, "The clock-out must be after the clock-in.")
+    if (t_out - t_in) > timedelta(hours=16):
+        raise HTTPException(400, "A shift longer than 16 hours cannot be copied.")
+    cat = (body.category or "").strip()[:80]
+    shift = [{"kind": "in", "min": _dup_minutes(body.in_at, tz, fill), "category": cat}]
+    last = t_in
+    for b in sorted(body.breaks or [], key=lambda x: x.start_at or ""):
+        b0, b1 = _parse_iso(b.start_at), _parse_iso(b.end_at)
+        if not b0 or not b1 or b1 <= b0 or b0 <= last or b1 >= t_out:
+            raise HTTPException(400, "Each break has to sit inside the shift, after the one before it.")
+        shift += [{"kind": "break_start", "min": _dup_minutes(b.start_at, tz, fill), "category": ""},
+                  {"kind": "break_end", "min": _dup_minutes(b.end_at, tz, fill), "category": ""}]
+        last = b1
+    shift.append({"kind": "out", "min": _dup_minutes(body.out_at, tz, fill), "category": ""})
+    return fill, [shift]
+
+
+def _dup_hhmm(m: int) -> str:
+    """Template minutes as a wall-clock 'HH:MM' (+1 day past midnight)."""
+    return f"{(m // 60) % 24:02d}:{m % 60:02d}" + (" +1" if m >= 1440 else "")
+
+
+def _dup_template_public(shifts: list) -> list:
+    out = []
+    for s in shifts:
+        brks = [[_dup_hhmm(s[i]["min"]), _dup_hhmm(s[i + 1]["min"])] for i in range(1, len(s) - 1, 2)]
+        out.append({"in": _dup_hhmm(s[0]["min"]), "out": _dup_hhmm(s[-1]["min"]), "breaks": brks,
+                    "category": s[0].get("category") or "",
+                    "minutes": s[-1]["min"] - s[0]["min"] - sum(s[i + 1]["min"] - s[i]["min"] for i in range(1, len(s) - 1, 2))})
+    return out
+
+
+def _dup_targets(db: Session, em: str, body: DuplicateDayIn, source: str) -> tuple:
+    """([target date], {date: why it is left out}) for the request's mode."""
+    mode = (body.mode or "days").strip().lower()
+    if mode == "days":
+        out = []
+        for t in body.targets or []:
+            ds = (t or "")[:10]
+            try:
+                date.fromisoformat(ds)
+            except ValueError:
+                raise HTTPException(400, f"Bad date: {t!r}")
+            if ds not in out:
+                out.append(ds)
+        return sorted(out), {}
+    if mode not in ("working", "all"):
+        raise HTTPException(400, "Copy onto picked days, All Working Days or All Days.")
+    try:
+        d0, d1 = date.fromisoformat(body.start[:10]), date.fromisoformat(body.end[:10])
+    except (TypeError, ValueError):
+        raise HTTPException(400, "start and end must be YYYY-MM-DD")
+    if d1 < d0 or (d1 - d0).days >= 62:
+        raise HTTPException(400, "Pick a period of two months or less.")
+    days = [(d0 + timedelta(days=i)).isoformat() for i in range((d1 - d0).days + 1)]
+    days = [ds for ds in days if ds != source]
+    if mode == "all":
+        return days, {}
+    import shift_expect
+    holidays = _company_holidays_for_employee(db, em, d0.isoformat(), d1.isoformat())
+    offs = (db.query(TimeOffRequest)
+            .filter(TimeOffRequest.employee_email == em, TimeOffRequest.status == "approved",
+                    TimeOffRequest.start_date <= d1.isoformat(), TimeOffRequest.end_date >= d0.isoformat()).all())
+    # Someone with no shift on the schedule and no usual hours works Monday
+    # to Friday (the standard week the Workforce Scorecard falls back on).
+    has_schedule = bool(db.query(ShiftAssignment.id).filter(ShiftAssignment.employee_email == em,
+                                                            ShiftAssignment.shift_id != "").first()) \
+        or bool(db.query(ScheduledShift.id).filter(ScheduledShift.employee_email == em, ScheduledShift.published == 1,
+                                                   ScheduledShift.work_date >= d0.isoformat(),
+                                                   ScheduledShift.work_date <= d1.isoformat()).first())
+    keep, left_out = [], {}
+    for ds in days:
+        dd = date.fromisoformat(ds)
+        if ds in holidays:
+            left_out[ds] = f"Holiday - {holidays[ds].get('name') or 'company holiday'}."
+            continue
+        off = next((o for o in offs if (o.start_date or "") <= ds <= (o.end_date or "")
+                    and not (getattr(o, "start_time", "") or getattr(o, "end_time", ""))), None)
+        if off:
+            left_out[ds] = f"Approved time off ({(off.type or 'other').replace('_', ' ').title()})."
+            continue
+        works = (shift_expect.expected_start(db, em, dd) is not None) if has_schedule else dd.weekday() < 5
+        if works:
+            keep.append(ds)
+    return keep, left_out
+
+
+def _dup_plan(db: Session, em: str, body: DuplicateDayIn, actor: str) -> tuple:
+    """(source, template, plan): every target judged - what will be written
+    (and replaced), or why it is skipped."""
+    source, shifts = _dup_template(db, em, body)
+    targets, left_out = _dup_targets(db, em, body, source)
+    if len(targets) > _ADD_TIME_MAX_DAYS:
+        raise HTTPException(400, f"Copy onto at most {_ADD_TIME_MAX_DAYS} days at a time.")
+    if not targets and not left_out:
+        raise HTTPException(400, "Pick at least one day to copy onto.")
+    today = _employee_today(db, em)
+    now = datetime.now(timezone.utc)
+    offsets = body.tz_offsets if isinstance(body.tz_offsets, dict) else {}
+    live_day = _clocked_in_now(db, em)
+    pending = {r.local_date for r in db.query(PunchRequest.local_date)
+               .filter(PunchRequest.employee_email == em, PunchRequest.status == "pending").all()}
+    planned = []   # (start, end) of shifts already planned in this batch
+    replaced_ids = set()   # punches this batch replaces on the days planned so far
+    plan = [{"date": ds, "action": "skip", "reason": why, "minutes": 0, "existingMin": 0, "replaces": 0}
+            for ds, why in left_out.items()]
+    for ds in targets:
+        row = {"date": ds, "action": "skip", "reason": "", "minutes": 0, "existingMin": 0, "replaces": 0}
+        plan.append(row)
+        if ds == source:
+            row["reason"] = "This is the day being copied."
+            continue
+        if ds > today:
+            row["reason"] = "This day has not happened yet."
+            continue
+        lock = _add_time_lock(db, em, ds, actor)
+        if lock:
+            row["reason"] = lock
+            continue
+        if live_day == ds:
+            row["reason"] = "On the clock right now - the shift has not ended."
+            continue
+        d0 = date.fromisoformat(ds)
+        around = _live_punches(db, em, (d0 - timedelta(days=1)).isoformat(), (d0 + timedelta(days=1)).isoformat())
+        groups = _dup_groups(around)
+        mine = [g for g in groups if g[0].local_date == ds]
+        # A shift this batch replaces on an earlier target is not "kept".
+        others = [g for g in groups if g[0].local_date != ds and not any(p.id in replaced_ids for p in g)]
+        row["existingMin"] = int(_day_summaries(around, _round_min(db, em), break_cfg=_break_cfg_for(db, em))
+                                 .get(ds, {}).get("workedMin") or 0)
+        replaced = [p for g in mine for p in g]
+        if replaced and not body.replace:
+            row["reason"] = (f"Already has punches ({row['existingMin'] // 60}h {row['existingMin'] % 60:02d}m) - "
+                             "tick Replace Existing to overwrite them.")
+            continue
+        if replaced and ds in pending:
+            row["reason"] = "A punch fix request on this day is waiting for a decision - decide it first."
+            continue
+        tz = offsets.get(ds)
+        try:
+            tz = int(tz if tz is not None else (body.tz_offset_min or 0))
+        except (TypeError, ValueError):
+            tz = int(body.tz_offset_min or 0)
+        midnight = datetime.fromisoformat(ds)
+        writes, spans = [], []
+        for s in shifts:
+            ats = [(midnight + timedelta(minutes=p["min"] + tz)).strftime("%Y-%m-%dT%H:%M:%S") for p in s]
+            writes += [(p["kind"], at, _local_date(at, tz), p.get("category") or "") for p, at in zip(s, ats)]
+            spans.append((_parse_iso(ats[0]), _parse_iso(ats[-1])))
+        if any(e > now for _s, e in spans):
+            row["reason"] = "The copied shift would end in the future."
+            continue
+        # What stays on the card around it: shifts that began on another day
+        # (a night shift running into this one) and this batch's own.
+        kept = [(_parse_iso(g[0].at), _parse_iso(g[-1].at)) for g in others if g[0].kind == "in" and g[-1].kind == "out"]
+        clash = next(((a, b) for (a, b) in kept + planned for (s0, s1) in spans if a and b and a < s1 and b > s0), None)
+        if clash:
+            row["reason"] = (f"It overlaps a shift already there ({_fmt_local(clash[0].strftime('%Y-%m-%dT%H:%M:%S'), tz)} - "
+                             f"{_fmt_local(clash[1].strftime('%Y-%m-%dT%H:%M:%S'), tz)}).")
+            continue
+        # A punch written to - or replaced on - another day (an overnight
+        # clock-out) must not slip into a period that is locked there.
+        other_days = sorted(({w[2] for w in writes} | {p.local_date for p in replaced}) - {ds})
+        later = next((lk for lk in (_add_time_lock(db, em, od, actor) for od in other_days) if lk), "")
+        if later:
+            row["reason"] = later
+            continue
+        if not replaced:
+            # The same punch-order check a single added punch gets.
+            try:
+                extra = []
+                for kind, at, ld, _c in writes:
+                    if kind in ("in", "out"):
+                        _guard_punch_order(db, em, kind=kind, at=at, local_date=ld, extra=extra)
+                    extra.append(SimpleNamespace(id=f"new-{ds}-{kind}-{at}", kind=kind, at=at, local_date=ld))
+            except HTTPException as e:
+                row["reason"] = str(e.detail)
+                continue
+        row.update(action="replace" if replaced else "add", replaces=len(replaced),
+                   minutes=sum(t["minutes"] for t in _dup_template_public(shifts)),
+                   inAt=writes[0][1], outAt=writes[-1][1])
+        row["_writes"], row["_tz"], row["_replaced"] = writes, tz, replaced
+        row["_days"] = sorted({ds, *other_days})
+        planned += spans
+        replaced_ids |= {p.id for p in replaced}
+    plan.sort(key=lambda r: r["date"])
+    return source, shifts, plan
+
+
+@router.post("/duplicate-day")
+def duplicate_day(body: DuplicateDayIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """HR copies one day onto others. `dry_run` answers with the plan only -
+    the preview, so what is shown is exactly what will be written."""
+    em = _add_time_scope(db, user, body.employee_email)
+    _refuse_own_time(user, em, _OWN_EDIT)
+    _require_hr_for(db, user, em)
+    reason = (body.reason or "").strip()
+    if len(reason) < 3:
+        raise HTTPException(400, "Say why this day is being copied - it goes on every punch.")
+    if not body.dry_run:
+        _lock_person(db, em)   # judge and write against committed punches only
+    source, shifts, plan = _dup_plan(db, em, body, user["email"])
+    doing = [r for r in plan if r["action"] != "skip"]
+    total = sum(r["minutes"] for r in doing)
+    public = [{k: v for k, v in r.items() if not k.startswith("_")} for r in plan]
+    out = {"source": source, "template": _dup_template_public(shifts), "days": public,
+           "added": len(doing), "replaced": sum(1 for r in doing if r["action"] == "replace"), "totalMin": total}
+    if body.dry_run:
+        return {"dryRun": True, **out}
+    if not doing:
+        return {"batchId": "", **out}
+    batch_id = _DUP_PREFIX + str(uuid.uuid4())
+    now = _now_iso()
+    n = len(doing)
+    what = f"copied {_us_day(source)} onto {n} day{'' if n == 1 else 's'}: {reason[:200]}"
+    # The review lock again, for real this time: HR's change is logged on
+    # the review (one line per pass) and a card out for signature comes back.
+    for ds in sorted({d for r in doing for d in r["_days"]}):
+        _guard_not_finalized(db, em, ds)
+        import timesheet_review
+        timesheet_review.guard_edit(db, em, ds, user["email"], what=what)
+    for r in doing:
+        for p in r["_replaced"]:
+            p.voided = 1
+            p.adjusted_by = user["email"]
+            p.adjusted_at = now
+            p.adjust_note = f"Replaced by Duplicate Day: {reason[:250]}"
+            p.replaced_by_batch = batch_id
+        for kind, at, ld, cat in r["_writes"]:
+            db.add(TimePunch(id=str(uuid.uuid4()), employee_email=em, kind=kind, at=at,
+                             local_date=ld, tz_offset_min=r["_tz"], geo_status="no_location",
+                             note=reason[:300], source="manual", category=cat[:80] if kind == "in" else "",
+                             created_by=user["email"], created_at=now, batch_id=batch_id))
+    dates = ", ".join(_us_day(r["date"]) for r in doing)
+    hrs = f"{total // 60}h {total % 60:02d}m"
+    _tell_employee_timecard(db, em, doing[0]["date"],
+                            f"HR copied {_us_day(source)} onto {n} day{'' if n == 1 else 's'} ({dates}), "
+                            f"{hrs} in all: {reason[:200]}")
+    _notify_timecard_change(
+        db, employee_email=em, actor_email=user["email"], local_date=doing[0]["date"],
+        body=f"{_display_name(db, user['email'])} (HR) copied {_us_day(source)} onto {n} day{'' if n == 1 else 's'} "
+             f"({dates}) of {_display_name(db, em)}'s time sheet: {reason[:200]}",
+        ref_id=batch_id)
+    db.commit()
+    return {"batchId": batch_id, **out}
+
+
+@router.post("/duplicate-day/{batch_id}/undo")
+def duplicate_day_undo(batch_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """Take a Duplicate Day back as a whole: void every punch it wrote and
+    bring back every punch it replaced. Refused as a whole when any of its
+    days has since been finalized."""
+    if not batch_id.startswith(_DUP_PREFIX):
+        raise HTTPException(404, "Not a Duplicate Day.")
+    rows = db.query(TimePunch).filter(TimePunch.batch_id == batch_id, TimePunch.voided == 0).all()
+    gone = db.query(TimePunch).filter(TimePunch.replaced_by_batch == batch_id, TimePunch.voided == 1).all()
+    if not rows and not gone:
+        raise HTTPException(404, "Nothing left to undo for this batch.")
+    em = _add_time_scope(db, user, (rows or gone)[0].employee_email)
+    _refuse_own_time(user, em, _OWN_EDIT)
+    _require_hr_for(db, user, em)
+    _lock_person(db, em)
+    days = sorted({r.local_date for r in rows} | {r.local_date for r in gone})
+    import timesheet_review
+    for ds in days:
+        _guard_not_finalized(db, em, ds)
+        timesheet_review.guard_edit(db, em, ds, user["email"], what="undid a Duplicate Day")
+    now = _now_iso()
+    for r in rows:
+        r.voided = 1
+        r.adjusted_by = user["email"]
+        r.adjusted_at = now
+        r.adjust_note = "Undo of Duplicate Day"
+    for r in gone:
+        r.voided = 0
+        r.replaced_by_batch = ""
+        r.adjusted_by = user["email"]
+        r.adjusted_at = now
+        r.adjust_note = "Restored by undo of Duplicate Day"
+    dates = ", ".join(_us_day(d) for d in days)
+    _tell_employee_timecard(db, em, days[0], f"HR took back the copied day on {dates}.")
+    _notify_timecard_change(db, employee_email=em, actor_email=user["email"], local_date=days[0],
+                            body=f"{_display_name(db, user['email'])} (HR) undid the copied day on {_display_name(db, em)}'s time sheet for {dates}.",
+                            ref_id=batch_id)
+    db.commit()
+    return {"voided": len(rows), "restored": len(gone)}
 
 
 # ── Shifts Phase 1: scheduled vs. punched (Oct 14 2026) ──────────────────────

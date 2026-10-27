@@ -3047,6 +3047,9 @@ export const api = {
   hrLetterDecline: (id, reason) => req(`/letter-requests/${encodeURIComponent(id)}/decline`, { method: 'POST', body: JSON.stringify({ reason }) }),
   hrLetterSettings: (companyId = '') => req(`/letter-requests/settings?company_id=${encodeURIComponent(companyId || '')}`),
   hrLetterSettingsSave: (companyId, data) => req(`/letter-requests/settings?company_id=${encodeURIComponent(companyId || '')}`, { method: 'PUT', body: JSON.stringify(data) }),
+  // Duplicate Day (HR only, Oct 27 2026): copy one day onto others; dry_run is the preview.
+  timeDuplicateDay: (data) => req("/timeclock/duplicate-day", { method: "POST", body: JSON.stringify(data) }),
+  timeDuplicateDayUndo: (batchId) => req(`/timeclock/duplicate-day/${encodeURIComponent(batchId)}/undo`, { method: "POST" }),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()
