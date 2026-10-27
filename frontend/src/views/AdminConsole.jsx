@@ -79,6 +79,7 @@ import {
   MessageSquareText, MonitorDot,
   Sparkles,
   Warehouse,
+  Target,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -162,6 +163,8 @@ const AppRatingsPanel = fromPanels('AppRatingsPanel');
 const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSettings'));
 // Operations (Oct 21 2026): the Push to Cubby switch, OFF by default.
 const OpsSettingsPanel = lazy(() => import('../operations/OpsSettings'));
+// Performance (Oct 27 2026): the goal and 1:1 reminders, layered per company.
+const PerformanceReminderSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceReminderSettings })));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone. Since Oct 20 the
 // tab is the unified Audit Log (components/audit/AuditLog.jsx): every module,
@@ -221,6 +224,9 @@ const SUBJECTS = [
     desc: 'The catalog options used when adding items.' },
   { key: 'operations', section: 'ops', label: 'Operations',          Icon: Warehouse, faces: 'org',
     desc: 'How the storage facilities screens work with Cubby.' },
+  // Performance (Oct 27 2026): goals and 1:1s - Workday > Performance.
+  { key: 'performance', section: 'work', label: 'Performance',         Icon: Target, faces: 'both',
+    desc: 'Reminders for goals and 1:1s.' },
 ];
 const SUBJECT_KEYS = new Set(SUBJECTS.map(s => s.key));
 // The rail's four sections (Oct 25). `wide` subjects (whole screens: the
@@ -459,6 +465,11 @@ const GROUPS = [
     needs: { role: 'manager', grant: ['operations', 'editor'] },
     sub: 'Which Cubby unit types are mailboxes, and which records are not units at all, by the words in the unit type name.',
     keywords: 'unit types mailbox excluded words cubby facility operations units' },
+  // Performance
+  { id: 'performance-reminders', subject: 'performance', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Goal and 1:1 Reminders', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'The reminder the day before a 1:1 with an empty agenda, and how long a goal may go without a check-in - a default, and each company\'s own.',
+    keywords: 'performance goals check-in reminder one on one 1:1 agenda okr objectives' },
 ];
 const GROUP_META = Object.fromEntries(GROUPS.map(g => [g.id, g]));
 
@@ -609,6 +620,7 @@ const COMPANY_STATE = {
   'payroll-readiness': (cid) => api.payrollReadinessSettings(cid).then(m => ownState(!!m?.override)),
   'time-off-reasons': (cid) => api.timeOffTypes(cid).then(r => ownState(!!r?.hasOverride)),
   'shift-settings': (cid) => api.shiftRequestSettingsGetFor(cid).then(r => ownState(!!r?.hasOverride)),
+  'performance-reminders': (cid) => api.perfSettings(cid).then(m => ownState(!!m?.override)),
 };
 // What the layered footer says before the names.
 const OWN_LINE = { 'shift-settings': 'Companies with shift settings of their own:' };
@@ -1633,6 +1645,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'ticket-property-rules': return <LazyPanelSection key={key} id={id} Panel={TicketPropertyRulesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'ops-unit-rules':       return <LazyPanelSection key={key} id={id} Panel={UnitRulesPanel} chrome={chrome} />;
       case 'app-ratings':          return <LazyPanelSection key={key} id={id} Panel={AppRatingsPanel} chrome={chrome} />;
+      case 'performance-reminders': return <LazyPanelSection key={key} id={id} Panel={PerformanceReminderSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       default:                     return null;
     }
   }

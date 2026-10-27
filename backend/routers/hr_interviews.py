@@ -254,10 +254,13 @@ def delete_template(tid: str, user: dict = Depends(require_hr_write), db: Sessio
 
 def _graph_create_meeting(organizer: str, subject: str, body_text: str,
                           attendee_email: str, attendee_name: str,
-                          start_iso: str, minutes: int, extra_attendees: Optional[list] = None) -> dict:
+                          start_iso: str, minutes: int, extra_attendees: Optional[list] = None,
+                          time_zone: str = "UTC", recurrence: Optional[dict] = None) -> dict:
     """Create a calendar event with a Teams link - Outlook emails the invite to
     the attendee automatically. Returns {eventId, joinUrl} or raises with a
-    human explanation."""
+    human explanation. `time_zone` names the clock `start_iso` is on (a
+    wall time with no offset); `recurrence` is Graph's patternedRecurrence -
+    a recurring series, as the Performance 1:1s make (Oct 27 2026)."""
     token = _graph_token()
     end = (datetime.fromisoformat(start_iso) + timedelta(minutes=minutes)).isoformat()
     r = httpx.post(f"{_GRAPH}/users/{organizer}/events",
@@ -265,8 +268,9 @@ def _graph_create_meeting(organizer: str, subject: str, body_text: str,
                    json={
                        "subject": subject,
                        "body": {"contentType": "text", "content": body_text},
-                       "start": {"dateTime": start_iso, "timeZone": "UTC"},
-                       "end": {"dateTime": end, "timeZone": "UTC"},
+                       "start": {"dateTime": start_iso, "timeZone": time_zone or "UTC"},
+                       "end": {"dateTime": end, "timeZone": time_zone or "UTC"},
+                       **({"recurrence": recurrence} if recurrence else {}),
                        "attendees": [{"emailAddress": {"address": attendee_email, "name": attendee_name},
                                       "type": "required"}]
                                     + [{"emailAddress": {"address": a["email"], "name": a.get("name") or a["email"]},

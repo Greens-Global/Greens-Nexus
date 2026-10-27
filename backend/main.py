@@ -3067,6 +3067,15 @@ def _run_migrations():
         "ALTER TABLE accounting_tax_lines ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_seen_at VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_check JSON",
+        # Performance: goals and 1:1s (Neil, Oct 27 2026) - new tables, so
+        # explicit RLS. models.PerfGoal / PerfGoalCheckin / PerfOneOnOne /
+        # PerfMeeting / PerfAgendaItem / PerfActionItem.
+        "ALTER TABLE hr_perf_goals ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_goal_checkins ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_one_on_ones ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_meetings ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_agenda_items ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_action_items ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3854,6 +3863,14 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(employee_code_sync_loop()))
         except Exception as e:
             print(f"[startup] intacct employee code sync skipped: {e}")
+        try:
+            # Performance reminders (Oct 27 2026): every half hour, in a
+            # thread - a 1:1 tomorrow with an empty agenda, a goal overdue a
+            # check-in; both grow one notice. See performance.py.
+            from performance import performance_loop
+            _tasks.append(_a.create_task(performance_loop()))
+        except Exception as e:
+            print(f"[startup] performance reminders loop skipped: {e}")
         # The jobs below keep their own is_deployed_worker() gate INSIDE the
         # leader's job set, and the two gates answer different questions. Leader
         # election stops several DEPLOYED instances doing the same work twice;
@@ -4669,3 +4686,5 @@ from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: cr
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
 from routers import accounting_liability_recon  # noqa: E402
 app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
+from routers import performance as performance_router  # noqa: E402 - new tables: create_all + explicit RLS lines, no ALTER columns
+app.include_router(performance_router.router)  # Performance: goals and 1:1s - Workday > Performance, People > Performance (Neil, Oct 27 2026)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { useIsMobile } from '../lib/useIsMobile';
 import {
   LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
@@ -33,6 +33,9 @@ import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import DocumentsToSign from '../components/DocumentsToSign';
 import DelegateApprovalsCard from '../components/DelegateApprovals';
 import { PurchaseRequestsPanel } from '../components/PurchaseRequests';
+import ViewErrorBoundary from '../components/ViewErrorBoundary';
+// Performance (Oct 27 2026): goals and 1:1s - its own chunk, loaded on the tab.
+const PerformanceTab = lazy(() => import('../performance/PerformanceTab'));
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -67,6 +70,7 @@ const TAB_META = {
   overview:  { title: 'Workday',    label: 'Overview' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet' },
   timeoff:   { title: 'Time Off',   label: 'Time Off' },
+  performance: { title: 'Performance', label: 'Performance' },
 };
 // The Clock tab folded into Overview (Oct 2), and so did your own shifts
 // (Neil, Oct 13 2026: "the personal shift data should move into your
@@ -81,7 +85,10 @@ const TAB_META = {
 // Reimbursements, not a tab (Sagar, Oct 27); "purchase:new" opens its form too.
 const isPurchaseSub = (sub) => /^purchase(:|$)/.test(sub || '');
 const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || isPurchaseSub(sub) || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
-  : sub === 'timecard' ? 'timesheet' : sub);
+  : sub === 'timecard' ? 'timesheet' : /^performance(:|$)/.test(sub || '') ? 'performance' : sub);
+// "performance:goal:<id>" / "performance:1on1:<id>" / "performance:team" (bells,
+// Oct 27 2026): the Performance tab with that goal, 1:1 or view open.
+const perfFocusOf = (sub) => (/^performance:/.test(sub || '') ? sub : '');
 // "shifts:confirm:<publish id>" (Shifts Phase 3a): a schedule to confirm - My Schedule shows its banner.
 const confirmOf = (sub) => (String(sub || '').match(/^shifts:confirm:(.+)$/) || [])[1] || '';
 // "sign:<party id>" (Oct 18): a Nexus Sign document to sign - Documents to Sign opens it.
@@ -509,6 +516,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // to change (Pranshu, Sep 4: switching tabs left the URL on /myhr forever).
   // Held past the address rewrite below (it goes back to plain 'overview').
   const [focusConfirm, setFocusConfirm] = useState(() => confirmOf(activeSub));
+  const [perfFocus, setPerfFocus] = useState(() => perfFocusOf(activeSub));
+  useEffect(() => { const f = perfFocusOf(activeSub); if (f) setPerfFocus(f); }, [activeSub]);
   useEffect(() => { const c = confirmOf(activeSub); if (c) setFocusConfirm(c); }, [activeSub]);
   // A reimbursement bell lands on "reimbursements": open that panel (Oct 18 2026).
   const [openReimb, setOpenReimb] = useState(() => activeSub === 'reimbursements');
@@ -1353,8 +1362,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
              a reviewing manager) - never for the badge count alone, which
              once surfaced a stale "sent back" row of an exempt person's own
              old time sheet as a "1" over an empty tab (Neil, Oct 21 2026). */
-          ? ['overview', ...(toSignCount > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
-          : ['overview', 'timesheet', 'timeoff']
+          ? ['overview', ...(toSignCount > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff', 'performance']
+          : ['overview', 'timesheet', 'timeoff', 'performance']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title })), counts, 'myhr')}
         active={tab} onChange={setTab} syncTitle />
 
@@ -1465,6 +1474,15 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {purchaseOpen && (
         <PurchaseRequestsPanel onClose={() => setPurchaseOpen(null)} openNewKey={purchaseOpen.newForm ? purchaseNewKey : 0}
           toast={(text, kind) => toast(kind !== 'error', text)} />
+      )}
+
+      {/* Performance (Oct 27 2026): my goals and 1:1s, my team's when I manage people. */}
+      {tab === 'performance' && (
+        <ViewErrorBoundary resetKey="performance">
+          <Suspense fallback={<SkeletonBlocks count={2} height={180} />}>
+            <PerformanceTab focus={perfFocus} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />
+          </Suspense>
+        </ViewErrorBoundary>
       )}
 
       {/* Time off */}

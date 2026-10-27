@@ -18,6 +18,7 @@ import {
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw, ArrowLeftRight,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
   ListChecks, RefreshCw, Hourglass,
+  Target,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -73,6 +74,8 @@ const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').th
 const CompanyRoles = lazy(() => import('./CompanyRoles'));
 // Sync Employee Codes From Intacct (Charmi, Oct 21 2026) - HR only, lazy.
 const IntacctEmployeeCodes = lazy(() => import('../components/IntacctEmployeeCodes'));
+// Performance (Oct 27 2026): HR's view of the company's goals - lazy.
+const PerformanceAdmin = lazy(() => import('../performance/PerformanceAdmin'));
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -6026,7 +6029,7 @@ export default function HR({ activeSub, onSubChange }) {
   const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices' };
   // The manager tier sees its own team in People (Oct 6): People and Time only.
   const { hrTeam } = useRole();
-  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'];
+  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists', 'hr-performance'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
     : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
@@ -6315,6 +6318,8 @@ export default function HR({ activeSub, onSubChange }) {
     { key: 'hr-leave',  label: 'Leave',     Icon: CalendarOff },
     { key: 'hr-time',   label: 'Time',      Icon: Clock },
     { key: 'hr-checklists', label: 'Checklists', Icon: ListChecks },
+    // Performance (Oct 27 2026): the company's goals (review cycles later).
+    { key: 'hr-performance', label: 'Performance', Icon: Target },
     // The External tab is gone (Neil, Aug 24): external/guest people live in
     // the People directory with a worker-type filter, and their lifecycle
     // actions sit on their profile card.
@@ -6425,6 +6430,12 @@ export default function HR({ activeSub, onSubChange }) {
           </div>
           <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
         </>
+      )}
+
+      {sub === 'hr-performance' && (
+        <Suspense fallback={<SkeletonBlocks count={2} height={140} />}>
+          <PerformanceAdmin toastOk={toastOk} toastErr={toastErr} />
+        </Suspense>
       )}
 
       {sub === 'hr-people' && (<>
