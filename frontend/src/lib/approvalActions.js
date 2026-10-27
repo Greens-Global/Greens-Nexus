@@ -79,6 +79,13 @@ export const APPROVAL_ACTIONS = {
     approve: (r) => api.decideHeadcount(r.id, 'approve', ''),
     decline: (r, note) => api.decideHeadcount(r.id, 'decline', note),
   },
+  // India Contractor Extra Time (routers/extra_time.py decide_claim): Approve
+  // takes every hour claimed; fewer hours are approved on People > Time >
+  // Extra Time (Review). A decline needs a reason the contractor sees.
+  extra_time: {
+    approve: (r) => api.extraTimeDecide(r.id, { decision: 'approve', minutes: 0 }),
+    decline: (r, note) => api.extraTimeDecide(r.id, { decision: 'decline', reason: note }),
+  },
   // A "Decide on" task: the vote is a comment that starts with Yes or No and
   // says why (Neil, Oct 19) - the module's only way to vote.
   hiring_vote: {

@@ -67,7 +67,7 @@ class InboxCase(unittest.TestCase):
                   models.ExpenseReimbursement, models.Requisition, models.NexusNotification, models.PunchRequest,
                   models.ApprovalDelegation, models.HrCandidate, models.HrStageEvent, models.HrInterview,
                   models.Task, models.TimesheetReview, models.HrEntity,
-                  models.SalaryAdvance, models.HrLetterRequest, models.HrHeadcountRequest):
+                  models.SalaryAdvance, models.HrLetterRequest, models.HrHeadcountRequest, models.ExtraTimeClaim):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id=ENTITY, name="Greens Test", hr_contact_email=HRC))
         for em, first, mgr in ((EMP, "Erin", MGR), (MGR, "Max", ""), (MATE, "Mia", MGR),
@@ -416,6 +416,24 @@ class InboxCase(unittest.TestCase):
         self.assertEqual([r["key"] for r in self._inbox(HRC)["rows"]], ["headcount:h1"])
         self.assertEqual(self._inbox(MGR)["rows"], [])
         self.assertEqual(self._inbox(MATE)["rows"], [])         # never the requester's own
+
+    def test_extra_time_claims_wait_on_the_named_approver(self):
+        for cid, status in (("x1", "pending"), ("x2", "approved")):
+            self.db.add(models.ExtraTimeClaim(id=cid, employee_email=EMP, company_id=ENTITY, local_date="2026-10-03",
+                                              period_start="2026-10-01", period_end="2026-10-31", claimed_min=300,
+                                              approved_min=300 if status == "approved" else 0,
+                                              note="Weekend deploy", status=status, history=[],
+                                              created_at=f"2026-10-0{cid[-1]}T08:00:00+00:00", updated_at=""))
+        self.db.commit()
+        rows = self._inbox(HRC)["rows"]                          # Erin's company's HR contact
+        self.assertEqual([r["key"] for r in rows], ["extra_time:x1"])
+        self.assertEqual(rows[0]["title"], "Extra Time - 10/03/2026 (5h 00m)")
+        self.assertEqual([(a["key"], a["note"]) for a in rows[0]["actions"]],
+                         [("approve", "none"), ("decline", "required"), ("open", "none")])
+        self.assertEqual(rows[0]["link"], {"view": "hr", "sub": "hr-time-extra"})
+        self.assertEqual(self._counts(HRC)["hr"]["hr-time"], 1)
+        self.assertEqual(self._inbox(MGR)["rows"], [])           # the manager is not the approver
+        self.assertEqual(self._inbox(EMP)["rows"], [])           # never their own
 
 
 if __name__ == "__main__":

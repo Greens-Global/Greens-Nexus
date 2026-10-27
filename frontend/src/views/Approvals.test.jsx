@@ -12,7 +12,7 @@ const decideReimbursement = vi.fn();
 const addTaskComment = vi.fn();
 // HR's kinds (Oct 27 2026).
 const hrApi = { timeOffHrDecide: vi.fn(), decideSalaryAdvance: vi.fn(), probationApprove: vi.fn(),
-  probationDecline: vi.fn(), hrLetterDecline: vi.fn(), decideHeadcount: vi.fn() };
+  probationDecline: vi.fn(), hrLetterDecline: vi.fn(), decideHeadcount: vi.fn(), extraTimeDecide: vi.fn() };
 vi.mock('../api', () => ({
   api: {
     approvalsInbox: (...a) => approvalsInbox(...a),
@@ -176,6 +176,10 @@ describe('HR approvals (Oct 27 2026)', () => {
     expect(hrApi.hrLetterDecline).toHaveBeenCalledWith('l1', 'Wrong type');
     await runApproval({ kind: 'headcount', id: 'h1' }, 'approve');
     expect(hrApi.decideHeadcount).toHaveBeenCalledWith('h1', 'approve', '');
+    await runApproval({ kind: 'extra_time', id: 'x1' }, 'approve');
+    expect(hrApi.extraTimeDecide).toHaveBeenCalledWith('x1', { decision: 'approve', minutes: 0 });
+    await runApproval({ kind: 'extra_time', id: 'x1' }, 'decline', 'Not agreed');
+    expect(hrApi.extraTimeDecide).toHaveBeenCalledWith('x1', { decision: 'decline', reason: 'Not agreed' });
   });
   it('opens the steps that need more than a click', () => {
     expect(runsInline({ kind: 'hr_letter' }, 'open')).toBe(false);

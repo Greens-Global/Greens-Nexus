@@ -32,7 +32,7 @@ Sheet with a note describing the work, and an approver approves them:
     in a thread).
 
 `waiting_on(db, user)` lists the claims waiting on a named approver - the
-source the Approvals inbox (PR #810) can add when it merges.
+source of the Approvals inbox's extra_time row (approvals_inbox._extra_time).
 """
 from __future__ import annotations
 

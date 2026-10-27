@@ -44,8 +44,9 @@ It returns rows built with `row(...)`. The rules for a source:
 
 HR's sources (Oct 27 2026): time off awaiting HR's second approval
 (time_off_hr), salary advances to decide or pay out, probation
-recommendations and overdue decisions, HR letter requests and headcount
-requests - each the module's own rule, decided through its own endpoint.
+recommendations and overdue decisions, HR letter requests, headcount
+requests and India Contractor Extra Time claims - each the module's own
+rule, decided through its own endpoint.
 
 To add one: write the function here with @source, give its row
 `kind` an entry in frontend/src/lib/approvalActions.js (which endpoint each
@@ -758,4 +759,23 @@ def _headcount(db: Session, user: dict, ctx: dict) -> list:
                        detail=f"{step}." + (f" {where}." if where else ""),
                        created_at=r.submitted_at or r.created_at, actions=(A_APPROVE, A_DECLINE_WHY),
                        link={"view": "shifts", "sub": "headcount"}))
+    return out
+
+
+@source("extra_time", "Extra Time", "timesheets")
+def _extra_time(db: Session, user: dict, ctx: dict) -> list:
+    """India Contractor Extra Time claims waiting on the caller as a named
+    approver (routers/extra_time.waiting_on - the company's HR contact, else
+    the Global Admins; never their own). Approve takes every hour claimed
+    (POST /extra-time/claims/{id}/decide - the server checks the day's
+    limit); approving FEWER hours is done on People > Time > Extra Time, which
+    Review opens. Decline needs a reason the contractor sees."""
+    from routers.extra_time import _hm, waiting_on
+    out = []
+    for c in waiting_on(db, _me(user)):
+        out.append(row("extra_time", c["id"], person_email=c["employeeEmail"], person_name=c.get("name") or "",
+                       title=f"Extra Time - {_us_day(c['date'])} ({_hm(c['claimedMin'])})",
+                       detail=_short(c.get("note") or ""), created_at=c.get("createdAt"),
+                       actions=(A_APPROVE, A_DECLINE_WHY, a_open("Review")),
+                       link={"view": "hr", "sub": "hr-time-extra"}))
     return out

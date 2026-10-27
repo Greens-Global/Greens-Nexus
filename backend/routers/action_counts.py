@@ -198,7 +198,8 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
             "headcount": a("headcount", 0),   # Team > Headcount (Oct 27 2026)
         },
         "hr": {
-            "hr-time": time_off + a("punch_fix", 0) + a("timesheet_review", 0),
+            "hr-time": time_off + a("punch_fix", 0) + a("timesheet_review", 0)
+                       + a("extra_time", 0),   # People > Time > Extra Time (Oct 27 2026)
             "hr-people": s(lambda: _ask_hr(db, user)) + s(lambda: _role_changes(db, user))
                          + a("probation", 0),   # recommendations and overdue decisions (Oct 27 2026)
         },
