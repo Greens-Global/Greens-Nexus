@@ -10,7 +10,7 @@ import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
-import EntryDetail from './EntryDetail';
+import LinesPanel from './LinesPanel';
 import { downloadBlob, iso } from './reportModel';
 import { ColumnFilterRow, ColumnFiltersEmpty, columnFiltersActive, filterRowsByColumns, useColumnFilters } from './columnFilters';
 import { linesFile } from './linesExport';
@@ -376,6 +376,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   const [sent, setSent] = useState(null);
   const [busy, setBusy] = useState('');
   const [lines, setLines] = useState(null);           // { line, from, to, title } - the ledger lines behind a figure
+  const closeLines = useCallback(() => setLines(null), []);
   const seq = useRef(0);
   const showEnded = !!prefs.mreShowEnded;
   const showInactive = !!prefs.mreShowInactive;
@@ -591,7 +592,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
         <LineEditor line={editing} entities={entities} canDelete={canDelete} onClose={() => setEditing(null)}
           onSaved={savedLine} />
       )}
-      {lines && <LedgerLines {...lines} onClose={() => setLines(null)} />}
+      {lines && <MreLines key={`${lines.line.id}|${lines.from}|${lines.to}`} {...lines} onClose={closeLines} />}
       {completeOpen && (
         <CompletenessPanel caption={`MRE · ${entityLabel} · ${periodLabel}`} groups={gaps} note={completeNote} onPick={pickGap} onClose={() => setCompleteOpen(false)}
           rule="A gap is a month that is over and reads Missed while the line has no note, or a line with no expected amount, or no frequency (a Custom frequency without its number of months runs every month until it is set). Ended lines are left out." />
@@ -737,70 +738,21 @@ function monthRange(monthKey) {
 
 /** The ledger searches behind a line's figure: each expense account, for the vendor, in the entity. */
 export function mreLinesQueries(line, from, to) {
-  return (line.expenseAccounts || []).map((account) => ({ account, party_kind: 'vendor', party: line.vendorId, location: line.entityCode, from, to, limit: 100 }));
+  return (line.expenseAccounts || []).map((account) => ({ account, party_kind: 'vendor', party: line.vendorId, location: line.entityCode, from, to }));
 }
 
 // The ledger lines behind a paid month or a line's Total (Oct 7, item 33):
 // what posted to the line's expense accounts for its vendor in the entity,
-// each entry number opening the whole entry (EntryDetail). No new endpoint -
-// the ledger search the Reports drill-down uses.
-function LedgerLines({ line, from, to, title, onClose }) {
+// each entry number opening the whole entry. Call of 10/27 (item 17): in the
+// module's side panel with Open Full (LinesPanel, shared by the reports), the
+// columns resizable, and Open in Reports for the same lines on the ledger.
+function MreLines({ line, from, to, title, onClose }) {
   const queries = useMemo(() => mreLinesQueries(line, from, to), [line, from, to]);
-  const [state, setState] = useState({ lines: null, error: '' });
-  const [entry, setEntry] = useState(null);
-  const entryOpen = useRef(false);
-  useEffect(() => { entryOpen.current = !!entry; }, [entry]);
-  useEffect(() => {
-    let alive = true;
-    Promise.all(queries.map((p) => api.searchAccountingLedger(p)))
-      .then((answers) => { if (alive) setState({ lines: answers.flatMap((d) => d?.rows || []), error: '' }); })
-      .catch((e) => { if (alive) setState({ lines: [], error: e?.message || 'Could not read the ledger lines.' }); });
-    return () => { alive = false; };
-  }, [queries]);
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && !entryOpen.current) onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  const total = (state.lines || []).reduce((s, l) => s + (l.debit || 0) - (l.credit || 0), 0);
+  const accounts = line.expenseAccounts || [];
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={`${line.vendorName}, ${title}`} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <div style={{ minWidth: 0 }}>
-            <h3 style={{ margin: 0 }}>{line.vendorName} - {title}</h3>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-              Posted to {(line.expenseAccounts || []).join(', ')} for vendor {line.vendorId} in {line.entityName || line.entityCode}, {formatDate(from)} - {formatDate(to)}
-            </div>
-          </div>
-          <button type="button" onClick={onClose} aria-label="Close" style={icon}><X size={18} /></button>
-        </div>
-        <div style={{ padding: '14px 24px 18px', maxHeight: '70vh', overflowY: 'auto' }}>
-          {state.lines === null ? <SkeletonBlocks count={2} /> : state.error ? <div style={bad}>{state.error}</div> : !state.lines.length ? (
-            <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>Nothing posted in this period.</div>
-          ) : (
-            <div className="acct-lines-wrap">
-              <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
-                <thead><tr><th scope="col">Date</th><th scope="col">Entry</th><th scope="col">Account</th><th scope="col">Description</th><th scope="col" className="acct-num">Amount</th></tr></thead>
-                <tbody>
-                  {state.lines.map((l, i) => (
-                    <tr key={`${l.entry_id || l.entry_no || 'x'}-${i}`}>
-                      <td>{l.entry_date ? formatDate(l.entry_date) : '-'}</td>
-                      <td>{l.entry_id ? <button type="button" className="acct-drill" onClick={() => setEntry({ id: l.entry_id, no: l.entry_no })} title="Open this journal entry">{l.entry_no || 'Open'}</button> : (l.entry_no || '-')}</td>
-                      <td>{l.account_no || l.account || '-'}</td>
-                      <td style={{ whiteSpace: 'normal', maxWidth: 280 }} title={l.description || ''}>{l.description || l.memo || '-'}</td>
-                      <td className="acct-num"><Amount value={(l.debit || 0) - (l.credit || 0)} /></td>
-                    </tr>
-                  ))}
-                  <tr className="acct-grand"><td colSpan={4}>Total - {state.lines.length} {state.lines.length === 1 ? 'line' : 'lines'}</td><td className="acct-num"><Amount value={total} /></td></tr>
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-      {entry && <div onClick={(e) => e.stopPropagation()} role="presentation"><EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} /></div>}
-    </div>
+    <LinesPanel label={`${line.vendorName}, ${title}`} title={`${line.vendorName} - ${title}`} widthsKey="mre" queries={queries} onClose={onClose}
+      caption={`Posted to ${accounts.join(', ')} for vendor ${line.vendorId} in ${line.entityName || line.entityCode}, ${formatDate(from)} - ${formatDate(to)}`}
+      report={{ ...(accounts.length === 1 ? { account: accounts[0], accountName: '' } : {}), party: { kind: 'vendor', code: line.vendorId, name: line.vendorName }, from, to, entity: line.entityCode }} />
   );
 }
 
