@@ -11,6 +11,8 @@ import { useAccountingPrefs } from './prefs';
 import { usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { cellStyle } from './columnStyles';
+import { ColumnFilterRow, useColumnFilters } from './columnFilters';
+import { filterColumnsOf } from './viewFilterColumns';
 import { useTableSync } from './tableSync';
 import { linesFile } from './linesExport';
 import SidePanel, { PanelSection } from './SidePanel';
@@ -162,6 +164,16 @@ function partnerColumns(kind, fromLedger) {
     OPEN_COLUMN];
 }
 
+// The Requests list's filter boxes (item 14): what each cell reads, dates as MM/DD/YYYY.
+const REQUEST_FILTERS = [
+  { key: 'record', label: 'Record', text: (r) => `${r.partnerName || ''} ${r.partnerId || ''}` },
+  { key: 'changes', label: 'Changes', text: (r) => Object.entries(r.changes || {}).map(([f, v]) => `${FIELD_LABEL[f] || f}: ${v.from || '(blank)'} -> ${v.to || '(blank)'}`).join(' ') },
+  { key: 'requested', label: 'Requested', text: (r) => `${r.requestedByName || ''} ${formatDateTime(r.requestedAt)}`, placeholder: 'name or MM/DD/YYYY' },
+  { key: 'status', label: 'Status', text: (r) => `${STATUS[r.status]?.label || r.status || ''} ${r.decidedByName || ''} ${r.decidedAt ? formatDateTime(r.decidedAt) : ''}` },
+  { key: 'note', label: 'Note', text: (r) => [r.note, ...seenNote(r)].filter(Boolean).join(' ') },
+];
+const REQUEST_HEADS = [...REQUEST_FILTERS, { key: 'actions', label: '' }];
+
 // Oct 22 (Neil): Records > Vendors / Customers open this screen on that list (`initialKind`).
 export default function PartnersTab({ canApprove = false, initialKind = 'vendor' }) {
   const startKind = KINDS.some((k) => k.key === initialKind) ? initialKind : 'vendor';
@@ -257,9 +269,15 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
   // Item 01: the standard view over the list the search and Customize leave.
   const fromLedger = source === 'ledger';
   const columns = useMemo(() => partnerColumns(kind, fromLedger), [kind, fromLedger]);
-  const view = useTableView(`partners-${kind}`, columns, shown);
+  // Item 14 (Charmi, 10/26: "There should be search option for all"): a box
+  // under every heading; the view, the pages and Export take what they leave.
+  const filterCols = useMemo(() => filterColumnsOf(columns), [columns]);
+  const filters = useColumnFilters(shown, filterCols);
+  const clearBoxes = filters.clear;
+  useEffect(() => { clearBoxes(); }, [kind, clearBoxes]);
+  const view = useTableView(`partners-${kind}`, columns, filters.rows);
   const listed = view.rows;
-  const paged = usePaged(listed, pageSize, `${kind}|${q.trim().toLowerCase()}|${showInactive}|${JSON.stringify(view.state)}`);
+  const paged = usePaged(listed, pageSize, `${kind}|${q.trim().toLowerCase()}|${showInactive}|${JSON.stringify(view.state)}|${JSON.stringify(filters.typed)}`);
   const { setPage } = paged;
 
   // Item 07: once the list is back, the parked page, record and scroll.
@@ -310,12 +328,14 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
   }
 
   const kindLabel = kind === 'vendor' ? 'vendor' : 'customer';
+  const reqFilters = useColumnFilters(requests, REQUEST_FILTERS);
+  const reqHeads = canApprove ? REQUEST_HEADS : REQUEST_FILTERS;
 
   async function exportList(format) {
     setBusy(`export-${format}`);
     try {
       // Exactly what the view leaves: its rows, order and columns (item 01).
-      const about = partnersTable(listed, { kind, fromLedger, note: [q.trim() ? `matching "${q.trim()}"` : '', view.count ? 'filtered' : '', showInactive ? 'inactive included' : 'active only'].filter(Boolean).join(', ') });
+      const about = partnersTable(listed, { kind, fromLedger, note: [q.trim() ? `matching "${q.trim()}"` : '', view.count || filters.filtering ? 'filtered' : '', showInactive ? 'inactive included' : 'active only'].filter(Boolean).join(', ') });
       const table = viewTable(listed, view.columns, { title: about.title, subtitle: about.subtitle, totals: false });
       const file = await linesFile(table, format, `${table.title} - ${formatDate(iso(new Date())).replace(/\//g, '-')}.${format === 'excel' ? 'xlsx' : 'csv'}`);
       downloadBlob(file.name, file);
@@ -433,20 +453,24 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
           )}
           <div style={card}>
             <div ref={boxRef} className="acct-partners-box" data-testid="partners-box">
-              {!listed.length ? (
+              {!listed.length && !filters.filtering ? (
                 <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>
                   {shown.length ? `No ${kindLabel}s pass the filters. Clear a filter to see more.` : `No ${hiddenInactive && !q ? `active ${kindLabel}s` : `${kindLabel}s`}${q ? ' match' : ' came back from the ledger'}.`}
                 </p>
               ) : (
-                <table className="acct-partners">
+                <table className="acct-partners acct-sticky-head">
                   <thead>
                     <tr>
                       {view.columns.map((c) => (c.key === 'open' ? <th key={c.key} style={th} aria-label="Actions" /> : (
-                        <ViewHead key={c.key} view={view} col={c} aria-label={c.label} style={{ ...th, position: 'sticky', ...(c.type === 'number' ? { textAlign: 'right' } : null), ...cellStyle(view.manualWidth(c.key), { overflow: 'visible' }) }} />
+                        <ViewHead key={c.key} view={view} col={c} aria-label={c.label} style={{ ...th, position: 'relative', ...(c.type === 'number' ? { textAlign: 'right' } : null), ...cellStyle(view.manualWidth(c.key), { overflow: 'visible' }) }} />
                       )))}
                     </tr>
+                    <ColumnFilterRow columns={view.columns} filterColumns={filterCols} typed={filters.typed} onChange={filters.setFilter} />
                   </thead>
                   <tbody>
+                    {!listed.length && (
+                      <tr><td colSpan={view.columns.length || 1} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }}>Nothing matches these column filters.</td></tr>
+                    )}
                     {paged.rows.map((r) => {
                       const cell = (k, extra = null) => ({ ...td, ...(extra || {}), ...cellStyle(view.manualWidth(k)) });
                       return (
@@ -502,14 +526,20 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
 
       {section === 'requests' && (
         <AsyncSection loading={requests === null} skeleton={<SkeletonBlocks count={2} />}>
-          <div style={{ ...card, overflow: 'auto' }}>
+          <div className="acct-partners-box" style={card}>
             {!requests?.length ? (
               <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>No {reqStatus ? STATUS[reqStatus]?.label.toLowerCase() : ''} requests for {kindLabel}s.</p>
             ) : (
-              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-                <thead><tr><th style={th}>Record</th><th style={th}>Changes</th><th style={th}>Requested</th><th style={th}>Status</th><th style={th}>Note</th>{canApprove && <th style={th}></th>}</tr></thead>
+              <table className="acct-sticky-head" style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%' }}>
+                <thead>
+                  <tr>{reqHeads.map((c) => <th key={c.key} style={{ ...th, background: 'var(--bg-secondary)' }}>{c.label}</th>)}</tr>
+                  <ColumnFilterRow columns={reqHeads} filterColumns={REQUEST_FILTERS} typed={reqFilters.typed} onChange={reqFilters.setFilter} />
+                </thead>
                 <tbody>
-                  {requests.map((r) => (
+                  {!reqFilters.rows.length && (
+                    <tr><td colSpan={reqHeads.length} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }}>Nothing matches these column filters.</td></tr>
+                  )}
+                  {reqFilters.rows.map((r) => (
                     <tr key={r.id} className={canApprove && r.status === 'pending' ? 'nx-needs-you--row' : undefined}>
                       <td style={td}><strong>{r.partnerName || r.partnerId}</strong><div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{r.partnerId}</div></td>
                       <td style={td}>

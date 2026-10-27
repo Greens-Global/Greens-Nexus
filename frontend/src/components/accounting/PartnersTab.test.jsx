@@ -268,7 +268,7 @@ describe('PartnersTab - the 10/23 call', () => {
     // Sort Name descending, hide Email; the export follows.
     fireEvent.click(screen.getByRole('button', { name: /^Name - column menu/ }));
     fireEvent.click(within(await screen.findByRole('menu', { name: 'Name column' })).getByRole('menuitemradio', { name: /Sort Descending/ }));
-    expect(screen.getAllByRole('row')[1].textContent).toContain('Bay Electric');
+    expect(screen.getByTestId('partners-box').querySelector('tbody tr').textContent).toContain('Bay Electric');
     fireEvent.click(screen.getByRole('button', { name: /^Email - column menu/ }));
     fireEvent.click(within(await screen.findByRole('menu', { name: 'Email column' })).getByRole('menuitem', { name: /Hide Column/ }));
     expect(screen.queryByRole('columnheader', { name: 'Email' })).toBeNull();
@@ -280,6 +280,48 @@ describe('PartnersTab - the 10/23 call', () => {
     const csv = text.replace(/^\s+/, '').split('\r\n');
     expect(csv[0]).toBe('Vendor Number,Name,Phone,City,Terms,Status,Entity');
     expect(csv[1]).toMatch(/^V00013,Bay Electric,/);
+  });
+
+  // Item 14 (Charmi, 10/26: "There should be search option for all").
+  it('has a box under every heading, pinned with them: typing filters the list, and Export takes only what is left', async () => {
+    render(<PartnersTab />);
+    await screen.findByText('Acme Plumbing');
+    const table = screen.getByTestId('partners-box').querySelector('table');
+    expect(table.classList.contains('acct-sticky-head')).toBe(true);
+    for (const l of ['Vendor Number', 'Name', 'Email', 'City']) expect(table.querySelector('thead').contains(screen.getByRole('textbox', { name: `Filter ${l}` }))).toBe(true);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Email' }), { target: { value: 'bay' } });
+    expect(screen.queryByText('Acme Plumbing')).toBeNull();
+    expect(screen.getByText('Bay Electric')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
+    const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(URL.createObjectURL.mock.calls[0][0]); });
+    expect(text).toContain('Bay Electric');
+    expect(text).not.toContain('Acme Plumbing');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Email' }), { target: { value: 'nobody' } });
+    expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Filter Email' })).toBeTruthy();   // the boxes stay, to clear
+  });
+
+  it('has a box under every Requests heading too', async () => {
+    const more = [...changes, { ...changes[0], id: 'c9', partnerId: 'V00013', partnerName: 'Bay Electric', changes: { email: { from: 'old@bay.com', to: 'new@bay.com' } }, status: 'approved', requestedByName: 'Neil Patel', decidedByName: 'Charmi Shah' }];
+    api.getAccountingPartnerChanges.mockImplementation(async () => ({ changes: more }));
+    try {
+      render(<PartnersTab canApprove />);
+      await screen.findByText('Acme Plumbing');
+      fireEvent.click(screen.getByRole('button', { name: /Requests/ }));
+      expect(await screen.findByText('Bay Electric', { selector: 'strong' })).toBeTruthy();
+      for (const l of ['Record', 'Changes', 'Requested', 'Status', 'Note']) expect(screen.getByRole('textbox', { name: `Filter ${l}` })).toBeTruthy();
+      fireEvent.change(screen.getByRole('textbox', { name: 'Filter Requested' }), { target: { value: 'amy' } });
+      expect(screen.queryByText('Bay Electric', { selector: 'strong' })).toBeNull();
+      expect(screen.getByText('Acme Plumbing', { selector: 'strong' })).toBeTruthy();
+      fireEvent.change(screen.getByRole('textbox', { name: 'Filter Requested' }), { target: { value: '' } });
+      fireEvent.change(screen.getByRole('textbox', { name: 'Filter Changes' }), { target: { value: 'email' } });
+      expect(screen.getByText('Bay Electric', { selector: 'strong' })).toBeTruthy();
+      expect(screen.queryByText('Acme Plumbing', { selector: 'strong' })).toBeNull();
+    } finally {
+      api.getAccountingPartnerChanges.mockImplementation(async () => ({ changes }));
+    }
   });
 
   it('opens records on the right with the list still clickable; another row swaps it', async () => {

@@ -12,6 +12,8 @@ import { useFitHeight } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
+import { ColumnFilterRow, useColumnFilters } from './columnFilters';
+import { filterColumnsOf } from './viewFilterColumns';
 import { useAccountingPrefs } from './prefs';
 import { MANUAL_JE_DEFAULT_PRESET, MANUAL_JE_GROUP_BY_USER } from './assumptions';
 
@@ -55,6 +57,9 @@ const MJE_COLUMNS = [
   { key: 'open', label: 'Open', width: 70, fixed: true, noFilter: true, noSort: true, exportAs: [], text: () => '' },
 ];
 const MJE_SORT = { col: 'date', dir: 'desc' };
+// Item 14 (Charmi, 10/26: "There should be search option for all"): the box
+// under every heading - Amount compares (=, >, <, Between), the rest contain.
+const MJE_FILTERS = filterColumnsOf(MJE_COLUMNS);
 
 export default function ManualJournalEntries() {
   const [prefs] = useAccountingPrefs();
@@ -97,7 +102,8 @@ export default function ManualJournalEntries() {
   }, [data, q]);
   // The standard view (item 01): its filters and sort; the groups and their
   // subtotals, the count, the total and the export follow it.
-  const view = useTableView('manual-je', MJE_COLUMNS, searched, { sort: MJE_SORT });
+  const filters = useColumnFilters(searched, MJE_FILTERS);
+  const view = useTableView('manual-je', MJE_COLUMNS, filters.rows, { sort: MJE_SORT });
   const rows = view.rows;
   const groups = useMemo(() => {
     if (!grouped) return [['', rows]];
@@ -199,9 +205,12 @@ export default function ManualJournalEntries() {
           </div>
           <div className="req-table-wrapper acct-scroll-box" ref={setBox} data-testid="manual-je-box" style={fit}>
             <table className="req-table acct-sticky-head">
-              <thead><tr>{view.columns.map(head)}</tr></thead>
+              <thead>
+                <tr>{view.columns.map(head)}</tr>
+                <ColumnFilterRow columns={view.columns} filterColumns={MJE_FILTERS} typed={filters.typed} onChange={filters.setFilter} />
+              </thead>
               <tbody>
-                {!rows.length && <tr><td colSpan={view.columns.length} style={{ padding: 16, color: 'var(--text-secondary)' }}>{view.count ? 'No entry passes the filters.' : 'No manual journal entries in this period.'}</td></tr>}
+                {!rows.length && <tr><td colSpan={view.columns.length} style={{ padding: 16, color: 'var(--text-secondary)' }}>{filters.filtering ? 'Nothing matches these column filters.' : view.count ? 'No entry passes the filters.' : 'No manual journal entries in this period.'}</td></tr>}
                 {groups.map(([who, list]) => [
                   grouped ? (
                     <tr key={`g-${who}`} className="acct-section"><td colSpan={view.columns.length} style={{ fontWeight: 700 }}>

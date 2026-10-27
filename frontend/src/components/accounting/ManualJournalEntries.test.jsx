@@ -20,12 +20,15 @@ vi.mock('../../api', () => ({
     saveAccountingPrefs: vi.fn(async (p) => ({ prefs: p })),
   },
 }));
+vi.mock('./reportModel', async (importOriginal) => ({ ...(await importOriginal()), downloadBlob: vi.fn() }));
 
 import ManualJournalEntries from './ManualJournalEntries';
 import { resetAccountingPrefs } from './prefs';
 import { api } from '../../api';
+import { downloadBlob } from './reportModel';
 
 beforeEach(() => { vi.clearAllMocks(); resetAccountingPrefs(); });
+const readFile = (file) => new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
 
 
 // The standard table view's panels load on first use (10/23 item 01): fetched
@@ -89,6 +92,35 @@ describe('Manual Journal Entries', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open entry 94650' }));
     await waitFor(() => expect(api.searchAccountingLedger).toHaveBeenCalledWith(expect.objectContaining({ q: '94650', journal: 'GJCA', from: '2026-10-21', to: '2026-10-21' })));
     await waitFor(() => expect(api.getAccountingEntry).toHaveBeenCalled());
+  });
+
+  // Item 14 (Charmi, 10/26: "There should be search option for all").
+  it('has a box under every heading: typing filters the entries, the count and the total, and Export takes only those', async () => {
+    try { localStorage.clear(); } catch { /* private mode */ }
+    render(<ManualJournalEntries />);
+    const table = await screen.findByRole('table');
+    const head = table.querySelector('thead');
+    for (const l of ['Date', 'Journal', 'Entry No.', 'Entity', 'Description', 'Created By', 'Posted / Changed By', 'Created', 'Posted / Changed', 'State']) expect(head.contains(screen.getByRole('textbox', { name: `Filter ${l}` }))).toBe(true);
+    expect(screen.getByRole('combobox', { name: 'Operator for Amount' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Filter Date' }).getAttribute('placeholder')).toBe('MM/DD/YYYY');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Posted / Changed By' }), { target: { value: 'urmi' } });
+    expect(table.textContent).not.toContain('RTP deposit fix');
+    expect(table.textContent).toContain('Bank feed draft, edited');
+    expect(table.closest('div').parentElement.textContent).toMatch(/1 manual entry of 40 .* Amount 250\.00/);
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalled());
+    const text = await readFile(downloadBlob.mock.calls[0][1]);
+    expect(text).toContain('Bank feed draft, edited');
+    expect(text).not.toContain('RTP deposit fix');
+    // A date box reads MM/DD/YYYY; the amount box compares.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Posted / Changed By' }), { target: { value: '' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Date' }), { target: { value: '10/21' } });
+    expect(table.textContent).toContain('RTP deposit fix');
+    expect(table.textContent).not.toContain('Bank feed draft, edited');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Operator for Amount' }), { target: { value: '<' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Amount' }), { target: { value: '300' } });
+    expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
   });
 
   it('explains when Intacct is not connected', async () => {
