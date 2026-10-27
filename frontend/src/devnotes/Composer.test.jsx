@@ -19,11 +19,6 @@ vi.mock('../api', () => ({
 }));
 vi.mock('../lib/supabase', () => ({ supabase: null, supabaseUrl: '', supabaseAnonKey: '' }));
 
-// The v1 buttons below (Save Pin + Save And Send) are the Send to Claude
-// Code ones - off while it is on hold (meta.CLAUDE_SEND_ON); tested switched
-// on here, as they come back. Composer.claudeOff.test.jsx covers it as shipped.
-vi.mock('./meta', async (importOriginal) => ({ ...(await importOriginal()), CLAUDE_SEND_ON: true }));
-
 const Composer = (await import('./Composer')).default;
 const { api } = await import('../api');
 

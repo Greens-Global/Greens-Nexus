@@ -57,8 +57,8 @@ client = TestClient(_app)
 def _patched_auth():
     models.Base.metadata.create_all(bind=database.engine)
     saved = (auth._grants_for, auth.is_global_admin, F.fetchable_url)
-    # Send to Claude Code is on hold in the app (D.CLAUDE_SEND_ON); these tests
-    # cover it switched on, as it comes back - the on-hold rule has its own test.
+    # Send to Claude Code switched on (D.CLAUDE_SEND_ON, on since Oct 27); the
+    # rule for it switched off has its own test.
     saved_send = D.CLAUDE_SEND_ON
     D.CLAUDE_SEND_ON = True
     auth._grants_for = lambda email, db: GRANTS.get(email.lower(), {})
@@ -201,9 +201,9 @@ def test_send_instantly_dispatches_at_once():
     assert m["sessionId"] != n["sessionId"] and m["number"] == 1
 
 
-def test_send_instantly_is_read_as_off_while_send_to_claude_is_on_hold(monkeypatch):
-    # Pranshu, Oct 27: with CLAUDE_SEND_ON off a stored Send Instantly does not
-    # dispatch - a pin only saves, and Done posts it to Teams.
+def test_send_instantly_is_read_as_off_while_send_to_claude_is_switched_off(monkeypatch):
+    # With CLAUDE_SEND_ON off a stored Send Instantly does not dispatch - a pin
+    # only saves, and Done posts it to Teams.
     assert client.put("/dev-notes/settings", json={"sendInstantly": True}).status_code == 200
     monkeypatch.setattr(D, "CLAUDE_SEND_ON", False)
     n = _create()

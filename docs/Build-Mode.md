@@ -475,7 +475,8 @@ For people who are not technical (Pranshu: "make it as easy as that"):
   mark or question words = Question; "can we", "please add", "would be
   nice", "instead of"... = Change; else Bug) until the person picks one
   there (`kindSet` on the draft). An Edit pin keeps kind Edit.
-- **Send to Claude Code is on hold** (Pranshu, Oct 27 2026): ONE switch,
+- **Send to Claude Code is ON (Oct 27 2026, the team's call)**, with each pin
+  going to its sender's own Claude Code (below). ONE switch turns it off again,
   `CLAUDE_SEND_ON = false` in `frontend/src/devnotes/meta.js` and
   `backend/routers/dev_notes.py`. Off: the composer has one **Save** (Ctrl+Enter
   too) that never dispatches, the Queue has no Send To Claude Code and no

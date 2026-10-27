@@ -17,6 +17,9 @@ vi.mock('../api', () => ({
   setApiBodyCapture: vi.fn(),
 }));
 
+// The switch is on in the app (Oct 27); this file covers it turned off.
+vi.mock('./meta', async (importOriginal) => ({ ...(await importOriginal()), CLAUDE_SEND_ON: false }));
+
 const Panel = (await import('./Panel')).default;
 afterEach(() => { cleanup(); notes = []; });
 
