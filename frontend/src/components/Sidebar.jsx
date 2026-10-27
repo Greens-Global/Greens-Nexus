@@ -188,8 +188,10 @@ export const NAV = [
       { subview: "hr-people", label: "People",    icon: Users },
       { subview: "hr-hiring", label: "Hiring",    icon: CheckSquare },
       { subview: "hr-org",    label: "Org Chart", icon: Files },
-      { subview: "hr-leave",  label: "Leave",     icon: PenTool },
+      // People > Leave became Time > Time Off (leave depth, Oct 27 2026).
+      { subview: "hr-time-off", label: "Time Off", icon: PenTool },
       { subview: "hr-checklists", label: "Checklists", icon: CheckSquare },
+      { subview: "hr-analytics", label: "Analytics", icon: BarChart3 },
       { subview: "hr-exits", label: "Exits", icon: Files },
       { subview: "hr-performance", label: "Performance", icon: BarChart3 },
     ],
