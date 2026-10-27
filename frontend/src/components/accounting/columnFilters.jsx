@@ -76,13 +76,14 @@ const clearLink = { border: 'none', background: 'none', font: 'inherit', color: 
 /** The table's one row when the boxes match nothing: the words and a "Clear
  *  Column Filters" link (UI test 10/27: Records lists, Manual JE and the
  *  Schedule C mapping had the words only; Loans' and Management Fees' link
- *  is the model). `text` changes the words; `style` adds to the cell's. */
+ *  is the model; MRE and MRI use it too). `text` changes the words; `style`
+ *  adds to the cell's; with no `onClear` the words show alone. */
 export function ColumnFiltersEmpty({ colSpan, onClear, text = 'Nothing matches these column filters.', style = null }) {
   return (
     <tr>
       <td colSpan={colSpan || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: '0.84rem', ...style }}>
         {text}{' '}
-        <button type="button" onClick={onClear} style={clearLink}>Clear Column Filters</button>
+        {onClear && <button type="button" onClick={onClear} style={clearLink}>Clear Column Filters</button>}
       </td>
     </tr>
   );

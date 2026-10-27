@@ -152,4 +152,10 @@ describe('ColumnFiltersEmpty', () => {
     render(<table><tbody><ColumnFiltersEmpty colSpan={2} onClear={() => {}} text="No loan matches these column filters." /></tbody></table>);
     expect(screen.getByText(/No loan matches these column filters\./)).toBeTruthy();
   });
+
+  it('shows the words alone when there is nothing to clear', () => {
+    render(<table><tbody><ColumnFiltersEmpty colSpan={2} onClear={null} /></tbody></table>);
+    expect(screen.getByText(/Nothing matches these column filters\./)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Clear Column Filters' })).toBeNull();
+  });
 });

@@ -20,7 +20,7 @@ import { dialog } from '../../ui/dialog';
 import SidePanel, { PanelSection } from './SidePanel';
 import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecheckStatus, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths, useStaleRecheck } from './recurringShared';
 import { CompletenessButton, CompletenessPanel, gapCount, mriGaps, useJumpToRow } from './completeness';
-import { ColumnFilterRow, useColumnFilters } from './columnFilters';
+import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
 import { filterCellOf, filterColumnsOf } from './viewFilterColumns';
 
 // Accounting -> Leasing: leases and monthly recurring income (Neil and
@@ -954,7 +954,7 @@ function RentRoll({ view, filters = null, rows, span, figures, year, thisMonth, 
             {filters && <ColumnFilterRow columns={view.columns} filterColumns={filters.columns} typed={filters.typed} onChange={filters.setFilter} cellProps={filterCell} />}
           </thead>
           <tbody>
-            {!rows.length && <NoMatch span={view.columns.length} onClear={filters?.clear} />}
+            {!rows.length && <ColumnFiltersEmpty colSpan={view.columns.length} onClear={filters?.clear} style={{ whiteSpace: 'normal' }} />}
             {paged.rows.map((r) => {
               const f = rowFigures(r, span);
               const name = rowName(r);
@@ -1079,18 +1079,6 @@ function reminder(row, year) {
   return `mailto:${encodeURIComponent(l.email)}?subject=${encodeURIComponent(`Rent outstanding - ${l.propertyName}`)}&body=${encodeURIComponent(body)}`;
 }
 
-/** The row a table shows when the boxes under its headings leave nothing. */
-function NoMatch({ span, onClear }) {
-  return (
-    <tr>
-      <td colSpan={span || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: '0.84rem', whiteSpace: 'normal' }}>
-        Nothing matches these column filters.
-        {onClear && <button type="button" className="acct-drill" onClick={onClear} style={{ marginLeft: 8 }}>Clear Column Filters</button>}
-      </td>
-    </tr>
-  );
-}
-
 function Outstanding({ view, filters = null, rows, year, py, pageSize = 0, pageKey = '' }) {
   // Who owes the most first is the view's built-in sort (item 01).
   const sorted = rows;
@@ -1109,7 +1097,7 @@ function Outstanding({ view, filters = null, rows, year, py, pageSize = 0, pageK
             {filters && <ColumnFilterRow columns={view.columns} filterColumns={filters.columns} typed={filters.typed} onChange={filters.setFilter} cellProps={filterCell} />}
           </thead>
           <tbody>
-            {!rows.length && <NoMatch span={view.columns.length} onClear={filters?.clear} />}
+            {!rows.length && <ColumnFiltersEmpty colSpan={view.columns.length} onClear={filters?.clear} style={{ whiteSpace: 'normal' }} />}
             {paged.rows.map((r) => {
               const l = r.lease;
               const months = behindMonths(r);
@@ -1166,7 +1154,7 @@ function Tenants({ view, filters = null, rows, py, canEdit, onEdit, onReplace, p
             {filters && <ColumnFilterRow columns={view.columns} filterColumns={filters.columns} typed={filters.typed} onChange={filters.setFilter} cellProps={filterCell} />}
           </thead>
           <tbody>
-            {!rows.length && <NoMatch span={view.columns.length} onClear={filters?.clear} />}
+            {!rows.length && <ColumnFiltersEmpty colSpan={view.columns.length} onClear={filters?.clear} style={{ whiteSpace: 'normal' }} />}
             {paged.rows.map((r) => {
               const l = r.lease;
               const rate = l.rates[l.rates.length - 1];

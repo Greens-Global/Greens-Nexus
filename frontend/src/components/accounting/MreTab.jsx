@@ -12,7 +12,7 @@ import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
 import EntryDetail from './EntryDetail';
 import { downloadBlob, iso } from './reportModel';
-import { ColumnFilterRow, columnFiltersActive, filterRowsByColumns, useColumnFilters } from './columnFilters';
+import { ColumnFilterRow, ColumnFiltersEmpty, columnFiltersActive, filterRowsByColumns, useColumnFilters } from './columnFilters';
 import { linesFile } from './linesExport';
 import SendReportDialog from './SendReportDialog';
 import { ScanOutcome, ScanProgress, entitiesScannedText, mergeScans, useLedgerScan, useScanRetry, POLL_MS } from './LedgerScan';
@@ -578,7 +578,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
             </span>
           </div>
         ) : (
-          <Grid view={view} filterColumns={filterColumns} typed={typed} onTyped={setTyped}
+          <Grid view={view} filterColumns={filterColumns} typed={typed} onTyped={setTyped} onClearTyped={filtering ? clearTyped : null}
             rows={rows} totals={data?.totals || []} year={year} density={density} loading={loading} canEdit={canEdit} span={span}
             pageSize={customize.pageSize} pageKey={[year, picked, q, category, showEnded, showInactive, showZero, period, spanFrom, spanTo, JSON.stringify(view.state), JSON.stringify(typed)]} onLines={setLines}
             focus={focus} onMissing={() => setCompleteNote("That line is hidden by the table view's filters. Clear them in the bar to see it.")}
@@ -628,7 +628,7 @@ function Legend() {
 // menu (sort, filter, width, move, hide), the funnel a value list - and the
 // columns, the filter boxes under them and the Total Paid line follow the
 // view's order; the Vendor column stays pinned first.
-function Grid({ view, filterColumns = [], typed = {}, onTyped = null, rows, totals, year, density, loading, canEdit, onEdit, onNotes, pageSize = 0, pageKey = '', onLines = null, span = [0, 11], focus = null, onMissing = null }) {
+function Grid({ view, filterColumns = [], typed = {}, onTyped = null, onClearTyped = null, rows, totals, year, density, loading, canEdit, onEdit, onNotes, pageSize = 0, pageKey = '', onLines = null, span = [0, 11], focus = null, onMissing = null }) {
   const [box, setBox] = useState(null);
   const fit = useFitHeight(box);
   const [from, to] = span;
@@ -664,9 +664,7 @@ function Grid({ view, filterColumns = [], typed = {}, onTyped = null, rows, tota
           )}
         </thead>
         <tbody>
-          {!rows.length && (
-            <tr><td colSpan={view.columns.length || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: '0.84rem' }}>Nothing matches these column filters.</td></tr>
-          )}
+          {!rows.length && <ColumnFiltersEmpty colSpan={view.columns.length} onClear={onClearTyped} />}
           {paged.rows.map((r) => {
             const f = spanFigures(r, span);
             const months = Object.fromEntries(idx.map((i) => {
