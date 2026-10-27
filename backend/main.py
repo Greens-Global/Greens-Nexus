@@ -3067,6 +3067,9 @@ def _run_migrations():
         "ALTER TABLE accounting_tax_lines ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_seen_at VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_check JSON",
+        # HR letters an employee requests from My HR (Neil, Oct 27 2026,
+        # hr_letters.py). New table - explicit RLS. models.HrLetterRequest.
+        "ALTER TABLE hr_letter_requests ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4669,3 +4672,5 @@ from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: cr
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
 from routers import accounting_liability_recon  # noqa: E402
 app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
+from routers import hr_letters as hr_letters_router  # noqa: E402 - new table hr_letter_requests: create_all + RLS line above
+app.include_router(hr_letters_router.router)  # HR letters employees request from My HR; HR issues them through Nexus Sign (Neil, Oct 27 2026)

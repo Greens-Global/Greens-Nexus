@@ -774,7 +774,29 @@ def my_documents(user: dict = Depends(get_current_user), db: Session = Depends(g
             continue
         out.append({"requestId": req.id, "title": req.title, "from": req.created_by,
                     "completedAt": req.completed_at, "signedByMe": p.status == "signed"})
+    # HR letters I requested (hr_letters.py, Oct 27 2026): signed by the
+    # company alone, so I am not a party - they are mine all the same.
+    for req in _my_letter_envelopes(db, email):
+        if req.id not in seen:
+            seen.add(req.id)
+            out.append({"requestId": req.id, "title": req.title, "from": req.created_by,
+                        "completedAt": req.completed_at, "signedByMe": False})
     return sorted(out, key=lambda x: x["completedAt"] or "", reverse=True)
+
+
+def _my_letter_envelopes(db: Session, email: str, rid: str = "") -> list:
+    """The sealed envelopes of the HR letters issued to me."""
+    from models import HrLetterRequest
+    q = db.query(HrLetterRequest).filter(HrLetterRequest.employee_email == email,
+                                         HrLetterRequest.status == "issued",
+                                         HrLetterRequest.sign_request_id != "")
+    if rid:
+        q = q.filter(HrLetterRequest.sign_request_id == rid)
+    ids = [r.sign_request_id for r in q.all()]
+    if not ids:
+        return []
+    return (db.query(HrSignRequest).filter(HrSignRequest.id.in_(ids), HrSignRequest.link_kind == "hr_letter",
+                                           HrSignRequest.status == "completed").all())
 
 
 # ── Directory card (hover profiles) - safe subset, any signed-in user ────────
@@ -1038,11 +1060,12 @@ def download_my_paystub(did: str, user: dict = Depends(get_current_user), db: Se
 @router.get("/documents/{rid}/download")
 def download_my_document(rid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Party-scoped download: you get the sealed PDF only for envelopes you were
-    part of - no hr grant needed (it's your own document)."""
+    part of - no hr grant needed (it's your own document) - or for an HR
+    letter issued to you (hr_letters.py), which only the company signs."""
     email = user["email"].lower()
     party = (db.query(HrSignParty)
              .filter(HrSignParty.request_id == rid, HrSignParty.email == email).first())
-    if not party:
+    if not party and not _my_letter_envelopes(db, email, rid):
         raise HTTPException(403, "This document isn't yours")
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req or req.status != "completed" or not req.final_pdf_path:
