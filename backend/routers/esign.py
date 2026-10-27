@@ -2295,7 +2295,7 @@ def certificate_of_record(rid: str, user: dict = Depends(require_hr_read),
     if not req:
         raise HTTPException(404, "Request not found")
     import auth
-    if (req.link_kind or "") == "timesheet":
+    if (req.link_kind or "") in ("timesheet", "perf_review"):
         _require_view(db, req, user)
     else:
         auth.assert_company(auth.company_of(req.created_by or "", db), user, db)
@@ -2337,7 +2337,10 @@ def list_requests(status: str = "", user: dict = Depends(require_hr_read), db: S
     # Signed Time Sheets never list here (Neil, Oct 20 2026: "this document
     # should not be found here") - they live on the Time Sheet, in the
     # employee's My Documents and in their Egnyte HR folder.
-    q = db.query(HrSignRequest).filter(or_(HrSignRequest.link_kind.is_(None), HrSignRequest.link_kind != "timesheet"))
+    # Nor do performance reviews (Oct 27 2026): a review is for the person,
+    # their manager chain and HR for the company - not every HR reader here.
+    q = db.query(HrSignRequest).filter(or_(HrSignRequest.link_kind.is_(None),
+                                           HrSignRequest.link_kind.notin_(("timesheet", "perf_review"))))
     if status:
         q = q.filter(HrSignRequest.status == status)
     rows = q.order_by(HrSignRequest.created_at.desc()).all()
@@ -2455,7 +2458,14 @@ def _require_view(db: Session, req: HrSignRequest, user: dict) -> None:
     """A signed Time Sheet opens only for its employee, the approving manager,
     the company's HR contact, Full HR and Global Admins (Neil, Oct 20 2026 -
     timesheet_review.can_view_envelope). 404, not 403: a hidden envelope does
-    not admit it exists. Every other envelope is unchanged."""
+    not admit it exists. A performance review's opens only for whoever may
+    see the review (perf_reviews.can_view_envelope, Oct 27 2026). Every
+    other envelope is unchanged."""
+    if req is not None and (getattr(req, "link_kind", "") or "") == "perf_review":
+        import perf_reviews
+        if not perf_reviews.can_view_envelope(db, req, user):
+            raise HTTPException(404, "Request not found")
+        return
     if req is None or (getattr(req, "link_kind", "") or "") != "timesheet":
         return
     import timesheet_review
@@ -2552,9 +2562,10 @@ def download_final(rid: str, user: dict = Depends(get_current_user), db: Session
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req or not req.final_pdf_path:
         raise HTTPException(404, "No completed document")
-    if (req.link_kind or "") == "timesheet":
+    if (req.link_kind or "") in ("timesheet", "perf_review"):
         # The approving manager opens it from the Time Sheet without an HR grant
-        # (Neil, Oct 20: "Valinda should be able to see this").
+        # (Neil, Oct 20: "Valinda should be able to see this"); a performance
+        # review opens for whoever may see the review (perf_reviews.py).
         _require_view(db, req, user)
     else:
         require_hr_read(user=user, db=db)
@@ -3062,6 +3073,13 @@ def _link_hook(event: str, db: Session, req: HrSignRequest, *args) -> None:
               "completed": hr_letters.on_completed, "expired": hr_letters.on_expired}.get(event)
         if fn:
             hr_letters.safe(fn, db, req, *args)
+    elif kind == "perf_review":
+        # A performance review the employee acknowledges (perf_reviews.py, Oct 27 2026).
+        import perf_reviews
+        fn = {"declined": perf_reviews.on_declined, "voided": perf_reviews.on_voided,
+              "completed": perf_reviews.on_completed}.get(event)
+        if fn:
+            perf_reviews.safe(fn, db, req, *args)
 
 
 def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:

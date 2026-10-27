@@ -8810,3 +8810,71 @@ class PerfActionItem(Base):
     done         = Column(Boolean, default=False)
     by_email     = Column(String, default="")
     created_at   = Column(String, default="")
+
+
+# ── Performance: review cycles (Neil, Oct 27 2026) ───────────────────────────
+# perf_reviews.py is the engine, routers/perf_reviews.py the API. New tables -
+# RLS on dev and prod at release (explicit lines in main.py too).
+
+class PerfReviewCycle(Base):
+    """A review cycle HR runs for one company: who is in it, the deadlines,
+    the questions, and the rating scale and company values it was launched
+    with (copied from Settings > Performance, so a later settings change
+    never rewrites a running cycle). No calibration, no 9-box (Neil)."""
+    __tablename__ = "hr_perf_review_cycles"
+    id            = Column(String, primary_key=True)                   # uuid
+    company_id    = Column(String, default="", index=True)             # HrEntity.id
+    name          = Column(String, nullable=False)
+    period_start  = Column(String, default="")                         # YYYY-MM-DD
+    period_end    = Column(String, default="")                         # YYYY-MM-DD
+    self_due      = Column(String, default="")                         # YYYY-MM-DD - self reviews due
+    manager_due   = Column(String, default="")                         # YYYY-MM-DD - manager reviews due
+    filters       = Column(JSON, default=dict)                         # {departments: [], types: [], startedBy: "YYYY-MM-DD"}
+    questions     = Column(JSON, default=list)                         # [{id, kind: rating|text, text}]
+    rating_scale  = Column(JSON, default=list)                         # [{value, label}]
+    values        = Column(JSON, default=list)                         # [{id, name, description}]
+    include_goals = Column(Boolean, default=True)                      # managers may attach goal progress
+    status        = Column(String, default="draft")                    # draft | active | closed
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+    launched_at   = Column(String, default="")
+    launched_by   = Column(String, default="")
+    closed_at     = Column(String, default="")
+    closed_by     = Column(String, default="")
+
+
+class PerfReview(Base):
+    """One person's review in a cycle: Self Review -> Manager Review -> HR
+    Finalize -> Shared With Employee (Nexus Sign, the employee the only
+    signer) -> Complete. Seen by the person once shared, their manager chain
+    and HR for the company - never by a peer."""
+    __tablename__ = "hr_perf_reviews"
+    __table_args__ = (UniqueConstraint("cycle_id", "employee_email", name="uq_hr_perf_review_person"),)
+    id                   = Column(String, primary_key=True)            # uuid
+    cycle_id             = Column(String, nullable=False, index=True)
+    company_id           = Column(String, default="", index=True)
+    employee_email       = Column(String, nullable=False, index=True)
+    manager_email        = Column(String, default="", index=True)      # who writes the manager review ('' = HR)
+    stage                = Column(String, default="self_review", index=True)  # self_review | manager_review | hr_review | shared | complete
+    self_answers         = Column(JSON, default=dict)                  # {question id: {rating, text}}
+    self_values          = Column(JSON, default=dict)                  # {value id: rating}
+    self_submitted_at    = Column(String, default="")
+    manager_answers      = Column(JSON, default=dict)
+    manager_values       = Column(JSON, default=dict)
+    overall_rating       = Column(Integer, nullable=True)
+    manager_summary      = Column(Text, default="")
+    manager_private_note = Column(Text, default="")                    # for HR and the manager chain - never the employee, never the PDF
+    goals_snapshot       = Column(JSON, default=list)                  # goal progress the manager attached
+    manager_submitted_at = Column(String, default="")
+    manager_submitted_by = Column(String, default="")
+    hr_note              = Column(Text, default="")                    # HR's comments printed on the shared review
+    finalized_by         = Column(String, default="")
+    finalized_at         = Column(String, default="")
+    sign_request_id      = Column(String, default="")                  # hr_sign_requests.id while shared
+    shared_at            = Column(String, default="")
+    completed_at         = Column(String, default="")
+    history              = Column(JSON, default=list)                  # [{at, by, action, note}]
+    nudged_at            = Column(String, default="")
+    created_at           = Column(String, default="")
+    updated_at           = Column(String, default="")

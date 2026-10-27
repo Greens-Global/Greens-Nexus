@@ -82,7 +82,7 @@ const IntacctEmployeeCodes = lazy(() => import('../components/IntacctEmployeeCod
 // Hiring > Openings and Headcount (Neil, Oct 27 2026) - lazy, own chunks.
 const JobOpenings = lazy(() => import('../components/hiring/JobOpenings'));
 const HeadcountRequests = lazy(() => import('../components/hiring/HeadcountRequests'));
-// Performance (Oct 27 2026): HR's view of the company's goals - lazy.
+// Performance (Oct 27 2026): HR's review cycles and company goals - lazy.
 const PerformanceAdmin = lazy(() => import('../performance/PerformanceAdmin'));
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
@@ -6190,7 +6190,7 @@ export default function HR({ activeSub, onSubChange }) {
     { key: 'hr-analytics', label: 'Analytics', Icon: BarChart3 },
     // Exits In Progress + the final settlement statement (Neil, Oct 27 2026).
     { key: 'hr-exits', label: 'Exits', Icon: LogOut },
-    // Performance (Oct 27 2026): the company's goals (review cycles later).
+    // Performance (Oct 27 2026): review cycles and the company's goals.
     { key: 'hr-performance', label: 'Performance', Icon: Target },
     // The External tab is gone (Neil, Aug 24): external/guest people live in
     // the People directory with a worker-type filter, and their lifecycle

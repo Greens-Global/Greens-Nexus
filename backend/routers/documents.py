@@ -1608,8 +1608,9 @@ def search_documents(q: str = "", user: dict = Depends(get_current_user), db: Se
             or_(HrSignParty.name.ilike(like), HrSignParty.email.ilike(like)))
         esign_query = db.query(HrSignRequest).filter(
             or_(HrSignRequest.title.ilike(like), HrSignRequest.id.in_(party_matches)),
-            # Signed Time Sheets are not Documents results (Neil, Oct 20 2026).
-            or_(HrSignRequest.link_kind.is_(None), HrSignRequest.link_kind != "timesheet"))
+            # Signed Time Sheets are not Documents results (Neil, Oct 20 2026),
+            # nor are performance reviews (Oct 27 2026 - person, chain and HR only).
+            or_(HrSignRequest.link_kind.is_(None), HrSignRequest.link_kind.notin_(("timesheet", "perf_review"))))
         for r in esign_query.order_by(HrSignRequest.created_at.desc()).limit(20).all():
             results.append({"type": "esign", "id": r.id, "title": r.title,
                             "subtitle": f"sent by {r.created_by}" if r.created_by else "", "updatedAt": r.created_at})

@@ -4,13 +4,14 @@
 // two cards, one click to open anything, no setup screens.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatDateTime } from '../lib/datetime';
-import { Target, CalendarClock, Users, Plus } from 'lucide-react';
+import { Target, CalendarClock, Users, Plus, ClipboardCheck } from 'lucide-react';
 import { api } from '../api';
 import { Modal } from '../tasks/components';
 import { SkeletonBlocks, ErrorBanner, LoadingState } from '../components/AsyncState';
 import { useIsMobile } from '../lib/useIsMobile';
 import { GoalList, GoalFormModal, GoalDetailModal, AddGoalButton, ProgressBar } from './Goals';
 import { OneOnOneList, NewOneOnOneModal, OneOnOneModal } from './OneOnOnes';
+import { ReviewList, ReviewModal } from './Reviews';
 import { card, cardHead, HD, muted, LBL, parsePerfSub } from './lib';
 
 function Card({ Icon, title, action, children }) {
@@ -137,6 +138,8 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
   const [view, setView] = useState(initial.view);
   const [openGoal, setOpenGoal] = useState(initial.goal || '');
   const [openSeries, setOpenSeries] = useState(initial.oneOnOne || '');
+  const [openReview, setOpenReview] = useState(initial.review || '');
+  const [reviews, setReviews] = useState(null);
   const [goalForm, setGoalForm] = useState(null);       // null | { defaults }
   const [newOneOnOne, setNewOneOnOne] = useState(null); // null | { reportEmail }
   const [person, setPerson] = useState(null);
@@ -150,6 +153,7 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
     const p = parsePerfSub(focus.sub);
     if (p?.goal) setOpenGoal(p.goal);
     if (p?.oneOnOne) setOpenSeries(p.oneOnOne);
+    if (p?.review) setOpenReview(p.review);
     if (p?.view === 'team') setView('team');
   }
 
@@ -157,12 +161,14 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
 
   const loadGoals = useCallback(() => api.perfGoals('mine').then(setGoals).catch(e => setErr(e?.message || 'Could not load your goals.')), []);
   const loadOneOnOnes = useCallback(() => api.perfOneOnOnes().then(setOneOnOnes).catch(() => setOneOnOnes([])), []);
+  const loadReviews = useCallback(() => api.perfReviews().then(setReviews).catch(() => setReviews({ mine: [], team: [] })), []);
   const loadTeam = useCallback(() => api.perfTeam().then(setTeam).catch(() => setTeam([])), []);
   useEffect(() => {
     api.perfMe().then(setCtx).catch(e => setErr(e?.message || 'Could not load Performance.'));
     loadGoals();
     loadOneOnOnes();
-  }, [loadGoals, loadOneOnOnes]);
+    loadReviews();
+  }, [loadGoals, loadOneOnOnes, loadReviews]);
   const showTeam = !!ctx && (ctx.team || []).length > 0;
   useEffect(() => { if (showTeam && view === 'team' && team === null) loadTeam(); }, [showTeam, view, team, loadTeam]);
 
@@ -180,8 +186,15 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
         <Segmented value={view} onChange={setView} options={[{ key: 'me', label: 'My Performance' }, { key: 'team', label: 'My Team' }]} />
       )}
       {view === 'team' && showTeam ? (
-        <TeamView ctx={ctx} team={team} onOpenPerson={setPerson}
-          onNewOneOnOne={(email) => setNewOneOnOne({ reportEmail: email })} />
+        <div style={{ display: 'grid', gap: 14 }}>
+          {(reviews?.team || []).length > 0 && (
+            <Card Icon={ClipboardCheck} title="Team Reviews">
+              <ReviewList items={reviews.team} onOpen={r => setOpenReview(r.id)} showPerson />
+            </Card>
+          )}
+          <TeamView ctx={ctx} team={team} onOpenPerson={setPerson}
+            onNewOneOnOne={(email) => setNewOneOnOne({ reportEmail: email })} />
+        </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : 'minmax(0, 3fr) minmax(0, 2fr)', gap: 14, alignItems: 'start' }}>
           <Card Icon={Target} title="My Goals" action={<AddGoalButton onClick={() => setGoalForm({ defaults: {} })} />}>
@@ -206,6 +219,13 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
                 empty={ctx.manager ? `No 1:1s yet - ${ctx.manager.name} sets them up.` : 'No 1:1s yet.'} />
             )}
           </Card>
+          {(reviews?.mine || []).length > 0 && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <Card Icon={ClipboardCheck} title="My Reviews">
+                <ReviewList items={reviews.mine} onOpen={r => setOpenReview(r.id)} />
+              </Card>
+            </div>
+          )}
         </div>
       )}
 
@@ -226,6 +246,9 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
       {newOneOnOne && (
         <NewOneOnOneModal ctx={ctx} reportEmail={newOneOnOne.reportEmail} onClose={() => setNewOneOnOne(null)} toastOk={toastOk} toastErr={toastErr}
           onCreated={(s) => { setNewOneOnOne(null); loadOneOnOnes(); if (team !== null) loadTeam(); setOpenSeries(s.id); }} />
+      )}
+      {openReview && (
+        <ReviewModal reviewId={openReview} onClose={() => { setOpenReview(''); loadReviews(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
       {openSeries && (
         <OneOnOneModal seriesId={openSeries} onClose={() => { setOpenSeries(''); loadOneOnOnes(); }} onChanged={() => {}} toastOk={toastOk} toastErr={toastErr} />
