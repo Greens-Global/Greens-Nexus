@@ -163,6 +163,20 @@ class GoalTests(PerfCase):
         self.assertEqual(e.exception.status_code, 404)
         done = self.goal(U(EMP), measure="done")["id"]
         self.assertEqual(api.check_in(done, api.CheckinIn(value=1), U(EMP), self.db)["status"], "done")
+        # Ticking Done is Done even when the form still says On Track.
+        done2 = self.goal(U(EMP), measure="done")["id"]
+        self.assertEqual(api.check_in(done2, api.CheckinIn(value=1, status="on_track"), U(EMP), self.db)["status"], "done")
+
+    def test_a_supported_goal_is_named_only_to_who_may_see_it(self):
+        mine = self.goal(U(MGR), title="Max private aim")["id"]
+        g = self.goal(U(MGR), owner_email=EMP, parent_id=mine)["id"]
+        self.assertEqual(api.get_goal(g, U(MGR), self.db)["parentTitle"], "Max private aim")
+        self.assertEqual(api.get_goal(g, U(EMP), self.db)["parentTitle"], "")
+        self.assertEqual(api.list_goals("mine", "", "", False, U(EMP), self.db)[0]["parentTitle"], "")
+
+    def test_hr_department_goal_lands_in_the_picked_company(self):
+        d = self.goal(U(HR), level="department", department="Ops", company_id=CO)
+        self.assertEqual((d["companyId"], d["department"]), (CO, "Ops"))
 
     def test_alignment_refuses_a_loop_and_archive_keeps_the_row(self):
         a = self.goal(U(EMP), title="A")["id"]
@@ -262,6 +276,33 @@ class OneOnOneTests(PerfCase):
         with self.assertRaises(HTTPException):
             api.add_action(mid, api.ActionIn(text="x", owner_email=PEER), BackgroundTasks(), U(MGR), self.db)
 
+    def test_a_moved_report_makes_the_1on1_history(self):
+        s = self.make()
+        emp = self.db.query(models.NexusEmployee).filter_by(work_email=EMP).one()
+        emp.manager_email = OTHER_MGR
+        self.db.commit()
+        self.db.info.clear()
+        out = api.get_one_on_one(s["id"], U(MGR), self.db)      # still readable
+        self.assertFalse(out["current"])
+        with self.assertRaises(HTTPException) as e:
+            api.add_agenda(out["meetings"][0]["id"], api.AgendaIn(text="x"), U(MGR), self.db)
+        self.assertEqual(e.exception.status_code, 409)
+        row = self.db.get(models.PerfOneOnOne, s["id"])
+        self.assertIsNone(perf.ensure_upcoming(self.db, row, datetime.now(timezone.utc) + timedelta(days=30)))
+
+    def test_two_people_saving_notes_never_overwrite(self):
+        s = self.make()
+        m = s["meetings"][0]
+        api.update_meeting(m["id"], api.MeetingPatch(shared_notes="Mine", notes_at=m["notesAt"]), U(EMP), self.db)
+        with self.assertRaises(HTTPException) as e:
+            api.update_meeting(m["id"], api.MeetingPatch(shared_notes="Theirs", notes_at=m["notesAt"]), U(MGR), self.db)
+        self.assertEqual(e.exception.status_code, 409)
+
+    def test_monthly_starts_on_a_day_every_month_has(self):
+        with self.assertRaises(HTTPException) as e:
+            self.make(cadence="monthly", start="2027-01-30T10:00")
+        self.assertEqual(e.exception.status_code, 400)
+
     def test_next_meeting_after_done_and_end(self):
         s = self.make(start=(datetime.now(timezone.utc) + timedelta(hours=2)).strftime("%Y-%m-%dT%H:00"))
         first = s["meetings"][0]
@@ -270,8 +311,7 @@ class OneOnOneTests(PerfCase):
         self.assertEqual(out["next"]["id"], out["meetings"][0]["id"])
         with self.assertRaises(HTTPException):
             api.end_one_on_one(s["id"], U(EMP), self.db)
-        with mock.patch("routers.hr_interviews._graph_cancel_meeting", return_value=""):
-            ended = api.end_one_on_one(s["id"], U(MGR), self.db)
+        ended = api.end_one_on_one(s["id"], U(MGR), self.db)    # no Teams series here: nothing to end
         self.assertEqual(ended["status"], "ended")
         self.assertEqual({m["status"] for m in ended["meetings"]}, {"done", "canceled"})
 
@@ -286,7 +326,7 @@ class MeetingMathTests(unittest.TestCase):
         a, b = perf.occurrence(s, 0), perf.occurrence(s, 1)
         self.assertEqual(perf.utc_str(a), "2026-10-26T17:00:00Z")
         self.assertEqual(perf.utc_str(b), "2026-11-02T18:00:00Z")   # still 10:00 AM, now PST
-        self.assertEqual(perf.local_label(perf.utc_str(b), s.time_zone), "11/02/2026 at 10:00 AM")
+        self.assertEqual(perf.local_label(perf.utc_str(b), s.time_zone), "11/02/2026 at 10:00 AM PST")
 
     def test_monthly_skips_a_month_without_the_day(self):
         s = self.series("monthly", "2027-01-31T09:00")

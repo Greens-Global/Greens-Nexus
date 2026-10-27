@@ -88,7 +88,7 @@ const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || isPurcha
   : sub === 'timecard' ? 'timesheet' : /^performance(:|$)/.test(sub || '') ? 'performance' : sub);
 // "performance:goal:<id>" / "performance:1on1:<id>" / "performance:team" (bells,
 // Oct 27 2026): the Performance tab with that goal, 1:1 or view open.
-const perfFocusOf = (sub) => (/^performance:/.test(sub || '') ? sub : '');
+const perfFocusOf = (sub) => (/^performance:/.test(sub || '') ? { sub } : null);
 // "shifts:confirm:<publish id>" (Shifts Phase 3a): a schedule to confirm - My Schedule shows its banner.
 const confirmOf = (sub) => (String(sub || '').match(/^shifts:confirm:(.+)$/) || [])[1] || '';
 // "sign:<party id>" (Oct 18): a Nexus Sign document to sign - Documents to Sign opens it.
@@ -518,6 +518,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const [focusConfirm, setFocusConfirm] = useState(() => confirmOf(activeSub));
   const [perfFocus, setPerfFocus] = useState(() => perfFocusOf(activeSub));
   useEffect(() => { const f = perfFocusOf(activeSub); if (f) setPerfFocus(f); }, [activeSub]);
+  const clearPerfFocus = useCallback(() => setPerfFocus(null), []);
   useEffect(() => { const c = confirmOf(activeSub); if (c) setFocusConfirm(c); }, [activeSub]);
   // A reimbursement bell lands on "reimbursements": open that panel (Oct 18 2026).
   const [openReimb, setOpenReimb] = useState(() => activeSub === 'reimbursements');
@@ -1480,7 +1481,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {tab === 'performance' && (
         <ViewErrorBoundary resetKey="performance">
           <Suspense fallback={<SkeletonBlocks count={2} height={180} />}>
-            <PerformanceTab focus={perfFocus} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />
+            <PerformanceTab focus={perfFocus} onFocusUsed={clearPerfFocus} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />
           </Suspense>
         </ViewErrorBoundary>
       )}

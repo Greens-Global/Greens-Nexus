@@ -236,7 +236,7 @@ function CheckinForm({ goal, onSaved, toastErr }) {
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         {goal.measure === 'done' ? (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-            <input type="checkbox" checked={Number(value) >= 1} onChange={e => setValue(e.target.checked ? 1 : 0)} /> Done
+            <input type="checkbox" checked={Number(value) >= 1} onChange={e => { setValue(e.target.checked ? 1 : 0); if (e.target.checked) setStatus('done'); }} /> Done
           </label>
         ) : (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>

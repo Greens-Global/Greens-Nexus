@@ -130,7 +130,7 @@ def _goal_or_404(db: Session, user: dict, gid: str) -> models.PerfGoal:
 
 def _list_out(db: Session, user: dict, rows: list) -> list:
     names: dict = {}
-    parents = {p.id: p.title for p in db.query(models.PerfGoal)
+    parents = {p.id: p for p in db.query(models.PerfGoal)
                .filter(models.PerfGoal.id.in_([g.parent_id for g in rows if g.parent_id] or [""])).all()}
     order = {"company": 0, "department": 1, "personal": 2}
     rows = sorted(rows, key=lambda g: (order.get(g.level, 3), g.due_on or "9999", g.title.lower()))
@@ -336,7 +336,7 @@ def my_team(user: dict = Depends(get_current_user), db: Session = Depends(get_db
                                                  models.PerfMeeting.status == "scheduled",
                                                  models.PerfMeeting.at >= now)
              .order_by(models.PerfMeeting.at).first())
-        if m and (s.report_email not in nxt or m.at < nxt[s.report_email]["at"]):
+        if m and (s.report_email not in nxt or not nxt[s.report_email]["at"] or m.at < nxt[s.report_email]["at"]):
             nxt[s.report_email] = {"seriesId": s.id, "at": m.at, "label": perf.local_label(m.at, s.time_zone)}
         elif s.report_email not in nxt:
             nxt[s.report_email] = {"seriesId": s.id, "at": "", "label": ""}
@@ -369,6 +369,7 @@ class MeetingPatch(BaseModel):
     shared_notes: Optional[str] = None
     private_notes: Optional[str] = None
     status: Optional[str] = None
+    notes_at: Optional[str] = None        # the shared notes' notesAt the editor started from
 
 
 class AgendaIn(BaseModel):
@@ -459,6 +460,7 @@ def _series_out(db: Session, s: models.PerfOneOnOne, side: str, *, meetings: boo
            "withName": names[s.report_email] if side == "manager" else names[s.manager_email],
            "joinUrl": s.join_url or "", "teamsMeeting": bool(s.event_id), "graphError": s.graph_error or "",
            "status": s.status, "timeZone": s.time_zone, "durationMin": s.duration_min or 30,
+           "current": s.status == "active" and perf.pair_current(db, s),
            "next": _meeting_out(db, s, nxt, side, names, full=False) if nxt else None,
            "last": _meeting_out(db, s, past[0], side, names, full=False) if past else None}
     if meetings:
@@ -499,6 +501,8 @@ def create_one_on_one(body: OneOnOneIn, user: dict = Depends(get_current_user), 
     tz = (body.time_zone or perf.DEFAULT_TZ).strip()
     perf.zone(tz)
     local = perf.parse_local(body.start_local)
+    if cadence == "monthly" and local.day > 28:
+        raise HTTPException(400, "Start a monthly 1:1 on the 1st to the 28th - every month has those days.")
     first = perf.to_utc(local, tz)
     duration = max(15, min(240, int(body.duration_min or 30)))
     now = perf.now_iso()
@@ -544,6 +548,35 @@ def get_one_on_one(sid: str, user: dict = Depends(get_current_user), db: Session
     return _series_out(db, s, side, meetings=True)
 
 
+def _graph_end_series(s: models.PerfOneOnOne) -> str:
+    """Take the 1:1 off both calendars from today on: a recurring series gets
+    an end date (its past meetings stay on the calendars, as they happened);
+    a one-off still to come is withdrawn. '' = ok, else why not."""
+    if not s.event_id:
+        return ""
+    from routers.hr_interviews import _graph_cancel_meeting
+    rec = perf.graph_recurrence(s)
+    if rec is None:
+        first = perf.occurrence(s, 0)
+        if first and first <= datetime.now(timezone.utc):
+            return ""                      # already happened - nothing to withdraw
+        return _graph_cancel_meeting(s.manager_email, s.event_id)
+    import httpx
+    from routers.hr import _GRAPH, _graph_token
+    end = datetime.now(timezone.utc).astimezone(perf.zone(s.time_zone)).date()
+    start = date.fromisoformat(rec["range"]["startDate"])
+    if end < start:
+        return _graph_cancel_meeting(s.manager_email, s.event_id)
+    rec["range"] = {"type": "endDate", "startDate": start.isoformat(), "endDate": end.isoformat()}
+    try:
+        r = httpx.patch(f"{_GRAPH}/users/{s.manager_email}/events/{s.event_id}",
+                        headers={"Authorization": f"Bearer {_graph_token()}", "Content-Type": "application/json"},
+                        json={"recurrence": rec}, timeout=20)
+        return "" if r.status_code in (200, 404) else f"Teams series not ended ({r.status_code})"
+    except Exception as e:   # noqa: BLE001 - the 1:1 ends in Nexus either way
+        return f"Teams series not ended ({type(e).__name__})"
+
+
 @router.post("/one-on-ones/{sid}/end")
 def end_one_on_one(sid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The manager ends the series: the Teams series is withdrawn, meetings
@@ -554,8 +587,7 @@ def end_one_on_one(sid: str, user: dict = Depends(get_current_user), db: Session
         raise HTTPException(403, "Only the manager can end a 1:1.")
     if s.status != "active":
         return _series_out(db, s, side, meetings=True)
-    from routers.hr_interviews import _graph_cancel_meeting
-    err = _graph_cancel_meeting(s.manager_email, s.event_id)
+    err = _graph_end_series(s)
     now = perf.now_iso()
     s.status, s.ended_at, s.ended_by, s.updated_at = "ended", now, me, now
     if err:
@@ -578,7 +610,13 @@ def end_one_on_one(sid: str, user: dict = Depends(get_current_user), db: Session
 def update_meeting(mid: str, body: MeetingPatch, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = _me(user)
     m, s, side = _meeting_or_404(db, user, mid)
+    perf.require_live(db, s)
     data = body.model_dump(exclude_unset=True)
+    if ("shared_notes" in data and data.get("notes_at") is not None
+            and (m.notes_at or "") != (data["notes_at"] or "") and (m.shared_notes or "") != (data["shared_notes"] or "")):
+        # Both typing at once: never overwrite the other person's save.
+        raise HTTPException(409, f"{perf.name_of(db, m.notes_by)} changed the shared notes while you were typing - "
+                                 "copy your text, reopen the 1:1 and add it again.")
     if "private_notes" in data:
         if side != "manager":
             raise HTTPException(403, "Private notes are the manager's.")
@@ -590,8 +628,8 @@ def update_meeting(mid: str, body: MeetingPatch, user: dict = Depends(get_curren
         st = data["status"]
         if st not in ("scheduled", "done", "canceled"):
             raise HTTPException(400, "Unknown status")
-        if st == "canceled" and side != "manager":
-            raise HTTPException(403, "Only the manager can cancel a meeting.")
+        if (st == "canceled" or m.status == "canceled") and side != "manager":
+            raise HTTPException(403, "Only the manager can cancel a meeting or bring one back.")
         m.status = st
         m.done_at = perf.now_iso() if st == "done" else ""
         db.flush()
@@ -605,6 +643,7 @@ def update_meeting(mid: str, body: MeetingPatch, user: dict = Depends(get_curren
 def add_agenda(mid: str, body: AgendaIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = _me(user)
     m, s, side = _meeting_or_404(db, user, mid)
+    perf.require_live(db, s)
     text = (body.text or "").strip()
     if not text:
         raise HTTPException(400, "Type the talking point.")
@@ -662,6 +701,7 @@ def add_action(mid: str, body: ActionIn, background_tasks: BackgroundTasks,
     the other person a collaborator."""
     me = _me(user)
     m, s, side = _meeting_or_404(db, user, mid)
+    perf.require_live(db, s)
     text = (body.text or "").strip()
     if not text:
         raise HTTPException(400, "Type the action item.")

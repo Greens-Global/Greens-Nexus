@@ -335,6 +335,11 @@ def check_create(db: Session, user: dict, level: str, owner: str, company_id: st
         dept = (department or "").strip() or (owner_emp.department or "")
         if not dept:
             raise HTTPException(400, "Pick the department.")
+        # HR names the company the department belongs to (People > Performance
+        # has one picked); else it is the owner's.
+        picked = (company_id or "").strip()
+        if picked and hr_for(db, user, picked):
+            return owner, picked, dept
         if hr_for(db, user, cid):
             return owner, cid, dept
         if owner == me and direct_reports(db, me) and _low(dept) == _low(owner_emp.department):
@@ -354,13 +359,12 @@ def goal_out(db: Session, user: dict, g: models.PerfGoal, *, names: Optional[dic
     owner = _low(g.owner_email)
     if owner not in names:
         names[owner] = name_of(db, owner)
+    # The goal it supports is named only to someone who may see that goal.
     parent_title = ""
     if g.parent_id:
-        if parents is not None and g.parent_id in parents:
-            parent_title = parents[g.parent_id]
-        else:
-            p = db.get(models.PerfGoal, g.parent_id)
-            parent_title = p.title if p else ""
+        p = parents.get(g.parent_id) if parents is not None else db.get(models.PerfGoal, g.parent_id)
+        if p is not None and can_see_goal(db, user, p):
+            parent_title = p.title
     return {
         "id": g.id, "level": g.level, "companyId": g.company_id or "", "department": g.department or "",
         "ownerEmail": owner, "ownerName": names[owner], "title": g.title, "description": g.description or "",
@@ -387,8 +391,8 @@ def apply_checkin(db: Session, g: models.PerfGoal, by: str, value, status: str, 
         elif g.measure == "done":
             value = 1.0 if value >= 1 else 0.0
         g.current_value = value
-    if not status and g.measure == "done" and value == 1.0:
-        status = "done"
+    if g.measure == "done" and value == 1.0:
+        status = "done"     # ticking Done is the goal being done, whatever status was picked
     if status:
         g.status = status
     now = now_iso()
@@ -489,9 +493,12 @@ def ensure_upcoming(db: Session, s: models.PerfOneOnOne, now: Optional[datetime]
     """Keep one meeting row ahead: when no scheduled meeting is still to come
     (or under way), make the next one. Past meetings stay as history; a
     meeting nobody opened while the series was idle is not back-filled."""
-    if s.status != "active" or s.cadence == "once":
+    if s.status != "active" or s.cadence == "once" or not pair_current(db, s):
         return None
     now = now or datetime.now(timezone.utc)
+    # Serialize two requests (or the loop) making the same next meeting: the
+    # series row is locked before its meetings are read (a no-op on SQLite).
+    db.query(models.PerfOneOnOne.id).filter(models.PerfOneOnOne.id == s.id).with_for_update().first()
     rows = db.query(models.PerfMeeting).filter(models.PerfMeeting.series_id == s.id).all()
     rows += [o for o in db.new if isinstance(o, models.PerfMeeting) and o.series_id == s.id and o not in rows]
     live_from = now - timedelta(minutes=int(s.duration_min or 30))
@@ -515,7 +522,25 @@ def local_label(at_utc: str, tz: str) -> str:
     if not dt:
         return ""
     loc = dt.astimezone(zone(tz))
-    return f"{loc.strftime('%m/%d/%Y')} at {loc.strftime('%I:%M %p').lstrip('0')}"
+    return f"{loc.strftime('%m/%d/%Y')} at {loc.strftime('%I:%M %p').lstrip('0')} {loc.strftime('%Z')}".rstrip()
+
+
+def pair_current(db: Session, s: models.PerfOneOnOne) -> bool:
+    """Is this still a manager and their direct report, both still here? A
+    1:1 whose report moved to another manager (or either person left) stops
+    making meetings and reminders and becomes read-only history."""
+    key = ("perf_pair", s.id)
+    if key in db.info:
+        return db.info[key]
+    rep_emp, mgr_emp = employee(db, s.report_email), employee(db, s.manager_email)
+    ok = _active(rep_emp) and _active(mgr_emp) and _low(rep_emp.manager_email) == _low(s.manager_email)
+    db.info[key] = ok
+    return ok
+
+
+def require_live(db: Session, s: models.PerfOneOnOne) -> None:
+    if s.status != "active" or not pair_current(db, s):
+        raise HTTPException(409, "This 1:1 is history now - it can be read, not changed.")
 
 
 def series_side(s: models.PerfOneOnOne, email: str) -> str:
@@ -547,7 +572,7 @@ def _remind_agendas(db: Session, now: datetime) -> int:
     sent = 0
     for m in rows:
         s = db.get(models.PerfOneOnOne, m.series_id)
-        if s is None or s.status != "active":
+        if s is None or s.status != "active" or not pair_current(db, s):
             continue
         z = zone(s.time_zone)
         at = parse_utc(m.at)

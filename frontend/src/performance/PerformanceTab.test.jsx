@@ -27,7 +27,7 @@ const GOAL = {
   dueOn: '2026-12-31', parentTitle: 'Grow 10%', canEdit: true, department: 'Ops',
 };
 const SERIES = {
-  id: 's1', withName: 'Max Test', cadenceLabel: 'Weekly', status: 'active', teamsMeeting: true, side: 'report',
+  id: 's1', withName: 'Max Test', cadenceLabel: 'Weekly', status: 'active', current: true, teamsMeeting: true, side: 'report',
   managerEmail: 'max@greensglobal.com', managerName: 'Max Test', reportEmail: 'erin@greensglobal.com', reportName: 'Erin Test',
   next: { id: 'm1', at: '2099-11-02T18:00:00Z', label: '11/02/2099 at 10:00 AM' }, joinUrl: 'https://teams/x',
 };
@@ -79,7 +79,7 @@ describe('PerformanceTab', () => {
     m.perfOneOnOnes.mockResolvedValue([SERIES]);
     m.perfOneOnOne.mockResolvedValue({ ...SERIES, meetings: [{ id: 'm1', at: '2099-11-02T18:00:00Z', label: '11/02/2099 at 10:00 AM',
       status: 'scheduled', sharedNotes: '', agenda: [{ id: 'a1', text: 'Promotion path', byName: 'Erin Test', done: false, mine: true }], actions: [] }] });
-    render(<PerformanceTab focus="performance:1on1:s1" />);
+    render(<PerformanceTab focus={{ sub: 'performance:1on1:s1' }} />);
     expect(await screen.findByText('Promotion path')).toBeTruthy();
     expect(screen.getByText('Shared Notes')).toBeTruthy();
     expect(screen.queryByText(/Private Notes/)).toBeNull();

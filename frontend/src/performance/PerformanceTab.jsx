@@ -3,6 +3,7 @@
 // plain on purpose (Neil: Keka's performance module confuses its users):
 // two cards, one click to open anything, no setup screens.
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { formatDateTime } from '../lib/datetime';
 import { Target, CalendarClock, Users, Plus } from 'lucide-react';
 import { api } from '../api';
 import { Modal } from '../tasks/components';
@@ -113,8 +114,8 @@ function TeamView({ ctx, team, onOpenPerson, onNewOneOnOne }) {
               {(p.goals.atRisk + p.goals.offTrack) > 0 && <span style={{ ...muted, fontSize: 12 }}> · {p.goals.atRisk + p.goals.offTrack} Need Attention</span>}
             </span>
             <span role="cell">{p.goals.total ? <ProgressBar value={p.goals.progress} label={`${p.name} progress`} /> : <span style={muted}>-</span>}</span>
-            <span role="cell" style={{ fontSize: 12.5, color: p.nextOneOnOne?.label ? 'var(--ink)' : 'var(--muted)' }}>
-              {p.direct ? (p.nextOneOnOne?.label || (p.nextOneOnOne ? 'Nothing scheduled' : 'No 1:1 yet')) : '-'}
+            <span role="cell" style={{ fontSize: 12.5, color: p.nextOneOnOne?.at ? 'var(--ink)' : 'var(--muted)' }}>
+              {p.direct ? (p.nextOneOnOne?.at ? formatDateTime(p.nextOneOnOne.at) : (p.nextOneOnOne ? 'Nothing scheduled' : 'No 1:1 yet')) : '-'}
             </span>
           </button>
         ))}
@@ -123,14 +124,16 @@ function TeamView({ ctx, team, onOpenPerson, onNewOneOnOne }) {
   );
 }
 
-export default function PerformanceTab({ focus = '', toastOk, toastErr }) {
+// `focus`: { sub } from a bell or link (TimeClock), used once - onFocusUsed
+// clears it so coming back to the tab does not reopen it.
+export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toastErr }) {
   const phone = useIsMobile('(max-width: 900px)');
   const [ctx, setCtx] = useState(null);
   const [err, setErr] = useState('');
   const [goals, setGoals] = useState(null);
   const [oneOnOnes, setOneOnOnes] = useState(null);
   const [team, setTeam] = useState(null);
-  const initial = parsePerfSub(focus) || { view: 'me' };
+  const initial = parsePerfSub(focus?.sub) || { view: 'me' };
   const [view, setView] = useState(initial.view);
   const [openGoal, setOpenGoal] = useState(initial.goal || '');
   const [openSeries, setOpenSeries] = useState(initial.oneOnOne || '');
@@ -142,13 +145,15 @@ export default function PerformanceTab({ focus = '', toastOk, toastErr }) {
   // A new bell while the tab is open opens what it points at (state adjusted
   // during render, the way TimeClock follows its sub - no effect needed).
   const [seenFocus, setSeenFocus] = useState(focus);
-  if (focus !== seenFocus) {
+  if (focus && focus !== seenFocus) {
     setSeenFocus(focus);
-    const p = parsePerfSub(focus);
+    const p = parsePerfSub(focus.sub);
     if (p?.goal) setOpenGoal(p.goal);
     if (p?.oneOnOne) setOpenSeries(p.oneOnOne);
     if (p?.view === 'team') setView('team');
   }
+
+  useEffect(() => { if (focus) onFocusUsed?.(); }, [focus, onFocusUsed]);
 
   const loadGoals = useCallback(() => api.perfGoals('mine').then(setGoals).catch(e => setErr(e?.message || 'Could not load your goals.')), []);
   const loadOneOnOnes = useCallback(() => api.perfOneOnOnes().then(setOneOnOnes).catch(() => setOneOnOnes([])), []);

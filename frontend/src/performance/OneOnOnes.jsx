@@ -8,7 +8,7 @@ import { api } from '../api';
 import { Modal, DateField, TimeField, PersonSelect } from '../tasks/components';
 import { StatusLabel } from '../components/StatusLabel';
 import { LoadingState, ErrorBanner } from '../components/AsyncState';
-import { formatDate } from '../lib/datetime';
+import { formatDate, formatDateTime } from '../lib/datetime';
 import { NX } from '../tasks/theme';
 import { CADENCES, localTimeZone, LBL, muted } from './lib';
 
@@ -30,7 +30,7 @@ export function OneOnOneList({ items, onOpen, empty = 'No 1:1s yet.' }) {
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>With {s.withName}</span>
             <span style={{ display: 'block', ...muted, fontSize: 12, marginTop: 2 }}>
-              {s.status === 'ended' ? 'Ended' : s.next ? `Next ${s.next.label}` : 'Nothing scheduled'} · {s.cadenceLabel}
+              {s.status === 'ended' ? 'Ended' : s.next ? `Next ${formatDateTime(s.next.at)}` : 'Nothing scheduled'} · {s.cadenceLabel}
             </span>
           </span>
           {s.status === 'active' && !s.teamsMeeting && (
@@ -139,7 +139,7 @@ function Agenda({ meeting, series, onChange, toastErr }) {
           </div>
         ))}
       </div>
-      {open && series.status === 'active' && (
+      {open && series.current && (
         <form onSubmit={e => { e.preventDefault(); if (!text.trim()) return; run(api.perfAgendaAdd(meeting.id, text.trim())); setText(''); }}
           style={{ display: 'flex', gap: 8, marginTop: 8 }}>
           <input className="form-input" value={text} onChange={e => setText(e.target.value)} placeholder="Add a talking point" style={{ flex: 1 }} />
@@ -182,7 +182,7 @@ function Actions({ meeting, series, onChange, toastErr }) {
           </div>
         ))}
       </div>
-      {series.status === 'active' && meeting.status !== 'canceled' && (
+      {series.current && meeting.status !== 'canceled' && (
         <form onSubmit={add} style={{ display: 'grid', gap: 8, marginTop: 8 }}>
           <input className="form-input" value={text} onChange={e => setText(e.target.value)} placeholder="Add an action item" />
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -206,10 +206,11 @@ function MeetingPane({ meeting, series, onChange, toastOk, toastErr }) {
   const [priv, setPriv] = useState(meeting.privateNotes || '');
   const [busy, setBusy] = useState(false);
   const isManager = series.side === 'manager';
+  const live = !!series.current;
   const dirty = shared !== meeting.sharedNotes || (isManager && priv !== (meeting.privateNotes || ''));
   async function patch(data, ok) {
     setBusy(true);
-    try { onChange(await api.perfMeetingUpdate(meeting.id, data)); if (ok) toastOk?.(ok); }
+    try { onChange(await api.perfMeetingUpdate(meeting.id, { ...data, ...('shared_notes' in data ? { notes_at: meeting.notesAt || '' } : {}) })); if (ok) toastOk?.(ok); }
     catch (e) { toastErr?.(e?.message || 'Could not save.'); }
     finally { setBusy(false); }
   }
@@ -217,7 +218,7 @@ function MeetingPane({ meeting, series, onChange, toastOk, toastErr }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1, minHeight: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 15, fontWeight: 700 }}>{meeting.label}</span>
+        <span style={{ fontSize: 15, fontWeight: 700 }}>{formatDateTime(meeting.at)}</span>
         <StatusLabel label={st.label} color={st.color} size="sm" />
         {series.joinUrl && meeting.status === 'scheduled' && (
           <a href={series.joinUrl} target="_blank" rel="noopener noreferrer" className="secondary-btn"
@@ -227,24 +228,24 @@ function MeetingPane({ meeting, series, onChange, toastOk, toastErr }) {
       <Agenda meeting={meeting} series={series} onChange={onChange} toastErr={toastErr} />
       <label className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
         <span style={LBL}>Shared Notes</span>
-        <textarea className="form-input" value={shared} onChange={e => setShared(e.target.value)} placeholder="Notes you both see" style={{ fontFamily: 'inherit' }} />
+        <textarea className="form-input" value={shared} readOnly={!live} onChange={e => setShared(e.target.value)} placeholder="Notes you both see" style={{ fontFamily: 'inherit' }} />
       </label>
       {isManager && (
         <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           <span style={{ ...LBL, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Private Notes - Only You See These</span>
-          <textarea className="form-input" rows={4} value={priv} onChange={e => setPriv(e.target.value)} placeholder="Never shown to them" style={{ fontFamily: 'inherit', resize: 'vertical' }} />
+          <textarea className="form-input" rows={4} value={priv} readOnly={!live} onChange={e => setPriv(e.target.value)} placeholder="Never shown to them" style={{ fontFamily: 'inherit', resize: 'vertical' }} />
         </label>
       )}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {dirty && <button type="button" className="primary-btn" disabled={busy}
+        {live && dirty && <button type="button" className="primary-btn" disabled={busy}
           onClick={() => patch({ shared_notes: shared, ...(isManager ? { private_notes: priv } : {}) }, 'Notes saved.')}>Save Notes</button>}
-        {meeting.status === 'scheduled' && (
+        {live && meeting.status === 'scheduled' && (
           <button type="button" className="secondary-btn" disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
             onClick={() => patch({ status: 'done', ...(dirty ? { shared_notes: shared, ...(isManager ? { private_notes: priv } : {}) } : {}) }, 'Marked as done.')}>
             <Check size={14} /> Mark as Done
           </button>
         )}
-        {meeting.status === 'scheduled' && isManager && (
+        {live && meeting.status === 'scheduled' && isManager && (
           <button type="button" className="secondary-btn" disabled={busy} onClick={() => patch({ status: 'canceled' }, 'Meeting canceled in Nexus.')}>Cancel This One</button>
         )}
       </div>
@@ -282,7 +283,10 @@ export function OneOnOneModal({ seriesId, onClose, onChanged, toastOk, toastErr 
         <div style={{ display: 'flex', gap: 18, flex: 1, minHeight: 0, flexWrap: 'wrap' }}>
           <nav aria-label="Meetings" style={{ flex: '0 0 210px', minWidth: 180, display: 'flex', flexDirection: 'column', gap: 4 }}>
             <div style={{ ...muted, fontSize: 12, marginBottom: 4 }}>{s.cadenceLabel}{s.status === 'ended' ? ' · Ended' : ''}</div>
-            {!s.teamsMeeting && s.status === 'active' && (
+            {s.status === 'active' && !s.current && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6, lineHeight: 1.4 }}>{s.reportName} no longer reports to {s.managerName} - this 1:1 is kept as history.</div>
+            )}
+            {!s.teamsMeeting && s.current && (
               <div style={{ fontSize: 12, color: NX.amber, marginBottom: 6, lineHeight: 1.4 }}>No Teams meeting: {s.graphError || 'Microsoft did not answer.'}</div>
             )}
             {[['Upcoming', upcoming], ['Past', past]].map(([label, list]) => list.length > 0 && (
@@ -292,7 +296,7 @@ export function OneOnOneModal({ seriesId, onClose, onChanged, toastOk, toastErr 
                   <button key={m.id} type="button" onClick={() => setPick(m.id)} aria-current={m.id === pick ? 'true' : undefined}
                     style={{ textAlign: 'left', padding: '7px 9px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5,
                       background: m.id === pick ? 'var(--wk-brand-tint)' : 'transparent', color: m.id === pick ? 'var(--wk-brand)' : 'var(--ink)', fontWeight: m.id === pick ? 700 : 500 }}>
-                    {m.label}{m.status !== 'scheduled' ? ` · ${MEETING_STATUS[m.status]?.label || m.status}` : ''}
+                    {formatDateTime(m.at)}{m.status !== 'scheduled' ? ` · ${MEETING_STATUS[m.status]?.label || m.status}` : ''}
                   </button>
                 ))}
               </div>
