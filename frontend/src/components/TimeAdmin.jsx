@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Clock, ChevronDown, ChevronRight, MapPin, AlertTriangle, Download,
@@ -15,7 +15,7 @@ import AddTimeModal from './AddTimeModal';
 import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { MonitoringAlertsLine } from './MonitoringAlerts';
-import { ErrorBanner, Spinner } from './AsyncState';
+import { ErrorBanner, SkeletonBlocks, Spinner } from './AsyncState';
 import { formatDate, formatPacificDateTime, zonedDateTime, zonedInputValue, zonedInputToUtc, zoneOffsetMin } from '../lib/datetime';
 import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
 import { TIMEOFF_FILTERS, countByStatus, filterAndSortTimeoff, nextSort, yearsOf, inPeriod } from '../lib/timeOffFilter';
@@ -28,15 +28,17 @@ import { formatDistance, formatAccuracy } from '../lib/distance';
 import { useRole } from '../contexts/RoleContext';
 import PayrollReadiness from './PayrollReadiness';
 import { ForChip, ApprovalDelegationsAdmin } from './DelegateApprovals';
-import TeamLeaveCalendar from './TeamLeaveCalendar';
 import LeaveBalancesAdmin from './LeaveBalances';
-import { LeaveYearEndPreview } from './LeaveYearEnd';
 import LeaveHistory from './LeaveHistory';
 import CaReview from './CaReview';
 import LongShiftWarning from './LongShiftWarning';
 import { checkLongShift } from '../lib/longShift';
 import ContractorInvoices from './ContractorInvoices';
-import ExtraTimeQueue from './ExtraTimeQueue';
+// Team Leave Calendar, Leave Year End and Extra Time (Oct 27 2026) load with
+// their tab - their own chunks.
+const TeamLeaveCalendar = lazy(() => import('./TeamLeaveCalendar'));
+const LeaveYearEndPreview = lazy(() => import('./LeaveYearEnd').then(m => ({ default: m.LeaveYearEndPreview })));
+const ExtraTimeQueue = lazy(() => import('./ExtraTimeQueue'));
 
 // Launch (Neil, 10/16): timecards are approved by Agree in the timesheet
 // review and signed in Nexus Sign, so the per-day / per-period Approve
@@ -799,7 +801,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
       {view === 'invoices' && !hrTeam && <ContractorInvoices toastOk={toastOk} toastErr={toastErr} onChanged={loadInvoiceDrafts} />}
 
       {/* India Contractor Extra Time (Oct 27 2026): claims to approve or decline. */}
-      {view === 'extra' && !hrTeam && <ExtraTimeQueue toastOk={toastOk} toastErr={toastErr} onOpenTimecard={openTimecard} onChanged={setXtPending} />}
+      {view === 'extra' && !hrTeam && (
+        <Suspense fallback={<SkeletonBlocks count={3} height={48} />}>
+          <ExtraTimeQueue toastOk={toastOk} toastErr={toastErr} onOpenTimecard={openTimecard} onChanged={setXtPending} />
+        </Suspense>
+      )}
 
 
       {/* Action Log (Neil, 10/06): punch-fix requests and missing punches were two
@@ -1174,9 +1180,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
         </div>
         </>);
         })()}
-        <TeamLeaveCalendar />
+        <Suspense fallback={<SkeletonBlocks count={1} height={220} />}>
+          <TeamLeaveCalendar />
+        </Suspense>
         {hrPanels && !hrTeam && (<>
-          <LeaveYearEndPreview toastOk={toastOk} toastErr={toastErr} />
+          <Suspense fallback={<SkeletonBlocks count={1} height={120} />}>
+            <LeaveYearEndPreview toastOk={toastOk} toastErr={toastErr} />
+          </Suspense>
           <LeaveBalancesAdmin toastOk={toastOk} toastErr={toastErr} />
           <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />
           <LeaveHistory />

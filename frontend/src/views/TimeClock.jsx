@@ -27,7 +27,6 @@ import { timeOffLabel } from '../components/shiftScheduleLib';
 import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { LeaveBalanceCard, RequestBalanceHint, useMyLeaveBalance } from '../components/LeaveBalances';
-import TeamLeaveCalendar from '../components/TeamLeaveCalendar';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { pairLocalAgent } from '../lib/agentPair';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
@@ -37,6 +36,8 @@ import { PurchaseRequestsPanel } from '../components/PurchaseRequests';
 import ViewErrorBoundary from '../components/ViewErrorBoundary';
 // Performance (Oct 27 2026): goals and 1:1s - its own chunk, loaded on the tab.
 const PerformanceTab = lazy(() => import('../performance/PerformanceTab'));
+// Team Leave Calendar (Oct 27 2026) - its own chunk, loaded with Time Off.
+const TeamLeaveCalendar = lazy(() => import('../components/TeamLeaveCalendar'));
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -1674,7 +1675,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         })}
       </div>
       {/* Team Leave Calendar (Oct 27 2026): who on my team is out this month. */}
-      <TeamLeaveCalendar />
+      <Suspense fallback={<SkeletonBlocks count={1} height={220} />}>
+        <TeamLeaveCalendar />
+      </Suspense>
       {/* Delegate My Approvals (Neil, Oct 20): here on Time Off, collapsed -
           it opens up for the days you are off. Renders nothing for someone
           with nothing to approve. */}

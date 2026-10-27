@@ -7,7 +7,6 @@ import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
 import { ProbationBadge, ProbationCard } from '../components/HrProbation';
 import MailboxExportResult from '../components/MailboxExportResult';
-import ExitsTab from '../components/ExitsTab';
 import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
@@ -70,7 +69,6 @@ import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { PersonReimbursements } from '../components/Reimbursements';
 import { EmployeeMoreDetails } from '../components/EmployeeCustomFields';
 import { formatFieldValue, matchesFieldFilter } from '../lib/employeeCustomFields';
-import HrAnalytics from '../components/HrAnalytics';
 import { LetterRequestsPanel } from '../components/HrLetters';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
@@ -84,6 +82,9 @@ const JobOpenings = lazy(() => import('../components/hiring/JobOpenings'));
 const HeadcountRequests = lazy(() => import('../components/hiring/HeadcountRequests'));
 // Performance (Oct 27 2026): HR's review cycles and company goals - lazy.
 const PerformanceAdmin = lazy(() => import('../performance/PerformanceAdmin'));
+// People Analytics and Exits (Oct 27 2026) load with their tab - their own chunks.
+const HrAnalytics = lazy(() => import('../components/HrAnalytics'));
+const ExitsTab = lazy(() => import('../components/ExitsTab'));
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -6292,7 +6293,9 @@ export default function HR({ activeSub, onSubChange }) {
           history sit under Time > Time Off now (hrPanels, Oct 27 2026). */}
       {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} hrPanels toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-analytics' && (
-        <HrAnalytics onOpenPerson={id => { setOpenTab('overview'); setSelectedId(id); onSubChange?.('hr-people'); }} />
+        <Suspense fallback={<SkeletonBlocks count={3} height={140} />}>
+          <HrAnalytics onOpenPerson={id => { setOpenTab('overview'); setSelectedId(id); onSubChange?.('hr-people'); }} />
+        </Suspense>
       )}
       {/* Operations only (Neil, Oct 19: "once it's set up, we should be just
           operating it") - the steps are set up in Settings. */}
@@ -6305,7 +6308,11 @@ export default function HR({ activeSub, onSubChange }) {
         </>
       )}
 
-      {sub === 'hr-exits' && <ExitsTab toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-exits' && (
+        <Suspense fallback={<SkeletonBlocks count={3} height={60} />}>
+          <ExitsTab toastOk={toastOk} toastErr={toastErr} />
+        </Suspense>
+      )}
       {sub === 'hr-performance' && (
         <Suspense fallback={<SkeletonBlocks count={2} height={140} />}>
           <PerformanceAdmin toastOk={toastOk} toastErr={toastErr} />

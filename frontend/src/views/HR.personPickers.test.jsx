@@ -46,7 +46,7 @@ describe('HR people pickers', () => {
     render(<HR activeSub="hr-leave" onSubChange={() => {}} />);
     // The Time Off view's own controls: Request on Behalf and the calendar.
     expect(await screen.findByRole('button', { name: /Request on Behalf/ })).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Team Leave Calendar' })).toBeTruthy();
+    expect(await screen.findByRole('region', { name: 'Team Leave Calendar' })).toBeTruthy();   // its own lazy chunk
     expect(screen.queryByRole('button', { name: /Log on Behalf/ })).toBeNull();
     expect(calls.some(([k]) => k === 'createLeave' || k === 'getLeave')).toBe(false);
   }, 20000);
