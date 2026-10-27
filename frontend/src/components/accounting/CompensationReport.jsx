@@ -68,7 +68,7 @@ function compColumns(grouping) {
   const money = LINES.map((l) => ({ key: l.key, label: l.label, type: 'amount', total: true, off: !l.shown, value: (r) => Number(r.cur?.[l.key]) || 0, text: (r) => formatAmount(r.cur?.[l.key] || 0) }));
   if (grouping === 'people') {
     return [
-      { key: 'name', label: 'Employee', text: (r) => r.name || '', exportAs: [{ label: 'Employee', width: 160, get: (r) => r.name }, { label: 'Employee ID', width: 80, get: (r) => r.code }] },
+      { key: 'name', label: 'Employee', fixed: true, text: (r) => r.name || '', exportAs: [{ label: 'Employee', width: 160, get: (r) => r.name }, { label: 'Employee ID', width: 80, get: (r) => r.code }] },
       { key: 'company', label: 'Company', text: (r) => r.companyName || '' },
       { key: 'department', label: 'Department', text: (r) => r.department || '' },
       { key: 'title', label: 'Title', off: true, text: (r) => r.title || '' },
@@ -79,7 +79,7 @@ function compColumns(grouping) {
   }
   const head = grouping === 'company' ? 'Company' : 'Department';
   return [
-    { key: 'label', label: head, text: (r) => r.label || '' },
+    { key: 'label', label: head, fixed: true, text: (r) => r.label || '' },
     { key: 'people', label: 'Employees', type: 'number', total: true, value: (r) => Number(r.people) || 0, text: (r) => String(r.people ?? '') },
     ...hours, ...money,
   ];
@@ -88,7 +88,10 @@ function compColumns(grouping) {
 // 10/27: the boxes under the headings (columnFilters.jsx, as on MRE). The
 // Employee box also finds the employee ID shown under the name.
 const compFilterColumns = (columns) => filterColumnsOf(columns, { instead: { name: (r) => `${r.name || ''} ${r.code || ''}` } });
-const filterCell = filterCellOf();
+// The first column (the name) stays put while the amounts scroll sideways.
+const PINNED = new Set(['name', 'label']);
+const pin = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--bg-card)' };
+const filterCell = (col) => filterCellOf(PINNED.has(col.key) ? col.key : '')(col);
 
 /** Item 18: "just like dot dot dot that is loading" - never the pale blocks, never a blank screen. */
 function LoadingDots({ hint, compact = false }) {
@@ -273,7 +276,13 @@ export default function CompensationReport() {
               <tr>
                 {tv.columns.map((c) => {
                   const w = tv.manualWidth(c.key);
-                  return <ViewHead key={c.key} view={tv} col={c} aria-label={c.label} style={{ ...(c.type ? thNum : th), position: 'relative', ...(w ? { width: w, minWidth: w, maxWidth: w } : null) }} />;
+                  // Headings wrap (a dozen amounts at 1440): each column is as wide as its filter box, not its title.
+                  return (
+                    <ViewHead key={c.key} view={tv} col={c} aria-label={c.label} className={PINNED.has(c.key) ? 'acct-head' : undefined}
+                      style={{ ...(c.type ? thNum : th), position: PINNED.has(c.key) ? 'sticky' : 'relative', ...(w ? { width: w, minWidth: w, maxWidth: w } : null) }}>
+                      <span style={{ whiteSpace: 'normal' }}>{c.label}</span>
+                    </ViewHead>
+                  );
                 })}
               </tr>
               <ColumnFilterRow columns={tv.columns} filterColumns={boxes} typed={filters.typed} onChange={filters.setFilter} cellProps={filterCell} />
@@ -284,7 +293,7 @@ export default function CompensationReport() {
                 <tr key={view === 'people' ? r.code : r.key || 'none'}>
                   {viewCells(tv, {
                     name: (
-                      <td style={td}>
+                      <td style={{ ...td, ...pin }}>
                         <button type="button" style={{ ...plainBtn, display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => openStatement(r)} title={`Open ${r.name}'s compensation report`}>
                           <Avatar email={r.email} name={r.name} size={26} card={false} />
                           <span><strong>{r.name}</strong><div style={muted}>{r.code}</div></span>
@@ -301,7 +310,7 @@ export default function CompensationReport() {
                         <div style={muted}>{rateLabel(r)}</div>
                       </td>
                     ),
-                    label: <td style={td}><button type="button" style={{ ...plainBtn, fontWeight: 700 }} onClick={() => openStatement(r)} title={`Open the compensation report for ${r.label}`}>{r.label}</button></td>,
+                    label: <td style={{ ...td, ...pin }}><button type="button" style={{ ...plainBtn, fontWeight: 700 }} onClick={() => openStatement(r)} title={`Open the compensation report for ${r.label}`}>{r.label}</button></td>,
                     people: <td style={tdNum}>{r.people}</td>,
                     ...hourCells(r),
                     ...moneyCells(r, nameOf(r)),
@@ -313,7 +322,7 @@ export default function CompensationReport() {
               <tfoot>
                 <tr>
                   {viewCells(tv, {
-                    [view === 'people' ? 'name' : 'label']: <td style={{ ...td, fontWeight: 700 }}><button type="button" style={{ ...plainBtn, fontWeight: 700 }} onClick={() => openStatement(total, 'Total')}>Total</button></td>,
+                    [view === 'people' ? 'name' : 'label']: <td style={{ ...td, ...pin, fontWeight: 700 }}><button type="button" style={{ ...plainBtn, fontWeight: 700 }} onClick={() => openStatement(total, 'Total')}>Total</button></td>,
                     people: <td style={{ ...tdNum, fontWeight: 700 }}>{total.people}</td>,
                     ...hourCells(total, true),
                     ...Object.fromEntries(LINES.map((l) => [l.key, (
