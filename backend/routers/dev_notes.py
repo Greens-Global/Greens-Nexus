@@ -93,6 +93,10 @@ ATTACH_KINDS = ("after", "before", "paste")   # before-/after- files are the ver
 CLAUDE_SEND_ON = True
 
 DEFAULT_SETTINGS = {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True,
+                    # Collect Fixes Into One PR (Pranshu, Oct 27 2026): Claude
+                    # Code keeps every batch on one branch and opens the PR
+                    # only when told to in its terminal.
+                    "onePr": False,
                     # The Teams chat the person last posted their pins to
                     # (their pick, any chat they are in); '' = none picked yet.
                     "teamsChatId": "", "teamsChatName": ""}
@@ -757,7 +761,7 @@ def put_settings(body: dict, user: dict = Depends(require_build_mode), db: Sessi
         if target != "local":
             raise HTTPException(400, "dispatchTarget must be local")
         current["dispatchTarget"] = target
-    for key in ("sendInstantly", "pinsOnLoad"):
+    for key in ("sendInstantly", "pinsOnLoad", "onePr"):
         v = _get(body, key)
         if v is not None:
             current[key] = bool(v)
@@ -1681,8 +1685,9 @@ async def cli_wait(timeout: int = Query(25, ge=0, le=WAIT_MAX_SEC),
 
 
 @router.get("/cli/whoami")
-def cli_whoami(user: dict = Depends(require_build_mode_or_token)):
-    return {"email": user["email"], "tokenLabel": user.get("token_label") or ""}
+def cli_whoami(user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
+    return {"email": user["email"], "tokenLabel": user.get("token_label") or "",
+            "onePr": bool(_settings(db, user["email"]).get("onePr"))}
 
 
 @router.post("/cli/claim")

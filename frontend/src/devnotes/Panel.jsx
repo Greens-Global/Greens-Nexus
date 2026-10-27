@@ -492,6 +492,7 @@ function SettingsTab({ settings, onSettings }) {
       <section className="bm-settings-sec">
         <div className="bm-sec-title">Sending</div>
         <Switch label="Send Instantly" hint="On: every pin goes to Claude Code the moment you save it. Off: pins collect in your Build Session and go together when you click Done > Send To Claude Code." checked={!!settings.sendInstantly} disabled={busy === 'sendInstantly'} onChange={(v) => change({ sendInstantly: v })} />
+        <Switch label="Collect Fixes Into One PR" hint={'On: Claude Code keeps every batch you send on one branch and waits in its terminal for the next one. Type "open a PR" there when you are done and all of it goes in one PR.'} checked={!!settings.onePr} disabled={busy === 'onePr'} onChange={(v) => change({ onePr: v })} />
         <div className="bm-field-block">
           <div className="bm-switch-label">Dispatch Target</div>
           <div className="bm-radios" role="radiogroup" aria-label="Dispatch Target">
