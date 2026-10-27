@@ -46,6 +46,10 @@ const panel = (width) => ({
   background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10,
   boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 10,
 });
+// A picker panel whose list is its only scroller (chat 10/26, item 12 - Neil:
+// "So it removes double scroll"): the panel is a column held to the room on
+// screen, the list (OptionList `fill`) takes what is left of it.
+const fillPanel = (width) => ({ ...panel(width), display: 'flex', flexDirection: 'column' });
 const row = (on) => ({
   display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6,
   background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: '0.8rem',
@@ -98,7 +102,10 @@ export function filterOptions(options, query) {
 // `onPick(code)` turns it into a single-select list: a click or Enter picks.
 // Arrow keys move through the rows, Enter ticks / picks the highlighted one.
 // `onFree(text)` (Oct 23) offers a typed code that is not on the list.
-function OptionList({ options, value, onChange, onPick, onFree, placeholder, empty, loading, error, allLabel, codeFirst = false, maxHeight = LIST_HEIGHT }) {
+// `searchEnd` sits beside the search box (the entity picker's Done); `fill`
+// lets the list take the panel's height and be its ONE scroller - the panel
+// must be a flex column (fillPanel).
+function OptionList({ options, value, onChange, onPick, onFree, placeholder, empty, loading, error, allLabel, codeFirst = false, maxHeight = LIST_HEIGHT, searchEnd = null, fill = false }) {
   const [q, setQ] = useState('');
   const [active, setActive] = useState(-1);
   const listRef = useRef(null);
@@ -132,14 +139,17 @@ function OptionList({ options, value, onChange, onPick, onFree, placeholder, emp
     if (target && !target.dim) toggle(target.code);
     else if (!target && free) onFree(free);
   };
+  const search = (
+    <div style={{ position: 'relative', flex: searchEnd ? '1 1 auto' : undefined, minWidth: 0 }}>
+      <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
+      <input type="text" value={q} onChange={(e) => { setQ(e.target.value); setActive(-1); }} onKeyDown={onKeyDown} placeholder={placeholder} aria-label={placeholder} autoFocus
+        style={{ ...control, width: '100%', paddingLeft: 26 }} />
+    </div>
+  );
   return (
     <>
-      <div style={{ position: 'relative' }}>
-        <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
-        <input type="text" value={q} onChange={(e) => { setQ(e.target.value); setActive(-1); }} onKeyDown={onKeyDown} placeholder={placeholder} aria-label={placeholder} autoFocus
-          style={{ ...control, width: '100%', paddingLeft: 26 }} />
-      </div>
-      <div ref={listRef} style={{ maxHeight, overflowY: 'auto', overflowX: 'hidden', marginTop: 6, display: 'grid', gap: 1 }}>
+      {searchEnd ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{search}{searchEnd}</div> : search}
+      <div ref={listRef} data-option-list="" style={{ maxHeight, overflowY: 'auto', overflowX: 'hidden', marginTop: 6, display: 'grid', alignContent: 'start', gap: 1, ...(fill ? { flex: '1 1 auto', minHeight: 96 } : null) }}>
         {error && <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)', padding: 6 }}>{error}</div>}
         {loading && <SkeletonBlocks count={3} />}
         {allLabel && !q.trim() && (
@@ -246,12 +256,15 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, sho
         <span className={value.length ? undefined : 'acct-bar-label-2'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Entities" aria-multiselectable="true" style={panel(540)}>
-        <OptionList options={options} value={value} onChange={onChange} allLabel={all} codeFirst
-          placeholder="Search entity by name or code" empty="No entities on the ledger yet." />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 10 }}>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{value.length > 1 ? 'Several entities add together.' : showHistorical ? 'An entity includes its sub-entities.' : 'An entity includes its sub-entities. Customize > Show Historical Entities lists the (H) ones too.'}</span>
-          <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
+      {/* Chat 10/26, item 12 (Charmi: "Move the Done button on TOP"; Neil: "So
+          it removes double scroll"): Done beside the search, the list the one
+          thing that scrolls, the hint fixed under it. */}
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Entities" aria-multiselectable="true" style={fillPanel(540)}>
+        <OptionList options={options} value={value} onChange={onChange} allLabel={all} codeFirst fill
+          placeholder="Search entity by name or code" empty="No entities on the ledger yet."
+          searchEnd={<button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px', flexShrink: 0 }} onClick={() => setOpen(false)}>Done</button>} />
+        <div style={{ marginTop: 8, flexShrink: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+          {value.length > 1 ? 'Several entities add together.' : showHistorical ? 'An entity includes its sub-entities.' : 'An entity includes its sub-entities. Customize > Show Historical Entities lists the (H) ones too.'}
         </div>
       </PopoverPanel>
     </div>
@@ -303,8 +316,8 @@ export function EntityPicker({ entities, value = '', onChange, extra = [], group
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, textAlign: 'left' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} style={panel(500)}>
-        <OptionList options={options} value={[value]} onPick={(code) => { setOpen(false); if (code !== value) onChange(code); }} codeFirst
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} style={fillPanel(500)}>
+        <OptionList options={options} value={[value]} onPick={(code) => { setOpen(false); if (code !== value) onChange(code); }} codeFirst fill
           placeholder="Search entity by name or code" empty="No entities on the ledger yet." />
       </PopoverPanel>
     </div>

@@ -284,10 +284,13 @@ describe('Accounting navigation', () => {
     const { unmount } = render(<Harness start="budget" />);
     await screen.findByTestId('tab-budget');
     expect(screen.queryByRole('button', { name: /Open Nexus Accounting/ })).toBeNull();
+    // Chat 10/26, item 13: the search is an icon that opens into the box.
+    fireEvent.click(screen.getByRole('button', { name: 'Search the Ledger' }));
     expect(screen.getByRole('textbox', { name: 'Search the ledger' })).toBeTruthy();
     unmount();
     render(<Harness start="pfs" />);
     await screen.findByTestId('tab-pfs');
+    expect(screen.queryByRole('button', { name: 'Search the Ledger' })).toBeNull();
     expect(screen.queryByRole('textbox', { name: 'Search the ledger' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Open Nexus Accounting/ })).toBeNull();
   });
@@ -344,6 +347,7 @@ describe('Accounting navigation', () => {
     try {
       render(<Harness start="budget" />);
       await act(async () => { await Promise.resolve(); });
+      fireEvent.click(screen.getByRole('button', { name: 'Search the Ledger' }));
       const box = screen.getByRole('textbox', { name: 'Search the ledger' });
       fireEvent.change(box, { target: { value: 'chase' } });
       await act(async () => { vi.advanceTimersByTime(700); });
@@ -362,6 +366,7 @@ describe('Accounting navigation', () => {
       render(<Harness start="reports" />);
       await act(async () => { await Promise.resolve(); });
       expect(screen.getByTestId('tab-report-center')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Search the Ledger' }));
       fireEvent.change(screen.getByRole('textbox', { name: 'Search the ledger' }), { target: { value: 'sunbelt' } });
       await act(async () => { vi.advanceTimersByTime(700); });
       expect(screen.getByTestId('sub').textContent).toBe('rpt-pnl');

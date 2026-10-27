@@ -2803,6 +2803,14 @@ html { overflow-x: hidden; }
 .modal-content.acct-entry { resize: both; overflow: auto; min-width: min(720px, 96vw); min-height: 240px; }
 .acct-entry-lines td { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; }
 .acct-entry-lines .acct-grand td { position: static; }
+/* Chat 10/26, item 03 (Urmi): the window no longer scrolls as a whole - the
+   lines scroll in their own box under a pinned heading row, the title and
+   the notes under the lines stay put. Dragging the corner still resizes it. */
+.modal-content.acct-entry.acct-entry--box { display: flex; flex-direction: column; overflow: hidden; }
+.acct-entry--box > .modal-header { flex-shrink: 0; }
+.acct-entry-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.acct-entry-body > * { flex-shrink: 0; }
+.acct-entry-body > .acct-entry-box { flex: 0 1 auto; min-height: 120px; }
 /* Leasing Income Roll (Viral, 10/22): "Received - N sources" stays pinned at
    the bottom of the box, above the rows and the pinned property column that
    scroll under it, and solid in both themes (the dark hover tint is
@@ -6397,15 +6405,19 @@ body:has(.docs-root) { overflow-x: clip; }
 /* Accounting header (10/02): one layout on every tab so the search never
    moves. Oct 6 (Neil: "search bar should always be on the top right"):
    title | actions | fixed-width search, flush right. */
-.acct-header.view-header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(260px, 400px); align-items: center; gap: 12px; min-height: 44px; margin-bottom: 8px; }
+.acct-header.view-header { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; min-height: 44px; margin-bottom: 8px; }
 .acct-header-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .acct-header-title h2 { margin: 0; font-size: 1.15rem; line-height: 1.3; white-space: nowrap; }
 .acct-header-title p { margin: 0; font-size: 0.8rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.acct-header-search { min-width: 0; }
+/* Chat 10/26, item 13: the search is an icon (ModuleSearch); open, the box
+   takes the old 260-400px, still flush right. */
+.acct-header-search { min-width: 0; display: flex; justify-content: flex-end; }
+.acct-header-search form[role="search"] { width: clamp(260px, 30vw, 400px); }
 .acct-header-actions { display: flex; justify-content: flex-end; min-width: 0; }
 @media (max-width: 900px) {
-  .acct-header.view-header { grid-template-columns: minmax(0, 1fr) auto; }
-  .acct-header-search { grid-column: 1 / -1; grid-row: 2; }
+  /* The icon stays beside the title; the open box takes its own line. */
+  .acct-header-search:has(form[role="search"]) { grid-column: 1 / -1; grid-row: 2; }
+  .acct-header-search form[role="search"] { width: 100%; }
   /* The subtitle drops under the title and wraps, instead of one cut line (Oct 17). */
   .acct-header-title { flex-wrap: wrap; row-gap: 2px; }
   .acct-header-title p { white-space: normal; flex-basis: 100%; }

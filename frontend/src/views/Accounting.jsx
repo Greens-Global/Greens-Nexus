@@ -1,14 +1,14 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import {
   Activity, ArrowLeftRight, Banknote, BookOpen, Building2, Calculator, ChartColumn, CheckSquare, CreditCard, Database, FileStack, FileText,
-  Hammer, HandCoins, Handshake, KeyRound, Landmark, LayoutGrid, Library, ListChecks, Loader2, MessageCircleQuestion, PieChart, Receipt,
-  ReceiptText, Scale, Search, ShieldCheck, Split, Target, TrendingUp, Upload, UserPen, Users, Wallet, Wrench, X,
+  Hammer, HandCoins, Handshake, KeyRound, Landmark, LayoutGrid, Library, ListChecks, MessageCircleQuestion, PieChart, Receipt,
+  ReceiptText, Scale, ShieldCheck, Split, Target, TrendingUp, Upload, UserPen, Users, Wallet, Wrench,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import ModuleTabs from '../components/ModuleTabs';
-import { control } from '../components/accounting/reportControls';
+import ModuleSearch from '../components/accounting/ModuleSearch';
 import { dashDensityOf, useAccountingPrefs } from '../components/accounting/prefs';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
@@ -414,22 +414,12 @@ export default function Accounting({ activeSub, onSubChange }) {
             Accounting" link is gone from every tab. The slot stays so the
             search keeps its place. */}
         <div className="acct-header-actions" />
+        {/* Chat 10/26, item 13: an icon that opens on a click or Ctrl+F (ModuleSearch). */}
         <div className="acct-header-search">
           {/* Oct 7 (Neil, screenshot 3): no ledger search on the PFS tab. */}
           {access && sub !== 'pfs' && (
-            <form role="search" onSubmit={(e) => { e.preventDefault(); clearTimeout(searchTimer.current); goSearch(searchText); }} style={{ position: 'relative', width: '100%' }}>
-              {searchWaiting && isReports(sub)
-                ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
-                : <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />}
-              <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} aria-label="Search the ledger"
-                placeholder="Search vendor, customer, invoice, amount, memo..." style={{ ...control, width: '100%', paddingLeft: 28, paddingRight: 26 }} />
-              {searchText && (
-                <button type="button" onClick={() => setSearchText('')} aria-label="Clear search"
-                  style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}>
-                  <X size={14} />
-                </button>
-              )}
-            </form>
+            <ModuleSearch value={searchText} onChange={setSearchText} waiting={searchWaiting && isReports(sub)}
+              onSubmit={(text) => { clearTimeout(searchTimer.current); goSearch(text); }} />
           )}
         </div>
       </div>
