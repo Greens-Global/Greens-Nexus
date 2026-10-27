@@ -76,7 +76,9 @@ const _root = createRoot(document.getElementById('root'));
 // Shown only when the session check is slow - i.e. a backend deploy/restart blip.
 // A normal fast load skips it. This keeps a logged-in user in a calm "reconnecting"
 // state instead of a blank screen or a false bounce to the login page.
-function BootConnecting() {
+// Oct 28 (10/27 call item 21): it keeps trying until Nexus answers (bffBootstrap)
+// and, once the wait is long enough to wonder, says the page comes back by itself.
+function BootConnecting({ waitedMs = 0 }) {
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center',
       background: 'var(--wk-bg, #f6f7fb)', color: 'var(--wk-dim, #676879)',
@@ -85,12 +87,18 @@ function BootConnecting() {
         <div className="nxl-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
           <Spinner size="page" label="Reconnecting" />
           <div style={{ fontSize: 14, fontWeight: 600 }}>Reconnecting…</div>
+          {waitedMs >= 5000 && (
+            <div role="status" style={{ fontSize: 13, maxWidth: 360, lineHeight: 1.45 }}>
+              Nexus is restarting after an update - this usually takes a minute or two. No need to refresh: this page opens by itself as soon as it is back.
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
-function renderConnecting() { _root.render(<BootConnecting />); }
+let _booted = false;
+function renderConnecting(waitedMs = 0) { if (!_booted) _root.render(<BootConnecting waitedMs={waitedMs} />); }
 
 function renderApp() {
   _root.render(
@@ -146,8 +154,9 @@ const isPublicPath = PUBLIC_PATH.test(window.location.pathname);
 if (BFF_MODE && !isPublicPath) {
   // Show "Reconnecting…" only if the session check is slow (a backend blip); a
   // fast normal load resolves before the timer and goes straight to the app.
-  const _slow = setTimeout(renderConnecting, 600);
-  bffBootstrap().then((authed) => { clearTimeout(_slow); authed ? renderApp() : renderLanding(); });
+  const _slow = setTimeout(() => renderConnecting(0), 600);
+  bffBootstrap({ onWaiting: (ms) => { if (ms >= 600) renderConnecting(ms); } })
+    .then((authed) => { _booted = true; clearTimeout(_slow); authed ? renderApp() : renderLanding(); });
 } else {
   // MSAL mode, or a public path (/sign, /verify, /privacy, /terms) which App.jsx
   // renders itself with no session required.

@@ -109,6 +109,35 @@ function _emitHealth(down) {
   _backendDown = down;
   _downCount   = down ? _downCount + 1 : 0;
   _healthListeners.forEach(fn => fn(down));
+  if (down) _startHealthProbe();
+  else {
+    _stopHealthProbe();
+    // Reads that failed while it was down are asked again (TanStack screens);
+    // App.jsx remounts the views opened during the outage.
+    _queryClient?.refetchQueries({ predicate: (q) => q.state.status === 'error' });
+  }
+}
+// Oct 28 (Charmi, 10/27 call item 21): the red bar said "Retrying
+// automatically" but cleared only when the screen happened to make another
+// request, so an idle page kept it up until someone refreshed. While it is
+// up, /health (no sign-in, exempt from the rate limit) is asked every 5s; the
+// first answer clears it. Not a keep-warm ping: it runs only while the bar
+// is showing, and stops the moment Nexus answers.
+const HEALTH_PROBE_MS = 5000;
+let _healthProbe = null;
+function _startHealthProbe() {
+  if (_healthProbe || typeof fetch !== 'function') return;
+  _healthProbe = setInterval(async () => {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), HEALTH_PROBE_MS - 500);
+    try {
+      const res = await fetch(`${BASE}/health`, { signal: controller.signal, cache: 'no-store' });
+      if (res.ok) _setBackendDown(false);
+    } catch { /* still down - try again on the next tick */ } finally { clearTimeout(tid); }
+  }, HEALTH_PROBE_MS);
+}
+function _stopHealthProbe() {
+  if (_healthProbe) { clearInterval(_healthProbe); _healthProbe = null; }
 }
 function _setBackendDown(down) {
   if (down) {

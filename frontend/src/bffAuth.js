@@ -217,15 +217,39 @@ async function _primeMsalAccount(email) {
  *  render: false only when we're redirecting to login (page is navigating away).
  *  On a transient error we still render - the app's own calls will 401-redirect
  *  if we're genuinely unauthenticated, so a backend blip never white-screens. */
-export async function bffBootstrap() {
+// Oct 28 (Charmi, 10/27 call item 21): the full-page "Reconnecting..." stayed
+// up until she pressed refresh. A restart of the live API keeps it away for
+// 1.5-2 minutes (every worker runs the startup migrations before it serves),
+// but this loop gave up after ~23s and each try had no time limit of its own,
+// so one hung connection held the spinner for minutes. Now every try is
+// capped, the wait between tries tops out at 10s, and a backend that is down
+// or restarting is retried until it answers (sooner when the browser comes
+// back online or the tab is shown again) - the page comes back on its own.
+// `onWaiting(ms)` lets the Reconnecting screen say how long it has waited.
+const BOOT_TRY_MS = 10_000;
+const BOOT_DELAYS_MS = [0, 800, 1500, 2500, 4000, 6000, 8000];
+function _bootPause(ms) {
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(t); window.removeEventListener('online', done); document.removeEventListener('visibilitychange', onShow); resolve(); };
+    const onShow = () => { if (document.visibilityState === 'visible') done(); };
+    const t = setTimeout(done, ms);
+    window.addEventListener('online', done);
+    document.addEventListener('visibilitychange', onShow);
+  });
+}
+
+export async function bffBootstrap({ onWaiting } = {}) {
   // Retry across a backend blip (deploy/restart) so a TRANSIENT failure never
   // bounces a logged-in user to the sign-in screen. Only a real 401 (genuinely
   // signed out) returns false immediately; 5xx/network keep retrying.
-  const delaysMs = [0, 800, 1500, 2500, 4000, 6000, 8000];   // ~23s - outlasts a slot-swap deploy
-  for (let i = 0; i < delaysMs.length; i++) {
-    if (delaysMs[i]) await new Promise(r => setTimeout(r, delaysMs[i]));
+  const started = Date.now();
+  for (let i = 0; ; i++) {
+    const wait = i < BOOT_DELAYS_MS.length ? BOOT_DELAYS_MS[i] : 10_000;
+    if (wait) { onWaiting?.(Date.now() - started); await _bootPause(wait); }
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), BOOT_TRY_MS);
     try {
-      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      const res = await fetch('/api/auth/me', { credentials: 'include', signal: controller.signal });
       if (res.ok) {
         _me = await res.json();
         if (_me && _me.email) {
@@ -269,7 +293,7 @@ export async function bffBootstrap() {
         return false;
       }
       // 5xx / other -> backend still coming up, keep retrying
-    } catch { /* network error -> backend unreachable, keep retrying */ }
+    } catch { /* network error or a try that ran out its time -> backend unreachable, keep retrying */ }
+    finally { clearTimeout(tid); }
   }
-  return false;   // still failing after all retries -> fall back to the login screen
 }
