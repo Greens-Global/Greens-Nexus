@@ -216,6 +216,9 @@ class HrAnalyticsTests(unittest.TestCase):
         self.assertEqual(ha.reason_from_label("Terminated for cause"), "")
         self.assertEqual(ha.category_of(""), "not_recorded")
         self.assertEqual(ha.category_of("death"), "other")
+        # End of contract is Voluntary (Neil, Oct 27 2026); only a termination is Involuntary.
+        self.assertEqual(ha.category_of("end_of_contract"), "voluntary")
+        self.assertEqual(ha.category_of("termination"), "involuntary")
 
     def test_life_event_wins_and_checklist_is_last(self):
         hint = [{"date": "2026-08-14", "exit_type": "termination"}]

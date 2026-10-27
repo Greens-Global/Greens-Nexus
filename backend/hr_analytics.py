@@ -40,8 +40,9 @@ Attrition
     order: the Offboard life event (hr_life_events, exit_type), the reason
     label Nexus wrote on the status change ("Voluntary Resignation - ..."),
     the offboarding checklist's exit type. Voluntary = resignation, job
-    abandonment, retirement; Involuntary = termination, end of contract;
-    Other = death. Nothing recorded = "Not Recorded" - free text is never
+    abandonment, retirement, end of contract (Neil, Oct 27 2026: a contract
+    that runs its course is not the company letting someone go);
+    Involuntary = termination; Other = death. Nothing recorded = "Not Recorded" - free text is never
     read for a guess, and is never shown.
 
 Tenure: whole months since the current spell's start for people Active or
@@ -91,7 +92,8 @@ TYPE_LABELS = {"full_time": "Full-Time", "part_time": "Part-Time", "contractor":
 
 CATEGORY_OF = {
     "resignation": "voluntary", "resignation_no_notice": "voluntary", "retirement": "voluntary",
-    "termination": "involuntary", "end_of_contract": "involuntary",
+    "end_of_contract": "voluntary",   # Neil, Oct 27 2026 - not Involuntary
+    "termination": "involuntary",
     "death": "other",
 }
 CATEGORY_LABELS = {"voluntary": "Voluntary", "involuntary": "Involuntary", "other": "Other",
