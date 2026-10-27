@@ -4681,3 +4681,5 @@ app.include_router(hr_custom_fields_router.router)     # People > More Details: 
 app.include_router(hr_custom_fields_router.my_router)  # My HR > More Details: the fields an employee may see or edit
 from routers import hr_analytics as hr_analytics_router  # noqa: E402
 app.include_router(hr_analytics_router.router)  # People > Analytics: headcount, attrition, tenure, absence, leave liability (Neil, Oct 27 2026)
+from routers import approvals as approvals_router  # noqa: E402
+app.include_router(approvals_router.router)        # Approvals: everything waiting on my decision, across modules (Neil, Oct 27 2026)

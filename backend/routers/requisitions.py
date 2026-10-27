@@ -267,6 +267,42 @@ def _action_req_notification(db: Session, req_id: str):
         notif.actioned = True
 
 
+def waiting_on(db: Session, user: dict) -> list:
+    """Purchase requests waiting on the caller's decision, oldest first: still
+    pending_manager, and routed to them - the approver the request was sent to
+    (its req_pending bell: the chosen approver, else the requester's manager,
+    Neil Oct 14 2026), or every manager when it had nobody to go to. Only for
+    someone the approve / reject routes admit (require_manager), inside the
+    company wall list_requisitions applies. The Approvals inbox
+    (approvals_inbox.py) lists these; the module's own queue still shows an
+    approver every pending request."""
+    me = (user.get("email") or "").strip().lower()
+    if not me or int(user.get("level") or 0) < 3:
+        return []
+    pending = (db.query(models.Requisition).filter(models.Requisition.status == "pending_manager")
+               .order_by(models.Requisition.created_at).all())
+    if not pending:
+        return []
+    import auth
+    scope = auth.company_scope(user, db)
+    if scope is not None:
+        pending = [r for r in pending if auth.company_ok(getattr(r, "company_id", ""), scope)]
+    sent_to: dict = {}
+    for n in (db.query(models.NexusNotification.ref_id, models.NexusNotification.recipient)
+              .filter(models.NexusNotification.type == "req_pending",
+                      models.NexusNotification.ref_id.in_([r.id for r in pending])).all()):
+        sent_to.setdefault(n.ref_id, set()).add((n.recipient or "").strip().lower())
+    out = []
+    for r in pending:
+        to = sent_to.get(r.id)
+        if to is None:   # no bell on file (an older row): the create rule's own fallback
+            to = {_manager_of(db, r.employee_email or r.submitted_by_email or "")}
+        if me in to or "" in to:
+            if me not in {(r.employee_email or "").lower(), (r.submitted_by_email or "").lower()}:
+                out.append(r)
+    return out
+
+
 @router.patch("/requisitions/{req_id}/approve")
 def approve_requisition(req_id: str, body: RequisitionApprove, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()

@@ -3029,6 +3029,10 @@ export const api = {
   getHrAnalytics: (params = {}) => req(`/hr/analytics/summary?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))).toString()}`),
   // The people behind one number: { metric, month, key } plus the same filters.
   getHrAnalyticsPeople: (params = {}) => req(`/hr/analytics/people?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))).toString()}`),
+  // Approvals (Oct 27 2026): everything waiting on my decision, across
+  // modules - {rows, counts, groups, groupLabels, errors, total}. The
+  // decisions go to each module's own endpoint (lib/approvalActions.js).
+  approvalsInbox: () => req("/approvals/inbox"),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()
