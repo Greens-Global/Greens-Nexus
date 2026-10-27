@@ -1,7 +1,7 @@
 import { Suspense, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, Columns3, Funnel, Save, X } from 'lucide-react';
 import { Panels, preloadPanels } from './load';
-import { BarMore, ColumnResizer } from '../reportControls';
+import { BarMore, ColumnResizer, PickText } from '../reportControls';
 import SaveNotice from './saveNotice';
 
 // The standard table view's bar and headings (10/23 meeting, item 01). These
@@ -45,7 +45,8 @@ export function TableViewBar({ view, columns = true }) {
         <span className="acct-bar-label" style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>View</span>
         <button type="button" style={btn(!!view.activeId)} onClick={() => toggle('views')} aria-haspopup="menu" aria-expanded={open === 'views'}
           aria-label={`View: ${view.activeName}`} title={`View: ${view.activeName}. Your own saved filters, sort and columns for this table.`}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 170 }}>{view.activeName}</span>
+          {/* As wide as "Built-in Default" whatever view is picked; a longer name is cut, in full in the tooltip (10/27 call, item 09). */}
+          <PickText text={view.activeName} base="Built-in Default" />
           <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
         </button>
       </div>

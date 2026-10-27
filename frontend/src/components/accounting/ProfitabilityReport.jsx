@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import Amount, { Figure } from './Amount';
-import { BarMore, ControlBar, control, EntitiesPicker, ExportMenu, SyncButton, fitSelect } from './reportControls';
+import { BarMore, ControlBar, control, EntitiesPicker, ExportMenu, SyncButton, fitSelect, widest } from './reportControls';
 import { useFitHeight } from './tableHooks';
 import { useTableSync } from './tableSync';
 import { downloadBlob, iso, presetRange } from './reportModel';
@@ -107,7 +107,7 @@ export default function ProfitabilityReport({ limited = false }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
-        <select value={period} onChange={(e) => pickPeriod(e.target.value)} style={{ ...control, ...fitSelect(PERIODS.find((p) => p.key === period)?.label) }} aria-label="Period" title="Period">
+        <select value={period} onChange={(e) => pickPeriod(e.target.value)} style={{ ...control, ...fitSelect(PERIODS.find((p) => p.key === period)?.label, { base: widest(PERIODS.map((p) => p.label)) }) }} aria-label="Period" title="Period">
           {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
         </select>
         <span style={inline}>
@@ -116,14 +116,14 @@ export default function ProfitabilityReport({ limited = false }) {
           <input type="date" value={to} onChange={(e) => { setPeriod('custom'); setRange([from, e.target.value]); }} style={control} aria-label="To" title="To" />
         </span>
         <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} />
-        <select value={book} onChange={(e) => setBook(e.target.value)} style={{ ...control, ...fitSelect(book === 'cash' ? 'Cash' : 'Accrual') }} aria-label="Book" title="Book">
+        <select value={book} onChange={(e) => setBook(e.target.value)} style={{ ...control, ...fitSelect(book === 'cash' ? 'Cash' : 'Accrual', { base: 'Accrual' }) }} aria-label="Book" title="Book">
           <option value="accrual">Accrual</option>
           <option value="cash">Cash</option>
         </select>
         <BarMore level={2} active={compareOn !== COMPARE_ON[0].key ? 1 : 0}>
         <label style={inline}>
           <span className="acct-bar-label-2">Compare On</span>
-          <select value={compareOn} onChange={(e) => setCompareOn(e.target.value)} style={{ ...control, ...fitSelect(COMPARE_ON.find((c) => c.key === compareOn)?.label) }} aria-label="Compare On" title="Compare On">
+          <select value={compareOn} onChange={(e) => setCompareOn(e.target.value)} style={{ ...control, ...fitSelect(COMPARE_ON.find((c) => c.key === compareOn)?.label, { base: widest(COMPARE_ON.map((c) => c.label)) }) }} aria-label="Compare On" title="Compare On">
             {COMPARE_ON.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
         </label>

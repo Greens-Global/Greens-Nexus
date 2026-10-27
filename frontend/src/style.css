@@ -2897,6 +2897,17 @@ html { overflow-x: hidden; }
 .acct-controlbar .acct-bar-more-group { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
 .acct-controlbar[data-fold] .acct-bar-more-panel .acct-bar-label,
 .acct-controlbar[data-fold] .acct-bar-more-panel .acct-bar-label-2 { display: inline; }
+/* Call of 10/27 with Charmi, item 09 ("Anytime I select a filter, it should
+   say stagnant"): a picker's words (PickText) are as wide as its default
+   words, drawn unseen from data-base; whatever is picked sits over them, cut
+   with "..." - so a pick never widens the picker and the bar never folds its
+   buttons' words because of it. Selects do the same with fitSelect's base. */
+.acct-pick { position: relative; display: inline-block; min-width: 0; max-width: 100%; vertical-align: top; text-align: left; }
+.acct-pick::before { content: attr(data-base); display: block; visibility: hidden; white-space: nowrap; overflow: hidden; font-weight: 600; }
+.acct-pick > .acct-pick-text { position: absolute; top: 0; left: 0; right: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-controlbar[data-fold] .acct-bar-more-panel .acct-pick.acct-bar-label-2 { display: inline-block; }
+.acct-controlbar .acct-bar-more-panel .acct-pick { flex: 1 1 auto; }
+.acct-controlbar select { text-overflow: ellipsis; }
 /* A word only the More menu shows (the row has the icon and its tooltip). */
 .acct-controlbar .acct-more-only { display: none; }
 .acct-controlbar .acct-bar-more-panel .acct-more-only { display: inline; }

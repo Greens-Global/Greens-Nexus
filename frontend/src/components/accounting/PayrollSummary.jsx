@@ -166,7 +166,7 @@ export default function PayrollSummary() {
         <EmployeePicker employees={full?.employees || []} value={picked} onChange={setPicked} />
         </BarMore>
         <BarMore level={1} active={as !== PAYROLL_SUMMARY_EMPLOYEES_AS ? 1 : 0}>
-        <select value={as} onChange={(e) => setAs(e.target.value)} aria-label="Layout" style={{ ...control, ...fitSelect(as === 'rows' ? 'Employees as Rows' : 'Employees as Columns') }}>
+        <select value={as} onChange={(e) => setAs(e.target.value)} aria-label="Layout" style={{ ...control, ...fitSelect(as === 'rows' ? 'Employees as Rows' : 'Employees as Columns', { base: 'Employees as Columns' }) }}>
           <option value="columns">Employees as Columns</option>
           <option value="rows">Employees as Rows</option>
         </select>

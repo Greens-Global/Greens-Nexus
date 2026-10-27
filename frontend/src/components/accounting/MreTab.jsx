@@ -500,7 +500,8 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
           <PeriodPicker year={year} onYear={setYear} period={period} onPeriod={setPeriod} custom={custom} onCustom={setCustom2} />
           <BarSearch value={q} onChange={setQ} label="Search a vendor" placeholder="Search a vendor" width={220} />
           <BarMore level={2} active={category ? 1 : 0}>
-          <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" style={{ ...control, ...fitSelect(CATEGORIES.find((c) => c.key === category)?.label || 'All Categories', { max: 220 }) }}>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" title={CATEGORIES.find((c) => c.key === category)?.label || 'All Categories'}
+            style={{ ...control, ...fitSelect(CATEGORIES.find((c) => c.key === category)?.label || 'All Categories', { max: 220, base: 'All Categories' }) }}>
             <option value="">All Categories</option>
             {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>

@@ -19,7 +19,7 @@ import { useColumnWidths, useCustomizePrefs } from './tableHooks';
 import Amount, { Figure } from './Amount';
 import {
   AccountsPicker, BarMore, ClearButton, ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, OpFilter, Pager, PeriodStepper,
-  SavedReportsMenu, control, ControlBar, SyncButton, fitSelect,
+  SavedReportsMenu, control, ControlBar, SyncButton, fitSelect, widest,
 } from './reportControls';
 import { useTableSync } from './tableSync';
 import {
@@ -447,6 +447,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   const def = reportDef(config.report);
   const cols = activeColumns(config);
   const modes = columnModes(config.report, config);
+  // The Columns this screen opens on: a quick view's own (By Customer...), else Total Only.
+  const quick = viewConfig(view);
+  const openCols = (quick?.report === config.report && quick.cols) || (modes.some((m) => m.key === 'total') ? 'total' : modes[0]?.key);
   const showColumns = modes.length > 1 && !(config.book === 'both' && canBothBooks(config));
   const books = useMemo(() => bookOptions(config), [config.report, config.book, booksListed]); // eslint-disable-line react-hooks/exhaustive-deps
   const chips = filterChips(config, entities, dimNames);
@@ -640,11 +643,16 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
 
         {/* Fix 10/24 (item 02): on a row too narrow even for the icons,
             Columns and Book are the second to move into the More menu. */}
-        <BarMore level={2} active={(showColumns && cols !== 'total' ? 1 : 0) + (canPickBook(config) && config.book !== 'accrual' ? 1 : 0)}>
+        {/* More's count is what the person changed: a quick view's own Columns
+            (Income Statement by Customer opens By Customer) is not a change
+            (UI lesson, 10/27). Columns and Book keep one width whatever is
+            picked (10/27 call, item 09). */}
+        <BarMore level={2} active={(showColumns && cols !== openCols ? 1 : 0) + (canPickBook(config) && config.book !== 'accrual' ? 1 : 0)}>
         {showColumns && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
             <span className="acct-bar-label-2">Columns</span>
-            <select value={cols} onChange={(e) => { setCollapsed(new Set()); patch({ cols: e.target.value }); }} aria-label="Columns" style={{ ...select(cols !== 'total'), ...fitSelect(modes.find((m) => m.key === cols)?.label) }}>
+            <select value={cols} onChange={(e) => { setCollapsed(new Set()); patch({ cols: e.target.value }); }} aria-label="Columns" title={modes.find((m) => m.key === cols)?.label}
+              style={{ ...select(cols !== openCols), ...fitSelect(modes.find((m) => m.key === cols)?.label, { base: widest(columnModes(config.report).map((m) => m.label)) }) }}>
               {modes.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
             </select>
           </label>
@@ -653,7 +661,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         {canPickBook(config) && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
             <span className="acct-more-only">Book</span>
-            <select value={config.book} onChange={(e) => patch({ book: e.target.value })} aria-label="Book" style={{ ...select(config.book !== 'accrual'), ...fitSelect(books.find((b) => b.key === config.book)?.label) }}>
+            <select value={config.book} onChange={(e) => patch({ book: e.target.value })} aria-label="Book" style={{ ...select(config.book !== 'accrual'), ...fitSelect(books.find((b) => b.key === config.book)?.label, { base: widest(books.map((b) => b.label)) }) }}>
               {books.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
             </select>
           </label>
@@ -707,7 +715,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         {activity && (
           <BarMore level={6} active={config.accounts.length ? 1 : 0}>
           <select value={config.accounts[0] || ''} onChange={(e) => { closeSearch(); patch({ accounts: e.target.value ? [e.target.value] : [] }); }} aria-label={activity.pick}
-            style={{ ...select(!!config.accounts.length), ...fitSelect(activityLabel, { max: 320 }) }}>
+            title={activityLabel} style={{ ...select(!!config.accounts.length), ...fitSelect(activityLabel, { max: 320, base: `Pick a ${activity.pick}...` }) }}>
             <option value="">{`Pick a ${activity.pick}...`}</option>
             {(shown?.pickable || []).map((a) => <option key={a.code} value={a.code}>{a.title ? `${a.code} ${a.title}` : a.code}</option>)}
           </select>

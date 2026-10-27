@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Database, FileText, FolderOpen, FolderUp, Ma
 import { api } from '../../api';
 import Amount, { Figure, formatAmount, parseAmountInput } from './Amount';
 import { formatDate } from '../../lib/datetime';
-import { BarMore, BarSearch, BarSummary, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, Pager, PeriodStepper, SyncButton, control, fitSelect } from './reportControls';
+import { BarMore, BarSearch, BarSummary, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, Pager, PeriodStepper, SyncButton, control, fitSelect, widest } from './reportControls';
 import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
@@ -568,7 +568,7 @@ export default function LoansTab({ canEdit = false }) {
         <PeriodStepper config={period} period="range" onChange={onPeriod} />
         {view === 'loans' && <>
         <BarMore level={2} active={type !== 'all' ? 1 : 0}>
-        <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Internal or External" style={{ ...control, ...fitSelect(TYPES.find(([k]) => k === type)?.[1]), color: type === 'all' ? 'var(--text-primary)' : 'var(--wk-brand, #2b45e1)' }}>
+        <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Internal or External" style={{ ...control, ...fitSelect(TYPES.find(([k]) => k === type)?.[1], { base: widest(TYPES.map(([, l]) => l)) }), color: type === 'all' ? 'var(--text-primary)' : 'var(--wk-brand, #2b45e1)' }}>
           {TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
         </BarMore>
