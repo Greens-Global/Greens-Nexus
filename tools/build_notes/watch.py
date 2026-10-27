@@ -83,8 +83,8 @@ def describe_batch(notes, sessions):
     return lines
 
 
-def claude_command(ids, claude_args=""):
-    cmd = ["claude"]
+def claude_command(ids, claude_args="", exe="claude"):
+    cmd = [exe]
     if claude_args:
         cmd.extend(shlex.split(claude_args))
     cmd.append("/build-notes " + " ".join(ids))
@@ -93,10 +93,14 @@ def claude_command(ids, claude_args=""):
 
 def run_claude(ids, claude_args, cwd):
     """Run Claude Code in this terminal and return its exit code."""
-    if shutil.which("claude") is None:
+    # The path `which` found, not the bare name: on Windows npm installs
+    # claude.cmd / claude.ps1, and CreateProcess cannot start "claude" by name
+    # (FileNotFoundError, Pranshu Oct 27) - the .cmd's full path it can.
+    exe = shutil.which("claude")
+    if exe is None:
         _say("The `claude` command is not on PATH.")
         return CLAUDE_MISSING
-    cmd = claude_command(ids, claude_args)
+    cmd = claude_command(ids, claude_args, exe)
     _say("Starting Claude Code: " + " ".join(shlex.quote(c) for c in cmd))
     _say("(working directory: " + str(cwd) + ")")
     _say("")

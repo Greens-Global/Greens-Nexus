@@ -555,6 +555,23 @@ class BuildNotesToolsTest(unittest.TestCase):
         finally:
             watch.shutil.which = real_which
 
+    def test_run_claude_starts_the_path_which_found(self):
+        # Windows: npm's claude.cmd starts only by its full path (Oct 27).
+        found = r"C:\Users\me\AppData\Roaming\npm\claude.CMD"
+        real_which, real_run = watch.shutil.which, watch.subprocess.run
+        seen = []
+
+        def fake_run(cmd, **kw):
+            seen.append(cmd)
+            return type("R", (), {"returncode": 0})()
+        watch.shutil.which, watch.subprocess.run = (lambda name: found), fake_run
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(watch.run_claude(["a"], "", self.tmp.name), 0)
+        finally:
+            watch.shutil.which, watch.subprocess.run = real_which, real_run
+        self.assertEqual(seen, [[found, "/build-notes a"]])
+
     def test_watch_uses_the_cli_labels(self):
         self.assertFalse(hasattr(watch, "PRIORITY_LABELS"))
         line = watch.describe_batch([dict(sample_note("http://x", with_media=False), kind="change", priority="nice")], [])[0]
