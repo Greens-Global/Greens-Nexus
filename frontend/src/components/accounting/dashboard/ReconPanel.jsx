@@ -36,6 +36,7 @@ const parseAmount = (s) => {
   const v = Number(t.replace(/[()]/g, ''));
   return Number.isFinite(v) ? (neg ? -v : v) : NaN;
 };
+const linkBtn = { border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3 };
 const statusTone = (s) => (s === 'Reconciled' ? 'ok' : s === 'Difference' || s === 'Behind' ? 'bad' : 'wait');
 const lbl = { fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 };
 const factGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 };
@@ -99,7 +100,7 @@ export default function ReconPanel({ row, entityName, fullLink, onNavigate, canE
           </div>
         </PanelSection>
         {loanId ? <LiabilityRecon loanId={loanId} period={period} canEdit={canEdit} canManage={canManage} onDirty={setDirty} onSaved={onSaved} /> : null}
-        {row.gl ? <LedgerLines gl={row.gl} entity={row.entityCode} period={period} book={book} onOpenEntry={setEntry} />
+        {row.gl ? <LedgerLines gl={row.gl} entity={row.entityCode} entityName={entityName} period={period} book={book} onOpenEntry={setEntry} />
           : <PanelSection title="Ledger Lines" caption="This account has no GL account, so there are no ledger lines to show."><span /></PanelSection>}
       </SidePanel>
       {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
@@ -108,7 +109,7 @@ export default function ReconPanel({ row, entityName, fullLink, onNavigate, canE
 }
 
 // ── The account's ledger lines for the month ────────────────────────────────
-function LedgerLines({ gl, entity, period, book, onOpenEntry }) {
+function LedgerLines({ gl, entity, entityName, period, book, onOpenEntry }) {
   // The answer carries the query it belongs to; another query reads as loading.
   const ask = [gl, entity || '', period, book || 'accrual'].join('|');
   const [got, setGot] = useState({ ask: null, error: '', data: null });
@@ -125,7 +126,7 @@ function LedgerLines({ gl, entity, period, book, onOpenEntry }) {
   const debit = Number(state.data?.debit) || 0;
   const credit = Number(state.data?.credit) || 0;
   return (
-    <PanelSection title="Ledger Lines" caption={`Every line posted to GL ${gl}${entity ? ` in ${entity}` : ''}, ${fmtMDY(mStart(period))} - ${fmtMDY(mEnd(period))}.`}>
+    <PanelSection title="Ledger Lines" caption={`Every line posted to GL ${gl}${entity ? ` in ${entityName || entity}` : ''}, ${fmtMDY(mStart(period))} - ${fmtMDY(mEnd(period))}.`}>
       {state.loading ? <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Reading the ledger...</div>
         : state.error ? <div role="alert" style={{ fontSize: '0.8rem', color: BAD }}>{state.error}</div>
           : !rows.length ? <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Nothing posted to this account this month.</div>
@@ -147,7 +148,7 @@ function LedgerLines({ gl, entity, period, book, onOpenEntry }) {
                       {rows.map((r, i) => (
                         <tr key={r.line_id || `${r.entry_id}-${i}`}>
                           <td style={{ whiteSpace: 'nowrap', fontSize: '0.78rem' }}>{r.entry_date ? fmtMDY(String(r.entry_date).slice(0, 10)) : ''}</td>
-                          <td style={{ whiteSpace: 'nowrap', fontSize: '0.78rem' }}>{r.entry_id ? <button type="button" className="acct-drill" onClick={() => onOpenEntry({ id: r.entry_id, no: r.entry_no })} title="Open this journal entry">{r.entry_no || 'Open'}</button> : r.entry_no}</td>
+                          <td style={{ whiteSpace: 'nowrap', fontSize: '0.78rem' }}>{r.entry_id ? <button type="button" style={linkBtn} onClick={() => onOpenEntry({ id: r.entry_id, no: r.entry_no })} title="Open this journal entry">{r.entry_no || 'Open'}</button> : r.entry_no}</td>
                           <td style={{ fontSize: '0.78rem' }}><div>{r.description || r.memo || '-'}</div>{r.memo && r.description ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.memo}</div> : null}</td>
                           <td style={{ ...num, fontSize: '0.78rem' }}>{Number(r.debit) ? money2(r.debit) : ''}</td>
                           <td style={{ ...num, fontSize: '0.78rem' }}>{Number(r.credit) ? money2(r.credit) : ''}</td>
