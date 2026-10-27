@@ -178,7 +178,7 @@ export async function readPayrollSheets(file) {
       sheets = [await readSheetFile(file)];
     }
   } catch (e) {
-    throw new Error(`Could not open ${name}: ${e?.message || 'the file is damaged or locked'}. Save it again from QuickBooks as Excel (.xlsx) or CSV and upload that copy.`);
+    throw new Error(`Could not open ${name}: ${e?.message || 'the file is damaged or locked'}. Save it again from QuickBooks as Excel (.xlsx) or CSV and upload that copy.`, { cause: e });
   }
   return sheets.map((rows) => {
     const kept = [];

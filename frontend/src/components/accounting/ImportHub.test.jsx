@@ -5,6 +5,11 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 // loading Nexus hours and downloading the QuickBooks IIF, and the
 // QuickBooks Payroll card turning a report into a balanced Intacct import.
 
+// Statement rules the team saved (10/27 item 01): interest in, the AAA autopay out.
+const RULES = vi.hoisted(() => [
+  { id: 'r1', matchText: 'INTEREST PAYMENT', matchType: 'contains', direction: 'in', amount: null, account: '40100', accountName: 'Interest Income', vendorId: '', customerId: '', priority: 100, active: true, notes: '' },
+  { id: 'r2', matchText: 'AAA INSURANCE', matchType: 'contains', direction: 'out', amount: null, account: '61500', accountName: '', vendorId: 'V00037', vendorName: 'AAA Insurance', customerId: '', priority: 100, active: true, notes: '' },
+]);
 const hours = { rows: [
   { email: 'pat@x.com', name: 'Pat Lane', approved: true, finalized: true, employeeCode: 'GG-7', department: 'Ops', company: 'c1', hours: { regular: 72, overtime: 3, doubleTime: 0, sick: 0, vacation: 0, personal: 0 } },
   { email: 'amando@x.com', name: 'Amando Lucero', approved: false, finalized: false, employeeCode: 'GG-9', department: 'Ops', company: 'c1', hours: { regular: 40, overtime: 0, doubleTime: 0, sick: 0, vacation: 0, personal: 0 } },
@@ -15,6 +20,12 @@ vi.mock('../../api', () => ({
     getEntities: vi.fn(async () => [{ id: 'c1', name: 'Sample Co' }]),
     timeExportHours: vi.fn(async () => hours),
     timeExportIifFor: vi.fn(async () => ({ blob: new Blob(['x']), filename: 'timeclock.iif' })),
+    getStatementRules: vi.fn(async () => ({ rules: RULES })),
+    createStatementRule: vi.fn(async (b) => ({ ...b, id: 'new' })),
+    updateStatementRule: vi.fn(async (id, b) => ({ ...b, id })),
+    deleteStatementRule: vi.fn(async () => ({ ok: true })),
+    getAccountingAccounts: vi.fn(async () => ({ accounts: [{ account_no: '62000', title: 'Meals' }, { account_no: '40100', title: 'Interest Income' }] })),
+    getAccountingPartners: vi.fn(async (kind) => ({ partners: kind === 'vendor' ? [{ id: 'V00037', name: 'AAA Insurance' }] : [{ id: 'C00010', name: 'Pat Tenant' }] })),
   },
 }));
 vi.mock('../../stepup/StepUp', () => ({ ensureStepUp: vi.fn(async () => ({ ok: true })), isStepUpRequired: () => false }));
@@ -188,5 +199,65 @@ describe('Import Hub', () => {
     const file = new File(['%PDF'], 'Payroll Summary.pdf', { type: 'application/pdf' });
     fireEvent.change(screen.getByLabelText('QuickBooks payroll file'), { target: { files: [file] } });
     expect(await screen.findByText(/^Payroll Summary\.pdf is not a spreadsheet\./)).toBeTruthy();
+  });
+
+  it('classifies statement lines by the team rules, flags the rest, filters by vendor and saves a line as a rule (10/27 item 01)', async () => {
+    render(<ImportHub />);
+    const csv = 'Date,Description,Amount\n10/01/2026,INTEREST PAYMENT,200.00\n10/02/2026,AAA INSURANCE AUTOPAY,-734.33\n10/03/2026,Coffee,-4.50\n';
+    const file = new File([csv], 'bank.csv', { type: 'text/csv' });
+    file.text = async () => csv;
+    fireEvent.change(screen.getByLabelText('Statement file'), { target: { files: [file] } });
+    const table = await screen.findByRole('table', { name: 'Preview' });
+    await waitFor(() => expect(within(table).getByText('Rule: INTEREST PAYMENT')).toBeTruthy());
+    expect(within(table).getByText('Rule: AAA INSURANCE')).toBeTruthy();
+    expect(screen.getByLabelText('Account for line 1').value).toBe('40100');
+    expect(screen.getByLabelText('Vendor for line 2').value).toBe('V00037');
+    // The coffee line has no rule: flagged, and the download waits for it.
+    expect(screen.getByTestId('unclassified').textContent).toMatch(/1 of 3 lines are not classified/);
+    fireEvent.change(screen.getByPlaceholderText('e.g. 10100'), { target: { value: '10100' } });
+    const download = screen.getByRole('button', { name: /Download Intacct Import/ });
+    expect(download.disabled).toBe(true);
+    expect(screen.getByText(/Still needed: an account for 1 unclassified line\./)).toBeTruthy();
+    // Vendor filter: only the AAA line.
+    fireEvent.change(screen.getByRole('combobox', { name: 'Vendor Filter' }), { target: { value: 'V00037' } });
+    expect(within(table).queryByText('Coffee')).toBeNull();
+    expect(within(table).getByText('AAA INSURANCE AUTOPAY')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    // Classify the coffee line on the line itself, then download.
+    fireEvent.change(screen.getByLabelText('Account for line 3'), { target: { value: '62000' } });
+    expect(screen.queryByTestId('unclassified')).toBeNull();
+    expect(within(table).getByText('Set on the Line')).toBeTruthy();
+    expect(download.disabled).toBe(false);
+    fireEvent.click(download);
+    expect(saved).toEqual(['bank_intacct_je_import.csv']);
+    // Save as Rule: the form comes prefilled from the line and saves for the team.
+    fireEvent.click(screen.getByRole('button', { name: 'Save line 3 as a rule' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Statement Rules' });
+    expect(within(dialog).getByLabelText('Description Holds').value).toBe('Coffee');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add Rule' }));
+    await waitFor(() => expect(api.createStatementRule).toHaveBeenCalled());
+    expect(api.createStatementRule.mock.calls[0][0]).toMatchObject({ matchText: 'Coffee', direction: 'out', amount: null, account: '62000', accountName: 'Meals' });
+    expect(await within(dialog).findByText(/Rule added/)).toBeTruthy();
+  });
+
+  it('lists, edits and deletes the team rules', async () => {
+    api.updateStatementRule.mockClear(); api.deleteStatementRule.mockClear();
+    render(<ImportHub />);
+    const csv = 'Date,Description,Amount\n10/01/2026,INTEREST PAYMENT,200.00\n';
+    const file = new File([csv], 'bank.csv', { type: 'text/csv' });
+    file.text = async () => csv;
+    fireEvent.change(screen.getByLabelText('Statement file'), { target: { files: [file] } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Rules (2)' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Statement Rules' });
+    const list = within(dialog).getByRole('table', { name: 'Rules' });
+    expect(within(list).getByText('INTEREST PAYMENT')).toBeTruthy();
+    expect(within(list).getByText('61500 - Vendor AAA Insurance')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Edit rule INTEREST PAYMENT' }));
+    fireEvent.change(within(dialog).getByLabelText('GL Account'), { target: { value: '40200' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Rule' }));
+    await waitFor(() => expect(api.updateStatementRule).toHaveBeenCalledWith('r1', expect.objectContaining({ account: '40200' })));
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Delete rule AAA INSURANCE' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(api.deleteStatementRule).toHaveBeenCalledWith('r2'));
   });
 });
