@@ -6266,7 +6266,7 @@ export default function HR({ activeSub, onSubChange }) {
 
       {/* Tabs - desktop renders them centered in the top header; phones keep
           the in-page strip (ModuleTabs handles both) */}
-      <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} />
+      <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} overflow />
 
       {codesOpen && (
         <Suspense fallback={<ModalLoading />}>
