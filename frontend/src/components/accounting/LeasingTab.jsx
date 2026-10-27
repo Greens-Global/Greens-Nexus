@@ -18,7 +18,8 @@ import EntryDetail from './EntryDetail';
 import { DateField } from '../../tasks/components';
 import { dialog } from '../../ui/dialog';
 import SidePanel, { PanelSection } from './SidePanel';
-import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths } from './recurringShared';
+import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecheckStatus, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths, useStaleRecheck } from './recurringShared';
+import { CompletenessButton, CompletenessPanel, gapCount, mriGaps, useJumpToRow } from './completeness';
 
 // Accounting -> Leasing: leases and monthly recurring income (Neil and
 // Charmi, Sep 25). Rent was tracked in a workbook and chased by hand; this is
@@ -265,7 +266,7 @@ function rowFigures(row, [from, to]) {
 }
 
 /** Expired / Inactive in words, for the export. */
-const standingText = (r) => [r.expired ? 'Expired' : '', r.customerActive === false ? 'Inactive' : ''].filter(Boolean).join(', ');
+const standingText = (r) => [r.expired ? 'Expired' : '', r.customerActive === false ? 'Inactive' : '', r.lease?.possiblyEnded ? 'Possibly Ended' : ''].filter(Boolean).join(', ');
 /** The team note and the notes written on single months, for the export. */
 const notesText = (r) => [r.lease.teamNote?.text || '', monthNotesText(r)].filter(Boolean).join(' - ');
 /** The rate in force this month (the Amount column). */
@@ -413,6 +414,9 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   useEffect(() => { load(year, entityKey ? entityKey.split(',') : []); }, [year, entityKey, load]);
   useEffect(() => { api.getAccountingLocations().then((d) => setLocations({ entities: d?.entities || [], limited: !!d?.limited })).catch(() => {}); }, []);
   const reload = () => load(year, entities);
+  // 10/27 (Urmi): a new Possibly Ended setting re-checks every source on the
+  // server; when it is done the rent roll is read again (flags, counts, export).
+  const recheck = useStaleRecheck(useCallback(() => withFreshReads(() => load(year, entityKey ? entityKey.split(',') : [])), [load, year, entityKey]));
 
   const span = periodMonths(period, year, custom);
   const [spanFrom, spanTo] = span;
@@ -517,6 +521,27 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
       .finally(() => setSyncing(false));
   };
   const linked = [...(roll?.linked || []), ...(synced?.linked || [])];
+  const possiblyEnded = rollRows.filter((r) => r.lease?.possiblyEnded).length;
+  // 10/27 (Neil, item 07): the completeness check over the entities and the
+  // period picked; a click on a gap shows its source on the Income Roll,
+  // clearing the quick filters that hide it.
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [completeNote, setCompleteNote] = useState('');
+  const [focus, setFocus] = useState(null);
+  const gaps = useMemo(() => mriGaps(roll?.rows, [spanFrom, spanTo]), [roll, spanFrom, spanTo]);
+  const pickGap = (g) => {
+    setCompleteNote('');
+    setSection('roll');
+    const r = (roll?.rows || []).find((x) => x.lease?.id === g.id);
+    if (r && !rollRows.some((x) => x.lease?.id === g.id)) {
+      setQ('');
+      setTenants([]);
+      setTypes([]);
+      setStates([]);
+      if (inactiveRow(r) && !showInactive) setPrefs({ mriShowInactiveLeases: true });
+    }
+    setFocus((f) => ({ id: g.id, n: (f?.n || 0) + 1 }));
+  };
   const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' };
   const noun = (n) => `${n} ${n === 1 ? 'source' : 'sources'}`;
 
@@ -548,6 +573,9 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
           <BarSearch value={q} onChange={setQ} label="Filter by property, payer or account" placeholder="Filter by property, payer or account" width={240} />
           <TableViewBar key={section} view={sectionView} />
           <div className="acct-bar-end">
+            <BarMore level={3} active={gapCount(gaps) ? 1 : 0}>
+            <CompletenessButton count={gapCount(gaps)} open={completeOpen} onClick={() => setCompleteOpen((o) => !o)} />
+            </BarMore>
             <BarMore level={1} active={showInactive ? 1 : 0}>
             <CustomizeButton {...cz} active={showInactive}>
               {[['mriShowInactiveLeases', showInactive, 'Show Inactive Leases', 'Ended, expired and vacant leases, and payers inactive in Intacct. The text filter finds them either way.']].map(([k, on, text, hint]) => (
@@ -557,7 +585,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
                 </label>
               ))}
             </CustomizeButton>
-            {canDelete && <RecurringSettingsButton onChecked={reload} />}
+            {canDelete && <RecurringSettingsButton onChecked={reload} recheck={recheck} />}
             </BarMore>
             <BarMore level={5}>
             <ExportMenu disabled={!roll} items={[
@@ -596,6 +624,8 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
           <span>Received <strong><Amount value={figures.received} /></strong></span>
           <span title="Expected less received. A credit (in parentheses) is a prepayment.">Balance <strong style={{ color: figures.balance > 0.005 ? 'var(--bad-fg, #dc2626)' : figures.balance < -0.005 ? 'var(--ok-fg, #15803d)' : undefined }}><Amount value={figures.balance} /></strong>{figures.balance < -0.005 ? <span style={{ color: 'var(--ok-fg, #15803d)' }}> Credit</span> : null}</span>
           <span style={{ color: 'var(--text-muted)' }}>{periodLabel} · {noun(rollRows.length)}{rollView.count ? ` of ${rows.length} (filtered)` : ''}{hidden && !q.trim() ? ` · ${hidden} inactive ${hidden === 1 ? 'lease' : 'leases'} hidden (Customize)` : ''}</span>
+          {possiblyEnded > 0 && <span data-testid="possibly-ended-count">{possiblyEnded} Possibly Ended</span>}
+          <RecheckStatus recheck={recheck} />
         </div>
 
         {error && <div style={bad}>{error}</div>}
@@ -624,12 +654,17 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
         {loading ? <SkeletonBlocks count={4} /> : (
           <div>
             {section === 'roll' && <RentRoll view={rollView} rows={rollRows} span={span} figures={figures} year={year} thisMonth={thisMonth} py={py} onCell={(row, month) => setCell({ row, month })} onLease={(l) => setEditing({ lease: l })} any={(roll?.rows || []).length + accountRows.length > 0} canEdit={canEdit} onNote={updateNote}
-              pageSize={pageSize} pageKey={pageKey} onDrillAccount={drillAccount} onDrillLease={drillLease} />}
+              pageSize={pageSize} pageKey={pageKey} onDrillAccount={drillAccount} onDrillLease={drillLease}
+              focus={focus} onMissing={() => setCompleteNote("That source is hidden by the table view's filters. Clear them in the bar to see it.")} />}
             {section === 'outstanding' && <Outstanding view={outView} rows={outView.rows} year={year} py={py} pageSize={pageSize} pageKey={pageKey} />}
             {section === 'tenants' && <Tenants view={payersView} rows={payersView.rows} py={py} canEdit={canEdit} pageSize={pageSize} pageKey={pageKey} onEdit={(l) => setEditing({ lease: l })} onReplace={(l) => setEditing({ lease: { ...blank(l.incomeType || 'lease'), propertyName: l.propertyName, region: l.region, tenancy: l.tenancy, landlord: l.landlord, entityCode: l.entityCode, incomeAccounts: l.incomeAccounts, lateFee: l.lateFee, dueDay: l.dueDay, graceDays: l.graceDays }, replacing: l })} />}
           </div>
         )}
       </div>
+      {completeOpen && !editing && (
+        <CompletenessPanel caption={`MRI · ${entityLabel} · ${periodLabel}`} groups={gaps} note={completeNote} onPick={pickGap} onClose={() => setCompleteOpen(false)}
+          rule="A gap is a month that is over and reads Unpaid with no note on it, or an active source with no amount or no frequency. Ended and vacant sources are left out." />
+      )}
       {cell && <MonthDetail cell={cell} canEdit={canEdit} onClose={() => setCell(null)} onSaved={() => { setCell(null); reload(); }} />}
       {editing && <LeaseEditor key={`${editing.lease.id || `new-${editing.lease.incomeType}`}|${editing.replacing?.id || ''}`} lease={editing.lease} replacing={editing.replacing} canDelete={canDelete}
         onDirty={(d) => { editorDirty.current = d; }} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
@@ -855,8 +890,9 @@ function useFitToScreen(ref, active) {
 // menu (sort, filter, width, move, hide), the funnel a value list - and the
 // cells and the Received line follow its column order; the property stays
 // pinned first.
-function RentRoll({ view, rows, span, figures, year, thisMonth, py, onCell, onLease, any, canEdit, onNote, pageSize = 0, pageKey = '', onDrillAccount = null, onDrillLease = null }) {
+function RentRoll({ view, rows, span, figures, year, thisMonth, py, onCell, onLease, any, canEdit, onNote, pageSize = 0, pageKey = '', onDrillAccount = null, onDrillLease = null, focus = null, onMissing = null }) {
   const paged = usePaged(rows, pageSize, pageKey);
+  useJumpToRow(focus, rows, (r) => r.lease?.id, paged, pageSize, onMissing);
   const wrapRef = useRef(null);
   const fitHeight = useFitToScreen(wrapRef, rows.length > 0);
   if (!rows.length) {
@@ -956,7 +992,7 @@ function RentRoll({ view, rows, span, figures, year, thisMonth, py, onCell, onLe
                 )];
               }));
               return (
-                <tr key={l.id} style={r.expired || r.customerActive === false ? { color: 'var(--text-secondary)' } : undefined}>
+                <tr key={l.id} data-row-id={l.id} style={r.expired || r.customerActive === false ? { color: 'var(--text-secondary)' } : undefined}>
                   {viewCells(view, {
                     property: propertyCell(
                       <>

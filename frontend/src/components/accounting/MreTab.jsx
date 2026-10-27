@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, FolderOpen, FolderSearch, FolderUp, Mail, MapPin, Pencil, Phone, X } from 'lucide-react';
-import { api } from '../../api';
+import { api, withFreshReads } from '../../api';
 import Amount, { AmountInput, formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
@@ -18,7 +18,8 @@ import { ScanOutcome, ScanProgress, entitiesScannedText, mergeScans, useLedgerSc
 import AddMenu from './AddMenu';
 import AnchoredMenu from '../AnchoredMenu';
 import { EgnyteField } from './LoanDialogs';
-import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths } from './recurringShared';
+import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecheckStatus, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths, useStaleRecheck } from './recurringShared';
+import { CompletenessButton, CompletenessPanel, gapCount, mreGaps, useJumpToRow } from './completeness';
 
 export { CUSTOM_MAX_MONTHS, frequencyLabel, stepMonths };
 
@@ -108,6 +109,24 @@ export function dueInMonth(line, year, month) {
   if (step === 1 || !start) return true;
   const idx = (m) => Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1;
   return (idx(key) - idx(start)) % step === 0;
+}
+
+// 10/27 (Charmi): an Annual / Semi-Annual / Quarterly line is settled by one
+// charge anywhere in its calendar year / half / quarter (the API's
+// period_cells); Missed only once the period is over with nothing posted.
+const PERIOD_HINT = {
+  annual: 'One charge in any month of the year (Jan - Dec) settles it. Missed only after December with nothing posted.',
+  semi_annual: 'One charge in each half (Jan - Jun, Jul - Dec) settles it. Missed only after a half ends with nothing posted.',
+  quarterly: 'One charge in each quarter settles it. Missed only after a quarter ends with nothing posted.',
+};
+
+/** A month's tooltip: what it reads, and for a periodic line what its period expects and got. */
+export function monthTitle(cell, statusLabel) {
+  const base = `${monthLabel(cell.month)} - ${statusLabel}.`;
+  const p = cell.period;
+  if (!p) return `${base} Expected ${formatAmount(cell.expected)}, paid ${formatAmount(cell.paid)}.`;
+  const span = p.from === p.to ? monthLabel(p.from) : `${monthLabel(p.from)} - ${monthLabel(p.to)}`;
+  return `${base} One charge any month ${span} settles it: expected ${formatAmount(p.expected)}, paid ${formatAmount(p.paid)} in the period${cell.paid ? ` (${formatAmount(cell.paid)} this month)` : ''}.`;
 }
 
 /** Vendor number on the LEFT of the name (Oct 14, item 7): "V-SDGE - San Diego Gas & Electric". */
@@ -206,6 +225,9 @@ export function mreFilterColumns(extra = [], span = [0, 11]) {
   ];
 }
 
+/** Ended / Inactive / Possibly Ended - the chips beside the vendor, for the export (10/27: the export follows a re-check). */
+export const lineStanding = (r) => [r.line.status === 'ended' ? 'Ended' : '', r.vendorInactive ? 'Inactive' : '', r.line.possiblyEnded ? 'Possibly Ended' : ''].filter(Boolean).join(', ');
+
 // The grid's columns for the standard table view (10/23 meeting, item 01):
 // the filter columns above, typed for the rules (amounts) and the value lists,
 // the vendor pinned first and sorting by name (Urmi, 10/22), each with what
@@ -215,7 +237,7 @@ function mreViewColumns(extra = [], span = [0, 11]) {
   return mreFilterColumns(extra, span).map((c) => {
     if (c.key === 'vendor') {
       return { ...c, fixed: true, text: (r) => vendorLabel(r.line.vendorId, r.line.vendorName), sortBy: (r) => (r.line.vendorName || r.line.vendorId || '').toLowerCase(),
-        exportAs: [{ label: 'Vendor No.', width: 80, get: (r) => r.line.vendorId }, { label: 'Vendor', width: 200, get: (r) => r.line.vendorName }] };
+        exportAs: [{ label: 'Vendor No.', width: 80, get: (r) => r.line.vendorId }, { label: 'Vendor', width: 200, get: (r) => r.line.vendorName }, { label: 'Status', width: 100, get: lineStanding }] };
     }
     if (c.key === 'entity') return { ...c, text: (r) => `${r.line.entityCode || ''} ${r.line.entityName || ''}`.trim(), exportAs: [{ label: 'Entity', width: 170, get: (r) => `${r.line.entityName} (${r.line.entityCode})` }] };
     if (c.key === 'category') return { ...c, exportAs: [{ label: 'Category', width: 100, get: (r) => CATEGORY[r.line.category] || 'Other' }, { label: 'Frequency', width: 80, get: (r) => frequencyLabel(r.line) }] };
@@ -384,6 +406,10 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   // 10/23 meeting, item 13: Sync reads the grid again past the server's cache;
   // the rows, the filters, the sort and an open popup stay while it does.
   const ts = useTableSync(load);
+  // 10/27 (Urmi): a new Possibly Ended setting re-checks every line on the
+  // server; when it is done the grid is read again, so the flags, the count
+  // and the export follow without a reload or a Sync.
+  const recheck = useStaleRecheck(useCallback(() => withFreshReads(load), [load]));
 
   const span = periodMonths(period, year, custom);
   const [spanFrom, spanTo] = span;
@@ -447,6 +473,26 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
     }
   };
   const hidden = (data?.rows || []).length - rows.length;
+  const possiblyEnded = rows.filter((r) => r.line.possiblyEnded).length;
+  // 10/27 (Neil, item 07): the completeness check - gaps for the entities and
+  // the period picked (not the search or the column filters); a click on one
+  // shows its line, clearing the quick filters that hide it.
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [completeNote, setCompleteNote] = useState('');
+  const [focus, setFocus] = useState(null);
+  const gaps = useMemo(() => mreGaps(data?.rows, [spanFrom, spanTo]), [data, spanFrom, spanTo]);
+  const pickGap = (g) => {
+    setCompleteNote('');
+    const r = (data?.rows || []).find((x) => x.line.id === g.id);
+    if (r && !rows.some((x) => x.line.id === g.id)) {
+      setQ('');
+      setCategory('');
+      setTyped({});
+      if (!r.paidTotal && !r.expectedYear) setShowZero(true);
+      if (r.vendorInactive && !showInactive) setPrefs({ mreShowInactive: true });
+    }
+    setFocus((f) => ({ id: g.id, n: (f?.n || 0) + 1 }));
+  };
 
   return (
     <AsyncSection loading={data === null} skeleton={<SkeletonBlocks count={4} />}>
@@ -469,6 +515,9 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
           </BarMore>
           <TableViewBar view={view} />
           <div className="acct-bar-end">
+            <BarMore level={3} active={gapCount(gaps) ? 1 : 0}>
+            <CompletenessButton count={gapCount(gaps)} open={completeOpen} onClick={() => setCompleteOpen((o) => !o)} />
+            </BarMore>
             <BarMore level={4}>
             <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
             </BarMore>
@@ -493,7 +542,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
               { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
             ]} />
             </BarMore>
-            {canDelete && <BarMore level={1}><RecurringSettingsButton onChecked={load} /></BarMore>}
+            {canDelete && <BarMore level={1}><RecurringSettingsButton onChecked={load} recheck={recheck} /></BarMore>}
             {canEdit && (
               <AddMenu ariaLabel="Add a recurring expense" items={[
                 { key: 'manual', label: 'Manual', hint: 'One vendor, accounts and amount by hand', Icon: Pencil, onPick: () => setEditing(blankLine(picked[0], entities)) },
@@ -508,6 +557,8 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
           <span>Paid to Date <strong><Amount value={sum.paidToDate} /></strong></span>
           <span>Balance <strong style={{ color: sum.balance > 0.5 ? 'var(--bad-fg, #dc2626)' : undefined }}><Amount value={sum.balance} /></strong></span>
           <span>{sum.missed || 0} {sum.missed === 1 ? 'line' : 'lines'} with a missed month</span>
+          {possiblyEnded > 0 && <span data-testid="possibly-ended-count">{possiblyEnded} Possibly Ended</span>}
+          <RecheckStatus recheck={recheck} />
           <Legend />
         </div>
 
@@ -537,6 +588,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
           <Grid view={view} filterColumns={filterColumns} typed={typed} onTyped={(k, v) => setTyped((t) => ({ ...t, [k]: v }))}
             rows={rows} totals={data?.totals || []} year={year} density={density} loading={loading} canEdit={canEdit} span={span}
             pageSize={customize.pageSize} pageKey={[year, picked, q, category, showEnded, showInactive, showZero, period, spanFrom, spanTo, JSON.stringify(view.state), JSON.stringify(typed)]} onLines={setLines}
+            focus={focus} onMissing={() => setCompleteNote("That line is hidden by the table view's filters. Clear them in the bar to see it.")}
             onEdit={(l) => setEditing(l)} onNotes={(id, notes) => api.setMreNotes(id, notes).then((line) => setData((d) => ({ ...d, rows: d.rows.map((r) => (r.line.id === id ? { ...r, line } : r)) })))} />
         )}
       </div>
@@ -546,6 +598,10 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
           onSaved={savedLine} />
       )}
       {lines && <LedgerLines {...lines} onClose={() => setLines(null)} />}
+      {completeOpen && (
+        <CompletenessPanel caption={`MRE · ${entityLabel} · ${periodLabel}`} groups={gaps} note={completeNote} onPick={pickGap} onClose={() => setCompleteOpen(false)}
+          rule="A gap is a month that is over and reads Missed while the line has no note, or a line with no expected amount or no frequency. Ended lines are left out." />
+      )}
       {sending && (
         <SendReportDialog mode={sending} title={`Monthly Recurring Expenses ${year}`} baseName={`Monthly Recurring Expenses - ${year}`} what="lines"
           makeFile={async (format, name) => linesFile(table(), format, name)}
@@ -579,7 +635,7 @@ function Legend() {
 // menu (sort, filter, width, move, hide), the funnel a value list - and the
 // columns, the filter boxes under them and the Total Paid line follow the
 // view's order; the Vendor column stays pinned first.
-function Grid({ view, filterColumns = [], typed = {}, onTyped = null, rows, totals, year, density, loading, canEdit, onEdit, onNotes, pageSize = 0, pageKey = '', onLines = null, span = [0, 11] }) {
+function Grid({ view, filterColumns = [], typed = {}, onTyped = null, rows, totals, year, density, loading, canEdit, onEdit, onNotes, pageSize = 0, pageKey = '', onLines = null, span = [0, 11], focus = null, onMissing = null }) {
   const [box, setBox] = useState(null);
   const fit = useFitHeight(box);
   const [from, to] = span;
@@ -589,6 +645,7 @@ function Grid({ view, filterColumns = [], typed = {}, onTyped = null, rows, tota
   const w = (k) => view.manualWidth(k);
   // Rows per Page: this page's lines; the Total Paid row adds up every line.
   const paged = usePaged(rows, pageSize, pageKey);
+  useJumpToRow(focus, rows, (r) => r.line.id, paged, pageSize, onMissing);
   const totalPaid = rows.reduce((s, r) => s + spanFigures(r, span).paid, 0);
   const totalBalance = rows.reduce((s, r) => s + spanFigures(r, span).balance, 0);
   const monthPaid = Object.fromEntries(idx.map((i) => [i, rows.reduce((s, r) => s + (r.months[i]?.paid || 0), 0)]));
@@ -639,7 +696,7 @@ function Grid({ view, filterColumns = [], typed = {}, onTyped = null, rows, tota
                 style={w(k) ? cellStyle(w(k)) : { maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{optionalValue(r.line, k)}</td>
             )]));
             return (
-              <tr key={r.line.id}>
+              <tr key={r.line.id} data-row-id={r.line.id}>
                 {viewCells(view, {
                   vendor: (
                     <td className="acct-label" style={w('vendor') ? cellStyle(w('vendor')) : { maxWidth: 260 }}>
@@ -780,7 +837,7 @@ function MonthCell({ cell, width, onOpen = null }) {
       </td>
     );
   }
-  const title = `${monthLabel(cell.month)} - ${st.label}. Expected ${formatAmount(cell.expected)}, paid ${formatAmount(cell.paid)}.`;
+  const title = monthTitle(cell, st.label);
   const shown = cell.status === 'missed' ? 'Missed' : cell.status === 'upcoming' && !cell.paid ? <Amount value={cell.expected} zero="dash" /> : <Amount value={cell.paid} zero="dash" />;
   return (
     <td className="acct-num" title={title} aria-label={title} data-status={cell.status}
@@ -1039,7 +1096,9 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
               <select id="mre-frequency" value={l.frequency} onChange={(e) => set({ frequency: e.target.value, ...(e.target.value === 'custom' && !(Number(l.frequencyMonths) >= 1) ? { frequencyMonths: 2 } : {}) })} style={{ ...control, width: '100%' }}>
                 {Object.entries(FREQUENCY).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
-              {l.startDate && dueMonths.length > 0 && dueMonths.length < 12 && <span style={hint}>Due in {thisYear}: {dueMonths.join(', ')}.</span>}
+              {PERIOD_HINT[l.frequency]
+                ? <span style={hint}>{PERIOD_HINT[l.frequency]}</span>
+                : l.startDate && dueMonths.length > 0 && dueMonths.length < 12 && <span style={hint}>Due in {thisYear}: {dueMonths.join(', ')}.</span>}
             </div>
             {l.frequency === 'custom' && (
               <div>

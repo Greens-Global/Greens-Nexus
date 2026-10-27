@@ -261,7 +261,10 @@ def _line_out(l: models.PfsLine) -> dict:
             "ledgerAccounts": l.ledger_accounts if isinstance(l.ledger_accounts, list) else [],
             "manualValue": float(l.manual_value or 0), "manualAsOf": l.manual_as_of or "",
             "details": details, "sort": l.sort or 0, "notes": l.notes or "",
-            "shareFrom": "affiliated" if details.get("shareFrom") == "affiliated" else "manual"}
+            "shareFrom": "affiliated" if details.get("shareFrom") == "affiliated" else "manual",
+            # 10/27 (Neil, completeness check): when the line was last saved - a
+            # figure kept by hand that nobody has touched in 90 days is a gap.
+            "updatedAt": l.updated_at or ""}
 
 
 class ProfileBody(BaseModel):
