@@ -5,6 +5,8 @@ import { Modal } from '../../tasks/components';
 import Amount from './Amount';
 import { control } from './reportControls';
 import { FORM, SCHEDULE_C_LINES, SKIP, lineText } from './scheduleC';
+import { ColumnFilterRow, useColumnFilters } from './columnFilters';
+import { filterCellOf } from './viewFilterColumns';
 
 // Schedule C (Draft) -> Line Mapping (10/27 triage item 18): which Schedule C
 // line each income statement account adds into, for the entity on the report
@@ -23,6 +25,16 @@ const SHOW = [
 ];
 const SOURCE = { entity: 'This entity', all: 'Every entity', suggested: 'Suggested', '': 'Not mapped' };
 const SECTION = { revenue: 'Revenue', cogs: 'Cost of Sales', expense: 'Operating Expenses', other_income: 'Other Income', other_expense: 'Other Expenses' };
+// 10/27: a filter box under every heading (columnFilters.jsx, as on MRE). The
+// Line box reads what the row's Line box shows, a change not yet saved included.
+const COLUMNS = (shownLine) => [
+  { key: 'account', label: 'Account', text: (r) => `${r.code || ''} ${r.title || ''}` },
+  { key: 'section', label: 'Section', text: (r) => SECTION[r.section] || r.section || '' },
+  { key: 'amount', label: 'Amount', num: true, value: (r) => Number(r.amount) || 0 },
+  { key: 'today', label: 'Adds Into Today', text: (r) => (r.line ? `${lineText(r.line)} ${SOURCE[r.source] || ''}` : 'Not mapped') },
+  { key: 'line', label: 'Line', text: shownLine },
+];
+const filterCell = filterCellOf();
 
 export default function ScheduleCMapping({ rows = [], entity = '', entityLabel = '', canEdit = true, onClose, onSaved }) {
   const [draft, setDraft] = useState({});   // code -> line ('' = clear this scope's line)
@@ -33,6 +45,8 @@ export default function ScheduleCMapping({ rows = [], entity = '', entityLabel =
   // What this scope saved: an entity's own line, or (no entity) the every-entity line.
   const own = (r) => (entity ? (r.source === 'entity' ? r.line : '') : (r.source === 'all' ? r.line : ''));
   const pick = (r) => (r.code in draft ? draft[r.code] : own(r));
+  // The Line box's first choice: nothing saved in this scope.
+  const emptyLine = (r) => (entity && (r.source === 'all') ? `As Every Entity: Line ${r.line === SKIP ? '-' : r.line}` : r.suggested ? `Suggested: Line ${r.suggested}` : 'Not Mapped');
   const changed = Object.entries(draft).filter(([code, line]) => {
     const r = rows.find((x) => x.code === code);
     return r && line !== own(r);
@@ -46,6 +60,9 @@ export default function ScheduleCMapping({ rows = [], entity = '', entityLabel =
     return rows.filter((r) => (show === 'all' || (show === 'unmapped' ? !r.line : show === 'suggested' ? r.source === 'suggested' : r.source === 'entity' || r.source === 'all'))
       && (!s || `${r.code} ${r.title} ${lineText(r.line)}`.toLowerCase().includes(s)));
   }, [rows, q, show]);
+  const columns = useMemo(() => COLUMNS((r) => (pick(r) ? lineText(pick(r)) : emptyLine(r))), [draft, entity]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filters = useColumnFilters(shown, columns);
+  const listed = filters.rows;
   const acceptSuggestions = () => setDraft((d) => {
     const next = { ...d };
     rows.forEach((r) => { if (r.source === 'suggested' && r.suggested && !(r.code in d)) next[r.code] = r.suggested; });
@@ -105,9 +122,10 @@ export default function ScheduleCMapping({ rows = [], entity = '', entityLabel =
           <table className="acct-lines acct-sticky-head" style={{ width: '100%', tableLayout: 'auto' }}>
             <thead>
               <tr><th scope="col">Account</th><th scope="col">Section</th><th scope="col" className="acct-num">Amount</th><th scope="col">Adds Into Today</th><th scope="col">Line</th></tr>
+              <ColumnFilterRow columns={columns} typed={filters.typed} onChange={filters.setFilter} cellProps={filterCell} />
             </thead>
             <tbody>
-              {shown.map((r) => (
+              {listed.map((r) => (
                 <tr key={r.code || r.title}>
                   <td style={{ whiteSpace: 'normal', minWidth: 150 }}><span className="acct-code">{r.code}</span> {r.title}</td>
                   <td style={{ color: 'var(--text-secondary)', whiteSpace: 'normal', maxWidth: 110 }}>{SECTION[r.section] || r.section}</td>
@@ -119,7 +137,7 @@ export default function ScheduleCMapping({ rows = [], entity = '', entityLabel =
                   <td>
                     <select value={pick(r)} disabled={!canEdit || !r.code} onChange={(e) => setDraft((d) => ({ ...d, [r.code]: e.target.value }))}
                       aria-label={`Line for ${r.code} ${r.title}`} style={{ ...control, width: 170, maxWidth: 170, fontWeight: r.code in draft ? 600 : 400 }}>
-                      <option value="">{entity && (r.source === 'all') ? `As Every Entity: Line ${r.line === SKIP ? '-' : r.line}` : r.suggested ? `Suggested: Line ${r.suggested}` : 'Not Mapped'}</option>
+                      <option value="">{emptyLine(r)}</option>
                       <optgroup label="Part I - Income">
                         {SCHEDULE_C_LINES.filter((l) => l.part === 1).map((l) => <option key={l.line} value={l.line}>{lineText(l.line)}</option>)}
                       </optgroup>
@@ -131,8 +149,8 @@ export default function ScheduleCMapping({ rows = [], entity = '', entityLabel =
                   </td>
                 </tr>
               ))}
-              {!shown.length && (
-                <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: 18 }}>{rows.length ? 'No account matches.' : 'No income statement accounts with activity in this period.'}</td></tr>
+              {!listed.length && (
+                <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: 18 }}>{!rows.length ? 'No income statement accounts with activity in this period.' : filters.filtering && shown.length ? 'Nothing matches these column filters.' : 'No account matches.'}</td></tr>
               )}
             </tbody>
           </table>

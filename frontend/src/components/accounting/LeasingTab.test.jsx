@@ -52,7 +52,11 @@ vi.mock('../../api', () => ({
   withFreshReads: vi.fn((fn) => fn()),
 }));
 
+// Export hands its file to downloadBlob; caught here so a test can read what was written (10/27).
+vi.mock('./reportModel', async (importOriginal) => ({ ...(await importOriginal()), downloadBlob: vi.fn() }));
+
 import LeasingTab, { leaseTermLabel, parseLeaseTerm, fitRollHeight } from './LeasingTab';
+import { downloadBlob } from './reportModel';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -876,5 +880,105 @@ describe('LeasingTab - side panel (10/23)', () => {
     fireEvent.click(screen.getByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
     await waitFor(() => expect(within(screen.getByRole('dialog', { name: 'Change lease' })).getByLabelText('Property or Space').value).toBe('910 SECR - Ste 100, San Clemente'));
     ask.mockRestore();
+  });
+});
+
+// 10/27: a filter box under every heading on all three tables (columnFilters.jsx,
+// as on MRE): typing narrows the rows, the figures follow, and Export writes
+// only what the boxes leave.
+describe('LeasingTab - column filter boxes (10/27)', () => {
+  const csvOf = async () => {
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalled());
+    const file = downloadBlob.mock.calls[downloadBlob.mock.calls.length - 1][1];
+    return new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
+  };
+  const exportCsv = async () => {
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    return csvOf();
+  };
+
+  it('Income Roll: a box narrows the rows and the Received line, an amount box compares, and Export follows', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    const table = document.querySelector('.acct-roll');
+    // The boxes sit in the pinned heading block, the Property box pinned left with its heading.
+    const box = screen.getByRole('textbox', { name: 'Filter Property or Source' });
+    expect(table.querySelector('thead').contains(box)).toBe(true);
+    expect(box.closest('td').className).toBe('acct-head');
+    expect(table.classList.contains('acct-sticky-head')).toBe(true);
+    // The Property box also finds the payer under the name.
+    fireEvent.change(box, { target: { value: 'santos' } });
+    expect(screen.queryByText('910 SECR - Ste 100, San Clemente')).toBeNull();
+    expect(screen.getByText('47385 RCR, Temecula')).toBeTruthy();
+    expect(screen.getByText(/Received - 1 source/)).toBeTruthy();
+    expect(screen.getByText(/1 source of 2 \(filtered\)/)).toBeTruthy();
+    fireEvent.change(box, { target: { value: '' } });
+    // Balance > 0: San Clemente only (Temecula is paid up).
+    fireEvent.change(screen.getByRole('combobox', { name: 'Operator for Balance' }), { target: { value: '>' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Balance' }), { target: { value: '0' } });
+    expect(screen.queryByText('47385 RCR, Temecula')).toBeNull();
+    const text = await exportCsv();
+    expect(text).toContain('910 SECR - Ste 100, San Clemente');
+    expect(text).not.toContain('Temecula');
+  });
+
+  it('Income Roll: nothing left keeps the table and its boxes, with a way to clear them', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Type' }), { target: { value: 'cam' } });
+    expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Filter Type' }).value).toBe('cam');
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Column Filters' }));
+    expect(screen.getByText('910 SECR - Ste 100, San Clemente')).toBeTruthy();
+    expect(screen.getByText('47385 RCR, Temecula')).toBeTruthy();
+  });
+
+  it('Outstanding: its own boxes narrow who is behind, the total follows, and Export writes only them', async () => {
+    const behindToo = { ...roll.rows[1], monthsBehind: 1, owed: 400, lateFees: 0, months: months([cell('01', 'paid', 3200), cell('02', 'short', 2800)]) };
+    api.getLeasingRentRollFor.mockResolvedValue({ ...roll, rows: [roll.rows[0], behindToo] });
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: /^Outstanding/ }));
+    await screen.findByText(/Total Outstanding - 2 tenants/);
+    expect(screen.queryByRole('textbox', { name: 'Filter Write' })).toBeNull();     // no box over the action column
+    fireEvent.change(screen.getByRole('combobox', { name: 'Operator for Balance Due' }), { target: { value: '>' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Balance Due' }), { target: { value: '1000' } });
+    expect(screen.getByText(/Total Outstanding - 1 tenant/)).toBeTruthy();
+    expect(screen.queryByText('47385 RCR, Temecula')).toBeNull();
+    let text = await exportCsv();
+    expect(text).toContain('910 SECR - Ste 100, San Clemente');
+    expect(text).not.toContain('Temecula');
+    // A text box stacks on top: Payer "santos" leaves no one.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Payer' }), { target: { value: 'santos' } });
+    expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Balance Due' }), { target: { value: '' } });
+    expect(screen.getByText('47385 RCR, Temecula')).toBeTruthy();
+    downloadBlob.mockClear();
+    text = await exportCsv();
+    expect(text).toContain('Temecula');
+    expect(text).not.toContain('910 SECR');
+  });
+
+  it('Payers: its own boxes, the customer code found in the Payer box, and Export follows', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: /^Payers/ }));
+    await screen.findByText('47385 RCR, Temecula');
+    // This table has its own boxes.
+    expect(screen.getByRole('textbox', { name: 'Filter Landlord' })).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Payer' }), { target: { value: 'C00497' } });
+    expect(screen.queryByText('910 SECR - Ste 100, San Clemente')).toBeNull();
+    expect(screen.getByText('47385 RCR, Temecula')).toBeTruthy();
+    const text = await exportCsv();
+    expect(text).toContain('Temecula');
+    expect(text).not.toContain('910 SECR');
+    // Deposit = 5,500 matches both; a date box searches the dates as shown.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Payer' }), { target: { value: '' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Deposit' }), { target: { value: '5500' } });
+    expect(screen.getByText('910 SECR - Ste 100, San Clemente')).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Filter Dates' }).placeholder).toBe('MM/DD/YYYY');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Dates' }), { target: { value: '02/01/2026' } });
+    expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
   });
 });
