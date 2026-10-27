@@ -7,6 +7,7 @@ import { BarMore, BarSearch, BarSummary, ControlBar, CustomizeButton, DENSITIES,
 import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
+import { ColumnFilterRow, useColumnFilters } from './columnFilters';
 import { cellStyle, headStyle } from './columnStyles';
 import { requestReportDrill } from './drill';
 import AddMenu from './AddMenu';
@@ -228,6 +229,24 @@ function loanColumns(canEdit) {
     ...(canEdit ? [{ key: 'actions', label: 'Actions', fixed: true, noFilter: true, noSort: true, exportAs: [], text: () => '' }] : []),
   ];
 }
+
+// The box under every heading (columnFilters.jsx, chat triage 10/27): "contains"
+// for the words, =, >, <, >=, <= and Between for the figures, Rate and DSCR;
+// Maturity as it reads (MM/DD/YYYY). The arrow and the row buttons get none.
+export const LOAN_FILTERS = loanColumns(true).filter((c) => !c.noFilter).map((c) => ({
+  key: c.key, label: c.label, text: c.text,
+  ...(c.type === 'amount' || c.type === 'number' ? { num: true, value: c.value } : null),
+  ...(c.type === 'date' ? { placeholder: 'MM/DD/YYYY' } : null),
+}));
+// The filter row's look (the shared row draws plain cells; req-table has no rule for them).
+const FILTER_CSS = `
+        .acct-loans .acct-filter-row td { padding: 3px 4px 4px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); }
+        .acct-loans .acct-filter-row input, .acct-loans .acct-filter-row select { width: 100%; min-width: 0; box-sizing: border-box; height: 24px; padding: 0 6px; border: 1px solid var(--border-color); border-radius: 6px; font: inherit; font-size: 12px; font-weight: 400; background: var(--bg-card); color: var(--text-primary); }
+        .acct-loans .acct-filter-row input::placeholder { color: var(--text-muted); opacity: .7; }
+        .acct-loans .acct-filter-row input:not(:placeholder-shown) { border-color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }
+        .acct-loans .acct-op-filter { display: flex; gap: 3px; align-items: center; min-width: 110px; }
+        .acct-loans .acct-op-filter select { width: auto; flex: 0 0 auto; padding: 0 2px; }
+        .acct-loans .acct-op-filter input { flex: 1 1 auto; min-width: 48px; text-align: right; }`;
 
 /** The export's columns (round 3, Charmi 10/06): the columns shown, in their
  *  order, then each `alwaysExport` detail column that is hidden, in setup
@@ -463,7 +482,10 @@ export default function LoansTab({ canEdit = false }) {
   // box and Show Closed leave; the totals, By Lender / By Entity, the
   // maturities and the export follow it.
   const columns = useMemo(() => loanColumns(canEdit), [canEdit]);
-  const tv = useTableView('loans', columns, filtered);
+  // The boxes under the headings narrow what the type, the filter box and
+  // Show Closed leave; the view, the totals and the export follow them.
+  const boxes = useColumnFilters(filtered, LOAN_FILTERS);
+  const tv = useTableView('loans', columns, boxes.rows);
   const rows = tv.rows;
   const closedCount = all.filter((r) => r.closed).length;
   const hiddenClosed = showClosed ? 0 : closedCount;
@@ -473,7 +495,7 @@ export default function LoansTab({ canEdit = false }) {
   const entityLabel = !picked.length ? (limited ? 'All my entities' : 'All entities')
     : picked.length === 1 ? `${entities.find((o) => o.code === picked[0])?.name || 'Unnamed'} (${picked[0]})` : `${picked.length} entities`;
   // Rows per Page (Customize): the page shown; totals and exports keep every row.
-  const paged = usePaged(rows, custom.pageSize, [period.from, period.to, picked, type, text, showClosed, tv.state]);
+  const paged = usePaged(rows, custom.pageSize, [period.from, period.to, picked, type, text, showClosed, tv.state, JSON.stringify(boxes.typed)]);
   // A figure read from a ledger account opens its lines in Reports (item 33),
   // the way the dashboard's Close tab does.
   const drill = (e, account, accountName, entity, range) => {
@@ -526,7 +548,7 @@ export default function LoansTab({ canEdit = false }) {
         .acct-loans .acct-term { text-decoration-style: dotted; }
         .acct-loans .acct-drill:hover, .acct-loans .acct-term:hover { color: var(--wk-brand, #2b45e1); text-decoration-color: var(--wk-brand, #2b45e1); }
         .acct-loans .loan-name { white-space: normal; overflow-wrap: anywhere; }
-        .acct-loan-totals td { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
+        .acct-loan-totals td { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }${FILTER_CSS}
       `}</style>
       <div className="scroll-tabs" role="tablist" aria-label="Loans & Financing" style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-color)' }}>
         {[['loans', 'Loans'], ['stress', 'Stress Test'], ['planning', 'Loan Planning']].map(([k, l]) => (
@@ -617,7 +639,7 @@ export default function LoansTab({ canEdit = false }) {
       ))}
       {view === 'planning' && <LoanPlanning loans={openLoans} entities={entities} picked={picked} canEdit={canEdit} to={to} />}
 
-      {view === 'loans' && !error && !loading && all.length > 0 && !rows.length && (
+      {view === 'loans' && !error && !loading && all.length > 0 && !rows.length && !boxes.filtering && (
         <div style={{ ...card, padding: 14, fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
           No loan matches the filters{hiddenClosed ? ` - ${hiddenClosed} closed ${hiddenClosed === 1 ? 'loan is' : 'loans are'} hidden (Customize > Show Closed Loans)` : ''}.
         </div>
@@ -628,7 +650,7 @@ export default function LoansTab({ canEdit = false }) {
         </div>
       )}
 
-      {view === 'loans' && !unavailable && (loading || rows.length > 0) && (
+      {view === 'loans' && !unavailable && (loading || rows.length > 0 || boxes.filtering) && (
         <div style={{ ...card, padding: 0, overflow: 'hidden' }} aria-busy={loading}>
           <div className="req-table-wrapper acct-scroll-box" ref={setBox} data-testid="loans-box" style={fit}>
             <table className="req-table acct-loans acct-sticky-head" style={{ fontVariantNumeric: 'tabular-nums', '--loan-py': py }}>
@@ -638,7 +660,16 @@ export default function LoansTab({ canEdit = false }) {
                     : c.key === 'actions' ? <th key={c.key} style={{ width: 36 }} />
                       : <ViewHead key={c.key} view={tv} col={c} aria-label={c.label} style={headStyle(mw(c.key), colStyle(c.key, c.type === 'amount' || c.type === 'number'))} />))}
                 </tr>
+                <ColumnFilterRow columns={tv.columns} filterColumns={LOAN_FILTERS} typed={boxes.typed} onChange={boxes.setFilter} />
               </thead>
+              {!loading && !rows.length && (
+                <tbody>
+                  <tr><td colSpan={cols || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: '0.84rem' }}>
+                    No loan matches these column filters{hiddenClosed ? ` - ${hiddenClosed} closed ${hiddenClosed === 1 ? 'loan is' : 'loans are'} hidden (Customize > Show Closed Loans)` : ''}.{' '}
+                    <button type="button" onClick={boxes.clear} style={{ border: 'none', background: 'none', font: 'inherit', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear Column Filters</button>
+                  </td></tr>
+                </tbody>
+              )}
               {loading && !review ? <tbody><SkeletonRows cols={cols} /></tbody> : paged.rows.map((r) => {
                 const isOpen = open.has(r.id);
                 const stop = (e) => e.stopPropagation();
