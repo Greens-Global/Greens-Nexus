@@ -680,6 +680,13 @@ async def reminders_loop():
             await asyncio.to_thread(hr_checklists.run_daily)
         except Exception as e:
             print(f"[reminders] checklist loop error: {e}")
+        # Probation ending (Oct 27 2026): one bell + email per manager / HR
+        # contact, once per end date (hr_probation.py).
+        try:
+            import hr_probation
+            await asyncio.to_thread(hr_probation.run_daily)
+        except Exception as e:
+            print(f"[reminders] probation loop error: {e}")
         # Records Audit: missing details / expired documents, one bell per company.
         try:
             import hr_record_audit

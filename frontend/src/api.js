@@ -3012,6 +3012,20 @@ export const api = {
   // { owner: {name, email} | null, held } for a source stamp - the composer
   // asks before saving whether the pin would be held for that owner.
   devNotesOwnerOf: (path) => req(`/dev-notes/owner-of?${new URLSearchParams({ path: path || "" }).toString()}`),
+  // Probation (Oct 27 2026, routers/hr_probation.py): a person's record, the
+  // manager's recommendation / HR's decision, HR's tracking controls, the
+  // letter, and Settings > Hiring & Onboarding > Probation.
+  probationGet: (eid) => req(`/hr/employees/${encodeURIComponent(eid)}/probation`),
+  probationDecide: (eid, data) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/decision`, { method: 'POST', body: JSON.stringify(data) }),
+  probationApprove: (eid, data = {}) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/approve`, { method: 'POST', body: JSON.stringify(data) }),
+  probationDecline: (eid, note) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/decline`, { method: 'POST', body: JSON.stringify({ note }) }),
+  probationStart: (eid, data = {}) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/start`, { method: 'POST', body: JSON.stringify(data) }),
+  probationEdit: (eid, data) => req(`/hr/employees/${encodeURIComponent(eid)}/probation`, { method: 'PATCH', body: JSON.stringify(data) }),
+  probationStop: (eid, reason) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/stop`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  probationSendLetter: (eid) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/send-letter`, { method: 'POST' }),
+  probationLetterPreview: (eid, data) => reqBlob(`/hr/employees/${encodeURIComponent(eid)}/probation/letter-preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), timeoutMs: 60000 }),
+  probationSettings: (company = '') => req(`/hr/probation/settings?company=${encodeURIComponent(company || '')}`),
+  probationSaveSettings: (data) => req('/hr/probation/settings', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()

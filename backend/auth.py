@@ -781,6 +781,11 @@ TEAM_ALLOWED_HR_ROUTES = frozenset({
     ("GET", "/hr/role-change-requests"),
     ("GET", "/hr/role-change-requests/{rid}"),
     ("GET", "/hr/role-history"),
+    # Probation (Oct 27 2026): a manager reads their team's and recommends
+    # Confirm / Extend / End for their own reports - HR finalizes
+    # (hr_probation.actor_role checks each record).
+    ("GET", "/hr/employees/{eid}/probation"),
+    ("POST", "/hr/employees/{eid}/probation/decision"),
 })
 
 

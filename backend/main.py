@@ -1322,6 +1322,8 @@ def _run_migrations():
             "ALTER TABLE dev_notes ADD COLUMN dispatched_by VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_seen_at VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_check JSON",
+            # Probation tracking (Oct 27 2026) - see the Postgres list.
+            "ALTER TABLE nexus_employees ADD COLUMN probation JSON DEFAULT '{}'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3067,6 +3069,10 @@ def _run_migrations():
         "ALTER TABLE accounting_tax_lines ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_seen_at VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_check JSON",
+        # Probation tracking (Neil, Oct 27 2026): status, dates, the manager's
+        # recommendation, the decision, the letter and the history, as JSON on
+        # the person. models.NexusEmployee.probation, hr_probation.py.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS probation JSON DEFAULT '{}'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3694,6 +3700,21 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] checklist ID evidence backfill skipped: {e}")
+    # Probation (Oct 27 2026): the default Confirmation / Extension letters in
+    # Documents, and ON-33's probation_confirmed condition - each once.
+    try:
+        from database import SessionLocal
+        import hr_probation
+        db = SessionLocal()
+        try:
+            n = hr_probation.seed_templates(db)
+            m = hr_probation.backfill_checklist_signal(db)
+            if n or m:
+                print(f"[startup] probation: {n} letter template(s), ON-33 condition on {m} template(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] probation seeds skipped: {e}")
 
 
 @asynccontextmanager
@@ -4669,3 +4690,5 @@ from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: cr
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
 from routers import accounting_liability_recon  # noqa: E402
 app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
+from routers import hr_probation as hr_probation_router  # noqa: E402
+app.include_router(hr_probation_router.router)  # People > a person's probation: length, reminder, Confirm / Extend / End, the letter (Neil, Oct 27 2026)

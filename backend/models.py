@@ -980,6 +980,11 @@ class NexusEmployee(Base):
     # out, with the manager's rights over them. '' = the default - the
     # manager's manager, else the company's HR contact (backup_manager.py).
     backup_manager_email     = Column(String, default="")
+    # Probation (Neil, Oct 27 2026, hr_probation.py): status, start / end
+    # dates, a per-person length, the manager's recommendation, the decision,
+    # the letter and the history. {} = Not Tracked - existing people are never
+    # backfilled; new hires get it automatically.
+    probation                = Column(JSON, default=dict)
 
 
 class HrRemovedIdentity(Base):
