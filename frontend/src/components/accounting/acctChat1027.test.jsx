@@ -16,7 +16,11 @@ vi.mock('../../tasks/components', () => ({
   DateField: ({ value, onChange, title }) => <input aria-label={title} value={value || ''} onChange={(e) => onChange(e.target.value)} />,
 }));
 
-const Y = new Date().getFullYear();
+// One fixed day for the whole file (was today's year and the machine's zone):
+// 10/27/2026 at noon UTC is 10/27 from California to India, so every date
+// the screens print reads the same on any machine, any day.
+const NOW = new Date('2026-10-27T12:00:00Z');
+const Y = NOW.getUTCFullYear();
 const mk = (m) => `${Y}-${String(m).padStart(2, '0')}`;
 const line = (over = {}) => ({
   id: 'M1', entityCode: '15000', entityName: 'Greens Escondido, LLC.', vendorId: 'V-SDGE', vendorName: 'San Diego Gas & Electric', expenseAccounts: ['62100'],
@@ -48,10 +52,10 @@ vi.mock('../../api', () => ({
     getAccountingDimensionValues: vi.fn(async () => ({ values: [] })),
     getMreVendor: vi.fn(async () => ({ available: false })),
     searchAccountingLedger: vi.fn(async () => ({ rows: [] })),
-    getRecurringSettings: vi.fn(async () => ({ staleMonths: 3, egnyteRoot: '', lastCheck: { startedAt: '2026-10-27T01:00:00+00:00', at: '2026-10-27T01:00:30+00:00', months: 3, result: { mri: { possiblyEnded: 2 }, mre: { possiblyEnded: 29 } } } })),
+    getRecurringSettings: vi.fn(async () => ({ staleMonths: 3, egnyteRoot: '', lastCheck: { startedAt: '2026-10-27T12:00:00+00:00', at: '2026-10-27T12:00:30+00:00', months: 3, result: { mri: { possiblyEnded: 2 }, mre: { possiblyEnded: 29 } } } })),
     saveRecurringSettings: vi.fn(async (body) => ({ ...body, lastCheck: null, recheck: { started: true, running: true, since: '2026-10-27T15:00:00+00:00' } })),
     runRecurringStaleCheck: vi.fn(async () => ({ started: true, running: true, since: '2026-10-27T15:00:00+00:00' })),
-    getRecurringStaleCheck: vi.fn(async () => ({ running: false, lastCheck: { startedAt: '2026-10-27T01:00:00+00:00', at: '2026-10-27T01:00:30+00:00', months: 3, result: {} } })),
+    getRecurringStaleCheck: vi.fn(async () => ({ running: false, lastCheck: { startedAt: '2026-10-27T12:00:00+00:00', at: '2026-10-27T12:00:30+00:00', months: 3, result: {} } })),
   },
 }));
 
@@ -61,7 +65,7 @@ import { gapCount, mreGaps, mriGaps, pfsGaps } from './completeness';
 import { api } from '../../api';
 import { resetAccountingPrefs } from './prefs';
 
-beforeEach(() => { vi.clearAllMocks(); try { localStorage.clear(); } catch { /* none */ } resetAccountingPrefs(); });
+beforeEach(() => { vi.setSystemTime(NOW); vi.clearAllMocks(); try { localStorage.clear(); } catch { /* none */ } resetAccountingPrefs(); });
 afterEach(() => { vi.useRealTimers(); });
 beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 
@@ -165,7 +169,8 @@ describe('MRE screen', () => {
 
 describe('Possibly Ended re-check on save (02)', () => {
   it('saving a new number of months waits for the check, then reloads the screen', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useRealTimers();   // the date mock from beforeEach; fake timers carry NOW instead
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW });
     const onChecked = vi.fn();
     render(<RecurringSettingsButton onChecked={onChecked} />);
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
