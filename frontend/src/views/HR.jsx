@@ -6,6 +6,7 @@ import PacketReview from '../components/PacketReview';
 import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
 import MailboxExportResult from '../components/MailboxExportResult';
+import ExitsTab from '../components/ExitsTab';
 import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
@@ -6026,7 +6027,7 @@ export default function HR({ activeSub, onSubChange }) {
   const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices' };
   // The manager tier sees its own team in People (Oct 6): People and Time only.
   const { hrTeam } = useRole();
-  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'];
+  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists', 'hr-exits'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
     : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
@@ -6315,6 +6316,8 @@ export default function HR({ activeSub, onSubChange }) {
     { key: 'hr-leave',  label: 'Leave',     Icon: CalendarOff },
     { key: 'hr-time',   label: 'Time',      Icon: Clock },
     { key: 'hr-checklists', label: 'Checklists', Icon: ListChecks },
+    // Exits In Progress + the final settlement statement (Neil, Oct 27 2026).
+    { key: 'hr-exits', label: 'Exits', Icon: LogOut },
     // The External tab is gone (Neil, Aug 24): external/guest people live in
     // the People directory with a worker-type filter, and their lifecycle
     // actions sit on their profile card.
@@ -6426,6 +6429,8 @@ export default function HR({ activeSub, onSubChange }) {
           <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
         </>
       )}
+
+      {sub === 'hr-exits' && <ExitsTab toastOk={toastOk} toastErr={toastErr} />}
 
       {sub === 'hr-people' && (<>
         {!hrTeam && <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />}

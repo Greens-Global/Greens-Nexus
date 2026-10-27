@@ -8463,3 +8463,37 @@ class SalaryAdvanceInstallment(Base):
     carried_from      = Column(String, default="")
     created_at        = Column(String, default="")
     updated_at        = Column(String, default="")
+
+
+class ExitStatement(Base):
+    """A leaver's final settlement statement (Neil, Oct 27 2026,
+    exit_statement.py): the figures payroll needs for the final pay, read
+    live from the time sheet, leave, reimbursements, salary advances, items
+    and the offboarding checklist. Information for payroll - Nexus does not
+    run the final pay. HR marks it Reviewed (the figures are frozen in
+    `snapshot` with their `fingerprint`), then generates the PDF (kept in
+    their HR documents as kind 'settlement', filed to Egnyte best-effort),
+    then closes the exit. `snapshot` holds pay - hr_comp / owner only.
+    New table - RLS on dev and prod at release."""
+    __tablename__ = "exit_statements"
+    id              = Column(String, primary_key=True)                # uuid
+    employee_id     = Column(String, index=True, nullable=False)      # NexusEmployee.id
+    employee_email  = Column(String, default="", index=True)
+    company         = Column(String, default="", index=True)
+    event_id        = Column(String, default="")                      # HrLifeEvent.id of the separation ('' = none)
+    last_day        = Column(String, default="")                      # YYYY-MM-DD
+    status          = Column(String, default="open", index=True)      # open | reviewed | filed | closed
+    fingerprint     = Column(String, default="")                      # of the figures when reviewed
+    snapshot        = Column(JSON, default=dict)                      # RESTRICTED: the reviewed statement
+    reviewed_by     = Column(String, default="")
+    reviewed_at     = Column(String, default="")
+    document_id     = Column(String, default="")                      # HrDocument.id of the PDF
+    pdf_path        = Column(String, default="")
+    egnyte_path     = Column(String, default="")
+    generated_by    = Column(String, default="")
+    generated_at    = Column(String, default="")
+    closed_by       = Column(String, default="")
+    closed_at       = Column(String, default="")
+    history         = Column(JSON, default=list)                      # [{at, by, action, note}]
+    created_at      = Column(String, default="")
+    updated_at      = Column(String, default="")

@@ -3024,6 +3024,12 @@ export const api = {
   paySalaryAdvance:         (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/paid`, { method: 'POST', body: JSON.stringify(body) }),
   moveSalaryAdvanceInstallment: (id, iid, body) => req(`/salary-advances/${encodeURIComponent(id)}/installments/${encodeURIComponent(iid)}/move`, { method: 'POST', body: JSON.stringify(body) }),
   setSalaryAdvanceSchedule: (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/schedule`, { method: 'PUT', body: JSON.stringify(body) }),
+  // People > Exits (Neil, Oct 27 2026): exits in progress and the final settlement statement.
+  exitStatements:           (includeClosed = false) => req(`/exit-statements${includeClosed ? '?include_closed=true' : ''}`),
+  exitStatement:            (eid)       => req(`/exit-statements/${encodeURIComponent(eid)}`),
+  reviewExitStatement:      (eid, note = '') => req(`/exit-statements/${encodeURIComponent(eid)}/review`, { method: 'POST', body: JSON.stringify({ note }) }),
+  generateExitStatement:    (eid)       => req(`/exit-statements/${encodeURIComponent(eid)}/generate`, { method: 'POST' }),
+  closeExitStatement:       (eid, note = '') => req(`/exit-statements/${encodeURIComponent(eid)}/close`, { method: 'POST', body: JSON.stringify({ note }) }),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()

@@ -3073,6 +3073,9 @@ def _run_migrations():
         # SalaryAdvanceInstallment.
         "ALTER TABLE salary_advances ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE salary_advance_installments ENABLE ROW LEVEL SECURITY",
+        # Final settlement statements (Neil, Oct 27 2026, exit_statement.py) -
+        # a new table: explicit RLS. models.ExitStatement.
+        "ALTER TABLE exit_statements ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4677,3 +4680,5 @@ from routers import accounting_liability_recon  # noqa: E402
 app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
 from routers import salary_advances as salary_advances_router  # noqa: E402 - new tables: create_all + explicit RLS lines
 app.include_router(salary_advances_router.router)  # Workday > Salary Advance: request (manager tier and up), HR decides, pays out, repaid from pay (Neil, Oct 27 2026)
+from routers import exit_statements as exit_statements_router  # noqa: E402 - new table: create_all + explicit RLS line
+app.include_router(exit_statements_router.router)  # People > Exits: exits in progress and the final settlement statement for payroll (Neil, Oct 27 2026)
