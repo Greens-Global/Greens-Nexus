@@ -32,6 +32,7 @@ import { qk } from '../lib/queryClient';
 import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
+import { setPendingOpen } from '../lib/pendingOpen';
 import TimeAdmin from '../components/TimeAdmin';
 import LeaveBalancesAdmin from '../components/LeaveBalances';
 import ModuleTabs from '../components/ModuleTabs';
@@ -1247,20 +1248,44 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
   );
 }
 
-// "Ask HR" inbox - employee self-service requests raised from My HR. Open ones
-// surface at the top of the People tab; resolving notifies the employee and
-// shows your response on their My HR screen.
+// "Ask HR" (Neil, Oct 27 2026): requests are confidential HR tickets now, so
+// HR works them on the ticket desk - this is the way in. The open HR tickets
+// of the companies you are HR for, each opening its ticket, a link to the
+// desk filtered to HR, and the requests from before the move (Earlier
+// Requests, read-only - their files can still be added to the person's
+// documents). An old request that could not be moved yet keeps its Resolve.
+const ASK_HR_KIND = { document: 'Document Update', profile: 'Profile Change', question: 'HR Question', other: 'Other HR Request' };
 function EmployeeRequestsPanel({ toastOk, toastErr }) {
-  const [reqs, setReqs] = useState([]);
+  const { can, myGrantedModules } = useRole();
+  const canOpenTickets = can('administrator') || myGrantedModules.has('tickets') || myGrantedModules.has('tasks');
+  const [desk, setDesk] = useState(null);             // open HR tickets, null while loading
+  const [reqs, setReqs] = useState([]);               // the old hr_self_requests rows
+  const [showEarlier, setShowEarlier] = useState(false);
   const [resolving, setResolving] = useState(null);   // request id with the reply box open
   const [response, setResponse] = useState('');
   const [busy, setBusy] = useState(false);
   const [filedKind, setFiledKind] = useState('other');
   const [filed, setFiled] = useState({});             // request id -> true once added to docs
-  useEffect(() => { api.hrSelfRequests().then(setReqs).catch(() => {}); }, []);
-  const open = reqs.filter(r => r.status === 'open');
-  if (open.length === 0) return null;
+  useEffect(() => {
+    api.askHrDesk(true).then(r => setDesk(Array.isArray(r) ? r : [])).catch(() => setDesk([]));
+    api.hrSelfRequests().then(r => setReqs(Array.isArray(r) ? r : [])).catch(() => {});
+  }, []);
+  const stuck = reqs.filter(r => r.status === 'open' && !r.ticketId);   // not moved into a ticket yet
+  const earlier = reqs.filter(r => r.status !== 'open' || r.ticketId);
+  if (desk === null) return <SkeletonBlocks count={1} height={72} />;
+  if (desk.length === 0 && stuck.length === 0 && earlier.length === 0) return null;
   const TYPE_LABEL = { document: 'Document update', profile: 'Profile change', question: 'Question', other: 'Request' };
+  const openTicket = (id) => {
+    const view = canOpenTickets ? 'tickets' : 'support';
+    setPendingOpen('ticket', id);
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view } }));
+    window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId: id } }));
+  };
+  const openDesk = () => {
+    setPendingOpen('ticket-desk', 'hr');
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tickets' } }));
+    window.dispatchEvent(new CustomEvent('nexus:ticket-desk', { detail: { desk: 'hr' } }));
+  };
   const resolve = async (id) => {
     setBusy(true);
     try {
@@ -1282,45 +1307,69 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
       toastOk?.("Added to the employee's documents");
     } catch (e) { toastErr?.(e?.message || 'Could not add to documents'); }
   };
+  const attachmentRow = (r) => r.attachmentName && (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
+      <button onClick={() => viewAttachment(r.id)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontSize: 12, fontWeight: 600, fontFamily: 'Inter,sans-serif', padding: 0 }}>
+        <FileText size={12} /> {r.attachmentName}
+      </button>
+      {filed[r.id] ? (
+        <span style={{ fontSize: 11.5, color: 'hsl(var(--color-green))', fontWeight: 600 }}>✓ Added to their documents</span>
+      ) : (
+        <>
+          <select className="form-input" value={filedKind} onChange={e => setFiledKind(e.target.value)}
+            style={{ fontSize: 11.5, padding: '3px 22px 3px 8px', height: 'auto' }}>
+            <option value="id">ID</option>
+            <option value="contract">Contract</option>
+            <option value="certificate">Certificate</option>
+            <option value="resume">Resume</option>
+            <option value="other">Other</option>
+          </select>
+          <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 10px' }}
+            onClick={() => fileAttachment(r.id)}>
+            Add to Employee Documents
+          </button>
+        </>
+      )}
+    </div>
+  );
   return (
     <div style={{ border: '1px solid hsla(var(--color-blue),0.25)', borderRadius: 12, background: 'hsla(var(--color-blue),0.03)', padding: '14px 16px', marginBottom: 18 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>
-        Employee requests - {open.length} open
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+        <div style={{ flex: 1, minWidth: 180, fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+          Ask HR - {desk.length + stuck.length ? `${desk.length + stuck.length} open` : 'nothing open'}
+        </div>
+        {canOpenTickets && (
+          <button className="secondary-btn" style={{ fontSize: 12, padding: '5px 12px' }} onClick={openDesk}>
+            Open HR Desk in Tickets
+          </button>
+        )}
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', margin: '-4px 0 10px' }}>
+        Requests are confidential HR tickets - only the employee, the people on it and HR see them. Reply, assign and resolve on the ticket.
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {open.map(r => (
+        {desk.map(t => (
+          <button type="button" key={t.id} onClick={() => openTicket(t.id)} className="nx-needs-you--card"
+            style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '10px 12px', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{t.requesterName}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {ASK_HR_KIND[t.askHrKind] || 'HR Request'} · #{t.code} · {formatDate(t.createdAt?.slice(0, 10))}</span>
+                <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>{t.subject}</div>
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', flexShrink: 0 }}>{t.assigneeId ? '' : 'Unassigned · '}Open Ticket</span>
+            </div>
+          </button>
+        ))}
+        {stuck.map(r => (
           <div key={r.id} className="nx-needs-you--card" style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '10px 12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {formatDate(r.createdAt?.slice(0, 10))}</span>
                 <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
-                {r.attachmentName && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
-                    <button onClick={() => viewAttachment(r.id)}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontSize: 12, fontWeight: 600, fontFamily: 'Inter,sans-serif', padding: 0 }}>
-                      <FileText size={12} /> {r.attachmentName}
-                    </button>
-                    {filed[r.id] ? (
-                      <span style={{ fontSize: 11.5, color: 'hsl(var(--color-green))', fontWeight: 600 }}>✓ Added to their documents</span>
-                    ) : (
-                      <>
-                        <select className="form-input" value={filedKind} onChange={e => setFiledKind(e.target.value)}
-                          style={{ fontSize: 11.5, padding: '3px 22px 3px 8px', height: 'auto' }}>
-                          <option value="id">ID</option>
-                          <option value="contract">Contract</option>
-                          <option value="certificate">Certificate</option>
-                          <option value="resume">Resume</option>
-                          <option value="other">Other</option>
-                        </select>
-                        <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 10px' }}
-                          onClick={() => fileAttachment(r.id)}>
-                          Add to Employee Documents
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
+                {attachmentRow(r)}
               </div>
               {resolving !== r.id && (
                 <button className="secondary-btn" style={{ fontSize: 12, padding: '5px 12px', flexShrink: 0 }}
@@ -1337,7 +1386,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
                   <button className="secondary-btn" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => setResolving(null)} disabled={busy}>Cancel</button>
                   <button className="primary-btn" style={{ fontSize: 12, padding: '5px 14px' }} onClick={() => resolve(r.id)} disabled={busy}>
-                    {busy ? 'Resolving…' : 'Mark resolved'}
+                    {busy ? 'Resolving…' : 'Mark Resolved'}
                   </button>
                 </div>
               </div>
@@ -1345,6 +1394,34 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
           </div>
         ))}
       </div>
+      {earlier.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <button type="button" onClick={() => setShowEarlier(v => !v)}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-blue))', fontFamily: 'Inter,sans-serif' }}>
+            {showEarlier ? 'Hide Earlier Requests' : `Earlier Requests (${earlier.length})`}
+          </button>
+          {showEarlier && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+              {earlier.map(r => (
+                <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '8px 12px' }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {formatDate(r.createdAt?.slice(0, 10))}
+                    {' · '}{r.ticketId ? 'Moved to a ticket' : (r.status === 'resolved' ? 'Resolved' : r.status)}</span>
+                  <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
+                  {r.response && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}><strong>HR:</strong> {r.response}</div>}
+                  {attachmentRow(r)}
+                  {r.ticketId && (
+                    <button type="button" onClick={() => openTicket(r.ticketId)}
+                      style={{ marginTop: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-blue))', fontFamily: 'Inter,sans-serif' }}>
+                      Open Ticket
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

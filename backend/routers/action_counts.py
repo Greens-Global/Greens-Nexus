@@ -146,8 +146,11 @@ def _punch_fixes(db: Session, user: dict) -> int:
 
 
 def _ask_hr(db: Session, user: dict) -> int:
-    from routers.hr import list_self_requests, require_hr_read
-    return len(list_self_requests(status="open", user=require_hr_read(user=user, db=db), db=db))
+    """Ask HR requests waiting on me - open HR tickets assigned to me, or
+    nobody's yet in a company I am HR for (hr_tickets.waiting_on, Oct 27
+    2026: Ask HR runs through Tickets)."""
+    import hr_tickets
+    return hr_tickets.waiting_on(db, user)
 
 
 def _role_changes(db: Session, user: dict) -> int:
@@ -198,7 +201,8 @@ def _my_tickets(db: Session, me: str) -> int:
     """Tickets I raised that wait on me: the desk asked me something
     (waiting_user) or replied since I last looked (Support's unread dot)."""
     T = models.TaskTicket
-    return (db.query(func.count(T.id))
+    # My own Ask HR tickets count too - the query is mine only.
+    return (db.query(func.count(T.id)).execution_options(include_confidential=True)
             .filter(func.lower(T.requester_email) == me,
                     or_(T.status.is_(None), T.status.notin_(("resolved", "closed"))),
                     or_(T.status == "waiting_user",

@@ -1555,6 +1555,10 @@ def upload_paystub(eid: str, file: UploadFile = File(...), period: str = Form(""
 
 
 # ── Employee requests ("Ask HR" on My HR) - list + resolve ───────────────────
+# Ask HR is a ticket now (Neil, Oct 27 2026, hr_tickets.py): new requests are
+# confidential HR tickets and every open old one was moved into one. These
+# routes stay for the old rows - Earlier Requests, read-only; a moved row
+# carries `ticketId` and can no longer be resolved here.
 from models import HrSelfRequest
 
 
@@ -1585,7 +1589,8 @@ def list_self_requests(status: str = "", user: dict = Depends(require_hr_read), 
              "type": r.type, "message": r.message, "status": r.status,
              "attachmentName": r.attachment_name or "",
              "response": r.response or "", "resolvedBy": r.resolved_by or "",
-             "resolvedAt": r.resolved_at or "", "createdAt": r.created_at} for r in rows]
+             "resolvedAt": r.resolved_at or "", "createdAt": r.created_at,
+             "ticketId": r.ticket_id or ""} for r in rows]
 
 
 @router.get("/requests/{rid}/attachment-url")
@@ -1648,6 +1653,8 @@ def resolve_self_request(rid: str, body: ResolveRequestIn,
     if not r:
         raise HTTPException(404, "Request not found")
     _req_in_scope(db, r, hr_scope(user, db))
+    if r.ticket_id:
+        raise HTTPException(409, "This request moved into an HR ticket - answer it on the ticket.")
     r.status = "resolved"
     r.response = (body.response or "").strip()[:2000]
     r.resolved_by = user["email"]

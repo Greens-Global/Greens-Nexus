@@ -141,6 +141,17 @@ export default function TicketsView() {
   const [assigneeFilter, setAssigneeFilter] = useState('all');
   const [serviceAreaFilter, setServiceAreaFilter] = useState('all');
   const [slaFilter, setSlaFilter] = useState('all');   // all | breached | at_risk | ok
+  // The HR desk (Oct 27 2026): 'hr' = only the confidential Ask HR tickets -
+  // what HR's old Ask HR queue in People links to (setPendingOpen
+  // 'ticket-desk', or the nexus:ticket-desk event when already here).
+  const [deskFilter, setDeskFilter] = useState('all');
+  useEffect(() => {
+    const pendingDesk = takePendingOpen('ticket-desk');
+    if (pendingDesk) setDeskFilter(pendingDesk);
+    const onDesk = (e) => setDeskFilter(e.detail?.desk || 'all');
+    window.addEventListener('nexus:ticket-desk', onDesk);
+    return () => window.removeEventListener('nexus:ticket-desk', onDesk);
+  }, []);
   const [groupBy, setGroupBy] = useState('none');
   const [view, setView] = useState('list');   // 'list' | 'board' | 'reports'
   const [creating, setCreating] = useState(false);
@@ -296,6 +307,7 @@ export default function TicketsView() {
     // Department was never saved, so a view applied while a department was
     // picked kept it and showed a different list than the one it names.
     setHrDeptFilter(f.hrDeptFilter ?? 'all');
+    setDeskFilter('all');
     setSearch(f.search ?? '');
     if (f.sort?.key) setSort({ key: f.sort.key, dir: f.sort.dir === 'asc' ? 'asc' : 'desc' });
     if (v.group) setGroupBy(v.group);
@@ -305,7 +317,7 @@ export default function TicketsView() {
   // search, sort and grouping are not filters and stay as they are.
   const clearFilters = () => {
     setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all');
-    setHrDeptFilter('all'); setServiceAreaFilter('all'); setAssigneeFilter('all');
+    setHrDeptFilter('all'); setServiceAreaFilter('all'); setAssigneeFilter('all'); setDeskFilter('all');
   };
   // Save View names the view in its own small dialog (SaveViewDialog) - it
   // used to be window.prompt.
@@ -332,6 +344,7 @@ export default function TicketsView() {
       // Routing queue (IT Admin): gated requests nobody has been asked to sign off yet.
       if (scope === 'route' && !(t.approvalStatus === 'pending' && !t.approverId)) return false;
       if (hrDeptFilter !== 'all' && (t.hrDepartmentId || '') !== hrDeptFilter) return false;
+      if (deskFilter !== 'all' && (t.confidentialDesk || '') !== deskFilter) return false;
       if (assigneeFilter !== 'all' && (t.assigneeId || '').toLowerCase() !== assigneeFilter) return false;
       // 'open' is a bucket, not a status: any state that is not resolved/closed.
       // Without it the Open tile had nothing to select, so it cleared the
@@ -351,7 +364,7 @@ export default function TicketsView() {
       }
       return true;
     });
-  }, [tickets, scope, myEmail, searchQ, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, assigneeFilter, serviceAreaFilter]);
+  }, [tickets, scope, myEmail, searchQ, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, assigneeFilter, serviceAreaFilter, deskFilter]);
 
   // Reports (server-side, TicketReports.jsx) take the list's filters that the
   // report endpoint understands; status, SLA, scope and search are list-only.
@@ -599,6 +612,18 @@ export default function TicketsView() {
               <TicketColumnsMenu columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={cols} />
             )}
           </div>
+        </div>
+      )}
+
+      {deskFilter === 'hr' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px', flexWrap: 'wrap' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: NX.ink,
+            background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.28)', borderRadius: 999, padding: '4px 6px 4px 11px' }}>
+            HR Requests
+            <button type="button" aria-label="Show All Tickets" title="Show All Tickets" onClick={() => setDeskFilter('all')}
+              style={{ ...btn('ghost'), padding: 2, borderRadius: 999 }}><X size={13} /></button>
+          </span>
+          <span style={{ fontSize: 12, color: NX.faint }}>Confidential Ask HR requests - only their people and HR see them.</span>
         </div>
       )}
 

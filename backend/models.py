@@ -2899,6 +2899,10 @@ class HrSelfRequest(Base):
     resolved_by    = Column(String, default="")
     resolved_at    = Column(String, default="")
     created_at     = Column(String, default="")
+    # Ask HR runs through Tickets (Oct 27 2026, hr_tickets.py): the ticket an
+    # open request was moved into. Set once; a row that has one is never moved
+    # again. Resolved rows stay here, read-only, as Earlier Requests.
+    ticket_id      = Column(String, default="", index=True)
 
 
 # ── Field-worker location tracking (native app, clocked-in only) ──────────────
@@ -3698,6 +3702,11 @@ class TaskTicket(Base):
     # new email to the support mailbox (ticket_inbound.py). Set server-side
     # only; the drawer and list show "Via Email".
     source                = Column(String, default="")
+    # Confidential desk (Oct 27 2026, ticket_confidential.py): "" = an
+    # ordinary ticket, "hr" = an Ask HR request - readable only by its own
+    # people and HR for its company, hidden from the desk, reports and every
+    # other reader by the hook in database.py. Set server-side only.
+    confidential_desk     = Column(String, default="", index=True)
 
 
 class TicketEmailLog(Base):
