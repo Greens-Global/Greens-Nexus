@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock, Printer } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock, Printer, Copy } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
@@ -21,6 +21,7 @@ import BreakPremiums from './BreakPremiums';
 import TimecardBonuses from './TimecardBonuses';
 import GeofencePunchModal from './GeofencePunchModal';
 import AddTimeModal from './AddTimeModal';
+import DuplicateDayModal from './DuplicateDayModal';
 import AnchoredMenu from './AnchoredMenu';
 import { Spinner } from './AsyncState';
 import { Modal, DateField } from '../tasks/components';
@@ -604,6 +605,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // OT rule are READ here and written only on Pay & Benefits.
   const [editDay, setEditDay] = useState(null);   // { date, seg? }
   const [addTime, setAddTime] = useState(false);   // Add Time (Oct 14): a run of shifts at once
+  const [dupDay, setDupDay] = useState(false);     // Duplicate Day (Oct 27): HR copies one day onto others
   // A missing/wrong BREAK punch. PunchEditModal only ever deals in clock-in and
   // clock-out, so until now a break that never ended (or ended late, the phone
   // case) had no self-service path at all - the card said "never ended" and the
@@ -1528,6 +1530,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           <Plus size={14} /> Add Time
         </button>
         )}
+        {!self && email && !noEdit && data?.review?.isHr && (
+        <DuplicateDayButton onClick={() => setDupDay(true)} />
+        )}
         {!fin && (self || email) && (
         <button onClick={() => setNoteModal(true)} title={self ? 'Leave a note on a day for your manager' : 'Leave a note on a day - seen by managers and HR, not the employee'}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
@@ -1933,6 +1938,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <AddTimeModal email={email} name={nameFor(email)} start={start} end={end} onClose={() => setAddTime(false)}
           onDone={() => { _timecardCache.clear(); load(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
+      {dupDay && !self && email && !ownCard && data?.review?.isHr && (
+        <DuplicateDayModal email={email} name={nameFor(email)} start={start} end={end} onClose={() => setDupDay(false)}
+          onDone={() => { _timecardCache.clear(); load(); }} toastOk={toastOk} toastErr={toastErr} />
+      )}
       {editDay && (
         <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}
           categories={[...new Set(['Sick', 'Vacation', 'Personal', ...(data?.byCategory || []).map(c => c.category).filter(c => c && c !== 'Uncategorised')])]}
@@ -2007,6 +2016,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
   const mgrAp = data.approval;
   const [breakFix, setBreakFix] = useState(null);       // { date, breaks } - fixing a break punch
   const [noteModal, setNoteModal] = useState(false);    // Add Note in the toolbar
+  const [dupDay, setDupDay] = useState(false);          // Duplicate Day (Oct 27): HR only
   const byDate = Object.fromEntries((data.days || []).map(d => [d.date, d]));
   const fixedDays = data.fixedDays || [];
   const pm = data.punchMeta || {};
@@ -2082,6 +2092,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <Pencil size={13} /> Add Note
         </button>
         )}
+        {!self && email && !noEdit && data.review?.isHr && <DuplicateDayButton onClick={() => setDupDay(true)} />}
         <div style={{ flex: 1 }} />
         {/* The California / India toggle is a payroll reviewer's tool; an
             employee's own timesheet shows one timezone (Neil, Sep 23). */}
@@ -2411,6 +2422,10 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           noteFor={(ds) => (self ? myNote(ds)?.note : dayNotes[ds]?.note) || ''}
           onSave={self ? saveMyNote : saveNote} toastOk={toastOk} onClose={() => setNoteModal(false)} />
       )}
+      {dupDay && !self && email && !ownCard && data.review?.isHr && (
+        <DuplicateDayModal email={email} name={nameFor(email)} start={data.periodStart} end={data.periodEnd} onClose={() => setDupDay(false)}
+          onDone={() => { _timecardCache.clear(); load(); }} toastOk={toastOk} toastErr={toastErr} />
+      )}
       {geoMap && (
         <GeofencePunchModal email={geoMap} name={data?.name || nameFor?.(geoMap) || geoMap} start={data?.periodStart || ''} end={data?.periodEnd || ''} onClose={() => setGeoMap('')} />
       )}
@@ -2424,6 +2439,17 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 // be signed on paper, not through Nexus Sign - any period, in review, finalized
 // or locked, hourly or salaried. The tab opens before the fetch so the browser
 // does not treat it as a pop-up.
+// Duplicate Day (Oct 27 2026): HR copies one day onto others. Shown to HR
+// only (review.isHr); the server refuses anyone else either way.
+function DuplicateDayButton({ onClick }) {
+  return (
+    <button type="button" data-duplicate-day onClick={onClick} title="HR: copy one day - its punches, breaks and type - onto other days of this period"
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
+      <Copy size={13} /> Duplicate Day
+    </button>
+  );
+}
+
 function PrintTimeSheetButton({ email, start, toastErr }) {
   const [printing, setPrinting] = useState(false);
   async function printSheet() {

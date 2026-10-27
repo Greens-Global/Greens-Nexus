@@ -3012,6 +3012,9 @@ export const api = {
   // { owner: {name, email} | null, held } for a source stamp - the composer
   // asks before saving whether the pin would be held for that owner.
   devNotesOwnerOf: (path) => req(`/dev-notes/owner-of?${new URLSearchParams({ path: path || "" }).toString()}`),
+  // Duplicate Day (HR only, Oct 27 2026): copy one day onto others; dry_run is the preview.
+  timeDuplicateDay: (data) => req("/timeclock/duplicate-day", { method: "POST", body: JSON.stringify(data) }),
+  timeDuplicateDayUndo: (batchId) => req(`/timeclock/duplicate-day/${encodeURIComponent(batchId)}/undo`, { method: "POST" }),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()

@@ -1322,6 +1322,9 @@ def _run_migrations():
             "ALTER TABLE dev_notes ADD COLUMN dispatched_by VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_seen_at VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_check JSON",
+            # Duplicate Day (Oct 27) - see the Postgres list. models.TimePunch.
+            "ALTER TABLE time_punches ADD COLUMN replaced_by_batch TEXT DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_time_punches_replaced_by_batch ON time_punches (replaced_by_batch)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3067,6 +3070,10 @@ def _run_migrations():
         "ALTER TABLE accounting_tax_lines ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_seen_at VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_check JSON",
+        # Duplicate Day (Oct 27 2026): the HR batch that replaced (voided) a
+        # punch, so undoing the batch restores it. models.TimePunch.
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS replaced_by_batch TEXT DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_time_punches_replaced_by_batch ON time_punches (replaced_by_batch)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
