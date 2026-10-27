@@ -2459,6 +2459,8 @@ export const api = {
   resolveAskThread:    (id, body = {}) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: JSON.stringify(body) }),
   reopenAskThread:     (id)       => req(`/accounting/ask/threads/${encodeURIComponent(id)}/reopen`, { method: 'POST', body: '{}' }),
   assignAskThread:     (id, accountant) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/accountant`, { method: 'PUT', body: JSON.stringify({ accountant }) }),
+  // Chat triage 10/27, item 06: move a question on a batch summary line to its card charge.
+  relinkAskThread:     (id, charge) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/relink`, { method: 'POST', body: JSON.stringify(charge) }),
   getAskSettings:      ()         => req('/accounting/ask/settings'),
   saveAskSettings:     (body)     => req('/accounting/ask/settings', { method: 'PUT', body: JSON.stringify(body) }),
   getAskChart:         ()         => req('/accounting/ask/chart'),

@@ -147,7 +147,7 @@ def line_dims(r: dict) -> dict:
 def line_out(r: dict) -> dict:
     debit, credit = _r2(r.get("debit")), _r2(r.get("credit"))
     party = r.get("vendor_name") or r.get("vendor_id") or r.get("customer_name") or r.get("customer_id") or r.get("employee_name") or r.get("employee_id") or ""
-    return {
+    out = {
         **line_dims(r),
         "lineId": str(r.get("line_id") or ""), "entryId": str(r.get("entry_id") or ""), "entryNo": str(r.get("entry_no") or ""),
         "lineNo": str(r.get("line_no") or ""), "date": str(r.get("entry_date") or "")[:10],
@@ -157,6 +157,62 @@ def line_out(r: dict) -> dict:
         "journal": r.get("journal") or "", "debit": debit, "credit": credit, "amount": _r2(debit - credit),
         "departmentId": str(r.get("department") or ""),   # the bare code, for a reclass entry (CR-13)
     }
+    if r.get("charge"):
+        # Item 06 (chat triage 10/27): one card charge of an Intacct batch
+        # summary line - the summary's id and amount, so a question asked on
+        # the summary before the split still finds its charges.
+        out.update({"charge": True, "summaryLineId": str(r.get("summary_line_id") or ""),
+                    "summaryAmount": _r2(_r2(r.get("summary_debit")) - _r2(r.get("summary_credit"))),
+                    "chargeCount": int(r.get("charge_count") or 0)})
+    return out
+
+
+def split_summaries(lines: list[dict]) -> dict:
+    """Item 06: the Intacct batch summary lines the read split into card
+    charges - {summary line id: {"key": the summary's line_key, "charges":
+    [its charge lines]}}."""
+    out: dict = {}
+    for ln in lines:
+        sid = ln.get("summaryLineId") if ln.get("charge") else ""
+        if not sid:
+            continue
+        s = out.setdefault(sid, {"key": line_key(ln["entryNo"], ln["accountNo"], ln.get("summaryAmount", 0), ln["date"]), "charges": []})
+        s["charges"].append(ln)
+    return out
+
+
+def _charge_brief(ln: dict) -> dict:
+    keep = ("lineId", "lineNo", "date", "entryNo", "accountNo", "description", "memo", "party", "department", "vendor", "custom", "debit", "credit", "amount")
+    return {k: ln.get(k) for k in keep}
+
+
+def attach_splits(threads: list[dict], lines: list[dict]) -> set:
+    """Item 06: a question asked on a batch summary line before Intacct's
+    card charges were read is kept as it is - on screen, with its replies -
+    and carries the charges it now covers (`splitInto`, `needsRelink`), so
+    it can be moved to the right charge. Those charges are not listed again
+    as lines of their own: the question's row stands for them, so the
+    period's total is what it was. A question already on a charge (its id,
+    or its line_key) is an ordinary line. Returns the charge line ids the
+    questions stand for."""
+    splits = split_summaries(lines)
+    if not splits:
+        return set()
+    by_key = {s["key"]: sid for sid, s in splits.items()}
+    charge_ids = {ln["lineId"] for ln in lines if ln.get("charge")}
+    charge_keys = {line_key(ln["entryNo"], ln["accountNo"], ln["amount"], ln["date"]) for ln in lines if ln.get("charge")}
+    covered: set = set()
+    for t in threads:
+        if (t.get("lineId") and t["lineId"] in charge_ids) or thread_key(t) in charge_keys:
+            continue
+        sid = t["lineId"] if t.get("lineId") in splits else by_key.get(thread_key(t))
+        if not sid:
+            continue
+        charges = splits[sid]["charges"]
+        t["splitInto"] = [_charge_brief(c) for c in charges]
+        t["needsRelink"] = True
+        covered |= {c["lineId"] for c in charges}
+    return covered
 
 
 def line_key(entry_no: str, account_no: str, amount: float, day: str) -> tuple:
@@ -181,6 +237,10 @@ def reclassed(t: dict, read: dict) -> Optional[bool]:
     if read["entities"] is not None and t["entityCode"] not in read["entities"]:
         return None
     if t["lineId"] and t["lineId"] in read["ids"]:
+        return False
+    # Item 06: a question moved to a card charge, on a read that came back
+    # with the batch summary line instead (charges not read) - not reclassed.
+    if str(t.get("lineId") or "").startswith("cc:") and (t["entryNo"], t["accountNo"], str(t["date"])[:10]) in read.get("entries", ()):
         return False
     return thread_key(t) not in read["keys"]
 
@@ -323,6 +383,12 @@ async def _accounts(scope: dict, configured: list) -> tuple[list[dict], Optional
 
 # ── Reading the ledger ──────────────────────────────────────────────────────
 async def _ama_lines(scope: dict, entity: Optional[str], from_: str, to: str, accounts: list[str]) -> list[dict]:
+    """Item 06 (chat triage 10/27, Urmi / Vinod): `detail=card` asks the
+    accounting app for each card charge in place of Intacct's batch summary
+    line (it swaps them only when they add up to the summary, so totals do
+    not move). An app that does not know the option, or has not read the
+    charges, sends the summary line as before. `page_lines` is how many
+    ledger lines the page held before the split - the next offset."""
     location, locations = await _limit(scope, entity or None, None)
     out: list[dict] = []
     for acct in accounts:
@@ -330,10 +396,10 @@ async def _ama_lines(scope: dict, entity: Optional[str], from_: str, to: str, ac
         while offset < LINE_CAP:
             d = await accounting._acct_get("/api/internal/search", {
                 "account": acct, "location": location, "locations": locations, "from": from_, "to": to,
-                "offset": offset, "limit": 1000})
+                "offset": offset, "limit": 1000, "detail": "card"})
             rows = d.get("rows") or []
             out.extend(line_out(r) for r in rows if str(r.get("gl_code") or acct) == acct)
-            offset += len(rows)
+            offset += int(d.get("page_lines") or len(rows))
             if not rows or offset >= int(d.get("total") or 0):
                 break
     return out
@@ -460,6 +526,24 @@ class AssignBody(BaseModel):
     accountant: str
 
 
+class RelinkBody(BaseModel):
+    """Item 06: the card charge a question asked on a batch summary line
+    belongs to - the charge as the AMA list showed it."""
+    lineId: str
+    lineNo: Optional[str] = ""
+    date: Optional[str] = ""
+    entryNo: Optional[str] = ""
+    accountNo: Optional[str] = ""
+    debit: Optional[float] = 0.0
+    credit: Optional[float] = 0.0
+    description: Optional[str] = ""
+    memo: Optional[str] = ""
+    party: Optional[str] = ""
+    department: Optional[str] = ""
+    vendor: Optional[str] = ""
+    custom: Optional[str] = ""
+
+
 class SettingsBody(BaseModel):
     accounts: Optional[list[str]] = None                 # None = leave as is; [] = find by title
     accountants: Optional[dict[str, list[str]]] = None   # {entity ('' = every entity): [emails]}
@@ -516,8 +600,13 @@ async def list_items(entity: Optional[str] = None, from_: Optional[str] = Query(
     # sub-entity's thread is never called reclassed on a parent's read), or
     # everything when it asked for no entity.
     covered = (set(_csv(locations)) | ({location} if location else set())) if (location or locations) else None
+    # Item 06: a batch summary line split into card charges is still on the
+    # AMA account - a question on it is not "Reclassed".
+    splits = split_summaries(lines)
     read = {"ok": read_ok, "accounts": set(codes), "from": from_, "to": to, "entities": covered,
-            "ids": {ln["lineId"] for ln in lines if ln["lineId"]}, "keys": {line_key(ln["entryNo"], ln["accountNo"], ln["amount"], ln["date"]) for ln in lines}}
+            "ids": {ln["lineId"] for ln in lines if ln["lineId"]} | set(splits),
+            "keys": {line_key(ln["entryNo"], ln["accountNo"], ln["amount"], ln["date"]) for ln in lines} | {s["key"] for s in splits.values()},
+            "entries": {(ln["entryNo"], ln["accountNo"], ln["date"]) for ln in lines}}
 
     changes = {}
     for t in threads:
@@ -529,11 +618,14 @@ async def list_items(entity: Optional[str] = None, from_: Optional[str] = Query(
     await asyncio.to_thread(_mark_reclassed, changes)
 
     fill_from_lines(threads, lines)
+    stood_for = attach_splits(threads, lines)
     asked_ids = {t["lineId"] for t in threads if t["lineId"]}
     asked_keys = {thread_key(t) for t in threads}
     rows = list(threads)
     for ln in lines:
         if (ln["lineId"] and ln["lineId"] in asked_ids) or line_key(ln["entryNo"], ln["accountNo"], ln["amount"], ln["date"]) in asked_keys:
+            continue
+        if ln["lineId"] in stood_for:
             continue
         rows.append({**ln, "id": f"line:{ln['lineId'] or '|'.join(map(str, line_key(ln['entryNo'], ln['accountNo'], ln['amount'], ln['date'])))}",
                      "kind": "line", "source": "ama", "status": "Open", "question": "", "askedBy": "", "askedByName": "", "askedAt": "",
@@ -748,6 +840,60 @@ async def assign(thread_id: str, body: AssignBody, who: dict = Depends(caller)):
             _add_msg(db, t, me, "event", f"Assigned to {names.get(accountant) or accountant}", now)
             _notify(db, t, accountant, f"AMA Question: {_line_label(t)}",
                     f"{names.get(me) or me} assigned you the question: {_short(t.question)}", me)
+            db.commit()
+            return _detail(db, t)
+        finally:
+            db.close()
+    return await asyncio.to_thread(work)
+
+
+def relink_problem(t: models.AccountingAmaThread, body: RelinkBody) -> str:
+    """Why this charge cannot take the question ('' = it can): it must be a
+    card charge of the same entry, account and day, no bigger than the
+    summary line the question was asked on."""
+    line_id = _text(body.lineId, 80)
+    if not line_id.startswith("cc:"):
+        return "Pick one of the card charges the summary line was split into."
+    if _text(body.entryNo, 80) != (t.entry_no or "") or _text(body.accountNo, 40) != (t.account_no or ""):
+        return "That charge is not on the same entry and account as the question."
+    if _text(body.date, 10) != (t.entry_date or "")[:10]:
+        return "That charge is not dated the same day as the question's line."
+    if abs(_r2((body.debit or 0) - (body.credit or 0))) > abs(_r2((t.debit or 0) - (t.credit or 0))) + 0.005:
+        return "That charge is larger than the line the question was asked on."
+    return ""
+
+
+@router.post("/threads/{thread_id}/relink")
+async def relink(thread_id: str, body: RelinkBody, who: dict = Depends(caller)):
+    """Item 06 (chat triage 10/27): move a question asked on Intacct's batch
+    summary line to the card charge it is about. The question, its replies
+    and its status stay; the line it points at becomes the charge, and the
+    thread records the move. Nexus only - nothing is sent to Intacct."""
+    reach = await _reach(who)
+    me = who["email"]
+
+    def work():
+        db = SessionLocal()
+        try:
+            t = _get_thread(db, thread_id, reach, lock=True)
+            if not _can_close(t, who):
+                raise HTTPException(status_code=403, detail="Only the person who asked, the accountant or an Accounting editor can move the question.")
+            problem = relink_problem(t, body)
+            if problem:
+                raise HTTPException(status_code=400, detail=problem)
+            before = _r2((t.debit or 0) - (t.credit or 0))
+            now = _now()
+            t.line_id, t.line_no = _text(body.lineId, 80), _text(body.lineNo, 40)
+            t.debit, t.credit = _r2(body.debit), _r2(body.credit)
+            t.memo = _text(body.memo, 1000) or t.memo
+            t.description = _text(body.description, 1000) or t.description
+            t.party = _text(body.party, 200) or t.party
+            t.department = _text(body.department, 200) or t.department
+            t.vendor = _text(body.vendor, 200) or t.vendor
+            t.custom = _text(body.custom, 200) or t.custom
+            t.reclassed_at, t.updated_at = "", now
+            after = _r2((t.debit or 0) - (t.credit or 0))
+            _add_msg(db, t, me, "event", f"Moved from Intacct's batch summary line ({before:,.2f}) to the card charge {_short(t.memo or t.description, 120)} ({after:,.2f})", now)
             db.commit()
             return _detail(db, t)
         finally:

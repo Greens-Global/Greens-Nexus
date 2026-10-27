@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { MessageCircleQuestion, Plus, Send, Settings, Trash2, X } from 'lucide-react';
+import { Maximize2, MessageCircleQuestion, Minimize2, Plus, Send, Settings, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import Amount, { formatAmount } from './Amount';
 import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, OpFilter, Pager, SyncButton, control, fitSelect } from './reportControls';
 import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { useTableSync } from './tableSync';
+import { useAccountingPrefs } from './prefs';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { Chip } from './LoanSetupDialog';
 import { Dialog } from './LoanDialogs';
 import { notAvailable } from './LoansTab';
-import { downloadBlob, iso, numberFilterHit } from './reportModel';
+import { downloadBlob, numberFilterHit } from './reportModel';
 import { linesFile } from './linesExport';
 import EntryDetail from './EntryDetail';
 import { takePendingOpen } from '../../lib/pendingOpen';
@@ -51,7 +52,40 @@ export const STATUS_FILTERS = ['Open', 'Answered', 'Resolved', 'All'];
 const WHOSE = { all: 'Everyone', assigned: 'Assigned To Me', asked: 'Asked By Me', awaiting: 'Awaiting Bookkeeper' };
 const TONE = { Open: 'wait', Answered: 'brand', Resolved: 'ok' };
 
-const yearAgo = () => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return iso(d); };
+// The period (chat triage 10/27, item 04 - Urmi: "AMA should also have month
+// filter, like current, previous, then custom"): Previous Month the first
+// time, then each person's last choice, kept with their Accounting layout
+// (`amaPeriod`) so it follows them to any computer. Custom takes MM/DD/YYYY
+// boxes (the browser's own date box showed 24-10-2026 on Urmi's computer).
+export const AMA_PERIODS = [
+  { key: 'current', label: 'Current Month' },
+  { key: 'previous', label: 'Previous Month' },
+  { key: 'custom', label: 'Custom' },
+];
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const pad2 = (n) => String(n).padStart(2, '0');
+const monthSpan = (y, m) => [`${y}-${pad2(m + 1)}-01`, `${y}-${pad2(m + 1)}-${pad2(new Date(y, m + 1, 0).getDate())}`];
+
+/** The saved choice as {key, from, to} (ISO days); Previous Month when nothing usable is saved. */
+export function periodRange(saved, today = new Date()) {
+  const key = AMA_PERIODS.some((p) => p.key === saved?.key) ? saved.key : 'previous';
+  const y = today.getFullYear();
+  const m = today.getMonth();
+  const [pf, pt] = m === 0 ? monthSpan(y - 1, 11) : monthSpan(y, m - 1);
+  if (key === 'current') { const [from, to] = monthSpan(y, m); return { key, from, to }; }
+  if (key === 'custom') {
+    const from = ISO_DAY.test(saved?.from || '') ? saved.from : pf;
+    const to = ISO_DAY.test(saved?.to || '') ? saved.to : pt;
+    return from <= to ? { key, from, to } : { key, from: to, to: from };
+  }
+  return { key, from: pf, to: pt };
+}
+
+// Item 05 (Urmi: "we have to go to other side to find amount, question,
+// asked by"): those three sit right after Date and Description; Full Width
+// hides the side menu while it is on, kept per person (`amaFullWidth`).
+const FULL_WIDTH_CSS = '@media (min-width: 901px) { .sidebar { display: none !important; } .main-content, .main-content.main-collapsed { margin-left: 0 !important; } }';
+
 const person = (name, email) => name || email || '';
 const statusText = (r) => (r.reclassed && r.status !== 'Resolved' ? `${r.status} (Reclassed)` : r.status || '');
 
@@ -67,21 +101,22 @@ export const lineText = (r) => r.memo || r.description || '';
 // Between (OpFilter, as in Ledger Search).
 export const GRID_COLUMNS = [
   { key: 'date', label: 'Date', text: (r) => (r.date ? formatDate(r.date) : ''), placeholder: 'MM/DD/YYYY' },
+  { key: 'description', label: 'Description', text: lineText, width: 280 },
+  // Item 05 (chat triage 10/27): right after Date and Description.
+  { key: 'amount', label: 'Amount', num: true, text: (r) => Number(r.amount) || 0 },
+  { key: 'question', label: 'Question', text: (r) => r.question || '', width: 240 },
+  { key: 'askedBy', label: 'Asked By', text: (r) => person(r.askedByName, r.askedBy) },
   { key: 'entity', label: 'Entity', text: (r) => r.entityCode || '' },
   { key: 'entry', label: 'Entry', text: (r) => r.entryNo || '' },
   // CR-13: the Account column always read "Ask My Accountant"; Other Side is
   // what the money came from or went to (Charmi, 31:36).
   ...(AMA_SHOW_ACCOUNT_COLUMN ? [{ key: 'account', label: 'Account', text: (r) => `${r.accountNo || ''} ${r.accountTitle || ''}`.trim(), width: 200 }] : []),
   { key: 'otherSide', label: 'Other Side', text: (r) => otherSideText(r.otherSide), width: 220 },
-  { key: 'description', label: 'Description', text: lineText, width: 280 },
   { key: 'department', label: 'Department', text: (r) => r.department || '', width: 150 },
   { key: 'vendor', label: 'Vendor', text: (r) => r.vendor || '', width: 170 },
   { key: 'custom', label: 'Custom', text: (r) => r.custom || '', width: 150 },
-  { key: 'amount', label: 'Amount', num: true, text: (r) => Number(r.amount) || 0 },
   { key: 'notes', label: 'Notes', text: (r) => r.note || '', width: 180 },
   { key: 'reclass', label: 'GL Reclass', text: (r) => (r.reclass ? `${r.reclass.toAccount} ${reclassLabel(r.reclass)}` : '') },
-  { key: 'question', label: 'Question', text: (r) => r.question || '', width: 240 },
-  { key: 'askedBy', label: 'Asked By', text: (r) => person(r.askedByName, r.askedBy) },
   { key: 'accountant', label: 'Accountant', text: (r) => person(r.accountantName, r.accountant) },
   { key: 'status', label: 'Status', text: statusText },
   { key: 'lastReply', label: 'Last Reply', text: (r) => (r.lastReplyAt ? formatDateTime(r.lastReplyAt) : '') },
@@ -149,7 +184,40 @@ function StatusChips({ r }) {
     <span style={{ display: 'inline-flex', gap: 4 }}>
       <Chip tone={TONE[r.status] || 'muted'}>{r.status}</Chip>
       {r.reclassed && r.status !== 'Resolved' && <Chip tone="muted" title="This line is no longer on the AMA account in the ledger">Reclassed</Chip>}
+      {r.needsRelink && r.splitInto?.length > 0 && (
+        <Chip tone="wait" title={`Asked on Intacct's batch summary line, which is ${r.splitInto.length} card charges - open it to move the question to the right charge`}>
+          Split: {r.splitInto.length} Charges
+        </Chip>
+      )}
     </span>
+  );
+}
+
+/** Item 06 (chat triage 10/27): a question asked on a batch summary line
+ *  before the card charges were read - the charges it covers now, each with
+ *  Move Here. The question and its replies stay as they are. */
+export function SplitCharges({ row, canMove, busy, onMove }) {
+  const charges = row.splitInto || [];
+  if (!row.needsRelink || !charges.length) return null;
+  return (
+    <div role="note" aria-label="Card charges" style={{ ...card, padding: '8px 10px', fontSize: '0.8rem', boxShadow: 'none', display: 'grid', gap: 6 }}>
+      <span>
+        This question was asked on Intacct&apos;s batch summary line ({amountText(row)}), which is these {charges.length} card charges.
+        {canMove ? ' Move it to the charge it is about - the question and its replies stay.' : ' The person who asked, the accountant or an Accounting editor can move it to the right charge.'}
+      </span>
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 4 }}>
+        {charges.map((c) => (
+          <li key={c.lineId} style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: '1px solid var(--border-color)', paddingTop: 4 }}>
+            <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{lineText(c) || '-'}</span>
+            <span style={num}><Amount value={c.amount} /></span>
+            {canMove && (
+              <button type="button" className="secondary-btn" disabled={!!busy} onClick={() => onMove(c)} aria-label={`Move the question to ${lineText(c)} ${amountText(c)}`}
+                style={{ fontSize: '0.74rem', height: 26, padding: '0 8px', whiteSpace: 'nowrap' }}>{busy === `relink:${c.lineId}` ? 'Moving...' : 'Move Here'}</button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -220,6 +288,8 @@ export function ThreadPanel({ row, me, canEdit, onClose, onChanged, onAsk, onRec
               {onReclass && <ReclassCell row={row} onOpen={onReclass} />}
             </div>
           </div>
+          {isThread && <SplitCharges row={row} canMove={canClose} busy={busy}
+            onMove={(c) => act(`relink:${c.lineId}`, () => api.relinkAskThread(t.id, c))} />}
           {t.reclassed && t.status !== 'Resolved' && (
             <div role="note" style={{ ...card, padding: '8px 10px', fontSize: '0.8rem', display: 'flex', gap: 8, alignItems: 'center', boxShadow: 'none' }}>
               <span style={{ flex: 1 }}>This line is no longer on the Ask My Accountant account in the ledger - it was reclassed in Intacct.</span>
@@ -456,8 +526,13 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
   const py = DENSITIES.find((x) => x.key === custom.density)?.py || '5px';
   const [entities, setEntities] = useState([]);
   const [entity, setEntity] = useState('');
-  const [from, setFrom] = useState(yearAgo);
-  const [to, setTo] = useState(() => iso(new Date()));
+  // Items 04 and 05: the period and Full Width are the person's own, saved with their layout.
+  const [prefs, setPrefs] = useAccountingPrefs();
+  const period = periodRange(prefs.amaPeriod);
+  const { from, to } = period;
+  const setPeriod = (next) => setPrefs({ amaPeriod: next });
+  const pickPeriod = (key) => setPeriod(key === 'custom' ? { key, from, to } : { key });
+  const fullWidth = !!prefs.amaFullWidth;
   const [status, setStatus] = useState('Open');
   const [mine, setMine] = useState('all');
   const [text, setText] = useState('');
@@ -575,6 +650,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       <style>{GRID_CSS}</style>
+      {fullWidth && <style data-testid="ama-full-width">{FULL_WIDTH_CSS}</style>}
       <div>
         <h3 style={{ margin: 0, fontSize: '1rem' }}>Ask My Accountant</h3>
         <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -596,14 +672,23 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
         </BarMore>
         {/* Round 3 (UI test 10/24: two lines at 1100): the dates are the third to move into More, Sync the fourth, Export the fifth. */}
         <BarMore level={3}>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-          <span className="acct-more-only">From</span>
-          <input type="date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} aria-label="From" title="Lines dated from" style={control} />
-        </label>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-          <span className="acct-more-only">To</span>
-          <input type="date" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} aria-label="To" title="Lines dated to" style={control} />
-        </label>
+        {/* Item 04 (chat triage 10/27): Current Month / Previous Month / Custom, MM/DD/YYYY boxes. */}
+        <select value={period.key} onChange={(e) => pickPeriod(e.target.value)} aria-label="Period" title={`Lines dated ${formatDate(from)} - ${formatDate(to)}`}
+          style={{ ...control, ...fitSelect(AMA_PERIODS.find((p) => p.key === period.key)?.label) }}>
+          {AMA_PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+        </select>
+        {period.key === 'custom' && (
+          <>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <span className="acct-more-only">From</span>
+              <span style={{ width: 120 }}><DateField value={from} max={to} onChange={(v) => v && setPeriod({ key: 'custom', from: v, to: v > to ? v : to })} placeholder="MM/DD/YYYY" title="Lines dated from" style={{ ...control, width: '100%' }} /></span>
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <span className="acct-more-only">To</span>
+              <span style={{ width: 120 }}><DateField value={to} onChange={(v) => v && setPeriod({ key: 'custom', from: v < from ? v : from, to: v })} placeholder="MM/DD/YYYY" title="Lines dated to" style={{ ...control, width: '100%' }} /></span>
+            </span>
+          </>
+        )}
         </BarMore>
         {/* 10/23 meeting, item 02 (fix 10/24): the list as wide as the choice, the search an icon until used. */}
         <BarMore level={2} active={mine !== 'all' ? 1 : 0}>
@@ -614,6 +699,12 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
         <BarSearch value={text} onChange={setText} label="Filter questions" placeholder="Filter questions" width={200} />
         <TableViewBar view={view} />
         <div className="acct-bar-end">
+          {/* Item 05 (chat triage 10/27): the side menu out of the way, kept per person. */}
+          <button type="button" className={fullWidth ? 'primary-btn' : 'secondary-btn'} aria-pressed={fullWidth} onClick={() => setPrefs({ amaFullWidth: !fullWidth })}
+            title={fullWidth ? 'Exit Full Width - show the side menu again' : 'Full Width - hide the side menu and widen the grid'}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
+            {fullWidth ? <Minimize2 size={14} /> : <Maximize2 size={14} />} <span className="acct-bar-label">{fullWidth ? 'Exit Full Width' : 'Full Width'}</span>
+          </button>
           <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
           </BarMore>
@@ -642,6 +733,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
 
       {data && (
         <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+          {`${formatDate(from)} - ${formatDate(to)} · `}
           {accountsText ? `AMA ${data.accounts.length === 1 ? 'account' : 'accounts'}: ${accountsText}${data.autoDetected ? ' (found by title)' : ''}` : 'No Ask My Accountant account was found on the ledger - questions asked on ledger lines still show here.'}
           {data.ledgerError && <span style={{ color: 'var(--bad-fg, #dc2626)' }}> · The ledger could not be read: {data.ledgerError}</span>}
         </div>
@@ -653,7 +745,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
             {outside.open ? ` (${outside.open.toLocaleString('en-US')} not resolved)` : ''}.
           </span>
           <button type="button" className="acct-drill" style={{ fontSize: '0.76rem' }}
-            onClick={() => { if (outside.earliest && outside.earliest < from) setFrom(outside.earliest); if (outside.latest && outside.latest > to) setTo(outside.latest); }}>
+            onClick={() => setPeriod({ key: 'custom', from: outside.earliest && outside.earliest < from ? outside.earliest : from, to: outside.latest && outside.latest > to ? outside.latest : to })}>
             Include Them
           </button>
         </div>
