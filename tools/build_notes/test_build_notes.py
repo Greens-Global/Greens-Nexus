@@ -525,6 +525,19 @@ class BuildNotesToolsTest(unittest.TestCase):
             watch.run_claude, watch._sleep = real_run, real_sleep
         return code, out.getvalue(), launches, sleeps
 
+    def test_idle_watcher_restarts_when_its_code_changes(self):
+        stamps = iter([(1.0, 1.0), (1.0, 1.0), (2.0, 1.0)])   # start, first idle poll, after a git pull
+        real = watch._code_stamp
+        watch._code_stamp = lambda: next(stamps)
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                code = watch.main(["--api", self.server.base, "--timeout", "1"])
+        finally:
+            watch._code_stamp = real
+        self.assertEqual(code, watch.RESTART)
+        self.assertIn("The watcher was updated - restarting it with the new code.", out.getvalue())
+
     def test_heartbeat_keeps_the_token_in_use_until_stopped(self):
         calls, stop = [], threading.Event()
 

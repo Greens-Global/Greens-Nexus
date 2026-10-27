@@ -37,6 +37,7 @@ RELAUNCH_BACKOFF = (30, 60, 120, 300)   # Claude exited without claiming: wait t
 DEFAULT_TIMEOUT = 25
 SERVER_MAX_TIMEOUT = 50
 CLAUDE_MISSING = 127
+RESTART = 75           # main() asks the script entry to start the updated watcher
 
 _sleep = time.sleep   # swapped out by the tests
 
@@ -133,6 +134,17 @@ def _heartbeat(client, stop, every=HEARTBEAT_SEC):
             pass
 
 
+def _code_stamp():
+    """When the watcher's own files last changed - a `git pull` that updates
+    them changes this, and the idle watcher restarts itself (Pranshu, Oct 27:
+    no restarting it by hand after every update)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        return tuple(os.path.getmtime(os.path.join(here, f)) for f in ("watch.py", "common.py"))
+    except OSError:   # mid-checkout: a file is briefly missing - no change yet
+        return None
+
+
 def wait_once(client, timeout):
     """One long-poll. Returns (notes, sessions)."""
     data = client.get("/cli/wait", query={"timeout": timeout}, timeout=timeout + 20) or {}
@@ -173,6 +185,7 @@ def main(argv=None):
         _say("Warning: " + str(exc) + " - will keep trying.")
 
     _say(BANNER)
+    stamp = _code_stamp()
     backoff = 2
     last_ids = None        # the ids handed to the previous Claude run
     relaunch_step = 0      # index into RELAUNCH_BACKOFF; reset when the id set changes
@@ -193,6 +206,11 @@ def main(argv=None):
                 continue
 
             if not notes:
+                now = _code_stamp()
+                if stamp and now and now != stamp:
+                    _say("")
+                    _say("The watcher was updated - restarting it with the new code.")
+                    return RESTART
                 _dot()
                 continue
 
@@ -253,4 +271,11 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    code = main()
+    while code == RESTART:
+        # The updated watcher, in a fresh process in this same terminal.
+        try:
+            code = subprocess.call([sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
+        except KeyboardInterrupt:
+            code = 0
+    sys.exit(code)
