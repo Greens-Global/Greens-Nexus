@@ -175,6 +175,12 @@ async def _get(params: dict) -> list:
         raise HTTPException(status_code=503, detail="Accounting service is not configured (ACCOUNTING_BASE_URL / ACCOUNTING_INTERNAL_KEY)")
     clean = {k: v for k, v in params.items() if v not in (None, "")}
     key = "&".join(f"{k}={v}" for k, v in sorted(clean.items()))
+    if acct._ACCT_FRESH.get():
+        # A Sync also drops this kind's one-record reads, so Export Approved
+        # CSV right after it reads each vendor fresh, not a copy up to 2 minutes old.
+        kind_part = f"kind={clean.get('kind', '')}"
+        for other in [c for c in _CACHE if c != key and kind_part in c.split("&")]:
+            _CACHE.pop(other, None)
     hit = _CACHE.get(key)
     now = time.monotonic()
     if hit and now - hit[0] < acct.fresh_ttl(_TTL):    # the list's Sync reads past the cache (10/23 meeting, item 13)

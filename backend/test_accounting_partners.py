@@ -445,6 +445,39 @@ class PartnerChangeTests(unittest.TestCase):
         self.assertEqual(self.client.get("/accounting/partners/changes/export.csv?status=approved&kind=customer&format=intacct").status_code, 400)
         self.assertEqual(self.client.get("/accounting/partners/changes/export.csv?format=xml").status_code, 400)
 
+    def test_sync_then_export_reads_each_vendor_fresh(self):
+        """Backend test 10/27, problem 1: the export refused for up to 2
+        minutes after Sync, because each vendor's one-record read sat in its
+        own cache that the list's Sync did not refresh. Sync now drops those
+        reads, so Sync then Export works right away."""
+        cid = self._ask().json()["id"]
+        _as(MANAGER)
+        self.client.post(f"/accounting/partners/changes/{cid}/approve", json={"note": ""})
+        fetched = []
+
+        def fake_sync(params):
+            fetched.append(params)
+            return [dict(v, address=dict(v.get("address") or {})) for v in self.vendors]
+        saved = (accounting_partners._get_sync, accounting._ACCT_BASE, accounting._ACCT_KEY)
+        accounting_partners._get, accounting_partners._get_sync = self._get, fake_sync
+        accounting._ACCT_BASE, accounting._ACCT_KEY = "http://acct.test", "test-key"
+        accounting_partners._CACHE.clear()
+        try:
+            url = "/accounting/partners/changes/export.csv?status=approved&kind=vendor&format=intacct"
+            self.assertEqual(self.client.get(url).status_code, 409, "no contact name from Intacct yet")
+            self.vendors = [dict(VENDORS[0], contactName="Acme Plumbing(V00012)")] + VENDORS[1:]
+            self.assertEqual(self.client.get(url).status_code, 409, "without Sync the 2-minute copy still answers")
+            self.assertEqual(self.client.get("/accounting/partners?kind=vendor&fresh=1").status_code, 200)
+            before = len(fetched)
+            r = self.client.get(url)
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertIn(",V00012,Acme Plumbing,", r.text)
+            self.assertIn({"kind": "vendor", "q": "V00012"}, fetched[before:], "the vendor was read from the accounting app again")
+            self.assertTrue(all(p.get("kind") == "vendor" for p in fetched), "read-only GETs of vendors, nothing else")
+        finally:
+            accounting_partners._get_sync, accounting._ACCT_BASE, accounting._ACCT_KEY = saved
+            accounting_partners._CACHE.clear()
+
     def test_pending_check_takes_a_lock_on_postgres(self):
         """The one-pending-request check runs under a transaction-scoped
         advisory lock (Postgres) and a row lock, so two concurrent posts for
