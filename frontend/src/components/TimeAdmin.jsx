@@ -27,7 +27,11 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { useRole } from '../contexts/RoleContext';
 import PayrollReadiness from './PayrollReadiness';
-import { ForChip } from './DelegateApprovals';
+import { ForChip, ApprovalDelegationsAdmin } from './DelegateApprovals';
+import TeamLeaveCalendar from './TeamLeaveCalendar';
+import LeaveBalancesAdmin from './LeaveBalances';
+import { LeaveYearEndPreview } from './LeaveYearEnd';
+import LeaveHistory from './LeaveHistory';
 import CaReview from './CaReview';
 import LongShiftWarning from './LongShiftWarning';
 import { checkLongShift } from '../lib/longShift';
@@ -149,7 +153,10 @@ const punchReqKey = (r) => (r.action === 'add' && r.at)
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
-export default function TimeAdmin({ toastOk, toastErr, initialView }) {
+// hrPanels: People > Time shows HR's leave panels under Time Off (balances,
+// year end, approval stand-ins, the old Leave history) - they moved here when
+// the People > Leave tab was retired (Oct 27 2026). The dashboard card does not.
+export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = false }) {
   // The manager tier sees its team's hours, never pay (Oct 6).
   const { hrTeam, myEmail } = useRole() || {};
   // Your own time is approved and fixed by your manager or HR, never here (Oct 20, _refuse_own_time).
@@ -247,7 +254,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   const [timeoffErr, setTimeoffErr] = useState(false);
   const loadTimeoff = useCallback(() => {
     setTimeoffErr(false);
-    api.timeOffList().then(r => { setTimeoff(r); }).catch(() => setTimeoffErr(true));   // don't mask a failure as "no requests"
+    // Plus the requests waiting for me as HR (Second Approval By HR, Oct 27
+    // 2026) - an HR contact may not see them in the team list.
+    Promise.all([api.timeOffList(), api.timeOffAwaitingHr().catch(() => [])])
+      .then(([r, hr]) => {
+        const seen = new Set((r || []).map(x => x.id));
+        setTimeoff([...(hr || []).filter(x => !seen.has(x.id)), ...(r || [])]);
+      })
+      .catch(() => setTimeoffErr(true));   // don't mask a failure as "no requests"
   }, []);
   useEffect(() => { loadTimeoff(); }, [loadTimeoff]);
 
@@ -438,8 +452,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       if (note === null) return;   // cancelled - do NOT reject (was the cancel-still-rejects bug)
     }
     try {
-      await api.timeOffDecide(id, { status, note: note || '' });
-      toastOk(`Request ${status}.`);
+      const row = timeoff.find(r => r.id === id);
+      const out = row?.awaitingHr
+        ? await api.timeOffHrDecide(id, { status, note: note || '' })
+        : await api.timeOffDecide(id, { status, note: note || '' });
+      toastOk(out?.awaitingHr ? 'Approved - it now waits for HR approval.' : `Request ${status}.`);
       loadTimeoff();
     } catch (e) { toastErr(e?.message || 'Could not update the request.'); }
   }
@@ -1124,10 +1141,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     // Your own request, or a confidential one that is not
                     // yours to decide (Sep 29): say who decides instead.
                     <span style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'right' }}
-                      title={r.confidential ? 'Confidential - only the approver can decide it' : undefined}>
-                      {r.reviewer ? `Pending - ${r.reviewer} decides` : 'Pending - your manager decides'}
+                      title={r.awaitingHr ? `Approved by ${r.firstApproverName || r.firstApprover || 'the manager'} - HR approves next` : r.confidential ? 'Confidential - only the approver can decide it' : undefined}>
+                      {r.awaitingHr ? 'Awaiting HR Approval' : r.reviewer ? `Pending - ${r.reviewer} decides` : 'Pending - your manager decides'}
                     </span>
                   ) : r.status === 'pending' ? (<>
+                    {r.awaitingHr && <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }} title={`Approved by ${r.firstApproverName || r.firstApprover || 'the manager'}`}>HR Approval</span>}
                     <button className="secondary-btn" onClick={() => decideTimeoff(r.id, 'rejected')} style={{ fontSize: 11, color: '#b91c1c', padding: '4px 10px' }}>Reject</button>
                     <button className="primary-btn" onClick={() => decideTimeoff(r.id, 'approved')} style={{ fontSize: 11, padding: '4px 10px' }}>Approve</button>
                   </>) : (
@@ -1145,6 +1163,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         </div>
         </>);
         })()}
+        <TeamLeaveCalendar />
+        {hrPanels && !hrTeam && (<>
+          <LeaveYearEndPreview toastOk={toastOk} toastErr={toastErr} />
+          <LeaveBalancesAdmin toastOk={toastOk} toastErr={toastErr} />
+          <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />
+          <LeaveHistory />
+        </>)}
         </>
       )}
 

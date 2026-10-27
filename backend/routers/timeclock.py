@@ -11625,6 +11625,7 @@ class _TimeoffPrivacy:
         self._approvers = {}
         self._stand_ins = {}
         self._any_deleg = None
+        self._hr = {}
 
     def _emp(self, email: str):
         if self._emps is None:
@@ -11673,6 +11674,16 @@ class _TimeoffPrivacy:
         self._stand_ins[em] = out
         return out
 
+    def is_hr_for(self, employee_email: str) -> bool:
+        """HR for this person (timesheet_review.is_hr: the company's HR
+        contact, an administrator or a Full HR grant) - the second level of
+        Second Approval By HR. Never for their own request."""
+        em = (employee_email or "").strip().lower()
+        if em not in self._hr:
+            import timesheet_review
+            self._hr[em] = bool(self.viewer) and timesheet_review.is_hr(self.db, self.viewer, em)
+        return self._hr[em]
+
     def can_see(self, r) -> bool:
         if not _is_confidential(r):
             return True
@@ -11680,14 +11691,22 @@ class _TimeoffPrivacy:
         if not self.viewer:
             return False
         if (self.viewer == em or self.viewer in self.approvers(em)
-                or self.viewer == (r.approver or "").strip().lower()):
+                or self.viewer == (r.approver or "").strip().lower()
+                or self.viewer == (getattr(r, "first_approver", "") or "").strip().lower()):
             return True
-        return r.status == "pending" and self.viewer in self.stand_ins(em)
+        if _awaiting_hr(r) and self.is_hr_for(em):
+            return True        # HR decides it now, so HR reads why
+        return r.status == "pending" and not _awaiting_hr(r) and self.viewer in self.stand_ins(em)
 
     def can_decide(self, r) -> bool:
         em = (r.employee_email or "").strip().lower()
         if not self.viewer or self.viewer == em:
             return False
+        if _awaiting_hr(r):
+            # The manager's level is done: only HR decides now, and never the
+            # person who approved the first level.
+            return (self.is_hr_for(em)
+                    and self.viewer != (getattr(r, "first_approver", "") or "").strip().lower())
         return (not _is_confidential(r) or self.viewer in self.approvers(em)
                 or self.viewer in self.stand_ins(em))
 
@@ -11701,6 +11720,12 @@ class _TimeoffPrivacy:
         return ", ".join(names[:3]) + (" and others" if len(names) > 3 else "")
 
 
+def _awaiting_hr(r) -> bool:
+    """A request the manager approved that now waits for HR (Second Approval
+    By HR). Still status 'pending': nothing counts it as approved yet."""
+    return getattr(r, "status", "") == "pending" and (getattr(r, "approval_stage", "") or "") == "hr"
+
+
 def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" = None) -> dict:
     out = {"id": r.id, "email": r.employee_email,
            "name": (names or {}).get(r.employee_email, ""),
@@ -11712,18 +11737,29 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" 
            "createdAt": r.created_at,
            "requestedBy": getattr(r, "requested_by", "") or "",
            "requestedByName": (names or {}).get(getattr(r, "requested_by", "") or "", ""),
-           "confidential": _is_confidential(r), "redacted": False}
+           "confidential": _is_confidential(r), "redacted": False,
+           # Second Approval By HR (Oct 27 2026): whose turn it is, and the
+           # manager's first-level approval once given.
+           "stage": getattr(r, "approval_stage", "") or "",
+           "awaitingHr": _awaiting_hr(r),
+           "statusLabel": "Awaiting HR Approval" if _awaiting_hr(r) else (r.status or "").title(),
+           "firstApprover": getattr(r, "first_approver", "") or "",
+           "firstApproverName": (names or {}).get(getattr(r, "first_approver", "") or "", ""),
+           "firstDecidedAt": getattr(r, "first_decided_at", "") or "",
+           "firstNote": getattr(r, "first_note", "") or ""}
     if priv is not None:
         out["canDecide"] = priv.can_decide(r)
         # Who decides it, whenever the viewer cannot: a confidential request,
         # or the viewer's own (nobody approves their own time off - Visesh,
         # 09/30: "no approval or decline for me"; the approvers are named).
-        if _is_confidential(r) or not out["canDecide"]:
+        if _awaiting_hr(r):
+            out["reviewer"] = "HR"
+        elif _is_confidential(r) or not out["canDecide"]:
             out["reviewer"] = priv.reviewer_names(r)
         if priv.viewer and priv.viewer == (r.employee_email or "").strip().lower():
             out["own"] = True
         if not priv.can_see(r):
-            out.update(note="", decideNote="", redacted=True)
+            out.update(note="", decideNote="", firstNote="", redacted=True)
     return out
 
 
@@ -12045,6 +12081,9 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     row = db.query(TimeOffRequest).filter(TimeOffRequest.id == req_id).with_for_update().first()
     if not row:
         raise HTTPException(404, "Request not found")
+    if _awaiting_hr(row):
+        # The manager approved; HR decides now - whatever the caller's team.
+        return _decide_hr_level(db, user, row, body)
     scope = _visible_emails(db, user)
     if scope is not None and row.employee_email not in scope:
         raise HTTPException(403, "You can only decide your own team's requests.")
@@ -12075,6 +12114,13 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
             out["shiftsRemoved"] = len(conflicts)
             return out
         raise HTTPException(409, f"Already {row.status}")
+    # Second Approval By HR (Oct 27 2026): the company wants HR to approve
+    # too - the manager's approval moves it to HR, unless the manager IS HR
+    # for this person (their one approval is HR's).
+    import timesheet_review
+    if (body.status == "approved" and _second_hr_on(db, row.employee_email)
+            and not timesheet_review.is_hr(db, user["email"], row.employee_email)):
+        return _approve_first_level(db, user, row, body, priv)
     row.status = body.status
     row.approver = user["email"]
     row.decided_at = _now_iso()
@@ -12123,6 +12169,11 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
     row.decided_at = _now_iso()
     if not was_approved:
         _close_approver_notices(db, [row.id], row.employee_email)   # nothing left to decide
+        # Their own "Awaiting HR Approval" notice has nothing left to wait for.
+        for n in (db.query(NexusNotification)
+                  .filter(NexusNotification.recipient == (row.employee_email or "").strip().lower(),
+                          NexusNotification.ref_id == row.id, NexusNotification.title == _HR_WAIT_TITLE).all()):
+            n.actioned = True
     if was_approved:
         _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                            title="Time Off Canceled",
@@ -12133,6 +12184,283 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
         _tell_reports_manager_off(db, row, "Your Manager's Time Off Is Canceled", "is no longer off")
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
+
+
+# ── Second Approval By HR (Neil, Oct 27 2026) ───────────────────────────────
+# A per-company switch (Settings > Time & Pay > Time-Off Approval, layered
+# through scoped_settings, off by default). When it is on, a manager's
+# approval is the first level: the request stays 'pending' with
+# approval_stage 'hr' - so balances, the schedule, payroll and every other
+# reader still treat it as not approved - until HR (timesheet_review.is_hr:
+# the company's HR contact, an administrator or a Full HR grant) approves or
+# rejects it. Nobody decides their own request, and the manager who approved
+# the first level does not approve the second. A manager who is HR for the
+# person approves both levels at once. The employee's bell is ONE notice for
+# the workflow, updated in place ("Awaiting HR Approval" -> "Approved" /
+# "Rejected"). A request already waiting for HR keeps waiting if the switch
+# is turned off.
+_TIMEOFF_APPROVAL_KEY = "timeoff.approval"
+_TIMEOFF_APPROVAL_DEFAULT = {"secondHr": False}
+_HR_WAIT_TITLE = "Time Off Awaiting HR Approval"
+
+
+def _timeoff_approval_cfg(db: Session, company_id: str = "") -> dict:
+    cfg = scoped_settings.get(db, _TIMEOFF_APPROVAL_KEY, _TIMEOFF_APPROVAL_DEFAULT, company_id)
+    cfg["secondHr"] = bool(cfg.get("secondHr"))
+    return cfg
+
+
+def _second_hr_on(db: Session, email: str) -> bool:
+    """The employee's company's switch (their company's override, else the
+    default for every company)."""
+    return _timeoff_approval_cfg(db, _company_of(db, (email or "").strip().lower()))["secondHr"]
+
+
+@router.get("/timeoff/approval-settings")
+def get_timeoff_approval(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    cid = _pay_company(db, company)
+    return _pay_rule_payload(db, _TIMEOFF_APPROVAL_KEY, _timeoff_approval_cfg(db, cid), cid)
+
+
+class TimeOffApprovalIn(BaseModel):
+    secondHr: bool = False
+    reset: bool = False
+
+
+@router.put("/timeoff/approval-settings")
+def set_timeoff_approval(body: TimeOffApprovalIn, company: str = "", user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """Administrators and Full HR - who approves leave is HR's policy."""
+    from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, level_for
+    me = (user.get("email") or "").strip().lower()
+    if not (level_for(me, db) >= _LEVELS["administrator"] or _module_level(me, "hr", db) >= _MODULE_LEVEL_RANK["full"]):
+        raise HTTPException(403, "Only an administrator or HR with Full access can change this.")
+    cid = _pay_company(db, company)
+    _save_pay_rule(db, _TIMEOFF_APPROVAL_KEY, {"secondHr": bool(body.secondHr)}, cid, body.reset, user)
+    return _pay_rule_payload(db, _TIMEOFF_APPROVAL_KEY, _timeoff_approval_cfg(db, cid), cid)
+
+
+def _hr_level_recipients(db: Session, employee_email: str, actor: str) -> list:
+    """Who hears that a request waits for HR: the company's HR contact; with
+    none on file, the Global Admins. Never the employee or the actor."""
+    import timesheet_review
+    em, actor = (employee_email or "").strip().lower(), (actor or "").strip().lower()
+    hr = timesheet_review.hr_of(db, em)
+    out = [hr] if hr and hr not in (em, actor) else []
+    if not out:
+        out = sorted({(r.email or "").strip().lower() for r in db.query(NexusRole)
+                      .filter(NexusRole.role == "owner").all()} - {"", em, actor})
+    return out
+
+
+def _notify_in_place(db: Session, recipient: str, ref_id: str, match_title: str, title: str, body: str,
+                     action: Optional[dict] = None) -> None:
+    """One bell per workflow: update the recipient's notice for this request
+    (found by its title) in place and mark it unread, else write it."""
+    em = (recipient or "").strip().lower()
+    if not em:
+        return
+    n = (db.query(NexusNotification)
+         .filter(NexusNotification.recipient == em, NexusNotification.ref_id == ref_id,
+                 NexusNotification.type == "custom_alert", NexusNotification.title == match_title)
+         .order_by(NexusNotification.created_at.desc()).first())
+    if n is None:
+        _hr_notify(db, em, title, body, ref_id=ref_id, action=action)
+        return
+    n.title, n.body, n.read_by, n.actioned = title, body, "", False
+    n.created_at = datetime.now(timezone.utc).isoformat()
+    if action:
+        n.action = json.dumps(action)
+
+
+def _when_of(row) -> str:
+    return (f"{_us_span(row.start_date, row.end_date)}"
+            f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}")
+
+
+def _approve_first_level(db: Session, user: dict, row, body, priv) -> dict:
+    """The manager's approval when the company wants HR's too: the request
+    moves to HR and stays pending."""
+    me = (user.get("email") or "").strip().lower()
+    row.approval_stage = "hr"
+    row.first_approver = me
+    row.first_decided_at = _now_iso()
+    row.first_note = _decided_note(db, user, row.employee_email, (body.note or "").strip()[:400])
+    _close_approver_notices(db, [row.id], row.employee_email)
+    _audit_delegated(db, user, row.employee_email, "Approved time off request (first level)", "time_off_requests", row.id)
+    who, by = _display_name(db, row.employee_email), _display_name(db, me)
+    for rcp in _hr_level_recipients(db, row.employee_email, me):
+        _hr_notify(db, rcp, "Time-Off Request Awaiting HR Approval",
+                   f"{by} approved {who}'s {_bell_kind(row)} request {_when_of(row)}. It needs HR approval."
+                   f"{_bell_reason(row)}",
+                   ref_id=row.id, requested_by=me, action={"view": "hr", "sub": "hr-time-off"})
+    _notify_in_place(db, row.employee_email, row.id, _HR_WAIT_TITLE, _HR_WAIT_TITLE,
+                     f"Your manager approved your {row.type} request {_when_of(row)}. It now waits for HR "
+                     "approval - you'll hear once HR decides.", action={"view": "timeclock", "sub": ""})
+    conflicts = _timeoff_shift_conflicts(db, row)
+    presets = {s.id: s for s in db.query(Shift).all()} if conflicts else {}
+    team_tz = _team_tz(db) if conflicts else ""
+    db.commit()
+    out = _ser_timeoff(row, priv=_TimeoffPrivacy(db, me))
+    out["conflicts"] = [_sched_dict(r, presets, effective=True, team_tz=team_tz) for r in conflicts]
+    out["shiftsRemoved"] = 0
+    return out
+
+
+def _decide_hr_level(db: Session, user: dict, row, body) -> dict:
+    """HR's decision on a request the manager approved - the final word."""
+    if body.status not in ("approved", "rejected"):
+        raise HTTPException(400, "status must be approved or rejected")
+    me = (user.get("email") or "").strip().lower()
+    priv = _TimeoffPrivacy(db, me)
+    if (row.employee_email or "").strip().lower() == me:
+        raise HTTPException(403, "You can't approve or reject your own time off - your manager or HR decides it.")
+    if not priv.can_decide(row):
+        if me == (row.first_approver or "").strip().lower():
+            raise HTTPException(403, "You approved the first level - HR approves the second.")
+        raise HTTPException(403, "This request waits for HR approval - HR decides it.")
+    row.status = body.status
+    row.approver = me
+    row.decided_at = _now_iso()
+    row.decide_note = (body.note or "").strip()[:400]
+    _close_approver_notices(db, [row.id], row.employee_email)
+    conflicts = _timeoff_shift_conflicts(db, row)
+    if body.status == "approved" and body.remove_shifts:
+        for r in conflicts:
+            r.pending_delete = 1
+    presets = {s.id: s for s in db.query(Shift).all()} if conflicts else {}
+    team_tz = _team_tz(db) if conflicts else ""
+    _notify_in_place(db, row.employee_email, row.id, _HR_WAIT_TITLE, f"Time Off {body.status.title()}",
+                     f"Your {row.type} request {_when_of(row)} was {body.status} by HR."
+                     + (f" Note: {row.decide_note}" if row.decide_note else ""),
+                     action={"view": "timeclock", "sub": ""})
+    first = (row.first_approver or "").strip().lower()
+    if first and first != me:
+        _hr_notify(db, first, f"Time Off {body.status.title()} by HR",
+                   f"HR {body.status} {_display_name(db, row.employee_email)}'s {_bell_kind(row)} request "
+                   f"{_when_of(row)} that you approved.",
+                   ref_id=row.id, requested_by=me, action={"view": "hr", "sub": "hr-time-off"})
+    if body.status == "approved":
+        _tell_reports_manager_off(db, row, "Your Manager Is Off", "is off")
+    db.commit()
+    out = _ser_timeoff(row, priv=priv)
+    out["conflicts"] = [_sched_dict(r, presets, effective=True, team_tz=team_tz) for r in conflicts]
+    out["shiftsRemoved"] = len(conflicts) if body.status == "approved" and body.remove_shifts else 0
+    return out
+
+
+@router.post("/timeoff/{req_id}/hr-decision")
+def hr_decide_timeoff(req_id: str, body: TimeOffDecision, user: dict = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    """HR's door to the second level - an HR contact need not hold the team
+    approval rights the manager's PATCH asks for."""
+    row = db.query(TimeOffRequest).filter(TimeOffRequest.id == req_id).with_for_update().first()
+    if not row:
+        raise HTTPException(404, "Request not found")
+    if not _awaiting_hr(row):
+        raise HTTPException(409, "This request is not waiting for HR approval.")
+    return _decide_hr_level(db, user, row, body)
+
+
+@router.get("/timeoff/awaiting-hr")
+def timeoff_awaiting_hr(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The requests waiting for THIS caller as HR (second level)."""
+    me = (user.get("email") or "").strip().lower()
+    rows = (db.query(TimeOffRequest)
+            .filter(TimeOffRequest.status == "pending", TimeOffRequest.approval_stage == "hr")
+            .order_by(TimeOffRequest.start_date.asc()).limit(_TIMEOFF_LIST_LIMIT).all())
+    priv = _TimeoffPrivacy(db, me)
+    mine = [r for r in rows if priv.can_decide(r)]
+    if not mine:
+        return []
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    return [_ser_timeoff(r, names, priv) for r in mine]
+
+
+# ── Team Leave Calendar (Neil, Oct 27 2026) ─────────────────────────────────
+# One month of who is out, in the Time Off area (People > Time > Time Off and
+# Workday > Time Off). Whose leave a viewer sees, and how much of it:
+#   * in full (approved AND pending, with the kind of leave): the people the
+#     viewer manages (_visible_emails - a manager's own team per the Oct 6
+#     rule, the whole company for an administrator or an unrestricted People
+#     grant, a scoped grant's companies), a company HR contact's whole
+#     company, and their own;
+#   * approved only, as "Out": the rest of the viewer's own team (their
+#     manager, the people who share that manager, their direct reports) -
+#     what the Contact Directory already shows anyone ("Off Today", never
+#     the type).
+# A confidential request reads "Out" to anyone who may not see its reason
+# (_TimeoffPrivacy.can_see). Company holidays of the people shown are marked.
+
+@router.get("/timeoff/calendar")
+def timeoff_calendar(month: str = "", company: str = "", user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    from models import HrEntity
+    me = (user.get("email") or "").strip().lower()
+    try:
+        y, m = (int(x) for x in (month or date.today().strftime("%Y-%m"))[:7].split("-"))
+        first = date(y, m, 1)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "month is YYYY-MM")
+    last = (first.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    lo, hi = first.isoformat(), last.isoformat()
+    emps = {(e.work_email or "").strip().lower(): e for e in db.query(NexusEmployee)
+            .filter(NexusEmployee.work_email != "", NexusEmployee.status.in_(["active", "onboarding"]),
+                    func.coalesce(NexusEmployee.identity_type, "internal") == "internal").all()}
+    vis = _visible_emails(db, user)
+    full = set(emps) if vis is None else {(e or "").lower() for e in vis}
+    hr_cos = {e.id for e in db.query(HrEntity).filter(func.lower(HrEntity.hr_contact_email) == me).all()}
+    if hr_cos:
+        full |= {em for em, e in emps.items() if (e.company or "") in hr_cos}
+    full.add(me)
+    mine = emps.get(me)
+    mgr = ((mine.manager_email if mine else "") or "").strip().lower()
+    team = {me}
+    if mgr:
+        team.add(mgr)
+        team |= {em for em, e in emps.items() if (e.manager_email or "").strip().lower() == mgr}
+    team |= {em for em, e in emps.items() if (e.manager_email or "").strip().lower() == me}
+    shown = {em for em in (full | team) if em in emps}
+    cid = (company or "").strip()
+    if cid:
+        shown = {em for em in shown if (emps[em].company or "") == cid}
+    names = {em: (f"{e.first_name or ''} {e.last_name or ''}".strip() or em) for em, e in emps.items()}
+    rows = (db.query(TimeOffRequest)
+            .filter(TimeOffRequest.status.in_(["approved", "pending"]),
+                    TimeOffRequest.start_date <= hi, TimeOffRequest.end_date >= lo,
+                    func.lower(TimeOffRequest.employee_email).in_(sorted(shown)))
+            .order_by(TimeOffRequest.start_date.asc()).all()) if shown else []
+    priv = _TimeoffPrivacy(db, me)
+    entries = []
+    for r in rows:
+        em = (r.employee_email or "").strip().lower()
+        detail = em in full
+        if not detail and r.status != "approved":
+            continue
+        see = detail and priv.can_see(r)
+        kind = (r.type or "time off").replace("_", " ").title()
+        entries.append({"id": r.id, "email": em, "name": names.get(em, em),
+                        "startDate": r.start_date, "endDate": r.end_date or r.start_date,
+                        "startTime": getattr(r, "start_time", "") or "", "endTime": getattr(r, "end_time", "") or "",
+                        "status": r.status if detail else "approved",
+                        "awaitingHr": detail and _awaiting_hr(r),
+                        "label": kind if see else "Out", "own": em == me})
+    holidays = {}
+    for em, days in _company_holidays_for_many(db, {em: emps[em] for em in shown}, lo, hi).items():
+        for d, h in days.items():
+            holidays.setdefault((d, h.get("name") or "Holiday"), h.get("type") or "mandatory")
+    can_pick = vis is None or len(hr_cos) > 1
+    companies = []
+    if can_pick:
+        allowed = None if vis is None else hr_cos
+        companies = [{"id": e.id, "name": e.name or ""} for e in db.query(HrEntity).order_by(HrEntity.name).all()
+                     if allowed is None or e.id in allowed]
+    return {"month": first.strftime("%Y-%m"), "start": lo, "end": hi,
+            "scope": "all" if vis is None else ("company" if hr_cos else ("team" if len(full) > 1 else "own")),
+            "people": len(shown), "company": cid, "companies": companies,
+            "entries": entries,
+            "holidays": [{"date": d, "name": n, "type": t} for (d, n), t in sorted(holidays.items())]}
 
 
 # ── Add Time (Neil, Oct 14 2026) ─────────────────────────────────────────────

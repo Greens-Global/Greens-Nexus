@@ -1340,6 +1340,11 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS ix_hr_self_requests_ticket_id ON hr_self_requests (ticket_id)",
             # Probation tracking (Oct 27 2026) - see the Postgres list.
             "ALTER TABLE nexus_employees ADD COLUMN probation JSON DEFAULT '{}'",
+            # Second Approval By HR on time off (Oct 27) - see the Postgres list.
+            "ALTER TABLE time_off_requests ADD COLUMN approval_stage VARCHAR DEFAULT ''",
+            "ALTER TABLE time_off_requests ADD COLUMN first_approver VARCHAR DEFAULT ''",
+            "ALTER TABLE time_off_requests ADD COLUMN first_decided_at VARCHAR DEFAULT ''",
+            "ALTER TABLE time_off_requests ADD COLUMN first_note VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3120,6 +3125,13 @@ def _run_migrations():
         # recommendation, the decision, the letter and the history, as JSON on
         # the person. models.NexusEmployee.probation, hr_probation.py.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS probation JSON DEFAULT '{}'",
+        # Second Approval By HR on time off (Neil, Oct 27 2026): whose turn a
+        # pending request is ('' manager, 'hr') and the first level's decision.
+        # models.TimeOffRequest.
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS approval_stage VARCHAR DEFAULT ''",
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS first_approver VARCHAR DEFAULT ''",
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS first_decided_at VARCHAR DEFAULT ''",
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS first_note VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

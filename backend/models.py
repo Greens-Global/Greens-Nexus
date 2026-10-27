@@ -2749,6 +2749,15 @@ class TimeOffRequest(Base):
     # to the requester and the people who decide it (timeclock._TimeoffPrivacy);
     # everyone else sees plain "Time off" with the dates.
     confidential   = Column(Integer, default=0)
+    # Second Approval By HR (Neil, Oct 27 2026; per company, Settings > Time &
+    # Pay > Time-Off Approval). The status stays 'pending' until the request
+    # is fully approved, so every "pending" reader keeps treating it as not
+    # approved; approval_stage says whose turn it is: '' = the manager, 'hr' =
+    # the manager approved and it waits for HR (timesheet_review.is_hr).
+    approval_stage   = Column(String, default="")
+    first_approver   = Column(String, default="")     # the manager who approved the first level
+    first_decided_at = Column(String, default="")
+    first_note       = Column(String, default="")
 
 
 class DashboardView(Base):
@@ -7311,7 +7320,7 @@ class LeaveLedgerEntry(Base):
     employee_email = Column(String, nullable=False, index=True)
     bucket         = Column(String, default="vacation")   # vacation | sick
     hours          = Column(Float, default=0)             # signed
-    kind           = Column(String, default="adjust")     # opening | accrual | used | adjust
+    kind           = Column(String, default="adjust")     # opening | accrual | used | adjust | expire | carryover (leave_year_end.py)
     effective_date = Column(String, default="")           # YYYY-MM-DD
     ref_id         = Column(String, default="", index=True)  # the finalize row (TimeApproval.id) for accrual / used
     note           = Column(String, default="")

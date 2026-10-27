@@ -24,6 +24,12 @@ export const APPROVAL_ACTIONS = {
     approve: (r) => api.timeOffDecide(r.id, { status: 'approved', note: '' }),
     reject: (r, note) => api.timeOffDecide(r.id, { status: 'rejected', note }),
   },
+  // Second Approval By HR (leave depth, Oct 27 2026): HR's own door,
+  // POST /timeoff/{id}/hr-decision (hr_decide_timeoff).
+  time_off_hr: {
+    approve: (r) => api.timeOffHrDecide(r.id, { status: 'approved', note: '' }),
+    reject: (r, note) => api.timeOffHrDecide(r.id, { status: 'rejected', note }),
+  },
   // People > Time > Punch requests (decide_punch_request / decide_punch_edit).
   punch_fix: {
     approve: (r) => api.timeDecidePunchRequest(r.id, { status: 'approved', note: '' }),

@@ -846,6 +846,12 @@ export const api = {
   leaveAdjust:         (body)       => req('/leave-balances/adjust', { method: 'POST', body: JSON.stringify(body) }),
   leaveAssign:         (email, policyId) => req('/leave-balances/assign', { method: 'PUT', body: JSON.stringify({ email, policy_id: policyId }) }),
   leaveRecalculate:    ()           => req('/leave-balances/recalculate', { method: 'POST' }),
+  // Leave year end (Oct 27 2026, leave_year_end.py): Use It Or Lose It by
+  // default, carry options per company; HR previews before it applies.
+  leaveYearEndSettings:     (company = '') => req(`/leave-balances/year-end/settings${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  leaveYearEndSettingsSave: (body, company = '') => req(`/leave-balances/year-end/settings${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(body) }),
+  leaveYearEndPreview:      (company = '', period = 'next') => req(`/leave-balances/year-end/preview?company=${encodeURIComponent(company)}&period=${period}`),
+  leaveYearEndApply:        (company = '') => req('/leave-balances/year-end/apply', { method: 'POST', body: JSON.stringify({ company }) }),
   // The weekly New Feature bar (components/FeatureBanner.jsx) and its dismissal.
   getFeatureBanner: () => req('/task-changelog/feature-banner'),
   dismissFeatureBanner: () => req('/task-changelog/feature-banner/dismiss', { method: 'POST' }),
@@ -1681,6 +1687,13 @@ export const api = {
   timeOffOnBehalf:   (data)      => req('/timeclock/timeoff/on-behalf', { method: 'POST', body: JSON.stringify(data) }),
   timeOffDecide:     (id, data)  => req(`/timeclock/timeoff/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeOffCancel:     (id)        => req(`/timeclock/timeoff/${id}/cancel`, { method: 'POST' }),
+  // Second Approval By HR (Oct 27 2026): HR's queue and decision door.
+  timeOffAwaitingHr: ()          => req('/timeclock/timeoff/awaiting-hr'),
+  timeOffHrDecide:   (id, data)  => req(`/timeclock/timeoff/${id}/hr-decision`, { method: 'POST', body: JSON.stringify(data) }),
+  timeOffApprovalGet: (company = '') => req(`/timeclock/timeoff/approval-settings${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  timeOffApprovalSet: (body, company = '') => req(`/timeclock/timeoff/approval-settings${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(body) }),
+  // Team Leave Calendar (Oct 27 2026): one month, scoped by the server.
+  timeOffCalendar:   (month, company = '') => req(`/timeclock/timeoff/calendar?month=${month}${company ? `&company=${encodeURIComponent(company)}` : ''}`),
   timeApprove:       (data)      => req('/timeclock/approvals', { method: 'POST', body: JSON.stringify(data) }),
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),

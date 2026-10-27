@@ -245,25 +245,50 @@ def _short(text: str, n: int = 140) -> str:
 def _time_off(db: Session, user: dict, ctx: dict) -> list:
     """The time-off list's pending rows the caller can decide (canDecide) -
     the same call and rule the nav count and Team > Requests use."""
-    from routers.timeclock import _TIMEOFF_LIST_LIMIT, _timeoff_window, list_timeoff
+    from routers.timeclock import _TIMEOFF_LIST_LIMIT, list_timeoff
     u = _approver(db, user, ctx)
     out = []
     for t in list_timeoff(status="pending", from_="", to="", limit=_TIMEOFF_LIST_LIMIT, user=u, db=db):
-        if t.get("canDecide") is False:
+        # A request the manager already approved that now waits for HR
+        # (Second Approval By HR) is the time_off_hr source's row - each once.
+        if t.get("canDecide") is False or t.get("awaitingHr"):
             continue
-        span = _span(t["startDate"], t["endDate"]) + _timeoff_window(t.get("startTime") or "", t.get("endTime") or "")
-        try:
-            days = (date.fromisoformat(t["endDate"][:10]) - date.fromisoformat(t["startDate"][:10])).days + 1
-        except (TypeError, ValueError):
-            days = 0
-        title = f"Time Off - {span}" + (f" ({_plural(days, 'day')})" if days > 1 else "")
-        kind = (t.get("type") or "time off").replace("_", " ").title()
-        note = "" if t.get("redacted") else _short(t.get("note") or "")
-        out.append(row("time_off", t["id"], person_email=t["email"], person_name=t.get("name") or "",
-                       title=title, detail=f"{kind}{' - ' + note if note else ''}", created_at=t.get("createdAt"),
-                       actions=(A_APPROVE, A_REJECT), link={"view": "hr", "sub": "hr-time"},
-                       for_name=t.get("forName") or ""))
+        out.append(_time_off_row("time_off", t))
     return out
+
+
+def _time_off_row(kind_key: str, t: dict) -> dict:
+    from routers.timeclock import _timeoff_window
+    span = _span(t["startDate"], t["endDate"]) + _timeoff_window(t.get("startTime") or "", t.get("endTime") or "")
+    try:
+        days = (date.fromisoformat(t["endDate"][:10]) - date.fromisoformat(t["startDate"][:10])).days + 1
+    except (TypeError, ValueError):
+        days = 0
+    title = f"Time Off - {span}" + (f" ({_plural(days, 'day')})" if days > 1 else "")
+    kind = (t.get("type") or "time off").replace("_", " ").title()
+    note = "" if t.get("redacted") else _short(t.get("note") or "")
+    detail = f"{kind}{' - ' + note if note else ''}"
+    if kind_key == "time_off_hr":
+        first = t.get("firstApproverName") or t.get("firstApprover") or "the manager"
+        detail = f"{detail} - approved by {first}, waiting for HR"
+    hr = kind_key == "time_off_hr"
+    return row(kind_key, t["id"], person_email=t["email"], person_name=t.get("name") or "",
+               title=title, detail=detail,
+               # HR's wait starts when the manager said yes.
+               created_at=(t.get("firstDecidedAt") if hr else "") or t.get("createdAt"),
+               actions=(A_APPROVE, A_REJECT), link={"view": "hr", "sub": "hr-time-off" if hr else "hr-time"},
+               for_name=t.get("forName") or "")
+
+
+@source("time_off_hr", "Time Off Awaiting HR", "timeoff")
+def _time_off_hr(db: Session, user: dict, ctx: dict) -> list:
+    """Time off the manager approved that waits for the caller as HR (Second
+    Approval By HR, leave depth Oct 27 2026) - routers/timeclock
+    .timeoff_awaiting_hr, the People > Time > Time Off "Awaiting HR" list.
+    Decided through POST /timeoff/{id}/hr-decision (HR need not hold the
+    team approval rights the manager's PATCH asks for)."""
+    from routers.timeclock import timeoff_awaiting_hr
+    return [_time_off_row("time_off_hr", t) for t in timeoff_awaiting_hr(user=user, db=db)]
 
 
 # ── Punch fixes and punch-time edits (People > Time > Punch requests) ────────

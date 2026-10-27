@@ -2983,4 +2983,13 @@ async def life_events_loop():
             await asyncio.to_thread(hr_letters.process_filing)
         except Exception as e:
             print(f"[life-events] HR letter filing failed: {e}")
+        try:
+            # Leave year end (Oct 27 2026): once a day, settle each person's
+            # last closed leave year - leave_year_end.py. Idempotent.
+            import leave_year_end
+            ye = await asyncio.to_thread(leave_year_end.run_due)
+            if ye and (ye.get("rows") or ye.get("failed")):
+                print(f"[life-events] leave year end: {ye.get('rows')} rows, {len(ye.get('failed') or [])} failed")
+        except Exception as e:
+            print(f"[life-events] leave year end failed: {e}")
         await asyncio.sleep(LOOP_EVERY_SEC)

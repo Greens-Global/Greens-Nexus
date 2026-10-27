@@ -181,7 +181,9 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
         db.rollback()
         inbox = {"counts": {}, "total": 0}
     a = inbox["counts"].get
-    time_off = a("time_off", 0)   # Team > Requests and People > Time both list it
+    # Team > Requests and People > Time both list it; HR's second level of
+    # Second Approval By HR (leave depth, Oct 27 2026) counts with it, once.
+    time_off = a("time_off", 0) + a("time_off_hr", 0)
     counts = {
         "myhr": {
             "timesheet": s(lambda: _timesheet(db, me, a("timesheet_sign", 0))),
