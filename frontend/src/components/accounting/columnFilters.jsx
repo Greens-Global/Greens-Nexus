@@ -32,9 +32,11 @@ import { numberFilterHit } from './reportModel';
 //         typed={filters.typed} onChange={filters.setFilter} />
 //     </thead>
 //
-// `filters.filtering` says whether any box holds something (for a "Clear
-// Column Filters" link, which calls `filters.clear()`); put `filters.typed` in
-// a pager's reset key. Pin the whole <thead> (acct-sticky-head, or a table
+// `filters.filtering` says whether any box holds something; when the boxes let
+// nothing through, the table's body shows
+//   {filters.filtering && !filters.rows.length && <ColumnFiltersEmpty colSpan={n} onClear={filters.clear} />}
+// - the words and the "Clear Column Filters" link that empties every box. Put
+// `filters.typed` in a pager's reset key. Pin the whole <thead> (acct-sticky-head, or a table
 // rule like .mre-grid thead), never each cell: per-cell sticky breaks with the
 // column-resize handles (10/23 lesson). An amount column reads `value(r)` when
 // it has one, else `text(r)`.
@@ -67,6 +69,23 @@ export function useColumnFilters(rows, columns) {
   const clear = useCallback(() => setTyped({}), []);
   const filtered = useMemo(() => filterRowsByColumns(rows, typed, columns), [rows, typed, columns]);
   return { typed, setFilter, clear, filtering: columnFiltersActive(columns, typed), rows: filtered };
+}
+
+const clearLink = { border: 'none', background: 'none', font: 'inherit', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 };
+
+/** The table's one row when the boxes match nothing: the words and a "Clear
+ *  Column Filters" link (UI test 10/27: Records lists, Manual JE and the
+ *  Schedule C mapping had the words only; Loans' and Management Fees' link
+ *  is the model). `text` changes the words; `style` adds to the cell's. */
+export function ColumnFiltersEmpty({ colSpan, onClear, text = 'Nothing matches these column filters.', style = null }) {
+  return (
+    <tr>
+      <td colSpan={colSpan || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: '0.84rem', ...style }}>
+        {text}{' '}
+        <button type="button" onClick={onClear} style={clearLink}>Clear Column Filters</button>
+      </td>
+    </tr>
+  );
 }
 
 /** The row of boxes under the headings, one cell per column shown (in the

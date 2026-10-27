@@ -28,7 +28,12 @@ describe('ScheduleCMapping column filter boxes (10/27)', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Filter Amount' }), { target: { value: '1000' } });
     expect(names()).toEqual(['61000 Utilities']);
     fireEvent.change(screen.getByRole('textbox', { name: 'Search accounts' }), { target: { value: 'repairs' } });
-    expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
+    expect(screen.getByText(/Nothing matches these column filters\./)).toBeTruthy();
+    // UI test 10/27: the link empties the boxes; the search stays.
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Column Filters' }));
+    expect(names()).toEqual(['60500 Repairs and Maintenance']);
+    expect(screen.getByRole('textbox', { name: 'Filter Section' }).value).toBe('');
+    expect(screen.getByRole('textbox', { name: 'Search accounts' }).value).toBe('repairs');
   });
 
   it('the Line filter reads what the Line box in the row shows, a pick not yet saved included', () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { ColumnFilterRow, columnFilterSet, columnFiltersActive, filterRowsByColumns, useColumnFilters } from './columnFilters';
+import { ColumnFilterRow, ColumnFiltersEmpty, columnFilterSet, columnFiltersActive, filterRowsByColumns, useColumnFilters } from './columnFilters';
 
 // The shared filter row under the headings (10/27): what MRE and AMA had on
 // their own, now one piece - text "contains", =, >, <, Between on amounts,
@@ -115,5 +115,41 @@ describe('ColumnFilterRow + useColumnFilters', () => {
     const cells = container.querySelectorAll('tr.acct-filter-row td');
     expect(cells).toHaveLength(5);
     expect(cells[4].childElementCount).toBe(0);
+  });
+});
+
+// UI test 10/27: Records lists, Manual JE and the Schedule C mapping said
+// "Nothing matches" with no way back; the shared row carries the link.
+function EmptyTable() {
+  const filters = useColumnFilters(ROWS, COLUMNS);
+  return (
+    <table>
+      <thead><ColumnFilterRow columns={COLUMNS} typed={filters.typed} onChange={filters.setFilter} /></thead>
+      <tbody>
+        {filters.filtering && !filters.rows.length && <ColumnFiltersEmpty colSpan={COLUMNS.length} onClear={filters.clear} />}
+        {filters.rows.map((r) => <tr key={r.id} data-testid="row"><td>{r.id}</td></tr>)}
+      </tbody>
+    </table>
+  );
+}
+
+describe('ColumnFiltersEmpty', () => {
+  it('says nothing matches, spans the table, and its link empties every box and brings the rows back', () => {
+    render(<EmptyTable />);
+    fireEvent.change(screen.getByLabelText('Filter Vendor'), { target: { value: 'amazon' } });
+    fireEvent.change(screen.getByLabelText('Filter Date'), { target: { value: 'zzqqxx' } });
+    expect(screen.queryAllByTestId('row')).toHaveLength(0);
+    const cell = screen.getByText(/Nothing matches these column filters\./).closest('td');
+    expect(cell.getAttribute('colspan')).toBe('4');
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Column Filters' }));
+    expect(screen.getAllByTestId('row')).toHaveLength(3);
+    expect(screen.getByLabelText('Filter Vendor').value).toBe('');
+    expect(screen.getByLabelText('Filter Date').value).toBe('');
+    expect(screen.queryByRole('button', { name: 'Clear Column Filters' })).toBeNull();
+  });
+
+  it('takes its own words', () => {
+    render(<table><tbody><ColumnFiltersEmpty colSpan={2} onClear={() => {}} text="No loan matches these column filters." /></tbody></table>);
+    expect(screen.getByText(/No loan matches these column filters\./)).toBeTruthy();
   });
 });

@@ -82,7 +82,12 @@ describe('Records lists column filters', () => {
     expect(text).toContain('Advertising');
     expect(text).not.toContain('Chase Checking');
     fireEvent.change(screen.getByRole('textbox', { name: 'Filter Title' }), { target: { value: 'nothing here' } });
-    expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
+    expect(screen.getByText(/Nothing matches these column filters\./)).toBeTruthy();
+    // UI test 10/27: the link empties the boxes and the accounts come back.
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Column Filters' }));
+    expect(screen.getByText('Chase Checking')).toBeTruthy();
+    expect(screen.getByText('Advertising')).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Filter Title' }).value).toBe('');
   });
 
   it('filters the Entities by a number box and a text box, and Export takes only what is left', async () => {

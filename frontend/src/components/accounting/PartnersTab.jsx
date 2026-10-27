@@ -11,7 +11,7 @@ import { useAccountingPrefs } from './prefs';
 import { usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { cellStyle } from './columnStyles';
-import { ColumnFilterRow, useColumnFilters } from './columnFilters';
+import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
 import { filterColumnsOf } from './viewFilterColumns';
 import { useTableSync } from './tableSync';
 import { linesFile } from './linesExport';
@@ -469,7 +469,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
                   </thead>
                   <tbody>
                     {!listed.length && (
-                      <tr><td colSpan={view.columns.length || 1} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }}>Nothing matches these column filters.</td></tr>
+                      <ColumnFiltersEmpty colSpan={view.columns.length} onClear={clearBoxes} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }} />
                     )}
                     {paged.rows.map((r) => {
                       const cell = (k, extra = null) => ({ ...td, ...(extra || {}), ...cellStyle(view.manualWidth(k)) });
@@ -536,9 +536,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
                   <ColumnFilterRow columns={reqHeads} filterColumns={REQUEST_FILTERS} typed={reqFilters.typed} onChange={reqFilters.setFilter} />
                 </thead>
                 <tbody>
-                  {!reqFilters.rows.length && (
-                    <tr><td colSpan={reqHeads.length} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }}>Nothing matches these column filters.</td></tr>
-                  )}
+                  {!reqFilters.rows.length && <ColumnFiltersEmpty colSpan={reqHeads.length} onClear={reqFilters.clear} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }} />}
                   {reqFilters.rows.map((r) => (
                     <tr key={r.id} className={canApprove && r.status === 'pending' ? 'nx-needs-you--row' : undefined}>
                       <td style={td}><strong>{r.partnerName || r.partnerId}</strong><div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{r.partnerId}</div></td>
