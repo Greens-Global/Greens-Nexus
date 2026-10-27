@@ -15,8 +15,12 @@ import { dayOf, isNumeric, numOf, textOf } from './tableView/model';
 //   const filters = useColumnFilters(rows, filterCols);
 //   const view = useTableView('key', COLUMNS, filters.rows);
 //
-// `extra` adds what a column's box should also find ({ [key]: (r) => '...' }),
-// e.g. a vendor's number behind its name.
+// Two options, each { [key]: (r) => '...' } for a text or date column:
+//   also     adds what the box should also find, e.g. a vendor's number
+//            behind its name
+//   instead  replaces what the box searches, e.g. a name cell that also
+//            shows a code, or a date cell read as shown ("01/01/2026 to
+//            Month to Month") rather than as one day
 
 /** The day a date cell holds, as MM/DD/YYYY ('' when blank). */
 export function dayText(col, row) {
@@ -25,11 +29,11 @@ export function dayText(col, row) {
 }
 
 /** The filter box definitions of a table view's columns. */
-export function filterColumnsOf(columns, extra = {}) {
+export function filterColumnsOf(columns, { also = {}, instead = {} } = {}) {
   return (columns || []).filter((c) => c && !c.noFilter).map((c) => {
     if (isNumeric(c)) return { key: c.key, label: c.label, num: true, value: (r) => numOf(c, r) };
-    const more = extra[c.key];
-    const read = c.type === 'date' ? (r) => dayText(c, r) : (r) => textOf(c, r);
+    const more = also[c.key];
+    const read = instead[c.key] || (c.type === 'date' ? (r) => dayText(c, r) : (r) => textOf(c, r));
     return {
       key: c.key, label: c.label,
       text: more ? (r) => `${read(r)} ${more(r) || ''}` : read,
@@ -37,3 +41,7 @@ export function filterColumnsOf(columns, extra = {}) {
     };
   });
 }
+
+/** The filter cells on a table whose own stylesheet has no rule for them:
+ *  the boxes' tight padding, the pinned first column (`pinned`) with its heading. */
+export const filterCellOf = (pinned = '') => (col) => ({ className: pinned && col.key === pinned ? 'acct-head' : undefined, style: { padding: '3px 4px 4px' } });

@@ -28,7 +28,11 @@ vi.mock('../../stepup/StepUp', () => ({
   StepUpNeeded: ({ label, onVerified }) => <button type="button" onClick={onVerified}>Verify {label}</button>,
 }));
 
+// Export hands its file to downloadBlob; caught here so a test can read what was written (10/27).
+vi.mock('./reportModel', async (importOriginal) => ({ ...(await importOriginal()), downloadBlob: vi.fn() }));
+
 import CompensationReport from './CompensationReport';
+import { downloadBlob } from './reportModel';
 import { api } from '../../api';
 import { resetAccountingPrefs } from './prefs';
 
@@ -145,5 +149,87 @@ describe('CompensationReport', () => {
     fireEvent.change(screen.getByLabelText('From Month'), { target: { value: '2024-01' } });
     expect(screen.getByText('Pick at most 12 months.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Run Report' })).toBeDisabled();
+  });
+});
+
+// 10/27: a filter box under every heading on both tables (columnFilters.jsx, as
+// on MRE): typing narrows the rows, the Total line follows, and Export writes
+// only what the boxes leave.
+describe('CompensationReport - column filter boxes (10/27)', () => {
+  const lee = { ...report.people[0], email: 'lee@x.com', name: 'Lee Salaried', employeeId: 'MC-002', company: 'c2', companyName: 'MCD Services', department: 'Office', payType: 'salary', rate: 6000, rateChanged: false, regMin: 4800, otMin: 0, dtMin: 0, sickMin: 0, wages: 2000 };
+  const csvOf = async () => {
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalled());
+    const file = downloadBlob.mock.calls[downloadBlob.mock.calls.length - 1][1];
+    return new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
+  };
+  const peopleCard = () => screen.getByRole('heading', { name: 'Compensation' }).closest('.acct-stack-card');
+  const ledgerCard = () => screen.getByRole('heading', { name: 'Payroll Expense on the Ledger' }).closest('.acct-stack-card');
+
+  it('people: a text box and an amount box narrow the rows, the Total follows, and Export writes only them', async () => {
+    api.getCompensationPeople.mockResolvedValueOnce({ ...report, people: [report.people[0], lee], totals: [total({ people: 2, regMin: 14400, wages: 7000 })] });
+    render(<CompensationReport />);
+    await screen.findByText('Lee Salaried');
+    const people = peopleCard();
+    const table = people.querySelector('table');
+    // The boxes are in the pinned heading block.
+    const box = within(people).getByRole('textbox', { name: 'Filter Employee' });
+    expect(table.querySelector('thead').contains(box)).toBe(true);
+    expect(table.classList.contains('acct-sticky-head')).toBe(true);
+    // The Employee box also finds the employee ID.
+    fireEvent.change(box, { target: { value: 'mc-002' } });
+    expect(screen.queryByText('Pat Hourly')).toBeNull();
+    const totalRow = () => within(people).getByText('Total', { selector: 'td' }).closest('tr');
+    expect(totalRow().textContent).toContain('2,000.00');
+    expect(within(people).getByText(/1 of 2 rows pass the filters/)).toBeTruthy();
+    fireEvent.change(box, { target: { value: '' } });
+    // Gross Wages > 3,000: Pat only.
+    fireEvent.change(within(people).getByRole('combobox', { name: 'Operator for Gross Wages' }), { target: { value: '>' } });
+    fireEvent.change(within(people).getByRole('textbox', { name: 'Filter Gross Wages' }), { target: { value: '3000' } });
+    expect(screen.queryByText('Lee Salaried')).toBeNull();
+    expect(totalRow().textContent).toContain('5,000.00');
+    // The people's Export is the bar's, the first on the screen.
+    fireEvent.click(screen.getAllByRole('button', { name: /Export/ })[0]);
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    const text = await csvOf();
+    expect(text).toContain('Pat Hourly');
+    expect(text).not.toContain('Lee Salaried');
+  });
+
+  it('people: nothing left keeps the boxes with a way to clear them; another grouping starts clean', async () => {
+    render(<CompensationReport />);
+    await screen.findByText('Pat Hourly');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Title' }), { target: { value: 'accountant' } });
+    expect(within(peopleCard()).getByText('Nothing matches these column filters.')).toBeTruthy();
+    fireEvent.click(within(peopleCard()).getByRole('button', { name: 'Clear Column Filters' }));
+    expect(screen.getByText('Pat Hourly')).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Title' }), { target: { value: 'accountant' } });
+    fireEvent.click(within(screen.getByRole('group', { name: 'View' })).getByRole('button', { name: 'By Department' }));
+    expect(within(peopleCard()).getByRole('textbox', { name: 'Filter Department' }).value).toBe('');
+    expect(within(peopleCard()).getAllByText('Maintenance').length).toBeGreaterThan(0);
+  });
+
+  it('ledger: its own boxes narrow the rows, the Total follows, and its Export writes only them', async () => {
+    api.getCompensationLedger.mockResolvedValue({ ...ledger, rows: [ledger.rows[0], { key: '9200', label: 'Office', wages: 500, taxes: 40, benefits: 10, total: 550, accounts: [] }], totals: { wages: 1500, taxes: 120, benefits: 30, total: 1650 } });
+    render(<CompensationReport />);
+    await screen.findByText('Office', { selector: 'td' });
+    const card = ledgerCard();
+    const box = within(card).getByRole('textbox', { name: 'Filter Department' });
+    expect(card.querySelector('table thead').contains(box)).toBe(true);
+    // The Department box also finds the code shown beside the name.
+    fireEvent.change(box, { target: { value: '9100' } });
+    expect(within(card).queryByText('Office')).toBeNull();
+    const foot = card.querySelector('tfoot tr');
+    expect(foot.textContent).toContain('1,100.00');
+    expect(foot.textContent).not.toContain('1,650.00');
+    fireEvent.change(box, { target: { value: '' } });
+    fireEvent.change(within(card).getByRole('combobox', { name: 'Operator for Total' }), { target: { value: '<' } });
+    fireEvent.change(within(card).getByRole('textbox', { name: 'Filter Total' }), { target: { value: '1000' } });
+    expect(within(card).queryByText('Field Ops')).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: /Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+    const text = await csvOf();
+    expect(text).toContain('Office');
+    expect(text).not.toContain('Field Ops');
+    expect(text).toContain('550');
   });
 });
