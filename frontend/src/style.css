@@ -7508,3 +7508,24 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 @media (prefers-reduced-motion: reduce) {
   .nx-nudge-a, .nx-nudge-b { animation: none; box-shadow: 0 0 0 3px var(--wk-brand, #1f7a40), 0 20px 60px rgba(0,0,0,0.3); }
 }
+
+/* Item 14 (Charmi, 10/26: "There should be search option for all"): the
+   filter boxes (components/accounting/columnFilters.jsx) on the Accounting
+   list tables that are not a report or a lines grid - Vendors & Customers,
+   Reconciliations, Loans - look like those. :where keeps these under the
+   .acct-report / .acct-lines rules above. The heading block pins as one
+   piece (acct-sticky-head), so a see-through heading gets a background. */
+:where(.acct-sticky-head) .acct-filter-row td { padding: 3px 4px 4px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+:where(.acct-sticky-head) .acct-filter-row input {
+  width: 100%; min-width: 60px; box-sizing: border-box; height: 24px; padding: 0 6px; border: 1px solid var(--border-color); border-radius: 6px;
+  font: inherit; font-size: 12px; font-weight: 400; background: var(--bg-card); color: var(--text-primary);
+}
+:where(.acct-sticky-head) .acct-filter-row input::placeholder { color: var(--text-muted); opacity: .7; }
+:where(.acct-sticky-head) .acct-filter-row input:not(:placeholder-shown) { border-color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }
+:where(.acct-sticky-head) .acct-op-filter { display: flex; gap: 3px; align-items: center; min-width: 0; }
+:where(.acct-sticky-head) .acct-op-filter select {
+  height: 24px; padding: 0 2px; border: 1px solid var(--border-color); border-radius: 6px; font: inherit; font-size: 11px;
+  background: var(--bg-card); color: var(--text-secondary); flex: 0 0 auto; max-width: 64px;
+}
+:where(.acct-sticky-head) .acct-op-filter input { min-width: 48px; width: 0; flex: 1 1 auto; text-align: right; }
+.req-table.acct-sticky-head thead th { background: var(--bg-card); }
