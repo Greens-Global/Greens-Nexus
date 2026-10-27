@@ -513,6 +513,20 @@ class BuildNotesToolsTest(unittest.TestCase):
             watch.run_claude, watch._sleep = real_run, real_sleep
         return code, out.getvalue(), launches, sleeps
 
+    def test_heartbeat_keeps_the_token_in_use_until_stopped(self):
+        calls, stop = [], threading.Event()
+
+        class Client:
+            def get(self, path, **kw):
+                calls.append(path)
+                if len(calls) == 2:
+                    raise common.ApiError(None, "blip")  # a failed beat does not end the heartbeat
+                if len(calls) == 3:
+                    stop.set()
+
+        watch._heartbeat(Client(), stop, every=0.01)
+        self.assertEqual(calls, ["/cli/whoami"] * 3)
+
     def test_watch_backs_off_when_the_same_pins_come_straight_back(self):
         batch = {"notes": [sample_note(self.server.base, with_media=False)], "sessions": []}
         other = {"notes": [sample_note(self.server.base, NOTE_ID_2, 4, with_media=False)], "sessions": []}

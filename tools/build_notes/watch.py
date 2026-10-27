@@ -21,6 +21,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 try:
@@ -118,6 +119,20 @@ def run_claude(ids, claude_args, cwd):
         signal.signal(signal.SIGINT, previous)
 
 
+HEARTBEAT_SEC = 60   # well under the server's CONNECTED_SEC (150 s)
+
+
+def _heartbeat(client, stop, every=HEARTBEAT_SEC):
+    """While Claude Code runs the watcher is not long-polling, so its token
+    goes quiet and Nexus said "Connect Claude Code First" after every pin
+    (Pranshu, Oct 27). Use the token once a minute until Claude exits."""
+    while not stop.wait(every):
+        try:
+            client.get("/cli/whoami", timeout=30)
+        except Exception:  # noqa: BLE001 - the next beat or the next poll tries again
+            pass
+
+
 def wait_once(client, timeout):
     """One long-poll. Returns (notes, sessions)."""
     data = client.get("/cli/wait", query={"timeout": timeout}, timeout=timeout + 20) or {}
@@ -209,7 +224,12 @@ def main(argv=None):
                 relaunch_step = 0
             last_ids = set(ids)
 
-            code = run_claude(ids, args.claude_args, repo)
+            stop = threading.Event()
+            threading.Thread(target=_heartbeat, args=(client, stop), daemon=True).start()
+            try:
+                code = run_claude(ids, args.claude_args, repo)
+            finally:
+                stop.set()
             _say("")
             _say("Claude Code exited (code " + str(code) + ").")
             if code == CLAUDE_MISSING:
