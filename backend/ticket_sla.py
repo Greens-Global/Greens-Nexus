@@ -258,7 +258,12 @@ def note_comment(db: Session, t, user: dict, internal: bool, at: str) -> bool:
     import ticket_roles
     if (t.first_response_at or "") or internal:
         return False
-    if not counts_as_response(t, user.get("email"), internal, ticket_roles.can_work_queue(user, db)):
+    import ticket_confidential
+    # An Ask HR ticket is answered by HR (its assignee or HR for its company),
+    # who need not be on the service desk at all.
+    worker = (ticket_confidential.may_work(db, user, t) if ticket_confidential.is_confidential(t)
+              else ticket_roles.can_work_queue(user, db))
+    if not counts_as_response(t, user.get("email"), internal, worker):
         return False
     t.first_response_at = iso(parse(at) or utcnow())
     return True
@@ -395,7 +400,9 @@ def scan_breaches(db: Session, now: datetime | None = None) -> int:
         return or_(col.is_(None), col == "")
     # Only the candidates - breached AND not alerted yet - are loaded and
     # locked; a ticket already told about its breach is not touched again.
-    rows = (db.query(T)
+    # Confidential (Ask HR) tickets breach too - their alert goes to their
+    # assignee or HR, never the desk or a department lead (below).
+    rows = (db.query(T).execution_options(include_confidential=True)
             .filter(T.status.notin_(PAUSED_STATUSES), blank(T.sla_paused_at),
                     or_(T.approval_status.is_(None), T.approval_status != "pending"),
                     or_(and_(T.sla_due_at != "", T.sla_due_at < now_s, blank(T.sla_res_alerted_at)),
@@ -419,16 +426,22 @@ def scan_breaches(db: Session, now: datetime | None = None) -> int:
         return 0
     db.commit()   # marked before sending: at most once
 
+    import ticket_confidential
     by_person: dict = {}   # email -> [(ticket, kinds)]
     for t, kinds in found:
         assignee = (t.assignee_email or "").strip().lower()
+        confidential = ticket_confidential.is_confidential(t)
         told = []
         if assignee and ticket_notify._is_sendable(db, assignee):
             told.append((assignee, "assignee"))
+        elif confidential:   # an Ask HR ticket: HR hears, never the desk
+            told += [(e, "HR") for e in ticket_confidential.hr_audience(db, t) if ticket_notify._is_sendable(db, e)]
         else:   # unassigned, or the assignee left: the desk hears instead
             told += [(e, "service desk") for e in _desk_for(db, t, cfg)]
-        lead, _dept = ticket_overdue._lead_of(db, t)
-        if not lead:
+        lead, _dept = ("", "") if confidential else ticket_overdue._lead_of(db, t)
+        if confidential:
+            pass   # no department lead for an Ask HR ticket
+        elif not lead:
             log_activity(db, type="notify_gap", actor_email="system", entity_kind="ticket",
                          entity_id=t.id, entity_code=t.code, entity_title=t.subject,
                          detail="SLA breached with no department lead set - the lead alert was not sent")

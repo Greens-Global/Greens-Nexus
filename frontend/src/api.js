@@ -1732,6 +1732,11 @@ export const api = {
   hrSelfRequestResolve: (rid, body) => req(`/hr/requests/${rid}`, { method: 'PATCH', body: JSON.stringify(body) }),
   hrSelfRequestAttachmentUrl: (rid) => req(`/hr/requests/${rid}/attachment-url`),
   hrSelfRequestAttachToEmployee: (rid, kind) => req(`/hr/requests/${rid}/attach-to-employee`, { method: 'POST', body: JSON.stringify({ kind }) }),
+  // Ask HR runs through Tickets (Oct 27 2026, backend/routers/ask_hr.py): the
+  // confidential HR desk the caller works as HR, and the old requests.
+  askHrAccess:     () => req('/ask-hr/access'),
+  askHrDesk:       (openOnly) => req(`/ask-hr/desk${openOnly ? '?open_only=true' : ''}`),
+  askHrEarlier:    () => req('/ask-hr/earlier'),
   hrPaystubs:      (eid)   => req(`/hr/employees/${eid}/paystubs`),
   hrPaystubUpload: (eid, form) => req(`/hr/employees/${eid}/paystubs`, { method: 'POST', body: form }),
   // Device enrollment - shared by field-phone tracking (EnrolPhone). Desktop

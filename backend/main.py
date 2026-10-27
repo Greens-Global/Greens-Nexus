@@ -1333,6 +1333,11 @@ def _run_migrations():
             "ALTER TABLE hr_candidates ADD COLUMN linkedin_url VARCHAR DEFAULT ''",
             "ALTER TABLE hr_candidates ADD COLUMN consent_at VARCHAR DEFAULT ''",
             "ALTER TABLE hr_candidates ADD COLUMN applied_at VARCHAR DEFAULT ''",
+            # Ask HR runs through Tickets (Oct 27 2026) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN confidential_desk VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_confidential_desk ON task_tickets (confidential_desk)",
+            "ALTER TABLE hr_self_requests ADD COLUMN ticket_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_hr_self_requests_ticket_id ON hr_self_requests (ticket_id)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3102,6 +3107,13 @@ def _run_migrations():
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS applied_at VARCHAR DEFAULT ''",
         "ALTER TABLE hr_headcount_requests ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_job_openings ENABLE ROW LEVEL SECURITY",
+        # Ask HR runs through Tickets (Neil, Oct 27 2026, hr_tickets.py): the
+        # confidential HR desk on tickets (ticket_confidential.py) and the
+        # ticket an open hr_self_requests row was moved into. Additive only.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS confidential_desk VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_confidential_desk ON task_tickets (confidential_desk)",
+        "ALTER TABLE hr_self_requests ADD COLUMN IF NOT EXISTS ticket_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_hr_self_requests_ticket_id ON hr_self_requests (ticket_id)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3729,6 +3741,22 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] checklist ID evidence backfill skipped: {e}")
+    # Ask HR runs through Tickets (Neil, Oct 27 2026): every OPEN old Ask HR
+    # request becomes a confidential HR ticket, once (hr_tickets.migrate_open
+    # - a row that has its ticket_id is never moved again; resolved rows stay
+    # as Earlier Requests). Safe on every boot.
+    try:
+        from database import SessionLocal
+        import hr_tickets
+        db = SessionLocal()
+        try:
+            res = hr_tickets.migrate_open(db)
+            if res["moved"] or res["failed"]:
+                print(f"[startup] Ask HR: {res['moved']} open request(s) moved into tickets, {res['failed']} failed")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] Ask HR move skipped: {e}")
 
 
 @asynccontextmanager
@@ -4717,3 +4745,5 @@ from routers import hiring as hiring_router  # noqa: E402
 app.include_router(hiring_router.router)  # Hiring: headcount requests and job openings (Neil, Oct 27 2026)
 from routers import careers as careers_router  # noqa: E402
 app.include_router(careers_router.router)  # Public careers page + apply form, no login (Neil, Oct 27 2026)
+from routers import ask_hr as ask_hr_router  # noqa: E402
+app.include_router(ask_hr_router.router)  # Ask HR runs through Tickets: the confidential HR desk, Earlier Requests, the move (Neil, Oct 27 2026)
