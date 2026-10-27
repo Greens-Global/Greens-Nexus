@@ -1,136 +1,149 @@
-# Greens People — HR Module Roadmap
+# Greens People - HR Module Roadmap
 
 > The workforce operating system for the whole Greens group: any worker
-> (employee or contractor), under any entity, in any country — hired in a
-> pipeline, signed natively, provisioned into M365/Asana with one click,
-> scheduled and clocked at geofenced sites, tracked against clients, reviewed,
-> and paid. Physical equipment stays in **Item Management** (single source of
+> (employee or contractor), under any entity, in any country - hired in a
+> pipeline, signed natively, provisioned into M365 with one click, scheduled
+> and clocked at geofenced sites, reviewed, and paid through the payroll
+> provider. Physical equipment stays in **Item Management** (single source of
 > truth); HR links into it, never duplicates it.
 >
-> Sources: Neil's "Greens Global — People Platform" mockup (Jun 2026),
-> Busacta HR teardown, Rippling/BambooHR research, Nexus build sessions.
-> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-07 — Sections A + B complete; C: offboarding + native e-sign done; **D: geofenced Time Clock + timesheets/approvals + shifts + BOD/EOD + desktop agent shipped Jul 6–7**; **E: self-service requests via My HR**; **H: employee portal shipped as "My HR"** (profile self-edit, docs, paystubs, timesheet, leave, equipment, Ask HR requests). Remaining: see ❌ rows.)
+> Sources: Neil's "Greens Global - People Platform" mockup (Jun 2026),
+> Busacta HR teardown, Rippling / BambooHR research, the Keka gap analysis
+> (Oct 2026), Nexus build sessions.
+>
+> Status: ✅ built (on `dev`) · 🚀 built, in the HR release PR (`release/hr-oct-2026`,
+> waiting on Neil's OK to merge) · 🟡 partial · ❌ not started · ⛔ dropped by Neil
+>
+> Last updated 10/27/2026. Since 07/07: Time Clock grew into full time and
+> attendance (time sheets signed through Nexus Sign, payroll readiness and
+> exports, CA meal / rest premiums, differentials, overtime alerts), Shifts
+> was rebuilt against Teams Shifts, hiring got its documents, packets,
+> interviews and decision vote, onboarding / offboarding / leave checklists
+> and life events landed, leave balances went live with a QuickBooks cutover,
+> and the Contact Directory, Workforce Scorecard, reimbursements and purchase
+> requests shipped. The Oct 27 release (13 PRs plus the India Contractor
+> Policy) closes most of the Keka gaps: custom fields, People Analytics,
+> one Approvals inbox, HR letters, Duplicate Day, headcount requests and a
+> public careers page, Ask HR on tickets, probation, leave depth, salary
+> advances, exit statements, and goals / 1:1s / review cycles.
 
 ---
 
-## A. Foundation *(structural — build first, everything references it)*
+## A. Foundation
 
 | Status | Item | Source |
 |---|---|---|
-| ✅ | Employee master records, GG-### codes, status lifecycle (onboarding/active/inactive/left) | built |
-| ✅ | People directory (master–detail, filters, counts strip) | built |
-| ✅ | Org chart (reports-to tree, connector lines, unlinked bucket, **drag-and-drop reassignment** with loop protection + clear-line drop zone; edit-modal picker is the touch fallback) | built |
-| ✅ | Profile photo upload + **editor** — click the avatar to view, re-crop (drag + zoom slider, thirds grid), or change; exports a 512px square via canvas; public-read bucket, backend-only writes | built |
-| ✅ | Private documents (hr-docs bucket, 5-min signed URLs) | built |
-| ✅ | Hiring pipeline (stage kanban, history, hired → auto-creates employee) | built |
-| ✅ | M365 provisioning — account, **multi-license set** (admin-center-style checkboxes, friendly SKU names, Business Basic pre-ticked as standard), **usage location** (US/IN), manager attr, office field, run/step log, one-time temp password | built |
-| ✅ | **Branded welcome email** (hero, details card, first steps; no passwords ever) + Resend-welcome button on provisioned profiles | built |
-| ✅ | **Sync from M365** — links existing accounts by work email, backfills empty phone/title/office, **unlinks accounts deleted in the admin center** | built |
-| ✅ | Leave v1 (requests, approve/reject, computed balances; new request notifies the manager, decision notifies the employee, stage moves notify the candidate owner) | built |
-| ✅ | **Companies/entities table** — legal name, EIN/GSTIN, registered address, signatory; `company` field on every worker; Companies manager modal + seed 4 defaults | built (A1) |
-| ✅ | **Contractor worker type** — scope, SOW ref, contract start/end, rate + type + currency, billing client, engagement area (JSON on worker; shown when type=contractor) | built (A2) |
-| ✅ | Work sites registry (name, address, lat/long, geofence radius, entity) — foundation for geofenced Time Clock | built (A3) |
+| ✅ | Employee master records, GG-### codes, status lifecycle (onboarding / active / inactive / left), People action log and record audit | built |
+| ✅ | People directory (master-detail, filters, counts strip); a manager sees their own team (Oct 6 rule) | built |
+| ✅ | Org chart with drag-and-drop reassignment, externals folded in | built |
+| ✅ | Profile photo upload + editor | built |
+| ✅ | Private documents (signed URLs), File Manually into a person's Egnyte folder | built |
+| ✅ | Companies / entities (legal name, EIN / GSTIN, signatory, HR contact, logo, holiday calendar, departments); company walls and People scopes | built |
+| ✅ | Contractor worker type (scope, SOW, rate, currency, billing client); contractor invoices generated from finalized time sheets | built |
+| ✅ | Work sites registry with geofences | built |
+| ✅ | M365 provisioning, welcome email, two-way M365 sync | built |
+| 🚀 | **Custom fields** on employee records (HR-defined, typed, per company, HR Only / employee view / employee edit; More Details on the profile and in My HR; merge variables in Documents) - #808 | Keka |
 
-## B. Profile depth *(the Busacta feel)*
+## B. Profile depth
 
 | Status | Item | Source |
 |---|---|---|
-| ✅ | Tabbed profile: **Overview / Pay & Benefits / Compliance / Assets / Documents tab strip + stat cards** (Tenure, Direct reports, Type, next expiry). Each tab shows its data inline; the proven Personal/Pay/Right-to-Work/Status modals stay as the editors, opened from within their tab. Time + Performance tabs land with Sections D/F | Busacta |
-| ✅ | **Assets tab reads live from Item Management** — HR-gated `/hr/employees/{id}/assets` reads items directly (no dup), deep-links into Item Management (B5) | Visesh |
-| ✅ | Compensation: base salary + auto history, pay basis, frequency, currency — **restricted** to owner + `hr_comp` grant (B1) | Neil/Busacta |
-| ✅ | Bank accounts (holder, bank, number, routing/IFSC, type) — restricted, same gate (B1) | Busacta |
-| ✅ | Benefits & deductions (type, plan/provider, per-paycheck deduction) — in the restricted Pay modal (B4) | Neil |
-| ✅ | Right-to-work & compliance: work-auth, ID/visa doc + verification status + colour-coded expiry, consent checklist (scans reuse Documents). Bell reminders pending Section H daily job (B3) | Neil |
-| ✅ | Emergency contact, addresses, DOB, masked national ID (B2) | Rippling |
-| ✅ | Inline "Change status" flow (reason + effective date, audit trail) (B6) | Busacta |
-| ✅ | Bidirectional M365 sync — Sync-from-M365 backfills phone/title/office **+ photos** (folded into the one Sync action); **Push-to-M365** writes name/title/department/phone/office (and manager, best-effort) from Nexus back to Entra via `POST /hr/employees/{id}/push-to-entra` | Visesh |
+| ✅ | Tabbed profile (Overview / Pay & Benefits / Compliance / Assets / Documents / Checklist / Time) with stat cards | Busacta |
+| ✅ | Assets tab reads live from Item Management | Visesh |
+| ✅ | Compensation with history, bank accounts, benefits - restricted to owners and the `hr_comp` grant | Neil |
+| ✅ | Right to work and compliance, emergency contact, addresses, masked national ID | Neil |
+| ✅ | Change status with reason, effective date and audit trail; role change requests (manager asks, HR decides) | Busacta |
+| ✅ | Backup Manager per person | Neil |
 
-## C. Hiring, e-sign, onboarding & offboarding
+## C. Hiring, e-sign, onboarding and offboarding
 
 | Status | Item | Source |
 |---|---|---|
-| ✅ | Pipeline: Applied → Screening → Interview → Offer → Hired, stage notes + timeline | built |
-| ❌ | Resume/doc upload on candidates | — |
-| ❌ | Interview scheduling (date/time per stage, bell reminder) | — |
-| ✅ | **Native e-sign** (`feat/hr-esign`) — authored templates ({{merge}} fields + sign/initials/date/text/check slots per role) AND upload-any-PDF with click-to-place fields; **full ordered multi-party** (internal in-app + external tokenized links, no login); draw/type signature pad; ESIGN/UETA consent + IP/UA/timestamp audit; sealed final PDF with **SHA-256 Certificate of Completion** + verify endpoint; inbox / sent-tracking / remind / void; completed docs auto-attach to the profile Documents tab; "Send for signature" on candidates. Follow-ups: RLS on 4 new tables post-deploy, `NEXUS_APP_URL` env on prod Azure, daily reminder job (Section H) | Neil |
-| 🟡 | **Self-enrolment links** — external e-sign links now cover the *sign before day 1* half; profile self-fill form still ❌ | Neil/Rippling |
-| ❌ | Onboarding checklist per hire: docs → sign → provision → **assign equipment via Item Management** → day-1 tasks, each with owner + due date | Rippling |
-| ✅ | **Offboarding engine** — status→Left blocks Entra sign-in, removes all licenses, ZIP-exports the mailbox, and **force-returns all checkouts & assignments** (`items.force_return_person`: handed-over checkouts→returned, pending→cancelled, live assignments→closed + item back to stock; counts stamped on the status_log entry). Mailbox delegation / shared-mailbox conversion stay guided Exchange-admin steps (Graph has no coverage) | Rippling |
-| ❌ | Asana provisioning (blocked: confirm tier) · "Ignite" step (blocked: identify product/API) | open |
-| ❌ | Rejected-candidate retention auto-purge (N months — ask Neil) | compliance |
+| ✅ | Pipeline (Applied to Hired), resumes and documents on candidates, screening tasks, interviews with questionnaires and recordings, the decision vote | built |
+| ✅ | Offer letters and hiring packets by role and place; the candidate signs first, the company never signs before the employee | Neil |
+| ✅ | **Nexus Sign** (native e-sign, multi-party, sealed PDF with certificate, Signs Once) | Neil |
+| ✅ | Onboarding, offboarding and leave checklists per person (library, per-company templates, signals that tick steps) | Rippling |
+| ✅ | Offboarding engine (blocks sign-in, removes licenses, exports the mailbox, force-returns equipment, ends sessions) and separation packages | Rippling |
+| 🚀 | **Headcount requests** (department line, then HR) that become job openings - #814 | Keka |
+| 🚀 | **Public careers page** with an apply form, JSON-LD job postings and a sitemap - #814 | Keka |
+| 🚀 | **Probation** tracking (company length, reminders, manager recommends, HR finalizes, confirmation / extension letters through Nexus Sign; existing employees still inside their window are picked up once at release) - #817 | Keka |
+| 🚀 | **Exits** in progress with the final settlement statement (last pay, advances owed, leave paid out only where the law requires it - use it or lose it otherwise) - #819 | Keka |
+| ⛔ | Hiring scorecards | dropped (Neil) |
+| ⛔ | Exit survey | dropped (Neil) |
+| ❌ | Rejected-candidate retention auto-purge | compliance |
 
-## D. Time *(Neil's biggest net-new block)*
-
-| Status | Item | Source |
-|---|---|---|
-| ✅ | **Time Clock** — geofenced punch in/out (soft-gate + accuracy credit), punch log, missed-punch fix, manager adjustments (Jul 6) | Neil |
-| ✅ | Timesheets — day summaries, HR Time tab + Manager Dashboard Team Time, approvals, CSV export (Jul 6) | Neil |
-| ✅ | BOD/EOD/break Teams updates (dated headers, pending tasks, break duration) + **desktop monitoring agent** (silent multi-monitor capture) | Neil |
-| 🟡 | Shift scheduling — shifts + shift groups CRUD built; open-shift claiming + **shift swaps** still ❌ | Neil |
-| ❌ | **Client time tracking** — billable hours by client (contractor invoicing basis) | Neil |
-| ❌ | Attendance & tardiness views (day-summary flags exist; no dedicated view) | Busacta |
-| ❌ | Holiday calendar + attendance policies (grace minutes, half-day rules) | Busacta |
-
-## E. Time off *(upgrade v1)*
+## D. Time
 
 | Status | Item | Source |
 |---|---|---|
-| ✅ | Requests, approve/reject, allocated-vs-used balances, manager + employee notifications | built |
-| ✅ | Employee self-service requests — Time Clock + **My HR "My leave"** (Jul 7) | Rippling |
-| ❌ | Accrual policies — per-month, annualized, tenure-based; per worker type | Neil |
-| ❌ | Team leave calendar ("who's out this week") + on-leave-today on dashboard | Busacta |
-| ❌ | Multi-level approval (manager → HR) if wanted | open |
+| ✅ | Time Clock - geofenced punches, break prompts, punch fixes, manager edits, live overtime alert | Neil |
+| ✅ | Time Sheets reviewed by the manager and signed by the employee through Nexus Sign; HR's override; finalize; the signed PDF filed to Egnyte | Neil |
+| ✅ | Payroll readiness, earnings codes and exports (QuickBooks, Intacct), salaried grid, bulk approve, bonuses | Charmi |
+| ✅ | California meal / rest premiums, shift differentials, Sick / Vacation as their own pay classes | Charmi |
+| ✅ | Shifts rebuilt against Teams Shifts (schedule, publish, requests, open shifts, rules that warn, attendance and no-shows, iCal feed, weather call) | Neil |
+| ✅ | Holiday calendars per company; attendance (On Time / Late / Left Early / No-Show) | Busacta |
+| ✅ | Workforce Scorecard (punched vs expected hours, weekly email) | Neil |
+| ✅ | BOD / EOD Teams updates and the desktop monitoring agent | Neil |
+| 🚀 | **Duplicate Day** - copy one day's punches to other days or people, with undo - #813 | Keka |
+| 🚀 | **India Contractor Work Hours and Extra Time Policy** (credit by hours, month-end reconciliation, Extra Time claims at 1.35x, Policy Starts 11/01/2026) - #821 | Neil |
+| ⛔ | Selfie / PIN kiosk clock-in | dropped (Neil) |
+| ❌ | Client time tracking (billable hours by client) | Neil |
+
+## E. Time off
+
+| Status | Item | Source |
+|---|---|---|
+| ✅ | Requests (full and partial days, confidential reasons), approve / reject, request on behalf, approval delegation | built |
+| ✅ | Paid leave balances (vacation earned per hour, sick lump sums, anniversary grants) from a QuickBooks cutover; time off onto the time sheet | Neil / Charmi |
+| 🚀 | **Leave depth** - Second Approval By HR, the leave year end (use it or lose it on 01/01/2027, carry-over caps), the Team Leave Calendar, People > Leave folded into Time > Time Off - #818 | Keka |
+| ⛔ | Comp-off (compensatory leave) | dropped (Neil) |
 
 ## F. Performance
 
 | Status | Item | Source |
 |---|---|---|
-| ❌ | Goals — progress %, on-track/at-risk, due dates | Neil |
-| ❌ | Review cycles — annual reviews + contractor mid-engagement check-ins, rating, reviewer, feedback history | Neil |
+| 🚀 | **Goals** (personal, department, company; check-ins, alignment) and **1:1s** (series, shared agenda, private notes, Outlook invites, action items as tasks) - #815 | Keka |
+| 🚀 | **Review cycles** (self and manager reviews, rating scale and company values per company, the employee acknowledges through Nexus Sign; no calibration curve or 9-box (Neil)) - #820 | Keka |
+| ⛔ | Pulse surveys | dropped (Neil) |
+| ⛔ | Kudos / recognition | dropped (Neil) |
 
-## G. Payroll *(last — feeds from D + B)*
+## G. Pay and money
 
 | Status | Item | Source |
 |---|---|---|
-| ❌ | Pay periods per entity & currency; rows from timesheets/attendance + leave types; gross → deductions → net; Draft → Recompute → Approve → Paid; payslip PDF; export | Neil/Busacta |
+| ✅ | Reimbursements (approver, then HR with the receipt) and purchase requests | built |
+| 🚀 | **Salary advances** (manager tier asks, HR decides and pays out, repaid per pay period on the time sheet and the contractor invoice) - #812 | Keka |
+| ⛔ | Payroll engine (gross to net, payslips) - payroll stays with the provider; Nexus exports | dropped (Neil) |
+| ⛔ | Expense mileage and category limits | dropped (Neil) |
+| ⛔ | PSA (professional services automation) | dropped (Neil) |
 
 ## H. Platform
 
 | Status | Item | Source |
 |---|---|---|
-| 🟡 | Server-side notifications (leave + hiring + Ask HR wired). Add: doc/visa expiry, contract end, review due, upcoming start dates — needs one daily scheduled job | built/Neil |
-| ✅ | **Employee portal — shipped as "My HR"** (Jul 7): My Profile (self-edit contact/emergency), My Timesheet + hours graph w/ range filter, My Leave, My Documents (sealed e-sign), **My Paystubs** (HR uploads, hr_comp-gated), My Equipment (live Items read), **Ask HR** requests w/ attachments HR can file in one click. Still ❌: My Schedule, My Performance (needs F), View-as-employee | Neil |
-| ❌ | Approvals inbox — leave, timesheets, swaps, signatures in one queue | Neil |
-| ❌ | Reports — headcount by entity/dept/type, joiners/leavers, attrition, hours by client/site, leave utilization; CSV export | Rippling |
-| ❌ | Audit views (salary changes, document access) | compliance |
-| ❌ | Hardening: RLS migrations for all HR tables at prod release, salary field-level access, provisioning test against real tenant, mobile QA pass | Visesh |
+| ✅ | Server-side notifications, one per workflow, updated in place; batched task emails | built |
+| ✅ | **Workday** (employee portal, formerly My HR): profile, Time Sheet, time off, documents to sign, paystubs, equipment, schedule | Neil |
+| ✅ | Contact Directory with availability and Teams presence | Neil |
+| 🚀 | **Approvals** - one inbox for everything waiting on you (time off, HR's second approval, punch fixes, time sheet reviews and signatures, Nexus Sign, reimbursements, purchase requests, shifts, hiring votes and screening, salary advances, probation, HR letters, headcount, Extra Time), counts that match the nav - #810 | Keka |
+| 🚀 | **People Analytics** (headcount, joiners and leavers, attrition voluntary / involuntary, tenure, absence, leave liability; drill to the people) - #809 | Keka |
+| 🚀 | **HR letters** employees request from Workday (employment verification, salary certificate, experience letter, address proof, visa NOC), issued through Nexus Sign - #811 | Keka |
+| 🚀 | **Ask HR on Tickets** (a confidential HR desk, earlier requests moved over) - #816 | Keka |
+| ✅ | Hardening: RLS on every table (`_enable_rls_everywhere`), private evidence buckets, rate limiting | Visesh |
+
+## Pending
+
+| Status | Item | Owner |
+|---|---|---|
+| 🚀 | Merge `release/hr-oct-2026` to `dev` (Neil's OK), then the release checklist in its PR | Neil |
+| ❌ | Client time tracking | open |
+| ❌ | Rejected-candidate retention period | Neil |
 
 ---
 
 ## Item Management boundary (explicit)
 
 HR **never** stores equipment. The links between the modules:
-1. Profile "Assets" tab = live read of the person's checkouts + permanent assignments from Item Management.
-2. Onboarding checklist's equipment step deep-links into Items assign flow.
+1. Profile "Assets" tab = live read of the person's checkouts and permanent assignments from Item Management.
+2. The onboarding checklist's equipment step deep-links into the Items assign flow.
 3. Offboarding triggers Items force-return for everything the person holds.
-4. Portal "My Assets" routes to the existing My Items view.
-
-## Build order
-
-**A → B → C → D → E/F → H(portal+reports) → G.**
-Entities + contractor type first (structural). Estimated 12–15 focused sessions to 100%.
-
-## Next session
-
-Start **Section A**: companies/entities table + contractor worker type + work
-sites registry. Blocked items waiting on answers: Asana tier, what "Ignite" is,
-salary visibility, payroll rules, candidate retention period, punch system.
-
-## Open questions
-
-1. What is **Ignite** (product? API?) — blocks provisioning step.
-2. **Asana tier** — Enterprise (SCIM) or invite-by-API?
-3. **Salary visibility** — owner only, or owner + Neil?
-4. **Payroll rules** — US + India? working-day rules, deduction types (Neil).
-5. Rejected-candidate **retention period**.
-6. Which **punch/biometric system** exists today, if any (CSV import format) — or is the geofenced Time Clock replacing it outright?
+4. Workday "My Equipment" routes to the existing My Items view.
