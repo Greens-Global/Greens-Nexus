@@ -3113,6 +3113,30 @@ export const api = {
   reviewExitStatement:      (eid, note = '') => req(`/exit-statements/${encodeURIComponent(eid)}/review`, { method: 'POST', body: JSON.stringify({ note }) }),
   generateExitStatement:    (eid)       => req(`/exit-statements/${encodeURIComponent(eid)}/generate`, { method: 'POST' }),
   closeExitStatement:       (eid, note = '') => req(`/exit-statements/${encodeURIComponent(eid)}/close`, { method: 'POST', body: JSON.stringify({ note }) }),
+
+  // Performance: goals and 1:1s (Neil, Oct 27 2026) - routers/performance.py.
+  // Workday > Performance (mine and my team), People > Performance (HR).
+  perfMe: () => req("/performance/me"),
+  perfGoals: (scope = "mine", { person = "", company = "", archived = false } = {}) =>
+    req(`/performance/goals?${new URLSearchParams({ scope, person, company, archived: archived ? "true" : "false" }).toString()}`),
+  perfGoal: (id) => req(`/performance/goals/${encodeURIComponent(id)}`),
+  perfGoalCreate: (data) => req("/performance/goals", { method: "POST", body: JSON.stringify(data) }),
+  perfGoalUpdate: (id, data) => req(`/performance/goals/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  perfGoalCheckin: (id, data) => req(`/performance/goals/${encodeURIComponent(id)}/checkins`, { method: "POST", body: JSON.stringify(data) }),
+  perfGoalArchive: (id, restore = false) => req(`/performance/goals/${encodeURIComponent(id)}/archive?restore=${restore ? "true" : "false"}`, { method: "POST" }),
+  perfTeam: () => req("/performance/team"),
+  perfOneOnOnes: () => req("/performance/one-on-ones"),
+  perfOneOnOne: (id) => req(`/performance/one-on-ones/${encodeURIComponent(id)}`),
+  perfOneOnOneCreate: (data) => req("/performance/one-on-ones", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
+  perfOneOnOneEnd: (id) => req(`/performance/one-on-ones/${encodeURIComponent(id)}/end`, { method: "POST", timeoutMs: 60000 }),
+  perfMeetingUpdate: (id, data) => req(`/performance/meetings/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  perfAgendaAdd: (meetingId, text) => req(`/performance/meetings/${encodeURIComponent(meetingId)}/agenda`, { method: "POST", body: JSON.stringify({ text }) }),
+  perfAgendaUpdate: (id, data) => req(`/performance/agenda/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  perfAgendaRemove: (id) => req(`/performance/agenda/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  perfActionAdd: (meetingId, data) => req(`/performance/meetings/${encodeURIComponent(meetingId)}/actions`, { method: "POST", body: JSON.stringify(data) }),
+  perfActionUpdate: (id, data) => req(`/performance/actions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  perfSettings: (company = "") => req(`/performance/settings?company=${encodeURIComponent(company || "")}`),
+  perfSettingsSave: (data) => req("/performance/settings", { method: "PUT", body: JSON.stringify(data) }),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()

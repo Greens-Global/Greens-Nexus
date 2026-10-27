@@ -191,6 +191,7 @@ export const NAV = [
       { subview: "hr-leave",  label: "Leave",     icon: PenTool },
       { subview: "hr-checklists", label: "Checklists", icon: CheckSquare },
       { subview: "hr-exits", label: "Exits", icon: Files },
+      { subview: "hr-performance", label: "Performance", icon: BarChart3 },
     ],
   },
   {

@@ -65,7 +65,7 @@ describe('Workday Overview with the Time Clock', () => {
     // Overview, Time Sheet, Time Off, Purchase Requests (Oct 22 2026) - no Clock tab.
     const tabs = [...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim());
     // Purchase Requests is a popup from its Overview tile, not a tab (Sagar, Oct 27).
-    expect(tabs).toEqual(['Overview', 'Time Sheet', 'Time Off']);
+    expect(tabs).toEqual(['Overview', 'Time Sheet', 'Time Off', 'Performance']);
   }, SLOW);
 
   it('sends an old Clock link to Overview and rewrites the address', async () => {
@@ -216,7 +216,7 @@ describe('Workday Overview with the Time Clock', () => {
     await screen.findByText('Amy Test');
     expect(screen.queryByRole('region', { name: 'Time Clock' })).toBeNull();
     expect(screen.queryByText('Hours · This Week')).toBeNull();
-    expect([...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim())).toEqual(['Overview', 'Time Off']);
+    expect([...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim())).toEqual(['Overview', 'Time Off', 'Performance']);
     expect(screen.getByText('Time Off This Year')).toBeTruthy();   // the rest of Overview is there
   }, SLOW);
 

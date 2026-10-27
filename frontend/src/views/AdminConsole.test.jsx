@@ -119,7 +119,7 @@ describe('AdminConsole', () => {
     expect(screen.getByLabelText('Applies To')).toHaveValue('');
     const names = within(rail()).getAllByRole('button').map(b => b.textContent);
     expect(names).toEqual(['Companies', 'Locations', 'People & Access', 'Security', 'Branding & Email', 'Emails & Reminders',
-      'Tickets', 'Time & Pay', 'Workforce Analytics', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Items & Equipment', 'Operations']);
+      'Tickets', 'Time & Pay', 'Workforce Analytics', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Performance', 'Items & Equipment', 'Operations']);
     expect(screen.queryByText('For every company')).not.toBeInTheDocument();
   });
 

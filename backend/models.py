@@ -8691,3 +8691,122 @@ class ExitStatement(Base):
     history         = Column(JSON, default=list)                      # [{at, by, action, note}]
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
+
+
+# ── Performance: goals and 1:1s (Neil, Oct 27 2026) ──────────────────────────
+# performance.py is the engine, routers/performance.py the API. Every table is
+# new - RLS on dev and prod at release (_enable_rls_everywhere covers it at
+# startup; check get_advisors after the deploy).
+
+class PerfGoal(Base):
+    """A goal: the company's, a department's or one person's. Visible to its
+    owner, the owner's manager chain and HR for the company; a company goal
+    to everyone in the company, a department goal to everyone in it. Never
+    deleted - archived."""
+    __tablename__ = "hr_perf_goals"
+    id               = Column(String, primary_key=True)                # uuid
+    level            = Column(String, default="personal", index=True)  # company | department | personal
+    company_id       = Column(String, default="", index=True)          # HrEntity.id
+    department       = Column(String, default="")                      # department goals (and the owner's, for the rest)
+    owner_email      = Column(String, default="", index=True)          # who is accountable
+    title            = Column(String, nullable=False)
+    description      = Column(Text, default="")
+    measure          = Column(String, default="percent")               # percent | number | done
+    start_value      = Column(Float, default=0)                        # number goals: where it started
+    target_value     = Column(Float, default=100)                      # number goals: the target; percent = 100; done = 1
+    current_value    = Column(Float, default=0)
+    unit             = Column(String, default="")                      # number goals: "units", "$", "calls"
+    status           = Column(String, default="on_track")              # on_track | at_risk | off_track | done
+    start_on         = Column(String, default="")                      # YYYY-MM-DD
+    due_on           = Column(String, default="")                      # YYYY-MM-DD
+    parent_id        = Column(String, default="", index=True)          # the goal this one supports (alignment)
+    last_checkin_at  = Column(String, default="")
+    checkin_nudged_at = Column(String, default="")                     # the last "check-in due" reminder
+    archived_at      = Column(String, default="")
+    archived_by      = Column(String, default="")
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class PerfGoalCheckin(Base):
+    """One progress check-in on a goal - the value, the status and a note.
+    Append-only: the goal's history."""
+    __tablename__ = "hr_perf_goal_checkins"
+    id          = Column(String, primary_key=True)                     # uuid
+    goal_id     = Column(String, nullable=False, index=True)
+    by_email    = Column(String, default="")
+    at          = Column(String, default="")
+    value       = Column(Float, nullable=True)                         # the measure after this check-in
+    status      = Column(String, default="")                           # the status after this check-in
+    note        = Column(Text, default="")
+
+
+class PerfOneOnOne(Base):
+    """A 1:1 between a manager and a direct report - one-off or recurring.
+    Seen by the two of them only. The Teams meeting (a series when it
+    recurs) is created on the manager's calendar by Microsoft Graph."""
+    __tablename__ = "hr_perf_one_on_ones"
+    id             = Column(String, primary_key=True)                  # uuid
+    company_id     = Column(String, default="", index=True)
+    manager_email  = Column(String, nullable=False, index=True)
+    report_email   = Column(String, nullable=False, index=True)
+    title          = Column(String, default="")
+    cadence        = Column(String, default="once")                    # once | weekly | biweekly | monthly
+    first_local    = Column(String, default="")                        # YYYY-MM-DDTHH:MM on the series' own clock
+    time_zone      = Column(String, default="America/Los_Angeles")     # IANA zone the series keeps its wall time in
+    duration_min   = Column(Integer, default=30)
+    event_id       = Column(String, default="")                        # Graph event (series master when recurring)
+    join_url       = Column(String, default="")
+    graph_error    = Column(String, default="")                        # why no Teams meeting, when there is none
+    status         = Column(String, default="active")                  # active | ended
+    ended_at       = Column(String, default="")
+    ended_by       = Column(String, default="")
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    updated_at     = Column(String, default="")
+
+
+class PerfMeeting(Base):
+    """One meeting of a 1:1. The next one is made when the last one passes;
+    past ones stay as history. Private notes are the manager's alone."""
+    __tablename__ = "hr_perf_meetings"
+    id               = Column(String, primary_key=True)                # uuid
+    series_id        = Column(String, nullable=False, index=True)      # hr_perf_one_on_ones.id
+    at               = Column(String, nullable=False, index=True)      # UTC, YYYY-MM-DDTHH:MM:SSZ
+    status           = Column(String, default="scheduled")             # scheduled | done | canceled
+    shared_notes     = Column(Text, default="")
+    private_notes    = Column(Text, default="")                        # the manager's only - never sent to the report
+    notes_by         = Column(String, default="")
+    notes_at         = Column(String, default="")
+    done_at          = Column(String, default="")
+    agenda_nudged_at = Column(String, default="")                      # "your 1:1 tomorrow has no agenda" sent
+    created_at       = Column(String, default="")
+
+
+class PerfAgendaItem(Base):
+    """A talking point on a 1:1's shared agenda, added by either side."""
+    __tablename__ = "hr_perf_agenda_items"
+    id          = Column(String, primary_key=True)                     # uuid
+    meeting_id  = Column(String, nullable=False, index=True)
+    text        = Column(Text, default="")
+    by_email    = Column(String, default="")
+    done        = Column(Boolean, default=False)
+    position    = Column(Float, default=0)
+    created_at  = Column(String, default="")
+
+
+class PerfActionItem(Base):
+    """An action item from a 1:1 - usually a Task made through the task
+    module's own create (task_id), so it lives where the work lives."""
+    __tablename__ = "hr_perf_action_items"
+    id           = Column(String, primary_key=True)                    # uuid
+    meeting_id   = Column(String, nullable=False, index=True)
+    series_id    = Column(String, default="", index=True)
+    text         = Column(Text, default="")
+    owner_email  = Column(String, default="")
+    due_on       = Column(String, default="")                          # YYYY-MM-DD
+    task_id      = Column(String, default="")                          # tasks.id when one was made
+    done         = Column(Boolean, default=False)
+    by_email     = Column(String, default="")
+    created_at   = Column(String, default="")
