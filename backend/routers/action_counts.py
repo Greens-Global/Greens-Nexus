@@ -188,15 +188,19 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
         "myhr": {
             "timesheet": s(lambda: _timesheet(db, me, a("timesheet_sign", 0))),
             "overview": s(lambda: _schedule_confirm(db, me)) + s(lambda: _weather(db, user))
-                        + s(lambda: _checklist_steps(db, me)) + a("nexus_sign", 0),
+                        + s(lambda: _checklist_steps(db, me)) + a("nexus_sign", 0)
+                        # HR (Oct 27 2026): the Salary Advances and HR Letters cards live here.
+                        + a("salary_advance", 0) + a("salary_advance_payout", 0) + a("hr_letter", 0),
             "timeoff": a("shift_peer", 0),
         },
         "shifts": {
             "requests": a("shift_request", 0) + time_off,
+            "headcount": a("headcount", 0),   # Team > Headcount (Oct 27 2026)
         },
         "hr": {
             "hr-time": time_off + a("punch_fix", 0) + a("timesheet_review", 0),
-            "hr-people": s(lambda: _ask_hr(db, user)) + s(lambda: _role_changes(db, user)),
+            "hr-people": s(lambda: _ask_hr(db, user)) + s(lambda: _role_changes(db, user))
+                         + a("probation", 0),   # recommendations and overdue decisions (Oct 27 2026)
         },
         "accounting": {
             "partners": s(lambda: _partner_changes(db, user)),

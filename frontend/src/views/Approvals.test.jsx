@@ -10,19 +10,23 @@ const approvalsInbox = vi.fn();
 const timeOffDecide = vi.fn();
 const decideReimbursement = vi.fn();
 const addTaskComment = vi.fn();
+// HR's kinds (Oct 27 2026).
+const hrApi = { timeOffHrDecide: vi.fn(), decideSalaryAdvance: vi.fn(), probationApprove: vi.fn(),
+  probationDecline: vi.fn(), hrLetterDecline: vi.fn(), decideHeadcount: vi.fn() };
 vi.mock('../api', () => ({
   api: {
     approvalsInbox: (...a) => approvalsInbox(...a),
     timeOffDecide: (...a) => timeOffDecide(...a),
     decideReimbursement: (...a) => decideReimbursement(...a),
     addTaskComment: (...a) => addTaskComment(...a),
+    ...Object.fromEntries(Object.keys(hrApi).map((k) => [k, (...a) => hrApi[k](...a)])),
   },
 }));
 const prompt = vi.fn();
 vi.mock('../ui/dialog', () => ({ dialog: { prompt: (...a) => prompt(...a), confirm: vi.fn() } }));
 
 const { default: Approvals } = await import('./Approvals');
-const { UNDO_MS, shortName, waited } = await import('../lib/approvalActions');
+const { UNDO_MS, shortName, waited, runApproval, runsInline } = await import('../lib/approvalActions');
 
 const iso = (hoursAgo) => new Date(Date.now() - hoursAgo * 3600e3).toISOString();
 const A = (key, label, tone = 'plain', note = 'none') => ({ key, label, tone, note });
@@ -154,6 +158,30 @@ describe('Approvals', () => {
     fireEvent.click(within(row).getByRole('button', { name: /^Review:/ }));
     window.removeEventListener('nexus:navigate', on);
     expect(seen).toEqual([{ view: 'hr', sub: 'hr-time' }]);
+  });
+});
+
+describe('HR approvals (Oct 27 2026)', () => {
+  it("decides through each module's own endpoint", async () => {
+    Object.values(hrApi).forEach((f) => f.mockReset().mockResolvedValue({}));
+    await runApproval({ kind: 'time_off_hr', id: 't9' }, 'approve');
+    expect(hrApi.timeOffHrDecide).toHaveBeenCalledWith('t9', { status: 'approved', note: '' });
+    await runApproval({ kind: 'salary_advance', id: 'a1' }, 'decline', 'Too soon');
+    expect(hrApi.decideSalaryAdvance).toHaveBeenCalledWith('a1', { action: 'decline', note: 'Too soon' });
+    await runApproval({ kind: 'probation', id: 'e1' }, 'approve');
+    expect(hrApi.probationApprove).toHaveBeenCalledWith('e1', {});
+    await runApproval({ kind: 'probation', id: 'e1' }, 'decline', 'Not yet');
+    expect(hrApi.probationDecline).toHaveBeenCalledWith('e1', 'Not yet');
+    await runApproval({ kind: 'hr_letter', id: 'l1' }, 'decline', 'Wrong type');
+    expect(hrApi.hrLetterDecline).toHaveBeenCalledWith('l1', 'Wrong type');
+    await runApproval({ kind: 'headcount', id: 'h1' }, 'approve');
+    expect(hrApi.decideHeadcount).toHaveBeenCalledWith('h1', 'approve', '');
+  });
+  it('opens the steps that need more than a click', () => {
+    expect(runsInline({ kind: 'hr_letter' }, 'open')).toBe(false);
+    expect(runsInline({ kind: 'salary_advance_payout' }, 'open')).toBe(false);
+    expect(runsInline({ kind: 'probation_due' }, 'open')).toBe(false);
+    expect(runsInline({ kind: 'headcount' }, 'decline')).toBe(true);
   });
 });
 

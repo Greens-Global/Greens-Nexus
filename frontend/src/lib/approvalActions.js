@@ -57,6 +57,28 @@ export const APPROVAL_ACTIONS = {
     accept: (r) => api.shiftRequestRespond(r.id, { accept: true }),
     decline: (r, note) => api.shiftRequestRespond(r.id, { accept: false, note }),
   },
+  // HR (Oct 27 2026). Salary advances: HR decides (routers/salary_advances.py
+  // decide; a decline needs a note). Paying one out opens its card.
+  salary_advance: {
+    approve: (r) => api.decideSalaryAdvance(r.id, { action: 'approve', note: '' }),
+    decline: (r, note) => api.decideSalaryAdvance(r.id, { action: 'decline', note }),
+  },
+  // A manager's Confirm / Extend recommendation (routers/hr_probation.py
+  // approve / decline - approving sends the letter). End Employment opens
+  // the profile, where the Offboard flow starts.
+  probation: {
+    approve: (r) => api.probationApprove(r.id, {}),
+    decline: (r, note) => api.probationDecline(r.id, note),
+  },
+  // An HR letter request: Review opens the HR Letters card; a decline needs a reason.
+  hr_letter: {
+    decline: (r, note) => api.hrLetterDecline(r.id, note),
+  },
+  // A headcount request's department or HR step (routers/hiring.py decide_headcount).
+  headcount: {
+    approve: (r) => api.decideHeadcount(r.id, 'approve', ''),
+    decline: (r, note) => api.decideHeadcount(r.id, 'decline', note),
+  },
   // A "Decide on" task: the vote is a comment that starts with Yes or No and
   // says why (Neil, Oct 19) - the module's only way to vote.
   hiring_vote: {

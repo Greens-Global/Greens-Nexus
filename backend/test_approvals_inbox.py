@@ -9,7 +9,11 @@
     stand-in, marked "For <delegator>";
   * a person never sees another approver's items (time off, reimbursements,
     purchase requests), nor their own;
-  * reimbursements follow decide()'s gates; hiring votes drop off once voted.
+  * reimbursements follow decide()'s gates; hiring votes drop off once voted;
+  * HR's sources (Oct 27 2026): time off awaiting HR's second approval (once,
+    never the manager's again), salary advances to decide or pay out,
+    probation recommendations and overdue decisions, HR letter requests and
+    each headcount step - and the nav tabs that carry them.
 
     python -m pytest -q test_approvals_inbox.py
 """
@@ -62,7 +66,8 @@ class InboxCase(unittest.TestCase):
         for m in (models.NexusEmployee, models.NexusRole, models.TimeOffRequest, models.ShiftRequest,
                   models.ExpenseReimbursement, models.Requisition, models.NexusNotification, models.PunchRequest,
                   models.ApprovalDelegation, models.HrCandidate, models.HrStageEvent, models.HrInterview,
-                  models.Task, models.TimesheetReview, models.HrEntity):
+                  models.Task, models.TimesheetReview, models.HrEntity,
+                  models.SalaryAdvance, models.HrLetterRequest, models.HrHeadcountRequest):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id=ENTITY, name="Greens Test", hr_contact_email=HRC))
         for em, first, mgr in ((EMP, "Erin", MGR), (MGR, "Max", ""), (MATE, "Mia", MGR),
@@ -305,6 +310,112 @@ class InboxCase(unittest.TestCase):
         self.assertEqual([r["kind"] for r in self._inbox(MATE)["rows"]], ["hiring_vote"])
         # Someone not on the task never sees it.
         self.assertEqual(self._inbox(EMP)["rows"], [])
+
+    # ── HR's sources (Oct 27 2026) ──────────────────────────────────────────
+
+    def test_time_off_awaiting_hr_is_hrs_once(self):
+        # Max approved Erin's first level; it waits for the HR contact now.
+        self._time_off("t1", EMP)
+        self.db.flush()                     # the session does not autoflush
+        self.db.query(models.TimeOffRequest).filter_by(id="t1").update(
+            {"approval_stage": "hr", "first_approver": MGR, "first_decided_at": "2026-10-20T08:00:00+00:00"})
+        self.db.commit()
+        hr = self._inbox(HRC)
+        self.assertEqual([r["key"] for r in hr["rows"]], ["time_off_hr:t1"])
+        row = hr["rows"][0]
+        self.assertEqual([a["key"] for a in row["actions"]], ["approve", "reject"])
+        self.assertIn("approved by Max Test, waiting for HR", row["detail"])
+        self.assertEqual(row["link"], {"view": "hr", "sub": "hr-time-off"})
+        self.assertEqual(row["createdAt"][:10], "2026-10-20")   # HR's wait starts at the manager's yes
+        self.assertEqual(self._counts(HRC)["hr"]["hr-time"], 1)
+        # The manager's level is done: nothing on Max's list, and no double count.
+        self.assertEqual(self._inbox(MGR)["rows"], [])
+        self.assertNotIn("shifts", self._counts(MGR))
+
+    def test_salary_advances_wait_on_hr(self):
+        for aid, status in (("a1", "requested"), ("a2", "approved"), ("a3", "paid_out")):
+            self.db.add(models.SalaryAdvance(
+                id=aid, employee_email=MGR, employee_name="Max Test", company=ENTITY, amount=1200.0,
+                currency="USD", reason="Car repair", installments=3, status=status, requested_by=MGR,
+                requested_at="2026-10-21T08:00:00+00:00", decided_by=HRC if status != "requested" else "",
+                decided_at="2026-10-22T08:00:00+00:00" if status != "requested" else "",
+                created_at="2026-10-21T08:00:00+00:00"))
+        self.db.commit()
+        out = self._inbox(HRC)
+        rows = {r["key"]: r for r in out["rows"]}
+        self.assertEqual(set(rows), {"salary_advance:a1", "salary_advance_payout:a2"})
+        self.assertEqual(rows["salary_advance:a1"]["title"], "Salary Advance - $1,200.00 (3 pay periods)")
+        self.assertEqual([(a["key"], a["note"]) for a in rows["salary_advance:a1"]["actions"]],
+                         [("approve", "none"), ("decline", "required")])
+        self.assertEqual([a["key"] for a in rows["salary_advance_payout:a2"]["actions"]], ["open"])
+        self.assertEqual(out["groups"], {"money": 2})
+        self.assertEqual(self._counts(HRC)["myhr"]["overview"], 2)
+        # Not HR, and never their own.
+        self.assertEqual(self._inbox(MGR)["rows"], [])
+        self.assertEqual(self._inbox(EMP)["rows"], [])
+
+    def test_probation_recommendations_and_overdue_decisions_wait_on_hr(self):
+        past = (date.today() - timedelta(days=2)).isoformat()
+        later = (date.today() + timedelta(days=20)).isoformat()
+        recs = {
+            "id-Erin": {"status": "in_probation", "startDate": "2026-05-01", "endDate": later,
+                        "pending": {"decision": "confirm", "newEndDate": "", "reason": "Strong start", "by": MGR,
+                                    "at": "2026-10-25T08:00:00+00:00"}},
+            "id-Mia": {"status": "in_probation", "startDate": "2026-04-01", "endDate": past},
+            "id-Ned": {"status": "extended", "startDate": "2026-04-01", "endDate": later,
+                       "pending": {"decision": "end", "reason": "Missed targets", "by": MGR2, "at": "2026-10-24T08:00:00+00:00"}},
+            "id-Dee": {"status": "confirmed", "startDate": "2026-01-01", "endDate": past},   # decided: nothing
+        }
+        for eid, rec in recs.items():
+            self.db.query(models.NexusEmployee).filter_by(id=eid).update({"probation": rec})
+        self.db.commit()
+        out = self._inbox(HRC)
+        rows = {r["key"]: r for r in out["rows"]}
+        self.assertEqual(set(rows), {"probation:id-Erin", "probation_due:id-Mia", "probation:id-Ned"})
+        self.assertEqual(rows["probation:id-Erin"]["title"], "Probation - Confirm")
+        self.assertEqual([a["key"] for a in rows["probation:id-Erin"]["actions"]], ["approve", "decline"])
+        self.assertEqual([a["key"] for a in rows["probation:id-Ned"]["actions"]], ["open"])   # End: the Offboard flow
+        self.assertEqual(rows["probation_due:id-Mia"]["link"], {"view": "hr", "sub": "hr-probation-id-Mia"})
+        self.assertEqual(out["groups"], {"people": 3})
+        self.assertEqual(self._counts(HRC)["hr"]["hr-people"], 3)
+        # A manager recommends; only HR finalizes.
+        self.assertEqual(self._inbox(MGR)["rows"], [])
+
+    def test_hr_letter_requests_wait_on_hr(self):
+        for rid, status in (("l1", "requested"), ("l2", "in_review"), ("l3", "awaiting_signature")):
+            self.db.add(models.HrLetterRequest(id=rid, employee_id="id-Erin", employee_email=EMP,
+                                               employee_name="Erin Test", company_id=ENTITY,
+                                               letter_type="employment_verification", status=status,
+                                               needed_by=SOON, purpose="Apartment lease",
+                                               created_at=f"2026-10-2{rid[-1]}T08:00:00+00:00"))
+        self.db.commit()
+        out = self._inbox(HRC)
+        self.assertEqual([r["key"] for r in out["rows"]], ["hr_letter:l1", "hr_letter:l2"])   # signing is not HR's
+        row = out["rows"][0]
+        self.assertEqual(row["title"], "HR Letter - Employment Verification")
+        self.assertEqual([(a["key"], a["note"]) for a in row["actions"]], [("open", "none"), ("decline", "required")])
+        self.assertEqual(self._counts(HRC)["myhr"]["overview"], 2)
+        self.assertEqual(self._inbox(MGR)["rows"], [])
+        self.assertEqual(self._inbox(EMP)["rows"], [])
+
+    def test_headcount_requests_wait_on_each_step(self):
+        self.db.add(models.HrHeadcountRequest(id="h1", code="HC-1", company=ENTITY, department="Ops",
+                                              role_title="Site Manager", openings=2, status="awaiting_approval",
+                                              step="department", dept_approvers=[MGR], requested_by=MATE,
+                                              submitted_at="2026-10-23T08:00:00+00:00",
+                                              created_at="2026-10-23T08:00:00+00:00"))
+        self.db.commit()
+        rows = self._inbox(MGR)["rows"]
+        self.assertEqual([r["key"] for r in rows], ["headcount:h1"])
+        self.assertEqual(rows[0]["title"], "Headcount Request - Site Manager (2)")
+        self.assertEqual([(a["key"], a["note"]) for a in rows[0]["actions"]], [("approve", "none"), ("decline", "required")])
+        self.assertEqual(self._counts(MGR)["shifts"]["headcount"], 1)
+        self.assertEqual(self._inbox(HRC)["rows"], [])          # the department decides first
+        self.db.query(models.HrHeadcountRequest).update({"step": "hr", "dept_decided_by": MGR})
+        self.db.commit()
+        self.assertEqual([r["key"] for r in self._inbox(HRC)["rows"]], ["headcount:h1"])
+        self.assertEqual(self._inbox(MGR)["rows"], [])
+        self.assertEqual(self._inbox(MATE)["rows"], [])         # never the requester's own
 
 
 if __name__ == "__main__":

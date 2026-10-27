@@ -35,6 +35,7 @@ const DEFAULT_GROUPS = [
   { key: 'timeoff', label: 'Time Off' }, { key: 'timesheets', label: 'Time Sheets' },
   { key: 'shifts', label: 'Shifts' }, { key: 'money', label: 'Money' },
   { key: 'hiring', label: 'Hiring' }, { key: 'signatures', label: 'Signatures' },
+  { key: 'people', label: 'People' },
 ];
 
 // What the note box asks, per action.

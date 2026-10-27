@@ -42,8 +42,12 @@ It returns rows built with `row(...)`. The rules for a source:
     nexus:navigate target ({view, sub} plus the bell action keys such as
     taskId / punchRequestId / timecard, lib/openTarget.js).
 
-To add one (salary advances, HR second-level time off, probation decisions,
-letter requests...): write the function here with @source, give its row
+HR's sources (Oct 27 2026): time off awaiting HR's second approval
+(time_off_hr), salary advances to decide or pay out, probation
+recommendations and overdue decisions, HR letter requests and headcount
+requests - each the module's own rule, decided through its own endpoint.
+
+To add one: write the function here with @source, give its row
 `kind` an entry in frontend/src/lib/approvalActions.js (which endpoint each
 action key calls), and, if it should count on a module's tab too, read
 collect()["counts"][key] in routers/action_counts.py. Add a test in
@@ -603,4 +607,155 @@ def _hiring_screens(db: Session, user: dict, ctx: dict) -> list:
                        detail=f"Due {_us_day(t.due_on)}." if t.due_on else "Read the resume and add your notes.",
                        created_at=t.created_at, actions=(a_open("Open Task"),),
                        link={"view": "tasks", "sub": "mine", "taskId": t.id}))
+    return out
+
+
+# ── HR (Oct 27 2026): salary advances, probation, HR letters, headcount ──────
+# Each one reads its module's own "waiting on HR" rule (salary_advance
+# .pending_for_hr, hr_probation.is_hr_plus, hr_letters.hr_companies,
+# routers/hiring._can_decide) and decides through the module's existing
+# endpoint. A step that needs more than a click (paying an advance out,
+# reviewing a letter before it is issued, ending someone's employment) opens
+# the module instead.
+
+# A decline the module refuses without a reason.
+A_DECLINE_WHY = {"key": "decline", "label": "Decline", "tone": "plain", "note": "required"}
+
+GROUPS.append(("people", "People"))
+
+
+def _hr_anywhere(db: Session, user: dict) -> bool:
+    """Could the caller be HR (timesheet_review.is_hr's doors: administrator /
+    owner, a Full HR grant, a company's HR contact) for anyone? A cheap gate
+    so the per-person rules below only run for HR - the nav count polls."""
+    from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, hr_team_limited
+    me = _me(user)
+    if not me or user.get("external"):
+        return False
+    if int(user.get("level", 0)) >= _LEVELS["administrator"]:
+        return True
+    if not hr_team_limited(user) and _module_level(me, "hr", db) >= _MODULE_LEVEL_RANK["full"]:
+        return True
+    return db.query(models.HrEntity.id).filter(func.lower(models.HrEntity.hr_contact_email) == me).first() is not None
+
+
+@source("salary_advance", "Salary Advances", "money")
+def _salary_advances(db: Session, user: dict, ctx: dict) -> list:
+    """Salary advances waiting on the caller as HR (salary_advance
+    .pending_for_hr - GET /salary-advances/pending): a request to decide
+    (Approve / Decline inline, POST /salary-advances/{id}/decide), or an
+    approved advance to pay out (Mark Paid Out asks for the method and the
+    reference, so it opens the Salary Advances card)."""
+    import salary_advance as sa
+    if not _hr_anywhere(db, user):
+        return []
+    out = []
+    for adv in sa.pending_for_hr(db, user):
+        money = sa.money(adv.amount, adv.currency or "USD")
+        n = int(adv.installments or 1)
+        link = {"view": "myhr", "sub": "salary-advances"}
+        who = adv.employee_name or _name(db, ctx, adv.employee_email)
+        if adv.status == "requested":
+            out.append(row("salary_advance", adv.id, person_email=adv.employee_email, person_name=who,
+                           title=f"Salary Advance - {money} ({_plural(n, 'pay period')})",
+                           detail=_short(adv.reason or ""), created_at=adv.requested_at or adv.created_at,
+                           actions=(A_APPROVE, A_DECLINE_WHY), link=link))
+        else:
+            out.append(row("salary_advance_payout", adv.id, person_email=adv.employee_email, person_name=who,
+                           title=f"Pay Out Salary Advance - {money}",
+                           detail=f"Approved by {_name(db, ctx, adv.decided_by)}. Mark it Paid Out once it is paid.",
+                           created_at=adv.decided_at or adv.updated_at, actions=(a_open("Pay Out"),), link=link))
+    return out
+
+
+@source("probation", "Probation", "people")
+def _probation(db: Session, user: dict, ctx: dict) -> list:
+    """Probation waiting on HR (hr_probation.is_hr_plus - the company's HR
+    contact, an administrator / owner, a Full HR grant, in People scope): a
+    manager's recommendation to finalize (Confirm / Extend: Approve inline,
+    POST .../probation/approve, which also sends the letter; Decline with a
+    note; End Employment opens the profile, where the Offboard flow starts),
+    and a probation past its end date with no decision (opens the profile)."""
+    import hr_probation as hp
+    if not _hr_anywhere(db, user):
+        return []
+    E = models.NexusEmployee
+    today = hp._today()
+    out = []
+    for emp in db.query(E).filter(E.status.in_(("active", "onboarding")), E.probation.isnot(None)).all():
+        rec = hp.record(emp)
+        if rec.get("status") not in hp.OPEN:
+            continue
+        pending = rec.get("pending") or {}
+        end = hp._parse(rec.get("endDate", ""))
+        overdue = end is not None and end < today
+        if not (pending or overdue) or not hp.is_hr_plus(db, user, emp):
+            continue
+        name = hp.full_name(emp)
+        link = {"view": "hr", "sub": f"hr-probation-{emp.id}"}
+        if pending:
+            what = hp.DECISION_LABELS.get(pending.get("decision"), "")
+            to = f" To {_us_day(pending['newEndDate'])}" if pending.get("newEndDate") else ""
+            reason = _short(pending.get("reason") or "")
+            simple = pending.get("decision") in ("confirm", "extend")
+            out.append(row("probation", emp.id, person_email=emp.work_email or "", person_name=name,
+                           title=f"Probation - {what}{to}",
+                           detail=f"Recommended by {_name(db, ctx, pending.get('by', ''))}" + (f": {reason}" if reason else "."),
+                           created_at=pending.get("at"),
+                           actions=(A_APPROVE, A_DECLINE_WHY) if simple else (a_open("Review"),), link=link))
+        else:
+            out.append(row("probation_due", emp.id, person_email=emp.work_email or "", person_name=name,
+                           title=f"Probation Ended {_us_day(end.isoformat())} - Decide",
+                           detail="Confirm, extend or end their employment on their profile.",
+                           created_at=f"{end.isoformat()}T00:00:00", actions=(a_open("Decide"),), link=link))
+    return out
+
+
+@source("hr_letter", "HR Letters", "people")
+def _hr_letters(db: Session, user: dict, ctx: dict) -> list:
+    """Letters employees requested that wait on HR for their company
+    (hr_letters.hr_companies - the GET /letter-requests/queue rule), Requested
+    or In Review. Issuing means reading the letter first, so Review opens the
+    HR Letters card; Decline (a reason is required) runs inline."""
+    import hr_letters as hl
+    comps = hl.hr_companies(db, user)
+    if comps is not None and not comps:
+        return []
+    R = models.HrLetterRequest
+    q = db.query(R).filter(R.status.in_(("requested", "in_review")))
+    if comps is not None:
+        q = q.filter(R.company_id.in_(sorted(comps)))
+    me = _me(user)
+    out = []
+    for r in q.order_by(R.created_at).limit(200).all():
+        if (r.employee_email or "").lower() == me:
+            continue
+        bits = [b for b in (f"Needed by {_us_day(r.needed_by)}" if r.needed_by else "", _short(r.purpose or "", 100)) if b]
+        out.append(row("hr_letter", r.id, person_email=r.employee_email or "",
+                       person_name=r.employee_name or _name(db, ctx, r.employee_email),
+                       title=f"HR Letter - {hl.type_label(r.letter_type)}", detail=" - ".join(bits),
+                       created_at=r.created_at, actions=(a_open("Review"), A_DECLINE_WHY),
+                       link=dict(hl._HR_ACTION)))
+    return out
+
+
+@source("headcount", "Headcount Requests", "hiring")
+def _headcount(db: Session, user: dict, ctx: dict) -> list:
+    """Headcount requests waiting on the caller (routers/hiring._can_decide):
+    the department line's step, then HR's. Approve / Decline (a reason is
+    required) through POST /hiring/headcount/{id}/decide."""
+    from routers.hiring import _can_decide
+    H = models.HrHeadcountRequest
+    out = []
+    for r in db.query(H).filter(H.status == "awaiting_approval").order_by(H.submitted_at).all():
+        if not _can_decide(db, user, r):
+            continue
+        n = int(r.openings or 1)
+        step = "Department approval" if r.step == "department" else "HR approval - the department approved it"
+        where = " - ".join(b for b in (r.department or "", r.location or "") if b)
+        out.append(row("headcount", r.id, person_email=r.requested_by or "", person_name=_name(db, ctx, r.requested_by),
+                       title=f"Headcount Request - {r.role_title or 'New Role'}" + (f" ({n})" if n > 1 else ""),
+                       detail=f"{step}." + (f" {where}." if where else ""),
+                       created_at=r.submitted_at or r.created_at, actions=(A_APPROVE, A_DECLINE_WHY),
+                       link={"view": "shifts", "sub": "headcount"}))
     return out
