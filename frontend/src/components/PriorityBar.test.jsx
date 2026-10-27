@@ -75,6 +75,28 @@ describe('PriorityBar', () => {
     expect(dismiss.mock.calls.map((c) => c[0])).toEqual(['a', 'b']);
   });
 
+  it('offers Clear All on the bar beside Show All, closing this person\'s notices (Charmi, 10/27 item 10)', () => {
+    notifications = [
+      { id: 'a', priority: 1, read: false, actioned: false, title: 'Signature Required: Timesheet - Beth Takehana - 09/20/2026 - 10/03/2026', body: '', action: { view: 'timeclock' } },
+      { id: 'b', priority: 1, read: false, actioned: false, title: 'Time Sheet Approvals Overdue', body: '', action: { view: 'hr' } },
+      { id: 'c', priority: 0, read: false, actioned: false, title: 'Quiet bell item', body: '', action: null },
+    ];
+    dismiss.mockClear();
+    render(<PriorityBar />);
+    const bar = screen.getByRole('alert', { name: 'Priority notice' });
+    const buttons = within(bar).getAllByRole('button').map((b) => b.textContent);
+    expect(buttons.indexOf('Clear All')).toBe(buttons.indexOf('Show All') + 1);
+    fireEvent.click(within(bar).getByRole('button', { name: 'Clear All' }));
+    // Only the priority notices, each closed (the bell keeps them under Closed); the bell item is untouched.
+    expect(dismiss.mock.calls.map((c) => c[0])).toEqual(['a', 'b']);
+  });
+
+  it('has no Clear All on the bar for a single notice', () => {
+    notifications = [{ id: 'a', priority: 1, read: false, actioned: false, title: 'Owed', body: '', action: { view: 'hr' } }];
+    render(<PriorityBar />);
+    expect(screen.queryByRole('button', { name: 'Clear All' })).toBeNull();
+  });
+
   it('keeps the bar to a headline - the reason is read in the details layer (Neil, Oct 17)', () => {
     notifications = [{ id: 'a', priority: 1, read: false, actioned: false, title: 'Time Sheet Fix Requested',
       body: 'Nick Vaca asked to add a break end punch at 1:30 PM on 10/15/2026.\nReason: I clocked out instead of ending my break', action: { view: 'hr' } }];
