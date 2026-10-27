@@ -27,10 +27,13 @@ WHO MAY CHANGE WHAT
     (owned by themselves); company goal - HR only.
   A goal is never deleted, only archived; check-ins are history.
 
-HR here ("HR++") = People write access that is not the manager tier's own-team
-view: an administrator, an "hr" Access Group grant at Editor or above, or the
-company's HR contact - each limited to the companies their People access
-covers (auth.hr_scope).
+HR here ("HR++") is the one HR rule every HR module uses (timesheet_review
+.is_hr - time sheets, time off's second approval, salary advances, letters,
+probation, exits): an administrator or owner, a FULL "hr" Access Group grant,
+or the company's HR contact (Neil, Oct 27 2026 - an Editor grant is not HR).
+An administrator or a Full grant is limited to the companies their People
+access covers (auth.hr_scope); an HR contact to their own companies. The
+manager tier's own-team People view is a manager here, not HR.
 
 REMINDERS (performance_loop, every 30 minutes, in a thread)
   * a 1:1 tomorrow (on the series' own clock) with nothing on its agenda -
@@ -189,9 +192,11 @@ def hr_reach(db: Session, user: dict):
 
 
 def _hr_reach(db: Session, user: dict, me: str, auth):
+    # The same three doors as timesheet_review.is_hr: administrator / owner,
+    # a Full HR grant, the company's HR contact.
     contacts = _contact_companies(db, me)
     people_write = (user.get("level", 0) >= auth._LEVELS["administrator"]
-                    or auth._module_level(me, "hr", db) >= auth._MODULE_LEVEL_RANK["editor"])
+                    or auth._module_level(me, "hr", db) >= auth._MODULE_LEVEL_RANK["full"])
     if people_write and not auth.hr_team_limited(user):
         scope = auth.hr_scope(user, db)
         if scope is None:

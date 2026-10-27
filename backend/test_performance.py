@@ -122,6 +122,31 @@ class GoalTests(PerfCase):
         with self.assertRaises(HTTPException):
             self.goal(U(EMP), level="department", department="Ops")   # no reports
 
+    def test_hr_is_the_one_hr_rule(self):
+        """HR here is timesheet_review.is_hr's rule (Oct 27 2026): an
+        administrator, a FULL hr grant, or the company's HR contact - an
+        Editor grant is not HR. A Full grant obeys its People scope."""
+        db = self.db
+        self.assertIsNone(perf.hr_reach(db, U(FAR, level=4)))            # administrator: every company
+        self.assertEqual(perf.hr_reach(db, U(HR)), {CO})                  # the HR contact: their company
+        self.assertIs(perf.hr_reach(db, U(EMP)), False)
+        grants = {}
+        with mock.patch.object(auth, "_module_level", lambda email, module, _db: grants.get((email, module), 0)):
+            grants[(OTHER, "hr")] = auth._MODULE_LEVEL_RANK["editor"]
+            db.info.clear()
+            self.assertIs(perf.hr_reach(db, U(OTHER)), False)             # Editor is not HR any more
+            with self.assertRaises(HTTPException):
+                self.goal(U(OTHER), level="company", company_id=CO)
+            grants[(OTHER, "hr")] = auth._MODULE_LEVEL_RANK["full"]
+            db.info.clear()
+            self.assertIsNone(perf.hr_reach(db, U(OTHER)))                # Full, no scope rows: every company
+            self.assertEqual(self.goal(U(OTHER), level="company", company_id=CO2)["companyId"], CO2)
+            db.info.clear()
+            with mock.patch.object(auth, "hr_scope", lambda user, _db: {CO}):
+                self.assertEqual(perf.hr_reach(db, U(OTHER)), {CO})       # Full, scoped to CO
+                self.assertFalse(perf.hr_for(db, U(OTHER), CO2))
+        db.info.clear()
+
     def test_who_sees_a_personal_goal(self):
         g = self.goal(U(MGR), owner_email=EMP)["id"]
         self.assertTrue(self.see(U(EMP), g))
