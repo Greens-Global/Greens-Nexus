@@ -986,8 +986,9 @@ class NexusEmployee(Base):
     custom_fields            = Column(JSON, default=dict)
     # Probation (Neil, Oct 27 2026, hr_probation.py): status, start / end
     # dates, a per-person length, the manager's recommendation, the decision,
-    # the letter and the history. {} = Not Tracked - existing people are never
-    # backfilled; new hires get it automatically.
+    # the letter and the history. {} = Not Tracked. New hires get it
+    # automatically; existing people still inside their window were started
+    # once at release (hr_probation.backfill_existing).
     probation                = Column(JSON, default=dict)
 
 

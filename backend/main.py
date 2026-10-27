@@ -3807,6 +3807,9 @@ def _startup_seeds():
             m = hr_probation.backfill_checklist_signal(db)
             if n or m:
                 print(f"[startup] probation: {n} letter template(s), ON-33 condition on {m} template(s)")
+            b = hr_probation.backfill_existing(db)
+            if b:
+                print(f"[startup] probation: {b} existing employee(s) still inside their window now tracked")
         finally:
             db.close()
     except Exception as e:

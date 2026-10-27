@@ -241,9 +241,14 @@ keep the diff minimal.
   `hr_packet_docs.signing_flow` applies this to every packet, old saved
   configs included - never add an order around it.
 - Probation (Neil, Oct 27 2026, `hr_probation.py`): JSON on the person
-  (`nexus_employees.probation`); `{}` = Not Tracked. Existing people are
-  NEVER backfilled - only new hires (a hired candidate, or added in People
-  with a start date whose end is not already past) start by themselves.
+  (`nexus_employees.probation`); `{}` = Not Tracked. Only new employees, by
+  start date: new hires (a hired candidate, or added in People with a start
+  date whose end is not already past) start by themselves, and a ONE-TIME
+  startup pass (`backfill_existing`, nexus_settings mark) started every
+  existing employee still inside their window (start + their length not
+  passed); past the window or no start date stays Not Tracked. Contractors,
+  externals and guests are never tracked. The backfill sends nothing - one
+  normal reminder each comes from the daily pass (`remindedFor`).
   Length = company setting (Settings > Hiring & Onboarding > Probation,
   layered through `scoped_settings`) or the person's own; end = start +
   calendar months. A manager's Confirm / Extend / End is a RECOMMENDATION;

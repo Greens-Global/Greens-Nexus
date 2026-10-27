@@ -229,11 +229,47 @@ class NewHireTests(ProbationCase):
         self.assertEqual(long_ago["probation"]["label"], "Not Tracked")
         contractor = self._add(start_date="2030-03-01", employment_type="contractor")
         self.assertEqual(contractor["probation"]["status"], "")
-        # Nobody existing was backfilled: Jane reads Not Tracked, and the
+        # Existing people are only picked up by the one-time startup pass
+        # (backfill_existing): until it runs Jane reads Not Tracked, and the
         # daily pass reminds nobody.
         rows = {e["id"]: e for e in self.client.get("/hr/employees").json()}
         self.assertEqual(rows["e-jane"]["probation"]["label"], "Not Tracked")
         self.assertEqual(hp.run_daily(), 0)
+
+    def test_existing_people_inside_their_window_are_backfilled_once(self):
+        # TODAY is 03/10/2030; the company default is 3 months, the reminder 14 days.
+        for eid, kw in (
+                ("e-soon", {"start_date": "2029-12-20"}),                       # ends 03/20/2030 - inside the reminder window
+                ("e-own", {"start_date": "2029-08-01", "probation": {"months": 9}}),  # own length: ends 05/01/2030
+                ("e-old", {"start_date": "2029-06-01"}),                        # ended 09/01/2029 - past
+                ("e-nostart", {}),                                              # no start date
+                ("e-con", {"start_date": "2030-02-01", "employment_type": "contractor"}),
+                ("e-ext", {"start_date": "2030-02-01", "identity_type": "external"}),
+                ("e-gone", {"start_date": "2030-02-01", "status": "offboarded"}),
+                ("e-done", {"start_date": "2030-02-01", "probation": {"status": "confirmed", "endDate": "2030-05-01"}})):
+            self.db.add(models.NexusEmployee(**{"id": eid, "work_email": f"{eid}{D}", "first_name": eid[2:].title(),
+                                                "last_name": "Test", "company": CO, "status": "active",
+                                                "employment_type": "full_time", "manager_email": MGR, **kw}))
+        self.db.commit()
+        self.assertEqual(hp.backfill_existing(self.db), 3)                  # Jane, e-soon, e-own
+        self.assertEqual(hp.backfill_existing(self.db), 0)                  # once (the nexus_settings mark)
+        recs = {e.id: hp.record(e) for e in self.db.query(models.NexusEmployee).all()}
+        self.assertEqual({k for k, r in recs.items() if r.get("status") == "in_probation"},
+                         {"e-jane", "e-soon", "e-own"})
+        self.assertEqual(recs["e-jane"]["endDate"], "2030-03-31")
+        self.assertEqual(recs["e-own"]["endDate"], "2030-05-01")
+        self.assertEqual(recs["e-done"]["status"], "confirmed")             # an existing record is left alone
+        for eid in ("e-old", "e-nostart", "e-con", "e-ext", "e-gone", "e-Hana"):
+            self.assertEqual(recs[eid].get("status", ""), "", eid)
+        # The backfill itself sends nothing; e-soon, already inside the
+        # window, gets ONE normal reminder from the daily pass - never again.
+        self.assertEqual(self.db.query(models.NexusNotification).count(), 0)
+        self.assertEqual(hp.run_daily(), 1)
+        self.assertEqual(hp.run_daily(), 0)
+        bells = self.db.query(models.NexusNotification).all()
+        self.assertEqual(sorted(n.recipient for n in bells), [HR, MGR])
+        self.assertTrue(all(n.ref_id == "probation:e-soon" for n in bells))
+        self.assertEqual(len(self.mails), 2)
 
     def test_hired_candidate_is_tracked(self):
         from routers.hr import create_employee_from_candidate

@@ -52,13 +52,21 @@ Documents tab and the filing pass files it in the person's Egnyte folder
 (Probation Documents). A letter that cannot be generated never undoes the
 decision: the card says why, and HR can Send Letter again.
 
-Existing employees: nothing is backfilled. Someone with no probation record
-reads "Not Tracked" until HR starts tracking them, so the release cannot
-fire a wave of reminders. New hires get a record automatically - a hired
-candidate (Mark Hired or a signed hiring packet, create_employee_from_candidate)
-and anyone added in People with a start date - unless that start date
-already puts the end in the past. Added without a start date, the record
-waits and starts when the start date is filled in.
+Who is tracked: only new employees, by their start date (Neil, Oct 27
+2026). New hires get a record automatically - a hired candidate (Mark Hired
+or a signed hiring packet, create_employee_from_candidate) and anyone added
+in People with a start date - unless that start date already puts the end in
+the past. Added without a start date, the record waits and starts when the
+start date is filled in. Existing employees are picked up ONCE by
+backfill_existing (main._startup_seeds, a nexus_settings mark like the other
+seeds): every active / onboarding employee (never a contractor, an external
+or a guest - applies()) with no probation record whose start date + their
+length (the person's own months, else the company's, default 3) has not
+passed yet starts In Probation with that end date. Anyone already past the
+window, or with no start date, stays Not Tracked until HR starts it. The
+backfill sends nothing itself: someone already inside the reminder window
+gets the ONE normal reminder on the next daily pass (remindedFor guards it
+per end date), so the release fires no burst of duplicate or stale bells.
 
 The reminder runs in reminders_loop (already in a thread): once per end
 date, `reminderDays` before it (company setting, 0 = off), one bell per
@@ -100,6 +108,7 @@ BUSINESS_TZ = "America/Los_Angeles"
 NOTICE_PREFIX = "probation:"                                # NexusNotification.ref_id = probation:<employee id>
 SEED_MARK = "hr_probation.templates_seeded"
 SIGNAL_MARK = "hr_probation.on33_signal"
+BACKFILL_MARK = "hr_probation.backfill_existing"
 SIGNAL = "probation_confirmed"
 
 
@@ -439,8 +448,9 @@ def _check_months(months) -> int:
 
 
 def start_for_new_hire(db: Session, emp: NexusEmployee, by: str, how: str) -> bool:
-    """A new hire gets probation by itself (never an existing person - see the
-    module docstring). No start date yet: it waits for one. A start date
+    """A new hire gets probation by itself (existing people are picked up
+    once by backfill_existing - see the module docstring). No start date
+    yet: it waits for one. A start date
     that already puts the end in the past (an existing person added late)
     starts nothing. Caller commits; never raises."""
     try:
@@ -1163,6 +1173,42 @@ def seed_templates(db: Session) -> int:
     db.add(NexusSetting(key=SEED_MARK, value=now, updated_by="startup", updated_at=now))
     db.commit()
     return added
+
+
+def backfill_existing(db: Session, today: date = None) -> int:
+    """Once (a nexus_settings mark): start probation for every existing
+    employee still inside their window - start date + their length (the
+    person's own months, else the company's) not passed yet. Contractors,
+    externals and guests are never tracked (applies()); anyone already
+    tracked, past the window or with no start date is left alone. Sends
+    nothing: a person inside the reminder window gets the one normal
+    reminder from the next daily pass. Commits; returns how many started."""
+    from models import NexusSetting
+    if db.get(NexusSetting, BACKFILL_MARK):
+        return 0
+    today = (today or _today()).isoformat()
+    started = 0
+    for emp in (db.query(NexusEmployee).filter(NexusEmployee.status.in_(("active", "onboarding")))
+                .order_by(NexusEmployee.id).all()):
+        try:
+            if not applies(emp):
+                continue
+            rec = record(emp)
+            if rec.get("status"):
+                continue                      # already tracked, confirmed or ended
+            start = (emp.start_date or "")[:10]
+            if not _parse(start):
+                continue                      # no start date: Not Tracked
+            if end_for(start, _months_for(db, emp, rec)) < today:
+                continue                      # already past the window
+            start_tracking(db, emp, "system", reason="Still inside the probation window at release",
+                           action="started")
+            started += 1
+        except Exception as e:   # noqa: BLE001 - one person never stops the pass
+            print(f"[probation] backfill skipped {getattr(emp, 'id', '?')}: {type(e).__name__}: {e}")
+    db.add(NexusSetting(key=BACKFILL_MARK, value=_now(), updated_by="startup", updated_at=_now()))
+    db.commit()
+    return started
 
 
 def backfill_checklist_signal(db: Session) -> int:
