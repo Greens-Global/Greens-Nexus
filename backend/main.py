@@ -1322,6 +1322,12 @@ def _run_migrations():
             "ALTER TABLE dev_notes ADD COLUMN dispatched_by VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_seen_at VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_check JSON",
+            # Hiring careers page (Oct 27 2026) - see the Postgres list.
+            "ALTER TABLE hr_candidates ADD COLUMN opening_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN location VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN linkedin_url VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN consent_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN applied_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3067,6 +3073,18 @@ def _run_migrations():
         "ALTER TABLE accounting_tax_lines ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_seen_at VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_check JSON",
+        # Headcount requests, job openings and the public careers page (Neil,
+        # Oct 27 2026; routers/hiring.py, routers/careers.py). A candidate
+        # carries the opening they applied for and what the apply form asks.
+        # models.HrCandidate, HrHeadcountRequest, HrJobOpening. New tables -
+        # explicit RLS.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS opening_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS linkedin_url VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS consent_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS applied_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_headcount_requests ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_job_openings ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4669,3 +4687,7 @@ from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: cr
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
 from routers import accounting_liability_recon  # noqa: E402
 app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
+from routers import hiring as hiring_router  # noqa: E402
+app.include_router(hiring_router.router)  # Hiring: headcount requests and job openings (Neil, Oct 27 2026)
+from routers import careers as careers_router  # noqa: E402
+app.include_router(careers_router.router)  # Public careers page + apply form, no login (Neil, Oct 27 2026)

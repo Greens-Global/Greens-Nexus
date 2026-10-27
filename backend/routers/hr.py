@@ -629,6 +629,7 @@ class CandidateIn(BaseModel):
     company:        Optional[str] = ""
     notes:          Optional[str] = ""
     role_id:        Optional[str] = ""     # job role applied for; '' = Other (role_title + department typed)
+    opening_id:     Optional[str] = ""     # the job opening they applied for (hiring_openings.py, Oct 27 2026)
 
 
 class CandidateUpdate(BaseModel):
@@ -649,6 +650,7 @@ class CandidateUpdate(BaseModel):
     expected_interview_on: Optional[str] = None
     inactive:       Optional[bool] = None  # Remove a rejected candidate from the board (True)
     skip_interview: Optional[bool] = None  # with stage="decision": Skip Interview (Neil, Oct 22)
+    opening_id:     Optional[str] = None   # the job opening they are linked to; '' unlinks
 
 
 def _is_inactive(c: HrCandidate) -> bool:
@@ -676,13 +678,16 @@ def _ser_candidate(c: HrCandidate) -> dict:
         "interviewSkippedBy": c.interview_skipped_by or "",
         "resumeUrl": c.resume_url, "notes": c.notes, "employeeId": c.employee_id,
         "createdAt": c.created_at, "updatedAt": c.updated_at,
+        # The careers page (Oct 27 2026).
+        "openingId": getattr(c, "opening_id", "") or "", "location": getattr(c, "location", "") or "",
+        "linkedinUrl": getattr(c, "linkedin_url", "") or "", "appliedAt": getattr(c, "applied_at", "") or "",
     }
 
 
 # Where candidates come from (Neil, Oct 8: "Source should be a drop-down ...
 # referral, LinkedIn, Indeed"). A typed "Other - ..." is kept as written.
 HIRING_SOURCES = ("Referral", "LinkedIn", "Indeed", "Company Website", "Job Fair",
-                  "Recruiter / Agency", "Walk-In", "Other")
+                  "Recruiter / Agency", "Walk-In", "Careers Page", "Other")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -697,6 +702,21 @@ def _job_role_for(db: Session, role_id: str, company: str):
     if (role.company_id or "") and (role.company_id or "") != (company or ""):
         raise HTTPException(400, "That role belongs to a different company.")
     return role
+
+
+def _opening_for(db: Session, opening_id: Optional[str], company: str):
+    """The job opening a candidate is linked to - one of the hiring company's,
+    still taking candidates. None for ''."""
+    oid = (opening_id or "").strip()
+    if not oid:
+        return None
+    from models import HrJobOpening
+    op = db.query(HrJobOpening).filter(HrJobOpening.id == oid).first()
+    if op is None or (op.company or "") != (company or ""):
+        raise HTTPException(400, "That job opening is not one of the hiring company's.")
+    if op.status == "closed":
+        raise HTTPException(400, "That job opening is closed.")
+    return op
 
 
 def _check_candidate_email(email: str) -> str:
@@ -737,7 +757,15 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
             depts.append(r.department)
     names = {e.id: e.name for e in db.query(HrEntity).all()} if all_roles else {}
     by_key = {_dept_key(k): v for k, v in leads.items()}   # "accounting " still finds Accounting's head
-    return {"roles": [{"id": r.id, "name": r.name, "department": r.department or "",
+    # The company's job openings that still take candidates (Oct 27 2026).
+    from models import HrJobOpening
+    openings = ([{"id": o.id, "title": o.title or "", "status": o.status, "roleId": o.role_id or "",
+                  "department": o.department or ""}
+                 for o in db.query(HrJobOpening).filter(HrJobOpening.company == company_id,
+                                                        HrJobOpening.status.in_(("draft", "open", "paused")))
+                 .order_by(HrJobOpening.title).all()] if company_id else [])
+    return {"openings": openings,
+            "roles": [{"id": r.id, "name": r.name, "department": r.department or "",
                        "companyId": r.company_id or "", "companyName": names.get(r.company_id or "", ""),
                        # No default manager on the role: its department's head (Neil, Oct 22 -
                        # "supervisor should be the department head").
@@ -898,6 +926,10 @@ def create_candidate(body: CandidateIn, background: BackgroundTasks = None, user
     now = datetime.now(timezone.utc).isoformat()
     role_title, department = (body.role_title or "").strip(), (body.department or "").strip()
     role_id = (body.role_id or "").strip()
+    opening = _opening_for(db, body.opening_id, (body.company or "").strip())
+    if opening is not None and not role_id and not role_title:
+        # Applying for an opening: its role (or title) and department.
+        role_id, role_title, department = opening.role_id or "", opening.title or "", opening.department or department
     role_created = ""
     if role_id:
         role = _job_role_for(db, role_id, (body.company or "").strip())
@@ -922,7 +954,7 @@ def create_candidate(body: CandidateIn, background: BackgroundTasks = None, user
         role_title=role_title, department=department,
         expected_start=(body.expected_start or "").strip(), source=(body.source or "").strip(),
         expected_interview_on=_check_date(body.expected_interview_on, "Expected interview date"),
-        company=(body.company or "").strip(),
+        company=(body.company or "").strip(), opening_id=opening.id if opening is not None else "",
         notes="", created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
@@ -1009,6 +1041,16 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
         )
         db.add(emp)
     cand.employee_id = emp.id
+    # Their job opening's seat is taken - the last one marks it Filled (Oct 27 2026).
+    if (getattr(cand, "opening_id", "") or "").strip():
+        try:
+            sp = db.begin_nested()
+            import hiring_openings
+            hiring_openings.seat_filled(db, cand, actor)
+            sp.commit()
+        except Exception as e:   # noqa: BLE001 - never block the hire
+            sp.rollback()
+            print(f"[hr] opening seat not counted for {cand.id}: {type(e).__name__}: {e}")
     # Their onboarding checklist starts with the hire (hr_checklists.py).
     import hr_checklists
     # The role they were hired into adds its own steps - passed in, because
@@ -1142,6 +1184,12 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
             role = _job_role_for(db, rid, (body.company if body.company is not None else row.company) or "")
             body.role_title, body.department = role.name, (role.department or body.department or row.department)
         row.role_id = rid
+    if body.opening_id is not None and body.opening_id.strip() != (row.opening_id or "") or (
+            body.opening_id and body.company is not None and body.company.strip() != (row.company or "")):
+        op = _opening_for(db, body.opening_id, (body.company if body.company is not None else row.company) or "")
+        row.opening_id = op.id if op is not None else ""
+    elif body.company is not None and body.company.strip() != (row.company or "") and (row.opening_id or ""):
+        row.opening_id = ""                          # another company: not that company's opening any more
     for key in ("first_name", "last_name", "email", "phone", "role_title",
                 "department", "expected_start", "source", "company", "notes"):
         value = getattr(body, key)

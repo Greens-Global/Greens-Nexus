@@ -212,7 +212,8 @@ class RequestRateLimit(BaseHTTPMiddleware):
                           "/timeclock/ical/",   # the calendar subscribe feed: a signed link, no login (Shifts Phase 3a)
                           "/task-changelog-feed/",   # What's New RSS: a signed link, no login (Oct 16 2026)
                           "/unit-map/",   # customer unit map: a signed link, no login (Oct 20 2026)
-                          "/dev-notes/tokens")   # Build Mode: mints Build Tokens (credential-minting, Oct 24 2026)
+                          "/dev-notes/tokens",   # Build Mode: mints Build Tokens (credential-minting, Oct 24 2026)
+                          "/careers/apply/")   # public job application: personal data + a resume, no login (Oct 27 2026)
     # Routes whose path IS the credential: the trip log names the prefix,
     # never the token (the security log is durable).
     TOKEN_PATH_PREFIXES = ("/timeclock/ical/", "/task-changelog-feed/", "/unit-map/")

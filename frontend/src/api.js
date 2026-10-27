@@ -3012,6 +3012,19 @@ export const api = {
   // { owner: {name, email} | null, held } for a source stamp - the composer
   // asks before saving whether the pin would be held for that owner.
   devNotesOwnerOf: (path) => req(`/dev-notes/owner-of?${new URLSearchParams({ path: path || "" }).toString()}`),
+  // Hiring before the candidate (Neil, Oct 27 2026, routers/hiring.py):
+  // headcount requests (department line, then HR) and the job openings an
+  // approval makes. Salary / pay fields come back only for Pay & Benefits.
+  headcountMeta: (companyId = '') => req(`/hiring/headcount/meta?company_id=${encodeURIComponent(companyId || '')}`),
+  listHeadcount: () => req('/hiring/headcount'),
+  createHeadcount: (data) => req('/hiring/headcount', { method: 'POST', body: JSON.stringify(data) }),
+  updateHeadcount: (id, data) => req(`/hiring/headcount/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  submitHeadcount: (id) => req(`/hiring/headcount/${encodeURIComponent(id)}/submit`, { method: 'POST' }),
+  decideHeadcount: (id, decision, note = '') => req(`/hiring/headcount/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify({ decision, note }) }),
+  listOpenings: () => req('/hiring/openings'),
+  updateOpening: (id, data) => req(`/hiring/openings/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  openingPosting: (id) => req(`/hiring/openings/${encodeURIComponent(id)}/posting`),
+  careersLinks: () => req('/hiring/careers-links'),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()
@@ -3119,3 +3132,25 @@ export function saveBlob(blob, filename) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+// The public careers page (/careers/<company>[/<opening>], Oct 27 2026) - job
+// seekers have no Nexus login, so these are plain fetches. credentials:
+// 'omit' - a visitor who happens to be signed in to Nexus never sends their
+// session with an application (and the CSRF guard never sees one).
+async function _publicCareers(path, init = {}) {
+  const res = await fetch(`${BASE}/careers/${path}`, { credentials: 'omit', ...init });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+    const err = new Error(typeof detail === 'string' && detail ? detail
+      : res.status === 429 ? 'Too many tries - please wait a minute and try again.' : `Could not load this page (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+export const fetchCareersCompany = (slug) => _publicCareers(`public/${encodeURIComponent(slug)}`);
+export const fetchCareersOpening = (slug, id) => _publicCareers(`public/${encodeURIComponent(slug)}/${encodeURIComponent(id)}`);
+// `form` is a FormData: first_name, last_name, email, phone, location,
+// linkedin_url, consent, website (the honeypot - always empty) and resume.
+export const submitCareersApplication = (openingId, form) => _publicCareers(`apply/${encodeURIComponent(openingId)}`, { method: 'POST', body: form });

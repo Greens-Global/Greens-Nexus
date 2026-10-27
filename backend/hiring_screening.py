@@ -121,9 +121,11 @@ def _task(db: Session, cand: models.HrCandidate) -> Optional[models.Task]:
     return db.query(models.Task).filter(models.Task.id == tid).first() if tid else None
 
 
-def start(db: Session, cand: models.HrCandidate, by: str) -> Optional[models.Task]:
+def start(db: Session, cand: models.HrCandidate, by: str, bells: bool = True) -> Optional[models.Task]:
     """The screening task for a new candidate, and a bell for each screener.
-    The caller commits, then queues notify_task_event for the task email."""
+    The caller commits, then queues notify_task_event for the task email.
+    `bells=False` (careers-page applicants, Oct 27 2026): the task only - the
+    opening's owner gets one grouped bell instead (hiring_openings.py)."""
     if _task(db, cand) is not None:
         return None
     who = screeners(db, cand)
@@ -162,7 +164,7 @@ def start(db: Session, cand: models.HrCandidate, by: str) -> Optional[models.Tas
                           "application/octet-stream", by)
     from routers.hr import _hr_notify
     from task_due import us_date
-    for email in who:
+    for email in (who if bells else []):
         _hr_notify(db, email, f"Screen {name} - {role}",
                    f"A new candidate for {role}. Read the resume and add your notes before the interview"
                    + (f" - screening is due {us_date(task.due_on)}" if task.due_on else "") + ".",

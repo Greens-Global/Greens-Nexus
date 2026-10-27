@@ -1036,6 +1036,14 @@ class HrCandidate(Base):
     decision_note  = Column(String, default="")
     # Skip Interview (Neil, Oct 22): who moved them to Decision without one.
     interview_skipped_by = Column(String, default="")
+    # Careers page (Oct 27 2026, hiring_openings.py): the job opening they
+    # applied for (HrJobOpening.id, '' = none), what the public apply form
+    # asks, when they consented, and their last careers-page application.
+    opening_id     = Column(String, default="")
+    location       = Column(String, default="")
+    linkedin_url   = Column(String, default="")
+    consent_at     = Column(String, default="")
+    applied_at     = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")
@@ -8403,3 +8411,85 @@ class AccountingLiabilityReconLog(Base):
     by_name   = Column(String, default="")
     at        = Column(String, default="")
     detail    = Column(JSON, default=dict)
+
+
+class HrHeadcountRequest(Base):
+    """A headcount requisition (Neil, Oct 27 2026, routers/hiring.py) - a
+    manager or HR asks to hire before there is any candidate. NOT a purchase
+    requisition (routers/requisitions.py). Approved by the department head's
+    line, then HR (the company's HR contact, an administrator or owner, or a
+    Full People grant). Approval makes a job opening (HrJobOpening).
+    The salary range is restricted: only Pay & Benefits (hr_comp) holders and
+    owners see it. `history` is append-only. New table - RLS at release."""
+    __tablename__ = "hr_headcount_requests"
+    id              = Column(String, primary_key=True)                # uuid
+    code            = Column(String, default="")                      # HC-0001
+    company         = Column(String, default="", index=True)          # HrEntity.id
+    department      = Column(String, default="")
+    role_id         = Column(String, default="")                      # NexusGroup.id (job role), '' = typed title
+    role_title      = Column(String, default="")
+    work_site_id    = Column(String, default="")                      # HrWorkSite.id, '' = typed location
+    location        = Column(String, default="")
+    employment_type = Column(String, default="full_time")             # full_time | part_time | contractor | intern | temporary
+    openings        = Column(Integer, default=1)
+    target_start    = Column(String, default="")                      # ISO date
+    salary_min      = Column(Float, nullable=True)                    # restricted (hr_comp / owner)
+    salary_max      = Column(Float, nullable=True)
+    salary_currency = Column(String, default="USD")
+    salary_period   = Column(String, default="year")                  # year | month | hour
+    justification   = Column(Text, default="")
+    status          = Column(String, default="draft", index=True)     # draft | awaiting_approval | approved | declined
+    step            = Column(String, default="")                      # '' | department | hr - who it waits on
+    dept_approvers  = Column(JSON, default=list)                      # the department line at submit (snapshot)
+    dept_decided_by = Column(String, default="")
+    dept_decided_at = Column(String, default="")
+    hr_decided_by   = Column(String, default="")
+    hr_decided_at   = Column(String, default="")
+    decline_note    = Column(Text, default="")
+    opening_id      = Column(String, default="")                      # HrJobOpening.id once approved
+    requested_by    = Column(String, default="", index=True)
+    submitted_at    = Column(String, default="")
+    history         = Column(JSON, default=list)                      # [{at, by, action, note}] - append-only
+    created_at      = Column(String, default="")
+    updated_at      = Column(String, default="")
+
+
+class HrJobOpening(Base):
+    """A job opening (Oct 27 2026): what an approved headcount request becomes,
+    and what the public careers page lists (routers/careers.py) while Open.
+    The pay range shows publicly only when show_pay is on (pay transparency,
+    off by default); otherwise only hr_comp holders and owners see it.
+    Filling the last seat marks it Filled. New table - RLS at release."""
+    __tablename__ = "hr_job_openings"
+    id               = Column(String, primary_key=True)               # uuid - also the public URL id
+    headcount_id     = Column(String, default="", index=True)         # HrHeadcountRequest.id
+    company          = Column(String, default="", index=True)         # HrEntity.id
+    department       = Column(String, default="")
+    role_id          = Column(String, default="")
+    title            = Column(String, default="")
+    description      = Column(Text, default="")                       # plain text: blank lines = paragraphs, "- " = bullets
+    employment_type  = Column(String, default="full_time")
+    seats            = Column(Integer, default=1)
+    work_site_id     = Column(String, default="")
+    location         = Column(String, default="")                     # display line, e.g. "Austin, TX"
+    street           = Column(String, default="")
+    city             = Column(String, default="")
+    region           = Column(String, default="")                     # state / province
+    postal_code      = Column(String, default="")
+    country          = Column(String, default="")                     # ISO alpha-2
+    remote           = Column(Boolean, default=False)
+    status           = Column(String, default="draft", index=True)    # draft | open | paused | filled | closed
+    show_pay         = Column(Boolean, default=False)                 # public pay range (pay transparency)
+    pay_min          = Column(Float, nullable=True)
+    pay_max          = Column(Float, nullable=True)
+    pay_currency     = Column(String, default="USD")
+    pay_period       = Column(String, default="year")                 # year | month | hour
+    hiring_owner_email = Column(String, default="")                   # gets the grouped new-applicant bell
+    valid_through    = Column(String, default="")                     # ISO date - off the careers page after it
+    opened_at        = Column(String, default="")
+    filled_at        = Column(String, default="")
+    closed_at        = Column(String, default="")
+    history          = Column(JSON, default=list)                     # [{at, by, action, note}] - append-only
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
