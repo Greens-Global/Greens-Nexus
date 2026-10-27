@@ -6023,7 +6023,7 @@ export default function HR({ activeSub, onSubChange }) {
   // hr-access moved to the Admin module (Pranshu, Sep 9) - old deep links
   // redirect there by the effect below, so it's not in this list any more.
   // Dashboard tiles open the Time tab on a specific inner list.
-  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices' };
+  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices', 'hr-time-extra': 'extra' };
   // The manager tier sees its own team in People (Oct 6): People and Time only.
   const { hrTeam } = useRole();
   const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'];

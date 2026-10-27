@@ -3012,6 +3012,18 @@ export const api = {
   // { owner: {name, email} | null, held } for a source stamp - the composer
   // asks before saving whether the pin would be held for that owner.
   devNotesOwnerOf: (path) => req(`/dev-notes/owner-of?${new URLSearchParams({ path: path || "" }).toString()}`),
+  // India Contractor Policy (Neil, Oct 27 2026, docs/India-Contractor-Pay.md):
+  // the per-company switch and Policy Starts - { mode: '' | 'on' | 'off',
+  // startDate, enabled, companyCountry, hasOverride, companies }.
+  timeIndiaPolicyGet: (company = "") => req(`/timeclock/payroll/india-contractor-policy${company ? `?company=${encodeURIComponent(company)}` : ""}`),
+  timeIndiaPolicySet: (data, company = "") => req(`/timeclock/payroll/india-contractor-policy${company ? `?company=${encodeURIComponent(company)}` : ""}`, { method: "PUT", body: JSON.stringify(data) }),
+  // Extra Time claims: the contractor files / edits / withdraws; HR, the HR
+  // contact or a Global Admin approves (fewer hours allowed) or declines.
+  extraTimeFile: (data) => req("/extra-time/claims", { method: "POST", body: JSON.stringify(data) }),
+  extraTimeEdit: (id, data) => req(`/extra-time/claims/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }),
+  extraTimeWithdraw: (id) => req(`/extra-time/claims/${encodeURIComponent(id)}/withdraw`, { method: "POST" }),
+  extraTimeDecide: (id, data) => req(`/extra-time/claims/${encodeURIComponent(id)}/decide`, { method: "POST", body: JSON.stringify(data) }),
+  extraTimeQueue: () => req("/extra-time/queue"),
 };
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()

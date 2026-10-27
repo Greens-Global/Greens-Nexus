@@ -102,6 +102,7 @@ import WeeklyDigestSettings from '../components/WeeklyDigestSettings';
 import WorkforceScorecardSettings from '../components/WorkforceScorecardSettings';
 import PayrollExportCodes from '../components/PayrollExportCodes';
 import PayPremiums from '../components/PayPremiums';
+import IndiaContractorPolicySettings from '../components/IndiaContractorPolicySettings';
 import { SwitchRow, NumberBox } from '../components/settings/SettingsUI';
 
 // Borrowed components, lazy so their home module's chunk only loads once an
@@ -353,6 +354,11 @@ const GROUPS = [
     needs: { role: 'administrator' },
     sub: 'Extra pay per hour at night, on weekends or at certain sites, and a minimum paid time when someone is called back - per company, off by default.',
     keywords: 'shift differential night weekend site premium call-back callback minimum paid hours hourly' },
+  // India Contractor Work Hours and Extra Time Policy (Neil, Oct 27 2026).
+  { id: 'india-contractor-policy', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'India Contractor Policy', flush: true,
+    needs: { role: 'administrator' },
+    sub: 'How contractors on monthly pay in India are paid: credits by hours worked, the month-end reconciliation and Extra Time at 1.35x - per company, with the month it starts from.',
+    keywords: 'india contractor policy extra time 1.35 reconciliation pool half day full day credit weekend pay monthly fee fixed salary policy starts november' },
   { id: 'payroll-readiness', subject: 'pay', face: 'both', scope: 'layered', icon: ClipboardList, title: 'Payroll Readiness', flush: true,
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'What counts as a big change or an unusual week when checking who is ready for payroll - a default, and each company\'s own.',
@@ -609,6 +615,7 @@ const COMPANY_STATE = {
   'payroll-readiness': (cid) => api.payrollReadinessSettings(cid).then(m => ownState(!!m?.override)),
   'time-off-reasons': (cid) => api.timeOffTypes(cid).then(r => ownState(!!r?.hasOverride)),
   'shift-settings': (cid) => api.shiftRequestSettingsGetFor(cid).then(r => ownState(!!r?.hasOverride)),
+  'india-contractor-policy': (cid) => api.timeIndiaPolicyGet(cid).then(r => ownState(!!r?.hasOverride)),
 };
 // What the layered footer says before the names.
 const OWN_LINE = { 'shift-settings': 'Companies with shift settings of their own:' };
@@ -1617,6 +1624,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'hiring-documents':     return <HiringSetupSection key={key} id={id} Modal={PacketsModal} label="Open Hiring Documents" chrome={chrome} toastOk={toastOk} toastErr={toastErr} modalProps={company ? { companyId: company, lockCompany: true } : undefined} />;
       case 'payroll-export-codes': return <LazyPanelSection key={key} id={id} Panel={PayrollExportCodes} chrome={chrome} report={report} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'pay-premiums':         return <LazyPanelSection key={key} id={id} Panel={PayPremiums} chrome={chrome} report={report} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'india-contractor-policy': return <LazyPanelSection key={key} id={id} Panel={IndiaContractorPolicySettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'interview-questionnaires': return <HiringSetupSection key={key} id={id} Modal={QuestionnairesModal} label="Open Questionnaires" chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'checklist-library':    return <LazyPanelSection key={key} id={id} Panel={ChecklistLibrary} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'shift-types':          return <LazyPanelSection key={key} id={id} Panel={ShiftTypesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;

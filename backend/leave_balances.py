@@ -545,11 +545,26 @@ def period_entries(db: Session, email: str, start: str, end: str) -> list[dict]:
         if per_hour and worked:
             rate = _tier(vp.get("tiers"), _years_on(start_d, date.fromisoformat(ds))) / base
             earned += worked / 60 * rate
+        if card.get("indiaPolicy"):
+            continue     # paid leave is what the India Contractor policy covered (below)
         for b, m in leave.items():
             if m:
                 k = (b, ds[:4])
                 cur = used.get(k, [0.0, ds])
                 used[k] = [cur[0] + m / 60, max(cur[1], ds)]
+    if card.get("indiaPolicy"):
+        # India Contractor policy (Oct 27 2026): a Sick / Vacation day uses
+        # the half days of balance it was credited from - Personal and any
+        # leave the balance could not cover use nothing.
+        for fd in card.get("fixedDays") or []:
+            ds = fd.get("date") or ""
+            m = int(fd.get("leaveUsedMin") or 0)
+            b = fd.get("leaveBucket") or ""
+            if not m or b not in BUCKETS or not ds or ds < cut or ds < start or ds > end:
+                continue
+            k = (b, ds[:4])
+            cur = used.get(k, [0.0, ds])
+            used[k] = [cur[0] + m / 60, max(cur[1], ds)]
     out = []
     span = f"{start} - {end}"
     if earned > 0:

@@ -8403,3 +8403,31 @@ class AccountingLiabilityReconLog(Base):
     by_name   = Column(String, default="")
     at        = Column(String, default="")
     detail    = Column(JSON, default=dict)
+
+
+class ExtraTimeClaim(Base):
+    """India Contractor Extra Time (Neil, Oct 27 2026, docs/India-Contractor-Pay.md):
+    hours a contractor identifies on their Time Sheet, with a note describing
+    the work, paid at 1.35 x the hourly equivalent of the daily rate once
+    approved. One live claim per person per day (pending / approved /
+    declined); a withdrawn one stays as history. Hours an approved claim pays
+    are never also counted in the month-end reconciliation pool.
+    RELEASE: new table - `ALTER TABLE extra_time_claims ENABLE ROW LEVEL
+    SECURITY` on dev AND prod (main.py's Postgres list carries the line)."""
+    __tablename__ = "extra_time_claims"
+    id             = Column(String, primary_key=True)                # uuid
+    employee_email = Column(String, default="", index=True)
+    company_id     = Column(String, default="", index=True)          # HrEntity.id at filing
+    local_date     = Column(String, default="", index=True)          # YYYY-MM-DD, the day worked
+    period_start   = Column(String, default="", index=True)          # the month (YYYY-MM-01)
+    period_end     = Column(String, default="")
+    claimed_min    = Column(Integer, default=0)
+    approved_min   = Column(Integer, default=0)                      # set on approval (may be fewer)
+    note           = Column(Text, default="")                        # what the work was - required
+    status         = Column(String, default="pending", index=True)   # pending | approved | declined | withdrawn
+    decision_note  = Column(Text, default="")                        # the decline reason / approval note
+    decided_by     = Column(String, default="")
+    decided_at     = Column(String, default="")
+    history        = Column(JSON, default=list)                      # [{at, by, action, minutes, note}]
+    created_at     = Column(String, default="")
+    updated_at     = Column(String, default="")

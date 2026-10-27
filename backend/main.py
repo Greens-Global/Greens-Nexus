@@ -3067,6 +3067,10 @@ def _run_migrations():
         "ALTER TABLE accounting_tax_lines ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_seen_at VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_check JSON",
+        # India Contractor Extra Time claims (Neil, Oct 27 2026,
+        # docs/India-Contractor-Pay.md). New table - explicit RLS.
+        # models.ExtraTimeClaim.
+        "ALTER TABLE extra_time_claims ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4669,3 +4673,5 @@ from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: cr
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
 from routers import accounting_liability_recon  # noqa: E402
 app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
+from routers import extra_time as extra_time_router  # noqa: E402
+app.include_router(extra_time_router.router)  # India Contractor Extra Time claims: file, approve, decline (Neil, Oct 27 2026, docs/India-Contractor-Pay.md)
