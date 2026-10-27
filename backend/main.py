@@ -3071,6 +3071,10 @@ def _run_migrations():
         # table, shared by the accounting team - explicit RLS.
         # import_hub_models.AccountingStatementRule.
         "ALTER TABLE accounting_statement_rules ENABLE ROW LEVEL SECURITY",
+        # Workers' comp rate per person and year (Charmi, 10/27 call, item 14) -
+        # a new table: explicit RLS on top of the _enable_rls_everywhere sweep.
+        # models.WorkersCompRate.
+        "ALTER TABLE workers_comp_rates ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
