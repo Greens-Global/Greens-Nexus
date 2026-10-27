@@ -565,6 +565,62 @@ class ClaimTests(Base):
         self.db.commit()
         self.assertEqual(xt.approvers(self.db, CON), [OWNER])
 
+    def test_hr_decides_only_inside_their_company(self):
+        # Oct 27 2026: the one HR rule, within the person's company - an
+        # administrator or a Full HR grant whose People scope does not cover
+        # Greens India cannot decide its contractor's claim.
+        from unittest import mock
+        ADMIN, FULL = "admin.icp@greensglobal.com", "full.icp@greensglobal.com"
+        for em, first in ((ADMIN, "Adi"), (FULL, "Fay")):
+            self.db.add(models.NexusEmployee(id=f"id-{first}", work_email=em, first_name=first, last_name="Test",
+                                             company=CO_US, country="US", status="active", employment_type="full_time",
+                                             deleted_at=""))
+        self.db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
+        self.db.query(models.NexusAccessScope).delete()
+        for em in (ADMIN, FULL):
+            self.db.add(models.NexusAccessScope(id=f"sc-{em}", email=em, module_id="hr", scope_type="entity",
+                                                scope_id=CO_US))
+        self.db.commit()
+        auth.invalidate_role_cache()
+        cid = self.file(SAT, 300).json()["id"]
+        grants = {FULL: auth._MODULE_LEVEL_RANK["full"]}
+        with mock.patch.object(auth, "_module_level", lambda email, module, _db: grants.get(email, 0) if module == "hr" else 0):
+            # A Full grant scoped to Greens US does not decide a Greens India claim.
+            self.assertFalse(xt.can_decide(self.db, FULL, CON))
+            self.assertEqual(self.decide(cid, FULL, "approve", 300).status_code, 403)
+            # An administrator is confined by the company walls, as in People:
+            # walls on (Ojas the Global Admin), Adi reaches only Greens US.
+            import cache
+            self.db.add(models.NexusSetting(key="company_walls", value="on"))
+            self.db.add(models.NexusGroup(id="g-ga", name="Global Admins", is_global_admin=1))
+            self.db.add(models.NexusGroupMember(group_id="g-ga", email=OWNER))
+            self.db.commit()
+            cache.settings_config.invalidate()
+            self.assertFalse(xt.can_decide(self.db, ADMIN, CON))
+            self.db.query(models.NexusSetting).filter_by(key="company_walls").delete()
+            self.db.query(models.NexusGroupMember).filter_by(group_id="g-ga").delete()
+            self.db.query(models.NexusGroup).filter_by(id="g-ga").delete()
+            self.db.commit()
+            cache.settings_config.invalidate()
+            # An Editor grant is never HR, scoped or not.
+            grants[FULL] = auth._MODULE_LEVEL_RANK["editor"]
+            self.db.query(models.NexusAccessScope).delete()
+            self.db.commit()
+            self.assertFalse(xt.can_decide(self.db, FULL, CON))
+            # Unscoped: the administrator and the Full grant reach every company.
+            grants[FULL] = auth._MODULE_LEVEL_RANK["full"]
+            self.assertTrue(xt.can_decide(self.db, ADMIN, CON))
+            self.assertTrue(xt.can_decide(self.db, FULL, CON))
+            # Scoped to Greens India: yes; and never their own claim.
+            self.db.add(models.NexusAccessScope(id="sc-in", email=FULL, module_id="hr", scope_type="entity", scope_id=CO))
+            self.db.commit()
+            self.assertTrue(xt.can_decide(self.db, FULL, CON))
+            self.assertEqual(self.decide(cid, FULL, "approve", 300).status_code, 200)
+            self.assertFalse(xt.can_decide(self.db, FULL, FULL))
+        # The named approver (the HR contact) and the Global Admin fallback still decide.
+        self.assertTrue(xt.can_decide(self.db, HRC, CON))
+        self.assertTrue(xt.can_decide(self.db, OWNER, HRC))
+
     def test_approve_fewer_hours_and_the_rest_stays_in_the_pool(self):
         cid = self.file(SAT, 300).json()["id"]
         self.assertEqual([n.priority for n in self.notices(HRC, "extra-time:")], [1])

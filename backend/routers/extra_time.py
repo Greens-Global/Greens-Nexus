@@ -15,8 +15,11 @@ Sheet with a note describing the work, and an approver approves them:
     hours stay in it (india_contractor_pay.reconcile);
   * the approver is the company's HR contact; when there is none, or the HR
     contact is the claimant, the Global Admins (timesheet_review's fallback).
-    HR (timesheet_review.is_hr: the HR contact, an administrator, a Full HR
-    grant) may also decide. NOBODY decides their own claim;
+    HR may also decide - the one HR rule (timesheet_review.is_hr: the HR
+    contact, an administrator / owner, a Full HR grant) WITHIN the person's
+    company: an administrator or a Full grant only for the companies their
+    People scope / company walls cover (auth.hr_scope), the same reach every
+    other HR module uses (Oct 27 2026). NOBODY decides their own claim;
   * claims are filed until the month's time sheet goes to Review & Approve,
     and Review & Approve is blocked while any claim of the month is Pending
     (timesheet_review.approve_blocker). Changing a decision after approval
@@ -106,13 +109,34 @@ def approvers(db: Session, email: str) -> list:
     return [a for a in _global_admins(db) if a != email]
 
 
-def can_decide(db: Session, actor: str, email: str) -> bool:
-    """HR (the HR contact, an administrator or a Full HR grant) or a named
-    approver - never on their own claim."""
+def hr_for(db: Session, actor: str, email: str) -> bool:
+    """HR for this person's claims: the company's HR contact, or an
+    administrator / owner or a Full HR grant whose People scope (company
+    walls included - auth.hr_scope) covers the person's company. The manager
+    tier's own-team view is never HR. Never on their own claim."""
+    from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, hr_scope, hr_team_limited, level_for
+    from routers.hr import _in_scope
     actor, email = (actor or "").strip().lower(), (email or "").strip().lower()
     if not actor or actor == email:
         return False
-    return tsr.is_hr(db, actor, email) or actor in approvers(db, email)
+    if actor == tsr.hr_of(db, email):
+        return True
+    user = {"email": actor, "level": level_for(actor, db)}
+    wide = user["level"] >= _LEVELS["administrator"] or (
+        not hr_team_limited(user) and _module_level(actor, "hr", db) >= _MODULE_LEVEL_RANK["full"])
+    if not wide:
+        return False
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+    return _in_scope(emp, hr_scope(user, db))
+
+
+def can_decide(db: Session, actor: str, email: str) -> bool:
+    """HR within the person's company (hr_for) or a named approver - never on
+    their own claim."""
+    actor, email = (actor or "").strip().lower(), (email or "").strip().lower()
+    if not actor or actor == email:
+        return False
+    return actor in approvers(db, email) or hr_for(db, actor, email)
 
 
 # ── Is the month still open ──────────────────────────────────────────────────
