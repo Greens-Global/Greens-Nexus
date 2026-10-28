@@ -420,6 +420,26 @@ class WhoTests(AdvanceCase):
         self._status(400, self._grant, currency="US")
 
 
+class ExemptTests(AdvanceCase):
+    def test_hr_opens_an_exempt_persons_card_by_its_link(self):
+        # Oct 29 2026 review: People > Time's roster leaves a time-tracking-
+        # exempt person out (_in_roster), but the link every advance bell and
+        # inbox row carries opens their card by email - the card route has no
+        # exempt check - and its Salary Advances section is how HR pays out.
+        self.db.add(models.NexusGroup(id="g-sa-exempt", name="Leadership", time_tracking_exempt=1))
+        self.db.add(models.NexusGroupMember(group_id="g-sa-exempt", email=EMP))
+        self.db.commit()
+        self.assertTrue(timeclock.is_time_tracking_exempt(self.db, EMP))
+        aid = self._ask()["id"]
+        self.assertEqual(sa.timesheet_link(EMP, HR), {"view": "hr", "sub": "hr-time", "timecard": EMP})
+        card = timeclock.payroll_timecard(EMP, self.start, self.end, user=HR_USER, _su={}, db=self.db)
+        self.assertEqual(card["email"], EMP)
+        api.decide(aid, api.DecideIn(action="approve"), user=HR_USER, db=self.db)
+        self.assertEqual(self._paid(aid)["status"], "paid_out")
+        # Erin sees it as her own.
+        self.assertEqual(api.for_person(EMP, user=EMPLOYEE, db=self.db)["advances"][0]["status"], "paid_out")
+
+
 class LegacyTests(AdvanceCase):
     """Advances are live on prod since #829: rows asked for before Oct 29
     2026 (a manager's own, from the Workday card) keep working."""

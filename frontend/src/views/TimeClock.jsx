@@ -13,6 +13,7 @@ import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
+import TimeSheetAdvances, { useTimeSheetAdvances } from '../components/TimeSheetAdvances';
 import BodModal from '../components/BodModal';
 import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending, utcStamp, holdPunch, signedIn } from '../lib/punchQueue';
@@ -1081,6 +1082,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   useEffect(() => {
     if (status) rememberTimeExempt(myEmail, status.timeTrackingExempt);
   }, [status, myEmail]);
+  // A time-tracking-exempt person has no time card, but their salary
+  // advances still live on their Time Sheet (Oct 29 2026 review: with the
+  // Workday card gone they had nowhere to see them). Everyone else reads
+  // them on their card (PayrollTimecard), so this asks only when exempt.
+  const ownAdv = useTimeSheetAdvances(exemptKnown ? myEmail : '');
+  const ownAdvCount = ownAdv.data?.advances?.length || 0;
 
   // ── The Time Clock widget (top of Overview, Oct 2) ─────────────────────────
   // The page's one headline: a greeting with today's scheduled shift, the
@@ -1379,8 +1386,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
              for what the tab itself lists (reviews and signatures waiting on
              a reviewing manager) - never for the badge count alone, which
              once surfaced a stale "sent back" row of an exempt person's own
-             old time sheet as a "1" over an empty tab (Neil, Oct 21 2026). */
-          ? ['overview', ...(toSignCount > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff', 'performance']
+             old time sheet as a "1" over an empty tab (Neil, Oct 21 2026).
+             Their own salary advances are listed there too (Oct 29 2026). */
+          ? ['overview', ...(toSignCount > 0 || ownAdvCount > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff', 'performance']
           : ['overview', 'timesheet', 'timeoff', 'performance']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title })), counts, 'myhr')}
         active={tab} onChange={setTab} syncTitle />
@@ -1411,6 +1419,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       )}
       {tab === 'timesheet' && status?.timeTrackingExempt && toSignCount === 0 && (
         <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 2px' }}>Nothing is waiting on your signature. Time sheets you review are in People &gt; Time.</div>
+      )}
+      {/* No time card when exempt - "Your Salary Advances" on its own
+          (nothing when there are none). */}
+      {tab === 'timesheet' && status?.timeTrackingExempt && (
+        <TimeSheetAdvances adv={ownAdv} self me={myEmail} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />
       )}
 
       {/* Timesheet - day list + week summary side panel */}
