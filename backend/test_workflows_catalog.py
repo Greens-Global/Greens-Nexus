@@ -59,6 +59,15 @@ def db():
         pass
 
 
+@pytest.fixture(autouse=True)
+def _forget_test_registrations():
+    """A throwaway `test.*` registration never reaches the lock test."""
+    yield
+    for reg in (catalog.ACTIONS, catalog.EVENTS, catalog.LIST_SOURCES, catalog.ENTITIES):
+        for k in [k for k in reg if k.startswith("test.")]:
+            reg.pop(k, None)
+
+
 @pytest.fixture
 def employee_user():
     return {"email": EMP, "role": "employee", "level": 1}
@@ -176,7 +185,6 @@ def test_snapshot_is_deterministic(db):
     assert "generatedAt" not in a
 
 
-@pytest.mark.xfail(strict=False, reason="packs land in Task 8")
 def test_lock_matches_committed_snapshot(db):
     assert catalog.lock_matches("workflows/catalog.lock.json"), (
         "run: python -c 'import workflows.catalog as c; c.load_packs(); c.write_lock(\"workflows/catalog.lock.json\")'")
