@@ -154,7 +154,7 @@ def jobs() -> list[dict]:
         _job("accounting_sso_sync", "Accounting Sign-In Sync", "Keeps accounting sign-ins in step.", "Every 15 minutes"),
         _job("leasing_sync", "MRI Leasing Sync", "Leases linked to their Intacct customers.", "Daily"),
         _job("recurring_stale", "Possibly Ended Lines", "Flags active lines with nothing posted for N months.", "Daily"),
-        _job("period_close", "Pay Period Close Alerts", "One notice per approver per closed period.",
+        _job("period_close", "Pay Period Close Alerts", "One notice per approver per closed period. Off stops the notices only: unsigned corrections are still accepted, stale reviews retired and the Extra Time reminder sent.",
              "Every 30 minutes", "time-clock:payroll"),
         _job("employee_code_sync", "Intacct Employee Codes", "Employee codes from Intacct, nightly.", "Daily",
              "companies"),

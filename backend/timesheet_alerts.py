@@ -317,8 +317,6 @@ def scan(db: Session, now_utc: datetime | None = None) -> dict:
 
 
 def _tick() -> dict:
-    if job_switch.off("period_close"):   # Workflows > Automations switch
-        return {}
     db = SessionLocal()
     try:
         # HR's corrected cards nobody signed in time are accepted as sent (Oct 22).
@@ -345,6 +343,9 @@ def _tick() -> dict:
     except Exception as e:   # noqa: BLE001 - the notices below still run
         db.rollback()
         print(f"[period-close] Extra Time reminder failed: {e}")
+    if job_switch.off("period_close"):   # Workflows > Automations switch: the notices only
+        db.close()
+        return {}
     try:
         return scan(db)
     except Exception as e:   # noqa: BLE001 - a bad row must not kill the loop

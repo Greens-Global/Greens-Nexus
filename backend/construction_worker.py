@@ -447,7 +447,7 @@ def week_start_for(d: date, week_starts_on: int) -> date:
     return d - timedelta(days=back)
 
 
-def cut_due_drafts(today: date = None) -> dict:
+def cut_due_drafts(today: date = None) -> dict | None:
     """Draft this week's report for every project whose report day is today.
 
     The draft covers the week IN PROGRESS - a Friday cut on a Mon-Sun project
@@ -460,7 +460,7 @@ def cut_due_drafts(today: date = None) -> dict:
     second tick in the same minute, or a manager who drafted it early all safe,
     with no extra state to keep correct."""
     if job_switch.off("construction_ai"):   # Workflows > Automations switch
-        return {"cut": 0, "skipped": 0, "failed": 0}
+        return None
     counts = {"cut": 0, "skipped": 0, "failed": 0}
     today = today or datetime.now(timezone.utc).date()
     db = SessionLocal()
@@ -524,8 +524,11 @@ async def construction_sweep_loop() -> None:
             # exactly once more - which the existence check absorbs.
             today = datetime.now(timezone.utc).date().isoformat()
             if today != last_draft_day:
-                await asyncio.to_thread(cut_due_drafts)
-                last_draft_day = today
+                cut = await asyncio.to_thread(cut_due_drafts)
+                # Switched off (None) = not done today: a switch flipped back on
+                # the same report day still cuts this week's draft.
+                if cut is not None:
+                    last_draft_day = today
         except Exception as e:
             print(f"[construction] sweep loop error: {e}")
         await asyncio.sleep(_LOOP_SEC)
