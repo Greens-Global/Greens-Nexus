@@ -450,6 +450,9 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
   return { blob: await res.blob(), filename };
 }
 
+// '?year=2027' for the holiday calendar routes that answer one year of it.
+const yearQs = (year) => (year ? `?year=${encodeURIComponent(year)}` : '');
+
 export const api = {
   // Dashboard
   getDashboardSummary: () => req("/dashboard/summary"),
@@ -1441,20 +1444,39 @@ export const api = {
   addCompanyWorkSites:   (entityId, siteIds) => req(`/hr/entities/${entityId}/work-sites`, { method: 'POST', body: JSON.stringify({ site_ids: siteIds }) }),
   removeCompanyWorkSite: (entityId, siteId)  => req(`/hr/entities/${entityId}/work-sites/${siteId}`, { method: 'DELETE' }),
   // per-company holiday calendar
-  getCompanyHolidays:    (entityId)         => req(`/hr/entities/${entityId}/holidays`),
   createCompanyHoliday:  (entityId, data)   => req(`/hr/entities/${entityId}/holidays`, { method: 'POST', body: JSON.stringify(data) }),
   // countryCode: drop just that ONE country off a multi-country merged row
   // (e.g. "IN,US" -> "US") instead of deleting the whole date+company entry.
   deleteCompanyHoliday:  (entityId, id, countryCode) => req(`/hr/entities/${entityId}/holidays/${id}${countryCode ? `?country_code=${encodeURIComponent(countryCode)}` : ''}`, { method: 'DELETE' }),
-  updateCompanyHolidayType: (entityId, id, type) => req(`/hr/entities/${entityId}/holidays/${id}`, { method: 'PATCH', body: JSON.stringify({ type }) }),
+  // { type?, date?, name? } - on a policy holiday this changes it for this company only.
+  // Answers the row with `calendar` (the company's calendar for `year`) beside it.
+  updateCompanyHoliday:  (entityId, id, data, year) => req(`/hr/entities/${entityId}/holidays/${id}${yearQs(year)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  updateCompanyHolidayType: (entityId, id, type) => api.updateCompanyHoliday(entityId, id, { type }),
+  // A policy holiday this company changed, back to the policy's date and type.
+  resetCompanyHoliday:   (entityId, id, year) => req(`/hr/entities/${entityId}/holidays/${id}/reset${yearQs(year)}`, { method: 'POST' }),
+  // { country, year, source, partial, note, holidays: [{ date (the REAL date), weekday, name, scope,
+  // suggestedType, tentative, observed }] } - 404 when there is no list for the country.
   getPublicHolidays:     (country, year)    => req(`/hr/public-holidays?country=${encodeURIComponent(country)}${year ? `&year=${year}` : ''}`),
-  // Holiday Policy library - a global, reusable, named holiday set (Sep 22,
-  // Neil: "pull that policy into any other company").
+  // Holiday policies (Oct 29 2026): named holiday sets with a weekend rule,
+  // applied live to one or more companies. A save body is
+  // { name, description, weekendRule, holidays, companies } and answers { policy, sync }.
   getHolidayPolicies:    ()                 => req('/hr/holiday-policies'),
   createHolidayPolicy:   (data)             => req('/hr/holiday-policies', { method: 'POST', body: JSON.stringify(data) }),
   updateHolidayPolicy:   (id, data)         => req(`/hr/holiday-policies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteHolidayPolicy:   (id)               => req(`/hr/holiday-policies/${id}`, { method: 'DELETE' }),
-  applyHolidayPolicy:    (entityId, policyId) => req(`/hr/entities/${entityId}/holidays/apply-policy/${policyId}`, { method: 'POST' }),
+  // What a save would add / remove in each assigned company - nothing is saved.
+  // No id = a policy not saved yet ('new').
+  previewHolidayPolicy:  (id, data)         => req(`/hr/holiday-policies/${id || 'new'}/preview`, { method: 'POST', body: JSON.stringify(data) }),
+  // The policy's holidays rebuilt for another year from the sources (not saved):
+  // { holidays, unmatched: [names], notObserved: [names] }.
+  copyHolidayPolicyYear: (id, fromYear, toYear) => req(`/hr/holiday-policies/${id}/copy-year`, { method: 'POST', body: JSON.stringify({ fromYear, toYear }) }),
+  // A company's effective calendar for a year: its policies, their holidays
+  // and its own, what it skipped, and the policies it could assign. Assign,
+  // unassign and skip answer the calendar for `year`.
+  getHolidayCalendar:    (entityId, year)   => req(`/hr/entities/${entityId}/holiday-calendar?year=${encodeURIComponent(year)}`),
+  assignHolidayPolicy:   (entityId, policyId, year) => req(`/hr/entities/${entityId}/holiday-policies/${policyId}${yearQs(year)}`, { method: 'POST' }),
+  unassignHolidayPolicy: (entityId, policyId, year) => req(`/hr/entities/${entityId}/holiday-policies/${policyId}${yearQs(year)}`, { method: 'DELETE' }),
+  skipPolicyHoliday:     (entityId, policyId, key, skip, year) => req(`/hr/entities/${entityId}/holiday-policies/${policyId}/skip${yearQs(year)}`, { method: 'POST', body: JSON.stringify({ key, skip }) }),
 
   // HR - compensation + bank (restricted: hr_comp grant / owner)
   getCompensation:  (id)       => req(`/hr/employees/${id}/compensation`),
