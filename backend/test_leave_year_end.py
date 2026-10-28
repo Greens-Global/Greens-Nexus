@@ -264,6 +264,28 @@ class YearEndTests(unittest.TestCase):
         r = self.client.put(f"/leave-balances/year-end/settings?company={CO}", json={"reset": True})
         self.assertFalse(r.json()["hasOverride"])
 
+    def test_year_end_is_scoped_to_the_hr_reach(self):
+        # Release review (Oct 27): Full HR scoped to ANOTHER company cannot
+        # preview or apply this company's year end, and no scoped caller runs
+        # every company at once (company '').
+        other = "co-ye-other"
+        self.db.add(models.HrEntity(id=other, name="YE Other", hr_contact_email=""))
+        self.db.add(models.NexusAccessScope(id="sc-ye", email=HR_EMAIL, module_id="hr", scope_type="entity",
+                                            scope_id=other))
+        self.db.commit()
+        try:
+            os.environ["NEXUS_DEV_EMAIL"] = HR_EMAIL
+            self.assertEqual(self.client.get(f"/leave-balances/year-end/preview?company={CO}").status_code, 403)
+            self.assertEqual(self.client.post("/leave-balances/year-end/apply", json={"company": CO}).status_code, 403)
+            self.assertEqual(self.client.post("/leave-balances/year-end/apply", json={"company": ""}).status_code, 403)
+            r = self.client.get(f"/leave-balances/year-end/preview?company={other}")
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertFalse(r.json()["canAll"])
+            self.assertEqual([c["id"] for c in r.json()["companies"]], [other])
+        finally:
+            self.db.query(models.NexusAccessScope).delete()
+            self.db.commit()
+
     def test_employee_balance_says_what_year_end_does(self):
         os.environ["NEXUS_DEV_EMAIL"] = O
         d = self.client.get("/leave-balances/me").json()

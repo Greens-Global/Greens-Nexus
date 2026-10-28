@@ -26,6 +26,13 @@ def list_audit_logs(
         q = q.filter(models.AuditLog.action.ilike(f"%{action}%"))
     if resource_type:
         q = q.filter(models.AuditLog.resource_type == resource_type)
+    # A confidential (HR) ticket the caller could not open stays out here too
+    # (routers/audit_events.hidden_ticket_records).
+    from routers.audit_events import hidden_ticket_records
+    hidden = hidden_ticket_records(db, user)
+    if hidden:
+        from sqlalchemy import func, not_
+        q = q.filter(not_(func.coalesce(models.AuditLog.resource_id, "").in_(sorted(hidden))))
     total = q.count()
     rows = q.offset(offset).limit(limit).all()
     return {

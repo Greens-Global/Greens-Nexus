@@ -335,9 +335,11 @@ def save_manager(rid: str, body: ManagerIn, user: dict = Depends(get_current_use
     r = db.query(models.PerfReview).filter(models.PerfReview.id == rid).with_for_update().first()
     pr.access_or_404(db, user, r)
     cycle = db.get(models.PerfReviewCycle, r.cycle_id)
-    pr.save_manager(db, user, r, cycle, answers=body.answers, values=body.values, overall=body.overall_rating,
-                    summary=body.summary or "", private_note=body.private_note or "",
-                    attach_goals=bool(body.attach_goals), submit=bool(body.submit))
+    # Only what the caller sent changes (HR's edit never blanks the rest).
+    sent = body.model_fields_set
+    kw = {k: getattr(body, f) for k, f in (("answers", "answers"), ("values", "values"), ("overall", "overall_rating"),
+                                           ("summary", "summary"), ("private_note", "private_note")) if f in sent}
+    pr.save_manager(db, user, r, cycle, **kw, attach_goals=bool(body.attach_goals), submit=bool(body.submit))
     db.commit()
     return _review_out(db, user, rid)
 

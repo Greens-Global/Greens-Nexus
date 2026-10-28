@@ -25,7 +25,7 @@ const STATUS = {
 };
 const ACTIONS = {
   created: 'Created', edited: 'Edited', submitted: 'Sent For Approval', department_approved: 'Approved By The Department',
-  department_declined: 'Declined By The Department', hr_approved: 'Approved By HR', hr_declined: 'Declined By HR',
+  department_declined: 'Declined By The Department', department_skipped: 'Sent Straight To HR', hr_approved: 'Approved By HR', hr_declined: 'Declined By HR',
 };
 const PERIOD = { year: 'per year', month: 'per month', hour: 'per hour' };
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em', textTransform: 'uppercase' };

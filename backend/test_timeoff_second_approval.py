@@ -219,6 +219,40 @@ class SecondApprovalTests(unittest.TestCase):
         # HR through the manager's PATCH door works too (an administrator).
         self.assertEqual(self._decide(ADM, req["id"]).json()["status"], "approved")
 
+    def test_hr_second_level_is_scoped_to_the_hr_reach(self):
+        # Release review (Oct 27) - the ONE scoped HR rule: a Full HR grant
+        # scoped to another company is not HR for this request; the manager
+        # tier's People view never is.
+        self._switch(True)
+        req = self._request()
+        self._decide(MGR, req["id"])
+        db = database.SessionLocal()
+        db.add(models.NexusGroup(id="grp-sa-full", name="sa-full", allowed_modules="hr:full"))
+        db.add(models.NexusGroupMember(group_id="grp-sa-full", email=OTHER))
+        db.add(models.NexusAccessScope(id="sc-sa", email=OTHER, module_id="hr", scope_type="entity", scope_id=CO2))
+        db.commit()
+        db.close()
+        cache.module_grants.invalidate()
+        try:
+            self._as(OTHER)
+            self.assertEqual(self.client.get("/timeclock/timeoff/awaiting-hr").json(), [])
+            self.assertEqual(self._hr_decide(OTHER, req["id"]).status_code, 403)
+            self.assertEqual(self._row(req["id"]).status, "pending")
+            # The same grant without the scope row reaches the company: HR.
+            db = database.SessionLocal()
+            db.query(models.NexusAccessScope).filter_by(id="sc-sa").delete()
+            db.commit()
+            db.close()
+            self._as(OTHER)
+            self.assertEqual([r["id"] for r in self.client.get("/timeclock/timeoff/awaiting-hr").json()], [req["id"]])
+            self.assertEqual(self._hr_decide(OTHER, req["id"]).json()["status"], "approved")
+        finally:
+            db = database.SessionLocal()
+            db.query(models.NexusAccessScope).delete()
+            db.query(models.NexusGroupMember).filter_by(group_id="grp-sa-full").delete()
+            db.commit()
+            db.close()
+
     def test_nobody_approves_their_own(self):
         self._switch(True)
         # The HR contact's own request: their manager approves the first

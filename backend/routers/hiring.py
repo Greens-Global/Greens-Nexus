@@ -203,7 +203,8 @@ def _can_decide(db: Session, user: dict, row: models.HrHeadcountRequest) -> bool
     if row.status != "awaiting_approval":
         return False
     if row.step == "department":
-        return me in [e.lower() for e in (row.dept_approvers or [])]
+        return (me != (row.requested_by or "").lower()
+                and me in [e.lower() for e in (row.dept_approvers or [])])
     if row.step == "hr":
         return me != (row.requested_by or "").lower() and is_hr_approver(db, user, row.company)
     return False
@@ -420,9 +421,21 @@ def _submit(db: Session, user: dict, row: models.HrHeadcountRequest) -> None:
         row.step = "hr"
         _ask(db, row, hr_targets(db, row.company, me), me, after_department=True)
     else:
-        row.dept_approvers = line or [e for e in hc.global_admins(db) if e != me] or hc.global_admins(db)
-        row.step = "department"
-        _ask(db, row, row.dept_approvers, me, after_department=False)
+        # No department line: the Global Admins - never the requester (nor
+        # whoever submits it). The requester as the only Global Admin goes
+        # straight to the HR step with a note, never approving their own.
+        asker = (row.requested_by or "").lower()
+        approvers = line or [e for e in hc.global_admins(db) if e not in (me, asker)]
+        if approvers:
+            row.dept_approvers = approvers
+            row.step = "department"
+            _ask(db, row, row.dept_approvers, me, after_department=False)
+        else:
+            row.dept_approvers = []
+            ho.history_add(row, me, "department_skipped",
+                           "No department approver other than the requester - sent to HR")
+            row.step = "hr"
+            _ask(db, row, hr_targets(db, row.company, asker), me, after_department=False)
 
 
 @router.get("/headcount/meta")

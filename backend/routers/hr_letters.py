@@ -92,6 +92,7 @@ def _load(db: Session, rid: str, user: dict, lock: bool = False) -> HrLetterRequ
     # existence does not leak.
     if req is None or not hl.is_hr_for(db, user, req):
         raise HTTPException(404, "Letter request not found")
+    hl.refresh_company(db, req)          # review / issue by the person's current company
     return req
 
 
@@ -104,15 +105,16 @@ def queue(status: str = "open", user: dict = Depends(get_current_user), db: Sess
     if comps is not None and not comps:
         return {"canReview": False, "requests": []}
     q = db.query(HrLetterRequest)
-    if comps is not None:
-        q = q.filter(HrLetterRequest.company_id.in_(sorted(comps)))
     if status == "open":
         q = q.filter(HrLetterRequest.status.in_(hl.OPEN))
     elif status == "done":
         q = q.filter(HrLetterRequest.status.in_(("issued", "declined")))
     me = (user.get("email") or "").lower()
-    rows = [r for r in q.order_by(HrLetterRequest.created_at.desc()).limit(200).all()
-            if (r.employee_email or "").lower() != me]
+    # By the person's current company while a request is before issue
+    # (hl.current_company), so a person who moved companies is their new HR's.
+    rows = [r for r in q.order_by(HrLetterRequest.created_at.desc()).limit(500 if comps is not None else 200).all()
+            if (r.employee_email or "").lower() != me
+            and (comps is None or hl.current_company(db, r) in comps)][:200]
     return {"canReview": True, "requests": [hl.ser(db, r, for_hr=True) for r in rows]}
 
 

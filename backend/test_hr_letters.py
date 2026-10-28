@@ -201,6 +201,19 @@ class HrScopeTests(HrLettersCase):
         self.as_(COMP_HR)                                         # a Full HR grant scoped to the company
         self.assertEqual(len(self.client.get("/letter-requests/queue").json()["requests"]), 1)
 
+    def test_a_person_who_moved_companies_is_their_new_hrs(self):
+        # Release review (Oct 27): HR scope is the person's CURRENT company at
+        # review / issue time, not the company stamped when they asked.
+        mine = self.ask()
+        self.db.query(models.NexusEmployee).filter_by(id="e-emp").update({"company": OTHER})
+        self.db.commit()
+        self.as_(HR)
+        self.assertEqual(self.client.get("/letter-requests/queue").json()["requests"], [])
+        self.assertEqual(self.client.get(f"/letter-requests/{mine['id']}/review").status_code, 404)
+        self.as_(OTHER_HR)
+        self.assertEqual([r["id"] for r in self.client.get("/letter-requests/queue").json()["requests"]], [mine["id"]])
+        self.assertEqual(self.client.get(f"/letter-requests/{mine['id']}/review").status_code, 200)
+
     def test_hr_never_reviews_their_own_request(self):
         own = self.ask(who=HR)
         self.as_(HR)

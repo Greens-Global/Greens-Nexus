@@ -308,19 +308,14 @@ def display_value(f: EmployeeCustomField, v) -> str:
 
 def caller_is_hr_for(user: dict, db: Session, emp: NexusEmployee) -> bool:
     """Whether `user` is HR for `emp` outside the /hr routes (a Documents
-    export): the People grant, not the manager tier, the person inside their
-    company scope, and not their own record (unless an administrator)."""
-    if not user or emp is None:
+    export) - the ONE scoped HR rule (hr_access.is_hr_for): the company's HR
+    contact, or an administrator / Full People grant whose scope covers the
+    person; never a Viewer or Editor People grant, never the manager tier's
+    own-team view, never on their own record."""
+    if not user or emp is None or user.get("external"):
         return False
-    from auth import _LEVELS, _module_level, hr_scope, hr_team_limited
-    if hr_team_limited(user):
-        return False
-    if user.get("level", 0) < _LEVELS["administrator"] and _module_level(user.get("email") or "", "hr", db) < 1:
-        return False
-    scope = hr_scope(user, db)
-    if scope is not None and (emp.company or "") not in scope:
-        return False
-    return audience_for(user, emp) == "hr"
+    import hr_access
+    return hr_access.is_hr_for(db, user, emp.work_email or "")
 
 
 def merge_values(db: Session, emp: NexusEmployee, include_hr_only: bool = True) -> dict:

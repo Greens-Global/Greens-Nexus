@@ -308,12 +308,33 @@ def hr_companies(db: Session, user: dict) -> Optional[set]:
     return set(scope) | contact
 
 
+def current_company(db: Session, req: HrLetterRequest) -> str:
+    """The company a request is HR's business for: while it is still before
+    issue (Requested / In Review), the person's CURRENT company in People - a
+    person who moved companies is their new company's HR's, and the letter
+    prints that company - else the company it was issued for."""
+    if req.status in REVIEWABLE:
+        emp = db.query(NexusEmployee).filter(NexusEmployee.id == req.employee_id).first()
+        if emp is not None and (emp.company or "") != (req.company_id or ""):
+            return emp.company or ""
+    return req.company_id or ""
+
+
+def refresh_company(db: Session, req: HrLetterRequest) -> None:
+    """Point a not-yet-issued request at the person's current company (saved
+    with whatever the caller commits - the issue does)."""
+    cid = current_company(db, req)
+    if cid != (req.company_id or ""):
+        req.company_id = cid
+
+
 def is_hr_for(db: Session, user: dict, req: HrLetterRequest) -> bool:
-    """HR for this request - never on their own (there they are the employee)."""
+    """HR for this request - by the person's current company at review / issue
+    time (current_company); never on their own (there they are the employee)."""
     if (user.get("email") or "").strip().lower() == (req.employee_email or "").lower():
         return False
     comps = hr_companies(db, user)
-    return comps is None or (req.company_id or "") in comps
+    return comps is None or current_company(db, req) in comps
 
 
 def can_see_pay(db: Session, user: dict) -> bool:

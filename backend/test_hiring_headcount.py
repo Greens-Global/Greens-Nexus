@@ -184,6 +184,20 @@ class ApprovalChainTests(HeadcountCase):
         r = self._new(role_id="role-ops")
         self.assertEqual([a["email"] for a in r["deptApprovers"]], [OWNER["email"]])
 
+    def test_the_only_global_admin_never_approves_their_own(self):
+        # Release review (Oct 27): no department line and the requester is the
+        # only Global Admin - straight to HR with a note, never self-approved.
+        r = self._new(user=OWNER, role_id="role-ops")
+        self.assertEqual((r["step"], r["deptApprovers"]), ("hr", []))
+        self.assertFalse(r["canDecide"])
+        with self.assertRaises(HTTPException) as e:
+            self._decide(r["id"], OWNER)
+        self.assertEqual(e.exception.status_code, 403)
+        row = self.db.query(models.HrHeadcountRequest).filter_by(id=r["id"]).first()
+        self.assertIn("department_skipped", [h.get("action") for h in row.history])
+        self.assertTrue(self._bells(HRC["email"]))
+        self.assertEqual(self._decide(r["id"], HRC)["status"], "approved")
+
     def test_a_draft_is_the_requesters_until_it_is_sent(self):
         r = self._new(submit=False)
         self.assertEqual(r["status"], "draft")

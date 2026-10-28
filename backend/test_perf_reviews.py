@@ -192,6 +192,14 @@ class FlowTests(ReviewCase):
         api.save_manager(rid, api.ManagerIn(answers=self.answers(c, 3, "Solid year - the desk launch"), overall_rating=4,
                                             summary="A solid year.", private_note="Not for Erin.", submit=True),
                          U(MGR), self.db)
+        # HR edits only the summary: nothing it did not send is blanked
+        # (release review, Oct 27).
+        api.save_manager(rid, api.ManagerIn(summary="A solid year - well done."), U(HR), self.db)
+        self.db.expire_all()
+        r = self.db.get(models.PerfReview, rid)
+        self.assertEqual((r.manager_summary, r.overall_rating, r.manager_private_note),
+                         ("A solid year - well done.", 4, "Not for Erin."))
+        self.assertIn("Solid year - the desk launch", repr(r.manager_answers))
         api.save_hr_note(rid, api.NoteIn(note="Congratulations on the launch."), U(HR), self.db)
         out = api.share_review(rid, _Req(), U(HR), self.db)
         self.assertEqual(out["stage"], "shared")

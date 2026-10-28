@@ -22,7 +22,10 @@ position advances only by what was actually returned.
 Access: administrators (same guard as GET /audit-logs). PFS entries
 (module "pfs") are shown only to people who could open PFS itself - an
 owner or an explicit `pfs` grant (routers/pfs.py) - and are left out for
-everyone else.
+everyone else. Confidential (HR) tickets - Ask HR, ticket_confidential.py -
+and their comments, attachments and activity are left out for anyone who
+could not open the ticket itself (ticket_confidential.may_read), on every
+path: the feed, one event, a record's history and the export.
 """
 from __future__ import annotations
 
@@ -108,6 +111,38 @@ def _can_see_pfs(user: dict, db: Session) -> bool:
         return _module_level(user["email"], "pfs", db) >= _MODULE_LEVEL_RANK["viewer"]
     except Exception:   # noqa: BLE001
         return False
+
+
+def hidden_ticket_records(db: Session, user: dict) -> frozenset:
+    """Record ids the caller may not see here: the confidential tickets they
+    could not open (ticket_confidential.may_read - the requester's people
+    and HR for the ticket's company) plus those tickets' comments,
+    attachments and activity rows (each is captured under its own id, and
+    carries the ticket's subject as its label). Empty for most callers (no HR tickets, or HR for all)."""
+    import ticket_confidential as TC
+    T = models.TaskTicket
+    rows = (db.query(T).execution_options(include_confidential=True, include_deleted=True)
+            .filter(func.coalesce(T.confidential_desk, "") != "").all())
+    who = dict(user)
+    ids = {t.id for t in rows if not TC.may_read(db, who, t)}
+    if not ids:
+        return frozenset()
+    out = set(ids)
+    tid = sorted(ids)
+    for i in range(0, len(tid), 400):
+        part = tid[i:i + 400]
+        out |= {c for (c,) in db.query(models.TaskComment.id).filter(models.TaskComment.task_id.in_(part)).all()}
+        out |= {a for (a,) in db.query(models.TaskAttachment.id)
+                .filter(models.TaskAttachment.task_id.in_(part)).all()}
+        out |= {a for (a,) in db.query(models.TaskActivity.id)
+                .filter(models.TaskActivity.entity_id.in_(part)).all()}
+    return frozenset(out)
+
+
+def _request_touches(db: Session, request_id: str, hidden: frozenset) -> bool:
+    if not hidden or not request_id:
+        return False
+    return db.query(AC.id).filter(AC.request_id == request_id, AC.record_id.in_(sorted(hidden))).first() is not None
 
 
 def _enc_cursor(pos: dict) -> Optional[str]:
@@ -295,13 +330,14 @@ class Filters:
     end: str = ""        # exclusive 'YYYY-MM-DD'
     include_system: bool = False
     pfs_ok: bool = False
+    hidden: frozenset = frozenset()   # hidden_ticket_records
 
     def only_module_and_dates(self) -> bool:
         return not (self.actor or self.acting_as or self.record_table or self.record_id or self.kind or self.q)
 
 
 def _filters(module, actor, acting_as, record_type, record_id, action, q, from_, to, include_system,
-             pfs_ok) -> Filters:
+             pfs_ok, hidden: frozenset = frozenset()) -> Filters:
     module = (module or "").strip().lower()
     if module and module not in MODULE_LABELS:
         raise HTTPException(400, f"Unknown module '{module}'")
@@ -315,7 +351,7 @@ def _filters(module, actor, acting_as, record_type, record_id, action, q, from_,
                    record_table=record_table(record_type) if record_type else "", record_id=(record_id or "").strip(),
                    kind=kind, q=(q or "").strip(), start=d0.isoformat() if d0 else "",
                    end=(d1 + timedelta(days=1)).isoformat() if d1 else "",
-                   include_system=bool(include_system), pfs_ok=pfs_ok)
+                   include_system=bool(include_system), pfs_ok=pfs_ok, hidden=frozenset(hidden or ()))
 
 
 # Distinct resource_type spellings in audit_logs -> module (cached; there are
@@ -399,6 +435,11 @@ class RequestSource:
             q = q.filter(_module_pred(db, f.module))
         if not f.pfs_ok:
             q = q.filter(not_(_module_pred(db, "pfs")))
+        if f.hidden:
+            hid = sorted(f.hidden)
+            q = q.filter(not_(func.coalesce(AL.resource_id, "").in_(hid)))
+            q = q.filter(not_(func.coalesce(AL.request_id, "").in_(
+                select(AC.request_id).where(AC.record_id.in_(hid), func.coalesce(AC.request_id, "") != ""))))
         if not f.include_system:
             q = q.filter(_not_noise_pred())
         if f.actor:
@@ -454,6 +495,8 @@ class SystemSource:
             q = q.filter(AC.module == f.module)
         if not f.pfs_ok:
             q = q.filter(AC.module != "pfs")
+        if f.hidden:
+            q = q.filter(not_(AC.record_id.in_(sorted(f.hidden))))
         if f.record_id:
             q = q.filter(AC.record_id == f.record_id)
             if f.record_table:
@@ -582,6 +625,8 @@ class HistorySource:
             return []
         m = s.model
         q = db.query(m)
+        if f.hidden:
+            q = q.filter(not_(func.coalesce(getattr(m, s.record_col), "").in_(sorted(f.hidden))))
         if f.module:
             if s.module_pred is not None:
                 p = s.module_pred(f.module)
@@ -1053,7 +1098,7 @@ def _common(module: Optional[str] = None, actor: Optional[str] = None, acting_as
 def list_events(params: dict = Depends(_common), cursor: Optional[str] = None,
                 limit: int = Query(50, ge=1, le=MAX_LIMIT),
                 user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
-    f = _filters(pfs_ok=_can_see_pfs(user, db), **params)
+    f = _filters(pfs_ok=_can_see_pfs(user, db), hidden=hidden_ticket_records(db, user), **params)
     events, nxt = _page(db, f, _dec_cursor(cursor), limit)
     out = {"events": events, "nextCursor": nxt}
     # total only when it is free: the facets cache already counted this
@@ -1069,9 +1114,10 @@ def list_events(params: dict = Depends(_common), cursor: Optional[str] = None,
 
 def _find_event(db: Session, event_id: str, user: dict):
     pfs_ok = _can_see_pfs(user, db)
+    hidden = hidden_ticket_records(db, user)
     if event_id.startswith("r") and event_id[1:].isdigit():
         r = db.get(AL, int(event_id[1:]))
-        if r is None:
+        if r is None or (r.resource_id or "") in hidden or _request_touches(db, r.request_id or "", hidden):
             raise HTTPException(404, "Event not found")
         names = _names(db, _emails_of("r", [r]))
         ev = _request_events(db, [r], names, full=True)[0]
@@ -1080,7 +1126,7 @@ def _find_event(db: Session, event_id: str, user: dict):
         return ev, r.request_id or "", "r", r
     if event_id.startswith("c") and event_id[1:].isdigit():
         c = db.get(AC, int(event_id[1:]))
-        if c is None or (c.module == "pfs" and not pfs_ok):
+        if c is None or (c.module == "pfs" and not pfs_ok) or (c.record_id or "") in hidden:
             raise HTTPException(404, "Event not found")
         names = _names(db, [])
         ev = _system_events(db, [c], names)[0]
@@ -1100,7 +1146,7 @@ def _find_event(db: Session, event_id: str, user: dict):
         except NotImplementedError:
             is_int = False
         row = db.get(m, int(rid) if is_int and rid.isdigit() else rid)
-        if row is None:
+        if row is None or (getattr(row, src.spec.record_col, "") or "") in hidden:
             raise HTTPException(404, "Event not found")
         names = _names(db, _emails_of(src.key, [row]))
         ev = _history_event(src.spec, row, names)
@@ -1173,6 +1219,9 @@ def record_history(record_type: str, record_id: str, limit: int = Query(500, ge=
     pfs_ok = _can_see_pfs(user, db)
     if table.startswith("pfs_") and not pfs_ok:
         raise HTTPException(403, "Personal Financial Statement history needs PFS access")
+    hidden = hidden_ticket_records(db, user)
+    if record_id in hidden:
+        raise HTTPException(404, "Record not found")
     own = (db.query(AC).filter(AC.table_name == table, AC.record_id == record_id)
            .order_by(AC.at, AC.id).limit(limit).all())
     req_ids = list({c.request_id for c in own if c.request_id})
@@ -1184,7 +1233,7 @@ def record_history(record_type: str, record_id: str, limit: int = Query(500, ge=
     siblings: dict[str, list] = {}
     for rid, ch in _changes_by_request(db, req_ids).items():
         siblings[rid] = [c for c in ch if not (c.table_name == table and c.record_id == record_id)
-                         and (pfs_ok or c.module != "pfs")]
+                         and (pfs_ok or c.module != "pfs") and (c.record_id or "") not in hidden]
     emails = {c.actor for c in own} | {c.acting_as for c in own}
     for r in req_rows.values():
         emails |= _emails_of("r", [r])
@@ -1360,7 +1409,7 @@ def facets(from_: Optional[str] = Query(None, alias="from"), to: Optional[str] =
 @router.get("/export.csv")
 def export_csv(params: dict = Depends(_common), max_rows: int = Query(EXPORT_CAP, ge=1, le=EXPORT_CAP),
                user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
-    f = _filters(pfs_ok=_can_see_pfs(user, db), **params)
+    f = _filters(pfs_ok=_can_see_pfs(user, db), hidden=hidden_ticket_records(db, user), **params)
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["Date (UTC)", "Time (UTC)", "Module", "Action", "Title", "Summary", "Actor", "Actor Email",

@@ -377,8 +377,16 @@ def _goal_snapshot(db: Session, email: str) -> list:
              "progress": progress(g), "dueOn": g.due_on or ""} for g in rows][:30]
 
 
+UNSET = object()   # a field the caller did not send - left as it is
+
+
 def save_manager(db: Session, user: dict, r: models.PerfReview, cycle: models.PerfReviewCycle, *,
-                 answers, values, overall, summary: str, private_note: str, attach_goals: bool, submit: bool) -> None:
+                 answers=UNSET, values=UNSET, overall=UNSET, summary=UNSET, private_note=UNSET,
+                 attach_goals: bool = True, submit: bool = False) -> None:
+    """The manager's part. A field not sent (UNSET) is left as it is - HR's
+    edit of one answer never blanks the rest (release review, Oct 27); while
+    the review is with HR, answers and value ratings sent are merged in per
+    question."""
     a = access_or_404(db, user, r)
     if not a.writes_manager_part:
         raise HTTPException(403, "The manager review is written by the employee's manager.")
@@ -390,11 +398,19 @@ def save_manager(db: Session, user: dict, r: models.PerfReview, cycle: models.Pe
         raise HTTPException(409, "This review was already shared.")
     if r.stage == "manager_review":
         _open_cycle(cycle)
-    r.manager_answers = clean_answers(cycle, answers)
-    r.manager_values = clean_value_ratings(cycle, values)
-    r.overall_rating = _rating(overall, _scale_values(cycle))
-    r.manager_summary = (summary or "")[:8000]
-    r.manager_private_note = (private_note or "")[:4000]
+    merge = r.stage == "hr_review"
+    if answers is not UNSET:
+        new = clean_answers(cycle, answers)
+        r.manager_answers = {**(r.manager_answers or {}), **new} if merge else new
+    if values is not UNSET:
+        new = clean_value_ratings(cycle, values)
+        r.manager_values = {**(r.manager_values or {}), **new} if merge else new
+    if overall is not UNSET:
+        r.overall_rating = _rating(overall, _scale_values(cycle))
+    if summary is not UNSET:
+        r.manager_summary = (summary or "")[:8000]
+    if private_note is not UNSET:
+        r.manager_private_note = (private_note or "")[:4000]
     if cycle.include_goals and r.stage == "manager_review":
         # Taken while the manager writes it - HR's later edit keeps what they attached.
         r.goals_snapshot = _goal_snapshot(db, r.employee_email) if attach_goals else []

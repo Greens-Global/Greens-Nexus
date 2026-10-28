@@ -352,6 +352,16 @@ class PermissionTests(ProbationCase):
         self._as(EMP)                                             # never on your own probation
         self.assertEqual(self.client.get("/hr/employees/e-jane/probation").status_code, 404)
 
+    def test_a_people_reader_never_reads_their_own_probation(self):
+        # Release review (Oct 27): the People-viewer branch of can_read is
+        # never the caller's own record.
+        import auth
+        me = self.db.query(models.NexusEmployee).filter_by(work_email=HRED).first()
+        jane = self.db.query(models.NexusEmployee).filter_by(work_email=EMP).first()
+        user = {"email": HRED, "level": auth.level_for(HRED, self.db)}
+        self.assertTrue(hp.can_read(self.db, user, jane))
+        self.assertFalse(hp.can_read(self.db, user, me))
+
     def test_full_hr_grant_and_administrator_finalize(self):
         self._track()
         self.db.add(models.NexusGroup(id="g-full", name="HR Full", allowed_modules="hr:full"))

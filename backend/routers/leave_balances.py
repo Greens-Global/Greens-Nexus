@@ -293,14 +293,36 @@ def _company_param(db: Session, company: str) -> str:
     return cid
 
 
-def _require_year_end(db: Session, me: str, cid: str) -> None:
-    """HR for that company: an administrator or a Full HR grant anywhere, or
-    the company's own HR contact. Every company at once needs the first."""
-    if _hr_global(db, me):
+def _year_end_all(db: Session, user: dict) -> bool:
+    """Every company at once: an administrator or Full HR whose reach is not
+    limited to some companies (no company wall, no People scope)."""
+    import hr_access
+    from routers.timeclock import _manage_companies
+    return hr_access.wide_hr(db, user) and _manage_companies(db, user) is None
+
+
+def _year_end_companies(db: Session, user: dict) -> set:
+    """The companies this caller settles year end for (the ONE scoped HR rule,
+    hr_access.is_hr_for_company)."""
+    import hr_access
+    return {e.id for e in db.query(models.HrEntity).all() if hr_access.is_hr_for_company(db, user, e.id)}
+
+
+def _require_year_end(db: Session, user: dict, cid: str) -> None:
+    """HR for that company - its HR contact, or an administrator / Full HR
+    grant whose scope and company walls cover it (hr_access). Every company
+    at once (cid '') needs an unrestricted caller."""
+    import hr_access
+    if not cid:
+        if _year_end_all(db, user):
+            return
+        raise HTTPException(403, "Year-end balances for every company need company-wide HR access.")
+    if _me(user) in hr_access.hr_contacts(db, cid):
         return
-    if cid and cid in _hr_companies(db, me):
-        return
-    raise HTTPException(403, "Year-end balances are for HR.")
+    if not hr_access.is_hr_for_company(db, user, cid):
+        raise HTTPException(403, "Year-end balances are for HR.")
+    from routers.timeclock import _require_company_manage
+    _require_company_manage(user, db, cid, "the leave year end")
 
 
 def _year_end_settings(db: Session, cid: str) -> dict:
@@ -315,7 +337,7 @@ def _year_end_settings(db: Session, cid: str) -> dict:
 @router.get("/year-end/settings")
 def get_year_end_settings(company: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     cid = _company_param(db, company)
-    _require_year_end(db, _me(user), cid)
+    _require_year_end(db, user, cid)
     return _year_end_settings(db, cid)
 
 
@@ -358,12 +380,12 @@ def year_end_preview(company: str = "", period: str = "next", user: dict = Depen
     """What a company's year end will do (period 'next', from today's
     balances) or did / still owes (period 'last'). company '' = everyone,
     for an administrator or Full HR."""
-    me, cid = _me(user), _company_param(db, company)
-    glob = _hr_global(db, me)
-    mine = _hr_companies(db, me)
+    cid = _company_param(db, company)
+    glob = _year_end_all(db, user)
+    mine = set() if glob else _year_end_companies(db, user)
     if not cid and not glob and mine:
-        cid = sorted(mine)[0]          # an HR contact opens on their own company
-    _require_year_end(db, me, cid)
+        cid = sorted(mine)[0]          # an HR contact / scoped HR opens on their own company
+    _require_year_end(db, user, cid)
     if period not in ("next", "last"):
         raise HTTPException(400, "period is next or last")
     if not lb.any_cutover(db):
@@ -386,7 +408,7 @@ def year_end_apply(body: YearEndApplyIn, user: dict = Depends(get_current_user),
     pass (which settles each one for 45 days after it). Writes only what is
     still owed - running it again changes nothing."""
     me, cid = _me(user), _company_param(db, body.company)
-    _require_year_end(db, me, cid)
+    _require_year_end(db, user, cid)
     if not lb.any_cutover(db):
         raise HTTPException(400, "Set the balance start date first.")
     out = lye.apply_people(db, lye.people(db, cid if cid else None), me)

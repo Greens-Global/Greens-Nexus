@@ -314,8 +314,13 @@ def actor_role(db: Session, user: dict, emp: NexusEmployee) -> str:
 
 
 def can_read(db: Session, user: dict, emp: NexusEmployee) -> bool:
+    """HR, the manager, or a People reader in scope - never on their own
+    record (a person does not read their own probation notes through People)."""
     if actor_role(db, user, emp):
         return True
+    me = (user.get("email") or "").strip().lower()
+    if not me or me == (emp.work_email or "").strip().lower():
+        return False
     from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level
     has_people = (int(user.get("level", 0)) >= _LEVELS["administrator"]
                   or _module_level(user.get("email", ""), "hr", db) >= _MODULE_LEVEL_RANK["viewer"])

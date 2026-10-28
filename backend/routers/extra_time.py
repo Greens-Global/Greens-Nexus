@@ -110,24 +110,12 @@ def approvers(db: Session, email: str) -> list:
 
 
 def hr_for(db: Session, actor: str, email: str) -> bool:
-    """HR for this person's claims: the company's HR contact, or an
-    administrator / owner or a Full HR grant whose People scope (company
-    walls included - auth.hr_scope) covers the person's company. The manager
-    tier's own-team view is never HR. Never on their own claim."""
-    from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, hr_scope, hr_team_limited, level_for
-    from routers.hr import _in_scope
-    actor, email = (actor or "").strip().lower(), (email or "").strip().lower()
-    if not actor or actor == email:
-        return False
-    if actor == tsr.hr_of(db, email):
-        return True
-    user = {"email": actor, "level": level_for(actor, db)}
-    wide = user["level"] >= _LEVELS["administrator"] or (
-        not hr_team_limited(user) and _module_level(actor, "hr", db) >= _MODULE_LEVEL_RANK["full"])
-    if not wide:
-        return False
-    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
-    return _in_scope(emp, hr_scope(user, db))
+    """HR for this person's claims - the ONE scoped HR rule (hr_access.is_hr_for):
+    the company's HR contact, or an administrator / owner or a Full HR grant
+    whose People scope covers the person's company. The manager tier's
+    own-team view is never HR. Never on their own claim."""
+    import hr_access
+    return hr_access.is_hr_for(db, actor, email)
 
 
 def can_decide(db: Session, actor: str, email: str) -> bool:

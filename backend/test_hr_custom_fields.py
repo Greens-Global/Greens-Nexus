@@ -314,16 +314,28 @@ class CustomFieldTests(unittest.TestCase):
         self.assertEqual(safe[f"custom.{day['fieldKey']}"], "10/27/2026")
         tokens = [v["token"] for v in self._as(HR).get("/documents/variables").json()]
         self.assertIn(f"custom.{day['fieldKey']}", tokens)
-        # Who a Documents export counts as HR for Erin: HR, not her manager, not her.
+        # Who a Documents export counts as HR for Erin (the ONE scoped HR rule,
+        # release review Oct 27): a Full People grant or the company's HR
+        # contact - never an Editor or Viewer grant, her manager, her, or HR
+        # scoped to another company.
         import hr_custom_fields
+        full, contact = "fay.full" + D, "cora.contact" + D
         db = database.SessionLocal()
         try:
+            db.add(models.NexusGroup(id="g-full", name="People Full", allowed_modules="hr:full"))
+            db.add(models.NexusGroupMember(group_id="g-full", email=full))
+            db.add(models.NexusEmployee(id="e-full", first_name="Fay", last_name="T", work_email=full,
+                                        company=CO_A, status="active", deleted_at=""))
+            db.query(models.HrEntity).filter_by(id=CO_A).update({"hr_contact_email": contact})
+            db.commit()
+            cache.module_grants.invalidate()
             erin = db.query(models.NexusEmployee).filter_by(work_email=EMP).first()
             who = {em: hr_custom_fields.caller_is_hr_for({"email": em, "level": auth.level_for(em, db)}, db, erin)
-                   for em in (HR, MGR, EMP, SCOPED)}
+                   for em in (full, contact, HR, VIEWER, MGR, EMP, SCOPED)}
         finally:
             db.close()
-        self.assertEqual(who, {HR: True, MGR: False, EMP: False, SCOPED: False})
+        self.assertEqual(who, {full: True, contact: True, HR: False, VIEWER: False, MGR: False,
+                               EMP: False, SCOPED: False})
 
 
 if __name__ == "__main__":
