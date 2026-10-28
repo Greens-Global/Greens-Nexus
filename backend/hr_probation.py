@@ -80,8 +80,9 @@ Past the window (Neil, Oct 29 2026: "The people that have been here for 3
 months or longer are not on probation, they clearly made the cut. Go ahead
 and make it effectively clear so the probation tracking isn't a thing for
 those. Should be an option also to remove from probation."):
-  - Passed, automatically. The daily pass (run_daily, every day whatever
-    the Probation Ending switch says - the switch is the reminder's) moves
+  - Passed, automatically. The daily pass (run_daily, while the Probation
+    switch in Workflows > Automations is on - off stops the pass and the
+    reminders alike) moves
     every OPEN record of an active / onboarding person whose end date is
     before today (the company clock, _today) and that has NO pending
     manager recommendation to `passed`: logged {action: passed, by:
@@ -1286,9 +1287,13 @@ def pass_past_window_once(db: Session, today: date = None) -> tuple:
 def run_daily() -> int:
     """From reminders_loop, already in a worker thread (asyncio.to_thread) -
     never on the event loop. Own session and commit; the emails go after the
-    commit. First the automatic Passed Probation (always - the Probation
-    Ending switch is the reminder's), then the reminders. Returns how many
-    people were reminded."""
+    commit. First the automatic Passed Probation, then the reminders. The
+    Workflows > Automations switch (hr_probation) stops BOTH: switched off,
+    nobody is passed automatically and nobody is reminded (Oct 29 2026
+    review). The one-time startup pass (pass_past_window_once) is not this
+    job. Returns how many people were reminded."""
+    if job_switch.off("hr_probation"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     db = SessionLocal()
     try:
@@ -1300,8 +1305,6 @@ def run_daily() -> int:
         print(f"[probation] automatic pass failed: {e}")
     finally:
         db.close()
-    if job_switch.off("hr_probation"):   # Workflows > Automations switch
-        return 0
     db = SessionLocal()
     sent, batch = 0, []
     try:

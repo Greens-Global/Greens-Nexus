@@ -636,6 +636,29 @@ class PastWindowTests(ProbationCase):
         rec = hp.record(self._emp())
         self.assertEqual((rec["status"], rec["history"][-1]["from"]), ("passed", "extended"))
 
+    def test_the_automations_switch_stops_the_pass_and_the_reminder(self):
+        # Oct 29 2026 review: Workflows > Automations "Probation" off stops
+        # the whole daily job - the automatic pass AND the reminder.
+        import job_switch
+
+        def switch(off):
+            job_switch.set_off(self.db, "hr_probation", off, HR)
+            self.db.commit()
+            job_switch.invalidate()
+        self._track(end="2030-03-20")
+        switch(True)
+        try:
+            self.assertEqual(hp.run_daily(), 0)                   # no reminder 10 days out
+            self.assertEqual(self._bells(), [])
+            hp._today = lambda: date(2030, 3, 25)                 # past the end, nothing decided
+            hp.run_daily()
+            self.assertEqual(hp.record(self._emp())["status"], "in_probation")
+            self.assertEqual(self._events("e-jane"), [])
+        finally:
+            switch(False)
+        hp.run_daily()                                            # back on: passed
+        self.assertEqual(hp.record(self._emp())["status"], "passed")
+
     def test_the_startup_pass_runs_once(self):
         self._person("e-old", "2029-06-01", {"status": "in_probation", "startDate": "2029-06-01",
                                              "endDate": "2029-09-01"})
