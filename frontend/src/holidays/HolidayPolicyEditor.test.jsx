@@ -35,6 +35,14 @@ const api = vi.hoisted(() => ({
 vi.mock('../api', () => ({ api }));
 const confirm = vi.hoisted(() => vi.fn(() => Promise.resolve(true)));
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirm(...a), alert: () => Promise.resolve() } }));
+// The calendar popover is not what these tests are about: a date box here is
+// a plain text box carrying the same value and title.
+vi.mock('../tasks/components', async (importOriginal) => ({
+  ...(await importOriginal()),
+  DateField: ({ value, onChange, title, disabled }) => (
+    <input aria-label={title} value={value || ''} disabled={disabled} onChange={e => onChange(e.target.value)} />
+  ),
+}));
 
 const HolidayPolicyEditor = (await import('./HolidayPolicyEditor')).default;
 
@@ -155,6 +163,67 @@ describe('HolidayPolicyEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save Policy/ }));
     await waitFor(() => expect(confirm).toHaveBeenCalled());
     expect(api.updateHolidayPolicy).not.toHaveBeenCalled();
+  });
+
+  // ── Oct 29 2026 review ──────────────────────────────────────────────────
+  const row = (name) => document.querySelector(`[data-policy-holiday="${name}"]`);
+  const hol = (extra) => ({ actualDate: '', type: 'mandatory', countries: ['US'], source: 'public', scope: 'federal', tentative: false, ...extra });
+
+  it('a plain date edit changes the day only - the old day is not kept as the real date (finding 7)', async () => {
+    open({ ...POLICY, holidays: [hol({ key: 'US:founders-day:2027', date: '2027-03-17', name: 'Founders Day', source: 'manual', scope: 'manual' })] });
+    await screen.findByRole('region', { name: 'Federal Holidays' });
+    fireEvent.change(within(row('Founders Day')).getByLabelText('Change Date'), { target: { value: '2027-03-18' } });
+    expect(within(row('Founders Day')).queryByText(/Holiday is/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Save Policy/ }));
+    await waitFor(() => expect(api.updateHolidayPolicy).toHaveBeenCalled());
+    expect(api.updateHolidayPolicy.mock.calls[0][1].holidays[0]).toMatchObject({ date: '2027-03-18', actualDate: '' });
+  });
+
+  it('explains the weekend rule and applies it to the holidays already there on request (finding 10)', async () => {
+    open({ ...POLICY, holidays: [hol({ key: 'US:independence-day:2027', date: '2027-07-04', name: 'Independence Day' })] });
+    expect(screen.getByText('Applies to holidays you add from now on. Holidays already in the policy keep their dates.')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('When A Holiday Falls On A Weekend'), { target: { value: 'nearest_weekday' } });
+    // Changing the rule alone moves nothing.
+    expect(within(row('Independence Day')).getByLabelText('Change Date')).toHaveValue('2027-07-04');
+    fireEvent.click(screen.getByRole('button', { name: 'Apply To Existing Holidays' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(confirm.mock.calls[0][0]).toContain('Independence Day: 07/04/2027 to 07/05/2027');
+    expect(confirm.mock.calls[0][1].title).toBe('Apply To Existing Holidays');
+    await waitFor(() => expect(within(row('Independence Day')).getByLabelText('Change Date')).toHaveValue('2027-07-05'));
+    expect(within(row('Independence Day')).getByText('Holiday is 07/04/2027 (Sunday)')).toBeInTheDocument();
+  });
+
+  it('warns on a row that shares its day with another holiday (finding 1)', async () => {
+    open({ ...POLICY, holidays: [
+      hol({ key: 'US:christmas-day:2027', date: '2027-12-24', actualDate: '2027-12-25', name: 'Christmas Day' }),
+      hol({ key: 'US:christmas-eve:2027', date: '2027-12-24', name: 'Christmas Eve', type: 'half_day', scope: 'company_common' }),
+    ] });
+    expect(within(row('Christmas Day')).getByText('Same day as Christmas Eve - Christmas Day wins')).toBeInTheDocument();
+    expect(within(row('Christmas Eve')).getByText('Same day as Christmas Day - Christmas Day wins')).toBeInTheDocument();
+  });
+
+  it('says how many companies outside your scope a save updates (finding 4)', async () => {
+    api.previewHolidayPolicy.mockResolvedValueOnce({ otherCompanies: 2, sameDay: [], companies: [{
+      id: 'c1', name: 'Greens Global', assigned: true, added: [{ key: 'k', date: '2027-07-04', name: 'Independence Day' }],
+      removed: [], changed: [], detached: [], changedSkipped: 0, conflicts: [],
+    }] });
+    open();
+    fireEvent.click(await screen.findByLabelText('Add Independence Day'));
+    fireEvent.click(screen.getByRole('button', { name: /Save Policy/ }));
+    await waitFor(() => expect(api.updateHolidayPolicy).toHaveBeenCalled());
+    expect(confirm.mock.calls[0][0]).toBe('This updates 1 company: Greens Global (1 added) and 2 other companies.');
+  });
+
+  it('does not show a second same-name holiday as chosen (finding 11)', async () => {
+    api.getPublicHolidays.mockImplementation(() => Promise.resolve({ country: 'IN', year: 2026, holidays: [
+      { date: '2026-01-03', weekday: 'Saturday', name: "Hazarat Ali's Birthday", scope: 'restricted', suggestedType: 'optional', tentative: false, observed: '' },
+      { date: '2026-12-23', weekday: 'Wednesday', name: "Hazarat Ali's Birthday", scope: 'restricted', suggestedType: 'optional', tentative: false, observed: '' },
+    ] }));
+    open({ ...POLICY, id: 'p2', name: 'India Holidays', companyId: 'c2', companies: [{ id: 'c2', name: 'Greens India', skipped: [] }], years: [2026],
+      holidays: [hol({ key: "IN:hazarat-ali-s-birthday:2026", date: '2026-01-03', name: "Hazarat Ali's Birthday", countries: ['IN'], type: 'optional' })] });
+    await screen.findByRole('region', { name: 'Restricted Holidays (Optional)' });
+    const boxes = screen.getAllByLabelText("Add Hazarat Ali's Birthday");
+    expect(boxes.map(b => b.checked)).toEqual([true, false]);
   });
 
   it('opens a policy another company owns read-only', async () => {

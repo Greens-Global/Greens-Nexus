@@ -1474,7 +1474,17 @@ export const api = {
   // and its own, what it skipped, and the policies it could assign. Assign,
   // unassign and skip answer the calendar for `year`.
   getHolidayCalendar:    (entityId, year)   => req(`/hr/entities/${entityId}/holiday-calendar?year=${encodeURIComponent(year)}`),
-  assignHolidayPolicy:   (entityId, policyId, year) => req(`/hr/entities/${entityId}/holiday-policies/${policyId}${yearQs(year)}`, { method: 'POST' }),
+  // 409 (err.body = { message, policy, clashes }) when its holidays would land
+  // beside ones already there; then { confirm: true } keeps both and
+  // { replace: [ids] } removes the company's own rows the admin ticked.
+  assignHolidayPolicy:   (entityId, policyId, year, { confirm = false, replace = [] } = {}) => {
+    const qs = new URLSearchParams();
+    if (year) qs.set('year', year);
+    if (confirm) qs.set('confirm', 'true');
+    if (replace.length) qs.set('replace', replace.join(','));
+    const s = qs.toString();
+    return req(`/hr/entities/${entityId}/holiday-policies/${policyId}${s ? `?${s}` : ''}`, { method: 'POST' });
+  },
   unassignHolidayPolicy: (entityId, policyId, year) => req(`/hr/entities/${entityId}/holiday-policies/${policyId}${yearQs(year)}`, { method: 'DELETE' }),
   skipPolicyHoliday:     (entityId, policyId, key, skip, year) => req(`/hr/entities/${entityId}/holiday-policies/${policyId}/skip${yearQs(year)}`, { method: 'POST', body: JSON.stringify({ key, skip }) }),
 

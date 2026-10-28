@@ -38,7 +38,22 @@ describe('HolidayPoliciesPanel', () => {
     render(<HolidayPoliciesPanel toastOk={vi.fn()} toastErr={vi.fn()} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Delete US Holidays' }));
     await waitFor(() => expect(api.deleteHolidayPolicy).toHaveBeenCalledWith('p1'));
-    expect(confirm.mock.calls[0][0]).toMatch(/^2 companies will lose its holidays: Greens Global, Greens Storage\./);
+    // Finding 12: "lose this policy's holidays", not "lose its holidays".
+    expect(confirm.mock.calls[0][0]).toMatch(/^2 companies will lose this policy's holidays: Greens Global, Greens Storage\./);
+  });
+
+  it('counts the companies outside the admin scope that lose it too (finding 4)', async () => {
+    api.getHolidayPolicies.mockResolvedValue([{ ...POLICIES[0], otherCompanies: 3 },
+      { ...POLICIES[1], canEdit: true, otherCompanies: 1 }]);
+    render(<HolidayPoliciesPanel toastOk={vi.fn()} toastErr={vi.fn()} />);
+    expect(await screen.findByText('+3 Other Companies')).toBeInTheDocument();
+    expect(screen.getByText('+1 Other Company')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete US Holidays' }));
+    await waitFor(() => expect(api.deleteHolidayPolicy).toHaveBeenCalledWith('p1'));
+    expect(confirm.mock.calls[0][0]).toMatch(/^2 companies and 3 other companies will lose this policy's holidays: Greens Global, Greens Storage\./);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete India Holidays' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2));
+    expect(confirm.mock.calls[1][0]).toMatch(/^1 other company will lose this policy's holidays\./);
   });
 
   it('says so when there are no policies yet', async () => {

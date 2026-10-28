@@ -10,7 +10,7 @@ import { dialog } from '../ui/dialog';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import HolidayPolicyEditor from './HolidayPolicyEditor';
 import { Chip } from './HolidaySourcePicker';
-import { weekendRuleLabel, plural, HINT } from './holidayLib';
+import { weekendRuleLabel, plural, otherCompaniesText, HINT } from './holidayLib';
 
 const ICON_BTN = { background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', fontSize: 12 };
 
@@ -26,8 +26,13 @@ export default function HolidayPoliciesPanel({ entities = null, toastOk, toastEr
 
   async function remove(p) {
     const cos = p.companies || [];
-    const message = cos.length
-      ? `${plural(cos.length, 'company', 'companies')} will lose its holidays: ${cos.map(c => c.name).join(', ')}. Holidays a company changed for itself stay on its calendar as its own.`
+    const others = Number(p.otherCompanies) || 0;
+    // Companies outside this admin's scope lose it too - counted, not named.
+    const who = cos.length
+      ? `${plural(cos.length, 'company', 'companies')}${otherCompaniesText(others)} will lose this policy's holidays: ${cos.map(c => c.name).join(', ')}.`
+      : `${plural(others, 'other company', 'other companies')} will lose this policy's holidays.`;
+    const message = cos.length || others
+      ? `${who} Holidays a company changed for itself stay on its calendar as its own.`
       : 'No company uses it.';
     if (!await dialog.confirm(message, { title: `Delete ${p.name}?`, confirmText: 'Delete Policy', danger: true })) return;
     try {
@@ -72,7 +77,13 @@ export default function HolidayPoliciesPanel({ entities = null, toastOk, toastEr
                     {` · Weekends: ${weekendRuleLabel(p.weekendRule)}`}
                   </div>
                   <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 2 }}>
-                    {cos.length ? cos.map(c => <Chip key={c.id}>{c.name}</Chip>) : <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Not applied to any company yet.</span>}
+                    {cos.map(c => <Chip key={c.id}>{c.name}</Chip>)}
+                    {Number(p.otherCompanies) > 0 && (
+                      <Chip title="Companies you do not manage that use this policy">
+                        {`+${plural(Number(p.otherCompanies), 'Other Company', 'Other Companies')}`}
+                      </Chip>
+                    )}
+                    {!cos.length && !(Number(p.otherCompanies) > 0) && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Not applied to any company yet.</span>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>

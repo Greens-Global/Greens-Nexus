@@ -122,4 +122,74 @@ describe('CompanyHolidayCalendar', () => {
     await waitFor(() => expect(api.unassignHolidayPolicy).toHaveBeenCalledWith('e1', 'p1', 2027));
     expect(confirm.mock.calls[0][1].title).toBe('Unassign US Holidays?');
   });
+
+  // ── Oct 29 2026 review ──────────────────────────────────────────────────
+  const CLASHES = [
+    { id: 'h3', date: '2027-12-24', actualDate: '', name: 'Christmas Day', type: 'mandatory', countries: ['US'], policyId: '',
+      with: "Company's Own Holidays", replaceable: true, reason: 'same_day', note: 'Christmas Day is already on this calendar on 12/24/2027',
+      holiday: { key: 'US:christmas-day:2027', date: '2027-12-24', actualDate: '2027-12-25', name: 'Christmas Day', type: 'mandatory' } },
+    { id: 'x9', date: '2027-12-31', actualDate: '', name: "New Year's Eve", type: 'half_day', countries: ['US'], policyId: 'p1',
+      with: 'US Holidays', replaceable: false, reason: 'same_day', note: "Same day as New Year's Eve - New Year's Day wins",
+      holiday: { key: 'US:new-year-s-day:2028', date: '2027-12-31', actualDate: '2028-01-01', name: "New Year's Day", type: 'mandatory' } },
+  ];
+  const conflict = () => Object.assign(new Error('2 holidays are already on this calendar'), {
+    status: 409, body: { message: '2 holidays are already on this calendar', policy: { id: 'p2', name: 'India Holidays' }, clashes: CLASHES },
+  });
+
+  it('assigning a policy that clashes asks first: Replace the ticked own holidays (finding 2)', async () => {
+    api.assignHolidayPolicy.mockRejectedValueOnce(conflict());
+    const props = await open();
+    fireEvent.change(screen.getByLabelText('Assign A Policy'), { target: { value: 'p2' } });
+    const list = await screen.findByRole('list', { name: 'Already On This Calendar' });
+    expect(within(list).getByText("Company's Own Holidays")).toBeInTheDocument();
+    // Another policy's holiday cannot be ticked; nothing is ticked for the admin.
+    expect(within(list).getByLabelText("Replace New Year's Eve")).toBeDisabled();
+    expect(within(list).getByLabelText('Replace Christmas Day')).not.toBeChecked();
+    expect(screen.getByRole('button', { name: "Replace With The Policy's" })).toBeDisabled();
+    fireEvent.click(within(list).getByLabelText('Replace Christmas Day'));
+    fireEvent.click(screen.getByRole('button', { name: "Replace 1 Holiday With The Policy's" }));
+    await waitFor(() => expect(api.assignHolidayPolicy).toHaveBeenLastCalledWith('e1', 'p2', 2027, { replace: ['h3'] }));
+    await waitFor(() => expect(props.toastOk).toHaveBeenCalledWith('India Holidays assigned to Greens Global. Replaced 1 holiday.'));
+    expect(screen.queryByRole('list', { name: 'Already On This Calendar' })).not.toBeInTheDocument();
+  });
+
+  it('Keep Both assigns with confirm, Cancel assigns nothing (finding 2)', async () => {
+    api.assignHolidayPolicy.mockRejectedValueOnce(conflict()).mockRejectedValueOnce(conflict());
+    await open();
+    fireEvent.change(screen.getByLabelText('Assign A Policy'), { target: { value: 'p2' } });
+    await screen.findByRole('list', { name: 'Already On This Calendar' });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Already On This Calendar' })).not.toBeInTheDocument());
+    expect(api.assignHolidayPolicy).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByLabelText('Assign A Policy'), { target: { value: 'p2' } });
+    await screen.findByRole('list', { name: 'Already On This Calendar' });
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Both' }));
+    await waitFor(() => expect(api.assignHolidayPolicy).toHaveBeenLastCalledWith('e1', 'p2', 2027, { confirm: true }));
+  });
+
+  it('asks before skipping a holiday this company changed, and shows a skipped change (finding 3)', async () => {
+    api.getHolidayCalendar.mockResolvedValue({ ...CAL, skipped: [...CAL.skipped,
+      { policyId: 'p1', policyName: 'US Holidays', key: 'US:juneteenth:2027', date: '2027-06-21', name: 'Juneteenth', changed: true, yearNote: '' }] });
+    confirm.mockResolvedValueOnce(false);
+    await open();
+    const skipped = screen.getByRole('region', { name: 'Skipped For This Company' });
+    expect(within(skipped).getByText('Changed For This Company')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Skip Independence Day For This Company' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(confirm.mock.calls[0][1].title).toBe('Skip A Changed Holiday?');
+    expect(api.skipPolicyHoliday).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Skip Independence Day For This Company' }));
+    await waitFor(() => expect(api.skipPolicyHoliday).toHaveBeenCalledWith('e1', 'p1', 'US:independence-day:2027', true, 2027));
+  });
+
+  it('labels a holiday taken in the year before its real date (finding 5)', async () => {
+    api.getHolidayCalendar.mockResolvedValue({ ...CAL, holidays: [...CAL.holidays,
+      { id: 'h9', date: '2027-12-31', actualDate: '2028-01-01', weekday: 'Friday', name: "New Year's Day", type: 'mandatory', countries: ['US'],
+        source: 'policy', policyId: 'p1', policyName: 'US Holidays', policyKey: 'US:new-year-s-day:2028', overridden: false, observedHint: '',
+        yearNote: "New Year's Day 2028, taken 12/31/2027", sameDayNote: "Same day as New Year's Eve - New Year's Day wins" }] });
+    await open();
+    const nyd = within(rowOf("New Year's Day"));
+    expect(nyd.getByText("New Year's Day 2028, taken 12/31/2027")).toBeInTheDocument();
+    expect(nyd.getByText("Same day as New Year's Eve - New Year's Day wins")).toBeInTheDocument();
+  });
 });

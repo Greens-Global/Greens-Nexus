@@ -12,9 +12,11 @@ import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import HolidaySourcePicker, { Chip, TentativeChip, CountrySelect } from './HolidaySourcePicker';
 import {
-  WEEKEND_RULES, HOLIDAY_TYPES, rowFromSource, findSourceRow, realDateOf, yearOf, dateWithWeekday,
+  WEEKEND_RULES, WEEKEND_RULE_HINT, HOLIDAY_TYPES, rowFromSource, findSourceRow, realDateOf, yearOf, dateWithWeekday,
   holidayKey, yearOptions, previewLine, conflictLines, plural, syncCount, countryOfEntity, HINT, SUBHEAD,
+  redate, applyRuleToAll, sameDayNotes, otherCompaniesText, weekendRuleLabel,
 } from './holidayLib';
+import { formatDate } from '../lib/datetime';
 
 const FIELD = { display: 'flex', flexDirection: 'column', gap: 6 };
 const LABEL = { fontSize: 12, fontWeight: 700, color: 'var(--muted)' };
@@ -73,11 +75,9 @@ export default function HolidayPolicyEditor({ policy = null, entities: entitiesP
 
   // ── Draft edits ──────────────────────────────────────────────────────────
   const update = (i, patch) => setDraft(d => d.map((h, x) => (x === i ? { ...h, ...patch } : h)));
-  const changeDate = (i, day) => setDraft(d => d.map((h, x) => {
-    if (x !== i || !day) return h;
-    const real = realDateOf(h);
-    return { ...h, date: day, actualDate: day === real ? '' : real };
-  }));
+  // A plain date edit changes the day only; a list holiday on a weekend keeps
+  // its real date beside it (redate).
+  const changeDate = (i, day) => setDraft(d => d.map((h, x) => (x === i ? redate(h, day) : h)));
   const removeAt = (i) => setDraft(d => d.filter((_, x) => x !== i));
   const addFromSource = (s, day) => setDraft(d => [...d, rowFromSource(s, country, day)]);
   const removeSource = (_s, row) => setDraft(d => d.filter(h => h !== row));
@@ -115,6 +115,27 @@ export default function HolidayPolicyEditor({ policy = null, entities: entitiesP
     setCopying(false);
   }
 
+  // Apply To Existing Holidays: the weekend rule re-dates every holiday
+  // picked from a list, from its real date - shown first, kept only on OK.
+  async function applyRuleToExisting() {
+    const { next, changes, removed } = applyRuleToAll(draft, weekendRule);
+    if (!changes.length && !removed.length) {
+      toastOk?.(`Every holiday already follows ${weekendRuleLabel(weekendRule)}.`);
+      return;
+    }
+    const lines = [
+      ...changes.map(c => `${c.name}: ${formatDate(c.from)} to ${formatDate(c.to)}`),
+      ...removed.map(n => `${n}: no day off`),
+    ];
+    const ok = await dialog.confirm(`${lines.join('.\n')}.\n\nNothing is saved until you save the policy.`, {
+      title: 'Apply To Existing Holidays', confirmText: `Change ${plural(lines.length, 'Holiday')}`, cancelText: 'Cancel',
+    });
+    if (ok) setDraft(next);
+  }
+
+  // Holidays of the draft that share their day off (shown on the row).
+  const sameDay = useMemo(() => sameDayNotes(draft), [draft]);
+
   const body = () => ({ name: name.trim(), description: description.trim(), weekendRule, holidays: draft, companies });
   const dirty = JSON.stringify({ name, description, weekendRule, companies, holidays: draft }) !== JSON.stringify(initial);
 
@@ -128,10 +149,18 @@ export default function HolidayPolicyEditor({ policy = null, entities: entitiesP
       // A policy not saved yet previews as 'new'.
       const preview = await api.previewHolidayPolicy(isNew ? 'new' : policy.id, data);
       const list = preview?.companies || [];
-      if (list.length) {
+      const others = Number(preview?.otherCompanies) || 0;
+      if (list.length || others) {
         const clashes = conflictLines(list);
-        const message = `This updates ${plural(list.length, 'company', 'companies')}: ${list.map(previewLine).join(', ')}.`
-          + (clashes.length ? `\n\n${clashes.join('.\n')}.` : '');
+        // One line per shared day ("Christmas Day 12/24/2027: Same day as Christmas Eve - Christmas Day wins").
+        const seenDays = new Set();
+        const days = (preview?.sameDay || []).filter(s => !seenDays.has(s.date) && seenDays.add(s.date))
+          .map(s => `${s.name} ${formatDate(s.date)}: ${s.note}`);
+        const named = list.length ? `${plural(list.length, 'company', 'companies')}: ${list.map(previewLine).join(', ')}` : '';
+        const updates = named ? `${named}${otherCompaniesText(others)}` : plural(others, 'other company', 'other companies');
+        const message = `This updates ${updates}.`
+          + (clashes.length ? `\n\n${clashes.join('.\n')}.` : '')
+          + (days.length ? `\n\n${days.join('.\n')}.` : '');
         if (!await dialog.confirm(message, { title: 'Save Holiday Policy', confirmText: 'Save', cancelText: 'Cancel' })) {
           setSaving(false);
           return false;
@@ -181,12 +210,23 @@ export default function HolidayPolicyEditor({ policy = null, entities: entitiesP
             <span style={LABEL}>Name</span>
             <input className="form-input" value={name} onChange={e => setName(e.target.value)} disabled={readOnly} placeholder="e.g. US Holidays" />
           </label>
-          <label style={FIELD}>
-            <span style={LABEL}>When A Holiday Falls On A Weekend</span>
-            <select className="form-input" value={weekendRule} onChange={e => setWeekendRule(e.target.value)} disabled={readOnly}>
-              {WEEKEND_RULES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
-            </select>
-          </label>
+          <div style={FIELD}>
+            <label style={FIELD}>
+              <span style={LABEL}>When A Holiday Falls On A Weekend</span>
+              <select className="form-input" value={weekendRule} onChange={e => setWeekendRule(e.target.value)} disabled={readOnly}>
+                {WEEKEND_RULES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+              </select>
+            </label>
+            {!readOnly && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={HINT}>{WEEKEND_RULE_HINT}</span>
+                <button type="button" className="secondary-btn" onClick={applyRuleToExisting} disabled={draft.length === 0}
+                  style={{ fontSize: 12, padding: '4px 10px' }}>
+                  Apply To Existing Holidays
+                </button>
+              </span>
+            )}
+          </div>
         </div>
         <label style={FIELD}>
           <span style={LABEL}>Description</span>
@@ -252,11 +292,14 @@ export default function HolidayPolicyEditor({ policy = null, entities: entitiesP
             {rowsForYear.length === 0 ? (
               <p style={{ ...HINT, padding: 14 }}>No holidays in {year} yet. Tick them in the list above, or add one by hand below.</p>
             ) : rowsForYear.map(({ h, i }) => (
-              <div key={h.key || i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', fontSize: 12.5 }}>
+              <div key={`${h.key || 'row'}|${i}`} data-policy-holiday={h.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', fontSize: 12.5 }}>
                 <div style={{ minWidth: 150, display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <DateField value={h.date} onChange={v => changeDate(i, v)} disabled={readOnly} title="Change Date" style={{ fontWeight: 700 }} />
                   {h.actualDate && h.actualDate !== h.date && (
                     <span style={{ fontSize: 11, color: 'var(--muted)' }}>Holiday is {dateWithWeekday(h.actualDate)}</span>
+                  )}
+                  {sameDay[i] && (
+                    <span role="note" style={{ fontSize: 11, color: '#b45309' }}>{sameDay[i]}</span>
                   )}
                 </div>
                 <input className="form-input" aria-label="Holiday name" value={h.name} disabled={readOnly}

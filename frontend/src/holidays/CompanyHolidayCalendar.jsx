@@ -14,7 +14,7 @@ import { formatDate, formatWeekday } from '../lib/datetime';
 import { SkeletonBlocks, ErrorBanner, Spinner } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
 import AnchoredMenu from '../components/AnchoredMenu';
-import { DateField } from '../tasks/components';
+import { DateField, Modal } from '../tasks/components';
 import HolidaySourcePicker, { Chip, CountrySelect } from './HolidaySourcePicker';
 import {
   HOLIDAY_TYPES, holidayTypeLabel, dateWithWeekday, realDateOf, yearOptions, plural, countryOfEntity, sourceLabel, daysBetween, HINT, SUBHEAD,
@@ -88,14 +88,38 @@ export default function CompanyHolidayCalendar({ entity, toastOk, toastErr }) {
     run(`unassign-${p.id}`, () => api.unassignHolidayPolicy(entity.id, p.id, year), 'Could not unassign the policy.')
       .then(ok => ok && toastOk?.(`${p.name} unassigned.`));
   }
-  const assign = (pid) => {
-    const p = available.find(a => a.id === pid);
-    if (!p) return;
-    run(`assign-${pid}`, () => api.assignHolidayPolicy(entity.id, pid, year), 'Could not assign the policy.')
-      .then(ok => ok && toastOk?.(`${p.name} assigned to ${entity.name}.`));
-  };
+  // Assign A Policy. When its holidays would land beside ones already on the
+  // calendar the server answers 409 with them: the admin ticks the company's
+  // own ones to replace, keeps both, or cancels (Oct 29 2026 review).
+  const [clash, setClash] = useState(null);   // { policy, clashes, picked: [ids] }
+  async function assign(pid, opts) {
+    const p = available.find(a => a.id === pid) || (clash?.policy?.id === pid ? clash.policy : null);
+    if (!p || busy) return;
+    setBusy(`assign-${pid}`);
+    try {
+      const res = opts ? await api.assignHolidayPolicy(entity.id, pid, year, opts) : await api.assignHolidayPolicy(entity.id, pid, year);
+      if (res && Array.isArray(res.holidays) && Array.isArray(res.policies)) setCal(res); else await load();
+      setClash(null);
+      const n = opts?.replace?.length || 0;
+      toastOk?.(`${p.name} assigned to ${entity.name}.${n ? ` Replaced ${plural(n, 'holiday')}.` : ''}`);
+    } catch (e) {
+      if (e?.status === 409 && Array.isArray(e?.body?.clashes)) setClash({ policy: e.body.policy || p, clashes: e.body.clashes, picked: [] });
+      else toastErr?.(e?.message || 'Could not assign the policy.');
+    }
+    setBusy('');
+  }
+  const togglePick = (id) => setClash(c => ({ ...c, picked: c.picked.includes(id) ? c.picked.filter(x => x !== id) : [...c.picked, id] }));
+
   const skip = (h, on) => run(`skip-${h.policyId}-${h.policyKey || h.key}`,
     () => api.skipPolicyHoliday(entity.id, h.policyId, h.policyKey || h.key, on, year), 'Could not update the holiday.');
+  // Skip on a holiday this company changed asks first; the change is kept
+  // and Restore brings it back.
+  async function skipRow(h) {
+    if (h.overridden && !await dialog.confirm(
+      `${h.name} was changed for ${entity.name}. Skip it anyway? Restore brings it back with the change.`,
+      { title: 'Skip A Changed Holiday?', confirmText: 'Skip Holiday', cancelText: 'Cancel' })) return;
+    skip(h, true);
+  }
   const changeType = (h, type) => run(`type-${h.id}`, () => api.updateCompanyHoliday(entity.id, h.id, { type }, year), 'Could not change the type.');
   const saveDate = () => {
     if (!dateEdit?.value) return;
@@ -187,9 +211,11 @@ export default function CompanyHolidayCalendar({ entity, toastOk, toastErr }) {
               {h.overridden && <StatusLabel label="Changed For This Company" color="#ea580c" size="sm" />}
               {(h.countries || []).map(c => <Chip key={c}>{c}</Chip>)}
             </span>
-            {h.actualDate && h.actualDate !== h.date && (
+            {h.actualDate && h.actualDate !== h.date && !h.yearNote && (
               <span style={{ fontSize: 11, color: 'var(--muted)' }}>Holiday is {dateWithWeekday(h.actualDate)}</span>
             )}
+            {h.yearNote &&<span style={{ fontSize: 11, color: 'var(--muted)' }}>{h.yearNote}</span>}
+            {h.sameDayNote && <span role="note" style={{ fontSize: 11, color: '#b45309' }}>{h.sameDayNote}</span>}
             {hint && (
               <span style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 {hint}
@@ -211,7 +237,7 @@ export default function CompanyHolidayCalendar({ entity, toastOk, toastErr }) {
               <button type="button" style={SMALL_BTN} onClick={() => reset(h)} disabled={!!busy}><RotateCcw size={12} /> Reset To Policy</button>
             )}
             {isPolicy ? (
-              <button type="button" style={SMALL_BTN} onClick={() => skip(h, true)} disabled={!!busy} aria-label={`Skip ${h.name} For This Company`}>
+              <button type="button" style={SMALL_BTN} onClick={() => skipRow(h)} disabled={!!busy} aria-label={`Skip ${h.name} For This Company`}>
                 <EyeOff size={12} /> Skip For This Company
               </button>
             ) : (
@@ -314,7 +340,11 @@ export default function CompanyHolidayCalendar({ entity, toastOk, toastErr }) {
                 {skipped.map(s => (
                   <div key={`${s.policyId}-${s.key}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: '1px solid var(--line)', fontSize: 12.5, color: 'var(--muted)', flexWrap: 'wrap' }}>
                     <span style={{ minWidth: 150 }}>{dateWithWeekday(s.date)}</span>
-                    <span style={{ flex: '1 1 200px', textDecoration: 'line-through' }}>{s.name}</span>
+                    <span style={{ flex: '1 1 200px', display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ textDecoration: 'line-through' }}>{s.name}</span>
+                      {s.yearNote && <span style={{ fontSize: 11 }}>{s.yearNote}</span>}
+                    </span>
+                    {s.changed && <StatusLabel label="Changed For This Company" color="#ea580c" size="sm" title="Restore brings it back with this company's change" />}
                     <Chip>{s.policyName}</Chip>
                     <button type="button" style={SMALL_BTN} disabled={!!busy} onClick={() => skip({ policyId: s.policyId, policyKey: s.key }, false)} aria-label={`Restore ${s.name}`}>
                       <RotateCcw size={12} /> Restore
@@ -351,6 +381,42 @@ export default function CompanyHolidayCalendar({ entity, toastOk, toastErr }) {
             </div>
           </section>
         </>
+      )}
+      {clash && (
+        <Modal title={`Assign ${clash.policy?.name || 'Policy'}`} onClose={() => setClash(null)}
+          footer={(
+            <>
+              <button className="secondary-btn" onClick={() => setClash(null)} disabled={!!busy}>Cancel</button>
+              <button className="secondary-btn" onClick={() => assign(clash.policy.id, { confirm: true })} disabled={!!busy}>Keep Both</button>
+              <button className="primary-btn" onClick={() => assign(clash.policy.id, { replace: clash.picked })}
+                disabled={!!busy || clash.picked.length === 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {busy.startsWith('assign') && <Spinner size={12} />}
+                {clash.picked.length ? `Replace ${plural(clash.picked.length, 'Holiday')} With The Policy's` : "Replace With The Policy's"}
+              </button>
+            </>
+          )}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0 }}>
+            <p style={HINT}>These holidays are already on {entity.name}'s calendar. Tick the company's own ones to replace with the policy's, or keep both. Another policy's holidays stay - unassign that policy to remove them.</p>
+            <div className="nx-fill" style={{ ...CARD, overflowY: 'auto' }} role="list" aria-label="Already On This Calendar">
+              {clash.clashes.map(c => (
+                <label key={c.id} role="listitem" style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 14px', borderBottom: '1px solid var(--line)', fontSize: 12.5, cursor: c.replaceable ? 'pointer' : 'default' }}>
+                  <input type="checkbox" aria-label={`Replace ${c.name}`} checked={clash.picked.includes(c.id)} disabled={!c.replaceable || !!busy}
+                    onChange={() => togglePick(c.id)} style={{ marginTop: 2 }} />
+                  <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 600 }}>{c.name}</span>
+                      <span style={{ color: 'var(--muted)' }}>{dateWithWeekday(c.date)}</span>
+                      <Chip>{c.with}</Chip>
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                      {`The policy brings ${c.holiday?.name} on ${formatDate(c.holiday?.date)}`}{c.note ? ` - ${c.note}` : ''}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

@@ -17,6 +17,8 @@ export const WEEKEND_RULES = [
   { id: 'not_observed', label: 'No Day Off' },
 ];
 export const weekendRuleLabel = (id) => (WEEKEND_RULES.find(r => r.id === id) || WEEKEND_RULES[0]).label;
+// Under the weekend rule select: the rule is not retroactive by itself.
+export const WEEKEND_RULE_HINT = 'Applies to holidays you add from now on. Holidays already in the policy keep their dates.';
 
 // Mandatory (everyone off) | Optional (an employee may choose to take it) |
 // Half Day (the shift ends early).
@@ -135,12 +137,75 @@ export function rowFromSource(s, country, day) {
   };
 }
 
-// Is this source row already in the list of holidays (same key - or the same
-// name and real date for the same country)?
+// Is this source row already in the list of holidays? Its key - or the key
+// with the server's ":2" / ":3" suffix for a second holiday of the same name
+// in a year (India has two Hazarat Ali's Birthdays in 2026) - AND its real
+// date; or the same name and real date for the same country.
 export function findSourceRow(rows, s, country) {
   const key = holidayKey(country, s.name, s.date);
-  return (rows || []).find(h => h.key === key
-    || (h.name === s.name && realDateOf(h) === s.date && (h.countries || []).includes(country)));
+  const keyMatch = (k) => k === key || String(k || '').startsWith(`${key}:`);
+  return (rows || []).find(h => realDateOf(h) === s.date
+    && (keyMatch(h.key) || (h.name === s.name && (h.countries || []).includes(country))));
+}
+
+// A holiday's day off changed by hand in the policy table. Only a holiday
+// picked from a list whose REAL date is a weekend remembers that date
+// (the Observe On path); any other edit just changes the day, and a day put
+// back on the real date clears it.
+export function redate(h, day) {
+  if (!day) return h;
+  if (h.actualDate) return { ...h, date: day, actualDate: day === h.actualDate ? '' : h.actualDate };
+  if (h.source === 'public' && isWeekend(h.date) && day !== h.date) return { ...h, date: day, actualDate: h.date };
+  return { ...h, date: day, actualDate: '' };
+}
+
+// Apply To Existing Holidays: every holiday picked from a list re-dated from
+// its real date with `rule`. { next, changes: [{ key, name, from, to }],
+// removed: [names] } - a weekend holiday under No Day Off leaves the policy.
+// Typed-in holidays are left as they are.
+export function applyRuleToAll(rows, rule) {
+  const next = [];
+  const changes = [];
+  const removed = [];
+  for (const h of rows || []) {
+    if (h.source !== 'public') { next.push(h); continue; }
+    const real = realDateOf(h);
+    const day = observedFor(real, rule);
+    if (day === NO_DAY_OFF) { removed.push(h.name); continue; }
+    if (day !== h.date) changes.push({ key: h.key, name: h.name, from: h.date, to: day });
+    next.push({ ...h, date: day, actualDate: day === real ? '' : real });
+  }
+  return { next, changes, removed };
+}
+
+// Holidays sharing a day off: the stronger type wins (Mandatory, then Half
+// Day, then Optional), the names are shown together - the server's
+// holiday_policies.merge_day / same_day_note, in the same words.
+const STRENGTH = { mandatory: 3, half_day: 2, optional: 1 };
+const strength = (h) => STRENGTH[h.type] || STRENGTH.mandatory;
+const nameKey = (s) => String(s || '').toLowerCase().replace(/\((observed|tentative)\)/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+const overlaps = (a, b) => !(a || []).length || !(b || []).length || a.some(c => b.includes(c));
+const rank = (rows) => rows.slice().sort((a, b) => strength(b) - strength(a) || nameKey(a.name).localeCompare(nameKey(b.name)) || String(a.name).localeCompare(String(b.name)));
+export function sameDayNote(h, others) {
+  const rest = (others || []).filter(o => o !== h);
+  if (!rest.length) return '';
+  if (rest.every(o => nameKey(o.name) === nameKey(h.name))) return 'The same holiday is listed twice on this day - it counts once';
+  const names = [...new Set(rest.map(o => o.name))].join(' and ');
+  const ranked = rank([h, ...rest]);
+  const tied = ranked.filter(r => strength(r) === strength(ranked[0]));
+  if (tied.length > 1) return `Same day as ${names} - one ${holidayTypeLabel(ranked[0].type)} day, the names shown together`;
+  return `Same day as ${names} - ${ranked[0].name} wins`;
+}
+// { index -> note } for every draft holiday that shares its day off with
+// another one for an overlapping country.
+export function sameDayNotes(rows) {
+  const list = rows || [];
+  const out = {};
+  list.forEach((h, i) => {
+    const others = list.filter((o, j) => j !== i && o.date === h.date && overlaps(h.countries, o.countries));
+    if (others.length) out[i] = sameDayNote(h, others);
+  });
+  return out;
 }
 
 // "Greens Global (2 added, 1 removed)" - one company of a save preview
@@ -158,13 +223,26 @@ export function previewLine(c) {
   if (kept) parts.push(`${kept} left as the company changed or skipped ${kept === 1 ? 'it' : 'them'}`);
   return `${c.name} (${parts.length ? parts.join(', ') : 'no change'})`;
 }
-// "Christmas Day 12/25/2026 is also in US Holidays" - one per clash a save would cause.
+// One line per clash a save would cause: "Christmas Day 12/25/2026 is also
+// in US Holidays" (the same holiday), "New Year's Day 12/31/2027 is the same
+// day as New Year's Eve in US Holidays - New Year's Day wins" (another one).
 export function conflictLines(companies) {
   const list = companies || [];
-  return list.flatMap(c => (c.conflicts || []).map(x =>
-    `${x.name} ${formatDate(x.date)} is also in ${x.with || "Company's Own Holidays"}${list.length > 1 ? ` at ${c.name}` : ''}`));
+  return list.flatMap(c => (c.conflicts || []).map(x => {
+    const where = `${x.with || "Company's Own Holidays"}${list.length > 1 ? ` at ${c.name}` : ''}`;
+    const other = x.withName && nameKey(x.withName) !== nameKey(x.name);
+    if (!other) {
+      const on = x.withDate && x.withDate !== x.date ? ` on ${formatDate(x.withDate)}` : '';
+      return `${x.name} ${formatDate(x.date)} is also in ${where}${on}`;
+    }
+    const tail = x.note ? ` - ${x.note.replace(/^Same day as .*? - /, '')}` : '';
+    return `${x.name} ${formatDate(x.date)} is the same day as ${x.withName} in ${where}${tail}`;
+  }));
 }
 export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+// " and 3 other companies" - companies outside the caller's scope that a
+// change still reaches (counted by the server, never named).
+export const otherCompaniesText = (n) => (Number(n) > 0 ? ` and ${plural(Number(n), 'other company', 'other companies')}` : '');
 export const syncCount = (sync) => countOf(sync?.companies);
 
 // Years a picker offers: `back` years before this one to five ahead, plus any
