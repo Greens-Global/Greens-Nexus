@@ -183,8 +183,9 @@ describe('bar pickers keep their width whatever is picked', () => {
     expect(words().dataset.base).toBe('All entities');
     expect(words().textContent).toBe('Rajesh & Darshana Kadakia (10000)');
     expect(screen.getByRole('button', { name: 'Entities' }).title).toBe('Rajesh & Darshana Kadakia (10000)');
-    // A pick is never folded away with the default words.
-    expect(words().classList.contains('acct-bar-label-2')).toBe(false);
+    // On a row that folds the default words, a pick folds with them: the
+    // picker is as wide picked as unpicked (browser check at 1440, MRE).
+    expect(words().classList.contains('acct-bar-label-2')).toBe(true);
   });
 
   it('a select with a base is one width for every pick', async () => {

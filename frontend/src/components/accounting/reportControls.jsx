@@ -260,7 +260,7 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, sho
       <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label="Entities" title={label}>
         <Building2 size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
         {/* As wide as "All entities" whatever is picked (10/27 call, item 09). */}
-        <PickText text={label} base={all} className={value.length ? '' : 'acct-bar-label-2'} />
+        <PickText text={label} base={all} />
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       {/* Chat 10/26, item 12 (Charmi: "Move the Done button on TOP"; Neil: "So
@@ -511,7 +511,7 @@ export function AccountsPicker({ accounts, value, onChange, showHistorical = fal
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} title={label}>
         <ListFilter size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <PickText text={label} base={allLabel} className={value.length ? '' : 'acct-bar-label-2'} />
+        <PickText text={label} base={allLabel} />
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} aria-multiselectable="true" style={panel(480)}>
@@ -1307,10 +1307,16 @@ export const widest = (labels) => (labels || []).reduce((a, b) => (String(b || '
  * Sync, Customize, Export, Settings or Columns down to icons over it. The
  * width comes from `base` through CSS (.acct-pick::before reads data-base),
  * so the picked text is still the only text on the button.
+ *
+ * `fold` (default on): on a row short enough to fold the pickers' default
+ * words (data-fold 2), a pick folds with them - the picker stays an icon,
+ * lit, the pick in its tooltip - so a pick never brings words back that
+ * push the bar's buttons into More (browser check at 1440 with the side
+ * menu open, MRE: picking an entity moved Columns and Settings into More).
  */
-export function PickText({ text, base, className = '' }) {
+export function PickText({ text, base, fold = true }) {
   return (
-    <span className={`acct-pick${className ? ` ${className}` : ''}`} data-base={base || text}>
+    <span className={`acct-pick${fold ? ' acct-bar-label-2' : ''}`} data-base={base || text}>
       <span className="acct-pick-text">{text}</span>
     </span>
   );

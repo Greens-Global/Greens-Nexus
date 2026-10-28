@@ -46,7 +46,7 @@ export function TableViewBar({ view, columns = true }) {
         <button type="button" style={btn(!!view.activeId)} onClick={() => toggle('views')} aria-haspopup="menu" aria-expanded={open === 'views'}
           aria-label={`View: ${view.activeName}`} title={`View: ${view.activeName}. Your own saved filters, sort and columns for this table.`}>
           {/* As wide as "Built-in Default" whatever view is picked; a longer name is cut, in full in the tooltip (10/27 call, item 09). */}
-          <PickText text={view.activeName} base="Built-in Default" />
+          <PickText text={view.activeName} base="Built-in Default" fold={false} />
           <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
         </button>
       </div>
