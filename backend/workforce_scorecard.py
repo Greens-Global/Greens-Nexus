@@ -540,11 +540,12 @@ def _holidays(db: Session, people: list, ctx: dict, start: str, end: str) -> dic
               .filter(models.HrCompanyHoliday.company_id.in_(list(companies)),
                       models.HrCompanyHoliday.date >= start, models.HrCompanyHoliday.date <= end).all()):
         by_company.setdefault(r.company_id, []).append(r)
+    import holiday_policies
     out = {}
     for e in people:
         country = _effective_country(e, ctx)
-        h = {r.date: {"name": r.name, "type": r.type or "mandatory"} for r in by_company.get(e.company or "", [])
-             if not r.country_code or country in [c.strip().upper() for c in r.country_code.split(",")]}
+        # Two holidays on one date: the stronger type, both names (merge_day).
+        h = holiday_policies.holidays_by_date(by_company.get(e.company or "", []), country)
         if h:
             out[e.work_email.lower()] = h
     return out

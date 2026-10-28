@@ -1349,6 +1349,16 @@ def _run_migrations():
             "ALTER TABLE time_punches ADD COLUMN entry_source VARCHAR DEFAULT ''",
             # Workflows run cap (Oct 28) - see the Postgres list. models.WorkflowRun.
             "ALTER TABLE workflow_runs ADD COLUMN active_seconds FLOAT DEFAULT 0",
+            # Holiday policies (Oct 29) - see the Postgres list. models.HrCompanyHoliday / HrHolidayPolicy.
+            "ALTER TABLE hr_company_holidays ADD COLUMN policy_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_company_holidays ADD COLUMN policy_key VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_company_holidays ADD COLUMN actual_date VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_company_holidays ADD COLUMN overridden INTEGER DEFAULT 0",
+            "CREATE INDEX IF NOT EXISTS ix_hr_company_holidays_policy_id ON hr_company_holidays (policy_id)",
+            "ALTER TABLE hr_holiday_policies ADD COLUMN description VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_holiday_policies ADD COLUMN weekend_rule VARCHAR DEFAULT 'keep'",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_holiday_policy_assignments_policy_company "
+            "ON hr_holiday_policy_assignments (policy_id, company_id)",
             # Shift groups (Oct 28) - see the Postgres list.
             "ALTER TABLE shift_groups ADD COLUMN open_shifts INTEGER DEFAULT 0",
             "ALTER TABLE shift_groups ADD COLUMN department VARCHAR DEFAULT ''",
@@ -3188,6 +3198,27 @@ def _run_migrations():
         # far - the engine fails the run at 10 minutes of active work (spec
         # 6.5). models.WorkflowRun.active_seconds.
         "ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS active_seconds FLOAT DEFAULT 0",
+        # Holiday policies (Neil, Oct 29 2026, docs/superpowers/specs/
+        # 2026-10-29-holiday-policies-design.md): a policy is a live link to
+        # the companies it applies to - company rows a policy put there carry
+        # policy_id / policy_key, the real date when observed on another day
+        # (actual_date) and whether the company changed it (overridden); the
+        # policy gains a description and a weekend rule; the assignments are a
+        # new table - explicit RLS. models.HrCompanyHoliday / HrHolidayPolicy /
+        # HrHolidayPolicyAssignment.
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS policy_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS policy_key VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS actual_date VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS overridden INTEGER DEFAULT 0",
+        "CREATE INDEX IF NOT EXISTS ix_hr_company_holidays_policy_id ON hr_company_holidays (policy_id)",
+        "ALTER TABLE hr_holiday_policies ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_holiday_policies ADD COLUMN IF NOT EXISTS weekend_rule VARCHAR DEFAULT 'keep'",
+        "ALTER TABLE hr_holiday_policy_assignments ENABLE ROW LEVEL SECURITY",
+        # One assignment per (policy, company) - a double click on Assign made
+        # two (Oct 29 2026 review). The table is new in this release, so no
+        # duplicate can stand in the way. models.HrHolidayPolicyAssignment.
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_holiday_policy_assignments_policy_company "
+        "ON hr_holiday_policy_assignments (policy_id, company_id)",
         # Shift groups (Neil, Oct 28 2026): open shifts per team (off by
         # default), the department a team follows, and which members that
         # department added. models.ShiftGroup / ShiftGroupMember.
@@ -3854,6 +3885,25 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] probation seeds skipped: {e}")
+    # Presidents' Day (Neil, Oct 29 2026: "it's not showing Presidents' Day").
+    # Calendars filled from the old Nager list say "Washington's Birthday" -
+    # in hr_company_holidays.name and inside hr_holiday_policies.holidays.
+    # One-time, idempotent RENAME only (nothing deleted, policy keys kept);
+    # a no-op once no old name is left. holiday_policies.rename_presidents_day.
+    try:
+        import holiday_policies
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            rows_, pols_ = holiday_policies.rename_presidents_day(db)
+            if rows_ or pols_:
+                db.commit()
+                print(f"[startup] renamed Washington's Birthday to Presidents' Day on {rows_} company holiday "
+                      f"row(s) and {pols_} holiday {'policy' if pols_ == 1 else 'policies'}")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] Presidents' Day rename skipped: {e}")
 
 
 @asynccontextmanager
