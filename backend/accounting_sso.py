@@ -14,6 +14,7 @@ the outbound HTTP run in a thread (see the Aug 2 freeze note in CLAUDE.md).
 """
 import asyncio
 import os
+import job_switch
 
 SYNC_EVERY_SEC = 10 * 60
 
@@ -50,6 +51,8 @@ def qualifying_emails() -> list[str]:
 
 
 def sync_once() -> dict:
+    if job_switch.off("accounting_sso_sync"):   # Workflows > Automations switch
+        return {"skipped": "off"}
     import httpx
 
     base = os.environ.get("ACCOUNTING_BASE_URL", "").rstrip("/")

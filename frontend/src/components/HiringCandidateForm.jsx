@@ -36,7 +36,7 @@ function businessDaysFromNow(n) {
 }
 
 function initialForm(c) {
-  const known = ['Referral', 'LinkedIn', 'Indeed', 'Company Website', 'Job Fair', 'Recruiter / Agency', 'Walk-In'];
+  const known = ['Referral', 'LinkedIn', 'Indeed', 'Company Website', 'Job Fair', 'Recruiter / Agency', 'Walk-In', 'Careers Page'];
   const src = c?.source || '';
   const otherSrc = src && !known.includes(src);
   return {
@@ -47,6 +47,7 @@ function initialForm(c) {
     expected_interview_on: c ? (c.expectedInterviewOn || '') : businessDaysFromNow(5),
     source: otherSrc ? 'Other' : src, source_other: otherSrc ? src.replace(/^Other - /, '') : '',
     notes: c?.notes || '',
+    opening_id: c?.openingId || '',
   };
 }
 
@@ -60,7 +61,7 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
   const [f, setF] = useState(() => initialForm(candidate));
   const start = useRef(JSON.stringify(initialForm(candidate)));
   const [entities, setEntities] = useState([]);
-  const [opts, setOpts] = useState({ roles: [], departments: [], sources: [] });
+  const [opts, setOpts] = useState({ roles: [], departments: [], sources: [], openings: [] });
   const [optsBusy, setOptsBusy] = useState(false);
   const [resume, setResume] = useState(null);
   const [drag, setDrag] = useState(false);
@@ -91,7 +92,17 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
   }
   function pickCompany(id) {
     // A role belongs to a company - changing the company clears a role from the old one.
-    setF(p => ({ ...p, company: id, role_id: p.role_id === OTHER ? OTHER : '', department: p.role_id === OTHER ? p.department : '' }));
+    setF(p => ({ ...p, company: id, role_id: p.role_id === OTHER ? OTHER : '', department: p.role_id === OTHER ? p.department : '', opening_id: '' }));
+  }
+  // Applying for a job opening (Oct 27 2026): its role comes with it.
+  function pickOpening(id) {
+    const o = (opts.openings || []).find(x => x.id === id);
+    setF(p => {
+      if (!o) return { ...p, opening_id: '' };
+      const r = opts.roles.find(x => x.id === o.roleId);
+      return { ...p, opening_id: id, role_id: r ? r.id : (o.roleId ? p.role_id : OTHER), role_title: r ? r.name : o.title,
+               department: r?.department || o.department || p.department };
+    });
   }
   function takeFile(file) {
     if (!file) return;
@@ -131,6 +142,7 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
       expected_interview_on: f.expected_interview_on,
       source: f.source === 'Other' ? `Other - ${f.source_other.trim()}` : f.source,
       notes: f.notes,
+      opening_id: f.opening_id || '',
     };
     try {
       let saved = editing ? await api.updateCandidate(candidate.id, body) : await api.createCandidate(body);
@@ -187,6 +199,13 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
               <option value="">- pick a company -</option>
               {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
             </select></div>
+          {(opts.openings || []).length > 0 && (
+            <div><label style={FL} htmlFor="cf-opening">Job Opening</label>
+              <select id="cf-opening" className="form-input" style={{ width: '100%' }} value={f.opening_id} onChange={e => pickOpening(e.target.value)}>
+                <option value="">- not for a posted opening -</option>
+                {opts.openings.map(o => <option key={o.id} value={o.id}>{o.title}{o.status !== 'open' ? ` (${o.status === 'draft' ? 'Draft' : 'Paused'})` : ''}</option>)}
+              </select></div>
+          )}
           <div><label style={FL}>Role Applying For *</label>
             <select className="form-input" style={{ width: '100%' }} value={f.role_id} onChange={e => pickRole(e.target.value)} disabled={!f.company}>
               <option value="">{f.company ? (optsBusy ? 'Loading roles...' : '- pick a role -') : 'Pick the company first'}</option>

@@ -111,6 +111,12 @@ async def card_action(request: Request, kind: str = "", token: str = "", action:
                       d: str = "", s: str = "", v: str = ""):
     if kind == "decision":
         info = briefing_mail_actions.verify_token(token)
+        if info and info["kind"] == "refresh":
+            info = None
+    elif kind == "refresh":
+        info = briefing_mail_actions.verify_token(token)
+        if info and info["kind"] != "refresh":
+            info = None
     elif kind == "task":
         info = task_mail_actions.verify_token(token)
     else:
@@ -120,7 +126,31 @@ async def card_action(request: Request, kind: str = "", token: str = "", action:
     text = (await request.body()).decode("utf-8", "replace")
     # Everything below is blocking (JWKS fetch, DB, the routers it calls) -
     # off the event loop, per CLAUDE.md.
+    if kind == "refresh":
+        return await asyncio.to_thread(_card_refresh_sync, request, info, d, s, v)
     return await asyncio.to_thread(_card_action_sync, request, kind, info, action, text, d, s, v)
+
+
+def _card_refresh_sync(request: Request, info: dict, briefing_date: str, since_iso: str, variant: str):
+    """Outlook opening the email (autoInvokeAction - briefing_card.py): the
+    card redrawn with only what still waits on its owner, nothing decided.
+    Someone else opening a forwarded copy gets an error, so Outlook keeps the
+    card it had - the owner's list is not theirs to see."""
+    import daily_briefing
+    db = SessionLocal()
+    try:
+        recipient = info["recipient"]
+        if not auth.SKIP_AUTH:
+            performer = am_performer(request.headers.get("authorization", ""), db)
+            if (performer or "").lower() != (recipient or "").lower():
+                return _card_error("This card belongs to someone else.", 403)
+        card = _refreshed_card(db, daily_briefing, recipient, briefing_date, since_iso, "", variant,
+                               always=True)
+    except HTTPException as e:
+        return _card_error(str(e.detail), e.status_code)
+    finally:
+        db.close()
+    return JSONResponse(card, headers={"CARD-UPDATE-IN-BODY": "true"})
 
 
 def _card_action_sync(request: Request, kind: str, info: dict, action: str, text: str,
@@ -135,6 +165,8 @@ def _card_action_sync(request: Request, kind: str, info: dict, action: str, text
         else:
             performer = am_performer(request.headers.get("authorization", ""), db)
         user = _user_for(request, performer, db)
+        if kind == "decision" and _is_bundle(info):
+            raise HTTPException(400, "Open this link in a browser to choose which requests to decide.")
         if kind == "decision":
             subject, status = _execute(db, bt, user=user, kind=info["kind"], entity_id=info["id"],
                                        action=info["action"], note=text)
@@ -160,7 +192,13 @@ def _card_action_sync(request: Request, kind: str, info: dict, action: str, text
 
 
 def _refreshed_card(db, daily_briefing, recipient: str, briefing_date: str, since_iso: str,
-                    outcome: str, variant: str = "") -> dict:
+                    outcome: str, variant: str = "", always: bool = False) -> dict:
+    if variant == "weekly":
+        # The Weekly Digest's card: its own Needs Your Attention rows, as of now.
+        import weekly_digest
+        today = daily_briefing._recipient_local_now(db, recipient).date()
+        sections = weekly_digest.build_sections(db, recipient, today)
+        return weekly_digest.card(sections, recipient, today, outcome, always=True)
     try:
         datetime.strptime(briefing_date, "%Y-%m-%d")
     except ValueError:
@@ -173,7 +211,8 @@ def _refreshed_card(db, daily_briefing, recipient: str, briefing_date: str, sinc
     sections = daily_briefing.build_sections(db, recipient, since_iso, briefing_date)
     if variant == "quick":
         # Clicked on the Quick Actions card: redraw that card, not the full one.
-        return daily_briefing.quick_card(sections, briefing_date, since_iso, outcome)
+        return daily_briefing.quick_card(sections, briefing_date, since_iso, outcome, email=recipient,
+                                         always=always)
     emp = (db.query(models.NexusEmployee)
            .filter(func.lower(models.NexusEmployee.work_email) == recipient.lower()).first())
     return daily_briefing.outlook_card(
@@ -182,11 +221,147 @@ def _refreshed_card(db, daily_briefing, recipient: str, briefing_date: str, sinc
         logo_url=daily_briefing._logo_url(db), outcome=outcome)
 
 
+def _who(db, email: str) -> str:
+    email = (email or "").lower()
+    if not email:
+        return ""
+    emp = (db.query(models.NexusEmployee)
+           .filter(func.lower(models.NexusEmployee.work_email) == email).first())
+    return (f"{emp.first_name or ''} {emp.last_name or ''}".strip() if emp else "") or email
+
+
+def _decided_line(db, kind: str, entity_id: str) -> str:
+    """"" while the item still waits on a decision - else one sentence saying
+    where it stands (Neil, Oct 26: an email cannot change after it is sent,
+    so a link to an already-approved request still read "Reject this time
+    off request?"). Every page checks this when it OPENS, so the buttons
+    shown are always the ones that still apply."""
+    import daily_briefing
+    if kind == "timeoff_approval":
+        r = db.query(models.TimeOffRequest).filter(models.TimeOffRequest.id == entity_id).first()
+        if not r:
+            return "This request no longer exists."
+        status, by, at = r.status, r.approver, r.decided_at
+    elif kind == "ticket_approval":
+        t = db.query(models.TaskTicket).filter(models.TaskTicket.id == entity_id).first()
+        if not t:
+            return "This ticket no longer exists."
+        status, by, at = t.approval_status or "none", "", t.approval_decided_at
+        if status == "none":
+            return "This ticket no longer needs approval."
+    elif kind == "task_approval":
+        t = db.query(models.Task).filter(models.Task.id == entity_id).first()
+        if not t:
+            return "This task no longer exists."
+        status, by, at = t.approval_status or "none", "", ""
+        if status == "none":
+            return "This task no longer needs approval."
+    else:
+        return ""
+    if status == "pending":
+        return ""
+    words = {"changes_requested": "sent back for changes"}.get(status, status)
+    line = f"Already {words}"
+    if by:
+        line += f" by {_who(db, by)}"
+    if at:
+        line += f" on {daily_briefing._fmt_date(str(at)[:10])}"
+    return line + "."
+
+
+def _decided_page(line: str) -> HTMLResponse:
+    from app_url import app_url
+    return _page("Already Decided",
+                 f"<p style='font-size:15px;font-weight:600;margin:0 0 8px'>{escape(line)}</p>"
+                 "<p style='font-size:13px;color:#6b7280;margin:0 0 16px'>Nothing is waiting on you here. "
+                 "To change a decision, open it in Nexus.</p>"
+                 f"<a href='{escape(app_url())}' style='{_BTN};text-decoration:none'>Open Nexus</a>")
+
+
+def _ids(info: dict) -> list:
+    """The request ids a token names - one, or several for a bundled row
+    (daily_briefing._bundle_buttons joins them with commas)."""
+    return [i for i in str(info.get("id") or "").split(",") if i]
+
+
+def _is_bundle(info: dict) -> bool:
+    return info["kind"] == "timeoff_approval" and len(_ids(info)) > 1
+
+
+_EXPIRED = "<p>This link has expired. Open Nexus to take this action instead.</p>"
+
+
+def _bundle_page(token: str, info: dict) -> HTMLResponse:
+    """Several time-off requests from one employee on one page (Neil, Oct 26):
+    a checkbox each, all ticked, and both decisions at the bottom - the
+    button clicked in the email first. Only requests still pending are
+    listed; the dates and type are what the email already showed its
+    recipient (_leave_labeler keeps a confidential type hidden)."""
+    import daily_briefing
+    db = SessionLocal()
+    try:
+        reqs = (db.query(models.TimeOffRequest)
+                .filter(models.TimeOffRequest.id.in_(_ids(info))).all())
+        reqs.sort(key=lambda r: r.start_date or "")
+        pending = [r for r in reqs if r.status == "pending"]
+        if not pending:
+            return _decided_page(f"All {len(reqs)} requests have already been decided."
+                                 if reqs else "These requests no longer exist.")
+        leave = daily_briefing._leave_labeler(db, info["recipient"])
+        who = (pending[0].employee_email or "").lower()
+        emp = (db.query(models.NexusEmployee)
+               .filter(func.lower(models.NexusEmployee.work_email) == who).first())
+        name = (f"{emp.first_name or ''} {emp.last_name or ''}".strip() if emp else "") or who
+        rows = "".join(
+            "<label style='display:flex;align-items:center;gap:12px;padding:12px 4px;"
+            "border-top:1px solid #e5e7eb;font-size:14px;cursor:pointer'>"
+            f"<input type='checkbox' name='ids' value='{escape(r.id)}' checked "
+            "style='width:18px;height:18px;margin:0;flex:none'>"
+            f"<span><span style='font-weight:600'>{escape(daily_briefing._fmt_date(r.start_date))} - "
+            f"{escape(daily_briefing._fmt_date(r.end_date))}</span> "
+            f"<span style='color:#6b7280'>({escape(leave(r))})</span></span></label>"
+            for r in pending)
+        # Decided since the email went out: shown, but no longer pickable.
+        rows += "".join(
+            "<div style='display:flex;align-items:center;gap:12px;padding:12px 4px;"
+            "border-top:1px solid #e5e7eb;font-size:14px;color:#6b7280'>"
+            "<span style='width:18px;flex:none;text-align:center'>&#10003;</span>"
+            f"<span><span style='font-weight:600'>{escape(daily_briefing._fmt_date(r.start_date))} - "
+            f"{escape(daily_briefing._fmt_date(r.end_date))}</span> ({escape(leave(r))}) - "
+            f"{escape(_decided_line(db, 'timeoff_approval', r.id))}</span></div>"
+            for r in reqs if r.status != "pending")
+        order = ("approve", "reject") if info["action"] == "approve" else ("reject", "approve")
+        colors = {"approve": "#1f7a40", "reject": "#b91c1c"}
+        buttons = "".join(
+            f"<button type='submit' name='decision' value='{d}' "
+            f"style='{_BTN};background:{colors[d]};margin:0 8px 8px 0'>{d.title()} Selected</button>"
+            for d in order)
+        plural = "" if len(pending) == 1 else "s"
+        form = (f"<p style='margin:0 0 12px;font-size:14px'>{escape(name)} has {len(pending)} pending "
+                f"time off request{plural}. Untick any you want to leave for later.</p>"
+                "<form method='post' action='/briefing-actions/page'>"
+                f"<input type='hidden' name='token' value='{escape(token)}'>"
+                f"<div style='border-bottom:1px solid #e5e7eb;margin-bottom:18px'>{rows}</div>"
+                f"{buttons}</form>")
+        return _page(f"Time Off - {name}", form)
+    finally:
+        db.close()
+
+
 @router.get("/page", response_class=HTMLResponse)
 def action_page(token: str = ""):
     info = briefing_mail_actions.verify_token(token)
     if not info:
-        return _page("Link Expired", "<p>This link has expired. Open Nexus to take this action instead.</p>")
+        return _page("Link Expired", _EXPIRED)
+    if _is_bundle(info):
+        return _bundle_page(token, info)
+    db = SessionLocal()
+    try:
+        line = _decided_line(db, info["kind"], info["id"])
+    finally:
+        db.close()
+    if line:
+        return _decided_page(line)
     label = _KIND_LABELS.get(info["kind"], "item")
     verb = "Approve" if info["action"] == "approve" else "Reject"
     # Ticket rejection is the one decision here that Nexus requires a reason
@@ -207,15 +382,67 @@ def action_page(token: str = ""):
 
 @router.post("/page", response_class=HTMLResponse)
 async def action_page_submit(request: Request):
-    form = dict(await request.form())
+    form = await request.form()
     return await asyncio.to_thread(_action_page_submit_sync, request, str(form.get("token") or ""),
-                                   str(form.get("note") or ""))
+                                   str(form.get("note") or ""), str(form.get("decision") or ""),
+                                   [str(i) for i in form.getlist("ids")])
 
 
-def _action_page_submit_sync(request: Request, token: str, note: str = "") -> HTMLResponse:
+def _bundle_submit(request: Request, info: dict, decision: str, picked: list) -> HTMLResponse:
+    """Decides the ticked requests of a bundle, each through _execute exactly
+    as a single one is - a refused request (already decided, out of scope)
+    is reported and never stops the rest. Only ids the token names count;
+    either decision may be made, since the email carried both buttons."""
+    import daily_briefing
+    if decision not in ("approve", "reject"):
+        decision = info["action"]
+    wanted = set(picked)
+    chosen = [i for i in _ids(info) if i in wanted]
+    if not chosen:
+        return _page("Nothing Selected", "<p>Tick at least one request, then try again - "
+                     "your browser's Back button returns to the list.</p>")
+    db = SessionLocal()
+    bt = BackgroundTasks()
+    try:
+        user = _user_for(request, info["recipient"], db)
+        reqs = {r.id: (r.start_date, r.end_date) for r in db.query(models.TimeOffRequest)
+                .filter(models.TimeOffRequest.id.in_(chosen)).all()}
+        chosen.sort(key=lambda i: (reqs.get(i) or ("",))[0] or "")   # date order, as listed
+        word = "Approved" if decision == "approve" else "Rejected"
+        lines, done = [], 0
+        for rid in chosen:
+            span = reqs.get(rid)
+            when = (f"{daily_briefing._fmt_date(span[0])} - {daily_briefing._fmt_date(span[1])}"
+                    if span else "A request")
+            try:
+                _execute(db, bt, user=user, kind="timeoff_approval", entity_id=rid, action=decision)
+                done += 1
+                result = f"<span style='color:#1f7a40;font-weight:600'>{word}</span>"
+            except HTTPException as e:
+                db.rollback()
+                result = f"<span style='color:#b91c1c'>{escape(str(e.detail))}</span>"
+            lines.append(f"<li style='margin:4px 0'>{escape(when)}: {result}</li>")
+        if done:
+            head = (f"<p style='font-size:15px;font-weight:600;color:#1f7a40'>"
+                    f"{done} request{'' if done == 1 else 's'} {word.lower()}.</p>")
+        else:
+            head = "<p style='font-size:15px;font-weight:600;color:#b91c1c'>Nothing was saved.</p>"
+        resp = _page("Done" if done else "Could Not Save",
+                     f"{head}<ul style='padding-left:18px;font-size:14px'>{''.join(lines)}</ul>"
+                     "<p style='font-size:13px;color:#6b7280'>You can close this page.</p>")
+        resp.background = bt
+        return resp
+    finally:
+        db.close()
+
+
+def _action_page_submit_sync(request: Request, token: str, note: str = "", decision: str = "",
+                             picked: list | None = None) -> HTMLResponse:
     info = briefing_mail_actions.verify_token(token)
     if not info:
-        return _page("Link Expired", "<p>This link has expired. Open Nexus to take this action instead.</p>")
+        return _page("Link Expired", _EXPIRED)
+    if _is_bundle(info):
+        return _bundle_submit(request, info, decision, picked or [])
     db = SessionLocal()
     bt = BackgroundTasks()
     try:

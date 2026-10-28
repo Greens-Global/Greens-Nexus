@@ -1,7 +1,7 @@
 // TicketDrawer - split out of TicketsView.jsx (Oct 2026); the code below
 // moved verbatim, see TicketsView.jsx for the module overview.
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, CheckCircle2, ClipboardList, Paperclip, MessageSquare, History, ArrowUp, MousePointer2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, CheckCircle2, ClipboardList, Paperclip, MessageSquare, History, ArrowUp, MousePointer2, Lock } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
 import { useRole } from '../contexts/RoleContext';
@@ -252,7 +252,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // is UI convenience, not the security boundary - that's the backend check).
   const isRequester = (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const isAssignee = (t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase();
-  const privileged = myLevel >= 3 || deskAccess.privileged;   // + Global Admins (server's _ticket_privileged)
+  // A confidential Ask HR ticket (Oct 27 2026, ticket_confidential.py) is
+  // HR's to work: the server says per ticket whether this viewer is HR for it
+  // or its assignee (hrCanWork) - a manager or a desk role is not.
+  const confidential = !!t.confidentialDesk;
+  const privileged = confidential ? !!t.hrCanWork : (myLevel >= 3 || deskAccess.privileged);   // + Global Admins (server's _ticket_privileged)
   // Request Control: LiveView's `assist` mode (components/LiveView.jsx) -
   // consent-first, NOT the Workforce Analytics roster's disclosed-monitoring
   // model. Nothing is visible until the requester accepts a control prompt
@@ -306,7 +310,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // about a locked ticket, but never reassign which company it belongs to -
   // that stays with the requester (pre-lock) or a manager. Mirrors the
   // company_id carve-out in _ticket_edit_scope.
-  const canEditCompany = privileged || (!requesterLocked && !locked && isRequester);
+  // Never on an HR request: it stays on its company's HR desk.
+  const canEditCompany = !confidential && (privileged || (!requesterLocked && !locked && isRequester));
   // Assign To and SLA Due Date are desk decisions, not the requester's to make
   // even in the pre-lock window where fullAccess/canWorking otherwise hand
   // them the rest of the ticket - who works it and by when isn't theirs to
@@ -323,12 +328,12 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // this lock exists to prevent.
   // And only for a desk supervisor - the server's delete route requires one
   // (ticket_roles.can_delete), so offering it to anybody else is a dead button.
-  const canDelete = deskAccess.canDelete && (privileged || (!requesterLocked && isRequester));
+  const canDelete = !confidential && deskAccess.canDelete && (privileged || (!requesterLocked && isRequester));
   // Collaborators (Oct 14 2026): whoever may edit the ticket at all - its
   // requester or the desk - may add or remove them, whatever its state. They
   // are not the ticket's content, so neither lock above applies (mirrors
   // _COLLABORATOR_FIELDS in routers/tickets.py).
-  const canEditCollaborators = privileged || isRequester || deskAccess.canWorkQueue;
+  const canEditCollaborators = privileged || isRequester || (!confidential && deskAccess.canWorkQueue);
   // Escalate is a distress flare, not a priority bump: it mails the ticket's
   // department head that it needs instant care. The assignee or a manager -
   // whoever is actually working it - can raise it any time it's open,
@@ -616,6 +621,13 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         )}
       </div>
 
+      {confidential && (
+        <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: NX.ink, background: 'rgba(124,58,237,0.08)',
+          border: '1px solid rgba(124,58,237,0.28)', borderRadius: 8, padding: '7px 11px', marginTop: 12 }}>
+          <Lock size={14} style={{ color: NX.purple, flexShrink: 0 }} />
+          <span><b>Confidential HR Request.</b> Only the person who asked, the people on it and HR can see it.</span>
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '12px 0 16px' }}>
         <TicketStatusChip status={v.status} />
         <PriorityChip priority={v.priority} />
@@ -636,7 +648,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
       <ApprovalPanel ticket={t} myEmail={myEmail} nameOf={nameOf} onDecided={onDecided} />
 
       {/* AI Summary - desk agents only, hidden when AI is off (TicketAi.jsx). */}
-      <TicketAiSummary ticketId={t.id} canWorkQueue={deskAccess.canWorkQueue} />
+      <TicketAiSummary ticketId={t.id} canWorkQueue={deskAccess.canWorkQueue && !confidential} />
 
       {/* Overview · Conversation · Attachments · Activity - a real tab strip up
           top so Conversation/Attachments/Activity are one click away instead of
@@ -666,7 +678,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           <label style={label}>Type</label>
           <TicketSelect value={v.type || 'request'} onChange={(val) => stage({ type: val })}
             options={TICKET_TYPE_ORDER.includes(v.type) ? typeIntakeOptions() : [...typeIntakeOptions(), { id: v.type, label: TICKET_TYPE_META[v.type]?.label || v.type }]}
-            style={sel} disabled={!canWorking} />
+            style={sel} disabled={!canWorking || confidential} />
         </div>
         <div style={field}>
           <label style={label}>Status</label>
@@ -759,7 +771,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         <div style={field}>
           <label style={label}>Department</label>
           <TicketSelect value={v.hrDepartmentId || ''} onChange={(val) => stage({ hrDepartmentId: val })} style={sel}
-            disabled={!v.companyId || !canWorking} searchPlaceholder="Search departments…"
+            disabled={!v.companyId || !canWorking || confidential} searchPlaceholder="Search departments…"
             placeholder={v.companyId ? 'Select department' : 'Select a company first'}
             options={[['', v.companyId ? 'Select department' : 'Select a company first'],
               // Turned off for tickets / deleted globally: not offered, but the
@@ -778,7 +790,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             or a manager's to do - which is exactly what fullAccess is. */}
         <div style={field}>
           <label style={label}>Help With</label>
-          {fullAccess ? (
+          {fullAccess && !confidential ? (
             <DrawerHelpTopic key={`${t.id}:${v.hrDepartmentId || ''}`} value={v.application || ''}
               deptName={allDepts.find((d) => d.id === v.hrDepartmentId)?.name || ''}
               subValue={v.typeFields?.[HELP_SUBTOPIC_KEY] || ''}
@@ -794,7 +806,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{helpWithLabel(v) || '-'}</div>
           )}
           {/* Suggested Help Topic for a ticket filed without one (TicketAi.jsx); held for Done like any edit. Hidden while a department change is held - its topics are another list. */}
-          {fullAccess && !('hrDepartmentId' in pending) && (
+          {fullAccess && !confidential && !('hrDepartmentId' in pending) && (
             <DrawerSuggestedTopic ticketId={t.id} hasTopic={!!(v.application || '').trim()} canWorkQueue={deskAccess.canWorkQueue}
               onApply={(name) => stage({ application: name })} />
           )}
@@ -803,7 +815,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             backend leaves property_asset_id out of _WORKING_FIELDS. A
             Resolved/Closed ticket is that property's maintenance record, so
             it moves only after a reopen (the server refuses it too). */}
-        {(v.propertyAssetId || (fullAccess && groupTakesProperty(helpGroupFor(allDepts.find((d) => d.id === v.hrDepartmentId)?.name || '')))) && (
+        {!confidential && (v.propertyAssetId || (fullAccess && groupTakesProperty(helpGroupFor(allDepts.find((d) => d.id === v.hrDepartmentId)?.name || '')))) && (
           <div style={field}>
             <label style={label}>Property</label>
             {fullAccess && !v.propertyLocked ? (<>
@@ -822,14 +834,14 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           </div>
         )}
         {/* Unit + View Property (Ops review, Oct 20) - TicketPropertyFields.jsx. */}
-        <TicketPropertyDetail v={v} canEdit={fullAccess} stage={stage} style={sel} />
+        {!confidential && <TicketPropertyDetail v={v} canEdit={fullAccess} stage={stage} style={sel} />}
         {/* Derived from the application by the server, and re-derived whenever
             it changes. A manager can still override it here for an app the
             directory has mapped wrongly - correcting the mapping itself is a
             job for the External Links screen. */}
         <div style={field}>
           <label style={label}>Service Area</label>
-          {fullAccess ? (
+          {fullAccess && !confidential ? (
             <TicketSelect value={v.serviceArea || ''} onChange={(val) => stage({ serviceArea: val })} style={sel}
               placeholder="Not Set" options={[['', 'Not Set'], ...serviceAreaOptions()]} />
           ) : (
@@ -910,6 +922,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         </div>
       )}
 
+      {/* Tasks, linked tickets and equipment would carry an HR request to
+          people outside HR - an HR ticket has none (the server refuses them). */}
+      {!confidential && (<>
       <div style={field}>
         <label style={label}>Tasks</label>
         <TicketTasks taskIds={taskIds} tasks={tasks} tasksLoading={tasksLoading} onOpen={setOpenTaskId} onSpawn={spawnTask} onLink={linkTask} onUnlink={unlinkTask} readOnly={!fullAccess} />
@@ -925,6 +940,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         <label style={label}>Equipment</label>
         <TicketEquipment ticketId={t.id} />
       </div>
+      </>)}
 
       {CLOSED_STATES.includes(t.status) && !(t.csatRating > 0) && (
         <div style={field}>
@@ -941,13 +957,13 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             // The public-reply / internal-note switch is the desk's. The person
             // who raised the ticket just replies (Neil, Sep 30: "they should
             // not see public reply versus an internal note").
-            canInternal={(privileged || isAssignee || !isRequester) && deskAccess.canReadInternal}
-            canDelete={deskAccess.canDelete}
+            canInternal={confidential ? (!!t.hrCanWork && !isRequester) : ((privileged || isAssignee || !isRequester) && deskAccess.canReadInternal)}
+            canDelete={deskAccess.canDelete && !confidential}
             // Saved Replies are the desk's (Oct 2026) - never the requester view.
             savedReplies={deskAccess.canWorkQueue && (privileged || isAssignee || !isRequester)}
             ticket={t} myEmail={myEmail} />
         )}
-        {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} canDelete={deskAccess.canDelete} />}
+        {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} canDelete={deskAccess.canDelete && !confidential} />}
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
       </div>
     </Modal>

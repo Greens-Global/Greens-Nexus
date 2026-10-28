@@ -26,6 +26,7 @@ class ConfigIn(BaseModel):
     includeNoShift: Optional[bool] = None
     defaultSendTime: Optional[str] = None      # local "HH:MM", 24h
     defaultTimeZone: Optional[str] = None      # IANA name
+    outlookCard: Optional[bool] = None         # the refreshing Outlook card on top
 
 
 @router.get("/config", dependencies=[Depends(require_administrator)])

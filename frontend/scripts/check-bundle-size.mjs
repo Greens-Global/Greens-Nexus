@@ -284,8 +284,32 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // The same condition as vite.config.js decides whether stamps are on. The
 // two bigger stamp modes (text elements too: +718 KB; every element:
 // +1919 KB) do not fit any budget and stay local-only.
+// Oct 26 2026: 14600 -> 14700. dev read 14586 KB on CI; Build Mode's
+// screenshots with no prompt (#796, the modern-screenshot dependency, 22 KB)
+// and the simpler Build Mode strip (#797) measured 14611 / 14618 KB. The
+// library is a dynamic import in its own chunk (vendor-screenshot in
+// vite.config.js) - left in the catch-all it pushed vendor-react, the
+// first-paint chunk, to 1009 KB - so nobody downloads it until a pin's
+// screenshot is taken. Deliberate (Pranshu).
+// Oct 27 2026: 14700 -> 15200. The HR Keka gap release (custom fields,
+// People Analytics, Approvals, HR letters, Duplicate Day, headcount and the
+// careers page, Ask HR, probation, leave depth, salary advances, exits,
+// goals / 1:1s / reviews, India Contractor Extra Time) is ~340 KB of new app
+// code: a clean local build read 14836 KB against dev's 14497 KB. Every new
+// screen is already its own lazy chunk (Analytics, Exits, Performance,
+// Reviews, Careers, Approvals, Year End, the Team Leave Calendar and the
+// Extra Time queue load with their tab) - first paint (index) grew 3.5 KB -
+// but this cap sums every shipped file, so lazy loading cannot lower it. CI's
+// clean install reads ~200 KB above a local build, so 15200 leaves ~150 KB.
+// App code only, no new dependency. Needs Neil's OK with the release.
 const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE_NX_SRC;
-const TOTAL_KB     = 14600 + (NX_SRC_ON ? 350 : 0);
+// Oct 28 2026: 15200 -> 15600. The Workflows module (builder, runs and the
+// actions review, templates, catalog browser, Settings panel) is ~135 KB in
+// lazy chunks (Builder 80, Workflows 48, Settings 7), +168 KB total: a clean
+// local build read 15004 KB against the HR release's 14836 KB. CI's clean install reads ~200 KB above a local
+// build, so 15600 leaves ~400 KB. App code only, no new dependency. Needs
+// Neil's OK with the release (he OK'd the Oct 27 raise the same way).
+const TOTAL_KB     = 15600 + (NX_SRC_ON ? 350 : 0);
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

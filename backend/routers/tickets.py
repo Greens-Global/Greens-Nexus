@@ -40,6 +40,7 @@ from ticket_roles import require_ticket_agent, require_ticket_supervisor
 import ticket_mail_templates as tmpl
 import property_links
 import ticket_property_link
+import ticket_confidential
 from app_url import app_url
 
 router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
@@ -115,6 +116,13 @@ def _require_ticket_participant(db: Session, user: dict, t) -> None:
     (_ticket_readers). Everyone else needs the desk grant."""
     import auth   # company wall: another company's ticket is 404 (before any grant)
     auth.assert_company(getattr(t, "company_id", "") or "", user, db)
+    # A confidential (Ask HR) ticket: its own people and HR for its company
+    # only - the desk grant does not open it, and its existence does not leak
+    # (404, like the company wall). ticket_confidential.py.
+    if ticket_confidential.is_confidential(t):
+        if not ticket_confidential.may_read(db, user, t):
+            raise HTTPException(404, "Ticket not found")
+        return
     if _has_desk_grant(user, db):
         return
     if (user.get("email") or "").lower() in _ticket_readers(t):
@@ -265,6 +273,8 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "propertyUnit": _nz(getattr(t, "property_unit", "")),
             # How it arrived (Oct 2026): "email" = raised by email (ticket_inbound.py).
             "source": _nz(getattr(t, "source", "")),
+            # Confidential desk (Oct 27 2026): "hr" = an Ask HR request.
+            "confidentialDesk": _nz(getattr(t, "confidential_desk", "")),
             "createdAt": t.created_at or "", "modifiedAt": t.modified_at or ""}
 
 
@@ -300,11 +310,14 @@ def _latest_comments(db: Session, internal_ok: bool, ticket_id: str | None = Non
             q = q.filter(C.task_id.in_(ids))
         return q
 
+    # Confidential tickets included: every caller hands in tickets it already
+    # scoped (or reads only the ones it returns - list_tickets).
     newest = _scoped(db.query(C.task_id.label("tid"), func.max(C.created_at).label("mx"))
                      .join(models.TaskTicket, models.TaskTicket.id == C.task_id)
                      ).group_by(C.task_id).subquery()
-    rows = _scoped(db.query(C.task_id, C.author_email, C.body, C.created_at, C.internal)
-                   .join(newest, (C.task_id == newest.c.tid) & (C.created_at == newest.c.mx))).all()
+    rows = ticket_confidential.include(
+        _scoped(db.query(C.task_id, C.author_email, C.body, C.created_at, C.internal)
+                .join(newest, (C.task_id == newest.c.tid) & (C.created_at == newest.c.mx)))).all()
     # A ticket sharing a task's id has the task's thread - never shown as its own.
     clash = ticket_notify.clashing_ids(db, ids if ids is not None else ([ticket_id] if ticket_id else None))
     out: dict = {}
@@ -320,6 +333,12 @@ def _sees_internal(db: Session, t: models.TaskTicket, user: dict, desk: bool) ->
     """list_ticket_comments' rule, per ticket: the desk sees internal notes,
     except on a ticket they raised themselves (unless they work it or are a
     manager)."""
+    if ticket_confidential.is_confidential(t):
+        # HR's own notes: whoever works it (the assignee, HR for the company),
+        # never its requester - whatever desk role anyone holds.
+        email = (user.get("email") or "").lower()
+        return (email != (t.requester_email or "").lower()
+                and ticket_confidential.may_work(db, user, t))
     if not desk:
         return False
     email = (user.get("email") or "").lower()
@@ -360,6 +379,16 @@ def _with_latest_comment(db: Session, t: models.TaskTicket, user: dict, d: dict)
     which replaces the row in the list (it would otherwise blank the column)."""
     internal_ok = _sees_internal(db, t, user, _has_desk_grant(user, db))
     d["latestComment"] = _latest_comments(db, internal_ok, ticket_id=t.id).get(t.id)
+    return _for_viewer(db, t, user, d)
+
+
+def _for_viewer(db: Session, t: models.TaskTicket, user: dict, d: dict) -> dict:
+    """The caller's own rights on an Ask HR ticket, which no role in the
+    browser can work out (HR for that company, or its assignee): `hrCanWork`
+    lets the drawer offer the working controls. UI only - every write is
+    checked again (ticket_confidential.may_work)."""
+    if ticket_confidential.is_confidential(t):
+        d["hrCanWork"] = ticket_confidential.may_work(db, user, t)
     return d
 
 
@@ -542,7 +571,10 @@ def _notify_triage(db: Session, t: models.TaskTicket, actor: str,
     if t.assignee_email:
         return
     tk_action = {"view": "tickets", "label": "View Ticket"}
-    for em in dict.fromkeys(e.lower() for e in _it_admins(db, t.company_id)):
+    # A confidential (Ask HR) ticket waits for HR, not the service desk.
+    pool = (ticket_confidential.hr_audience(db, t) if ticket_confidential.is_confidential(t)
+            else _it_admins(db, t.company_id))
+    for em in dict.fromkeys(e.lower() for e in pool):
         if em == actor:
             continue   # they raised/approved it themselves; they can already see it
         task_notify(db, kind="ticket_needs_assignment", for_email=em,
@@ -868,6 +900,7 @@ class ListScope:
         # Global Admin (scope None) still sees them all. Off = unchanged.
         self.company = auth.company_scope(user, db)
         self.desk = _has_desk_grant(user, db)
+        self.db, self.user = db, user
 
     def _person_sql(self, *cols):
         T_ = models.TaskTicket
@@ -884,12 +917,26 @@ class ListScope:
         # (_ticket_readers): a ticket filed for a colleague, or waiting on my
         # approval, opens from here too.
         if people and not self.desk:
+            # ...or a confidential (Ask HR) ticket: only ever present when the
+            # query opted in through confidential(), which already narrowed
+            # those to the ones this caller reads as HR - and without that the
+            # global hook removes them first.
             q = q.filter(or_(self._person_sql(T_.requester_email, T_.created_by_email, T_.assignee_email),
-                             func.lower(func.coalesce(T_.approver_email, "")) == self.me))
+                             func.lower(func.coalesce(T_.approver_email, "")) == self.me,
+                             func.coalesce(T_.confidential_desk, "") != ""))
         return q
 
     def admits(self, t) -> bool:
+        if ticket_confidential.is_confidential(t):
+            return ticket_confidential.may_read(self.db, self.user, t)
         return self.desk or self.me in _ticket_readers(t)
+
+    def confidential(self, q):
+        """`q` with the confidential (Ask HR) tickets this caller may read let
+        through the global hook - their own, and their HR companies'. The
+        ticket LIST only; reports and every other reader leave them out.
+        admits() stays the exact final guard."""
+        return ticket_confidential.include(q).filter(ticket_confidential.visible_filter(self.db, self.user))
 
 
 @router.get("/task-tickets")
@@ -923,8 +970,10 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     _cscope, me, desk = scope.company, scope.me, scope.desk
     _person_sql = scope._person_sql
     # Company wall only here; the participant filter for an off-desk caller
-    # is scope.apply's own (the not-desk branch below).
-    q = scope.apply(db.query(T_), people=False)
+    # is scope.apply's own (the not-desk branch below). The confidential
+    # (Ask HR) tickets this caller may read come along - HR's own desk view
+    # and the requester's Support list; nobody else's (ticket_confidential).
+    q = scope.confidential(scope.apply(db.query(T_), people=False))
 
     def _watching(t) -> bool:
         return me in [(w or "").lower() for w in (t.watcher_emails or [])]
@@ -936,9 +985,10 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
         # desk has only Support to find it in.
         q = q.filter(or_(_person_sql(T_.requester_email, T_.created_by_email),
                          func.lower(func.coalesce(T_.approver_email, "")) == me))
-        rows = [t for t in q.all() if (t.requester_email or "").lower() == me
+        rows = [t for t in q.all() if ((t.requester_email or "").lower() == me
                 or (t.created_by_email or "").lower() == me or _watching(t)
-                or ((t.approval_status or "none") == "pending" and (t.approver_email or "").lower() == me)]
+                or ((t.approval_status or "none") == "pending" and (t.approver_email or "").lower() == me))
+                and scope.admits(t)]
     # Without the desk grant the scope is forced, not requested: the unscoped
     # list IS the agent queue, so honouring `mine` only when asked would leave
     # the whole company's tickets one query parameter away from any employee.
@@ -948,7 +998,7 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
         q = scope.apply(q)
         rows = [t for t in q.all() if scope.admits(t)]
     else:
-        rows = q.all()
+        rows = [t for t in q.all() if not ticket_confidential.is_confidential(t) or scope.admits(t)]
     # Latest comment per ticket - at most two queries for the whole list (the
     # public thread, plus the full one only when the caller is on the desk),
     # limited to the tickets actually being returned.
@@ -959,7 +1009,7 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     for t in rows:
         d = ticket_to_dict(t)
         d["latestComment"] = (any_latest if _sees_internal(db, t, user, desk) else public_latest).get(t.id)
-        out.append(d)
+        out.append(_for_viewer(db, t, user, d))
     return out
 
 
@@ -1057,6 +1107,27 @@ def _with_creator(watchers: list | None, requester: str | None, creator: str) ->
     return out
 
 
+def _assign_hr_default(db: Session, t: models.TaskTicket, actor: str) -> str:
+    """An Ask HR ticket's default assignee - the company's HR contact still on
+    the People list (ticket_confidential.default_assignee). Same writes as
+    ticket_auto_assign.apply: the assignment, In Progress, the history line.
+    "" (and a gap line) when the company has no HR contact - HR's fallback
+    (its administrators) is told to pick it up instead."""
+    email = ticket_confidential.default_assignee(db, t.company_id or "", t.requester_email or "")
+    if not email:
+        log_activity(db, type="auto_assign_gap", actor_email=actor, entity_kind="ticket",
+                     entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                     detail="No HR contact is set for this company - set one in Settings > Companies.")
+        return ""
+    t.assignee_email = email
+    t.assigned_by_email = ""
+    ticket_sla.set_status(t, "in_progress")
+    log_activity(db, type="auto_assigned", actor_email=actor, entity_kind="ticket",
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail=f"Assigned to {_name_of(db, email) or email} automatically (HR contact)")
+    return email
+
+
 def _send_auto_assignment(background_tasks: BackgroundTasks, t: models.TaskTicket, actor: str,
                           dm_rows: list, only_roles: tuple | None = None) -> None:
     """After the commit: the same "assigned" email and Teams messages a
@@ -1076,13 +1147,20 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
 
 
 def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict, db: Session,
-                arrived_by: str = "", whats_new: dict | None = None) -> dict:
+                arrived_by: str = "", whats_new: dict | None = None, confidential_desk: str = "") -> dict:
     """Everything POST /task-tickets does - THE way a ticket is created, so
     one that arrives by email (ticket_inbound.py, `source="email"`) goes
     through the same checks, approval gate, default assignee, SLA, receipts
     and desk notices as one filed in the app. `arrived_by` (stored as
     TaskTicket.source) is the server's, never the payload's. Raises
-    HTTPException like the route."""
+    HTTPException like the route.
+
+    `confidential_desk` ("hr" - hr_tickets.file_ask_hr, never the payload):
+    an Ask HR request (ticket_confidential.py). It files into the requester's
+    company's HR desk - no approval gate, the company's HR contact as its
+    default assignee, HR (not the service desk) told when nobody holds it."""
+    if confidential_desk and confidential_desk not in ticket_confidential.DESKS:
+        raise HTTPException(422, "Unknown confidential desk.")
     # The ticket's channel is named `arrived_by` here only because `source`
     # below is the task a ticket is converted from.
     now = now_iso()
@@ -1142,7 +1220,12 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
         # by ticket_sla.start just below (sla_due_at + sla_due_on).
         sla_due_on="", resolved_at="", created_at=now, modified_at=now,
         source=arrived_by or "",
+        confidential_desk=confidential_desk or "",
     )
+    if confidential_desk:
+        # Filed where HR works it (ticket_confidential): HR's service area, no
+        # property / items / map spot (hr_tickets builds the body, none set).
+        t.service_area = ticket_confidential.DESK_HR
     ticket_sla.start(t, ticket_sla.targets(db, t.priority))
     # The asset manager is TOLD (one bell below), not made a watcher: every
     # later status move / comment bells every watcher (property_links rule 6).
@@ -1160,7 +1243,8 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     # requester never chooses their own approver, and neither does the server
     # guess - the desk that sees the request decides who it needs.
     t.approver_email = ""
-    t.approval_status = "pending" if ticket_taxonomy.requires_approval(db, t.type or "") else "none"
+    t.approval_status = ("none" if confidential_desk   # HR's own request: nobody else signs it off
+                         else "pending" if ticket_taxonomy.requires_approval(db, t.type or "") else "none")
     if t.approval_status == "pending" and t.assignee_email:
         # Same rule update_ticket enforces, applied at the door: a request cannot
         # be born already assigned, or the gate is skippable by whoever files it.
@@ -1177,8 +1261,13 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     # Default assignee (Oct 2026, ticket_auto_assign.py): nobody chose one and
     # nothing gates it - the help topic's, else the department's default takes
     # it. A gated ticket gets its default at approval (decide_approval).
-    auto_assigned = (ticket_auto_assign.apply(db, t, user["email"])
-                     if not t.assignee_email and t.approval_status == "none" else "")
+    if confidential_desk:
+        # The HR desk's default: the company's HR contact (not a ticket desk
+        # agent - ticket_auto_assign's rule is for the service desk).
+        auto_assigned = _assign_hr_default(db, t, user["email"])
+    else:
+        auto_assigned = (ticket_auto_assign.apply(db, t, user["email"])
+                         if not t.assignee_email and t.approval_status == "none" else "")
     if source is not None:
         _copy_task_files(db, source, t, user["email"])
         # The converted task points back at its ticket - its drawer's "From
@@ -1191,7 +1280,10 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     tk_action = {"view": "tickets", "label": "View Ticket"}
     if t.assignee_email and t.assignee_email != user["email"].lower():
         task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
-                    title="You Were Assigned a Ticket", body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
+                    title="New HR Request Assigned to You" if confidential_desk else "You Were Assigned a Ticket",
+                    body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
+    elif confidential_desk:
+        _notify_triage(db, t, user["email"].lower(), title="New HR Request to Assign")
     elif t.approval_status == "pending":
         # Gated: the IT Admins are told it needs sending for approval, not that
         # it needs assigning. Nobody can action it until it has been approved,
@@ -1366,7 +1458,13 @@ def _may_patch_ticket(db: Session, t: models.TaskTicket, user: dict) -> bool:
     """The desk (same test require_ticket_desk applies) or the ticket's own
     requester. A plain employee has no desk role, and without this they could
     not edit their open ticket, confirm a resolution or reopen it from
-    Support - _ticket_edit_scope still decides WHAT they may change."""
+    Support - _ticket_edit_scope still decides WHAT they may change.
+
+    A confidential (Ask HR) ticket: whoever works it (its assignee, HR for its
+    company) or its requester - never the desk for being the desk."""
+    if ticket_confidential.is_confidential(t):
+        return (ticket_confidential.may_work(db, user, t)
+                or (t.requester_email or "").lower() == (user.get("email") or "").lower())
     if ticket_roles.can_work_queue(user, db):
         return True
     return (t.requester_email or "").lower() == (user.get("email") or "").lower()
@@ -1383,7 +1481,12 @@ def _ticket_privileged(db: Session, t: models.TaskTicket, user: dict) -> bool:
     no longer notified about them and never owned them. The IT Admin desk owns
     tickets, and administrators clear the manager+ bar already.
 
-    Global Admins count too, whatever their role (Pranshu, Oct 15 2026)."""
+    Global Admins count too, whatever their role (Pranshu, Oct 15 2026).
+
+    A confidential (Ask HR) ticket is HR's: HR for its company, not every
+    manager (ticket_confidential.is_hr_for)."""
+    if ticket_confidential.is_confidential(t):
+        return ticket_confidential.is_hr_for(db, user, t.company_id or "")
     if user.get("level", 1) >= 3:
         return True
     if "_ticket_global_admin" not in user:   # once per request - list paths call this per row
@@ -1521,17 +1624,54 @@ def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | N
     return _WORKING_FIELDS
 
 
+# What an Ask HR (confidential) ticket may change - the work itself, never
+# where it lives: no company, department, type, property, unit, items or
+# tasks (each of those would carry the request to people outside HR - a
+# department head, an asset manager, a task's followers).
+_CONFIDENTIAL_FIELDS = {"subject", "description", "status", "priority", "assignee_email", "watcher_emails",
+                        "resolution", "resolution_note", "csat_rating", "csat_comment", "application",
+                        "sla_due_on", "resolved_at"}
+
+
+def _guard_confidential_patch(db: Session, t: models.TaskTicket, data: dict) -> None:
+    """Refuse a save that would move an Ask HR ticket out of HR's hands, and
+    check every person it names is on the People list (an assignee or a
+    collaborator can read it)."""
+    def _same(k):   # a drawer save sends fields it did not change - only a change counts
+        cur, v = getattr(t, k, None), data[k]
+        return (cur or None) == (v or None) or (isinstance(v, str) and (cur or "") == v.strip())
+    blocked = sorted(k for k in set(data) - _CONFIDENTIAL_FIELDS if not _same(k))
+    if not blocked:
+        for k in set(data) - _CONFIDENTIAL_FIELDS:
+            data.pop(k)   # carried along unchanged - nothing to apply
+    if blocked:
+        raise HTTPException(400, "This is a confidential HR request - only its status, priority, assignee, "
+                                 f"collaborators and details can change (not: {', '.join(blocked)}).")
+    who = (data.get("assignee_email") or "").strip().lower()
+    if who and who != (t.assignee_email or "").strip().lower() and not active_person(db, who):
+        raise HTTPException(400, "The assignee must be someone on the Nexus People list.")
+    if "watcher_emails" in data:
+        before = {(e or "").strip().lower() for e in (t.watcher_emails or [])}
+        for e in data.get("watcher_emails") or []:
+            e = (e or "").strip().lower()
+            if e and e not in before and not active_person(db, e):
+                raise HTTPException(400, "A collaborator must be someone on the Nexus People list.")
+
+
 @router.patch("/task-tickets/{ticket_id}")
 def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: BackgroundTasks,
                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     # Row-locked: every field below is a read-modify-write (watchers and task
     # ids are JSON lists), and two saves at once used to drop one's changes -
     # or both bell "You Were Assigned" off the same stale assignee.
-    t = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).with_for_update().first()
+    t = (ticket_confidential.include(db.query(models.TaskTicket))
+         .filter(models.TaskTicket.id == ticket_id).with_for_update().first())
     if not t:
         raise HTTPException(404, "Ticket not found")
     import auth   # company wall: another company's ticket is 404
     auth.assert_company(t.company_id or "", user, db)
+    if ticket_confidential.is_confidential(t) and not ticket_confidential.may_read(db, user, t):
+        raise HTTPException(404, "Ticket not found")   # an Ask HR ticket is not the desk's
     if not _may_patch_ticket(db, t, user):
         raise HTTPException(403, "You don't have access to this screen")
     data = body.model_dump(exclude_unset=True)
@@ -1544,6 +1684,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         # Replying needs only participation, the same rule as the comments
         # endpoint - never the field-edit scope below.
         _require_ticket_participant(db, user, t)
+    if ticket_confidential.is_confidential(t):
+        _guard_confidential_patch(db, t, data)
     scope = _ticket_edit_scope(db, t, user)
     # A requester marking their own ticket Resolved may do so whatever state
     # it is in and whoever holds it - but only that: the status and its note
@@ -1784,9 +1926,12 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # activity trail + notifications for meaningful changes
     changed = []
 
-    def _log(kind, detail):
+    def _log(kind, detail, change=None):
+        # `change` (status / assignee moves): the from / to the Workflows
+        # outbox carries (task_util._emit_workflow_event), as a field-history
+        # entry on the row like a task's.
         log_activity(db, type=kind, actor_email=user["email"], entity_kind="ticket",
-                     entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=detail)
+                     entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=detail, change=change)
         changed.append(kind)
     tk_action = {"view": "tickets", "label": "View Ticket"}
     status_changed = t.status != prev_status   # includes the assignment's auto In Progress
@@ -1797,7 +1942,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     requester = (t.requester_email or "").lower()
     tell_requester = bool(requester) and requester != user["email"].lower()
     if status_changed:
-        _log("status_changed", f"changed status to {tmpl.status_label(t.status)}")
+        _log("status_changed", f"changed status to {tmpl.status_label(t.status)}",
+             change={"field": "status", "label": "Status", "from": prev_status or "", "to": t.status or ""})
         if not (t.status in ("resolved", "closed") and tell_requester):
             # keep watchers and the assignee in the loop on any status move
             _notify_participants(db, t, user["email"], kind="ticket_status",
@@ -1810,7 +1956,9 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         # assignment that no longer exists.
         t.assigned_by_email = user["email"].lower() if t.assignee_email else ""
         _log("assigned", f"assigned to {t.assignee_email or 'nobody'}"
-                         + (f" by {t.assigned_by_email}" if t.assigned_by_email else ""))
+                         + (f" by {t.assigned_by_email}" if t.assigned_by_email else ""),
+             change={"field": "assignee", "label": "Assignee", "from": prev_assignee,
+                     "to": (t.assignee_email or "").strip().lower()})
         if t.assignee_email and t.assignee_email != user["email"].lower():
             task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
                         title="You Were Assigned a Ticket", body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
@@ -2096,23 +2244,30 @@ def restore_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: S
 
 # ── Ticket conversation / attachments / activity (reuse the task tables, keyed
 #    by the ticket id; ids are globally unique so tasks and tickets never collide) ──
-def _ticket_or_404(db: Session, ticket_id: str, lock: bool = False) -> models.TaskTicket:
+def _ticket_or_404(db: Session, ticket_id: str, lock: bool = False,
+                   confidential: bool = False) -> models.TaskTicket:
     """`lock`: SELECT ... FOR UPDATE, for a read-modify-write of the ticket
-    (watchers, links, approval) - two requests at once otherwise drop one."""
+    (watchers, links, approval) - two requests at once otherwise drop one.
+    `confidential`: an Ask HR ticket may be found too - ONLY for a caller that
+    runs _require_ticket_participant on it next (which applies may_read).
+    Everything else (delete, approval, links, tasks from a ticket) 404s on one."""
     q = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id)
+    if confidential:
+        q = ticket_confidential.include(q)
     t = (q.with_for_update() if lock else q).first()
     if not t:
         raise HTTPException(404, "Ticket not found")
     return t
 
 
-def _conversation_ticket_or_404(db: Session, ticket_id: str, lock: bool = False) -> models.TaskTicket:
+def _conversation_ticket_or_404(db: Session, ticket_id: str, lock: bool = False,
+                                confidential: bool = False) -> models.TaskTicket:
     """The ticket whose comments / attachments are being read or written.
     Those rows live in the TASK tables, keyed only by id, so an id that is
     also a task's (a ticket created with a task's id before ids became the
     server's, Oct 18 2026) would read or write that task's thread and files.
     Such an id is refused outright, live or trashed task alike."""
-    t = _ticket_or_404(db, ticket_id, lock=lock)
+    t = _ticket_or_404(db, ticket_id, lock=lock, confidential=confidential)
     clash = (db.query(models.Task.id).execution_options(include_deleted=True)
              .filter(models.Task.id == ticket_id).first())
     if clash is not None:
@@ -2159,7 +2314,7 @@ def ticket_summary(ticket_id: str, user: dict = Depends(get_current_user), db: S
 def list_ticket_comments(ticket_id: str, user: dict = Depends(get_current_user),
                          db: Session = Depends(get_db)):
     # Their own support request is readable without a desk grant.
-    t = _conversation_ticket_or_404(db, ticket_id)
+    t = _conversation_ticket_or_404(db, ticket_id, confidential=True)
     _require_ticket_participant(db, user, t)
     rows = db.query(models.TaskComment).filter(models.TaskComment.task_id == ticket_id).order_by(models.TaskComment.created_at).all()
     # Internal notes are the desk talking among themselves - never shown to
@@ -2184,7 +2339,12 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
     Returns (comment, internal) - internal only sticks for a desk-grant author.
     `quiet`: people already told about this save in another bell (update_ticket's
     requester notice), so the reply does not reach them twice."""
-    internal = bool(internal) and ticket_roles.can_read_internal(user, db)
+    if ticket_confidential.is_confidential(t):
+        # On an Ask HR ticket an internal note is HR's (its assignee, HR for
+        # its company) - not the desk's.
+        internal = bool(internal) and _sees_internal(db, t, user, False)
+    else:
+        internal = bool(internal) and ticket_roles.can_read_internal(user, db)
     c = models.TaskComment(id=gen_id(), task_id=t.id, author_email=user["email"], body=text,
                            internal=internal, created_at=now_iso())
     db.add(c)
@@ -2255,7 +2415,7 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
 def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks: BackgroundTasks,
                        user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     # Locked: an @mention adds watchers (a JSON read-modify-write).
-    t = _conversation_ticket_or_404(db, ticket_id, lock=True)
+    t = _conversation_ticket_or_404(db, ticket_id, lock=True, confidential=True)
     # Replying on your own ticket needs no grant; an internal note does, since
     # those are the desk talking among themselves and are hidden from the
     # requester.
@@ -2360,7 +2520,7 @@ def delete_ticket_comment(comment_id: str, user: dict = Depends(get_current_user
 def mark_ticket_seen(ticket_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The requester opened their ticket - clears the unread dot on Support.
     Anyone else opening it is a no-op (the dot is the requester's)."""
-    t = _ticket_or_404(db, ticket_id)
+    t = _ticket_or_404(db, ticket_id, confidential=True)
     _require_ticket_participant(db, user, t)
     if (user.get("email") or "").lower() == (t.requester_email or "").lower():
         t.requester_seen_at = now_iso()
@@ -2371,7 +2531,7 @@ def mark_ticket_seen(ticket_id: str, user: dict = Depends(get_current_user), db:
 @router.get("/task-tickets/{ticket_id}/attachments")
 def list_ticket_attachments(ticket_id: str, user: dict = Depends(get_current_user),
                             db: Session = Depends(get_db)):
-    _require_ticket_participant(db, user, _conversation_ticket_or_404(db, ticket_id))
+    _require_ticket_participant(db, user, _conversation_ticket_or_404(db, ticket_id, confidential=True))
     rows = db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == ticket_id).all()
     return [_tattachment(a) for a in rows]
 
@@ -2379,7 +2539,7 @@ def list_ticket_attachments(ticket_id: str, user: dict = Depends(get_current_use
 @router.post("/task-tickets/{ticket_id}/attachments", status_code=201)
 def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, background_tasks: BackgroundTasks,
                           user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    t = _conversation_ticket_or_404(db, ticket_id)
+    t = _conversation_ticket_or_404(db, ticket_id, confidential=True)
     _require_ticket_participant(db, user, t)
     # Our storage only - the same rule as every other evidence upload.
     from routers.items import _validate_photo_url
@@ -2437,7 +2597,7 @@ def delete_ticket_attachment(attachment_id: str, user: dict = Depends(get_curren
 @router.get("/task-tickets/{ticket_id}/activity")
 def list_ticket_activity(ticket_id: str, user: dict = Depends(get_current_user),
                          db: Session = Depends(get_db)):
-    t = _ticket_or_404(db, ticket_id)
+    t = _ticket_or_404(db, ticket_id, confidential=True)
     _require_ticket_participant(db, user, t)
     rows = (db.query(models.TaskActivity)
             # actor_email="system" is the automated notify/auto-close machinery
@@ -3105,7 +3265,7 @@ def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
     head on file falls back to the company's ticket agents via
     notify_ticket_event's own recipient resolution, so it's never emailed to
     nobody."""
-    t = _ticket_or_404(db, ticket_id, lock=True)   # the cooldown check is a read-then-write
+    t = _ticket_or_404(db, ticket_id, lock=True, confidential=True)   # the cooldown check is a read-then-write
     _require_ticket_participant(db, user, t)
     email = (user["email"] or "").lower()
     is_requester = (t.requester_email or "").lower() == email
@@ -3363,8 +3523,14 @@ def put_ticket_taxonomy_settings(patch: dict, user: dict = Depends(require_manag
 def _log_scope(db: Session, user: dict, q, ticket_col):
     """A delivery log confined to the caller's companies: rows about tickets
     (deleted ones included - the log outlives them) inside the wall. A
-    Global Admin, or walls off, sees every row."""
+    Global Admin, or walls off, sees every row.
+
+    Never a row about a confidential (Ask HR) ticket: its email subjects and
+    Teams messages are HR's, not the desk's (ticket_confidential)."""
     import auth
+    hidden = ticket_confidential.confidential_ids(db)
+    if hidden:
+        q = q.filter(~ticket_col.in_(sorted(hidden)))
     scope = auth.company_scope(user, db)
     if scope is None:
         return q
@@ -3427,6 +3593,9 @@ def get_ticket_inbound_log(outcome: str = "", limit: int = 100, offset: int = 0,
     import auth
     E = models.TicketInboundEmail
     q = db.query(E)
+    hidden = ticket_confidential.confidential_ids(db)   # a reply to an Ask HR ticket is HR's
+    if hidden:
+        q = q.filter(~func.coalesce(E.ticket_id, "").in_(sorted(hidden)))
     scope = auth.company_scope(user, db)
     if scope is not None:
         T_ = models.TaskTicket

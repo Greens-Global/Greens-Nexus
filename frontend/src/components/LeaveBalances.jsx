@@ -2,7 +2,8 @@
 // backend/leave_balances.py. Two surfaces:
 //   LeaveBalanceCard   - an employee's own vacation and sick time (Workday >
 //                        Time Off), plus balanceFor() for the request form.
-//   LeaveBalancesAdmin - HR > Leave: the start date, the one-time import of
+//   LeaveBalancesAdmin - People > Time > Time Off (HR; it was People > Leave
+//                        until Oct 27 2026): the start date, the one-time import of
 //                        the QuickBooks balances, everyone's balance, a
 //                        person's policy, corrections, and the policies.
 import { useCallback, useEffect, useState } from 'react';
@@ -35,7 +36,19 @@ export function fmtLeave(hours, policy) {
 }
 
 const LABEL = { vacation: 'Vacation', sick: 'Sick / Personal' };
-const KIND = { opening: 'Opening Balance', accrual: 'Earned', used: 'Used', adjust: 'Adjustment' };
+const KIND = { opening: 'Opening Balance', accrual: 'Earned', used: 'Used', adjust: 'Adjustment',
+  expire: 'Expired At Year End', carryover: 'Carried Over' };
+
+// What the year end does to a bucket (leave_year_end.py, Oct 27 2026): Use
+// It Or Lose It by default; California vacation never expires.
+function yearEndHint(b, bucket, policy) {
+  const y = b?.yearEnd?.[bucket];
+  if (!y) return bucket === 'sick' ? `Use by ${day(b?.sick?.expiresOn)} - it doesn't carry over.` : '';
+  if (y.exempt) return 'It carries over - California vacation does not expire.';
+  if (y.effectiveMode === 'carry_all') return 'Unused time carries over.';
+  if (y.effectiveMode === 'carry_cap') return `Up to ${fmtLeave(y.capHours, policy)} carries past ${day(y.nextClosing)}; the rest expires.`;
+  return `Use by ${day(y.nextClosing)} - unused time expires.`;
+}
 
 function bucketHint(b, bucket, policy) {
   const x = b?.[bucket];
@@ -43,15 +56,16 @@ function bucketHint(b, bucket, policy) {
   if (bucket === 'sick') {
     if (x.method === 'none') return 'Not part of your policy.';
     if (!x.eligible && x.eligibleOn) return `Starts ${day(x.eligibleOn)}.`;
-    return `Use by ${day(x.expiresOn)} - it doesn't carry over.`;
+    return yearEndHint(b, 'sick', policy);
   }
   if (x.method === 'none') return 'Not part of your policy.';
+  const end = yearEndHint(b, 'vacation', policy);
   if (x.method === 'per_hour') {
-    if (x.accrualPerHour > 0) return `You earn ${round(x.accrualPerHour * 60)} min for every hour you work.`;
+    if (x.accrualPerHour > 0) return `You earn ${round(x.accrualPerHour * 60)} min for every hour you work. ${end}`.trim();
     return x.next?.date ? `You start earning on ${day(x.next.date)}.` : 'You start earning after your first year.';
   }
-  if (x.next?.date) return `${fmtLeave(x.next.hours, policy)} added on ${day(x.next.date)}.`;
-  return '';
+  if (x.next?.date) return `${fmtLeave(x.next.hours, policy)} added on ${day(x.next.date)}. ${end}`.trim();
+  return end;
 }
 
 // ── Employee ────────────────────────────────────────────────────────────────
@@ -537,7 +551,7 @@ export function LeaveSetup({ toastOk, toastErr }) {
   return (
     <div>
       <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
-        {data.cutover ? `Balances count from ${day(data.cutover)}${(data.companies || []).some(c => c.own) ? ' (some companies have a date of their own)' : ''}.` : 'No start date yet - nothing shows to employees until one is set.'} The start dates and the opening balances are on People &gt; Leave.
+        {data.cutover ? `Balances count from ${day(data.cutover)}${(data.companies || []).some(c => c.own) ? ' (some companies have a date of their own)' : ''}.` : 'No start date yet - nothing shows to employees until one is set.'} The start dates and the opening balances are on People &gt; Time &gt; Time Off.
       </div>
       {data.canSetup
         ? <PoliciesEditor policies={data.policies || []} builtIn={data.defaults || []} onSaved={load} toastOk={toastOk} toastErr={toastErr} />

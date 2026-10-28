@@ -34,7 +34,9 @@ whose e2e repro went failing -> passing becomes a Testing module regression
 case (`promote_regression`).
 """
 import asyncio
+import base64
 import hashlib
+import html as _html
 import json
 import os
 import re
@@ -45,8 +47,8 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
-from sqlalchemy import func, or_, text as sa_text
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
+from sqlalchemy import and_, func, or_, text as sa_text
 from sqlalchemy.orm import Session
 
 import auth
@@ -56,6 +58,8 @@ from auth import company_of, get_current_user
 from database import get_db
 from models import AuditLog, DevNote, DevNoteSession, DevNoteToken, NexusNotification, NexusSetting, QaTestCase
 from routers import files as _files
+import build_mode_chat as _chat
+import job_switch
 
 router = APIRouter(prefix="/dev-notes", tags=["Build Mode"])
 
@@ -84,7 +88,19 @@ PRIORITIES = ("blocking", "normal", "nice")
 STATUSES = ("open", "dispatched", "building", "needs_input", "pr_open", "fixed", "done", "dismissed")
 SESSION_STATUSES = ("collecting", "sent", "building", "pr_open", "fixed", "done")
 ATTACH_KINDS = ("after", "before", "paste")   # before-/after- files are the verify shots, paste- the rest
-DEFAULT_SETTINGS = {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True}
+# Send to Claude Code (on since Oct 27 2026). Off, a stored Send Instantly is
+# read as off, so a saved pin never dispatches on its own. The browser's switch
+# is CLAUDE_SEND_ON in frontend/src/devnotes/meta.js - flip both together.
+CLAUDE_SEND_ON = True
+
+DEFAULT_SETTINGS = {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True,
+                    # Collect Fixes Into One PR (Pranshu, Oct 27 2026): Claude
+                    # Code keeps every batch on one branch and opens the PR
+                    # only when told to in its terminal.
+                    "onePr": False,
+                    # The Teams chat the person last posted their pins to
+                    # (their pick, any chat they are in); '' = none picked yet.
+                    "teamsChatId": "", "teamsChatName": ""}
 
 # Note fields the browser may write on create (snake). Everything else on the
 # row is the server's (status, numbering, PR fields, verification).
@@ -489,6 +505,8 @@ def _settings(db: Session, email: str) -> dict:
                 out.update({k: saved[k] for k in DEFAULT_SETTINGS if k in saved})
         except ValueError:
             pass
+    if not CLAUDE_SEND_ON:
+        out["sendInstantly"] = False
     return out
 
 
@@ -706,6 +724,7 @@ def _dispatch_notes(db: Session, notes: list, by: str) -> list:
             raise HTTPException(400, "GitHub dispatch is not available yet")
         n.status = "dispatched"
         n.dispatched_at = now
+        n.dispatched_by = (by or "").lower()      # only this person's Claude Code picks it up
         n.updated_at = now
         s = _session(db, n.session_id)
         if s and s not in touched:
@@ -743,10 +762,14 @@ def put_settings(body: dict, user: dict = Depends(require_build_mode), db: Sessi
         if target != "local":
             raise HTTPException(400, "dispatchTarget must be local")
         current["dispatchTarget"] = target
-    for key in ("sendInstantly", "pinsOnLoad"):
+    for key in ("sendInstantly", "pinsOnLoad", "onePr"):
         v = _get(body, key)
         if v is not None:
             current[key] = bool(v)
+    for key in ("teamsChatId", "teamsChatName"):
+        v = _get(body, key)
+        if v is not None:
+            current[key] = str(v).strip()[:200]
     out = _save_settings(db, user["email"], current)
     db.commit()
     return out
@@ -919,6 +942,96 @@ def patch_session(session_id: str, body: dict, user: dict = Depends(require_buil
     return _serialize_session(s)
 
 
+@router.get("/sessions/{session_id}/report")
+def session_report(session_id: str, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Save Report: one self-contained HTML file of the Build Session - every
+    pin grouped by module with its kind, comment, Where line and the marked-up
+    element shot embedded (base64), so it opens anywhere with no login and
+    can be attached to an email. Author or admin."""
+    s = _session(db, session_id)
+    if not s:
+        raise HTTPException(404, "Build Session not found")
+    _own_or_admin(s.created_by, user, db, "save this report")
+    notes = db.query(DevNote).filter(DevNote.session_id == s.id, DevNote.status != "dismissed").all()
+    notes.sort(key=lambda n: (n.route or "", n.number or 0))
+    e = _html.escape
+    from task_due import us_date
+    made = us_date((s.created_at or "")[:10]) or (s.created_at or "")[:10]
+    parts = [f"<!doctype html><html><head><meta charset='utf-8'><title>{e(s.title or 'Build Session')}</title>"
+             "<style>body{font:14px/1.5 Inter,Arial,sans-serif;color:#111;max-width:860px;margin:32px auto;padding:0 16px}"
+             "h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 8px;border-bottom:1px solid #ddd;padding-bottom:4px}"
+             ".pin{margin:14px 0 22px}.k{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:9px;background:#eee;margin-right:6px}"
+             ".dim{color:#666;font-size:12px}img{max-width:100%;border:1px solid #ddd;border-radius:6px;margin-top:8px}</style></head><body>",
+             f"<h1>{e(s.title or 'Build Session')}</h1>",
+             f"<div class='dim'>{len(notes)} pin{'' if len(notes) == 1 else 's'} · {e(_chat.name_of(db, s.created_by))} · {e(made)}</div>"]
+    module = None
+    for n in notes:
+        m = _chat.module_label(n.route, n.sub)
+        if m != module:
+            module = m
+            parts.append(f"<h2>{e(m)}</h2>")
+        parts.append(f"<div class='pin'><span class='k'>#{n.number} {e((n.kind or 'bug').capitalize())}</span>"
+                     f"<span class='k'>{e(PRIORITY_LABELS.get(n.priority or 'normal', 'Normal'))}</span>"
+                     f"<span class='k'>{e(STATUS_LABELS.get(n.status or 'open', (n.status or 'open').capitalize()))}</span>"
+                     f"<div>{e(n.comment or '')}</div>")
+        where = _chat.source_location(n.target)
+        if where:
+            parts.append(f"<div class='dim'>Where: {e(where)}</div>")
+        if n.transcript:
+            parts.append(f"<div class='dim'><em>{e(n.transcript)}</em></div>")
+        got = _chat.read_image(n.screenshot_url) if n.screenshot_url else None
+        if got:
+            parts.append(f"<img alt='Pin #{n.number}' src='data:{got[1]};base64,{base64.b64encode(got[0]).decode('ascii')}'>")
+        parts.append("</div>")
+    parts.append("</body></html>")
+    name = re.sub(r"[^A-Za-z0-9 _-]+", "", s.title or "Build Session").strip() or "Build Session"
+    return Response("".join(parts), media_type="text/html",
+                    headers={"Content-Disposition": f'attachment; filename="{name} {made.replace("/", "-")}.html"'})
+
+
+PRIORITY_LABELS = {"blocking": "Blocking", "normal": "Normal", "nice": "Nice To Have"}
+STATUS_LABELS = {"open": "Open", "dispatched": "Sent", "building": "Building", "needs_input": "Needs Input",
+                 "pr_open": "PR Open", "fixed": "Fixed - Verify", "done": "Done", "dismissed": "Dismissed"}
+
+
+@router.post("/teams-post")
+def teams_post(body: dict, background_tasks: BackgroundTasks, user: dict = Depends(require_build_mode),
+               db: Session = Depends(get_db)):
+    """Post To Teams (Pranshu, Oct 26 2026): the caller's open pins - every
+    screen they pinned on, or one Build Session's (`sessionId`) - as ONE card
+    in the Teams chat they pick (any group or 1:1 chat they are in), posted
+    as them with the screenshots inline. Nothing goes to Claude Code and the
+    pins keep their status; each gets a "Posted To Teams" entry. The pick is
+    remembered for next time. Delivery is the ticket Teams queue's
+    (build_mode_chat.deliver), so it retries and keeps its reason."""
+    email = user["email"].lower()
+    chat_id = str(_get(body, "teamsChatId") or "").strip()[:200]
+    chat_name = str(_get(body, "teamsChatName") or "").strip()[:200]
+    if not chat_id:
+        raise HTTPException(400, "Pick a Teams chat first")
+    q = db.query(DevNote).filter(DevNote.created_by == email, DevNote.status == "open")
+    session_id = str(_get(body, "sessionId") or "").strip()
+    if session_id:
+        q = q.filter(DevNote.session_id == session_id)
+    notes = q.order_by(DevNote.route.asc(), DevNote.number.asc()).with_for_update().all()
+    if not notes:
+        raise HTTPException(400, "No open pins to post")
+    s = _session(db, notes[0].session_id)
+    settings = _settings(db, email)
+    settings.update({"teamsChatId": chat_id, "teamsChatName": chat_name})
+    _save_settings(db, email, settings)
+    title = (s.title if s else "") or "Build Session"
+    row = _chat.queue(db, email, s.id if s else notes[0].id, chat_id, _chat.card_html(db, title, email, notes))
+    now = _now()
+    for n in notes:
+        _append(n, _entry(email, "system", f"Posted To Teams - {chat_name or 'a chat'}"))
+        n.updated_at = now
+    _audit(db, user, "teams_post", s.id if s else "", {"notes": [n.id for n in notes], "chat": chat_name})
+    db.commit()
+    _chat.deliver_later(background_tasks, row)
+    return {"posted": len(notes), "chatName": chat_name}
+
+
 @router.post("/dispatch")
 def dispatch(body: Optional[dict] = None, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
     body = body or {}
@@ -1041,6 +1154,8 @@ PURGE_JOB = {"email": "build-mode-purge", "role": "system"}   # audit author, li
 def _purge_pass() -> int:
     """One daily run in a worker thread: its own session, an audit row only
     when something was deleted (a quiet day leaves no trace)."""
+    if job_switch.off("purge_media"):   # Workflows > Automations switch
+        return 0
     db = database.SessionLocal()
     try:
         n = purge_media(db)
@@ -1158,6 +1273,26 @@ def mint_token(body: Optional[dict] = None, user: dict = Depends(require_build_m
     _audit(db, user, "token_mint", row.id, {"label": label, "expiresAt": row.expires_at}, kind="create")
     db.commit()
     return {"id": row.id, "token": raw, "label": label, "expiresAt": row.expires_at}
+
+
+CONNECTED_SEC = 150   # the watcher asks every ~25 s and the token's last use is rewritten once a minute
+
+
+@router.get("/claude-connection")
+def claude_connection(user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Is the caller's own Claude Code listening? (Oct 26 2026: Send To
+    Claude Code goes only to the sender's watcher, so Nexus says whether it is
+    there before anyone sends.) Connected = one of their live Build Tokens was
+    used in the last CONNECTED_SEC. `apiBase` is this API's public address for
+    the connect command ('' when running locally - the browser knows it then)."""
+    from app_url import public_base
+    now = _now()
+    rows = (db.query(DevNoteToken)
+            .filter(DevNoteToken.email == user["email"].lower(), or_(DevNoteToken.revoked_at == "", DevNoteToken.revoked_at.is_(None)))
+            .all())
+    last = max((t.last_used_at for t in rows if t.last_used_at and (t.expires_at or "") > now), default="")
+    connected = bool(last) and (datetime.fromisoformat(now) - datetime.fromisoformat(last)).total_seconds() <= CONNECTED_SEC
+    return {"connected": connected, "lastSeen": last, "apiBase": public_base()}
 
 
 @router.get("/tokens")
@@ -1487,19 +1622,31 @@ def _last_human_comment(n: DevNote) -> bool:
     return _answered(n.thread or [])
 
 
-def _pending_ids(db: Session) -> list:
-    """Ids of the pins Claude Code should pick up: dispatched ones, plus pins
+def sent_by(n) -> str:
+    """Whose Claude Code a pin belongs to: whoever sent it; a pin sent before
+    dispatched_by existed belongs to its author."""
+    return ((getattr(n, "dispatched_by", "") or "") or (n.created_by or "")).lower()
+
+
+def _pending_ids(db: Session, email: str) -> list:
+    """Ids of the pins THIS person's Claude Code should pick up (Pranshu,
+    Oct 26: several watchers run at once - Neil's, Visesh's, mine - and a pin
+    must never land in someone else's terminal): the ones they sent, plus pins
     Claude was waiting on whose author has answered. A claim clears the second
     kind by appending its own entry. Cheap on purpose - this runs every 2 s
-    per waiting watcher - so only id, status and thread are read."""
-    rows = (db.query(DevNote.id, DevNote.status, DevNote.thread)
-            .filter(DevNote.status.in_(("dispatched", "needs_input", "building")))
+    per waiting watcher - so only these columns are read."""
+    email = (email or "").lower()
+    rows = (db.query(DevNote.id, DevNote.status, DevNote.thread, DevNote.dispatched_by, DevNote.created_by)
+            .filter(DevNote.status.in_(("dispatched", "needs_input", "building")),
+                    or_(func.lower(DevNote.dispatched_by) == email,
+                        and_(or_(DevNote.dispatched_by == "", DevNote.dispatched_by.is_(None)),
+                             func.lower(DevNote.created_by) == email)))
             .order_by(DevNote.created_at.asc()).all())
     return [r.id for r in rows if r.status == "dispatched" or _answered(r.thread or [])]
 
 
-def _pending(db: Session) -> list:
-    ids = _pending_ids(db)
+def _pending(db: Session, email: str) -> list:
+    ids = _pending_ids(db, email)
     if not ids:
         return []
     rows = db.query(DevNote).filter(DevNote.id.in_(ids)).all()
@@ -1507,12 +1654,12 @@ def _pending(db: Session) -> list:
     return sorted(rows, key=lambda n: order.get(n.id, 0))
 
 
-def _poll_pending() -> tuple:
+def _poll_pending(email: str) -> tuple:
     """One poll on its own short-lived session (called in a thread); the full
     rows are loaded and serialized only on a hit."""
     db = database.SessionLocal()
     try:
-        notes = _pending(db)
+        notes = _pending(db, email)
         if not notes:
             return [], []
         sids = {n.session_id for n in notes if n.session_id}
@@ -1525,14 +1672,15 @@ def _poll_pending() -> tuple:
 @router.get("/cli/wait")
 async def cli_wait(timeout: int = Query(25, ge=0, le=WAIT_MAX_SEC),
                    user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
-    """Long poll: returns at once when a pin is waiting, else polls every 2 s
-    up to `timeout` and returns empty lists. Every query runs in a thread and
-    the sleep is asyncio's - nothing here may block the event loop."""
+    """Long poll: returns at once when a pin the caller sent is waiting, else
+    polls every 2 s up to `timeout` and returns empty lists. Every query runs
+    in a thread and the sleep is asyncio's - nothing here may block the event loop."""
     await asyncio.to_thread(db.close)   # give the pooled connection back for the wait
+    email = (user.get("email") or "").lower()
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while True:
-        notes, sessions = await asyncio.to_thread(_poll_pending)
+        notes, sessions = await asyncio.to_thread(_poll_pending, email)
         remaining = deadline - loop.time()
         if notes or remaining <= 0:
             return {"notes": notes, "sessions": sessions}
@@ -1540,8 +1688,9 @@ async def cli_wait(timeout: int = Query(25, ge=0, le=WAIT_MAX_SEC),
 
 
 @router.get("/cli/whoami")
-def cli_whoami(user: dict = Depends(require_build_mode_or_token)):
-    return {"email": user["email"], "tokenLabel": user.get("token_label") or ""}
+def cli_whoami(user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
+    return {"email": user["email"], "tokenLabel": user.get("token_label") or "",
+            "onePr": bool(_settings(db, user["email"]).get("onePr"))}
 
 
 @router.post("/cli/claim")
@@ -1549,7 +1698,8 @@ def cli_claim(body: dict, user: dict = Depends(require_build_mode_or_token), db:
     ids = _ids(body)
     if not ids:
         raise HTTPException(400, "noteIds is required")
-    notes, skipped = _batch(db, ids, ("dispatched", "needs_input", "building"), "cannot be claimed", skip_held=True)
+    notes, skipped = _batch(db, ids, ("dispatched", "needs_input", "building"), "cannot be claimed", skip_held=True,
+                            sent_to=(user.get("email") or "").lower())
     now = _now()
     out = []
     touched = []
@@ -1584,12 +1734,13 @@ def cli_claim(body: dict, user: dict = Depends(require_build_mode_or_token), db:
     return {"notes": out, "sessions": [_serialize_session(s) for s in touched], "skipped": skipped}
 
 
-def _batch(db: Session, ids: list, eligible: tuple, verb: str, skip_held: bool = False) -> tuple:
+def _batch(db: Session, ids: list, eligible: tuple, verb: str, skip_held: bool = False, sent_to: str = "") -> tuple:
     """The pins of a CLI batch that can take the step, plus `skipped`
     [{id, number, status, reason}] for the rest. Per pin on purpose: one
     dismissed pin in a batch must not stop the PR being recorded on the others.
     404 only when NO id exists, 409 only when NONE is eligible. `skip_held`
-    also skips pins held for another developer (code_owners.py)."""
+    also skips pins held for another developer (code_owners.py); `sent_to`
+    (claim) skips pins someone else sent - they belong to that person's Claude Code."""
     wanted = list(dict.fromkeys(ids))
     rows = {n.id: n for n in db.query(DevNote).filter(DevNote.id.in_(wanted)).with_for_update().all()}
     if not rows:
@@ -1602,6 +1753,9 @@ def _batch(db: Session, ids: list, eligible: tuple, verb: str, skip_held: bool =
         elif skip_held and _held(n):
             skipped.append({"id": i, "number": n.number or 0, "status": n.status,
                             "reason": f"{_waits_for(n)} - it is in their area"})
+        elif sent_to and sent_by(n) != sent_to:
+            skipped.append({"id": i, "number": n.number or 0, "status": n.status,
+                            "reason": f"Pin #{n.number} was sent to {_name_of(db, sent_by(n))}'s Claude Code, not yours"})
         elif n.status not in eligible:
             skipped.append({"id": i, "number": n.number or 0, "status": n.status,
                             "reason": f"Pin #{n.number} is {n.status} and {verb}"})

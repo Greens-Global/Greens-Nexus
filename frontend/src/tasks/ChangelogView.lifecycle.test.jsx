@@ -118,13 +118,19 @@ describe('Feature requests', () => {
     render(<Changelog />);
     fireEvent.click(await screen.findByRole('button', { name: /Feature Request/ }));
     const dialog = await screen.findByRole('dialog');
+    // The form leads; the list is behind My Requests (Sagar, Oct 27).
+    expect(within(dialog).queryByText('Export to Excel')).toBeNull();
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'My Requests (2)' }));
     expect(await within(dialog).findByText('Export to Excel')).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: /Shipped In: Shipped Thing/ })).toBeTruthy();
     expect(within(dialog).getByText('Planned')).toBeTruthy();
     expect(within(dialog).getByText(/Next month/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'New Request' }));
     fireEvent.change(within(dialog).getByLabelText('What would you like?'), { target: { value: 'Bulk edit' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Send Request' }));
     await waitFor(() => expect(api.raiseChangelogRequest).toHaveBeenCalledWith({ note: 'Bulk edit', module: '' }));
+    // Sent: it lands on My Requests to show the request and its status.
+    expect(await within(dialog).findByRole('button', { name: 'New Request' })).toBeTruthy();
   });
 
   it('a request is a ticket: its thread reads and writes the ticket comments', async () => {
@@ -138,6 +144,7 @@ describe('Feature requests', () => {
     render(<Changelog />);
     fireEvent.click(await screen.findByRole('button', { name: /Feature Request/ }));
     const dialog = await screen.findByRole('dialog');
+    fireEvent.click(await within(dialog).findByRole('button', { name: /My Requests/ }));
     expect(await within(dialog).findByRole('button', { name: /TKT-000009/ })).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: /1 Comment/ }));
     expect(await within(dialog).findByText('On our list')).toBeTruthy();

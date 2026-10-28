@@ -437,6 +437,24 @@ def decide(rid: str, body: DecisionIn, user: dict = Depends(get_current_user), d
     return _ser_many(db, [r])[0]
 
 
+def waiting_on(db: Session, me: str) -> list:
+    """[(claim, step)] the caller can decide right now, oldest first - the
+    gates decide() checks: "approver" for a submitted claim that names them,
+    "hr" for one its approver approved, once the receipt is in (until then
+    it waits on the employee, and HR's Approve is refused). Never their own.
+    The Approvals inbox (approvals_inbox.py) lists these."""
+    me = _norm(me)
+    if not me:
+        return []
+    R = ExpenseReimbursement
+    out = [(r, "approver") for r in db.query(R).filter(R.status == "submitted", func.lower(R.approver_email) == me,
+                                                        R.employee_email != me).all()]
+    if _hr_anywhere(db, me):
+        out += [(r, "hr") for r in db.query(R).filter(R.status == "approver_approved", R.employee_email != me).all()
+                if (r.receipts or []) and _is_hr(db, me, r)]
+    return sorted(out, key=lambda x: x[0].created_at or "")
+
+
 # ── Employee: receipts, cancel ──────────────────────────────────────────────
 
 class ReceiptsIn(BaseModel):

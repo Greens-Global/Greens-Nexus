@@ -9,6 +9,8 @@ vi.mock('../api', () => ({
   api: {
     timeTeam: () => Promise.resolve({ rows: [] }),
     timeOffList: () => Promise.resolve([]),
+    timeOffAwaitingHr: () => Promise.resolve([]),
+    timeOffCalendar: () => Promise.resolve({ entries: [], holidays: [] }),
     timeMonitoringAlerts: () => Promise.resolve({ alerts: [] }),
     timesheetReviewWaiting: () => Promise.resolve({ reviews: [] }),
     timePunchRequests: () => Promise.resolve([
@@ -55,6 +57,16 @@ describe('People > Time Action Log', () => {
     const card = screen.getByText('Amy Ops').closest('div[style*="border-radius: 14px"]');
     fireEvent.click(within(card).getByText('Approve'));
     await waitFor(() => expect(decide).toHaveBeenCalledWith('q1', { status: 'approved', note: '' }));
+  });
+
+  it('Teams opens a chat with the person, their items typed in (Oct 28)', async () => {
+    render(<TimeAdmin toastOk={() => {}} toastErr={() => {}} initialView="actions" />);
+    await screen.findByText('Nick Build');
+    const card = screen.getByText('Nick Build').closest('div[style*="border-radius: 14px"]');
+    const url = new URL(within(card).getByText('Teams').closest('a').href);
+    expect(url.searchParams.get('users')).toBe('nick@x.com');
+    expect(url.searchParams.get('message')).toBe(
+      'Hi Nick, about your time sheet:\n- 10/05/2026: No clock-out - open shift, needs an out time\nCan we talk it through?');
   });
 
   it('takes a decided request off the list before the server answers (Oct 19)', async () => {

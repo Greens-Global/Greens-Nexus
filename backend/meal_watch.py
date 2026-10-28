@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 import models
 from database import SessionLocal
 from notify_rollup import upsert_rollup
+import job_switch
 
 DEFAULT_REMIND_MIN = 270
 MAX_REMIND_MIN = 295            # must land before the 5-hour deadline
@@ -167,6 +168,8 @@ def meal_scan(db: Session, now_utc: datetime = None) -> dict:
 
 
 def tick() -> dict:
+    if job_switch.off("meal_watch"):   # Workflows > Automations switch
+        return {}
     db = SessionLocal()
     try:
         return meal_scan(db)

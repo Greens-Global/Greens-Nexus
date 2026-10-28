@@ -397,8 +397,10 @@ describe('MreTab column filters', () => {
     expect(screen.getByText('Microsoft')).toBeTruthy();
     // With the category: nothing left, the boxes stay so they can be cleared.
     fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'utilities' } });
-    expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
-    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Entity' }), { target: { value: '' } });
+    expect(screen.getByText(/Nothing matches these column filters\./)).toBeTruthy();
+    // UI test 10/27: the shared row's link empties the boxes (the category stays).
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Column Filters' }));
+    expect(screen.getByRole('textbox', { name: 'Filter Entity' }).value).toBe('');
     expect(screen.getByText('San Diego Gas & Electric')).toBeTruthy();
     fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: '' } });
     // An amount box: Expected > 100 leaves SDG&E only, with the vendor search on top.
@@ -407,7 +409,7 @@ describe('MreTab column filters', () => {
     expect(screen.queryByText('Microsoft')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Search a vendor' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Search a vendor' }), { target: { value: 'micro' } });
-    expect(screen.getByText('Nothing matches these column filters.')).toBeTruthy();
+    expect(screen.getByText(/Nothing matches these column filters\./)).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Search a vendor'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: /Export/ }));
     fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
@@ -450,7 +452,7 @@ describe('MreTab standard table view', () => {
     const file = downloadBlob.mock.calls[0][1];
     const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(String(fr.result)); fr.readAsText(file); });
     const lines = text.replace(/^\s+/, '').split('\r\n');
-    expect(lines[0].startsWith('Vendor No.,Vendor,Category,Frequency,Entity,Expected,Jan')).toBe(true);
+    expect(lines[0].startsWith('Vendor No.,Vendor,Status,Category,Frequency,Entity,Expected,Jan')).toBe(true);
     expect(lines[0]).not.toContain('Notes');
     expect(text).toContain('San Diego Gas & Electric');
     expect(text).not.toContain('Microsoft');

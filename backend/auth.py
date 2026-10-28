@@ -322,6 +322,7 @@ MODULE_API_PREFIXES = {
     "credvault":          ("/credvault",),
     "egnyte":             ("/egnyte",),
     "workforce-scorecard": ("/workforce-scorecard",),   # endpoints self-gate on the grant + scope
+    "workflows":          ("/workflows",),              # Workflows (Oct 28 2026); /workflows/approvals/* self-gates per approver
 }
 
 
@@ -762,6 +763,8 @@ TEAM_ALLOWED_HR_ROUTES = frozenset({
     ("GET", "/hr/employees/{eid}/geofence"),        # Work Mode tab
     ("GET", "/hr/employees/{eid}/bod"),             # Work Logs tab
     ("GET", "/hr/employees/{eid}/access"),          # Access tab, read only
+    ("GET", "/hr/employees/{eid}/custom-fields"),   # More Details tab, read only - never an HR Only field (Oct 27 2026)
+    ("GET", "/hr/custom-fields"),                   # the field names for the list filter - HR Only ones left out
     ("GET", "/hr/employees/{eid}/compensation"),    # Pay & Benefits, read only - DIRECT reports only,
     ("GET", "/hr/employees/{eid}/paystubs"),        # no bank accounts (hr.py checks each record; Oct 7)
     ("GET", "/hr/documents/{did}/url"),             # opening one of those paystubs - nothing else
@@ -781,6 +784,11 @@ TEAM_ALLOWED_HR_ROUTES = frozenset({
     ("GET", "/hr/role-change-requests"),
     ("GET", "/hr/role-change-requests/{rid}"),
     ("GET", "/hr/role-history"),
+    # Probation (Oct 27 2026): a manager reads their team's and recommends
+    # Confirm / Extend / End for their own reports - HR finalizes
+    # (hr_probation.actor_role checks each record).
+    ("GET", "/hr/employees/{eid}/probation"),
+    ("POST", "/hr/employees/{eid}/probation/decision"),
 })
 
 

@@ -14,21 +14,22 @@ import Composer from './Composer';
 import EditInPlace, { restoreAllEdits, restoreEdit } from './EditInPlace';
 import Panel from './Panel';
 import { store, useBuildStore, turnOff, saveSettings, takePendingPin, toast, loadDrafts, saveDraft, removeDraft, newId } from './store';
-import { describeTarget, rectOf, anchorRect, stateOf, preloadSourceFiles } from './lib/capture';
-import { startTabCapture, stopTabCapture, captureStatus, grabFrame, withUiHidden, makeShots, shiftItems } from './lib/screenshot';
-import { useRole } from '../contexts/RoleContext';
-import { startRecording, stopRecording, isRecording, startSpeech, speechSupported } from './lib/recorder';
+import { describeTarget, rectOf, regionTarget, anchorRect, stateOf, preloadSourceFiles } from './lib/capture';
+import { startTabCapture, stopTabCapture, grabBestFrame, makeShots, shiftItems, wantsTabCapture, AREA_PAD } from './lib/screenshot';
+import { useRole, MODULES } from '../contexts/RoleContext';
+import { startRecording, stopRecording, isRecording, startSpeech, speechSupported, setRecordAudio, recordAudioOn } from './lib/recorder';
 import { startBuffers, stopBuffers, pauseBuffers, snapshotBuffers } from './lib/buffers';
 import { setActionContext, pauseActions, snapshotActions } from './lib/actions';
 import { sensitiveRects } from './lib/privacy';
 import { uploadDevNoteFile } from './lib/upload';
 import { installHotkeys } from './lib/hotkeys';
-import { MARKUP_TOOLS, pinHeld } from './meta';
+import { MARKUP_TOOLS, pinHeld, CLAUDE_SEND_ON } from './meta';
 import { NAV, isNavItemVisible } from '../components/Sidebar';
 
 const TESTING_NAV = NAV.find((item) => item.view === 'testing');
 
 const BUILD_ID = import.meta.env.VITE_BUILD_ID || 'dev';
+const ROUTE_LABEL = Object.fromEntries((MODULES || []).map((m) => [m.id, m.label]));
 
 const newDraft = (target, view, sub) => ({
   id: newId(), kind: 'bug', priority: 'normal', comment: '', attachments: [], target, route: view, sub: sub || '', edit: null, transcript: '', markup: [], createdAt: new Date().toISOString(),
@@ -66,7 +67,9 @@ export default function BuildModeApp({ view, sub }) {
   // ── Lifecycle of one mode-on ─────────────────────────────────────────────
   useEffect(() => {
     startBuffers();
-    startTabCapture();
+    // Screenshots come from the page itself (no prompt); the tab stream only
+    // when the person asked for Higher Quality Screenshots.
+    if (wantsTabCapture()) startTabCapture();
     if (import.meta.env.VITE_NX_SRC) preloadSourceFiles();   // the source-stamp file table (dev builds)
     store.set({ showPins: store.get().settings?.pinsOnLoad !== false });
     return () => {
@@ -99,6 +102,25 @@ export default function BuildModeApp({ view, sub }) {
     return () => { stop(); window.removeEventListener('focus', onFocus); };
   }, [loadPins, s.version]);
   useEffect(() => { if (!s.panelOpen) loadPins(); }, [s.panelOpen]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Is your own Claude Code listening? (every 15 s while visible) ────────
+  useEffect(() => {
+    const check = () => Promise.resolve(api.devNotesClaudeConnection?.())
+      .then((c) => { if (c && typeof c === 'object') store.set({ claude: c }); })
+      .catch(() => { /* keep the last answer */ });
+    check();
+    return pollWhileVisible(check, 15000);
+  }, []);
+
+  // ── Your open comments on every screen (the strip's Done count) ──────────
+  const [mine, setMine] = useState([]);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(api.devNotesList?.({ status: 'open', mine: 1 }))
+      .then((list) => { if (live) setMine(Array.isArray(list) ? list.filter((p) => !pinHeld(p)) : []); })
+      .catch(() => { /* keep the last count */ });
+    return () => { live = false; };
+  }, [s.version, s.panelOpen]);
 
   // ── Deep link: /dev-notes?pin=<id> or a bell ─────────────────────────────
   useEffect(() => {
@@ -151,6 +173,16 @@ export default function BuildModeApp({ view, sub }) {
     store.set({ pick: { target, rect, mode }, openPinId: '' });
   }, [blocked, view, sub]);
 
+  // A box drawn with nothing being written yet opens the comment box on it
+  // (Pranshu, Oct 27): the box says where, the comment says what. Markup is in
+  // page coordinates; the pick is the box's area on screen now.
+  const addMarkup = (item) => {
+    store.set((st) => ({ markup: [...st.markup, item] }));
+    if (item.type !== 'rect' || store.get().pick) return;
+    const r = { x: item.x - (window.scrollX || 0), y: item.y - (window.scrollY || 0), w: item.w, h: item.h };
+    onPick(regionTarget(r), { ...r, pageX: Math.round(item.x), pageY: Math.round(item.y) }, 'region', null);
+  };
+
   const ensureComposer = () => {
     if (store.get().pick) return;
     const el = document.querySelector('main .viewport') || document.querySelector('main') || document.body;
@@ -161,6 +193,7 @@ export default function BuildModeApp({ view, sub }) {
     if (discard && draft) { removeDraft(draft.id); setDraft(null); setRecorded(null); store.set({ pick: null, markup: [] }); }
     else store.set({ pick: null });
     stopVoice();
+    setAskRecord(false);
   };
 
   // ── Edit In Place ────────────────────────────────────────────────────────
@@ -189,12 +222,27 @@ export default function BuildModeApp({ view, sub }) {
   const toggleVoice = () => (speechStop.current ? stopVoice() : startVoice());
 
   // ── Record (V) ───────────────────────────────────────────────────────────
-  const toggleRecord = async () => {
+  // Video asks With Audio or Without Audio in the comment box first, and the
+  // pick starts it (Pranshu, Oct 27); Mic On / Off switches it while it runs.
+  const [askRecord, setAskRecord] = useState(false);
+  const toggleRecord = () => {
     if (store.get().recording || isRecording()) { stopRecording(); return; }
     if (blocked) return;
     ensureComposer();
+    setAskRecord(true);
+  };
+  const toggleRecordAudio = async () => {
+    const r = store.get().recording;
+    if (!r) return;
+    const on = await setRecordAudio(!r.audio);
+    if (!r.audio && !on) toast('The microphone is not allowed in this browser');
+    store.set((st) => (st.recording ? { recording: { ...st.recording, audio: on } } : null));
+  };
+  const beginRecord = async (audio) => {
+    setAskRecord(false);
     try {
       const ok = await startRecording({
+        audio,
         onTranscript: (t) => store.set((st) => (st.recording ? { recording: { ...st.recording, transcript: t } } : null)),
         onDone: (r) => {
           store.set({ recording: null });
@@ -204,7 +252,7 @@ export default function BuildModeApp({ view, sub }) {
           toast('Recording attached - save the pin to keep it');
         },
       });
-      if (ok) store.set({ recording: { startedAt: Date.now(), transcript: '' } });
+      if (ok) store.set({ recording: { startedAt: Date.now(), transcript: '', audio: recordAudioOn() } });
     } catch (e) { toast(e?.message || 'Recording is not available here'); }
   };
 
@@ -224,14 +272,12 @@ export default function BuildModeApp({ view, sub }) {
       const vpItems = shiftItems(items, -scrollAt.x, -scrollAt.y);
       const vp = { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1, ua: navigator.userAgent, phone: isMobile, theme: document.documentElement.getAttribute('data-theme') || 'light' };
       let screenshotUrl = '', pageShotUrl = '';
-      if (captureStatus() === 'live') {
-        const boxes = sensitiveRects();
-        const frame = await withUiHidden(() => grabFrame());
-        if (frame) {
-          const shots = await makeShots({ frame, rect: pick.rect, markup: { items: vpItems }, vp, boxes });
-          if (shots.page) pageShotUrl = await uploadDevNoteFile(draft.id, 'page', shots.page, 'png');
-          if (shots.element) screenshotUrl = await uploadDevNoteFile(draft.id, 'screenshot', shots.element, 'png');
-        }
+      const boxes = sensitiveRects();
+      const { frame, whole } = await grabBestFrame(pickElRef.current, pick.rect);
+      if (frame) {
+        const shots = await makeShots({ frame, rect: pick.rect, markup: { items: vpItems }, vp, boxes, whole, pad: whole ? 24 : AREA_PAD });
+        if (shots.page) pageShotUrl = await uploadDevNoteFile(draft.id, 'page', shots.page, 'png');
+        if (shots.element) screenshotUrl = await uploadDevNoteFile(draft.id, 'screenshot', shots.element, 'png');
       }
       let videoUrl = '', contactSheetUrl = '';
       if (recorded?.video) {
@@ -257,8 +303,8 @@ export default function BuildModeApp({ view, sub }) {
       // On someone else's area the server holds the pin for them (v2) - only
       // its word counts: no `held` = not held.
       const heldFor = note.held === true ? (note.ownerName || 'its owner') : '';
-      let sent = !!s.settings?.sendInstantly && !heldFor;
-      if (sendNow && !sent && !heldFor) {
+      let sent = CLAUDE_SEND_ON && !!s.settings?.sendInstantly && !heldFor;
+      if (CLAUDE_SEND_ON && sendNow && !sent && !heldFor) {
         try { await api.devNotesDispatch({ noteIds: [note.id] }); sent = true; }
         catch (e) { toast(`Pin #${note.number} saved, but not sent: ${e?.message || 'dispatch failed'}`); }
       }
@@ -336,7 +382,7 @@ export default function BuildModeApp({ view, sub }) {
   };
 
   const panel = (
-    <Panel open={s.panelOpen} tab={s.panelTab} onTab={(t) => store.set({ panelTab: t })} onClose={() => store.set({ panelOpen: false })}
+    <Panel open={s.panelOpen} tab={s.panelTab} onTab={(t) => store.set({ panelTab: t })} onClose={() => store.set({ panelOpen: false, postFromDone: false })} postFromDone={s.postFromDone}
       settings={s.settings} onSettings={saveSettings} onOpenPin={openFromPanel} version={s.version} onDispatched={() => store.set((st) => ({ version: st.version + 1 }))} myEmail={myEmail} />
   );
   const toastEl = s.toast && <div className="bm-toast" role="status">{s.toast.text}</div>;
@@ -356,15 +402,20 @@ export default function BuildModeApp({ view, sub }) {
   }
 
   const queueCount = pins.filter((p) => p.status === 'open' && !pinHeld(p)).length;
+  // Done counts every open comment of yours on every screen, by module.
+  const doneTitle = Object.entries(mine.reduce((m, p) => ({ ...m, [p.route || 'other']: (m[p.route || 'other'] || 0) + 1 }), {}))
+    .map(([r, n]) => `${ROUTE_LABEL[r] || r} ${n}`).join(' · ');
   return (
     <div data-nx-devnotes="1" className="bm-root">
-      <Overlay tool={s.tool} color={s.color} interactive={!s.editPick && !s.panelOpen} items={s.markup}
-        onAdd={(item) => store.set((st) => ({ markup: [...st.markup, item] }))} onPick={onPick}
+      <Overlay tool={s.tool} color={s.color} interactive={!s.editPick && !s.panelOpen && s.tool !== 'browse'} items={s.markup}
+        onAdd={addMarkup} onPick={onPick}
         faintItems={faint.items} faintOffset={faint.offset} />
       <Pins pins={pins} me={me} openPinId={s.openPinId} show={s.showPins} onOpen={(id) => store.set({ openPinId: id, pick: null })} onClose={() => store.set({ openPinId: '' })} onChanged={onPinChanged} />
       {s.pick && draft && (
         <Composer pick={s.pick} draft={draft} onChange={updateDraft} onCancel={cancelComposer} onSave={save} saving={saving} settings={s.settings} view={view}
+          claudeConnected={s.claude?.connected !== false}
           capture={s.capture} recording={s.recording} onRecord={toggleRecord} onStopRecord={() => stopRecording()} recorded={recorded}
+          askRecord={askRecord} onRecordChoice={beginRecord} onRecordAskCancel={() => setAskRecord(false)} onToggleAudio={toggleRecordAudio}
           voiceOn={voiceOn} interim={interim} onVoiceStart={startVoice} onVoiceStop={stopVoice}
           markupCount={s.markup.length} onClearMarkup={() => store.set({ markup: [] })} />
       )}
@@ -373,7 +424,8 @@ export default function BuildModeApp({ view, sub }) {
         canUndo={s.markup.length > 0} onUndo={() => store.set((st) => ({ markup: st.markup.slice(0, -1) }))}
         onVideo={toggleRecord} recording={!!s.recording} onVoice={toggleVoice} voiceOn={voiceOn} voiceSupported={speechSupported()}
         onQueue={() => store.set((st) => ({ panelOpen: !st.panelOpen }))} queueCount={queueCount} onOff={turnOff}
-        showPins={s.showPins} onTogglePins={() => store.set((st) => ({ showPins: !st.showPins }))} isMobile={isMobile} />
+        showPins={s.showPins} onTogglePins={() => store.set((st) => ({ showPins: !st.showPins }))} isMobile={isMobile}
+        allTools={s.allTools} onDone={() => store.set({ panelOpen: true, panelTab: 'queue', postFromDone: true })} doneCount={mine.length} doneTitle={doneTitle} />
       {panel}
       {toastEl}
     </div>

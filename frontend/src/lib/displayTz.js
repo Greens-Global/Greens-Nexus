@@ -1,42 +1,30 @@
-// Timecard display timezone (California / India), with a top-right switcher.
+// Timecard display timezone (California / India).
 //
-// Punch times are stored UTC; the manager tallies Nexus against SwipeClock, whose
-// site clock is California (Pacific). So the timecard DEFAULTS to California -
-// India-based staff punches then read in Pacific, lining up 1:1 with SwipeClock -
-// and a switcher flips the whole card to India (IST) local time when wanted.
+// Punch times are stored UTC. A card reads in the EMPLOYEE's zone (the
+// server's `zoneKey`: India-based staff in IST, US staff in Pacific, which
+// lines up 1:1 with SwipeClock's site clock); with no zone it is California.
+// There is no switcher and nothing remembered (Oct 28 2026 - a card flipped to
+// the other zone kept showing wrong times, and an old flip stayed saved).
 //
-// The choice is a single app-wide, localStorage-backed setting. A module cache
-// (`_current`) lets the plain formatters (t12/t12s) stay tz-aware without
-// threading a prop through every cell; components call useDisplayTz() so they
-// re-render - and re-run those formatters - the moment the switch changes.
+// A module cache (`_current`) lets the plain formatters (t12/t12s) stay
+// tz-aware without threading a prop through every cell; components call
+// useDisplayTz() so they re-render - and re-run those formatters - the moment
+// the zone changes.
 import { useState, useEffect } from 'react';
 
 export const TZ_OPTIONS = [
   { key: 'california', label: 'California', tz: 'America/Los_Angeles', abbr: 'PT' },
   { key: 'india',      label: 'India',      tz: 'Asia/Kolkata',        abbr: 'IST' },
 ];
-const STORAGE_KEY = 'nexus:timecardTz';
 const EVENT = 'nexus:timecard-tz';
-
-function readStored() {
-  let v = '';
-  try { v = localStorage.getItem(STORAGE_KEY) || ''; } catch { /* SSR / blocked */ }
-  return TZ_OPTIONS.find((o) => o.key === v) || TZ_OPTIONS[0];   // default California
-}
+const readStored = () => TZ_OPTIONS[0];   // California when no card sets a zone
 
 let _current = readStored();
 
 export function currentTzOption() { return _current; }
 
-// The zone of the employee whose team card is open ('' = none) - see
-// useEmployeeZone. While set, a click on the switch is remembered for that
-// kind of employee instead of app-wide.
-let _viewing = '';
-const PICK_PREFIX = 'nexus:timecardTz:for:';
-
 export function setDisplayTz(key) {
   const next = TZ_OPTIONS.find((o) => o.key === key) || TZ_OPTIONS[0];
-  try { localStorage.setItem(_viewing ? PICK_PREFIX + _viewing : STORAGE_KEY, next.key); } catch { /* ignore */ }
   if (next.key === _current.key) return;
   _current = next;
   window.dispatchEvent(new CustomEvent(EVENT));
@@ -44,23 +32,16 @@ export function setDisplayTz(key) {
 
 /** The zone a team card opens in (Visesh, Oct 20 2026): the EMPLOYEE's
  *  (`zoneKey` from the server - India-based staff read in India time, US
- *  staff in California time), unless this viewer flipped the switch on an
- *  employee of that kind before - that choice is remembered per viewer
- *  (this browser) and per employee zone. Leaving puts the saved app-wide
- *  choice back. */
+ *  staff in California time). Leaving puts the default back. */
 export function useEmployeeZone(on, zoneKey = '') {
   useEffect(() => {
-    if (!on || !TZ_OPTIONS.some((o) => o.key === zoneKey)) return undefined;
-    let picked = '';
-    try { picked = localStorage.getItem(PICK_PREFIX + zoneKey) || ''; } catch { /* blocked storage: use the default */ }
-    const next = TZ_OPTIONS.find((o) => o.key === picked) || TZ_OPTIONS.find((o) => o.key === zoneKey);
-    _viewing = zoneKey;
+    const next = on && TZ_OPTIONS.find((o) => o.key === zoneKey);
+    if (!next) return undefined;
     if (next.key !== _current.key) {
       _current = next;
       window.dispatchEvent(new CustomEvent(EVENT));
     }
     return () => {
-      _viewing = '';
       const saved = readStored();
       if (saved.key !== _current.key) {
         _current = saved;

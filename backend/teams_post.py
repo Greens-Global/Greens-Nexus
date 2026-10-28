@@ -24,6 +24,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 
 import httpx
+import job_switch
 
 GRAPH = "https://graph.microsoft.com/v1.0"
 RETRY_EVERY_SEC = 180
@@ -156,6 +157,8 @@ def deliver_row(db, row) -> bool:
 
 
 def _sweep_once() -> int:
+    if job_switch.off("teams_post"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     from models import TimeBod
     db = SessionLocal()
@@ -237,6 +240,11 @@ def deliver_ticket_row(db, row) -> bool:
         # not a DM: feature_requests.deliver picks who posts it.
         import feature_requests
         return feature_requests.deliver(db, row)
+    if (getattr(row, "kind", "") or "") == "build_mode":
+        # A Build Session card for the chat its author picked, screenshots
+        # inline (build_mode_chat.py).
+        import build_mode_chat
+        return build_mode_chat.deliver(db, row)
     try:
         tok = bff_session.graph_token_for_email(db, row.agent_email)
         if not tok:
@@ -257,6 +265,8 @@ def deliver_ticket_row(db, row) -> bool:
 
 
 def _sweep_ticket_once() -> int:
+    if job_switch.off("ticket_teams_post"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     from models import TicketTeamsMessage
     db = SessionLocal()

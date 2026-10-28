@@ -11,10 +11,18 @@ import { formatDate, formatDateLong } from '../lib/datetime';
 import { approvedLeaveDays, fmtDays, tenureLabel, openShiftMinutes } from '../lib/workdayStats';
 import EgnytePreview from '../egnyte/EgnytePreview';
 import { canPreview } from '../egnyte/lib';
-import { MyChecklistSteps } from '../components/HrChecklists';
 import MyShifts from '../components/MyShifts';
 import ReimbursementsTile from '../components/Reimbursements';
+import { usePopupNudge } from '../lib/usePopupNudge';
 import { PurchaseRequestTile } from '../components/PurchaseRequests';
+import { MyMoreDetails } from '../components/EmployeeCustomFields';
+import { MyLettersCard } from '../components/HrLetters';
+import { StatusLabel } from '../components/StatusLabel';
+import { TICKET_STATUS_META, CLOSED_STATES } from '../tickets/ticketMeta';
+import { uploadTicketEvidence } from '../tickets/evidenceUpload';
+import { filesFromPaste } from '../tasks/lib';
+import { setPendingOpen } from '../lib/pendingOpen';
+import SalaryAdvancesCard from '../components/SalaryAdvances';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -44,6 +52,21 @@ const ASK_TYPES = [
   ['document', 'Update a document'], ['profile', 'Profile change'],
   ['question', 'Question for HR'], ['other', 'Something else'],
 ];
+// What each kind is called on the ticket (hr_tickets.KIND_LABEL) - the row title.
+const ASK_KIND_LABEL = { document: 'Document Update', profile: 'Profile Change', question: 'HR Question', other: 'Other HR Request' };
+
+// Ask HR runs through Tickets (Neil, Oct 27 2026): a request is a confidential
+// HR ticket - only the person, the people they add and HR see it. My Requests
+// lists those tickets (`source: 'ticket'`) and opens one in the ticket drawer
+// on Support; requests answered before the move are Earlier Requests
+// (`source: 'earlier'`), read-only.
+const askIsTicket = (a) => a.source === 'ticket';
+const askIsOpen = (a) => (askIsTicket(a) ? !CLOSED_STATES.includes(a.status) : a.status === 'open');
+const openAskTicket = (id) => {
+  setPendingOpen('ticket', id);
+  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'support' } }));
+  window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId: id } }));
+};
 
 // Ask HR updates (Pranshu, Oct 15 2026): a request HR has acted on - answered,
 // resolved, or otherwise moved off Open - wears a dot on the Ask HR button
@@ -53,8 +76,12 @@ const ASK_TYPES = [
 // the phone still shows a dot on the laptop - move it to a column on the
 // request row if that ever matters.
 const ASK_SEEN_KEY = 'nexus:askhr-seen';
-const askMark = (a) => (a.response || a.resolvedAt || (a.status && a.status !== 'open'))
-  ? `${a.status || ''}|${a.resolvedAt || ''}|${a.response || ''}` : '';
+// A ticket starts In Progress the moment HR's contact takes it, so only a
+// reply or a finished request counts as news there.
+const askMark = (a) => (askIsTicket(a)
+  ? ((a.response || CLOSED_STATES.includes(a.status)) ? `${a.status || ''}|${a.responseAt || ''}|${a.response || ''}` : '')
+  : (a.response || a.resolvedAt || (a.status && a.status !== 'open'))
+    ? `${a.status || ''}|${a.resolvedAt || ''}|${a.response || ''}` : '');
 function readAskSeen() {
   try { return JSON.parse(localStorage.getItem(ASK_SEEN_KEY) || '{}') || {}; } catch { return {}; }
 }
@@ -116,7 +143,7 @@ function Stat({ label, value, hint, color, Icon, hero, title, onClick }) {
     : <div className={cls} style={{ cursor: 'default' }} title={title}>{body}</div>;
 }
 
-export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false }) {
+export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false, openSalaryAdvances = false }) {
   // A "confirm your schedule" bell or email (Shifts Phase 3a) lands here:
   // My Schedule shows that share's banner - bring the card into view.
   useEffect(() => {
@@ -157,11 +184,14 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
   const [askOpen, setAskOpen] = useState(false);
   // The Ask HR panel (top-right button) and what was new when it opened.
   const [askPanel, setAskPanel] = useState(false);
+  // A click outside nudges instead of closing (lib/usePopupNudge.js).
+  const { nudge: nudgeAsk, reset: resetAskNudge, popupClass: askPopupClass, closeClass: askCloseClass } = usePopupNudge();
+  useEffect(() => { if (!askPanel) resetAskNudge(); }, [askPanel, resetAskNudge]);
   const [askSeen, setAskSeen] = useState(readAskSeen);
   const [askFresh, setAskFresh] = useState(() => new Set());
   const isAskUnseen = (a) => { const m = askMark(a); return !!m && askSeen[a.id] !== m; };
   const askUnseen = asks.filter(isAskUnseen).length;
-  const askOpenCount = asks.filter((a) => a.status === 'open').length;
+  const askOpenCount = asks.filter(askIsOpen).length;
   const openAskPanel = () => {
     setAskFresh(new Set(asks.filter(isAskUnseen).map((a) => a.id)));
     const next = { ...askSeen };
@@ -356,19 +386,24 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
     if (!askForm.message.trim()) return;
     setAskBusy(true);
     try {
-      let attachment = {};
+      // Filed as an HR ticket; the file goes on it through the ticket upload
+      // path (the private ticket-evidence bucket), like any ticket attachment.
+      const created = await api.myHrRequestCreate({ type: askForm.type, message: askForm.message });
+      let fileNote = '';
       if (askFile) {
-        const form = new FormData();
-        form.append('file', askFile);
-        attachment = await api.myHrRequestAttach(form);   // { path, name }
+        try {
+          const url = await uploadTicketEvidence(askFile, 'ask-hr');
+          await api.addTicketAttachment(created.id, { name: askFile.name, size: String(askFile.size || ''),
+            kind: askFile.type?.startsWith('image/') ? 'image' : 'doc', url });
+          created.attachmentName = askFile.name;
+        } catch { fileNote = ' - the file did not upload, add it on the request'; }
       }
-      const created = await api.myHrRequestCreate({ ...askForm, attachment_path: attachment.path || '', attachment_name: attachment.name || '' });
       setAsks(a => [created, ...a]);
       setAskForm({ type: 'document', message: '' });
       setAskFile(null);
       if (askFileRef.current) askFileRef.current.value = '';
       setAskOpen(false);
-      flash('Sent to HR - you’ll hear back here');
+      flash(`Sent to HR - you’ll hear back here${fileNote}`, !fileNote);
     } catch (e) { flash(e?.message || 'Could not send', false); }
     finally { setAskBusy(false); }
   };
@@ -487,16 +522,19 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
             </button>
             {/* Reimbursements (Neil, Oct 18 2026): beside Ask HR, a panel - not a new tab. */}
             <ReimbursementsTile autoOpen={openReimbursements} flash={flash} />
-            {/* Purchase Request (Neil, Oct 22 2026): moved here from Item Management - opens the Purchase Requests tab. */}
+            {/* Purchase Request (Neil, Oct 22 2026): moved here from Item Management - opens the Purchase Requests popup (Sagar, Oct 27), like Reimbursements. */}
             <PurchaseRequestTile onOpen={onOpenPurchase || (() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'purchase' } })))} />
             </div>
           </div>
         </>
       ) : !profErr && <SkeletonBlocks count={1} height={74} />}
       {clockParts ? clockParts.card : clock}
-      {/* Onboarding / offboarding steps this person owns - a manager, IT or the
-          new hire ticks them here. Renders nothing when there are none. */}
-      <MyChecklistSteps />
+      {/* No checklist steps on Workday (Oct 28 2026): an owner's steps are
+          subtasks on their My Tasks. */}
+      {/* Salary Advance (Neil, Oct 27 2026): the manager tier and up ask, HR
+          decides and pays out. Renders nothing for anyone with no option,
+          no advance and no HR role. */}
+      <SalaryAdvancesCard autoOpen={openSalaryAdvances} flash={flash} />
       {/* Delegate My Approvals moved to the Time Off tab (Neil, Oct 20). */}
 
       {profErr ? (
@@ -582,6 +620,10 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                   </div>
                 )}
               </div>
+
+              {/* More Details (Oct 27 2026): the fields HR shares with employees -
+                  nothing at all until there is one. */}
+              <MyMoreDetails />
 
               {/* ── My Equipment ── */}
               <div className="dash-card">
@@ -704,6 +746,11 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                   });
                 })()}
               </div>
+              {/* HR Letters (Neil, Oct 27 2026): request an employment
+                  verification, salary certificate, visa NOC...; HR prepares
+                  it and the company signs it. Issued ones download here and
+                  sit in My Documents above. */}
+              <MyLettersCard flash={flash} />
               {previewFile && (
                 <EgnytePreview file={previewFile} onClose={() => setPreviewFile(null)}
                   fetchPreview={myhrFetchPreview} downloadFile={myhrDownloadFile} />
@@ -718,20 +765,21 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
           HR's answer; what HR changed since the last look is marked. */}
       {askPanel && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-          onClick={() => { setAskPanel(false); setAskOpen(false); }}>
-          <div role="dialog" aria-label="Ask HR" onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--card)', borderRadius: 14, width: '60vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', minHeight: '60vh', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+          onClick={nudgeAsk}>
+          {/* 85%, like Reimbursements and Purchase Requests - the Workday panels' exception in CLAUDE.md (Sagar, Oct 27). */}
+          <div role="dialog" aria-label="Ask HR" className={askPopupClass} onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--card)', borderRadius: 14, width: '85vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '85vh', maxHeight: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
             <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--line)' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Ask HR</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>A document update, a profile change or anything else</div>
               </div>
               {!askOpen && (
-                <button className="primary-btn" onClick={() => setAskOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
-                  <MessageSquarePlus size={13} /> New Request
+                <button className="primary-btn" aria-label="New Request" onClick={() => setAskOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
+                  <MessageSquarePlus size={13} /> New
                 </button>
               )}
-              <button type="button" onClick={() => { setAskPanel(false); setAskOpen(false); }} aria-label="Close"
+              <button type="button" className={askCloseClass} onClick={() => { setAskPanel(false); setAskOpen(false); }} aria-label="Close"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
             <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '14px 18px 18px', display: 'flex', flexDirection: 'column' }}>
@@ -745,7 +793,11 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                         <label style={lbl}>Details</label>
                         <textarea className="form-input" rows={3} style={{ ...input, resize: 'vertical' }} value={askForm.message} autoFocus
                           placeholder='e.g. "My visa was renewed - please update my right-to-work document."'
+                          onPaste={e => { const [f] = filesFromPaste(e); if (f) { e.preventDefault(); setAskFile(f); } }}
                           onChange={e => setAskForm(f => ({ ...f, message: e.target.value }))} />
+                        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+                          Only you, HR and anyone you add can see this request. Attach a document, or press Ctrl+V to paste a screenshot.
+                        </div>
                         {/* Optional attachment - the new/updated document itself */}
                         <input ref={askFileRef} type="file" style={{ display: 'none' }}
                           onChange={e => setAskFile(e.target.files?.[0] || null)} />
@@ -772,7 +824,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                       <div className="nx-fill">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                           <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>My Requests</span>
-                          {asks.length > 0 && (
+                          {asks.some(askIsTicket) && (
                             <select className="form-input" value={askFilter} onChange={e => setAskFilter(e.target.value)} aria-label="Filter my requests"
                               style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 22px 3px 8px', height: 'auto' }}>
                               <option value="all">All</option>
@@ -781,10 +833,41 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                             </select>
                           )}
                         </div>
-                        {asks.length === 0 && (
+                        {!asks.some(askIsTicket) && (
                           <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0 4px' }}>Nothing sent yet - HR answers here.</div>
                         )}
-                        {asks.filter(a => askFilter === 'all' || a.status === askFilter).map(a => (
+                        {asks.filter(askIsTicket).filter(a => askFilter === 'all' || (askFilter === 'open' ? askIsOpen(a) : !askIsOpen(a))).map(a => (
+                          <button type="button" key={a.id} data-ask-fresh={askFresh.has(a.id) || undefined} onClick={() => openAskTicket(a.id)}
+                            title="Open the request - the whole conversation with HR"
+                            style={{ display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', font: 'inherit', border: 'none', borderBottom: '1px solid var(--line)',
+                              padding: askFresh.has(a.id) ? '8px 10px' : '8px 0', borderRadius: askFresh.has(a.id) ? 8 : 0,
+                              background: askFresh.has(a.id) ? 'hsla(var(--color-blue),0.06)' : 'transparent' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              {askFresh.has(a.id) && <span title="Updated by HR" style={{ width: 8, height: 8, borderRadius: '50%', background: 'hsl(var(--color-red))', flexShrink: 0 }} />}
+                              <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+                                {ASK_KIND_LABEL[a.type] || 'HR Request'}{a.code ? ` · #${a.code}` : ''} · {fmtD(a.createdAt?.slice(0, 10))}
+                              </span>
+                              {askFresh.has(a.id) && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-red))' }}>Updated by HR</span>}
+                              <StatusLabel size="sm" label={TICKET_STATUS_META[a.status]?.label || a.status}
+                                color={TICKET_STATUS_META[a.status]?.color || '#64748b'} />
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{a.message}</div>
+                            {a.attachmentName && (
+                              <div style={{ fontSize: 11.5, color: 'hsl(var(--color-blue))', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <FileText size={11} /> {a.attachmentName}
+                              </div>
+                            )}
+                            {a.response && (
+                              <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 5, padding: '7px 10px', background: 'var(--mist)', borderRadius: 8 }}>
+                                <strong>HR:</strong> {a.response}
+                              </div>
+                            )}
+                          </button>
+                        ))}
+                        {asks.some(a => !askIsTicket(a)) && (
+                          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', margin: '16px 0 4px' }}>Earlier Requests</div>
+                        )}
+                        {asks.filter(a => !askIsTicket(a)).map(a => (
                           <div key={a.id} data-ask-fresh={askFresh.has(a.id) || undefined} style={{ padding: askFresh.has(a.id) ? '8px 10px' : '8px 0', borderBottom: '1px solid var(--line)',
                             background: askFresh.has(a.id) ? 'hsla(var(--color-blue),0.06)' : undefined, borderRadius: askFresh.has(a.id) ? 8 : undefined }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

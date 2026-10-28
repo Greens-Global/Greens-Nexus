@@ -27,13 +27,13 @@ beforeEach(() => {
 });
 
 describe('Team module', () => {
-  it('opens an employee on Shifts, Contact last, and never a manager page by address', async () => {
+  it('opens an employee on Shifts, Company Directory last, and never a manager page by address', async () => {
     role.level = 1;
     const onSubChange = vi.fn();
     const { rerender } = render(<Shifts activeSub={null} onSubChange={onSubChange} />);
     expect(screen.getByRole('heading', { name: 'Team' })).toBeTruthy();
     expect(screen.getByText('Group week')).toBeTruthy();
-    expect(tabNames()).toEqual(['Shifts', 'Contact']);
+    expect(tabNames()).toEqual(['Shifts', 'Company Directory']);
     rerender(<Shifts activeSub="contact" onSubChange={onSubChange} />);
     expect(await screen.findByText('Directory (embedded)')).toBeTruthy();
     rerender(<Shifts activeSub="schedule" onSubChange={onSubChange} />);
@@ -60,7 +60,7 @@ describe('Team module', () => {
     role.level = 3;
     const onSubChange = vi.fn();
     const { rerender } = render(<Shifts activeSub="shifts" onSubChange={onSubChange} />);
-    expect(tabNames().map((t) => t.replace(/\d+$/, '').trim())).toEqual(['Shifts', 'Schedule', 'Requests', 'Contact']);
+    expect(tabNames().map((t) => t.replace(/\d+$/, '').trim())).toEqual(['Shifts', 'Schedule', 'Requests', 'Company Directory']);
     expect(screen.queryByText(/Presets/)).toBeNull();
     // One pending swap + one decidable time-off request = 2 (the one that is not theirs to decide is not counted).
     expect(await screen.findByRole('tab', { name: 'Requests, 2 waiting' })).toBeTruthy();

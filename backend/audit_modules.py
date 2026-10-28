@@ -39,6 +39,7 @@ MODULES: list[tuple[str, str]] = [
     ("security", "Security & Sign-In"),
     ("system", "System"),
     ("other", "Other"),
+    ("workflows", "Workflows"),   # Oct 28 2026 - appended, never reordered
 ]
 MODULE_LABELS = dict(MODULES)
 MODULE_KEYS = [k for k, _ in MODULES]
@@ -110,6 +111,7 @@ _RESOURCES: dict[str, str] = {
     # System
     "client-errors": "system", "health": "system", "version": "system", "system": "system",
     "dev-notes": "settings",   # Build Mode pins, sessions, Build Tokens (Oct 24 2026)
+    "workflows": "workflows",  # Workflows: publish, pause, re-own, restore, settings (Oct 28 2026)
 }
 _RESOURCE_PREFIXES: list[tuple[str, str]] = [
     ("task-ticket", "tickets"), ("ticket", "tickets"),

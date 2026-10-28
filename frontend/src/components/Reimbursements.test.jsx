@@ -62,8 +62,11 @@ describe('Reimbursements', () => {
     const flash = vi.fn();
     render(<ReimbursementsTile flash={flash} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Reimbursements' }));
+    // "+ New", and no Manage for someone who is not HR (Neil, Oct 26).
+    expect(screen.getByRole('button', { name: 'New Reimbursement' }).textContent.trim()).toBe('New');
+    expect(screen.queryByRole('button', { name: /Manage/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /New Reimbursement/ }));
-    expect(screen.getByRole('dialog', { name: 'Reimbursements' }).style.width).toBe('60vw');
+    expect(screen.getByRole('dialog', { name: 'Reimbursements' }).style.width).toBe('85vw');   // the Workday popups' 85% (CLAUDE.md)
     const send = screen.getByRole('button', { name: 'Send for Approval' });
     expect(screen.queryByLabelText('Amount Paid')).toBeNull();          // the kind of expense comes first
     // The fields are worded for the kind: a meal is a Meal at a Restaurant.
@@ -129,7 +132,9 @@ describe('Reimbursements', () => {
   it('HR approves, then marks it paid with the date, method and reference; history shows', async () => {
     overview.mockResolvedValue({ ...none, canHr: true, hr: [row({ status: 'approver_approved', statusLabel: 'With HR' })] });
     render(<ReimbursementsTile autoOpen />);
-    await waitFor(() => expect(screen.getByRole('tab', { name: 'HR (1)' }).getAttribute('aria-selected')).toBe('true'));
+    // HR's queue opens from Manage in the header, not a tab (Neil, Oct 26).
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Manage (1)' }).getAttribute('aria-pressed')).toBe('true'));
+    expect(screen.queryByRole('tab', { name: /^HR/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /History/ }));
     expect(screen.getByText('Submitted')).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Approve/ })); });
@@ -146,5 +151,20 @@ describe('Reimbursements', () => {
     expect(await screen.findByText('Monitor')).toBeTruthy();
     expect(person).toHaveBeenCalledWith('amy@x.com');
     expect(screen.queryByRole('button', { name: /Approve/ })).toBeNull();     // read only there
+  });
+
+  // Sagar, Oct 27: a stray click outside must not throw away a half-filled
+  // claim - it nudges the popup and lights up Close instead.
+  it('a click outside nudges instead of closing; Close still closes', async () => {
+    render(<ReimbursementsTile autoOpen />);
+    const dialog = await screen.findByRole('dialog', { name: 'Reimbursements' });
+    fireEvent.click(dialog.parentElement);
+    expect(screen.getByRole('dialog', { name: 'Reimbursements' })).toBe(dialog);
+    expect(dialog.className).toMatch(/nx-nudge-a/);
+    expect(screen.getByRole('button', { name: 'Close' }).className).toMatch(/nx-close-nudge-a/);
+    fireEvent.click(dialog.parentElement);   // again: the other animation, so it replays
+    expect(dialog.className).toMatch(/nx-nudge-b/);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'Reimbursements' })).toBeNull();
   });
 });

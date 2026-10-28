@@ -66,6 +66,7 @@ from sqlalchemy.orm import Session
 import models
 from app_url import app_url
 from database import SessionLocal
+import job_switch
 
 BATCH = 50
 SYNC_SEC = 60
@@ -573,6 +574,8 @@ def _counts(db: Session) -> dict:
 
 
 def _tick() -> dict:
+    if job_switch.off("calendar_sync"):   # Workflows > Automations switch
+        return {}
     db = SessionLocal()
     try:
         return sync_once(db)

@@ -18,7 +18,10 @@ import EntryDetail from './EntryDetail';
 import { DateField } from '../../tasks/components';
 import { dialog } from '../../ui/dialog';
 import SidePanel, { PanelSection } from './SidePanel';
-import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths } from './recurringShared';
+import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecheckStatus, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths, useStaleRecheck } from './recurringShared';
+import { CompletenessButton, CompletenessPanel, gapCount, mriGaps, useJumpToRow } from './completeness';
+import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
+import { filterCellOf, filterColumnsOf } from './viewFilterColumns';
 
 // Accounting -> Leasing: leases and monthly recurring income (Neil and
 // Charmi, Sep 25). Rent was tracked in a workbook and chased by hand; this is
@@ -265,7 +268,7 @@ function rowFigures(row, [from, to]) {
 }
 
 /** Expired / Inactive in words, for the export. */
-const standingText = (r) => [r.expired ? 'Expired' : '', r.customerActive === false ? 'Inactive' : ''].filter(Boolean).join(', ');
+const standingText = (r) => [r.expired ? 'Expired' : '', r.customerActive === false ? 'Inactive' : '', r.lease?.possiblyEnded ? 'Possibly Ended' : ''].filter(Boolean).join(', ');
 /** The team note and the notes written on single months, for the export. */
 const notesText = (r) => [r.lease.teamNote?.text || '', monthNotesText(r)].filter(Boolean).join(' - ');
 /** The rate in force this month (the Amount column). */
@@ -307,6 +310,11 @@ const behindMonths = (r) => r.months.filter((c) => ['late', 'short', 'unpaid'].i
 const contactText = (l) => [l.contactName, l.phone].filter(Boolean).join(' · ');
 const ACTIONS = { fixed: true, noFilter: true, noSort: true, exportAs: [], text: () => '' };
 
+// 10/27: the boxes under the headings (columnFilters.jsx). The Property box
+// also finds the payer and the customer code the cell shows under it.
+const rollFilterColumns = (columns) => filterColumnsOf(columns, { instead: { property: (r) => (r.kind === 'account' ? rowName(r) : `${rowName(r)} ${tenantOf(r)} ${r.lease.customerId || ''}`) } });
+const filterCell = filterCellOf('property');
+
 /** Outstanding's columns for the standard table view (item 01): who owes the most first. */
 const OUTSTANDING_COLUMNS = [
   { key: 'property', label: 'Property or Source', fixed: true, text: (r) => r.lease.propertyName || '', exportAs: [{ label: 'Property or Source', width: 220, get: (r) => r.lease.propertyName }] },
@@ -339,6 +347,9 @@ const PAYER_COLUMNS = [
     exportAs: [{ label: 'Status', width: 120, get: (r) => [LEASE_STATUS[r.lease.status] || r.lease.status, standingText(r)].filter(Boolean).join(', ') }] },
   { key: 'change', label: 'Change', ...ACTIONS },
 ];
+const OUTSTANDING_FILTERS = filterColumnsOf(OUTSTANDING_COLUMNS);
+// The Dates box searches the cell as shown (start to end, or Month to Month).
+const PAYER_FILTERS = filterColumnsOf(PAYER_COLUMNS, { instead: { dates: PAYER_COLUMNS.find((c) => c.key === 'dates').text } });
 
 /** Chips for a row: Expired (an ended lease) and Inactive (the customer is inactive in Intacct). */
 function StandingChips({ row }) {
@@ -413,6 +424,9 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   useEffect(() => { load(year, entityKey ? entityKey.split(',') : []); }, [year, entityKey, load]);
   useEffect(() => { api.getAccountingLocations().then((d) => setLocations({ entities: d?.entities || [], limited: !!d?.limited })).catch(() => {}); }, []);
   const reload = () => load(year, entities);
+  // 10/27 (Urmi): a new Possibly Ended setting re-checks every source on the
+  // server; when it is done the rent roll is read again (flags, counts, export).
+  const recheck = useStaleRecheck(useCallback(() => withFreshReads(() => load(year, entityKey ? entityKey.split(',') : [])), [load, year, entityKey]));
 
   const span = periodMonths(period, year, custom);
   const [spanFrom, spanTo] = span;
@@ -442,7 +456,12 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   // pickers, the colors and the search leave; the figures above it, its
   // totals line and its export follow it. (Widths dragged before: 'mriRoll'.)
   const rollColumns = useMemo(() => mriRollColumns([spanFrom, spanTo], thisMonth), [spanFrom, spanTo, thisMonth]);
-  const rollView = useTableView('mri-roll', rollColumns, rows, { widthsKey: 'mriRoll' });
+  // 10/27: a filter box under every heading (columnFilters.jsx, as on MRE) on
+  // all three tables; they stack with the bar's filters, and the figures, the
+  // totals and Export follow what they leave.
+  const rollBoxes = useMemo(() => rollFilterColumns(rollColumns), [rollColumns]);
+  const rollFilters = useColumnFilters(rows, rollBoxes);
+  const rollView = useTableView('mri-roll', rollColumns, rollFilters.rows, { widthsKey: 'mriRoll' });
   const rollRows = rollView.rows;
   const figures = useMemo(() => rollRows.reduce((t, r) => {
     const f = rowFigures(r, span);
@@ -455,13 +474,16 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
     return [...by.values()].sort((a, b) => a.name.localeCompare(b.name, 'en-US'));
   }, [roll]);
   const sum = roll?.summary || {};
-  const behind = sources.filter((r) => r.monthsBehind);
-  // Outstanding and Payers have their own views (item 01).
-  const outView = useTableView('mri-outstanding', OUTSTANDING_COLUMNS, behind, { sort: OUTSTANDING_SORT });
-  const payersView = useTableView('mri-payers', PAYER_COLUMNS, sources);
+  const behind = useMemo(() => sources.filter((r) => r.monthsBehind), [sources]);
+  // Outstanding and Payers have their own views (item 01) and their own boxes.
+  const outFilters = useColumnFilters(behind, OUTSTANDING_FILTERS);
+  const payerFilters = useColumnFilters(sources, PAYER_FILTERS);
+  const outView = useTableView('mri-outstanding', OUTSTANDING_COLUMNS, outFilters.rows, { sort: OUTSTANDING_SORT });
+  const payersView = useTableView('mri-payers', PAYER_COLUMNS, payerFilters.rows);
   const sectionView = section === 'outstanding' ? outView : section === 'tenants' ? payersView : rollView;
+  const sectionFilters = section === 'outstanding' ? outFilters : section === 'tenants' ? payerFilters : rollFilters;
   // Rows per Page: back to page 1 whenever the filters or the section change.
-  const pageKey = [section, year, entities, tenants, types, period, custom, cz.pageSize, q, showInactive, states, sectionView.state];
+  const pageKey = [section, year, entities, tenants, types, period, custom, cz.pageSize, q, showInactive, states, sectionView.state, JSON.stringify(sectionFilters.typed)];
   const pageSize = cz.pageSize;
   // A ledger income account's Total opens its lines in Reports for the months shown (item 33).
   const drillWindow = () => {
@@ -517,6 +539,28 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
       .finally(() => setSyncing(false));
   };
   const linked = [...(roll?.linked || []), ...(synced?.linked || [])];
+  const possiblyEnded = rollRows.filter((r) => r.lease?.possiblyEnded).length;
+  // 10/27 (Neil, item 07): the completeness check over the entities and the
+  // period picked; a click on a gap shows its source on the Income Roll,
+  // clearing the quick filters that hide it.
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [completeNote, setCompleteNote] = useState('');
+  const [focus, setFocus] = useState(null);
+  const gaps = useMemo(() => mriGaps(roll?.rows, [spanFrom, spanTo]), [roll, spanFrom, spanTo]);
+  const pickGap = (g) => {
+    setCompleteNote('');
+    setSection('roll');
+    const r = (roll?.rows || []).find((x) => x.lease?.id === g.id);
+    if (r && !rollRows.some((x) => x.lease?.id === g.id)) {
+      setQ('');
+      setTenants([]);
+      setTypes([]);
+      setStates([]);
+      rollFilters.clear();
+      if (inactiveRow(r) && !showInactive) setPrefs({ mriShowInactiveLeases: true });
+    }
+    setFocus((f) => ({ id: g.id, n: (f?.n || 0) + 1 }));
+  };
   const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' };
   const noun = (n) => `${n} ${n === 1 ? 'source' : 'sources'}`;
 
@@ -548,6 +592,10 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
           <BarSearch value={q} onChange={setQ} label="Filter by property, payer or account" placeholder="Filter by property, payer or account" width={240} />
           <TableViewBar key={section} view={sectionView} />
           <div className="acct-bar-end">
+            {/* Gaps are not a change: More's count is what the person changed (UI test 10/27: "More (1 changed)" from gaps alone). */}
+            <BarMore level={3}>
+            <CompletenessButton count={gapCount(gaps)} open={completeOpen} onClick={() => setCompleteOpen((o) => !o)} />
+            </BarMore>
             <BarMore level={1} active={showInactive ? 1 : 0}>
             <CustomizeButton {...cz} active={showInactive}>
               {[['mriShowInactiveLeases', showInactive, 'Show Inactive Leases', 'Ended, expired and vacant leases, and payers inactive in Intacct. The text filter finds them either way.']].map(([k, on, text, hint]) => (
@@ -557,7 +605,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
                 </label>
               ))}
             </CustomizeButton>
-            {canDelete && <RecurringSettingsButton onChecked={reload} />}
+            {canDelete && <RecurringSettingsButton onChecked={reload} recheck={recheck} />}
             </BarMore>
             <BarMore level={5}>
             <ExportMenu disabled={!roll} items={[
@@ -595,7 +643,9 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
           <span>Expected <strong><Amount value={figures.expected} /></strong></span>
           <span>Received <strong><Amount value={figures.received} /></strong></span>
           <span title="Expected less received. A credit (in parentheses) is a prepayment.">Balance <strong style={{ color: figures.balance > 0.005 ? 'var(--bad-fg, #dc2626)' : figures.balance < -0.005 ? 'var(--ok-fg, #15803d)' : undefined }}><Amount value={figures.balance} /></strong>{figures.balance < -0.005 ? <span style={{ color: 'var(--ok-fg, #15803d)' }}> Credit</span> : null}</span>
-          <span style={{ color: 'var(--text-muted)' }}>{periodLabel} · {noun(rollRows.length)}{rollView.count ? ` of ${rows.length} (filtered)` : ''}{hidden && !q.trim() ? ` · ${hidden} inactive ${hidden === 1 ? 'lease' : 'leases'} hidden (Customize)` : ''}</span>
+          <span style={{ color: 'var(--text-muted)' }}>{periodLabel} · {noun(rollRows.length)}{rollView.count || rollFilters.filtering ? ` of ${rows.length} (filtered)` : ''}{hidden && !q.trim() ? ` · ${hidden} inactive ${hidden === 1 ? 'lease' : 'leases'} hidden (Customize)` : ''}</span>
+          {possiblyEnded > 0 && <span data-testid="possibly-ended-count">{possiblyEnded} Possibly Ended</span>}
+          <RecheckStatus recheck={recheck} />
         </div>
 
         {error && <div style={bad}>{error}</div>}
@@ -623,13 +673,18 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
 
         {loading ? <SkeletonBlocks count={4} /> : (
           <div>
-            {section === 'roll' && <RentRoll view={rollView} rows={rollRows} span={span} figures={figures} year={year} thisMonth={thisMonth} py={py} onCell={(row, month) => setCell({ row, month })} onLease={(l) => setEditing({ lease: l })} any={(roll?.rows || []).length + accountRows.length > 0} canEdit={canEdit} onNote={updateNote}
-              pageSize={pageSize} pageKey={pageKey} onDrillAccount={drillAccount} onDrillLease={drillLease} />}
-            {section === 'outstanding' && <Outstanding view={outView} rows={outView.rows} year={year} py={py} pageSize={pageSize} pageKey={pageKey} />}
-            {section === 'tenants' && <Tenants view={payersView} rows={payersView.rows} py={py} canEdit={canEdit} pageSize={pageSize} pageKey={pageKey} onEdit={(l) => setEditing({ lease: l })} onReplace={(l) => setEditing({ lease: { ...blank(l.incomeType || 'lease'), propertyName: l.propertyName, region: l.region, tenancy: l.tenancy, landlord: l.landlord, entityCode: l.entityCode, incomeAccounts: l.incomeAccounts, lateFee: l.lateFee, dueDay: l.dueDay, graceDays: l.graceDays }, replacing: l })} />}
+            {section === 'roll' && <RentRoll view={rollView} filters={{ ...rollFilters, columns: rollBoxes }} rows={rollRows} span={span} figures={figures} year={year} thisMonth={thisMonth} py={py} onCell={(row, month) => setCell({ row, month })} onLease={(l) => setEditing({ lease: l })} any={(roll?.rows || []).length + accountRows.length > 0} canEdit={canEdit} onNote={updateNote}
+              pageSize={pageSize} pageKey={pageKey} onDrillAccount={drillAccount} onDrillLease={drillLease}
+              focus={focus} onMissing={() => setCompleteNote("That source is hidden by the table view's filters. Clear them in the bar to see it.")} />}
+            {section === 'outstanding' && <Outstanding view={outView} filters={{ ...outFilters, columns: OUTSTANDING_FILTERS }} rows={outView.rows} year={year} py={py} pageSize={pageSize} pageKey={pageKey} />}
+            {section === 'tenants' && <Tenants view={payersView} filters={{ ...payerFilters, columns: PAYER_FILTERS }} rows={payersView.rows} py={py} canEdit={canEdit} pageSize={pageSize} pageKey={pageKey} onEdit={(l) => setEditing({ lease: l })} onReplace={(l) => setEditing({ lease: { ...blank(l.incomeType || 'lease'), propertyName: l.propertyName, region: l.region, tenancy: l.tenancy, landlord: l.landlord, entityCode: l.entityCode, incomeAccounts: l.incomeAccounts, lateFee: l.lateFee, dueDay: l.dueDay, graceDays: l.graceDays }, replacing: l })} />}
           </div>
         )}
       </div>
+      {completeOpen && !editing && (
+        <CompletenessPanel caption={`MRI · ${entityLabel} · ${periodLabel}`} groups={gaps} note={completeNote} onPick={pickGap} onClose={() => setCompleteOpen(false)}
+          rule="A gap is a month that is over and reads Unpaid with no note on it, or an active source with no amount, or no frequency (a Custom frequency without its number of months runs every month until it is set). Ended and vacant sources are left out." />
+      )}
       {cell && <MonthDetail cell={cell} canEdit={canEdit} onClose={() => setCell(null)} onSaved={() => { setCell(null); reload(); }} />}
       {editing && <LeaseEditor key={`${editing.lease.id || `new-${editing.lease.incomeType}`}|${editing.replacing?.id || ''}`} lease={editing.lease} replacing={editing.replacing} canDelete={canDelete}
         onDirty={(d) => { editorDirty.current = d; }} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
@@ -855,11 +910,14 @@ function useFitToScreen(ref, active) {
 // menu (sort, filter, width, move, hide), the funnel a value list - and the
 // cells and the Received line follow its column order; the property stays
 // pinned first.
-function RentRoll({ view, rows, span, figures, year, thisMonth, py, onCell, onLease, any, canEdit, onNote, pageSize = 0, pageKey = '', onDrillAccount = null, onDrillLease = null }) {
+function RentRoll({ view, filters = null, rows, span, figures, year, thisMonth, py, onCell, onLease, any, canEdit, onNote, pageSize = 0, pageKey = '', onDrillAccount = null, onDrillLease = null, focus = null, onMissing = null }) {
   const paged = usePaged(rows, pageSize, pageKey);
+  useJumpToRow(focus, rows, (r) => r.lease?.id, paged, pageSize, onMissing);
   const wrapRef = useRef(null);
-  const fitHeight = useFitToScreen(wrapRef, rows.length > 0);
-  if (!rows.length) {
+  // With a box typed the table stays, so the box can be changed or cleared.
+  const boxed = !!filters?.filtering;
+  const fitHeight = useFitToScreen(wrapRef, rows.length > 0 || boxed);
+  if (!rows.length && !boxed) {
     return (
       <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 10 }}>
         <span>{any ? 'Nothing matches these filters.' : `No leases yet.${canEdit ? ' + Add > New Lease: the tenant, the dates and the rent.' : ''}`}</span>
@@ -890,10 +948,13 @@ function RentRoll({ view, rows, span, figures, year, thisMonth, py, onCell, onLe
     <div style={{ ...card, padding: 10 }}>
       <div ref={wrapRef} className="acct-lines-wrap" style={{ maxHeight: fitHeight || '74vh' }}>
         <table className="acct-lines acct-roll acct-sticky-head" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
+          {/* The headings and the boxes under them pin as one block (acct-sticky-head). */}
           <thead>
             <tr>{view.columns.map(head)}</tr>
+            {filters && <ColumnFilterRow columns={view.columns} filterColumns={filters.columns} typed={filters.typed} onChange={filters.setFilter} cellProps={filterCell} />}
           </thead>
           <tbody>
+            {!rows.length && <ColumnFiltersEmpty colSpan={view.columns.length} onClear={filters?.clear} style={{ whiteSpace: 'normal' }} />}
             {paged.rows.map((r) => {
               const f = rowFigures(r, span);
               const name = rowName(r);
@@ -956,7 +1017,7 @@ function RentRoll({ view, rows, span, figures, year, thisMonth, py, onCell, onLe
                 )];
               }));
               return (
-                <tr key={l.id} style={r.expired || r.customerActive === false ? { color: 'var(--text-secondary)' } : undefined}>
+                <tr key={l.id} data-row-id={l.id} style={r.expired || r.customerActive === false ? { color: 'var(--text-secondary)' } : undefined}>
                   {viewCells(view, {
                     property: propertyCell(
                       <>
@@ -1018,13 +1079,14 @@ function reminder(row, year) {
   return `mailto:${encodeURIComponent(l.email)}?subject=${encodeURIComponent(`Rent outstanding - ${l.propertyName}`)}&body=${encodeURIComponent(body)}`;
 }
 
-function Outstanding({ view, rows, year, py, pageSize = 0, pageKey = '' }) {
+function Outstanding({ view, filters = null, rows, year, py, pageSize = 0, pageKey = '' }) {
   // Who owes the most first is the view's built-in sort (item 01).
   const sorted = rows;
   const paged = usePaged(sorted, pageSize, pageKey);
   const wrapRef = useRef(null);
-  const fitHeight = useFitToScreen(wrapRef, rows.length > 0);
-  if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{view.count ? 'Nobody behind passes the filters.' : `Nobody is behind for ${year}.`}</div>;
+  const boxed = !!filters?.filtering;
+  const fitHeight = useFitToScreen(wrapRef, rows.length > 0 || boxed);
+  if (!rows.length && !boxed) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{view.count ? 'Nobody behind passes the filters.' : `Nobody is behind for ${year}.`}</div>;
   return (
     <div style={{ ...card, padding: 10 }}>
       <div ref={wrapRef} className="acct-lines-wrap" data-testid="mri-outstanding-box" style={fitHeight ? { maxHeight: fitHeight } : undefined}>
@@ -1032,8 +1094,10 @@ function Outstanding({ view, rows, year, py, pageSize = 0, pageKey = '' }) {
           <thead>
             <tr>{view.columns.map((c) => (c.key === 'write' ? <th key={c.key} scope="col" aria-label="Write" />
               : <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={c.type === 'amount' ? 'acct-num' : undefined} style={headStyle(view.manualWidth(c.key))} />))}</tr>
+            {filters && <ColumnFilterRow columns={view.columns} filterColumns={filters.columns} typed={filters.typed} onChange={filters.setFilter} cellProps={filterCell} />}
           </thead>
           <tbody>
+            {!rows.length && <ColumnFiltersEmpty colSpan={view.columns.length} onClear={filters?.clear} style={{ whiteSpace: 'normal' }} />}
             {paged.rows.map((r) => {
               const l = r.lease;
               const months = behindMonths(r);
@@ -1074,11 +1138,12 @@ function Outstanding({ view, rows, year, py, pageSize = 0, pageKey = '' }) {
   );
 }
 
-function Tenants({ view, rows, py, canEdit, onEdit, onReplace, pageSize = 0, pageKey = '' }) {
+function Tenants({ view, filters = null, rows, py, canEdit, onEdit, onReplace, pageSize = 0, pageKey = '' }) {
   const paged = usePaged(rows, pageSize, pageKey);
   const wrapRef = useRef(null);
-  const fitHeight = useFitToScreen(wrapRef, rows.length > 0);
-  if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{view.count ? 'No lease passes the filters.' : 'No lease matches.'}</div>;
+  const boxed = !!filters?.filtering;
+  const fitHeight = useFitToScreen(wrapRef, rows.length > 0 || boxed);
+  if (!rows.length && !boxed) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{view.count ? 'No lease passes the filters.' : 'No lease matches.'}</div>;
   return (
     <div style={{ ...card, padding: 10 }}>
       <div ref={wrapRef} className="acct-lines-wrap" data-testid="mri-tenants-box" style={fitHeight ? { maxHeight: fitHeight } : undefined}>
@@ -1086,8 +1151,10 @@ function Tenants({ view, rows, py, canEdit, onEdit, onReplace, pageSize = 0, pag
           <thead>
             <tr>{view.columns.map((c) => (c.key === 'change' ? <th key={c.key} scope="col" aria-label="Change" />
               : <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={c.type === 'amount' ? 'acct-num' : undefined} style={headStyle(view.manualWidth(c.key))} />))}</tr>
+            {filters && <ColumnFilterRow columns={view.columns} filterColumns={filters.columns} typed={filters.typed} onChange={filters.setFilter} cellProps={filterCell} />}
           </thead>
           <tbody>
+            {!rows.length && <ColumnFiltersEmpty colSpan={view.columns.length} onClear={filters?.clear} style={{ whiteSpace: 'normal' }} />}
             {paged.rows.map((r) => {
               const l = r.lease;
               const rate = l.rates[l.rates.length - 1];

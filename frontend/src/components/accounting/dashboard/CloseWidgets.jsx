@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fmtLong, fmtMD, mEnd, monthLong, MONTH_SHORT, mShort, mStart, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
+import { fmtMD, fmtMDY, mEnd, monthLong, MONTH_SHORT, mShort, mStart, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
 import { RECON_TYPES } from '../../../accounting/dashboard/model/recon';
 import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, mono, num, toneColor } from './Bits';
@@ -8,6 +8,9 @@ import { useActivity, useCloseState, useDeadlines, useFlux, useIntercompany, use
 import { TaskViewSwitch, useCloseViews } from './closeViews';
 import { requestReportDrill } from '../drill';
 import { activityReportOf, activitySub } from '../reportModel';
+import { formatDateTime } from '../../../lib/datetime';
+import { useRole } from '../../../contexts/RoleContext';
+import ReconPanel from './ReconPanel';
 
 // Close and controls widgets: the close card, reconciliations, activity,
 // intercompany, balance-sheet flux, and the filing calendar.
@@ -74,18 +77,31 @@ export function CloseWidget({ onOpenClose }) {
 // months and book. A loan or brokerage row opens one only when its GL account
 // is a bank or card account on the ledger; the rest stay plain text.
 // `onNavigate` is the dashboard's navigator (DashNav, handed down by WidgetPanel).
+//
+// Oct 27 (Charmi, item 08: "Need to have the ability to drill down"): an
+// account name opens the account on the right (ReconPanel) - its status and
+// its ledger lines for the month, Open Full, and its activity report as a full
+// page - on the Overview card and the Close tab alike. Mortgages, loans and
+// credit lines are reconciled there, in Nexus only (item 09). Item 10: every
+// date on the list reads MM/DD/YYYY, and a ledger cash account with no Intacct
+// bank record says so instead of "Never".
 export function ReconWidget({ compact, onNavigate }) {
-  const { period, fromKey, book, scope, reconAccounts, m, ix } = useDash();
+  const { period, fromKey, book, scope, reconAccounts, m, ix, invalidate } = useDash();
   const { rows, reconciled, remaining, isLoading } = useRecon();
+  const role = useRole();
+  const can = (lvl) => !!role?.canAccessModule?.('accounting', 'administrator', lvl);
+  const [openKey, setOpenKey] = useState(null);
   const linkOf = (r) => (onNavigate ? activityLink(r, { period, fromKey, book, scope, reconAccounts }) : null);
   if (isLoading) return <LoadingBox />;
   if (!rows.length) return <EmptyBox title="No accounts to reconcile" body="Bank and credit card accounts with activity in this scope appear here, plus loans and brokerage accounts from the Data tab." />;
   const byType = RECON_TYPES.map((t) => ({ t, rows: rows.filter((r) => r.type === t) })).filter((g) => g.rows.length);
   const cols = compact ? 6 : 7;
+  const entityOf = (r) => (r.entityCode ? (ix.byCode.get(r.entityCode)?.name || r.entityCode) : r.ref || '');
+  const open = openKey ? rows.find((r) => r.key === openKey) ?? null : null;
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <div><span style={{ fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{reconciled}/{rows.length} completed</span> <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>| {remaining} remaining · through {fmtLong(mEnd(period))}{rows.some((r) => r.source === 'intacct') ? ' · bank and card status from Intacct' : ''}</span></div>
+        <div><span style={{ fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{reconciled}/{rows.length} completed</span> <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>| {remaining} remaining · through {fmtMDY(mEnd(period))}{rows.some((r) => r.source === 'intacct') ? ' · bank and card status from Intacct' : ''}</span></div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{byType.map((g) => <span key={g.t}>{g.t}: {g.rows.filter((r) => r.status === 'Reconciled').length}/{g.rows.length}</span>)}</div>
       </div>
       <Meter segments={[{ share: rows.length ? reconciled / rows.length : 0, color: 'var(--wk-brand, #2b45e1)' }]} />
@@ -96,15 +112,16 @@ export function ReconWidget({ compact, onNavigate }) {
             {byType.map((g) => (
               <GroupRows key={g.t} title={`${g.t} Accounts`} cols={cols}>
                 {g.rows.map((r) => (
-                  <tr key={r.key} style={r.nc ? { color: 'var(--text-muted)' } : undefined}>
-                    <td><div>{linkOf(r) ? (
-                      <button type="button" title={`Open ${r.type === 'Credit Card' ? 'Credit Card' : 'Bank'} Activity for this account`} onClick={() => onNavigate(linkOf(r))}
+                  <tr key={r.key} style={{ ...(r.nc ? { color: 'var(--text-muted)' } : null), ...(r.key === openKey ? { background: 'var(--bg-hover, rgba(43, 69, 225, 0.06))' } : null) }}>
+                    <td><div>
+                      <button type="button" title={r.liability ? 'Open this account: reconcile the month and see its ledger lines' : 'Open this account: its status and ledger lines for the month'} onClick={() => setOpenKey(r.key)}
+                        aria-pressed={r.key === openKey}
                         style={{ border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', textAlign: 'left' }}>
                         {r.name}
                       </button>
-                    ) : r.name}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
-                    {!compact ? <td style={{ fontSize: '0.78rem' }}>{r.entityCode ? (ix.byCode.get(r.entityCode)?.name || r.entityCode) : r.ref || '-'}</td> : null}
-                    <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{r.thru ? fmtLong(r.thru) : 'Never'}{r.source === 'intacct' ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }} title={r.intacctAsOf ? `Read from Intacct ${whenTxt(r.intacctAsOf)}` : 'Read from Intacct'}>Intacct{r.intacctRef ? ` · ${r.intacctRef}` : ''}</div> : r.mark ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.mark.marked_by} · {whenTxt(r.mark.marked_at)}</div> : null}</td>
+                    </div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
+                    {!compact ? <td style={{ fontSize: '0.78rem' }}>{entityOf(r) || '-'}</td> : null}
+                    <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}><LastReconciled r={r} /></td>
                     <td style={num}>{r.thru ? m(r.stmt, { cents: true }) : '-'}</td>
                     <td style={num}>{r.gl ? (
                       <button type="button" title="See the ledger lines behind this balance (Reports tab)"
@@ -122,7 +139,36 @@ export function ReconWidget({ compact, onNavigate }) {
           </tbody>
         </table>
       </div>
+      {open ? (
+        <ReconPanel key={`${open.key}@${period}`} row={open} entityName={entityOf(open)} fullLink={linkOf(open)} onNavigate={onNavigate}
+          canEdit={can('editor')} canManage={can('full')} onSaved={() => invalidate?.('liability-recons')} onClose={() => setOpenKey(null)} />
+      ) : null}
     </div>
+  );
+}
+
+const subLine = { fontSize: '0.7rem', color: 'var(--text-muted)' };
+
+/** The Last Reconciled cell: the date (MM/DD/YYYY) and, under it, where it came from. */
+export function LastReconciled({ r }) {
+  const noIntacct = r.key?.startsWith('gl:') && r.source !== 'intacct' && !r.mark && !r.thru;
+  if (noIntacct) {
+    return (
+      <span title="This ledger cash account has no bank or credit card record in Intacct, so Intacct keeps no reconciliation for it">
+        <span style={{ color: 'var(--text-muted)' }}>No Intacct bank record</span>
+        {r.intacctOther ? <div style={subLine}>Intacct has {r.intacctOther} at another entity</div> : null}
+      </span>
+    );
+  }
+  return (
+    <>
+      {r.thru ? fmtMDY(r.thru) : 'Never'}
+      {r.source === 'intacct' ? (
+        <div style={subLine} title={`${r.intacctAsOf ? `Read from Intacct ${formatDateTime(r.intacctAsOf)}` : 'Read from Intacct'}${r.intacctMatch === 'gl' ? ' - matched on the GL account; Intacct gave this account no entity' : ''}`}>Intacct{r.intacctRef ? ` · ${r.intacctRef}` : ''}</div>
+      ) : r.source === 'nexus' && r.nexus ? (
+        <div style={subLine} title="Reconciled in Nexus (never sent to Intacct)">Nexus · {r.nexus.reconciledBy || r.nexus.savedBy}</div>
+      ) : r.mark ? <div style={subLine}>{r.mark.marked_by} · {formatDateTime(r.mark.marked_at)}</div> : null}
+    </>
   );
 }
 

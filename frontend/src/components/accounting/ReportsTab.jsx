@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, FolderUp, Loader2, Mail, Maximize2, Minimize2, Pencil, RotateCcw, Search, Share2, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
@@ -27,6 +27,11 @@ import {
   reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
   viewConfig, periodOf, ACTIVITY_REPORTS, activityConfig, isActivity, needsEntityList, countDims,
 } from './reportModel';
+
+// 10/27 item 18: the Schedule C line mapping editor, loaded when opened.
+const ScheduleCMapping = lazy(() => import('./ScheduleCMapping'));
+// 10/27 item 17: Spend by Vendor's own Vendors button - the Filters vendor list on its own.
+const VENDOR_KINDS = POPOVER_DIMS.filter((k) => k.key === 'vendor');
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
 // ledger without opening Nexus Accounting: Income Statement, Balance Sheet,
@@ -302,6 +307,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // figures stay on screen until the new ones land (the General Ledger too),
   // so the scroll position, an open popup and the filters stay put.
   const ts = useTableSync();
+  // A saved Schedule C mapping reads the report again (item 18).
+  const [reload, setReload] = useState(0);
+  const [mapping, setMapping] = useState(false);
   const lastTick = useRef(ts.tick);
   const [syncLoad, setSyncLoad] = useState(false);
   const [linesSync, setLinesSync] = useState(0);
@@ -313,7 +321,13 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     setSyncLoad(ts.tick !== lastTick.current);
     lastTick.current = ts.tick;
     const run = () => ts.read(() => runReport(api, config, entities))
-      .then((r) => { if (mine === seq.current) setResult(r); })
+      .then((r) => {
+        if (mine !== seq.current) return;
+        setResult(r);
+        // Spend by Vendor and Schedule C open one line per vendor / form line
+        // (items 17, 18): their groups start folded, Expand All opens them.
+        if (r?.startFolded) setCollapsed(new Set(r.rows.filter((x) => x.kind === 'group').map((x) => `g:${x.group}`)));
+      })
       .catch((e) => { if (mine === seq.current) { setResult(null); setError(e?.message || 'Could not load the report.'); } })
       .finally(() => { if (mine === seq.current) setLoading(false); });
     // The first report loads at once. After that a change waits a moment:
@@ -322,7 +336,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     if (!started.current) { started.current = true; run(); return undefined; }
     const t = setTimeout(run, 250);
     return () => clearTimeout(t);
-  }, [key, entityDep, ts.tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, entityDep, ts.tick, reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Memorized reports.
   const [saved, setSaved] = useState([]);
@@ -518,7 +532,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     return { ...(noted.fluxCounts || {}), all: lines.length, flagged: lines.filter((r) => r.flag).length };
   }, [noted]);
   // The first column (code and name) and the report's own; each one drags to a width (item 32).
-  const headCols = shown ? [{ key: '__label', label: shown.glLabel || 'Account', type: 'label' }, ...shown.columns] : [];
+  const headCols = shown ? [{ key: '__label', label: shown.labelHead || shown.glLabel || 'Account', type: 'label' }, ...shown.columns] : [];
   // Oct 2 (Charmi): the "contains" box under every column, on every report,
   // like the ledger lines grid. Typed text narrows the account and line rows
   // (amounts match with or without commas); a section heading stays while
@@ -537,7 +551,8 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     if (!filterOn) return rows;
     const wants = Object.entries(colFilters).filter(([, v]) => filterSet(v));
     const textOf = (r, k) => {
-      if (k === '__label') return `${r.code || ''} ${r.title || r.label || ''}`;
+      // `match`: the heading a row sits under (a vendor on Spend by Vendor), so its name finds it.
+      if (k === '__label') return `${r.code || ''} ${r.title || r.label || ''} ${r.match || ''}`;
       const i = shown.columns.findIndex((c) => c.key === k);
       const v = r.values?.[i];
       if (typeof v === 'number') { const a = Math.abs(v).toFixed(2); return `${a} ${Number(a).toLocaleString('en-US', { minimumFractionDigits: 2 })} ${v < 0 ? `-${a} (${a})` : ''}`; }
@@ -652,6 +667,17 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         {canUseDims(config) && (
           <FiltersButton dims={config.dims} onNames={onNames} showHistorical={!!prefs.showHistoricalAccounts} kinds={filterKinds}
             onChange={(dims) => { const mode = columnsForPicks(config, dims); setCollapsed(new Set()); patch({ dims, ...(mode ? { cols: mode } : {}) }); }} />
+        )}
+        {/* Item 17 (Charmi, 10/26): pull the report by vendor name - type a name or number, tick several. */}
+        {config.report === 'vendor-spend' && (
+          <FiltersButton dims={config.dims} onNames={onNames} showHistorical={!!prefs.showHistoricalAccounts} kinds={VENDOR_KINDS} label="Vendors" onChange={(dims) => patch({ dims })} />
+        )}
+        {/* Item 18: which Schedule C line each account adds into. */}
+        {config.report === 'schedule-c' && (
+          <button type="button" onClick={() => setMapping(true)} disabled={!shown?.mapRows} title="Which Schedule C line each account adds into"
+            style={{ ...control, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: shown?.mapRows ? 'pointer' : 'default', fontWeight: 600 }}>
+            <Pencil size={13} /> Line Mapping{shown?.mapRows?.some((r) => !r.line) ? ` (${shown.mapRows.filter((r) => !r.line).length} Not Mapped)` : ''}
+          </button>
         )}
         </BarMore>
         {/* Round 3 (UI test 10/24: Flux Analysis two lines at 1366 / 1440):
@@ -772,6 +798,13 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
       {sending && !searching && shown && (
         <SendReportDialog mode={sending} result={shown} entities={entities} title={reportTitle(config, activeSaved?.name || def.label)} config={storable(config)}
           onClose={() => setSending(null)} onDone={(text, url) => { setSending(null); setSent({ text, url }); }} />
+      )}
+
+      {mapping && shown?.mapRows && (
+        <Suspense fallback={null}>
+          <ScheduleCMapping rows={shown.mapRows} entity={shown.mapEntity || ''} entityLabel={entityLabel} canEdit={canEdit}
+            onClose={() => setMapping(false)} onSaved={() => { setMapping(false); setReload((n) => n + 1); }} />
+        </Suspense>
       )}
 
       {managing && (

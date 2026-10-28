@@ -41,6 +41,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.exc import IntegrityError
 
 import cubby
+import job_switch
 
 PAYMENTS_START = date(2026, 9, 15)   # Cubby has payments from this day on
 PAYMENT_DAYS = 45                    # re-read window for late status changes
@@ -478,6 +479,8 @@ def run_claimed(run_id: str) -> dict:
 def sync_all(trigger: str = "schedule", requested_by: str = "") -> dict:
     """Pull every facility into the database. Blocking - call it in a thread.
     Returns {"status": "skipped"} when another run holds the lock."""
+    if trigger == "schedule" and job_switch.off("cubby_snapshot"):   # Workflows > Automations switch
+        return {"status": "off"}
     rid = claim(trigger, requested_by)
     if rid is None:
         return {"status": "skipped"}

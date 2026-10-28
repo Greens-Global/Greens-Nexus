@@ -96,8 +96,11 @@ def _ticket_seed(db: Session) -> int:
     # include_deleted: once tickets are soft-deleted (fix/ticket-safe-deletes),
     # a deleted ticket keeps its row and its number - it can be restored - so
     # it must count here. Ignored while tickets are not on the soft-delete hook.
+    # include_confidential: an HR ticket (Ask HR, hidden by database.py from
+    # anyone not opting in) owns its number too - else the next ticket
+    # collides with it (release review, Oct 27 2026).
     for (code,) in (db.query(models.TaskTicket.code)
-                    .execution_options(include_deleted=True).all()):
+                    .execution_options(include_deleted=True, include_confidential=True).all()):
         highest = max(highest, digits_of(code))
     for (code,) in db.query(models.TicketEmailLog.ticket_code).distinct().all():
         highest = max(highest, digits_of(code))
@@ -107,7 +110,7 @@ def _ticket_seed(db: Session) -> int:
 def _ticket_code_taken(db: Session, n: int) -> bool:
     forms = {f"{n:0{TICKET_CODE_DIGITS}d}", f"TKT-{n:03d}", str(n)}
     return (db.query(models.TaskTicket.id).filter(models.TaskTicket.code.in_(forms))
-            .execution_options(include_deleted=True).first()) is not None
+            .execution_options(include_deleted=True, include_confidential=True).first()) is not None
 
 
 def next_ticket_code(db: Session) -> str:

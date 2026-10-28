@@ -3,7 +3,6 @@ import { render, screen, fireEvent, cleanup, within } from '@testing-library/rea
 
 // HR's people fields use the Tasks people picker (Oct 25 2026): type to
 // search, pick, and the field saves exactly what the old dropdown saved -
-// the employee id for Log on Behalf (someone with no work email included),
 // the lowercased email for Reports To.
 
 const PEOPLE = [
@@ -23,7 +22,7 @@ vi.mock('../contexts/RoleContext', async (importOriginal) => ({
 }));
 const calls = [];
 vi.mock('../api', () => {
-  const data = { getEmployees: PEOPLE, getEntities: [{ id: 'co1', name: 'Greens Co' }], createLeave: { id: 'l1', status: 'pending' } };
+  const data = { getEmployees: PEOPLE, getEntities: [{ id: 'co1', name: 'Greens Co' }] };
   const api = new Proxy({}, {
     get: (_, key) => (...args) => { calls.push([key, args]); return Promise.resolve(key in data ? data[key] : []); },
   });
@@ -40,17 +39,16 @@ const pick = (trigger, query, name) => {
 };
 
 describe('HR people pickers', () => {
-  it('Log on Behalf finds a person by search and saves their employee id, work email or not', async () => {
+  // The People > Leave tab is retired (Oct 27 2026): an old link lands on
+  // Time > Time Off, and nothing offers the legacy Log on Behalf form.
+  it('an old Leave link lands on Time Off and the Leave tab is gone', async () => {
     const { default: HR } = await import('./HR');
     render(<HR activeSub="hr-leave" onSubChange={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: /Log on Behalf/ }));
-    const trigger = screen.getByRole('button', { name: /^Employee:/ });
-    pick(trigger, 'sa', 'Sam Field');
-    expect(trigger.textContent).toContain('Sam Field');
-    fireEvent.change(document.querySelector('input[type="date"]'), { target: { value: '2026-11-02' } });
-    fireEvent.click(screen.getByRole('button', { name: /Submit/ }));
-    const saved = calls.find(([k]) => k === 'createLeave');
-    expect(saved[1][0].employee_id).toBe('e3');
+    // The Time Off view's own controls: Request on Behalf and the calendar.
+    expect(await screen.findByRole('button', { name: /Request on Behalf/ })).toBeTruthy();
+    expect(await screen.findByRole('region', { name: 'Team Leave Calendar' })).toBeTruthy();   // its own lazy chunk
+    expect(screen.queryByRole('button', { name: /Log on Behalf/ })).toBeNull();
+    expect(calls.some(([k]) => k === 'createLeave' || k === 'getLeave')).toBe(false);
   }, 20000);
 
   it('Reports To on the org chart searches and saves the lowercased work email', async () => {

@@ -271,7 +271,10 @@ class ShiftsAndTimesheetFixesTests(_Case):
         self.db.add(models.PunchRequest(id=gen_id(), employee_email=BOB, action="remove", local_date="2026-09-20",
                                         status="approved"))
         self.db.commit()
-        [row] = [r for r in self._pending(BOSS) if r["module"] == "timecard"]
+        # Only the fixes row: a "Review Bob's Time Sheet" row also joins once
+        # the real calendar has passed his 09/20 - 10/03 period
+        # (timesheet_review.not_reviewed reads today's closed periods).
+        [row] = [r for r in self._pending(BOSS) if r["module"] == "timecard" and r["title"].startswith("Approve:")]
         self.assertEqual(row["title"], "Approve: Bob's Time Sheet Fixes (2)")
         self.assertEqual(row["detail"], "add a clock-out on 09/25/2026; a new clock-in time on 09/26/2026")
         self.assertTrue(row["url"].endswith("/hr/hr-time-requests"))

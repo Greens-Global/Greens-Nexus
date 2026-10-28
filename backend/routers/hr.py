@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
-from task_due import us_date
+import workflows
 from notify_company import notification_company
 from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
 from routers.stepup import require_stepup
@@ -235,7 +235,16 @@ def _serialize(e: NexusEmployee) -> dict:
         # Guest / external rows: the outside company (the org chart shows it
         # as the card's company line, Oct 14 2026).
         "externalCompany": getattr(e, "external_company", "") or "",
+        # Probation at a glance (Oct 27 2026, hr_probation.py): status, end
+        # date, days left, whether it is ending. The list re-reads it with
+        # each company's own reminder window; the profile card has the rest.
+        "probation":      _probation_summary(e),
     }
+
+
+def _probation_summary(e: NexusEmployee) -> dict:
+    import hr_probation
+    return hr_probation.summary(e)
 
 
 @router.get("/employees")
@@ -251,6 +260,13 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
               .filter(NexusEmployee.deleted_at != "", NexusEmployee.deleted_at.isnot(None)))
     rows = q.order_by(NexusEmployee.first_name, NexusEmployee.last_name).all()
     out = [_team_view(_serialize(e)) for e in rows] if is_team_scope(scope) else [_serialize(e) for e in rows]
+    # More Details values (Oct 27 2026), filtered per caller - never HR Only for a manager.
+    import hr_custom_fields
+    hr_custom_fields.attach_list_values(db, user, rows, out)
+    import hr_probation
+    pro = hr_probation.summaries(db, rows)
+    for o in out:
+        o["probation"] = pro.get(o["id"], o.get("probation"))
     # Who covers each person when their manager is out (Neil, Oct 13): the
     # effective Backup Manager and where it comes from - 'set' on the profile,
     # 'manager' (the manager's manager) or 'hr' (the company HR contact).
@@ -366,6 +382,11 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         updated_at=now,
     )
     db.add(row)
+    # A new hire added with a start date is on probation from it (Oct 27 2026);
+    # added without one, it starts when the start date is filled in.
+    import hr_probation
+    hr_probation.start_for_new_hire(db, row, user["email"], "Added in People")
+    workflows.emit(db, "employee.hired", subject=row, actor=user["email"], extra={"how": "people"})
     # If this person was previously removed from Nexus, clear the tombstone so a
     # deliberate re-add is honored and future M365 syncs treat them normally.
     _wemail = (body.work_email or "").strip().lower()
@@ -392,6 +413,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
         raise HTTPException(400, "first_name cannot be empty")
     fields = body.model_dump(exclude_unset=True)
     changes: dict = {}
+    old_start = row.start_date or ""
     is_external = (row.identity_type or "internal") in ("guest", "external")
     for key, value in fields.items():
         if value is None:
@@ -413,6 +435,9 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     row.updated_at = datetime.now(timezone.utc).isoformat()
     if "work_email" in changes and not changes["work_email"][0]:
         adopt_pending_pay(db, row, user["email"])
+    if "start_date" in changes:   # probation follows the start date (hr_probation.py)
+        import hr_probation
+        hr_probation.on_profile_change(db, row, user["email"].lower(), old_start)
     if changes:   # work authorization, status, dates: the checklist's automatic steps tick now
         import hr_checklists
         hr_checklists.refresh_person(db, row.id, user["email"].lower())
@@ -629,6 +654,7 @@ class CandidateIn(BaseModel):
     company:        Optional[str] = ""
     notes:          Optional[str] = ""
     role_id:        Optional[str] = ""     # job role applied for; '' = Other (role_title + department typed)
+    opening_id:     Optional[str] = ""     # the job opening they applied for (hiring_openings.py, Oct 27 2026)
 
 
 class CandidateUpdate(BaseModel):
@@ -649,6 +675,7 @@ class CandidateUpdate(BaseModel):
     expected_interview_on: Optional[str] = None
     inactive:       Optional[bool] = None  # Remove a rejected candidate from the board (True)
     skip_interview: Optional[bool] = None  # with stage="decision": Skip Interview (Neil, Oct 22)
+    opening_id:     Optional[str] = None   # the job opening they are linked to; '' unlinks
 
 
 def _is_inactive(c: HrCandidate) -> bool:
@@ -676,13 +703,16 @@ def _ser_candidate(c: HrCandidate) -> dict:
         "interviewSkippedBy": c.interview_skipped_by or "",
         "resumeUrl": c.resume_url, "notes": c.notes, "employeeId": c.employee_id,
         "createdAt": c.created_at, "updatedAt": c.updated_at,
+        # The careers page (Oct 27 2026).
+        "openingId": getattr(c, "opening_id", "") or "", "location": getattr(c, "location", "") or "",
+        "linkedinUrl": getattr(c, "linkedin_url", "") or "", "appliedAt": getattr(c, "applied_at", "") or "",
     }
 
 
 # Where candidates come from (Neil, Oct 8: "Source should be a drop-down ...
 # referral, LinkedIn, Indeed"). A typed "Other - ..." is kept as written.
 HIRING_SOURCES = ("Referral", "LinkedIn", "Indeed", "Company Website", "Job Fair",
-                  "Recruiter / Agency", "Walk-In", "Other")
+                  "Recruiter / Agency", "Walk-In", "Careers Page", "Other")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -697,6 +727,21 @@ def _job_role_for(db: Session, role_id: str, company: str):
     if (role.company_id or "") and (role.company_id or "") != (company or ""):
         raise HTTPException(400, "That role belongs to a different company.")
     return role
+
+
+def _opening_for(db: Session, opening_id: Optional[str], company: str):
+    """The job opening a candidate is linked to - one of the hiring company's,
+    still taking candidates. None for ''."""
+    oid = (opening_id or "").strip()
+    if not oid:
+        return None
+    from models import HrJobOpening
+    op = db.query(HrJobOpening).filter(HrJobOpening.id == oid).first()
+    if op is None or (op.company or "") != (company or ""):
+        raise HTTPException(400, "That job opening is not one of the hiring company's.")
+    if op.status == "closed":
+        raise HTTPException(400, "That job opening is closed.")
+    return op
 
 
 def _check_candidate_email(email: str) -> str:
@@ -737,7 +782,15 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
             depts.append(r.department)
     names = {e.id: e.name for e in db.query(HrEntity).all()} if all_roles else {}
     by_key = {_dept_key(k): v for k, v in leads.items()}   # "accounting " still finds Accounting's head
-    return {"roles": [{"id": r.id, "name": r.name, "department": r.department or "",
+    # The company's job openings that still take candidates (Oct 27 2026).
+    from models import HrJobOpening
+    openings = ([{"id": o.id, "title": o.title or "", "status": o.status, "roleId": o.role_id or "",
+                  "department": o.department or ""}
+                 for o in db.query(HrJobOpening).filter(HrJobOpening.company == company_id,
+                                                        HrJobOpening.status.in_(("draft", "open", "paused")))
+                 .order_by(HrJobOpening.title).all()] if company_id else [])
+    return {"openings": openings,
+            "roles": [{"id": r.id, "name": r.name, "department": r.department or "",
                        "companyId": r.company_id or "", "companyName": names.get(r.company_id or "", ""),
                        # No default manager on the role: its department's head (Neil, Oct 22 -
                        # "supervisor should be the department head").
@@ -898,6 +951,10 @@ def create_candidate(body: CandidateIn, background: BackgroundTasks = None, user
     now = datetime.now(timezone.utc).isoformat()
     role_title, department = (body.role_title or "").strip(), (body.department or "").strip()
     role_id = (body.role_id or "").strip()
+    opening = _opening_for(db, body.opening_id, (body.company or "").strip())
+    if opening is not None and not role_id and not role_title:
+        # Applying for an opening: its role (or title) and department.
+        role_id, role_title, department = opening.role_id or "", opening.title or "", opening.department or department
     role_created = ""
     if role_id:
         role = _job_role_for(db, role_id, (body.company or "").strip())
@@ -922,7 +979,7 @@ def create_candidate(body: CandidateIn, background: BackgroundTasks = None, user
         role_title=role_title, department=department,
         expected_start=(body.expected_start or "").strip(), source=(body.source or "").strip(),
         expected_interview_on=_check_date(body.expected_interview_on, "Expected interview date"),
-        company=(body.company or "").strip(),
+        company=(body.company or "").strip(), opening_id=opening.id if opening is not None else "",
         notes="", created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
@@ -1009,11 +1066,24 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
         )
         db.add(emp)
     cand.employee_id = emp.id
+    # Their job opening's seat is taken - the last one marks it Filled (Oct 27 2026).
+    if (getattr(cand, "opening_id", "") or "").strip():
+        try:
+            sp = db.begin_nested()
+            import hiring_openings
+            hiring_openings.seat_filled(db, cand, actor)
+            sp.commit()
+        except Exception as e:   # noqa: BLE001 - never block the hire
+            sp.rollback()
+            print(f"[hr] opening seat not counted for {cand.id}: {type(e).__name__}: {e}")
     # Their onboarding checklist starts with the hire (hr_checklists.py).
     import hr_checklists
     # The role they were hired into adds its own steps - passed in, because
     # cand.employee_id is not flushed yet (autoflush is off).
     hr_checklists.start_on_hire(db, emp, actor, role_id=cand.role_id or "")
+    # And their probation, from the start date (Oct 27 2026, hr_probation.py).
+    import hr_probation
+    hr_probation.start_for_new_hire(db, emp, actor, "Hired")
     # Their interview recordings and transcripts come with them onto the
     # profile's Documents (routers/hr_interviews.py).
     try:
@@ -1021,6 +1091,12 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
         attach_interview_files(db, cand)
     except Exception as e:   # noqa: BLE001 - never block the hire
         print(f"[hr] interview files not attached for {emp.id}: {type(e).__name__}: {e}")
+    workflows.emit(db, "employee.hired", subject=emp, actor=actor,
+                   extra={"how": "candidate", "candidateId": cand.id})
+    # The pipeline sets the stage before coming here; a signed packet leaves it on Offer.
+    workflows.emit(db, "candidate.hired", subject=cand, actor=actor,
+                   changes={"stage": ("offer" if cand.stage == "hired" else cand.stage, "hired")},
+                   extra={"employeeId": emp.id})
     return emp
 
 
@@ -1038,6 +1114,7 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
     created_employee = None
     decision_task = None
 
+    old_stage = row.stage
     if body.stage is not None and body.stage != row.stage:
         if body.stage not in _STAGES:
             raise HTTPException(400, f"stage must be one of {_STAGES}")
@@ -1092,6 +1169,8 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
         # Hired -> the candidate becomes an employee master record (onboarding)
         if body.stage == "hired" and not row.employee_id:
             created_employee = create_employee_from_candidate(db, row, user["email"])
+        workflows.emit(db, "candidate.stage_changed", subject=row, actor=user["email"],
+                       changes={"stage": (old_stage, row.stage)}, extra={"note": (body.stage_note or "").strip()})
 
         # One notification per stage move, to the candidate's owner (unless
         # they made the move themselves) - mirrors the items.py convention
@@ -1142,6 +1221,12 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
             role = _job_role_for(db, rid, (body.company if body.company is not None else row.company) or "")
             body.role_title, body.department = role.name, (role.department or body.department or row.department)
         row.role_id = rid
+    if body.opening_id is not None and body.opening_id.strip() != (row.opening_id or "") or (
+            body.opening_id and body.company is not None and body.company.strip() != (row.company or "")):
+        op = _opening_for(db, body.opening_id, (body.company if body.company is not None else row.company) or "")
+        row.opening_id = op.id if op is not None else ""
+    elif body.company is not None and body.company.strip() != (row.company or "") and (row.opening_id or ""):
+        row.opening_id = ""                          # another company: not that company's opening any more
     for key in ("first_name", "last_name", "email", "phone", "role_title",
                 "department", "expected_start", "source", "company", "notes"):
         value = getattr(body, key)
@@ -1293,81 +1378,28 @@ def leave_balances(employee_id: str, year: int, user: dict = Depends(require_hr_
     return [{"leaveType": t, "allocated": alloc.get(t, 0), "used": used[t]} for t in _LEAVE_TYPES]
 
 
+# The legacy HR Leave tracker is retired (Neil, Oct 27 2026): leave is
+# requested, approved and balanced in Time Off (routers/timeclock.py,
+# leave_balances.py). Its rows are kept - the GET routes above still read
+# them for People > Time > Time Off > Leave History (Before Time Off) - but
+# nothing writes to hr_leave_requests / hr_leave_balances any more.
+_LEAVE_RETIRED = ("Leave moved to Time Off - request and approve it in Workday > Time Off "
+                  "or People > Time > Time Off. Older leave stays readable in Leave History.")
+
+
 @router.put("/leave/balances")
-def set_balance(body: BalanceIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    if body.leave_type not in _LEAVE_TYPES:
-        raise HTTPException(400, f"leave_type must be one of {_LEAVE_TYPES}")
-    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == body.employee_id).first(), hr_scope(user, db))
-    row = db.query(HrLeaveBalance).filter(HrLeaveBalance.employee_id == body.employee_id,
-                                          HrLeaveBalance.year == body.year,
-                                          HrLeaveBalance.leave_type == body.leave_type).first()
-    if row:
-        row.allocated = body.allocated
-    else:
-        db.add(HrLeaveBalance(id=str(uuid.uuid4()), employee_id=body.employee_id,
-                              year=body.year, leave_type=body.leave_type, allocated=body.allocated))
-    db.commit()
-    return {"ok": True}
+def set_balance(body: BalanceIn, user: dict = Depends(require_hr_write)):
+    raise HTTPException(410, _LEAVE_RETIRED)
 
 
 @router.post("/leave")
-def create_leave(body: LeaveIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    if body.leave_type not in _LEAVE_TYPES:
-        raise HTTPException(400, f"leave_type must be one of {_LEAVE_TYPES}")
-    if body.days <= 0:
-        raise HTTPException(400, "days must be positive")
-    emp = db.query(NexusEmployee).filter(NexusEmployee.id == body.employee_id).first()
-    if not emp:
-        raise HTTPException(404, "Employee not found")
-    _assert_scope(emp, hr_scope(user, db))
-    now = datetime.now(timezone.utc).isoformat()
-    row = HrLeaveRequest(
-        id=str(uuid.uuid4()), employee_id=body.employee_id, leave_type=body.leave_type,
-        start_date=body.start_date, end_date=body.end_date or body.start_date,
-        days=body.days, reason=body.reason or "", created_by=user["email"], created_at=now,
-    )
-    db.add(row)
-    # New request -> the employee's manager gets the approval ask in their bell
-    # (unless the manager is the one recording it)
-    emp_name = f"{emp.first_name} {emp.last_name}".strip()
-    if emp.manager_email and emp.manager_email.lower() != user["email"].lower():
-        _hr_notify(db, emp.manager_email,
-                   f"Leave Request: {emp_name}",
-                   f"{emp_name} requested {body.days} day{'s' if body.days != 1 else ''} of {body.leave_type} leave"
-                   f" starting {us_date(body.start_date)}." + (f"\nReason: {body.reason.strip()}" if (body.reason or '').strip() else ''),
-                   ref_id=row.id, requested_by=user["email"])
-    db.commit()
-    return _ser_leave(row)
+def create_leave(body: LeaveIn, user: dict = Depends(require_hr_write)):
+    raise HTTPException(410, _LEAVE_RETIRED)
 
 
 @router.patch("/leave/{lid}")
-def decide_leave(lid: str, body: LeaveDecision, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    if body.action not in ("approve", "reject"):
-        raise HTTPException(400, "action must be approve or reject")
-    row = db.query(HrLeaveRequest).filter(HrLeaveRequest.id == lid).with_for_update().first()
-    if not row:
-        raise HTTPException(404, "Leave request not found")
-    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first(), hr_scope(user, db))
-    if row.status != "pending":
-        raise HTTPException(400, "Request already decided")
-    now = datetime.now(timezone.utc).isoformat()
-    row.status = "approved" if body.action == "approve" else "rejected"
-    row.decided_by = user["email"]
-    row.decided_at = now
-    row.decision_note = (body.note or "").strip()
-    # Bell notification to the employee if they have a Nexus identity
-    emp = db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first()
-    if emp and emp.work_email:
-        db.add(NexusNotification(
-            id=str(uuid.uuid4()), type="custom_alert", recipient=emp.work_email.lower(),
-            title=f"Leave {row.status.title()}",
-            body=f"Your {row.leave_type} leave ({us_date(row.start_date)}, {row.days} day{'s' if row.days != 1 else ''}) was {row.status}."
-                 + (f"\n\nNote: {row.decision_note}" if row.decision_note else ""),
-            ref_id=row.id, item_name="", requested_by=user["email"],
-            action="", actioned=False, read_by="", company=emp.company or "", created_at=now,
-        ))
-    db.commit()
-    return _ser_leave(row)
+def decide_leave(lid: str, body: LeaveDecision, user: dict = Depends(require_hr_write)):
+    raise HTTPException(410, _LEAVE_RETIRED)
 
 
 # ── Employee documents (Phase 3) - PRIVATE bucket, signed URLs only ──────────
@@ -1413,9 +1445,10 @@ def list_documents(eid: str, user: dict = Depends(require_hr_read), db: Session 
     _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == eid).first(), hr_scope(user, db))
     rows = (db.query(HrDocument).filter(HrDocument.employee_id == eid)
             .order_by(HrDocument.created_at.desc()).all())
-    # Paystubs are comp-restricted - hidden from plain hr viewers/editors.
+    # Paystubs and final settlement statements (exit_statement.py) are
+    # comp-restricted - hidden from plain hr viewers/editors.
     if not _has_comp(user, db):
-        rows = [d for d in rows if d.kind != "paystub"]
+        rows = [d for d in rows if d.kind not in ("paystub", "settlement")]
     return [_ser_doc(d) for d in rows]
 
 
@@ -1480,6 +1513,8 @@ def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = 
         _direct_report_or_404(user, emp, db)
     elif row.kind == "paystub" and not _has_comp(user, db):
         raise HTTPException(403, "Paystubs require the compensation grant")
+    elif row.kind == "settlement" and not _has_comp(user, db):
+        raise HTTPException(403, "This statement shows pay - Pay & Benefits access is needed")
     elif row.kind == "contract" and _contract_prints_pay(db, row) and not _has_comp(user, db):
         # A signed offer / promotion letter filed from Nexus Sign (Oct 14).
         raise HTTPException(403, "This document shows pay - Pay & Benefits access is needed")
@@ -1498,7 +1533,7 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
     if not row:
         return {"ok": True}
     _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first(), hr_scope(user, db))
-    if row.kind == "paystub" and not _has_comp(user, db):
+    if row.kind in ("paystub", "settlement") and not _has_comp(user, db):
         raise HTTPException(403, "Paystubs require the compensation grant")
     httpx.request("DELETE", f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{row.storage_path}",
                   headers=_storage_headers(), timeout=30)
@@ -1555,6 +1590,10 @@ def upload_paystub(eid: str, file: UploadFile = File(...), period: str = Form(""
 
 
 # ── Employee requests ("Ask HR" on My HR) - list + resolve ───────────────────
+# Ask HR is a ticket now (Neil, Oct 27 2026, hr_tickets.py): new requests are
+# confidential HR tickets and every open old one was moved into one. These
+# routes stay for the old rows - Earlier Requests, read-only; a moved row
+# carries `ticketId` and can no longer be resolved here.
 from models import HrSelfRequest
 
 
@@ -1585,7 +1624,8 @@ def list_self_requests(status: str = "", user: dict = Depends(require_hr_read), 
              "type": r.type, "message": r.message, "status": r.status,
              "attachmentName": r.attachment_name or "",
              "response": r.response or "", "resolvedBy": r.resolved_by or "",
-             "resolvedAt": r.resolved_at or "", "createdAt": r.created_at} for r in rows]
+             "resolvedAt": r.resolved_at or "", "createdAt": r.created_at,
+             "ticketId": r.ticket_id or ""} for r in rows]
 
 
 @router.get("/requests/{rid}/attachment-url")
@@ -1648,6 +1688,8 @@ def resolve_self_request(rid: str, body: ResolveRequestIn,
     if not r:
         raise HTTPException(404, "Request not found")
     _req_in_scope(db, r, hr_scope(user, db))
+    if r.ticket_id:
+        raise HTTPException(409, "This request moved into an HR ticket - answer it on the ticket.")
     r.status = "resolved"
     r.response = (body.response or "").strip()[:2000]
     r.resolved_by = user["email"]
@@ -4860,6 +4902,10 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
     row.status = body.status
     row.status_log = log
     row.updated_at = now
+    if entry is not None:
+        workflows.emit(db, "employee.status_changed", subject=row, actor=actor,
+                       changes={"status": (entry["from"], entry["to"])},
+                       extra={"reason": entry["reason"], "effectiveDate": entry["effectiveDate"]})
     db.commit()
     db.refresh(row)
 

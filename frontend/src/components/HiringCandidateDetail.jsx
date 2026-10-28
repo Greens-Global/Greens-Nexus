@@ -399,6 +399,8 @@ export default function CandidateDetailModal({
         {c.expectedStart && about('Expected Start', usDay(c.expectedStart))}
         {c.expectedInterviewOn && ['applied', 'screening'].includes(c.stage) && about('Interview Expected By', `${usDay(c.expectedInterviewOn)} - screening due the business day before`)}
         {c.source && about('Came From', c.source)}
+        {c.location && about('Location', c.location)}
+        {c.linkedinUrl && /^https?:\/\//i.test(c.linkedinUrl) && about('LinkedIn', <a href={c.linkedinUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'hsl(var(--color-blue))' }}>{c.linkedinUrl.replace(/^https?:\/\/(www\.)?/i, '')}</a>)}
         <div style={{ padding: '7px 0' }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Resume</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>

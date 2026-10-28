@@ -14,6 +14,12 @@ goes through the same dependency the list route uses, so the number never
 disagrees with the screen and a caller without access simply gets nothing.
 One count failing never blanks the others.
 
+The approval counts (time off, punch fixes, Time Sheets to review and to
+sign, Nexus Sign, shift requests and swaps) are read from the Approvals
+registry (approvals_inbox.collect, Oct 27 2026) - ONE pass over every
+source - so a module's count and the Approvals screen always agree; the
+`approvals` view's own count is that registry's total.
+
 Left out on purpose (too slow to poll every minute): Time Sheet review's
 never-submitted closed periods (timesheet_review.not_reviewed builds a time
 card per person) and AMA questions (they read the ledger).
@@ -25,6 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+import approvals_inbox
 import models
 from auth import get_current_user
 from database import get_db
@@ -49,26 +56,20 @@ def _safe(db: Session, fn) -> int:
 
 # ── Workday ──────────────────────────────────────────────────────────────────
 
-def _timesheet(db: Session, me: str) -> int:
+def _timesheet(db: Session, me: str, to_sign: int) -> int:
     """Time Sheets waiting on my signature, or sent back to me. The ones
-    waiting on my review count on People > Time (_to_review, Oct 22).
+    waiting on my review count on People > Time (Oct 22). `to_sign` is the
+    Approvals registry's timesheet_review.to_sign count.
     A time-tracking-exempt person has no time sheet of their own, so nothing
     of theirs is "sent back": a review row left from before they became
     exempt would otherwise show as a "1" over an empty tab for good
     (Neil, Oct 21 2026)."""
-    import timesheet_review as tsr
     from routers.timeclock import is_time_tracking_exempt
     sent_back = 0 if is_time_tracking_exempt(db, me) else (
         db.query(func.count(models.TimesheetReview.id))
         .filter(models.TimesheetReview.employee_email == me,
                 models.TimesheetReview.status == "with_employee").scalar())
-    return len(tsr.to_sign(db, me)) + (sent_back or 0)
-
-
-def _to_review(db: Session, me: str) -> int:
-    """Time Sheets submitted to me for review - People > Time's list."""
-    import timesheet_review as tsr
-    return len(tsr.waiting_on(db, me))
+    return to_sign + (sent_back or 0)
 
 
 def _schedule_confirm(db: Session, me: str) -> int:
@@ -93,61 +94,15 @@ def _checklist_steps(db: Session, me: str) -> int:
             .scalar())
 
 
-def _documents_to_sign(db: Session, user: dict) -> int:
-    """Nexus Sign documents where it is my turn - Time Sheets excluded (the
-    Time Sheet tab counts those)."""
-    from routers.esign import my_signatures
-    return sum(1 for r in my_signatures(user=user, db=db) if r["myTurn"] and r.get("linkKind") != "timesheet")
-
-
-def _swaps_for_me(db: Session, me: str) -> int:
-    """A teammate's swap / offer waiting for my yes - upcoming shifts only."""
-    R = models.ShiftRequest
-    return (db.query(func.count(R.id))
-            .filter(R.target_email == me, R.status == "pending_peer",
-                    or_(R.shift_date == "", R.shift_date >= date.today().isoformat())).scalar())
-
-
 # ── Team / People (approvers) ────────────────────────────────────────────────
-
-def _approver(db: Session, user: dict) -> dict:
-    """The user the approval list routes see (require_approval_read): the
-    team-read gate, plus a live approval delegation's people."""
-    from routers.timeclock import require_approval_read, require_team_read
-    return require_approval_read(user=require_team_read(user={**user}, db=db), db=db)
-
-
-def _time_off_to_decide(db: Session, user: dict) -> int:
-    from routers.timeclock import list_timeoff, _TIMEOFF_LIST_LIMIT
-    rows = list_timeoff(status="pending", from_="", to="", limit=_TIMEOFF_LIST_LIMIT,
-                        user=_approver(db, user), db=db)
-    return sum(1 for r in rows if r.get("canDecide") is not False)
-
-
-def _shift_requests_to_decide(db: Session, user: dict) -> int:
-    """The Team > Requests inbox's `pending` rule (shift_requests.inbox)."""
-    from routers.timeclock import require_schedule_write, _visible_emails
-    from routers.shift_requests import _decidable
-    u = require_schedule_write(user={**user}, db=db)
-    scope, me, cache = _visible_emails(db, u), u["email"].lower(), {}
-    return sum(1 for r in db.query(models.ShiftRequest).filter(models.ShiftRequest.status == "pending_manager").all()
-               if _decidable(db, r, scope, me, cache) and me not in (r.requester_email, r.target_email))
-
-
-def _punch_fixes(db: Session, user: dict) -> int:
-    """Punch-fix requests (one per person + kind + minute, as People > Time
-    counts them) and punch-time edits waiting on me."""
-    from routers.timeclock import list_punch_requests, list_pending_punch_edits
-    u = _approver(db, user)
-    keys = {(f"{r['employeeEmail'].lower()}|{r['punchKind']}|{(r['at'] or '')[:16]}"
-             if r["action"] == "add" and r["at"] else r["id"])
-            for r in list_punch_requests(status="pending", user=u, db=db)}
-    return len(keys) + len(list_pending_punch_edits(user=u, db=db))
-
+# Time off, shift requests and punch fixes come from the Approvals registry.
 
 def _ask_hr(db: Session, user: dict) -> int:
-    from routers.hr import list_self_requests, require_hr_read
-    return len(list_self_requests(status="open", user=require_hr_read(user=user, db=db), db=db))
+    """Ask HR requests waiting on me - open HR tickets assigned to me, or
+    nobody's yet in a company I am HR for (hr_tickets.waiting_on, Oct 27
+    2026: Ask HR runs through Tickets)."""
+    import hr_tickets
+    return hr_tickets.waiting_on(db, user)
 
 
 def _role_changes(db: Session, user: dict) -> int:
@@ -198,7 +153,8 @@ def _my_tickets(db: Session, me: str) -> int:
     """Tickets I raised that wait on me: the desk asked me something
     (waiting_user) or replied since I last looked (Support's unread dot)."""
     T = models.TaskTicket
-    return (db.query(func.count(T.id))
+    # My own Ask HR tickets count too - the query is mine only.
+    return (db.query(func.count(T.id)).execution_options(include_confidential=True)
             .filter(func.lower(T.requester_email) == me,
                     or_(T.status.is_(None), T.status.notin_(("resolved", "closed"))),
                     or_(T.status == "waiting_user",
@@ -216,20 +172,36 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
     """{"counts": {view: {tab: n}}} - zero counts are left out."""
     me = (user.get("email") or "").lower()
     s = lambda fn: _safe(db, fn)   # noqa: E731
-    time_off = s(lambda: _time_off_to_decide(db, user))   # Team > Requests and People > Time both list it
+    # The approval counts: one pass over the Approvals registry (a source that
+    # fails or that the caller cannot open counts 0 there, as _safe does).
+    try:
+        inbox = approvals_inbox.collect(db, user)
+    except Exception:   # noqa: BLE001 - a badge is never worth a 500
+        log.exception("approvals count failed")
+        db.rollback()
+        inbox = {"counts": {}, "total": 0}
+    a = inbox["counts"].get
+    # Team > Requests and People > Time both list it; HR's second level of
+    # Second Approval By HR (leave depth, Oct 27 2026) counts with it, once.
+    time_off = a("time_off", 0) + a("time_off_hr", 0)
     counts = {
         "myhr": {
-            "timesheet": s(lambda: _timesheet(db, me)),
+            "timesheet": s(lambda: _timesheet(db, me, a("timesheet_sign", 0))),
             "overview": s(lambda: _schedule_confirm(db, me)) + s(lambda: _weather(db, user))
-                        + s(lambda: _checklist_steps(db, me)) + s(lambda: _documents_to_sign(db, user)),
-            "timeoff": s(lambda: _swaps_for_me(db, me)),
+                        + s(lambda: _checklist_steps(db, me)) + a("nexus_sign", 0)
+                        # HR (Oct 27 2026): the Salary Advances and HR Letters cards live here.
+                        + a("salary_advance", 0) + a("salary_advance_payout", 0) + a("hr_letter", 0),
+            "timeoff": a("shift_peer", 0),
         },
         "shifts": {
-            "requests": s(lambda: _shift_requests_to_decide(db, user)) + time_off,
+            "requests": a("shift_request", 0) + time_off,
+            "headcount": a("headcount", 0),   # Team > Headcount (Oct 27 2026)
         },
         "hr": {
-            "hr-time": time_off + s(lambda: _punch_fixes(db, user)) + s(lambda: _to_review(db, me)),
-            "hr-people": s(lambda: _ask_hr(db, user)) + s(lambda: _role_changes(db, user)),
+            "hr-time": time_off + a("punch_fix", 0) + a("timesheet_review", 0)
+                       + a("extra_time", 0),   # People > Time > Extra Time (Oct 27 2026)
+            "hr-people": s(lambda: _ask_hr(db, user)) + s(lambda: _role_changes(db, user))
+                         + a("probation", 0),   # recommendations and overdue decisions (Oct 27 2026)
         },
         "accounting": {
             "partners": s(lambda: _partner_changes(db, user)),
@@ -241,6 +213,24 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
         "dashboard": {
             "announcements": s(lambda: _announcements(db, user)),
         },
+        # The Approvals screen (Oct 27 2026): every decision above, plus
+        # reimbursements, purchase requests and hiring votes.
+        "approvals": {
+            "inbox": int(inbox.get("total") or 0),
+        },
+        # Workflows (Oct 28 2026): workflows the system paused (needs
+        # attention) in the caller's scope, plus workflow approvals waiting
+        # on them (the `workflow` source above).
+        "workflows": {
+            "overview": s(lambda: _workflows_attention(db, user)) + a("workflow", 0),
+        },
     }
     return {"counts": {v: {t: n for t, n in tabs.items() if n} for v, tabs in counts.items()
                        if any(tabs.values())}}
+
+
+def _workflows_attention(db: Session, user: dict) -> int:
+    from workflows import store as wf_store
+    if wf_store.grant_rank(db, user) < 1:
+        return 0
+    return wf_store.visible_workflows(db, user).filter(models.Workflow.status == "needs_attention").count()

@@ -7,6 +7,10 @@
 
 let _screenStream = null;
 let _micStream = null;
+// Build Mode's switchable mic (micSwitch): the recording carries ONE audio
+// track from the start - a recorder's tracks are fixed once it starts - fed
+// by this Web Audio destination, silent until the mic is plugged into it.
+let _micCtx = null, _micDest = null, _micSource = null;
 let _mediaRec = null;
 let _chunks = [];
 let _pill = null;
@@ -17,7 +21,33 @@ function _pickMime() {
   return opts.find((m) => { try { return MediaRecorder.isTypeSupported(m); } catch { return false; } }) || 'video/webm';
 }
 
+async function _micOn() {
+  if (_micSource) return true;
+  try {
+    _micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    _micSource = _micCtx.createMediaStreamSource(_micStream);
+    _micSource.connect(_micDest);
+    return true;
+  } catch { _micStream?.getTracks().forEach((t) => t.stop()); _micStream = null; _micSource = null; return false; }
+}
+function _micOff() {
+  try { _micSource?.disconnect(); } catch { /* already gone */ }
+  _micSource = null;
+  _micStream?.getTracks().forEach((t) => t.stop()); _micStream = null;
+}
+/** Switch the mic of a micSwitch recording; resolves whether it is now on. */
+export async function setRecordingMic(on) {
+  if (!_recording || !_micDest) return false;
+  if (on) return _micOn();
+  _micOff();
+  return false;
+}
+export const recordingMicOn = () => !!_micSource;
+
 function _cleanupTracks() {
+  _micOff();
+  try { _micCtx?.close(); } catch { /* closed */ }
+  _micCtx = null; _micDest = null;
   _micStream?.getTracks().forEach((t) => t.stop()); _micStream = null;
   _screenStream?.getTracks().forEach((t) => t.stop()); _screenStream = null;
   _mediaRec = null; _chunks = [];
@@ -228,7 +258,7 @@ export function stopScreenRecording() { _finishCurrent?.(); }
 // `stream` (Build Mode): a display stream the caller already holds - it is
 // CLONED, so stopping this recording leaves the caller's own stream running
 // and the person is not asked to share twice.
-export async function startScreenRecording({ voice = false, quiet = false, stream: given = null } = {}, onDone) {
+export async function startScreenRecording({ voice = false, quiet = false, stream: given = null, micSwitch = false } = {}, onDone) {
   if (_recording) { try { _mediaRec?.stop(); } catch { /* already stopped */ } _cleanupTracks(); _removePill(); _recording = false; }
   if (!given && !navigator.mediaDevices?.getDisplayMedia) {
     throw new Error('Screen recording isn\'t supported in this browser.');
@@ -237,7 +267,18 @@ export async function startScreenRecording({ voice = false, quiet = false, strea
   _chunks = [];
   const stream = given?.clone ? given.clone() : await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 10 }, audio: false });
   _screenStream = stream;
-  if (voice) {
+  // `micSwitch` (Build Mode): the mic can be switched on and off while it
+  // records (setRecordingMic); `voice` then only says whether it starts on.
+  if (micSwitch) {
+    try {
+      _micCtx = new (window.AudioContext || window.webkitAudioContext)();
+      _micCtx.resume?.().catch(() => {});
+      _micDest = _micCtx.createMediaStreamDestination();
+      _micDest.stream.getAudioTracks().forEach((t) => _screenStream.addTrack(t));
+      if (voice) await _micOn();
+    } catch { _micCtx = null; _micDest = null; }
+  }
+  if (voice && !_micDest) {
     try {
       _micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       _micStream.getAudioTracks().forEach((t) => _screenStream.addTrack(t));

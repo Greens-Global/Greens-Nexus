@@ -403,7 +403,10 @@ class StillToDoTests(_Case):
         self.assertNotIn("briefing-actions", html)          # but nothing acts as the boss
         self.assertNotIn("action_id", str(sections))
         _, _, own = weekly_digest.compose(self.db, emp, cfg, TODAY, FIXED.replace(tzinfo=None), actions=True)
-        self.assertEqual(own.count("briefing-actions"), 4)  # the boss's own copy: Approve + Reject per request
+        # The boss's own copy: Approve + Reject per request, plus Approve All /
+        # Reject All for the bundle (Neil, Oct 26).
+        self.assertEqual(own.count("briefing-actions"), 6)
+        self.assertIn("Approve All", own)
 
 
 class DailyUnchangedTests(_Case):
@@ -556,6 +559,98 @@ class SendTestTests(_Case):
     def test_unknown_employee_is_a_404(self):
         r = self.client.post("/weekly-digest/test-send", json={"employee_email": "nobody@greensglobal.com"})
         self.assertEqual(r.status_code, 404)
+
+
+
+class OutlookCardTests(_Case):
+    """The refreshing "decisions waiting" card on the digest (Neil, Oct 26:
+    an already-approved request still offered Reject - "needs to be dynamic")."""
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.object(task_mail_actions, "am_enabled", return_value=True)
+        p.start()
+        self.addCleanup(p.stop)
+        self._emp("boss@greensglobal.com")
+        self._emp("bob@greensglobal.com", manager_email="boss@greensglobal.com")
+        self.reqs = []
+        for d in ("2026-10-05", "2026-10-12"):
+            r = models.TimeOffRequest(id=gen_id(), employee_email="bob@greensglobal.com", type="vacation",
+                                      start_date=d, end_date=d, status="pending")
+            self.db.add(r)
+            self.reqs.append(r)
+        self.db.commit()
+        self.boss = (self.db.query(models.NexusEmployee)
+                     .filter(models.NexusEmployee.work_email == "boss@greensglobal.com").one())
+
+    def _compose(self, actions=True, **cfg):
+        c = {**weekly_digest.get_settings(self.db), **cfg}
+        return weekly_digest.compose(self.db, self.boss, c, TODAY, FIXED.replace(tzinfo=None), actions=actions)
+
+    def _card(self, html):
+        import json
+        start = html.index("application/adaptivecard+json'>") + len("application/adaptivecard+json'>")
+        return json.loads(html[start:html.index("</script>")].replace("<\/", "</"))
+
+    def test_own_copy_carries_a_refreshing_card(self):
+        _, _, html = self._compose()
+        card = self._card(html)
+        self.assertEqual(card["version"], "1.0")
+        self.assertFalse(card["hideOriginalBody"])
+        auto = card["autoInvokeAction"]
+        self.assertEqual((auto["type"], auto["method"]), ("Action.Http", "POST"))
+        self.assertIn("kind=refresh", auto["url"])
+        self.assertIn("v=weekly", auto["url"])
+        self.assertEqual(len(card["actions"]), 2)   # one decision per request
+
+    def test_no_card_on_a_test_copy_or_when_switched_off(self):
+        self.assertNotIn("adaptivecard", self._compose(actions=False)[2])
+        self.assertNotIn("adaptivecard", self._compose(outlookCard=False)[2])
+
+    def test_refresh_drops_what_was_decided_since(self):
+        import briefing_mail_actions
+        from routers import briefing_actions
+        app = FastAPI()
+        app.include_router(briefing_actions.router)
+        client = TestClient(app)
+        tok = briefing_mail_actions.refresh_token("boss@greensglobal.com")
+        self.reqs[0].status = "approved"
+        self.db.commit()
+        r = client.post("/briefing-actions/card", params={"kind": "refresh", "token": tok, "v": "weekly",
+                                                           "d": TODAY.isoformat()})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.headers["CARD-UPDATE-IN-BODY"], "true")
+        card = r.json()
+        self.assertEqual(len(card["actions"]), 1)
+        self.assertIn("kind=refresh", card["autoInvokeAction"]["url"])   # keeps refreshing
+        self.reqs[1].status = "rejected"
+        self.db.commit()
+        card = client.post("/briefing-actions/card", params={"kind": "refresh", "token": tok, "v": "weekly",
+                                                              "d": TODAY.isoformat()}).json()
+        self.assertEqual(card["actions"], [])
+        self.assertIn("Nothing left to decide.", str(card))
+
+    def test_refresh_and_decision_tokens_do_not_swap(self):
+        import briefing_mail_actions
+        from routers import briefing_actions
+        app = FastAPI()
+        app.include_router(briefing_actions.router)
+        client = TestClient(app)
+        decide = briefing_mail_actions.sign_token("timeoff_approval", self.reqs[0].id, "approve",
+                                                  "boss@greensglobal.com")
+        refresh = briefing_mail_actions.refresh_token("boss@greensglobal.com")
+        self.assertEqual(client.post("/briefing-actions/card",
+                                     params={"kind": "refresh", "token": decide, "v": "weekly"}).status_code, 400)
+        self.assertEqual(client.post("/briefing-actions/card",
+                                     params={"kind": "decision", "token": refresh, "v": "weekly"}).status_code, 400)
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.TimeOffRequest).filter(
+            models.TimeOffRequest.id == self.reqs[0].id).one().status, "pending")
+
+    def test_config_switch_round_trips(self):
+        self.assertIs(weekly_digest.get_settings(self.db)["outlookCard"], True)
+        weekly_digest.save_settings(self.db, weekly_digest.validate({"outlookCard": False}), "admin@greensglobal.com")
+        self.assertIs(weekly_digest.get_settings(self.db)["outlookCard"], False)
 
 
 if __name__ == "__main__":

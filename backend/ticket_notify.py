@@ -32,6 +32,7 @@ import ticket_inbound_parse
 from routers.task_util import log_activity
 
 from app_url import app_url
+import job_switch
 _SETTINGS_KEY = "ticket_notify_config"
 
 _DEFAULT_SETTINGS = {
@@ -230,8 +231,13 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
 
     requester = (t.requester_email or "").strip().lower()
     assignee = (t.assignee_email or "").strip().lower()
-    agents = _agent_recipients(db, cfg, t.company_id)
-    if not agents:
+    import ticket_confidential
+    confidential = ticket_confidential.is_confidential(t)
+    # A confidential (Ask HR) ticket is HR's, never the service desk's: where
+    # the desk would hear, HR for its company does (ticket_confidential).
+    agents = ([e for e in ticket_confidential.hr_audience(db, t) if _is_sendable(db, e)] if confidential
+              else _agent_recipients(db, cfg, t.company_id))
+    if not agents and not confidential:
         # No desk configured, no administrators either, or none of them is
         # sendable. The configured Ticket Administrator is the last resort so a
         # ticket is never emailed to nobody, and the gap is logged either way.
@@ -281,7 +287,9 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
         live = (db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first()
                 if t.hr_department_id else None)
         heads = [e for e in [(live.lead_email if live else ""), (dept.backup_email if dept else "")] if e]
-        if heads:
+        if confidential:
+            add_it_admins()   # HR - a department head is not
+        elif heads:
             for h in heads:
                 add(h, "dept_head")
         else:
@@ -654,7 +662,10 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
     as a failed ticket operation."""
     db = SessionLocal()
     try:
-        t = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first()
+        # Confidential tickets included - _recipients_for sends theirs to their
+        # own people and HR only.
+        t = (db.query(models.TaskTicket).execution_options(include_confidential=True)
+             .filter(models.TaskTicket.id == ticket_id).first())
         if not t:
             return
         cfg = get_settings(db)
@@ -799,7 +810,9 @@ def _retry_failed_once(db: Session) -> None:
                       "updated_at": now.isoformat()}, synchronize_session=False)
             db.commit()
             continue
-        t = db.query(models.TaskTicket).filter(models.TaskTicket.id == row.ticket_id).first()
+        # Confidential tickets included: the recipient was chosen at first send.
+        t = (db.query(models.TaskTicket).execution_options(include_confidential=True)
+             .filter(models.TaskTicket.id == row.ticket_id).first())
         if not t:
             row.status = "failed"
             row.error = "Ticket no longer exists"
@@ -866,7 +879,9 @@ def _auto_close_once(db: Session) -> None:
     if not days:
         return
     now = datetime.now(timezone.utc)
-    candidates = db.query(models.TaskTicket).filter(models.TaskTicket.status == "resolved").all()
+    # Confidential (Ask HR) tickets auto-close like any other - nothing is sent.
+    candidates = (db.query(models.TaskTicket).execution_options(include_confidential=True)
+                  .filter(models.TaskTicket.status == "resolved").all())
     for t in candidates:
         if not t.resolved_at:
             continue
@@ -892,6 +907,8 @@ def _ticket_scan_once() -> None:
     Graph send here would otherwise freeze every request on this worker, CORS
     preflights included, until it returned. Mirrors reminders_loop /
     long_session_loop, which already offload their scans this way."""
+    if job_switch.off("ticket_notify"):   # Workflows > Automations switch
+        return
     db = SessionLocal()
     try:
         _retry_failed_once(db)

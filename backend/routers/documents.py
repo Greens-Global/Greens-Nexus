@@ -448,6 +448,7 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
     # guarantee is only as good as the person clicking. A document authored
     # from scratch is not generated output and starts as a draft, as before.
     # Unlock (POST /{did}/unlock) is the recorded way back for a typo.
+    _assert_subject_ok(db, user, body.employeeId or "")
     generated = bool(body.templateId)
     status = "final" if generated else "draft"
     row = Document(id=str(uuid.uuid4()), title=body.title.strip(), folder_id=body.folderId or "",
@@ -683,6 +684,35 @@ def list_variables(user: dict = Depends(get_current_user), db: Session = Depends
     for token, label, group in BUILTIN_VARIABLES:
         seen[token] = {"token": token, "label": label, "group": group, "when": builtin_when(token, group),
                        "description": "", "source": "builtin", "usedBy": []}
+    # The More Details fields HR defines on employee records (Oct 27 2026):
+    # filled from the person, like the other Person variables.
+    # Only the fields this caller could ever merge (release review, Oct 27
+    # 2026): their own company's (or shared) fields and those of a company
+    # they are HR for; an HR Only field's label only to HR for its company.
+    import auth
+    import hr_access
+    import hr_custom_fields
+    my_company = auth.company_of(user.get("email") or "", db) or ""
+    hr_memo: dict = {}
+
+    def _hr_for(cid: str) -> bool:
+        if cid not in hr_memo:
+            hr_memo[cid] = (hr_access.hr_anywhere(db, user) if not cid
+                            else hr_access.is_hr_for_company(db, user, cid))
+        return hr_memo[cid]
+
+    for f in hr_custom_fields.all_fields(db):
+        token = f"custom.{f.field_key}"
+        cid = f.company_id or ""
+        if not (hr_custom_fields.applies_to(f, my_company) or _hr_for(cid)):
+            continue
+        if (f.visibility or "hr_only") == "hr_only" and not _hr_for(cid):
+            continue
+        if is_valid_token(token):
+            seen[token] = {"token": token, "label": f.label, "group": "More Details", "when": "person",
+                           "description": ("From More Details on the person's record"
+                                           + (" - HR Only: prints only in documents made by HR" if (f.visibility or "hr_only") == "hr_only" else "")),
+                           "source": "builtin", "usedBy": []}
     # Drafts count too: two templates written side by side should agree on a
     # shared field before either is activated.
     for t in db.query(DocTemplate).filter(DocTemplate.status != "archived").all():
@@ -1598,8 +1628,9 @@ def search_documents(q: str = "", user: dict = Depends(get_current_user), db: Se
             or_(HrSignParty.name.ilike(like), HrSignParty.email.ilike(like)))
         esign_query = db.query(HrSignRequest).filter(
             or_(HrSignRequest.title.ilike(like), HrSignRequest.id.in_(party_matches)),
-            # Signed Time Sheets are not Documents results (Neil, Oct 20 2026).
-            or_(HrSignRequest.link_kind.is_(None), HrSignRequest.link_kind != "timesheet"))
+            # Signed Time Sheets are not Documents results (Neil, Oct 20 2026),
+            # nor are performance reviews (Oct 27 2026 - person, chain and HR only).
+            or_(HrSignRequest.link_kind.is_(None), HrSignRequest.link_kind.notin_(("timesheet", "perf_review"))))
         for r in esign_query.order_by(HrSignRequest.created_at.desc()).limit(20).all():
             results.append({"type": "esign", "id": r.id, "title": r.title,
                             "subtitle": f"sent by {r.created_by}" if r.created_by else "", "updatedAt": r.created_at})
@@ -1862,6 +1893,8 @@ def update_document(did: str, body: DocumentUpdate, user: dict = Depends(get_cur
     if body.letterheadId is not None:
         row.letterhead_id = body.letterheadId
     if body.employeeId is not None:
+        if body.employeeId != (row.employee_id or ""):
+            _assert_subject_ok(db, user, body.employeeId)
         row.employee_id = body.employeeId
     if body.entityId is not None:
         row.entity_id = body.entityId
@@ -2001,6 +2034,44 @@ def display_merge(merge: dict, field_defs) -> dict:
     return merge
 
 
+def subject_audience(db: Session, user: dict, emp) -> str:
+    """What a document made by `user` may print about its subject person
+    (release review, Oct 27 2026): 'hr' (every More Details field - HR for the
+    person, hr_custom_fields.caller_is_hr_for), 'self' (their own record),
+    'team' (their manager chain, or a People grant whose scope covers the
+    person - the fields that are not HR Only), or '' (nobody they may make a
+    document about)."""
+    if emp is None or not user or user.get("external"):
+        return ""
+    import auth
+    import hr_custom_fields
+    import performance
+    from routers.hr import _in_scope
+    if hr_custom_fields.caller_is_hr_for(user, db, emp):
+        return "hr"
+    me = (user.get("email") or "").strip().lower()
+    work = (emp.work_email or "").strip().lower()
+    if me and me == work:
+        return "self"
+    if me and work and performance.is_above(db, me, work):
+        return "team"
+    people = (int(user.get("level", 0) or 0) >= _ADMIN_LEVEL
+              or auth._module_level(me, "hr", db) >= auth._MODULE_LEVEL_RANK["viewer"])
+    if people and _in_scope(emp, auth.hr_scope(user, db)):
+        return "team"
+    return ""
+
+
+def _assert_subject_ok(db: Session, user: dict, employee_id: str) -> None:
+    """A document's subject must be the caller, someone below them in the
+    reporting line, or a person inside their People scope."""
+    if not employee_id:
+        return
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == employee_id).first()
+    if not subject_audience(db, user, emp):
+        raise HTTPException(404, "Employee not found")
+
+
 def _export_prep(db: Session, did: str, user: dict):
     """Shared setup for both export endpoints: load the document (same
     visibility as GET /{did} - read access, not ownership: anyone who may open
@@ -2011,8 +2082,17 @@ def _export_prep(db: Session, did: str, user: dict):
     # template actually says rather than whatever someone typed months ago.
     source_tpl = (db.query(DocTemplate).filter(DocTemplate.id == row.template_id).first()
                   if row.template_id else None)
+    # The subject must be someone the caller may make a document about, and
+    # only the More Details fields that audience may see are merged: HR Only
+    # fields print only for someone who is HR for the person.
+    subject = (db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first()
+               if row.employee_id else None)
+    audience = subject_audience(db, user, subject) if subject is not None else ""
+    if subject is not None and not audience:
+        raise HTTPException(403, "This document is about someone outside your team and People scope")
     merge = resolve_merge_data(db, employee_id=row.employee_id, entity_id=row.entity_id,
-                               overrides=row.merge_overrides or {}, template=source_tpl)
+                               overrides=row.merge_overrides or {}, template=source_tpl,
+                               custom_hr_only=audience == "hr")
     merge = display_merge(merge, source_tpl.field_defs if source_tpl else [])
     return (row, *render_parts(db, row, merge))
 

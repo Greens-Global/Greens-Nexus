@@ -41,6 +41,7 @@ import math
 import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Callable, Optional
+import job_switch
 
 BATCH = 300                  # addresses looked at per pass (each 1-2 Nominatim calls)
 RETRY_DAYS = 30              # a miss / ZIP-only point is tried again after this
@@ -259,6 +260,8 @@ def geocode_pass(db, read_customers=None, fetch=None, limit: int = BATCH) -> dic
 
 
 def run_pass() -> dict:
+    if job_switch.off("customer_geo"):   # Workflows > Automations switch
+        return {"looked": 0, "placed": 0, "dropped": 0, "more": False}
     from database import SessionLocal
     db = SessionLocal()
     try:

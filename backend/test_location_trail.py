@@ -213,8 +213,10 @@ class LocationTrail(unittest.TestCase):
     # ── reading: scope ───────────────────────────────────────────────────────
 
     def _seed_trail(self, email):
-        self._punch(email, "in")
         now = datetime.now(timezone.utc)
+        # The clock-in stays on today's (UTC) date: 30 minutes back is
+        # yesterday in the first half hour after midnight.
+        self._punch(email, "in", minutes_ago=min(30, now.hour * 60 + now.minute))
         self.db.add(models.TrackPing(id=f"tp-{email}", session_id="s", employee_email=email, at=_iso(now),
                                      received_at=_iso(now), local_date=now.strftime("%Y-%m-%d"),
                                      lat="33.5", lng="-117.1", source="web"))

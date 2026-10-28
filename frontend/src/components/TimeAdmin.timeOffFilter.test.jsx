@@ -17,6 +17,8 @@ vi.mock('../api', () => ({
   api: {
     timeTeam: () => Promise.resolve({ rows: [] }),
     timeOffList: () => Promise.resolve(rowsForTest),
+    timeOffAwaitingHr: () => Promise.resolve([]),
+    timeOffCalendar: () => Promise.resolve({ entries: [], holidays: [] }),
     timeMonitoringAlerts: () => Promise.resolve({ alerts: [] }),
     timesheetReviewWaiting: () => Promise.resolve({ reviews: [] }),
     timePunchRequests: () => Promise.resolve([]),

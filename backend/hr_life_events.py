@@ -36,9 +36,11 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 import hr_checklist_seed
+import workflows
 from currency import is_currency, money_prefix
 from models import (HrCandidate, HrEntity, HrLifeEvent, HrPacketSetting, HrSignParty,
                     HrSignRequest, HrSignTemplate, HrStageEvent, NexusEmployee)
+import job_switch
 
 # The offer comes first (Neil, Oct 14): "there is a document to sign, but it's
 # a single document called an offer letter" - both sides sign it and the
@@ -57,6 +59,22 @@ EVENT_TITLES = {"offer": "Offer Letter", "hire": "Hiring Packet", "promotion": "
                 "separation": "Separation Package"}
 DEFAULT_SUBFOLDERS = {"offer": "Hiring Documents", "hire": "Hiring Documents", "promotion": "Promotion Documents",
                       "separation": "Separation Documents"}
+# Probation letters (Oct 27 2026, hr_probation.py): a confirmation or an
+# extension, the employee its only signer. Not a packet setting - no EVENTS
+# entry - but it rides this engine for the signature, the Documents tab copy
+# and the Egnyte filing.
+EVENT_TITLES["probation"] = "Probation Letter"
+DEFAULT_SUBFOLDERS["probation"] = "Probation Documents"
+
+
+def event_title(ev) -> str:
+    """The title one event reads with: a probation letter says which one."""
+    if ev.kind == "probation":
+        return {"extend": "Probation Extension Letter"}.get((ev.inputs or {}).get("outcome"),
+                                                             "Probation Confirmation Letter")
+    return EVENT_TITLES.get(ev.kind, ev.kind)
+
+
 PAY_BASES = ("hourly", "salary")
 PAY_FREQUENCIES = ("weekly", "biweekly", "semimonthly", "monthly", "annual")
 # Minutes to wait before each filing retry; past the end the event is marked
@@ -462,7 +480,7 @@ def ser_event(db: Session, ev: HrLifeEvent, *, show_pay: bool) -> dict:
     # email can say what it went up by - salary data, hr_comp holders only.
     inputs = {k: v for k, v in (ev.inputs or {}).items() if show_pay or k != "old_pay"}
     out = {
-        "id": ev.id, "kind": ev.kind, "title": EVENT_TITLES.get(ev.kind, ev.kind),
+        "id": ev.id, "kind": ev.kind, "title": event_title(ev),
         "status": ev.status, "entityId": ev.entity_id, "candidateId": ev.candidate_id,
         "employeeId": ev.employee_id, "subjectName": ev.subject_name, "subjectEmail": ev.subject_email,
         "templateId": ev.template_id, "signRequestId": ev.sign_request_id,
@@ -2037,6 +2055,7 @@ def on_completed(db: Session, req: HrSignRequest) -> None:
     if not ev or ev.status == "completed":
         return
     now = _now()
+    prev_status = ev.status
     apply = _APPLY.get(ev.kind)
     if apply:
         apply(db, ev, req)
@@ -2057,6 +2076,8 @@ def on_completed(db: Session, req: HrSignRequest) -> None:
         eid = cand.employee_id if cand else ""
     import hr_checklists
     hr_checklists.refresh_person(db, eid)
+    workflows.emit(db, "life_event.completed", subject=ev, actor=ev.created_by or "",
+                   changes={"status": (prev_status, "completed")}, extra={"kind": ev.kind, "employeeId": eid})
 
 
 def retry_apply(db: Session, ev: HrLifeEvent) -> None:
@@ -2761,6 +2782,8 @@ def apply_due_separations(limit: int = 20) -> int:
     the morning AFTER the last day in BUSINESS_TZ - the person works their
     last day with their email and Nexus intact; cutting them off at midnight
     UTC would be mid-afternoon the day before in California."""
+    if job_switch.off("life_events"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     db = SessionLocal()
     n = 0
@@ -2794,6 +2817,14 @@ def _apply_separation_signed(db: Session, ev: HrLifeEvent, req: HrSignRequest) -
 
 
 _APPLY["separation"] = _apply_separation_signed
+
+
+def _apply_probation_signed(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
+    import hr_probation
+    hr_probation.letter_signed(db, ev, req)
+
+
+_APPLY["probation"] = _apply_probation_signed
 
 
 # ── Egnyte filing ────────────────────────────────────────────────────────────
@@ -2834,7 +2865,7 @@ def file_one(db: Session, ev: HrLifeEvent, folder: str = "") -> tuple:
     if not blob.is_success:
         return False, "Could not read the sealed packet from storage."
     day = (req.completed_at or _now())[:10]
-    name = f"{day} - {EVENT_TITLES.get(ev.kind, 'Document')} - {_safe_name(ev.subject_name, 60)} (signed).pdf"
+    name = f"{day} - {event_title(ev) or 'Document'} - {_safe_name(ev.subject_name, 60)} (signed).pdf"
     svc.upload_file(f"{target}/{name}", blob.content)
     req.egnyte_folder = target          # where it went; attachments follow it
     n_att = esign._egnyte_push_attachments(db, req)
@@ -2911,6 +2942,8 @@ def run_filing(db: Session, ev: HrLifeEvent) -> None:
 def process_due(limit: int = 10) -> int:
     """The filing pass: every completed event whose filing is due. Runs in a
     worker thread (life_events_loop), never on the event loop."""
+    if job_switch.off("life_events"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     db = SessionLocal()
     done = 0
@@ -2953,4 +2986,19 @@ async def life_events_loop():
             await asyncio.to_thread(timesheet_filing.process_due)
         except Exception as e:
             print(f"[life-events] time sheet filing retry failed: {e}")
+        try:
+            # Issued HR letters an employee requested (hr_letters.py, Oct 27 2026).
+            import hr_letters
+            await asyncio.to_thread(hr_letters.process_filing)
+        except Exception as e:
+            print(f"[life-events] HR letter filing failed: {e}")
+        try:
+            # Leave year end (Oct 27 2026): once a day, settle each person's
+            # last closed leave year - leave_year_end.py. Idempotent.
+            import leave_year_end
+            ye = await asyncio.to_thread(leave_year_end.run_due)
+            if ye and (ye.get("rows") or ye.get("failed")):
+                print(f"[life-events] leave year end: {ye.get('rows')} rows, {len(ye.get('failed') or [])} failed")
+        except Exception as e:
+            print(f"[life-events] leave year end failed: {e}")
         await asyncio.sleep(LOOP_EVERY_SEC)

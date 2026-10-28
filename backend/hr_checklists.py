@@ -50,6 +50,7 @@ from models import (
     NexusNotification,
     NexusSetting,
 )
+import job_switch
 
 KINDS = ("onboarding", "promotion", "offboarding", "inactive")
 # Neil, Oct 19: "payroll isn't anything, that should be accounting ...
@@ -953,6 +954,8 @@ SIGNALS = {
     "work_auth_verified": _sig_work_auth,
     "consent_background": _consent("bgCheck"),
     "consent_handbook": _consent("handbook"),
+    # HR confirmed the probation on the profile (hr_probation.py, Oct 27 2026).
+    "probation_confirmed": lambda db, emp, arg: (emp.probation or {}).get("status") == "confirmed",
 }
 
 SIGNAL_LABELS = {
@@ -972,6 +975,7 @@ SIGNAL_LABELS = {
     "work_auth_verified": "Work authorization is Verified on the Compliance tab (not expired)",
     "consent_background": "Background check consent is ticked on the Compliance tab",
     "consent_handbook": "Handbook acknowledgment is ticked on the Compliance tab",
+    "probation_confirmed": "Probation is Confirmed on the profile",
 }
 
 # The envelope conditions the editor offers by name.
@@ -1551,9 +1555,9 @@ def remind(db, cl: HrChecklist, emp: NexusEmployee, hr_team: list) -> int:
             by_owner.setdefault(r, []).append(it)
     who = full_name(emp)
     label = KIND_LABELS.get(cl.kind, cl.kind)
-    # My HR lists every step a person owns - the one place an owner without
-    # People access (a manager, IT, the new hire) can open.
-    action = {"view": "myhr", "sub": "overview"}
+    # Each step is a subtask on its owner's My Tasks (sync_tasks) - the place an
+    # owner without People access opens. Workday shows no checklist (Oct 28 2026).
+    action = {"view": "tasks", "sub": "mine"}
     sent = 0
     for recipient, rows in by_owner.items():
         rows.sort(key=lambda x: x.due_date)
@@ -1580,6 +1584,7 @@ def run_daily() -> int:
     from reminders import _hr_team_emails
     db = SessionLocal()
     sent, new_tasks = 0, []
+    remind_off = job_switch.off("hr_checklists")   # Workflows > Automations switch: the reminders only
     try:
         hr_team = _hr_team_emails(db)
         for cl in db.query(HrChecklist).filter(HrChecklist.status == "open").all():
@@ -1591,7 +1596,7 @@ def run_daily() -> int:
                 sync(db, cl, emp)
                 db.flush()
                 new_tasks += sync_tasks(db, cl, emp)
-                if cl.status == "open":
+                if cl.status == "open" and not remind_off:
                     sent += remind(db, cl, emp, hr_team)
             except Exception as e:   # noqa: BLE001 - one checklist never stops the pass
                 print(f"[checklists] {cl.id} skipped: {e}")

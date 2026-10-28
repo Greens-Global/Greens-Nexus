@@ -69,6 +69,7 @@ const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicIntake        = lazy(() => import("./views/PublicIntake"));
+const PublicCareers       = lazy(() => import("./views/PublicCareers"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
 const PublicUnitFinder    = lazy(() => import("./views/PublicUnitFinder"));
 const PublicFindUnit      = lazy(() => import("./views/PublicFindUnit"));   // /find/<token>: one customer's unit + route (Oct 20)
@@ -88,6 +89,8 @@ const EmployeeTracking    = lazy(() => import("./components/TimeTrackingAdmin"))
 const Shifts              = lazy(() => import("./views/Shifts"));
 const MyBriefing          = lazy(() => import("./views/MyBriefing"));
 const WhatsNew            = lazy(() => import("./tasks/ChangelogView"));   // What's New as a page (Oct 12)
+const Approvals           = lazy(() => import("./views/Approvals"));       // everything waiting on my decision (Neil, Oct 27 2026)
+const Workflows           = lazy(() => import("./views/Workflows"));       // cross-module automations (Oct 28 2026)
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
@@ -156,6 +159,9 @@ const VIEW_MIN_ROLES = {
   // can see regardless of the viewer's own Egnyte permissions. Gated at
   // supervisor for that reason - see the note in src/egnyte/EgnyteApp.jsx.
   'egnyte':             'supervisor',
+  // Workflows (Oct 28 2026): a granted module like the others; the grant
+  // level decides what someone may do inside (routers/workflows.py).
+  'workflows':          'supervisor',
 };
 
 // A view whose Access Group grant has another module's id (none today:
@@ -396,6 +402,8 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "privacy-policy":     return <Legal activeSub="privacy" onSubChange={(sub) => onNavigate("legal", sub)} />;
     case "terms-conditions":   return <Legal activeSub="terms" onSubChange={(sub) => onNavigate("legal", sub)} />;
     case "briefing":           return <MyBriefing />;
+    case "approvals":          return <Approvals activeSub={activeSub} onSubChange={onSubChange} />;
+    case "workflows":          return <Workflows activeSub={activeSub} onSubChange={onSubChange} />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
 }
@@ -486,6 +494,7 @@ const DEFAULT_SUBS = {
   myhr:              "overview",
   timeclock:         "overview",   // the Clock tab is a widget on Overview (Oct 2)
   "admin-console":   "companies",   // Settings opens on Companies (one tab, Oct 23 2026)
+  workflows:         "overview",    // Workflows opens on Overview (Oct 28 2026)
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 
@@ -509,6 +518,16 @@ export default function App() {
     return (
       <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <PublicIntake token={token} />
+      </Suspense>
+    );
+  }
+  // The public careers page (/careers/<company>[/<opening>], Oct 27 2026) -
+  // job seekers have no login; it shows only Open openings.
+  if (parsePath().view === 'careers') {
+    const [, slug = '', openingId = ''] = window.location.pathname.split('/').filter(Boolean).map(x => { try { return decodeURIComponent(x); } catch { return x; } });
+    return (
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
+        <PublicCareers slug={slug} openingId={openingId} />
       </Suspense>
     );
   }

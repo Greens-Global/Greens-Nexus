@@ -33,6 +33,13 @@ ledger cannot answer leaves that line as it was.
 
 The settings (`nexus_settings` key acct_recurring_settings, JSON) also hold
 MRE's Egnyte root - the folder vendor folders are looked for under.
+
+10/27 (Urmi, "possibly ended settings logic is not working"): saving a new
+number of months runs the check right away (PUT /accounting/mre/settings),
+not at the next daily pass - flags that no longer qualify clear, new ones
+appear, and the screens reload when it is done. MRE reads the ledger with the
+grid's grouped read (seconds), and each finished pass is recorded
+(acct_recurring_last_check) so the settings say when it last ran.
 """
 import asyncio
 import json
@@ -42,8 +49,10 @@ from typing import Optional
 
 import models
 from database import SessionLocal
+import job_switch
 
 SETTINGS_KEY = "acct_recurring_settings"
+LAST_CHECK_KEY = "acct_recurring_last_check"
 DEFAULTS = {"staleMonths": 3, "egnyteRoot": ""}
 STALE_MIN, STALE_MAX = 1, 24
 LOOKBACK = 12            # months read back for "last posted"
@@ -191,18 +200,49 @@ async def _mri_results(today: date, months: int) -> list[dict]:
     return out
 
 
+async def _mre_grouped(cands: list[tuple[dict, list[str]]], today: date) -> tuple[dict, set]:
+    """({(entity, vendor): {'YYYY-MM': {gl: amount}}}, the pairs it could not
+    answer) - the grid's grouped read (one per calendar year of the lookback,
+    about a second each) instead of one ledger read per line (10/27, Urmi:
+    saving the months setting has to re-check right away, and ~180 reads took
+    minutes). A pair the grouped read cannot answer is read on its own."""
+    from routers import accounting_mre
+    pairs = sorted({(l["entityCode"], l["vendorId"]) for l, _w in cands})
+    accounts = {a for l, _w in cands for a in l["expenseAccounts"] or []}
+    years = sorted({int(m[:4]) for _l, win in cands for m in lookback(today, win)})
+    got: dict = {p: {} for p in pairs}
+    slow: set = set()
+    for year in years:
+        try:
+            part, missing = await accounting_mre._grid_payments(_SCOPE, pairs, year, accounts)
+        except Exception as e:  # noqa: BLE001 - the one-line reads stand in
+            print(f"[recurring-stale] grouped read {year} failed: {getattr(e, 'detail', None) or e}")
+            part, missing = {}, pairs
+        for p, months in part.items():
+            got.setdefault(p, {}).update(months)
+        slow.update(missing)
+    return got, slow
+
+
 async def _mre_results(today: date, months: int) -> list[dict]:
     from routers import accounting_mre
     lines = await asyncio.to_thread(accounting_mre._load_all)
     cands = mre_candidates(lines, today, months)
+    if not cands:
+        return []
+    grouped, slow = await _mre_grouped(cands, today)
     out = []
     for l, win in cands:
         back = lookback(today, win)
-        try:
-            got = await accounting_mre._vendor_months(_SCOPE, l["entityCode"], l["vendorId"], f"{back[0]}-01", _month_end(back[-1]))
-        except Exception as e:  # noqa: BLE001 - this line is left as it was
-            print(f"[recurring-stale] MRE {l['vendorId']} at {l['entityCode']} not read: {getattr(e, 'detail', None) or e}")
-            continue
+        pair = (l["entityCode"], l["vendorId"])
+        if pair in slow:
+            try:
+                got = await accounting_mre._vendor_months(_SCOPE, l["entityCode"], l["vendorId"], f"{back[0]}-01", _month_end(back[-1]))
+            except Exception as e:  # noqa: BLE001 - this line is left as it was
+                print(f"[recurring-stale] MRE {l['vendorId']} at {l['entityCode']} not read: {getattr(e, 'detail', None) or e}")
+                continue
+        else:
+            got = grouped.get(pair, {})
         stale, last = judge(mre_posted(l, got), win, back)
         out.append({"id": l["id"], "stale": stale, "lastPaid": last, "entity": l["entityCode"], "window": win,
                     "label": l["vendorName"] or l["vendorId"], "who": l["entityName"] or l["entityCode"]})
@@ -334,9 +374,39 @@ def _send_task_emails(ids: list[str]) -> None:
             print(f"[recurring-stale] task email {tid}: {e}")
 
 
+def save_last_check(started: str, months: int, result: dict) -> None:
+    """When the check last finished, with how many months and what it found -
+    the settings hint shows it, and a screen waiting on a re-check reads it
+    (any worker: the run's own memory is per worker)."""
+    db = SessionLocal()
+    try:
+        row = db.query(models.NexusSetting).filter(models.NexusSetting.key == LAST_CHECK_KEY).first()
+        if not row:
+            row = models.NexusSetting(key=LAST_CHECK_KEY)
+            db.add(row)
+        row.value = json.dumps({"startedAt": started, "at": _now(), "months": months, "result": result})
+        row.updated_by, row.updated_at = ACTOR, _now()
+        db.commit()
+    finally:
+        db.close()
+
+
+def load_last_check() -> Optional[dict]:
+    db = SessionLocal()
+    try:
+        row = db.query(models.NexusSetting).filter(models.NexusSetting.key == LAST_CHECK_KEY).first()
+        try:
+            return json.loads(row.value) if row and row.value else None
+        except ValueError:
+            return None
+    finally:
+        db.close()
+
+
 async def check(today: Optional[date] = None) -> dict:
     """One full pass over MRI and MRE. Safe to run twice: a flagged line is
     never re-flagged or given a second task."""
+    started = _now()
     today = today or date.today()
     settings = await asyncio.to_thread(load_settings)
     months = settings["staleMonths"]
@@ -353,6 +423,10 @@ async def check(today: Optional[date] = None) -> dict:
             await asyncio.to_thread(_send_task_emails, done["opened"])
         out[kind] = {"checked": len(results), "flagged": done["flagged"], "cleared": done["cleared"], "tasks": len(done["opened"]),
                      "possiblyEnded": sum(1 for r in results if r["stale"])}
+    try:
+        await asyncio.to_thread(save_last_check, started, months, out)
+    except Exception as e:  # noqa: BLE001 - the flags are written either way
+        print(f"[recurring-stale] last check not recorded: {e}")
     return out
 
 
@@ -368,7 +442,8 @@ async def recurring_stale_loop():
     await asyncio.sleep(900)  # let startup and the leasing sync settle
     while True:
         try:
-            if accounting._ACCT_BASE and accounting._ACCT_KEY:
+            if accounting._ACCT_BASE and accounting._ACCT_KEY \
+                    and not await asyncio.to_thread(job_switch.off, "recurring_stale"):   # Workflows > Automations switch
                 out = await check()
                 print(f"[recurring-stale] {out}")
         except Exception as e:  # noqa: BLE001 - tomorrow tries again

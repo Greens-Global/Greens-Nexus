@@ -21,6 +21,13 @@ Every click posts to /briefing-actions/card (routers/briefing_actions.py),
 which runs the action and answers with this card rebuilt for the same
 briefing window, so the email updates in place and still shows everything
 else that is pending.
+
+Refresh on open (Neil, Oct 26: an already-approved request still offered
+Reject): a card built with a `refresh_token` carries `autoInvokeAction`, so
+Outlook asks /briefing-actions/card (kind=refresh) for a fresh card each time
+the email is opened and shows only what is still waiting. The refreshed card
+carries it again, so it stays current on every later open. If the call fails
+Outlook keeps the card it had - the confirm pages re-check the state anyway.
 """
 from urllib.parse import urlencode
 
@@ -59,6 +66,17 @@ def _post(ctx: dict, title: str, body: str = "", style: str = "", **params) -> d
     if style:
         a["style"] = style
     return a
+
+
+def _auto_refresh(ctx: dict, card: dict) -> dict:
+    """Adds the refresh-on-open call when the card was built with a refresh
+    token (an Outlook-only, top-level property; harmless to other clients)."""
+    if ctx.get("refresh_token"):
+        card["autoInvokeAction"] = {
+            "type": "Action.Http", "method": "POST", "body": "",
+            "url": _card_url(ctx, kind="refresh", token=ctx["refresh_token"]),
+            "headers": [{"name": "Content-Type", "value": "text/plain"}]}
+    return card
 
 
 def _decision_actions(ctx: dict, kind: str, action_id: str, email: str) -> list:
@@ -203,7 +221,7 @@ def _section(ctx: dict, key: str, rows: list, view_urls: dict) -> list:
 
 def build_card(*, sections: dict, first_name: str, greeting: str, weekday_date: str,
                briefing_date: str, since_iso: str, logo_url: str, app_url: str,
-               view_urls: dict, status_options, outcome: str = "") -> dict:
+               view_urls: dict, status_options, outcome: str = "", refresh_token: str = "") -> dict:
     """The whole briefing as one Adaptive Card. `status_options(project_id)`
     returns [(key, label), ...] for a task's statuses (no longer offered); `outcome` is
     the line shown at the top after a click."""
@@ -220,7 +238,7 @@ def build_card(*, sections: dict, first_name: str, greeting: str, weekday_date: 
         return status_cache[project_id]
 
     ctx = {"briefing_date": briefing_date, "since_iso": since_iso, "next_id": next_id,
-           "status_options": cached_status}
+           "status_options": cached_status, "refresh_token": refresh_token}
     brand = ({"type": "Image", "url": logo_url, "height": "24px", "altText": "Greens Global"} if logo_url else
              {"type": "TextBlock", "text": "GREENS GLOBAL", "weight": "bolder", "size": "small"})
     body = [{"type": "ColumnSet", "columns": [
@@ -257,14 +275,14 @@ def build_card(*, sections: dict, first_name: str, greeting: str, weekday_date: 
                      "wrap": True, "spacing": "medium"})
     body.append({"type": "TextBlock", "text": "You receive one briefing a day, before your shift starts (or at a set time on a day without a shift).",
                  "isSubtle": True, "size": "small", "wrap": True, "spacing": "extraLarge", "separator": True})
-    return {
+    return _auto_refresh(ctx, {
         "type": "AdaptiveCard", "version": "1.2", "originator": task_mail_actions.AM_ORIGINATOR,
         # The card is the whole briefing in Outlook; the HTML stays for every
         # other client.
         "hideOriginalBody": True,
         "body": body,
         "actions": [{"type": "Action.OpenUrl", "title": "Open Nexus", "url": app_url}],
-    }
+    })
 
 
 def outcome_only_card(outcome: str, app_url: str) -> dict:
@@ -332,12 +350,15 @@ def _strip_styles(node):
 
 
 def build_quick_card(*, action_rows: list, briefing_date: str, since_iso: str, outcome: str = "",
-                     briefing_url: str = ""):
+                     briefing_url: str = "", refresh_token: str = "", variant: str = "quick",
+                     always: bool = False):
     """None when there is nothing to decide - the email then goes out with no
-    card at all. After a click (`outcome`) the card is redrawn with what is
-    still waiting."""
+    card at all (unless `always`: a refresh must answer with a card). After a
+    click (`outcome`) the card is redrawn with what is still waiting.
+    `variant` routes a click's redraw back to the right email ("quick" = the
+    Daily Briefing, "weekly" = the Weekly Digest)."""
     entries = _quick_entries(action_rows)
-    if not entries and not outcome:
+    if not entries and not outcome and not always:
         return None
     counter = {"n": 0}
 
@@ -345,7 +366,8 @@ def build_quick_card(*, action_rows: list, briefing_date: str, since_iso: str, o
         counter["n"] += 1
         return f"{prefix}{counter['n']}"
 
-    ctx = {"briefing_date": briefing_date, "since_iso": since_iso, "next_id": next_id, "variant": "quick"}
+    ctx = {"briefing_date": briefing_date, "since_iso": since_iso, "next_id": next_id, "variant": variant,
+           "refresh_token": refresh_token}
     n = len(entries)
     body = []
     if outcome:
@@ -366,13 +388,14 @@ def build_quick_card(*, action_rows: list, briefing_date: str, since_iso: str, o
         }})
     if n > _QUICK_MAX:
         body.append({"type": "TextBlock", "isSubtle": True, "wrap": True,
-                     "text": f"{n - _QUICK_MAX} more in the briefing below."})
+                     "text": f"{n - _QUICK_MAX} more in the "
+                             f"{'digest' if variant == 'weekly' else 'briefing'} below."})
         if briefing_url:
             actions.append({"type": "Action.OpenUrl", "title": "Open My Briefing", "url": briefing_url})
-    return _strip_styles({
+    return _strip_styles(_auto_refresh(ctx, {
         "type": "AdaptiveCard", "version": "1.0", "originator": task_mail_actions.AM_ORIGINATOR,
         # On top of our designed email, not instead of it.
         "hideOriginalBody": False,
         "body": body,
         "actions": actions,
-    })
+    }))

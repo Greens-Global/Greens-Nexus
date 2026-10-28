@@ -21,6 +21,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 try:
@@ -36,6 +37,7 @@ RELAUNCH_BACKOFF = (30, 60, 120, 300)   # Claude exited without claiming: wait t
 DEFAULT_TIMEOUT = 25
 SERVER_MAX_TIMEOUT = 50
 CLAUDE_MISSING = 127
+RESTART = 75           # main() asks the script entry to start the updated watcher
 
 _sleep = time.sleep   # swapped out by the tests
 
@@ -83,20 +85,28 @@ def describe_batch(notes, sessions):
     return lines
 
 
-def claude_command(ids, claude_args=""):
-    cmd = ["claude"]
-    if claude_args:
-        cmd.extend(shlex.split(claude_args))
+def claude_command(ids, claude_args="", exe="claude"):
+    cmd = [exe]
+    args = shlex.split(claude_args) if claude_args else []
+    if "--permission-mode" not in args:
+        # Edits inside the repo go through without a prompt per file; shell
+        # commands outside the skill's allowed-tools still ask.
+        cmd.extend(["--permission-mode", "acceptEdits"])
+    cmd.extend(args)
     cmd.append("/build-notes " + " ".join(ids))
     return cmd
 
 
 def run_claude(ids, claude_args, cwd):
     """Run Claude Code in this terminal and return its exit code."""
-    if shutil.which("claude") is None:
+    # The path `which` found, not the bare name: on Windows npm installs
+    # claude.cmd / claude.ps1, and CreateProcess cannot start "claude" by name
+    # (FileNotFoundError, Pranshu Oct 27) - the .cmd's full path it can.
+    exe = shutil.which("claude")
+    if exe is None:
         _say("The `claude` command is not on PATH.")
         return CLAUDE_MISSING
-    cmd = claude_command(ids, claude_args)
+    cmd = claude_command(ids, claude_args, exe)
     _say("Starting Claude Code: " + " ".join(shlex.quote(c) for c in cmd))
     _say("(working directory: " + str(cwd) + ")")
     _say("")
@@ -114,6 +124,31 @@ def run_claude(ids, claude_args, cwd):
         signal.signal(signal.SIGINT, previous)
 
 
+HEARTBEAT_SEC = 60   # well under the server's CONNECTED_SEC (150 s)
+
+
+def _heartbeat(client, stop, every=HEARTBEAT_SEC):
+    """While Claude Code runs the watcher is not long-polling, so its token
+    goes quiet and Nexus said "Connect Claude Code First" after every pin
+    (Pranshu, Oct 27). Use the token once a minute until Claude exits."""
+    while not stop.wait(every):
+        try:
+            client.get("/cli/whoami", timeout=30)
+        except Exception:  # noqa: BLE001 - the next beat or the next poll tries again
+            pass
+
+
+def _code_stamp():
+    """When the watcher's own files last changed - a `git pull` that updates
+    them changes this, and the idle watcher restarts itself (Pranshu, Oct 27:
+    no restarting it by hand after every update)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        return tuple(os.path.getmtime(os.path.join(here, f)) for f in ("watch.py", "common.py"))
+    except OSError:   # mid-checkout: a file is briefly missing - no change yet
+        return None
+
+
 def wait_once(client, timeout):
     """One long-poll. Returns (notes, sessions)."""
     data = client.get("/cli/wait", query={"timeout": timeout}, timeout=timeout + 20) or {}
@@ -125,7 +160,7 @@ def wait_once(client, timeout):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Wait for Build Mode pins and hand them to Claude Code.")
     parser.add_argument("--once", action="store_true", help="handle one batch of pins, then exit")
-    parser.add_argument("--api", help="API base URL (default: NEXUS_API_BASE or the dev API)")
+    parser.add_argument("--api", help="API base URL (default: the Nexus connect.py connected, else NEXUS_API_BASE, else the dev API)")
     parser.add_argument("--token", help="Build Token (default: NEXUS_BUILD_TOKEN or ~/.config/nexus/build-notes.token)")
     parser.add_argument("--no-claude", action="store_true", help="print the pin ids and exit instead of running Claude Code")
     parser.add_argument("--claude-args", default="", help='extra arguments for the claude command, e.g. "--model opus"')
@@ -154,6 +189,7 @@ def main(argv=None):
         _say("Warning: " + str(exc) + " - will keep trying.")
 
     _say(BANNER)
+    stamp = _code_stamp()
     backoff = 2
     last_ids = None        # the ids handed to the previous Claude run
     relaunch_step = 0      # index into RELAUNCH_BACKOFF; reset when the id set changes
@@ -174,6 +210,11 @@ def main(argv=None):
                 continue
 
             if not notes:
+                now = _code_stamp()
+                if stamp and now and now != stamp:
+                    _say("")
+                    _say("The watcher was updated - restarting it with the new code.")
+                    return RESTART
                 _dot()
                 continue
 
@@ -205,7 +246,12 @@ def main(argv=None):
                 relaunch_step = 0
             last_ids = set(ids)
 
-            code = run_claude(ids, args.claude_args, repo)
+            stop = threading.Event()
+            threading.Thread(target=_heartbeat, args=(client, stop), daemon=True).start()
+            try:
+                code = run_claude(ids, args.claude_args, repo)
+            finally:
+                stop.set()
             _say("")
             _say("Claude Code exited (code " + str(code) + ").")
             if code == CLAUDE_MISSING:
@@ -229,4 +275,11 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    code = main()
+    while code == RESTART:
+        # The updated watcher, in a fresh process in this same terminal.
+        try:
+            code = subprocess.call([sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
+        except KeyboardInterrupt:
+            code = 0
+    sys.exit(code)

@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Clock, ChevronDown, ChevronRight, MapPin, AlertTriangle, Download,
   Pencil, Plus, X, CheckCircle, Ban,
   Activity, Inbox, Banknote, CalendarOff,
-  Search, Lock, Receipt,
+  Search, Lock, Receipt, Timer, ClipboardCheck, Scale, MessageSquare,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -15,7 +15,7 @@ import AddTimeModal from './AddTimeModal';
 import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { MonitoringAlertsLine } from './MonitoringAlerts';
-import { ErrorBanner, Spinner } from './AsyncState';
+import { ErrorBanner, SkeletonBlocks, Spinner } from './AsyncState';
 import { formatDate, formatPacificDateTime, zonedDateTime, zonedInputValue, zonedInputToUtc, zoneOffsetMin } from '../lib/datetime';
 import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
 import { TIMEOFF_FILTERS, countByStatus, filterAndSortTimeoff, nextSort, yearsOf, inPeriod } from '../lib/timeOffFilter';
@@ -27,11 +27,18 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { useRole } from '../contexts/RoleContext';
 import PayrollReadiness from './PayrollReadiness';
-import { ForChip } from './DelegateApprovals';
+import { ForChip, ApprovalDelegationsAdmin } from './DelegateApprovals';
+import LeaveBalancesAdmin from './LeaveBalances';
+import LeaveHistory from './LeaveHistory';
 import CaReview from './CaReview';
 import LongShiftWarning from './LongShiftWarning';
 import { checkLongShift } from '../lib/longShift';
 import ContractorInvoices from './ContractorInvoices';
+// Team Leave Calendar, Leave Year End and Extra Time (Oct 27 2026) load with
+// their tab - their own chunks.
+const TeamLeaveCalendar = lazy(() => import('./TeamLeaveCalendar'));
+const LeaveYearEndPreview = lazy(() => import('./LeaveYearEnd').then(m => ({ default: m.LeaveYearEndPreview })));
+const ExtraTimeQueue = lazy(() => import('./ExtraTimeQueue'));
 
 // Launch (Neil, 10/16): timecards are approved by Agree in the timesheet
 // review and signed in Nexus Sign, so the per-day / per-period Approve
@@ -130,6 +137,19 @@ function readTimeoffFilter(key) {
   } catch { return 'pending'; }
 }
 
+// Teams on an Action Log person (Oct 28 2026): a 1:1 chat with what is
+// waiting on them already typed in the compose box - the reviewer reads it
+// and presses Send in Teams; nothing is sent from Nexus.
+const TEAMS_LINES = 10;
+export function actionLogTeamsUrl(g, reqLine) {
+  const lines = [...g.rows.map(({ rep }) => reqLine(rep)), ...g.missing.map(e => `${formatDate(e.date)}: ${e.label}`)];
+  const more = lines.length - TEAMS_LINES;
+  const msg = [`Hi ${(g.name || '').split(' ')[0] || 'there'}, about your time sheet:`,
+    ...lines.slice(0, TEAMS_LINES).map(l => `- ${l}`), ...(more > 0 ? [`- and ${more} more`] : []),
+    'Can we talk it through?'].join('\n');
+  return `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(g.email)}&message=${encodeURIComponent(msg)}`;
+}
+
 function weekRange(offset = 0) {
   const now = new Date();
   const mon = new Date(now);
@@ -149,7 +169,10 @@ const punchReqKey = (r) => (r.action === 'add' && r.at)
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
-export default function TimeAdmin({ toastOk, toastErr, initialView }) {
+// hrPanels: People > Time shows HR's leave panels under Time Off (balances,
+// year end, approval stand-ins, the old Leave history) - they moved here when
+// the People > Leave tab was retired (Oct 27 2026). The dashboard card does not.
+export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = false }) {
   // The manager tier sees its team's hours, never pay (Oct 6).
   const { hrTeam, myEmail } = useRole() || {};
   // Your own time is approved and fixed by your manager or HR, never here (Oct 20, _refuse_own_time).
@@ -159,6 +182,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   // on lives in Shifts > Schedule, screenshots and location hours in Workforce
   // Analytics.
   const [view, setView] = useState(initialView || 'payroll');
+  // Payroll Readiness / California Review open from buttons in the tab row (Oct 28 2026).
+  const [checksOpen, setChecksOpen] = useState({ ready: false, ca: false });
   // Live map tab removed Aug 4 - superseded by the top-level Locations map.
   // A specific employee + period to open (Sep 29): Timesheets to Review, the
   // "Timesheet to review" bell, and the Daily Briefing / Weekly Digest link.
@@ -220,6 +245,12 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     Promise.resolve().then(() => api.contractorInvoices('draft')).then(r => setInvoiceDrafts((r?.invoices || []).length)).catch(() => {});
   }, [hrTeam]);
   useEffect(() => { loadInvoiceDrafts(); }, [loadInvoiceDrafts]);
+  // India Contractor Extra Time claims waiting on a decision (Oct 27 2026) - the Extra Time tab badge. HR only.
+  const [xtPending, setXtPending] = useState(0);
+  useEffect(() => {
+    if (hrTeam) return;
+    Promise.resolve().then(() => api.extraTimeQueue()).then(r => setXtPending((r?.pending || []).length)).catch(() => {});
+  }, [hrTeam]);
   const [[start, end], setRange] = useState(() => weekRange(0));
   const [rows, setRows] = useState(null);
   const [open, setOpen] = useState({});          // email -> bool
@@ -247,7 +278,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   const [timeoffErr, setTimeoffErr] = useState(false);
   const loadTimeoff = useCallback(() => {
     setTimeoffErr(false);
-    api.timeOffList().then(r => { setTimeoff(r); }).catch(() => setTimeoffErr(true));   // don't mask a failure as "no requests"
+    // Plus the requests waiting for me as HR (Second Approval By HR, Oct 27
+    // 2026) - an HR contact may not see them in the team list.
+    Promise.all([api.timeOffList(), api.timeOffAwaitingHr().catch(() => [])])
+      .then(([r, hr]) => {
+        const seen = new Set((r || []).map(x => x.id));
+        setTimeoff([...(hr || []).filter(x => !seen.has(x.id)), ...(r || [])]);
+      })
+      .catch(() => setTimeoffErr(true));   // don't mask a failure as "no requests"
   }, []);
   useEffect(() => { loadTimeoff(); }, [loadTimeoff]);
 
@@ -438,8 +476,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       if (note === null) return;   // cancelled - do NOT reject (was the cancel-still-rejects bug)
     }
     try {
-      await api.timeOffDecide(id, { status, note: note || '' });
-      toastOk(`Request ${status}.`);
+      const row = timeoff.find(r => r.id === id);
+      const out = row?.awaitingHr
+        ? await api.timeOffHrDecide(id, { status, note: note || '' })
+        : await api.timeOffDecide(id, { status, note: note || '' });
+      toastOk(out?.awaitingHr ? 'Approved - it now waits for HR approval.' : `Request ${status}.`);
       loadTimeoff();
     } catch (e) { toastErr(e?.message || 'Could not update the request.'); }
   }
@@ -565,7 +606,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         {[['payroll', 'Payroll', Banknote],
           ['actions', 'Action Log', Inbox, new Set(punchReqs.map(punchReqKey)).size + exBlocking, true],
           ['timeoff', 'Time Off', CalendarOff, pendingCount, decidableCount > 0],
-          ...(hrTeam ? [] : [['invoices', 'Invoices', Receipt, invoiceDrafts, true]])].map(([key, label, Icon, badge, waiting]) => {
+          ...(hrTeam ? [] : [['invoices', 'Invoices', Receipt, invoiceDrafts, true]]),
+          ...(hrTeam ? [] : [['extra', 'Extra Time', Timer, xtPending, true]])].map(([key, label, Icon, badge, waiting]) => {
           const on = view === key;
           return (
             <button key={key} onClick={() => setView(key)}
@@ -581,6 +623,20 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             </button>
           );
         })}
+        {/* The two payroll checks sit in the tab row, not as two full-width
+            cards above the time sheet (Oct 28 2026: more screen) - a click
+            runs one and opens its results below. */}
+        {view === 'payroll' && (<>
+          <div style={{ flex: 1 }} />
+          {[['ready', 'Run Check', ClipboardCheck, 'Payroll Readiness - check who is not ready for payroll before you export: approvals, signatures, missing punches, open fixes and pay rates, plus big changes and unusual weeks.'],
+            ...(hrTeam ? [] : [['ca', 'Run Review', Scale, 'California Review - check the time sheets of hourly staff who work in California against California rules: meal breaks, 7th-day and double time, split shifts, reporting time, minimum wage and manual time.']])].map(([key, label, Icon, title]) => (
+            <button key={key} type="button" className="secondary-btn" title={title} aria-pressed={checksOpen[key]}
+              onClick={() => setChecksOpen(o => ({ ...o, [key]: true }))}
+              style={{ alignSelf: 'center', marginLeft: 6, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+              <Icon size={13} /> {key === 'ready' ? 'Payroll Readiness' : 'California Review'}
+            </button>
+          ))}
+        </>)}
       </div>
 
       {/* Range picker - shared by Insights and the Action Log's missing punches (both scan a range) */}
@@ -762,9 +818,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {/* Shifts moved out to its own module in My Desk (Sep 29) - views/Shifts.jsx. */}
 
       {/* Payroll - per-employee, per-pay-period editable timecard */}
-      {view === 'payroll' && <PayrollReadiness onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
+      {view === 'payroll' && checksOpen.ready && <PayrollReadiness autoRun onClose={() => setChecksOpen(o => ({ ...o, ready: false }))}
+        onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
       {/* California Review (Oct 18): CA-rule flags for HR - never the manager tier. */}
-      {view === 'payroll' && !hrTeam && <CaReview onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
+      {view === 'payroll' && !hrTeam && checksOpen.ca && <CaReview autoRun onClose={() => setChecksOpen(o => ({ ...o, ca: false }))}
+        onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
       {view === 'payroll' && <PayrollTimecard key={payrollTarget.key} toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail}
         initialStart={payrollTarget.start} initialPayType={payrollTarget.payType} />}
       {/* Retro Pay (Oct 17): back-dated rate changes on finalized periods. Pay - never the manager tier. */}
@@ -772,6 +830,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
 
       {/* Contractor invoices (Oct 21): drafted at finalize, approved and emailed here. */}
       {view === 'invoices' && !hrTeam && <ContractorInvoices toastOk={toastOk} toastErr={toastErr} onChanged={loadInvoiceDrafts} />}
+
+      {/* India Contractor Extra Time (Oct 27 2026): claims to approve or decline. */}
+      {view === 'extra' && !hrTeam && (
+        <Suspense fallback={<SkeletonBlocks count={3} height={48} />}>
+          <ExtraTimeQueue toastOk={toastOk} toastErr={toastErr} onOpenTimecard={openTimecard} onChanged={setXtPending} />
+        </Suspense>
+      )}
 
 
       {/* Action Log (Neil, 10/06): punch-fix requests and missing punches were two
@@ -936,6 +1001,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     </div>
                     {g.rows.length > 0 && <span style={pill('var(--wk-brand-tint, rgba(43,69,225,0.08))', 'var(--wk-brand, #2b45e1)')}><Inbox size={11} /> {g.rows.length} Request{g.rows.length === 1 ? '' : 's'}</span>}
                     {g.blocking > 0 && actKind !== 'requests' && <span style={pill('rgba(220,38,38,0.08)', 'hsl(var(--color-red))')}><AlertTriangle size={11} /> {g.blocking} Missing</span>}
+                    {g.email && !isMe(g.email) && (
+                      <a className="secondary-btn" href={actionLogTeamsUrl(g, r => `${fmtAt(r.at, r.timeZone) || 'No time'}: ${verb(r)}${r.reason ? ` ("${r.reason}")` : ''}`)}
+                        target="_blank" rel="noreferrer" title={`Message ${g.name} in Teams - a summary of what is listed here is typed in for you to check before you send it`}
+                        style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, textDecoration: 'none' }}>
+                        <MessageSquare size={12} /> Teams
+                      </a>
+                    )}
                     {g.email && g.missing.length > 0 && !isMe(g.email) && (
                       <button className="secondary-btn" onClick={() => setAddTimeFor({ email: g.email, name: g.name, dates: g.missing.filter(e => e.blocking).map(e => e.date) })}
                         title="Add the missing time - one or several days at once"
@@ -1124,10 +1196,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     // Your own request, or a confidential one that is not
                     // yours to decide (Sep 29): say who decides instead.
                     <span style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'right' }}
-                      title={r.confidential ? 'Confidential - only the approver can decide it' : undefined}>
-                      {r.reviewer ? `Pending - ${r.reviewer} decides` : 'Pending - your manager decides'}
+                      title={r.awaitingHr ? `Approved by ${r.firstApproverName || r.firstApprover || 'the manager'} - HR approves next` : r.confidential ? 'Confidential - only the approver can decide it' : undefined}>
+                      {r.awaitingHr ? 'Awaiting HR Approval' : r.reviewer ? `Pending - ${r.reviewer} decides` : 'Pending - your manager decides'}
                     </span>
                   ) : r.status === 'pending' ? (<>
+                    {r.awaitingHr && <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }} title={`Approved by ${r.firstApproverName || r.firstApprover || 'the manager'}`}>HR Approval</span>}
                     <button className="secondary-btn" onClick={() => decideTimeoff(r.id, 'rejected')} style={{ fontSize: 11, color: '#b91c1c', padding: '4px 10px' }}>Reject</button>
                     <button className="primary-btn" onClick={() => decideTimeoff(r.id, 'approved')} style={{ fontSize: 11, padding: '4px 10px' }}>Approve</button>
                   </>) : (
@@ -1145,6 +1218,17 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         </div>
         </>);
         })()}
+        <Suspense fallback={<SkeletonBlocks count={1} height={220} />}>
+          <TeamLeaveCalendar />
+        </Suspense>
+        {hrPanels && !hrTeam && (<>
+          <Suspense fallback={<SkeletonBlocks count={1} height={120} />}>
+            <LeaveYearEndPreview toastOk={toastOk} toastErr={toastErr} />
+          </Suspense>
+          <LeaveBalancesAdmin toastOk={toastOk} toastErr={toastErr} />
+          <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />
+          <LeaveHistory />
+        </>)}
         </>
       )}
 

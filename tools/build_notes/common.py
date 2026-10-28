@@ -27,6 +27,9 @@ NEXUS_URL = os.environ.get("NEXUS_URL", "https://dev.nexus.greensglobal.com")
 TOKEN_ENV = "NEXUS_BUILD_TOKEN"
 API_ENV = "NEXUS_API_BASE"
 TOKEN_FILE = Path.home() / ".config" / "nexus" / "build-notes.token"
+# The Nexus this computer was connected to (connect.py writes it), so the
+# watcher talks to the API the person pressed Connect on.
+API_FILE = Path.home() / ".config" / "nexus" / "build-notes.api"
 CACHE_DIR = Path.home() / ".cache" / "nexus-build-notes"
 TOKEN_PREFIX = "nxbn_"
 
@@ -82,10 +85,22 @@ def resolve_token(explicit=None):
 
 
 def resolve_api_base(explicit=None):
-    """The API base URL: --api, else NEXUS_API_BASE, else the dev API."""
-    for candidate in (explicit, os.environ.get(API_ENV)):
-        if candidate and candidate.strip():
-            return candidate.strip().rstrip("/")
+    """The API base URL: --api, else the Nexus connect.py saved, else
+    NEXUS_API_BASE, else the dev API. The saved one beats the environment:
+    connecting is the person's newest, explicit choice, and an old machine-wide
+    NEXUS_API_BASE (found on a laptop, Oct 26) would otherwise send the watcher
+    to another Nexus that does not know the token."""
+    if explicit and explicit.strip():
+        return explicit.strip().rstrip("/")
+    try:
+        saved = API_FILE.read_text(encoding="utf-8").strip()
+        if saved:
+            return saved.rstrip("/")
+    except OSError:
+        pass
+    env = os.environ.get(API_ENV)
+    if env and env.strip():
+        return env.strip().rstrip("/")
     return DEFAULT_API_BASE
 
 

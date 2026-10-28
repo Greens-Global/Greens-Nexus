@@ -1,14 +1,16 @@
-// The card anchored to what was picked: kind, priority, the comment (Ctrl+V
-// pastes a screenshot into it), hold-to-talk, Record, the "Looks like ..."
-// line, and Save Pin / Save And Send. The draft it edits lives in
-// localStorage until the pin is saved (store.js saveDraft).
+// The card anchored to what was picked: the "You picked ..." line, the
+// comment (Ctrl+V pastes a screenshot into it), hold-to-talk, Record, More
+// Options (kind - guessed from the words until picked - and priority), and
+// one Save: Save Pin, or Save And Send when Settings > Send Instantly is on
+// (off, pins collect and Done > Send To Claude Code sends them together).
+// The draft it edits lives in localStorage until the pin is saved (store.js saveDraft).
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { X, Mic, Video, CircleStop, Loader2, Send, Check, Trash2, Camera, CameraOff } from 'lucide-react';
+import { X, Mic, MicOff, Video, CircleStop, Loader2, Check, Trash2, Camera } from 'lucide-react';
 import { useIsMobile } from '../lib/useIsMobile';
 import { toViewUrl } from '../lib/storageView';
 import { filesFromPaste } from '../tasks/lib';
 import { MODULES } from '../contexts/RoleContext';
-import { KINDS, PRIORITIES } from './meta';
+import { KINDS, PRIORITIES, guessKind, CLAUDE_SEND_ON } from './meta';
 import { placeCard } from './lib/anchor';
 import { uploadDevNoteFile, storageReady } from './lib/upload';
 import { speechSupported } from './lib/recorder';
@@ -17,14 +19,23 @@ import { api } from '../api';
 const ROUTE_LABEL = Object.fromEntries(MODULES.map((m) => [m.id, m.label]));
 const MOD = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘' : 'Ctrl';
 
-/** "Looks like UpdateRow in Tasks > Home (src/tasks/Home.jsx:142)". */
+/** 'You picked "Mark All Read" in Tasks > Home'. Plain words for a person
+ *  who is not technical (Pranshu, Oct 25); the component and source stamp
+ *  stay on the pin for the dev and show in the line's tooltip. */
 export function looksLike(target, view) {
   if (!target) return '';
-  const comp = (target.components || []).slice(-1)[0];
   const where = (target.headings || []).slice(0, 3).join(' > ') || ROUTE_LABEL[view] || view || '';
-  const what = comp || (target.text ? `"${target.text.slice(0, 40)}${target.text.length > 40 ? '…' : ''}"` : `<${target.tag || 'element'}>`);
-  const src = target.source?.file ? ` (${target.source.file}:${target.source.line})` : '';
-  return `Looks like ${what}${where ? ` in ${where}` : ''}${src}`;
+  const text = target.text ? `"${target.text.slice(0, 40)}${target.text.length > 40 ? '…' : ''}"` : '';
+  const what = text || (target.mode === 'region' ? 'this area' : 'this');
+  return `You picked ${what}${where ? ` in ${where}` : ''}`;
+}
+
+/** The technical half, for the tooltip: component and source stamp. */
+export function looksLikeDetail(target) {
+  if (!target) return '';
+  const comp = (target.components || []).slice(-1)[0] || '';
+  const src = target.source?.file ? `${target.source.file}:${target.source.line}` : '';
+  return [comp, src, target.selector].filter(Boolean).join(' · ');
 }
 
 // Whose area the pick is on (v2): the server answers { owner, held } for a
@@ -56,8 +67,9 @@ const fmtDur = (ms) => { const s = Math.round((ms || 0) / 1000); return `${Math.
 export default function Composer({
   pick, draft, onChange, onCancel, onSave, saving = '', settings,
   capture = 'idle', recording = null, onRecord, onStopRecord, recorded = null,
+  askRecord = false, onRecordChoice, onRecordAskCancel, onToggleAudio,
   voiceOn = false, interim = '', onVoiceStart, onVoiceStop,
-  markupCount = 0, onClearMarkup, view,
+  markupCount = 0, onClearMarkup, view, claudeConnected = true,
 }) {
   const isMobile = useIsMobile();
   const ref = useRef(null);
@@ -66,6 +78,7 @@ export default function Composer({
   const [uploading, setUploading] = useState(0);
   const [err, setErr] = useState('');
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const rect = pick?.rect;
 
   useLayoutEffect(() => {
@@ -97,7 +110,10 @@ export default function Composer({
   // Someone else's area (v2): the server says the pin would be held for them,
   // so it is never sent to Claude Code from here - one button, Save For <Owner>.
   const owner = useHeldOwner(pick?.target?.source?.file || '');
-  const sendInstantly = !!settings?.sendInstantly && !owner;
+  // Your Claude Code is not listening: save only - Done > Connect sets it up,
+  // and nothing is sent to wait for a terminal that is not there.
+  const noClaude = !claudeConnected && !owner;
+  const sendInstantly = CLAUDE_SEND_ON && !!settings?.sendInstantly && !owner && !noClaude;
   const busy = !!saving || uploading > 0 || !!recording;
   const kindMeta = KINDS.find((k) => k.id === draft.kind) || KINDS[0];
   const hint = looksLike(pick?.target, view);
@@ -105,29 +121,22 @@ export default function Composer({
   return (
     <div ref={ref} className="bm-card bm-composer" role="dialog" aria-label="New Pin" data-testid="bm-composer"
       style={pos ? { left: pos.left, top: pos.top } : undefined}
-      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel?.(false); } if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); onSave?.(!owner && !sendInstantly); } }}>
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel?.(false); } if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); onSave?.(false); } }}>
       <div className="bm-card-head">
         <span className="bm-pin bm-pin-inline" style={{ '--c': kindMeta.color }} aria-hidden="true"><span className="bm-pin-no">+</span></span>
         <div className="bm-card-title">{draft.edit ? 'New Edit Pin' : 'New Pin'}{pick?.mode === 'region' ? <span className="bm-dim bm-small"> · region</span> : null}</div>
         <button type="button" className="bm-icon-btn" onClick={() => onCancel?.(false)} aria-label="Close composer"><X size={16} /></button>
       </div>
       <div className="bm-card-body">
-        {hint && <div className="bm-looks" title={pick?.target?.selector}>{hint}</div>}
+        {hint && <div className="bm-looks" title={looksLikeDetail(pick?.target)}>{hint}</div>}
         {owner && <div className="bm-hint bm-hint-amber" role="note" data-testid="bm-owner-line">This is {owner.name}&apos;s area - it goes to {owner.name}, not Claude Code.</div>}
-        <div className="bm-pills" role="radiogroup" aria-label="Kind">
-          {KINDS.map((k) => (
-            <button key={k.id} type="button" role="radio" aria-checked={draft.kind === k.id} className={`bm-pill${draft.kind === k.id ? ' is-on' : ''}`} style={{ '--c': k.color }} onClick={() => set({ kind: k.id })}>{k.label}</button>
-          ))}
-        </div>
-        <div className="bm-pills" role="radiogroup" aria-label="Priority">
-          {PRIORITIES.map((p) => (
-            <button key={p.id} type="button" role="radio" aria-checked={draft.priority === p.id} className={`bm-pill bm-pill-sm${draft.priority === p.id ? ' is-on' : ''}`} style={{ '--c': p.color }} onClick={() => set({ priority: p.id })}>{p.label}</button>
-          ))}
-        </div>
         {draft.edit?.note && <div className="bm-edit-note"><b>Edit:</b> {draft.edit.note}</div>}
         <div className="bm-comment-wrap nx-fill">
-          <textarea ref={textRef} className="bm-textarea bm-comment-box" value={draft.comment || ''} onChange={(e) => set({ comment: e.target.value })} onPaste={onPaste}
-            placeholder={draft.kind === 'question' ? 'What do you want to know about this?' : 'What is wrong, or what should change?'} aria-label="Comment" rows={4} />
+          {/* The words come first (Pranshu, Oct 26): type or hold to talk, then save. The
+              kind follows the words (guessKind) until the person picks one under More Options. */}
+          <textarea ref={textRef} className="bm-textarea bm-comment-box" value={draft.comment || ''} onPaste={onPaste}
+            onChange={(e) => { const comment = e.target.value; set(draft.kindSet || draft.edit ? { comment } : { comment, kind: guessKind(comment) }); }}
+            placeholder="What is wrong, what should change, or what do you want to know?" aria-label="Comment" rows={4} />
           {interim && <div className="bm-interim" aria-live="polite">{interim}</div>}
           <div className="bm-paste-hint">or press {MOD}+V to paste a screenshot{uploading > 0 && <> · <Loader2 size={11} className="bm-spin" /> uploading</>}</div>
         </div>
@@ -150,20 +159,46 @@ export default function Composer({
               <Mic size={14} /> {voiceOn ? 'Listening…' : 'Hold To Talk'}
             </button>
           )}
-          {recording
-            ? <button type="button" className="bm-btn bm-btn-sm is-rec" onClick={onStopRecord} title="Stop recording (V)"><CircleStop size={14} /> Stop · {fmtDur(Date.now() - recording.startedAt)}</button>
-            : <button type="button" className="bm-btn bm-btn-sm" onClick={onRecord} disabled={!!saving} title="Record the screen with your voice (V)"><Video size={14} /> {recorded ? 'Record Again' : 'Record'}</button>}
+          {recording ? (
+            <>
+              <button type="button" className="bm-btn bm-btn-sm is-rec" onClick={onStopRecord} title="Stop recording (V)"><CircleStop size={14} /> Stop · {fmtDur(Date.now() - recording.startedAt)}</button>
+              <button type="button" className={`bm-btn bm-btn-sm${recording.audio ? ' is-live' : ''}`} onClick={onToggleAudio} aria-pressed={!!recording.audio}
+                title={recording.audio ? 'Your voice is recording - click to mute' : 'No sound - click to record your voice from here on'}>
+                {recording.audio ? <Mic size={14} /> : <MicOff size={14} />} {recording.audio ? 'Mic On' : 'Mic Off'}
+              </button>
+            </>
+          ) : askRecord ? (
+            // Video asks first (Pranshu, Oct 27): the pick starts it, and the mic can be switched while it records.
+            <span className="bm-record-ask" role="group" aria-label="Record the screen">
+              <button type="button" className="bm-btn bm-btn-sm bm-btn-primary" onClick={() => onRecordChoice?.(true)} autoFocus><Mic size={14} /> With Audio</button>
+              <button type="button" className="bm-btn bm-btn-sm" onClick={() => onRecordChoice?.(false)}><MicOff size={14} /> Without Audio</button>
+              <button type="button" className="bm-icon-btn" onClick={onRecordAskCancel} aria-label="Do not record"><X size={14} /></button>
+            </span>
+          ) : <button type="button" className="bm-btn bm-btn-sm" onClick={onRecord} disabled={!!saving} title="Record the screen - with or without your voice (V)"><Video size={14} /> {recorded ? 'Record Again' : 'Record'}</button>}
           {markupCount > 0 && (
             <span className="bm-chip-info">{markupCount} markup item{markupCount === 1 ? '' : 's'} <button type="button" className="bm-link-btn" onClick={onClearMarkup}>clear</button></span>
           )}
-          <span className={`bm-chip-info bm-push ${capture === 'live' ? 'is-ok' : ''}`} title={capture === 'live' ? 'The screenshot is taken when you save' : 'Screenshots are off'}>
-            {capture === 'live' ? <><Camera size={12} /> Screenshot on save</> : <><CameraOff size={12} /> No screenshot</>}
+          <span className="bm-chip-info bm-push is-ok" title={capture === 'live' ? 'Taken from the shared tab when you save' : 'Taken from the page when you save - nothing to share or allow'}>
+            <Camera size={12} /> Screenshot on save
           </span>
         </div>
+        <details className="bm-details bm-more" open={moreOpen} onToggle={(e) => setMoreOpen(e.currentTarget.open)}>
+          <summary>More Options <span className="bm-dim bm-small">- {kindMeta.label} · {(PRIORITIES.find((p) => p.id === draft.priority) || PRIORITIES[1]).label}</span></summary>
+          <div className="bm-pills" role="radiogroup" aria-label="Kind">
+            {KINDS.map((k) => (
+              <button key={k.id} type="button" role="radio" aria-checked={draft.kind === k.id} className={`bm-pill${draft.kind === k.id ? ' is-on' : ''}`} style={{ '--c': k.color }} onClick={() => set({ kind: k.id, kindSet: true })}>{k.label}</button>
+            ))}
+          </div>
+          <div className="bm-pills" role="radiogroup" aria-label="Priority">
+            {PRIORITIES.map((p) => (
+              <button key={p.id} type="button" role="radio" aria-checked={draft.priority === p.id} className={`bm-pill bm-pill-sm${draft.priority === p.id ? ' is-on' : ''}`} style={{ '--c': p.color }} onClick={() => set({ priority: p.id })}>{p.label}</button>
+            ))}
+          </div>
+        </details>
         {recording && (
           <div className="bm-live" aria-live="polite">
             <div className="bm-live-head"><span className="bm-rec-dot" /> Recording{speechSupported() ? ' - live transcript' : ''}</div>
-            <div className="bm-live-text">{recording.transcript || (speechSupported() ? 'Say what you see…' : 'Speech-to-text is not available in this browser; the video still records your voice.')}</div>
+            <div className="bm-live-text">{recording.transcript || (!recording.audio ? 'Recording without sound - Mic On records your voice from here on.' : speechSupported() ? 'Say what you see…' : 'Speech-to-text is not available in this browser; the video still records your voice.')}</div>
           </div>
         )}
         {recorded && !recording && (
@@ -172,9 +207,7 @@ export default function Composer({
             {recorded.transcript && <details className="bm-details"><summary>Transcript</summary><pre className="bm-pre">{recorded.transcript}</pre></details>}
           </div>
         )}
-        {capture !== 'live' && capture !== 'idle' && (
-          <div className="bm-hint bm-small">Screenshots are off - turn Build Mode off and on to allow tab capture.</div>
-        )}
+        {noClaude && <div className="bm-hint bm-small" data-testid="bm-no-claude">Your Claude Code is not connected - this saves the pin; connect it from Done to send.</div>}
         {err && <div className="bm-error" role="alert">{err}</div>}
       </div>
       <div className="bm-card-foot">
@@ -187,13 +220,8 @@ export default function Composer({
             {saving === 'save' ? <Loader2 size={14} className="bm-spin" /> : <Check size={14} />} Save For {owner.name}
           </button>
         ) : (
-          <button type="button" className={`bm-btn${sendInstantly ? ' bm-btn-primary' : ''}`} onClick={() => onSave?.(false)} disabled={busy}>
-            {saving === 'save' ? <Loader2 size={14} className="bm-spin" /> : <Check size={14} />} {sendInstantly ? 'Save And Send' : 'Save Pin'}
-          </button>
-        )}
-        {!sendInstantly && !owner && (
-          <button type="button" className="bm-btn bm-btn-primary" onClick={() => onSave?.(true)} disabled={busy} title={`${MOD}+Enter`}>
-            {saving === 'send' ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Save And Send
+          <button type="button" className="bm-btn bm-btn-primary" onClick={() => onSave?.(false)} disabled={busy} title={`${MOD}+Enter`}>
+            {saving === 'save' ? <Loader2 size={14} className="bm-spin" /> : <Check size={14} />} {!CLAUDE_SEND_ON ? 'Save' : sendInstantly ? 'Save And Send' : 'Save Pin'}
           </button>
         )}
       </div>

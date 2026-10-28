@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -23,8 +23,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from auth import get_current_user
 from models import (NexusEmployee, HrEntity, HrSignRequest, HrSignParty, HrDocument,
-                    HrSelfRequest, ItemAssignment, ItemCheckout,
-                    NexusGroup, NexusGroupMember, NexusNotification)
+                    ItemAssignment, ItemCheckout)
 from routers.hr import (_SUPABASE_URL, _storage_headers, _DOC_BUCKET,
                         _AVATAR_BUCKET, _IMAGE_TYPES, _MAX_AVATAR_BYTES)
 from routers.esign import _log
@@ -774,7 +773,29 @@ def my_documents(user: dict = Depends(get_current_user), db: Session = Depends(g
             continue
         out.append({"requestId": req.id, "title": req.title, "from": req.created_by,
                     "completedAt": req.completed_at, "signedByMe": p.status == "signed"})
+    # HR letters I requested (hr_letters.py, Oct 27 2026): signed by the
+    # company alone, so I am not a party - they are mine all the same.
+    for req in _my_letter_envelopes(db, email):
+        if req.id not in seen:
+            seen.add(req.id)
+            out.append({"requestId": req.id, "title": req.title, "from": req.created_by,
+                        "completedAt": req.completed_at, "signedByMe": False})
     return sorted(out, key=lambda x: x["completedAt"] or "", reverse=True)
+
+
+def _my_letter_envelopes(db: Session, email: str, rid: str = "") -> list:
+    """The sealed envelopes of the HR letters issued to me."""
+    from models import HrLetterRequest
+    q = db.query(HrLetterRequest).filter(HrLetterRequest.employee_email == email,
+                                         HrLetterRequest.status == "issued",
+                                         HrLetterRequest.sign_request_id != "")
+    if rid:
+        q = q.filter(HrLetterRequest.sign_request_id == rid)
+    ids = [r.sign_request_id for r in q.all()]
+    if not ids:
+        return []
+    return (db.query(HrSignRequest).filter(HrSignRequest.id.in_(ids), HrSignRequest.link_kind == "hr_letter",
+                                           HrSignRequest.status == "completed").all())
 
 
 # ── Directory card (hover profiles) - safe subset, any signed-in user ────────
@@ -920,30 +941,9 @@ def my_assets(user: dict = Depends(get_current_user), db: Session = Depends(get_
 
 
 # ── Ask HR - employee requests (document updates, profile changes, questions) ─
-
-_REQ_TYPES = ("document", "profile", "question", "other")
-_REQ_LABEL = {"document": "Document Update", "profile": "Profile Change",
-              "question": "Question", "other": "Request"}
-
-
-def _hr_team_emails(db: Session) -> list:
-    """Everyone in an Access Group that grants the hr module - the audience for
-    'Ask HR' notifications. Falls back to empty (request still lands in the HR
-    module's Requests panel)."""
-    out = set()
-    for g in db.query(NexusGroup).all():
-        if "hr:" in (g.allowed_modules or ""):
-            for m in db.query(NexusGroupMember).filter(NexusGroupMember.group_id == g.id).all():
-                out.add(m.email.lower())
-    return sorted(out)
-
-
-def _ser_req(r: HrSelfRequest) -> dict:
-    return {"id": r.id, "email": r.employee_email, "name": r.employee_name,
-            "type": r.type, "message": r.message, "status": r.status,
-            "attachmentName": r.attachment_name or "",
-            "response": r.response or "", "resolvedBy": r.resolved_by or "",
-            "resolvedAt": r.resolved_at or "", "createdAt": r.created_at}
+# A ticket now (Neil, Oct 27 2026): filed into the company's confidential HR
+# desk - hr_tickets.py / ticket_confidential.py. The routes and payloads are
+# the ones My HR always used, so a page loaded before the release still works.
 
 
 class AskHrIn(BaseModel):
@@ -956,8 +956,9 @@ class AskHrIn(BaseModel):
 @router.post("/requests/attachment")
 def upload_request_attachment(file: UploadFile = File(...),
                               user: dict = Depends(get_current_user)):
-    """Stage the document an employee wants HR to file - uploaded to the private
-    hr-docs bucket, referenced by the request created right after."""
+    """An older page's staged file - the private hr-docs bucket, copied onto
+    the ticket when the request is filed (hr_tickets.file_ask_hr). The current
+    form attaches through the ticket upload path instead."""
     data = file.file.read()
     if len(data) > 15 * 1024 * 1024:
         raise HTTPException(400, "File too large (max 15 MB)")
@@ -973,40 +974,29 @@ def upload_request_attachment(file: UploadFile = File(...),
 
 
 @router.post("/requests")
-def create_request(body: AskHrIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    if body.type not in _REQ_TYPES:
-        raise HTTPException(400, f"type must be one of {_REQ_TYPES}")
-    msg = (body.message or "").strip()
-    if not msg:
-        raise HTTPException(400, "Say what you need from HR")
-    # Only accept attachment paths this user staged themselves.
-    apath = (body.attachment_path or "").strip()
-    if apath and not apath.startswith(f"self-requests/{user['email'].lower()}/"):
-        raise HTTPException(400, "Bad attachment")
-    e = _me(db, user["email"])
-    name = f"{e.first_name} {e.last_name}".strip() or user["email"]
-    row = HrSelfRequest(id=str(uuid.uuid4()), employee_email=user["email"].lower(),
-                        employee_name=name, type=body.type, message=msg[:2000],
-                        attachment_path=apath, attachment_name=(body.attachment_name or "")[:200],
-                        status="open", created_at=_now())
-    db.add(row)
-    # One targeted notification per HR-team member (server-side only).
-    for email in _hr_team_emails(db):
-        db.add(NexusNotification(
-            id=str(uuid.uuid4()), type="hr_request", recipient=email,
-            title=f"{_REQ_LABEL[body.type]} - {name}",
-            body=msg[:300], ref_id=row.id, requested_by=name,
-            action="", actioned=False, read_by="", company=e.company or "", created_at=_now()))
-    db.commit()
-    return _ser_req(row)
+def create_request(body: AskHrIn, background_tasks: BackgroundTasks,
+                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Files the request as a confidential HR ticket through
+    tickets.file_ticket. The answer keeps the old Ask HR fields (id, type,
+    message, status) and adds the ticket's (`ticketId`, `code`, `ticket`)."""
+    import hr_tickets
+    import ticket_confidential
+    from models import TaskTicket
+    _me(db, user["email"])   # an HR record is still needed to ask HR
+    t = hr_tickets.file_ask_hr(db, user, body.type, body.message, background_tasks,
+                               attachment_path=body.attachment_path or "",
+                               attachment_name=body.attachment_name or "")
+    row = ticket_confidential.include(db.query(TaskTicket)).filter(TaskTicket.id == t["id"]).first()
+    return {**hr_tickets.ser_ticket(row, None, []), "ticket": t}
 
 
 @router.get("/requests")
 def my_requests(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = (db.query(HrSelfRequest)
-            .filter(HrSelfRequest.employee_email == user["email"].lower())
-            .order_by(HrSelfRequest.created_at.desc()).limit(30).all())
-    return [_ser_req(r) for r in rows]
+    """My HR tickets with their status, then my Earlier Requests (the old
+    Ask HR rows, read-only) - one list; `source` ("ticket" | "earlier") tells
+    them apart."""
+    import hr_tickets
+    return hr_tickets.my_requests(db, user["email"])
 
 
 # ── My paystubs - comp documents HR uploaded for me (kind="paystub") ─────────
@@ -1038,11 +1028,12 @@ def download_my_paystub(did: str, user: dict = Depends(get_current_user), db: Se
 @router.get("/documents/{rid}/download")
 def download_my_document(rid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Party-scoped download: you get the sealed PDF only for envelopes you were
-    part of - no hr grant needed (it's your own document)."""
+    part of - no hr grant needed (it's your own document) - or for an HR
+    letter issued to you (hr_letters.py), which only the company signs."""
     email = user["email"].lower()
     party = (db.query(HrSignParty)
              .filter(HrSignParty.request_id == rid, HrSignParty.email == email).first())
-    if not party:
+    if not party and not _my_letter_envelopes(db, email, rid):
         raise HTTPException(403, "This document isn't yours")
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req or req.status != "completed" or not req.final_pdf_path:

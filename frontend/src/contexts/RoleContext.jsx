@@ -51,6 +51,9 @@ export const MODULES = [
   // Build Mode (Oct 24 2026): pins on the live app for Claude Code. Global
   // Admins have it; this grant opens it to anyone else (routers/dev_notes.py).
   { id: 'build-mode',          label: 'Build Mode' },
+  // Workflows (Oct 28 2026): viewer reads, editor builds and publishes its
+  // own, full manages every workflow in scope (routers/workflows.py).
+  { id: 'workflows',           label: 'Workflows' },
 ];
 
 // Per-module permission levels an Access Group can grant - mirrors a

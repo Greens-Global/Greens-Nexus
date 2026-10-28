@@ -57,10 +57,15 @@ client = TestClient(_app)
 def _patched_auth():
     models.Base.metadata.create_all(bind=database.engine)
     saved = (auth._grants_for, auth.is_global_admin, F.fetchable_url)
+    # Send to Claude Code switched on (D.CLAUDE_SEND_ON, on since Oct 27); the
+    # rule for it switched off has its own test.
+    saved_send = D.CLAUDE_SEND_ON
+    D.CLAUDE_SEND_ON = True
     auth._grants_for = lambda email, db: GRANTS.get(email.lower(), {})
     auth.is_global_admin = lambda user, db: user["email"] == GA["email"]
     F.fetchable_url = lambda u: "signed:" + u
     yield
+    D.CLAUDE_SEND_ON = saved_send
     auth._grants_for, auth.is_global_admin, F.fetchable_url = saved
     database.engine.dispose()
     os.remove(_tmp.name)
@@ -159,7 +164,8 @@ def test_admin_without_grant_is_not_enabled_and_everything_else_is_403():
 def test_grant_holder_and_global_admin_are_enabled():
     r = client.get("/dev-notes/enabled")
     assert r.json()["enabled"] is True
-    assert r.json()["settings"] == {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True}
+    assert r.json()["settings"] == {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True,
+                                    "onePr": False, "teamsChatId": "", "teamsChatName": ""}
     _as(GA)
     assert client.get("/dev-notes/enabled").json()["enabled"] is True
     assert client.get("/dev-notes").status_code == 200
@@ -193,6 +199,16 @@ def test_send_instantly_dispatches_at_once():
     # the next pin starts a new collecting session
     m = _create()
     assert m["sessionId"] != n["sessionId"] and m["number"] == 1
+
+
+def test_send_instantly_is_read_as_off_while_send_to_claude_is_switched_off(monkeypatch):
+    # With CLAUDE_SEND_ON off a stored Send Instantly does not dispatch - a pin
+    # only saves, and Done posts it to Teams.
+    assert client.put("/dev-notes/settings", json={"sendInstantly": True}).status_code == 200
+    monkeypatch.setattr(D, "CLAUDE_SEND_ON", False)
+    n = _create()
+    assert n["status"] == "open" and not n.get("dispatchedAt")
+    assert client.put("/dev-notes/settings", json={"pinsOnLoad": True}).json()["sendInstantly"] is False
 
 
 def test_dispatch_sends_the_collecting_session():
@@ -301,7 +317,7 @@ def test_token_mint_use_and_revoke():
     assert listed[0]["label"] == "MacBook"
 
     r = client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"]))
-    assert r.status_code == 200 and r.json() == {"email": DEV["email"], "tokenLabel": "MacBook"}
+    assert r.status_code == 200 and r.json() == {"email": DEV["email"], "tokenLabel": "MacBook", "onePr": False}
     assert client.get("/dev-notes/tokens").json()[0]["lastUsedAt"] != ""
 
     assert client.get("/dev-notes/cli/whoami", headers=_hdr("nxbn_garbage")).status_code == 401
@@ -317,7 +333,14 @@ def test_token_mint_use_and_revoke():
     assert client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"])).status_code == 401
 
     # a signed-in user also passes the CLI gate, with no token label
-    assert client.get("/dev-notes/cli/whoami").json() == {"email": DEV["email"], "tokenLabel": ""}
+    assert client.get("/dev-notes/cli/whoami").json() == {"email": DEV["email"], "tokenLabel": "", "onePr": False}
+
+
+def test_one_pr_setting_reaches_the_cli():
+    # Collect Fixes Into One PR: saved in Settings, read by Claude Code through whoami
+    assert client.put("/dev-notes/settings", json={"onePr": True}).json()["onePr"] is True
+    assert client.get("/dev-notes/cli/whoami").json()["onePr"] is True
+    assert client.put("/dev-notes/settings", json={"onePr": False}).json()["onePr"] is False
 
 
 def test_token_reads_the_list_and_one_pin():
@@ -1572,3 +1595,55 @@ def test_daily_purge_is_wired_for_the_deployed_worker_only():
     src = open(os.path.join(os.path.dirname(__file__), "main.py")).read()
     block = src[src.index("from routers.dev_notes import purge_media_loop") - 300:]
     assert "is_deployed_worker()" in block[:400]
+
+
+# ── A sent pin goes to its sender's Claude Code only (Oct 26 2026) ────────────
+def test_a_sent_pin_reaches_only_the_senders_watcher():
+    dev_token = _token()["token"]
+    _as(GA)
+    ga_token = _token()["token"]
+    _as(DEV)
+    p = _create()
+    _dispatch()
+    assert client.get(f"/dev-notes/{p['id']}").json()["dispatchedBy"] == DEV["email"]
+    # Someone else's watcher neither sees it nor can claim it ...
+    assert client.get("/dev-notes/cli/wait", params={"timeout": 0}, headers=_hdr(ga_token)).json()["notes"] == []
+    r = client.post("/dev-notes/cli/claim", json={"noteIds": [p["id"]]}, headers=_hdr(ga_token))
+    assert r.status_code == 409 and "Claude Code, not yours" in r.json()["detail"]
+    assert client.get(f"/dev-notes/{p['id']}").json()["status"] == "dispatched"
+    # ... the sender's does.
+    waiting = client.get("/dev-notes/cli/wait", params={"timeout": 0}, headers=_hdr(dev_token)).json()["notes"]
+    assert [n["id"] for n in waiting] == [p["id"]]
+    assert client.post("/dev-notes/cli/claim", json={"noteIds": [p["id"]]}, headers=_hdr(dev_token)).status_code == 200
+
+
+def test_a_pin_sent_before_the_rule_belongs_to_its_author():
+    token = _token()["token"]
+    p = _create()
+    _dispatch()
+    db = database.SessionLocal()
+    db.query(models.DevNote).filter_by(id=p["id"]).update({"dispatched_by": ""})
+    db.commit(); db.close()
+    waiting = client.get("/dev-notes/cli/wait", params={"timeout": 0}, headers=_hdr(token)).json()["notes"]
+    assert [n["id"] for n in waiting] == [p["id"]]
+
+
+def test_claude_connection_is_the_callers_own_watcher():
+    out = client.get("/dev-notes/claude-connection").json()
+    assert out["connected"] is False and out["lastSeen"] == "" and "apiBase" in out
+    minted = _token()
+    client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"]))      # the watcher's first call
+    out = client.get("/dev-notes/claude-connection").json()
+    assert out["connected"] is True and out["lastSeen"]
+    # Someone else's connection is not mine
+    _as(GA)
+    assert client.get("/dev-notes/claude-connection").json()["connected"] is False
+    _as(DEV)
+    # A watcher silent for longer than CONNECTED_SEC is not connected; a revoked token never is
+    db = database.SessionLocal()
+    db.query(models.DevNoteToken).filter_by(id=minted["id"]).update({"last_used_at": "2020-01-01T00:00:00+00:00"})
+    db.commit(); db.close()
+    assert client.get("/dev-notes/claude-connection").json()["connected"] is False
+    client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"]))
+    assert client.delete(f"/dev-notes/tokens/{minted['id']}").status_code == 204
+    assert client.get("/dev-notes/claude-connection").json()["connected"] is False

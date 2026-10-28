@@ -54,6 +54,7 @@ from database import SessionLocal
 from routers.task_util import (can_comment, create_comment, fire_task_event, gen_id,
                                log_activity, project_for_task)
 import task_files
+import job_switch
 
 _LOOP_SEC = 60
 # main.py's lifespan already staggers its background loops at 15s intervals from
@@ -350,6 +351,8 @@ def drain_once(db) -> dict:
 
 
 def _drain_once() -> None:
+    if job_switch.off("task_inbound"):   # Workflows > Automations switch
+        return
     db = SessionLocal()
     try:
         counts = drain_once(db)

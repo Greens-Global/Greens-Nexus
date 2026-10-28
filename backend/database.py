@@ -91,6 +91,13 @@ _audit_capture.wire(SessionLocal)
 import feature_request_sync as _feature_request_sync  # noqa: E402
 _feature_request_sync.wire(SessionLocal)
 
+# Workflows (Oct 28 2026, workflows/observer.py): a record registered as an
+# observed entity emits `<entity>.created` / `<entity>.field_changed` into
+# the workflow outbox at flush, in the same transaction - events for free,
+# Visesh's files untouched.
+import workflows.observer as _wf_observer  # noqa: E402
+_wf_observer.wire(SessionLocal)
+
 
 class Base(DeclarativeBase):
     pass
@@ -117,6 +124,18 @@ class Base(DeclarativeBase):
 def _hide_soft_deleted(state):
     if not state.is_select or state.is_column_load or state.is_relationship_load:
         return
+    # Confidential tickets (Oct 27 2026, ticket_confidential.py): an Ask HR
+    # request is hidden from every reader that has not opted in with
+    # include_confidential=True - and it stays hidden for one that only asked
+    # for include_deleted (the deleted-tickets list, the delivery logs). Same
+    # reasoning as the soft delete below: the 40th place that reads
+    # task_tickets must not be the one that shows someone's HR request.
+    if not state.execution_options.get("include_confidential", False):
+        from sqlalchemy.orm import with_loader_criteria   # local: models imports us
+        from models import TaskTicket as _TT
+        state.statement = state.statement.options(
+            with_loader_criteria(_TT, lambda cls: (cls.confidential_desk == "") | (cls.confidential_desk.is_(None)),
+                                 include_aliases=True))
     if state.execution_options.get("include_deleted", False):
         return
     from sqlalchemy.orm import with_loader_criteria   # local: models imports us

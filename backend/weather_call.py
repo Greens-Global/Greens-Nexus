@@ -50,6 +50,7 @@ import shift_log
 import weather_watch
 from app_url import app_url
 from database import SessionLocal
+import job_switch
 
 KINDS = ("cancel", "delay", "end_early", "move", "proceed")
 OUTCOME = {"cancel": "cancelled", "delay": "delayed", "end_early": "shortened", "move": "moved", "proceed": "kept"}
@@ -461,6 +462,12 @@ def decide(db: Session, user: dict, g, day: str, body: dict, defer=None) -> dict
             _apply_to_shift(r, kind, new_start, new_end, move_to, d.id)
             _log_call(db, r, actor, kind, reason, snap)
     d.people_json = json.dumps(ppl)
+    # Workflows (Oct 28 2026): the call, once applied to the day's shifts.
+    import workflows
+    workflows.emit(db, "weather_call.decided", subject=d, actor=actor,
+                   extra={"headline": headline(kind, new_start, new_end, move_to), "team": g.name or "",
+                          "people": [p["email"] for p in ppl if p["selected"]],
+                          "outcomes": {p["email"]: p["outcome"] for p in ppl}})
     if touched:
         from routers.shift_requests import cancel_requests_for_shifts
         cancel_requests_for_shifts(db, touched, actor)
@@ -1005,6 +1012,8 @@ def deliver_reinstatement(decision_id: str, actor: str) -> None:
 
 
 def _tick() -> dict:
+    if job_switch.off("weather_call"):   # Workflows > Automations switch
+        return {}
     db = SessionLocal()
     try:
         return follow_up_once(db)

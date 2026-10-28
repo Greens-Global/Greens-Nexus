@@ -164,10 +164,15 @@ def builtin_when(token: str, group: str) -> str:
 
 
 def resolve_merge_data(db: Session, employee_id: str = "", candidate_id: str = "",
-                        entity_id: str = "", overrides: dict = None, template=None) -> dict:
+                        entity_id: str = "", overrides: dict = None, template=None,
+                        custom_hr_only: bool = True) -> dict:
     """Merge dict for {{token}} resolution. Subject person + company + the
     template's own metadata + overrides (overrides win - e.g. salary is typed
-    in by the caller, never read from a compensation column)."""
+    in by the caller, never read from a compensation column).
+
+    The person's More Details fields resolve as {{custom.<field_key>}}
+    (hr_custom_fields.py, Oct 27 2026); HR Only ones only when
+    `custom_hr_only` - the caller says whether the reader is HR for them."""
     data = {"today": datetime.now(timezone.utc).strftime("%B %d, %Y")}
     data.update(template_merge_data(template))
     if employee_id:
@@ -186,6 +191,8 @@ def resolve_merge_data(db: Session, employee_id: str = "", candidate_id: str = "
                 "address": personal.get("currentAddress") or "",
                 "permanent_address": personal.get("permanentAddress") or "",
             })
+            import hr_custom_fields
+            data.update(hr_custom_fields.merge_values(db, e, include_hr_only=custom_hr_only))
     if candidate_id:
         c = db.query(HrCandidate).filter(HrCandidate.id == candidate_id).first()
         if c:

@@ -79,6 +79,8 @@ import {
   MessageSquareText, MonitorDot,
   Sparkles,
   Warehouse,
+  Target,
+  Workflow,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -102,6 +104,7 @@ import WeeklyDigestSettings from '../components/WeeklyDigestSettings';
 import WorkforceScorecardSettings from '../components/WorkforceScorecardSettings';
 import PayrollExportCodes from '../components/PayrollExportCodes';
 import PayPremiums from '../components/PayPremiums';
+import IndiaContractorPolicySettings from '../components/IndiaContractorPolicySettings';
 import { SwitchRow, NumberBox } from '../components/settings/SettingsUI';
 
 // Borrowed components, lazy so their home module's chunk only loads once an
@@ -124,6 +127,9 @@ const CompanySetupPage = fromHR('CompanySetupPage');
 const PacketsModal = lazy(() => import('../components/HiringPacket').then(m => ({ default: m.PacketsModal })));
 const QuestionnairesModal = lazy(() => import('../components/Interviews').then(m => ({ default: m.QuestionnairesModal })));
 const ChecklistLibrary = lazy(() => import('../components/HrChecklists').then(m => ({ default: m.ChecklistLibrary })));
+const EmployeeCustomFieldsSettings = lazy(() => import('../components/EmployeeCustomFieldsSettings'));
+// Probation (Oct 27 2026): the length, the reminder and the letters - a default, and each company's own.
+const ProbationSettings = lazy(() => import('../components/HrProbation').then(m => ({ default: m.ProbationSettings })));
 const WorkSiteLibrary = fromHR('WorkSiteLibrary');
 // Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
@@ -150,7 +156,13 @@ const TimeOffReasons = fromShifts('TimeOffReasons');
 // - the same components, borrowed from where they are owned.
 const ReadinessThresholds = lazy(() => import('../components/PayrollReadiness').then(m => ({ default: m.ReadinessThresholds })));
 const MinWageForm = lazy(() => import('../components/CaReview').then(m => ({ default: m.MinWageForm })));
+// HR letters employees request from My HR (Oct 27 2026): which a company offers, their templates, the letterhead.
+const HrLettersSettings = lazy(() => import('../components/HrLetters').then(m => ({ default: m.HrLettersSettings })));
 const LeaveSetup = lazy(() => import('../components/LeaveBalances').then(m => ({ default: m.LeaveSetup })));
+// Leave year end and Second Approval By HR (Oct 27 2026, components/LeaveYearEnd.jsx).
+const fromLeaveYearEnd = lazyFrom(() => import('../components/LeaveYearEnd'));
+const LeaveYearEndSettings = fromLeaveYearEnd('LeaveYearEndSettings');
+const TimeOffApprovalSettings = fromLeaveYearEnd('TimeOffApprovalSettings');
 const IntacctNightlySync = lazy(() => import('../components/IntacctEmployeeCodes').then(m => ({ default: m.IntacctNightlySync })));
 const LetterheadsPanel = lazy(() => import('../components/DocumentTemplates').then(m => ({ default: m.LetterheadsPanel })));
 // ...and the three that had no screen of their own (views/SettingsPanels.jsx).
@@ -162,6 +174,12 @@ const AppRatingsPanel = fromPanels('AppRatingsPanel');
 const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSettings'));
 // Operations (Oct 21 2026): the Push to Cubby switch, OFF by default.
 const OpsSettingsPanel = lazy(() => import('../operations/OpsSettings'));
+// Performance (Oct 27 2026): the goal and 1:1 reminders, layered per company.
+const PerformanceReminderSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceReminderSettings })));
+const ReviewScaleSettings = lazy(() => import('../performance/ReviewSettings').then(m => ({ default: m.ReviewScaleSettings })));
+const CompanyValuesSettings = lazy(() => import('../performance/ReviewSettings').then(m => ({ default: m.CompanyValuesSettings })));
+// Workflows (Oct 28 2026): the switches, ceilings, digest and pause - layered per company.
+const WorkflowsSettingsPanel = lazy(() => import('../workflows/WorkflowsSettings').then(m => ({ default: m.WorkflowsSettings })));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone. Since Oct 20 the
 // tab is the unified Audit Log (components/audit/AuditLog.jsx): every module,
@@ -216,11 +234,17 @@ const SUBJECTS = [
   { key: 'shifts', section: 'work',     label: 'Shifts & Scheduling', Icon: CalendarClock, faces: 'both',
     desc: 'What staff may request and see, attendance, overtime, rules and sharing.' },
   { key: 'hiring', section: 'work',     label: 'Hiring & Onboarding', Icon: UserPlus, faces: 'both',
-    desc: 'Hiring documents, interview questions and onboarding checklists.' },
+    desc: 'Hiring documents, interview questions, onboarding checklists and probation.' },
   { key: 'items', section: 'ops',      label: 'Items & Equipment',   Icon: Package, faces: 'org',
     desc: 'The catalog options used when adding items.' },
   { key: 'operations', section: 'ops', label: 'Operations',          Icon: Warehouse, faces: 'org',
     desc: 'How the storage facilities screens work with Cubby.' },
+  // Performance (Oct 27 2026): goals and 1:1s - Workday > Performance.
+  { key: 'performance', section: 'work', label: 'Performance',         Icon: Target, faces: 'both',
+    desc: 'Goal and 1:1 reminders, the review rating scale and the company values.' },
+  // Workflows (Oct 28 2026): the one cross-module automation engine.
+  { key: 'workflows', section: 'ops', label: 'Workflows',           Icon: Workflow, faces: 'both',
+    desc: 'Automations across every module: the switches, the ceilings and the owner digest.' },
 ];
 const SUBJECT_KEYS = new Set(SUBJECTS.map(s => s.key));
 // The rail's four sections (Oct 25). `wide` subjects (whole screens: the
@@ -279,6 +303,12 @@ const GROUPS = [
     needs: { role: 'administrator' },
     sub: 'This company\'s job roles, grouped by department, with what each one opens and the checklist steps it adds.',
     keywords: 'job roles company roles department access checklists' },
+  // More Details (Neil, Oct 27 2026): HR's own fields on employee records -
+  // every company's at Every company, a company's own with it picked.
+  { id: 'employee-custom-fields', subject: 'access', face: 'both', scope: 'org', icon: ListChecks, title: 'More Details Fields', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'Extra fields on employee records - text, number, date, dropdown or checkbox - and who sees each: HR only, or the employee too. Archiving hides a field and keeps its values.',
+    keywords: 'custom fields more details employee record extra field dropdown checkbox hr only employee can see employee can edit required archive merge variable documents' },
   // Security
   { id: 'sign-in-sessions', subject: 'security', face: 'org', scope: 'org', icon: ShieldCheck, title: 'Sign-In & Sessions',
     needs: { role: 'administrator' },
@@ -353,6 +383,11 @@ const GROUPS = [
     needs: { role: 'administrator' },
     sub: 'Extra pay per hour at night, on weekends or at certain sites, and a minimum paid time when someone is called back - per company, off by default.',
     keywords: 'shift differential night weekend site premium call-back callback minimum paid hours hourly' },
+  // India Contractor Work Hours and Extra Time Policy (Neil, Oct 27 2026).
+  { id: 'india-contractor-policy', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'India Contractor Policy', flush: true,
+    needs: { role: 'administrator' },
+    sub: 'How contractors on monthly pay in India are paid: credits by hours worked, the month-end reconciliation and Extra Time at 1.35x - per company, with the month it starts from.',
+    keywords: 'india contractor policy extra time 1.35 reconciliation pool half day full day credit weekend pay monthly fee fixed salary policy starts november' },
   { id: 'payroll-readiness', subject: 'pay', face: 'both', scope: 'layered', icon: ClipboardList, title: 'Payroll Readiness', flush: true,
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'What counts as a big change or an unusual week when checking who is ready for payroll - a default, and each company\'s own.',
@@ -369,6 +404,14 @@ const GROUPS = [
     needs: { role: 'manager', grant: ['hr', 'editor'], people: true },
     sub: 'The reasons staff can pick when requesting time off, beyond the built-in Vacation, Sick, Personal, Unpaid, 1/2 Day and Other.',
     keywords: 'time off reasons request jury duty bereavement custom' },
+  { id: 'leave-year-end', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Leave Year-End', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'full'] },
+    sub: 'What happens to unused vacation and sick time when the leave year ends - Use It Or Lose It by default, or carry everything or up to a cap. California vacation never expires (required by law).',
+    keywords: 'leave year end carry over carryover rollover cap use it or lose it expire forfeit vacation sick pto anniversary calendar california labor code 227.3' },
+  { id: 'timeoff-approval', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Time-Off Approval', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'full'] },
+    sub: 'Whether a time-off request needs HR\'s approval after the manager\'s - per company, off by default.',
+    keywords: 'time off approval second approval by hr two level manager leave request awaiting hr' },
   { id: 'intacct-nightly', subject: 'pay', face: 'both', scope: 'company', icon: FileText, title: 'Intacct Nightly Sync',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Which companies have their employee codes filled in from Intacct once a night, and how the last run went.',
@@ -441,10 +484,19 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The steps every new onboarding, promotion, offboarding and leave checklist starts with, whatever the role, and who does each step (the head and backup of the HR, IT and Accounting departments). Each company adds its own with the company picked, and each role its own (People & Access > the company > Roles > a role > Checklists).',
     keywords: 'checklist onboarding promotion offboarding leave steps template library owners copy standardize' },
+  { id: 'probation', subject: 'hiring', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Probation', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'How long new hires are on probation, when the manager and the HR contact are reminded before it ends, and the confirmation and extension letters the employee signs.',
+    keywords: 'probation length months reminder confirmation extension letter end employment new hire trial period' },
   { id: 'company-checklists', subject: 'hiring', face: 'company', scope: 'company', icon: ListChecks, title: 'Checklists',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'This company\'s baseline steps, which departments own steps, and the steps its onboarding, promotion, offboarding and leave checklists add, role by role.',
     keywords: 'company checklists baseline onboarding promotion offboarding leave steps departments owners roles missing' },
+  // HR letters (Neil, Oct 27 2026): an organization default a company may override.
+  { id: 'hr-letters', subject: 'hiring', face: 'both', scope: 'layered', icon: FileText, title: 'HR Letters',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'The letters employees request from My HR - employment verification, salary certificate, experience letter, address proof, visa NOC: which ones a company offers, the Documents template each prints from, and the letterhead.',
+    keywords: 'hr letters employment verification salary certificate experience letter address proof visa noc no objection certificate request my hr template letterhead signatory' },
   // Items & Equipment
   { id: 'item-types', subject: 'items', face: 'org', scope: 'org', icon: Tag, title: 'Item Types & Custom Fields',
     needs: { role: 'manager', grant: ['inventory', 'editor'] },
@@ -459,6 +511,24 @@ const GROUPS = [
     needs: { role: 'manager', grant: ['operations', 'editor'] },
     sub: 'Which Cubby unit types are mailboxes, and which records are not units at all, by the words in the unit type name.',
     keywords: 'unit types mailbox excluded words cubby facility operations units' },
+  // Performance
+  { id: 'performance-reminders', subject: 'performance', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Goal and 1:1 Reminders', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'The reminder the day before a 1:1 with an empty agenda, and how long a goal may go without a check-in - a default, and each company\'s own.',
+    keywords: 'performance goals check-in reminder one on one 1:1 agenda okr objectives' },
+  { id: 'performance-rating-scale', subject: 'performance', face: 'both', scope: 'layered', icon: Target, title: 'Review Rating Scale', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'The points and their labels every review question and value is rated on - 1 to 5 by default. A new review cycle copies it.',
+    keywords: 'performance review rating scale points labels meets exceeds expectations appraisal' },
+  { id: 'performance-values', subject: 'performance', face: 'both', scope: 'layered', icon: Target, title: 'Company Values',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'The values people and their managers rate in each review. A new review cycle copies them.',
+    keywords: 'performance review company values culture competencies appraisal' },
+  // Workflows
+  { id: 'workflows-config', subject: 'workflows', face: 'both', scope: 'layered', icon: Workflow, title: 'Workflow Settings', flush: true,
+    needs: { role: 'administrator', grant: ['workflows', 'full'] },
+    sub: 'Whether workflows run for a company, the per-hour and recipient ceilings, the weekly owner digest, and the organization-wide pause.',
+    keywords: 'workflows automation pause switch ceilings digest webhooks' },
 ];
 const GROUP_META = Object.fromEntries(GROUPS.map(g => [g.id, g]));
 
@@ -608,7 +678,16 @@ const COMPANY_STATE = {
     .then(rules => ownState(rules.some(r => r?.hasOverride))),
   'payroll-readiness': (cid) => api.payrollReadinessSettings(cid).then(m => ownState(!!m?.override)),
   'time-off-reasons': (cid) => api.timeOffTypes(cid).then(r => ownState(!!r?.hasOverride)),
+  'probation': (cid) => api.probationSettings(cid).then(r => ownState(!!r?.override)),
+  'leave-year-end': (cid) => api.leaveYearEndSettings(cid).then(r => ownState(!!r?.hasOverride)),
+  'timeoff-approval': (cid) => api.timeOffApprovalGet(cid).then(r => ownState(!!r?.hasOverride)),
   'shift-settings': (cid) => api.shiftRequestSettingsGetFor(cid).then(r => ownState(!!r?.hasOverride)),
+  'hr-letters': (cid) => api.hrLetterSettings(cid).then(r => ownState(!!r?.hasOverride)),
+  'performance-reminders': (cid) => api.perfSettings(cid).then(m => ownState(!!m?.override)),
+  'performance-rating-scale': (cid) => api.perfReviewSettings(cid).then(m => ownState((m?.overrides || []).includes('ratingScale'))),
+  'performance-values': (cid) => api.perfReviewSettings(cid).then(m => ownState((m?.overrides || []).includes('values'))),
+  'india-contractor-policy': (cid) => api.timeIndiaPolicyGet(cid).then(r => ownState(!!r?.hasOverride)),
+  'workflows-config': (cid) => api.wfSettings(cid).then(m => ownState(!!m?.override)),
 };
 // What the layered footer says before the names.
 const OWN_LINE = { 'shift-settings': 'Companies with shift settings of their own:' };
@@ -1617,8 +1696,10 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'hiring-documents':     return <HiringSetupSection key={key} id={id} Modal={PacketsModal} label="Open Hiring Documents" chrome={chrome} toastOk={toastOk} toastErr={toastErr} modalProps={company ? { companyId: company, lockCompany: true } : undefined} />;
       case 'payroll-export-codes': return <LazyPanelSection key={key} id={id} Panel={PayrollExportCodes} chrome={chrome} report={report} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'pay-premiums':         return <LazyPanelSection key={key} id={id} Panel={PayPremiums} chrome={chrome} report={report} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'india-contractor-policy': return <LazyPanelSection key={key} id={id} Panel={IndiaContractorPolicySettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'interview-questionnaires': return <HiringSetupSection key={key} id={id} Modal={QuestionnairesModal} label="Open Questionnaires" chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'checklist-library':    return <LazyPanelSection key={key} id={id} Panel={ChecklistLibrary} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'probation':            return <LazyPanelSection key={key} id={id} Panel={ProbationSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'shift-types':          return <LazyPanelSection key={key} id={id} Panel={ShiftTypesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'shift-weather':        return <LazyPanelSection key={key} id={id} Panel={WeatherSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
@@ -1628,11 +1709,19 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'ca-min-wage':          return <LazyPanelSection key={key} id={id} Panel={MinWageForm} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'leave-policies':       return <LazyPanelSection key={key} id={id} Panel={LeaveSetup} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'time-off-reasons':     return <LazyPanelSection key={key} id={id} Panel={TimeOffReasons} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'leave-year-end':       return <LazyPanelSection key={key} id={id} Panel={LeaveYearEndSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'timeoff-approval':     return <LazyPanelSection key={key} id={id} Panel={TimeOffApprovalSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'intacct-nightly':      return <LazyPanelSection key={key} id={id} Panel={IntacctNightlySync} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} embedded />;
       case 'letterheads':          return <LazyPanelSection key={key} id={id} Panel={LetterheadsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'hr-letters':           return <LazyPanelSection key={key} id={id} Panel={HrLettersSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ticket-property-rules': return <LazyPanelSection key={key} id={id} Panel={TicketPropertyRulesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'ops-unit-rules':       return <LazyPanelSection key={key} id={id} Panel={UnitRulesPanel} chrome={chrome} />;
       case 'app-ratings':          return <LazyPanelSection key={key} id={id} Panel={AppRatingsPanel} chrome={chrome} />;
+      case 'employee-custom-fields': return <LazyPanelSection key={key} id={id} Panel={EmployeeCustomFieldsSettings} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'performance-reminders': return <LazyPanelSection key={key} id={id} Panel={PerformanceReminderSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'performance-rating-scale': return <LazyPanelSection key={key} id={id} Panel={ReviewScaleSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'performance-values':   return <LazyPanelSection key={key} id={id} Panel={CompanyValuesSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'workflows-config':     return <LazyPanelSection key={key} id={id} Panel={WorkflowsSettingsPanel} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       default:                     return null;
     }
   }

@@ -39,6 +39,7 @@ import models
 import secret_box
 from gbp_client import GbpError
 from routers.task_util import now_iso
+import job_switch
 
 CONN_ID = "google_ads"
 STATE_TTL = 10 * 60
@@ -325,6 +326,8 @@ def _sync_account(db: Session, token: str, cid: str, manager: str) -> int:
 
 
 def sync_once() -> None:
+    if job_switch.off("google_ads_sync"):   # Workflows > Automations switch
+        return
     from database import SessionLocal
     db = SessionLocal()
     try:

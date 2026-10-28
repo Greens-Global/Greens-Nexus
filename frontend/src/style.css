@@ -2803,6 +2803,14 @@ html { overflow-x: hidden; }
 .modal-content.acct-entry { resize: both; overflow: auto; min-width: min(720px, 96vw); min-height: 240px; }
 .acct-entry-lines td { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; }
 .acct-entry-lines .acct-grand td { position: static; }
+/* Chat 10/26, item 03 (Urmi): the window no longer scrolls as a whole - the
+   lines scroll in their own box under a pinned heading row, the title and
+   the notes under the lines stay put. Dragging the corner still resizes it. */
+.modal-content.acct-entry.acct-entry--box { display: flex; flex-direction: column; overflow: hidden; }
+.acct-entry--box > .modal-header { flex-shrink: 0; }
+.acct-entry-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.acct-entry-body > * { flex-shrink: 0; }
+.acct-entry-body > .acct-entry-box { flex: 0 1 auto; min-height: 120px; }
 /* Leasing Income Roll (Viral, 10/22): "Received - N sources" stays pinned at
    the bottom of the box, above the rows and the pinned property column that
    scroll under it, and solid in both themes (the dark hover tint is
@@ -2919,6 +2927,8 @@ html { overflow-x: hidden; }
 .acct-side-panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 14px 20px 18px; display: grid; gap: 14px; align-content: start; background: var(--bg-secondary); }
 .acct-side-panel > .modal-footer { flex-shrink: 0; padding: 12px 20px 14px; background: var(--bg-card); }
 @media (max-width: 640px) { .acct-side-panel { width: 100vw; min-width: 0; } }
+/* 10/27 (completeness.jsx): the line a gap in the Completeness panel jumps to, outlined for a moment. */
+.acct-row-flash { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; transition: outline-color 0.3s; }
 
 /* Item 06: Vendors & Customers scrolls inside its own box with the headings
    pinned, rows banded like the ledger lines, the hover filling the row. */
@@ -6395,15 +6405,19 @@ body:has(.docs-root) { overflow-x: clip; }
 /* Accounting header (10/02): one layout on every tab so the search never
    moves. Oct 6 (Neil: "search bar should always be on the top right"):
    title | actions | fixed-width search, flush right. */
-.acct-header.view-header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(260px, 400px); align-items: center; gap: 12px; min-height: 44px; margin-bottom: 8px; }
+.acct-header.view-header { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; min-height: 44px; margin-bottom: 8px; }
 .acct-header-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .acct-header-title h2 { margin: 0; font-size: 1.15rem; line-height: 1.3; white-space: nowrap; }
 .acct-header-title p { margin: 0; font-size: 0.8rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.acct-header-search { min-width: 0; }
+/* Chat 10/26, item 13: the search is an icon (ModuleSearch); open, the box
+   takes the old 260-400px, still flush right. */
+.acct-header-search { min-width: 0; display: flex; justify-content: flex-end; }
+.acct-header-search form[role="search"] { width: clamp(260px, 30vw, 400px); }
 .acct-header-actions { display: flex; justify-content: flex-end; min-width: 0; }
 @media (max-width: 900px) {
-  .acct-header.view-header { grid-template-columns: minmax(0, 1fr) auto; }
-  .acct-header-search { grid-column: 1 / -1; grid-row: 2; }
+  /* The icon stays beside the title; the open box takes its own line. */
+  .acct-header-search:has(form[role="search"]) { grid-column: 1 / -1; grid-row: 2; }
+  .acct-header-search form[role="search"] { width: 100%; }
   /* The subtitle drops under the title and wraps, instead of one cut line (Oct 17). */
   .acct-header-title { flex-wrap: wrap; row-gap: 2px; }
   .acct-header-title p { white-space: normal; flex-basis: 100%; }
@@ -7013,7 +7027,13 @@ th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visibl
 /* tools strip */
 .bm-strip { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 5960; display: flex; align-items: center; gap: 2px; padding: 6px;
   background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-lg); user-select: none; }
+.bm-strip-hint { position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); white-space: nowrap; font: 500 12px 'Inter', sans-serif; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; box-shadow: var(--shadow-sm); pointer-events: none; }
 .bm-strip-grip { display: flex; align-items: center; color: var(--muted); cursor: grab; padding: 0 2px; touch-action: none; }
+.bm-strip-done { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; margin: 0 2px; border-radius: 9px; border: none; background: var(--ink); color: var(--paper); font: 700 13px 'Inter', sans-serif; cursor: pointer; flex-shrink: 0; }
+.bm-strip-done:hover { background: var(--fern); }
+.bm-strip-done-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--paper); color: var(--ink); font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+.bm-more summary { padding: 2px 0; }
+.bm-more[open] summary { margin-bottom: 6px; }
 .bm-strip-grip:active { cursor: grabbing; }
 .bm-sep { width: 1px; height: 22px; background: var(--line); margin: 0 3px; flex-shrink: 0; }
 .bm-tool { position: relative; width: 36px; height: 36px; border-radius: 9px; border: none; background: none; color: var(--muted); display: flex; align-items: center; justify-content: center; cursor: pointer; font-family: 'Inter', sans-serif; flex-shrink: 0; transition: background var(--transition-fast), color var(--transition-fast); }
@@ -7155,6 +7175,7 @@ th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visibl
 .bm-pill:hover { border-color: var(--c); color: var(--c); }
 .bm-pill.is-on { border-color: var(--c); color: var(--c); background: color-mix(in srgb, var(--c) 12%, transparent); }
 .bm-tools-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bm-record-ask { display: inline-flex; align-items: center; gap: 6px; }
 .bm-chip-info { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); }
 .bm-chip-info.is-ok { color: #15803d; }
 .bm-live { border: 1px solid hsla(var(--color-red), .4); background: hsla(var(--color-red), .06); border-radius: 10px; padding: 8px 10px; }
@@ -7182,6 +7203,22 @@ th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visibl
 .bm-tab.is-active { color: var(--ink); border-bottom-color: var(--ink); }
 .bm-sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
 .bm-queue-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.bm-queue-head > div:first-child { flex: 1 1 auto; }
+.bm-chat-pick { position: relative; }
+.bm-split { display: inline-flex; }
+.bm-split > .bm-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.bm-split > .bm-split-more { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; padding: 0 7px; }
+.bm-chat-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 2; min-width: 260px; max-width: 360px; max-height: 320px; overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-lg); padding: 4px; }
+.bm-chat-opt { display: flex; justify-content: space-between; gap: 10px; width: 100%; text-align: left; border: none; background: none; padding: 7px 10px; border-radius: 7px; font: 500 13px 'Inter', sans-serif; color: var(--ink); cursor: pointer; }
+.bm-chat-opt:hover { background: var(--mist); }
+.bm-chat-opt.is-on { background: var(--ink); color: var(--paper); }
+.bm-chat-opt.is-on .bm-dim { color: inherit; opacity: .7; }
+.bm-chat-note { padding: 7px 10px; display: flex; align-items: center; gap: 6px; }
+.bm-connect { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; margin: 10px 0 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--mist); }
+.bm-connect.is-ok { flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; font: 500 12.5px 'Inter', sans-serif; background: hsla(var(--color-green), .08); border-color: hsla(var(--color-green), .35); }
+.bm-connect .bm-code-row { width: 100%; }
+.bm-claude-dot { width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--color-green)); flex-shrink: 0; }
+.bm-steps { margin: 0; padding-left: 18px; }
 .bm-h2 { font-size: 14px; font-weight: 700; }
 .bm-list { display: flex; flex-direction: column; gap: 14px; }
 .bm-empty { color: var(--muted); font-size: 13.5px; padding: 28px 0; text-align: center; line-height: 1.5; }
@@ -7460,3 +7497,118 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 @media (prefers-reduced-motion: reduce) { .mobile-toggle-dot { animation: none; } }
 /* Dark mode: the accent dot lightened so it reads on the dark rail (Oct 25). */
 [data-theme="dark"] .nav-count.is-corner, [data-theme="dark"] .mobile-toggle-dot { background: color-mix(in srgb, var(--wk-brand) 55%, #fff); }
+
+/* Popup nudge (Sagar, Oct 27 2026 - lib/usePopupNudge.js): a click outside
+   Ask HR, Reimbursements or Purchase Requests no longer closes it; the popup
+   pulses with a brand ring and its close button lights up instead. Two
+   identical animations so a repeated click replays it. */
+@keyframes nx-nudge-a { 0% { transform: scale(1); } 30% { transform: scale(1.012); box-shadow: 0 0 0 3px var(--wk-brand, #1f7a40), 0 20px 60px rgba(0,0,0,0.3); } 60% { transform: scale(.997); } 100% { transform: scale(1); } }
+@keyframes nx-nudge-b { 0% { transform: scale(1); } 30% { transform: scale(1.012); box-shadow: 0 0 0 3px var(--wk-brand, #1f7a40), 0 20px 60px rgba(0,0,0,0.3); } 60% { transform: scale(.997); } 100% { transform: scale(1); } }
+.nx-nudge-a { animation: nx-nudge-a .45s ease; }
+.nx-nudge-b { animation: nx-nudge-b .45s ease; }
+@keyframes nx-close-nudge-a { 0%, 70% { background: var(--wk-brand-tint, #e8ecfd); color: var(--ink); box-shadow: 0 0 0 2px var(--wk-brand, #1f7a40); } 100% { background: transparent; box-shadow: none; } }
+@keyframes nx-close-nudge-b { 0%, 70% { background: var(--wk-brand-tint, #e8ecfd); color: var(--ink); box-shadow: 0 0 0 2px var(--wk-brand, #1f7a40); } 100% { background: transparent; box-shadow: none; } }
+.nx-close-nudge-a { animation: nx-close-nudge-a 1.4s ease; border-radius: 8px; }
+.nx-close-nudge-b { animation: nx-close-nudge-b 1.4s ease; border-radius: 8px; }
+@media (prefers-reduced-motion: reduce) {
+  .nx-nudge-a, .nx-nudge-b { animation: none; box-shadow: 0 0 0 3px var(--wk-brand, #1f7a40), 0 20px 60px rgba(0,0,0,0.3); }
+}
+
+/* Item 14 (Charmi, 10/26: "There should be search option for all"): the
+   filter boxes (components/accounting/columnFilters.jsx) on the Accounting
+   list tables that are not a report or a lines grid - Vendors & Customers,
+   Reconciliations, Loans - look like those. :where keeps these under the
+   .acct-report / .acct-lines rules above. The heading block pins as one
+   piece (acct-sticky-head), so a see-through heading gets a background. */
+:where(.acct-sticky-head) .acct-filter-row td { padding: 3px 4px 4px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+:where(.acct-sticky-head) .acct-filter-row input {
+  width: 100%; min-width: 60px; box-sizing: border-box; height: 24px; padding: 0 6px; border: 1px solid var(--border-color); border-radius: 6px;
+  font: inherit; font-size: 12px; font-weight: 400; background: var(--bg-card); color: var(--text-primary);
+}
+:where(.acct-sticky-head) .acct-filter-row input::placeholder { color: var(--text-muted); opacity: .7; }
+:where(.acct-sticky-head) .acct-filter-row input:not(:placeholder-shown) { border-color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }
+:where(.acct-sticky-head) .acct-op-filter { display: flex; gap: 3px; align-items: center; min-width: 0; }
+:where(.acct-sticky-head) .acct-op-filter select {
+  height: 24px; padding: 0 2px; border: 1px solid var(--border-color); border-radius: 6px; font: inherit; font-size: 11px;
+  background: var(--bg-card); color: var(--text-secondary); flex: 0 0 auto; max-width: 64px;
+}
+:where(.acct-sticky-head) .acct-op-filter input { min-width: 48px; width: 0; flex: 1 1 auto; text-align: right; }
+.req-table.acct-sticky-head thead th { background: var(--bg-card); }
+
+/* People > Analytics (components/HrAnalytics.jsx, Oct 27 2026): the Insights
+   board's cards with monthly bars. Each bar is a button that opens the
+   month's people; segments stack by flex-grow so their shares are exact. */
+.hra-bars { display: flex; align-items: flex-end; gap: 4px; height: 96px; }
+.hra-bar { flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center;
+  border: none; background: none; padding: 0; cursor: pointer; border-radius: 6px; }
+.hra-bar:disabled { cursor: default; }
+.hra-bar:not(:disabled):hover { background: var(--wk-hover); }
+.hra-bar:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 1px; }
+.hra-bar-stack { width: 100%; max-width: 22px; display: flex; flex-direction: column-reverse; border-radius: 5px; overflow: hidden; gap: 1px; }
+.hra-bar-stack > i { display: block; min-height: 2px; }
+.hra-pair { flex: 1 1 0; min-width: 0; height: 100%; display: flex; gap: 1px; }
+.hra-bar-axis { display: flex; gap: 4px; margin-top: 4px; font-size: 10.5px; color: var(--muted); }
+.hra-bar-axis > span { flex: 1 1 0; min-width: 0; text-align: center; white-space: nowrap; overflow: visible; }
+.hra-stage { width: calc(100% + 8px); border: none; background: none; padding: 3px 4px; margin: 0 -4px; border-radius: 6px; cursor: pointer; font-family: inherit; text-align: left; }
+.hra-stage:hover { background: var(--wk-hover); }
+.hra-legend-btn { display: inline-flex; align-items: center; gap: 6px; border: none; background: none; padding: 2px 4px; margin: 0 -4px;
+  border-radius: 6px; cursor: pointer; font: inherit; color: var(--muted); }
+.hra-legend-btn:hover { background: var(--wk-hover); color: var(--ink); }
+.hra-legend-btn i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.hra-legend-btn b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.hra-person { width: 100%; border: none; background: none; cursor: pointer; font-family: inherit; align-items: center; }
+.hra-person:hover { background: var(--wk-hover); }
+.hra-note { display: flex; align-items: flex-start; gap: 8px; padding: 10px 14px; border-radius: 12px; font-size: 12.5px; line-height: 1.5;
+  color: var(--muted); background: var(--card); border: 1px dashed var(--line); }
+.hra-note > svg { flex-shrink: 0; margin-top: 2px; }
+@media (max-width: 640px) {
+  .hra-bars { gap: 2px; }
+  .hra-bar-axis { gap: 2px; font-size: 10px; }
+  .hra-stage, .hra-legend-btn { min-height: 36px; }
+}
+
+/* Header strip with a More overflow (ModuleTabs overflow, People, Oct 27
+   2026): an invisible copy of the strip measures each tab's natural width;
+   it takes no room and never scrolls the real strip. */
+.header-center.has-tabs { position: relative; }
+.hdr-tabs.hdr-tabs-measure {
+  position: absolute; left: 0; top: 0; height: 0; max-width: none; overflow: hidden;
+  visibility: hidden; pointer-events: none;
+}
+
+/* Add Time From Record (Oct 27 2026, AddTimeFromRecordModal.jsx): the review
+   grid - one row per day, its controls in columns (Day, Type, In, Out,
+   Breaks, Hours, Credit for India contractors, Status). Rows stack on a
+   narrow screen: the day, the breaks and the status full width, the other
+   controls two to a line. */
+.nx-rec-row {
+  display: grid;
+  grid-template-columns: 118px 100px 92px 92px minmax(110px, 1fr) 54px minmax(110px, 1.2fr);
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+.nx-rec-india .nx-rec-row { grid-template-columns: 118px 100px 92px 92px minmax(110px, 1fr) 54px 64px minmax(110px, 1.2fr); }
+.nx-rec-row:first-child { border-top: none; }
+.nx-rec-head { position: sticky; top: 0; z-index: 1; background: var(--wk-hover, var(--bg)); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.nx-rec-foot { grid-template-columns: 1fr 1fr; }
+@media (max-width: 1280px) {
+  .nx-rec-row, .nx-rec-india .nx-rec-row { grid-template-columns: 1fr 1fr; }
+  .nx-rec-row > * { grid-column: auto !important; }
+  .nx-rec-row > label, .nx-rec-row > .nx-rec-wide, .nx-rec-row > .nx-rec-skip, .nx-rec-row > .nx-rec-breaks { grid-column: 1 / -1 !important; }
+  .nx-rec-head { display: none; }
+  .nx-rec-foot { grid-template-columns: 1fr; }
+}
+
+/* Workflows module (Oct 28 2026): the two grids with a phone face. The
+   desktop columns are inline styles, so these override them under 640px:
+   the Catalog's module rail stacks above its sections, and a webhook host
+   row (host, secret, badge, remove) wraps to host / secret / badge + remove. */
+@media (max-width: 640px) {
+  .wf-catalog-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .wf-catalog-grid > nav { flex-direction: row !important; flex-wrap: wrap; gap: 4px; }
+  .wf-webhook-row { grid-template-columns: minmax(0, 1fr) auto !important; }
+  .wf-webhook-row > input { grid-column: 1 / -1; min-width: 0; }
+}

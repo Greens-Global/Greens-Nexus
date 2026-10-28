@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 
 // The Build Mode panel (Oct 24 2026): Send To Claude Code is disabled with a
 // hint while the collecting session is empty, enabled once an open pin is in.
@@ -15,6 +15,7 @@ vi.mock('../api', () => ({
   },
   onApiRequest: vi.fn(() => () => {}),
   setApiBodyCapture: vi.fn(),
+  API_BASE: '/api',          // relative, as in cookie mode: the connect line takes the server's address
 }));
 
 const Panel = (await import('./Panel')).default;
@@ -135,5 +136,130 @@ describe('Panel', () => {
     expect(github).toBeDisabled();
     expect(screen.getAllByText('python3 tools/build_notes/watch.py').length).toBeGreaterThan(0);
     await screen.findByRole('button', { name: /Mint Token/ });
+  });
+
+  it('Settings tab: Collect Fixes Into One PR saves as onePr (Pranshu, Oct 27)', async () => {
+    const onSettings = vi.fn(() => Promise.resolve());
+    render(<Panel {...props} tab="settings" onSettings={onSettings} />);
+    screen.getByRole('switch', { name: 'Collect Fixes Into One PR' }).click();
+    await waitFor(() => expect(onSettings).toHaveBeenCalledWith({ onePr: true }));
+  });
+
+  it('the Queue says where your comments are, by module, and Save Report saves their session', async () => {
+    const row = (id, number, route) => ({ id, number, kind: 'bug', priority: 'normal', status: 'open', comment: `Pin ${number}`, sessionId: 's1', route, sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] });
+    notes = [row('p1', 1, 'tasks'), row('p2', 2, 'tasks'), row('p3', 3, 'tickets')];
+    const { api } = await import('../api');
+    api.devNotesSessionReport = vi.fn(() => Promise.resolve({ blob: new Blob(['<html></html>'], { type: 'text/html' }), filename: 'Build Session.html' }));
+    URL.createObjectURL = vi.fn(() => 'blob:x');
+    URL.revokeObjectURL = vi.fn();
+    render(<Panel {...props} />);
+    const line = await screen.findByTestId('bm-by-module');
+    expect(line.textContent).toMatch(/Tasks.* 2 · .*Tickets.* 1/);
+    const save = screen.getByRole('button', { name: /Save Report/ });
+    await waitFor(() => expect(save).not.toBeDisabled());
+    save.click();
+    await waitFor(() => expect(api.devNotesSessionReport).toHaveBeenCalledWith('s1'));
+  });
+
+  it('Settings has Show All Tools, off by default, remembered in this browser', async () => {
+    localStorage.removeItem('nexus:build-mode:all-tools');
+    render(<Panel {...props} tab="settings" />);
+    const sw = screen.getByRole('switch', { name: 'Show All Tools' });
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+    sw.click();
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Show All Tools' }).getAttribute('aria-checked')).toBe('true'));
+    expect(localStorage.getItem('nexus:build-mode:all-tools')).toBe('1');
+  });
+});
+
+describe('Panel - Sent And Completed folds away (Oct 27 2026)', () => {
+  const row = (id, number, status, sessionId, comment) => ({ id, number, kind: 'bug', priority: 'normal', status, comment, sessionId, route: 'tasks', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] });
+
+  it('done and sent sessions sit collapsed under Sent And Completed; open and Needs Input stay out', async () => {
+    notes = [row('a', 1, 'open', 's1', 'Still collecting'), row('b', 1, 'needs_input', 's2', 'Asked a question'), row('c', 1, 'done', 's3', 'Already answered'), row('d', 2, 'building', 's3', 'Being fixed')];
+    render(<Panel {...props} />);
+    await screen.findByText('Still collecting');
+    expect(screen.getByText('Asked a question')).toBeTruthy();
+    expect(screen.getByText('2 pins in the queue')).toBeTruthy();
+    expect(screen.queryByText('Already answered')).toBeNull();
+    expect(screen.queryByText('Being fixed')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show Sent And Completed (2)' }));
+    expect(screen.getByText('Already answered')).toBeTruthy();
+    expect(screen.getByText('Being fixed')).toBeTruthy();
+  });
+});
+
+describe('Panel - Post To Teams (Oct 26 2026)', () => {
+  const pinRow = { id: 'p1', number: 1, kind: 'bug', priority: 'normal', status: 'open', comment: 'Broken', sessionId: 's1', route: 'tasks', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] };
+
+  it('the first Post opens your chats and picking one posts there - nothing to Claude Code', async () => {
+    notes = [pinRow];
+    const { api } = await import('../api');
+    api.timeMyChats = vi.fn(() => Promise.resolve({ chats: [{ id: '19:g', chatType: 'group', name: 'Nexus - Feedback and Bugs' }, { id: '19:p', chatType: 'oneOnOne', name: 'Neil Kadakia' }] }));
+    api.devNotesTeamsPost = vi.fn(() => Promise.resolve({ posted: 1, chatName: 'Neil Kadakia' }));
+    api.devNotesDispatch.mockClear();          // earlier tests in this file sent pins
+    const onSettings = vi.fn(() => Promise.resolve());
+    render(<Panel {...props} onSettings={onSettings} />);
+    await screen.findByText('Broken');
+    const post = screen.getByRole('button', { name: /^Post To Teams$/ });
+    await waitFor(() => expect(post).not.toBeDisabled());
+    post.click();
+    (await screen.findByRole('option', { name: /Neil Kadakia/ })).click();
+    await waitFor(() => expect(api.devNotesTeamsPost).toHaveBeenCalledWith({ teamsChatId: '19:p', teamsChatName: 'Neil Kadakia' }));
+    expect(onSettings).toHaveBeenCalledWith({ teamsChatId: '19:p', teamsChatName: 'Neil Kadakia' });
+    expect(api.devNotesDispatch).not.toHaveBeenCalled();
+  });
+
+  it('with a chat already picked, Post To Teams posts straight there', async () => {
+    notes = [pinRow];
+    const { api } = await import('../api');
+    api.devNotesTeamsPost = vi.fn(() => Promise.resolve({ posted: 1, chatName: 'Dev chat' }));
+    render(<Panel {...props} settings={{ ...props.settings, teamsChatId: '19:d', teamsChatName: 'Dev chat' }} />);
+    await screen.findByText('Broken');
+    const post = screen.getByRole('button', { name: 'Post To Teams - Dev chat' });
+    await waitFor(() => expect(post).not.toBeDisabled());
+    post.click();
+    await waitFor(() => expect(api.devNotesTeamsPost).toHaveBeenCalledWith({ teamsChatId: '19:d', teamsChatName: 'Dev chat' }));
+  });
+});
+
+describe('Panel - your own Claude Code (Oct 26 2026)', () => {
+  const pinRow = { id: 'p1', number: 1, kind: 'bug', priority: 'normal', status: 'open', comment: 'Broken', sessionId: 's1', route: 'tasks', sub: '', createdBy: 'neil@greensglobal.com', createdAt: '2026-10-24T16:10:00Z', thread: [] };
+  afterEach(async () => { (await import('./store')).store.set({ claude: null }); });
+
+  it('not connected: no Send - Connect Claude Code First, and Connect gives the one line to paste', async () => {
+    notes = [pinRow];
+    const { store } = await import('./store');
+    store.set({ claude: { connected: false, lastSeen: '', apiBase: 'https://api.example' } });
+    const { api } = await import('../api');
+    api.devNotesTokenCreate = vi.fn(() => Promise.resolve({ id: 't1', token: 'nxbn_abc', label: 'Claude Code', expiresAt: '2026-11-25T00:00:00Z' }));
+    render(<Panel {...props} />);
+    await screen.findByText('Broken');
+    expect(screen.queryByRole('button', { name: /Send To Claude Code/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Connect Claude Code First/ })).toBeTruthy();
+    screen.getByRole('button', { name: /Connect My Claude Code/ }).click();
+    const line = await screen.findByText(/tools\/build_notes\/connect\.py nxbn_abc --api https:\/\/api\.example/);
+    expect(line.textContent).toMatch(/^python3? tools/);
+    expect(screen.getByText(/Waiting for your Claude Code/)).toBeTruthy();
+  });
+
+  it('connected: Send To Claude Code, and the Queue says your Claude Code is connected', async () => {
+    notes = [pinRow];
+    const { store } = await import('./store');
+    store.set({ claude: { connected: true, lastSeen: '2026-10-26T10:00:00Z', apiBase: '' } });
+    render(<Panel {...props} />);
+    await screen.findByText('Broken');
+    await waitFor(() => expect(screen.getByRole('button', { name: /Send To Claude Code/ })).not.toBeDisabled());
+    expect(screen.getByTestId('bm-claude-connected').textContent).toMatch(/Your Claude Code is connected/);
+  });
+
+  it('opened from Done: Send To Claude Code is the way out - the Teams chat list stays shut (Pranshu, Oct 27)', async () => {
+    notes = [pinRow];
+    const { store } = await import('./store');
+    store.set({ claude: { connected: true, lastSeen: '2026-10-26T10:00:00Z', apiBase: '' } });
+    render(<Panel {...props} postFromDone />);
+    await screen.findByText('Broken');
+    await waitFor(() => expect(screen.getByRole('button', { name: /Send To Claude Code/ })).not.toBeDisabled());
+    expect(screen.queryByRole('listbox')).toBeNull();
   });
 });

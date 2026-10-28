@@ -2147,7 +2147,7 @@ def place_hold(rid: str, body: HoldIn, user: dict = Depends(require_hr_write),
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req:
         raise HTTPException(404, "Request not found")
-    _require_view(db, req, user)
+    _require_manage(db, req, user)
     if not body.reason.strip():
         raise HTTPException(400, "A hold needs a reason")
     hold = HrSignRetentionHold(id=str(uuid.uuid4()), request_id=rid,
@@ -2163,7 +2163,7 @@ def place_hold(rid: str, body: HoldIn, user: dict = Depends(require_hr_write),
 @router.post("/requests/{rid}/holds/{hid}/release")
 def release_hold(rid: str, hid: str, user: dict = Depends(require_hr_write),
                  db: Session = Depends(get_db)):
-    _require_view_rid(db, rid, user)
+    _require_manage_rid(db, rid, user)
     hold = (db.query(HrSignRetentionHold)
             .filter(HrSignRetentionHold.id == hid, HrSignRetentionHold.request_id == rid).first())
     if not hold:
@@ -2295,7 +2295,7 @@ def certificate_of_record(rid: str, user: dict = Depends(require_hr_read),
     if not req:
         raise HTTPException(404, "Request not found")
     import auth
-    if (req.link_kind or "") == "timesheet":
+    if (req.link_kind or "") in ("timesheet", "perf_review"):
         _require_view(db, req, user)
     else:
         auth.assert_company(auth.company_of(req.created_by or "", db), user, db)
@@ -2337,7 +2337,10 @@ def list_requests(status: str = "", user: dict = Depends(require_hr_read), db: S
     # Signed Time Sheets never list here (Neil, Oct 20 2026: "this document
     # should not be found here") - they live on the Time Sheet, in the
     # employee's My Documents and in their Egnyte HR folder.
-    q = db.query(HrSignRequest).filter(or_(HrSignRequest.link_kind.is_(None), HrSignRequest.link_kind != "timesheet"))
+    # Nor do performance reviews (Oct 27 2026): a review is for the person,
+    # their manager chain and HR for the company - not every HR reader here.
+    q = db.query(HrSignRequest).filter(or_(HrSignRequest.link_kind.is_(None),
+                                           HrSignRequest.link_kind.notin_(("timesheet", "perf_review"))))
     if status:
         q = q.filter(HrSignRequest.status == status)
     rows = q.order_by(HrSignRequest.created_at.desc()).all()
@@ -2373,7 +2376,7 @@ def remind(rid: str, user: dict = Depends(require_hr_write), db: Session = Depen
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req:
         raise HTTPException(404, "Request not found")
-    _require_view(db, req, user)
+    _require_manage(db, req, user)
     _check_expiry(db, req)
     if req.status != "pending":
         raise HTTPException(409, f"Request is {req.status}")
@@ -2397,7 +2400,7 @@ def void_request(rid: str, user: dict = Depends(require_hr_write), db: Session =
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req:
         raise HTTPException(404, "Request not found")
-    _require_view(db, req, user)
+    _require_manage(db, req, user)
     if req.status not in ("pending",):
         raise HTTPException(409, f"Request is already {req.status}")
     req.status = "voided"
@@ -2455,7 +2458,14 @@ def _require_view(db: Session, req: HrSignRequest, user: dict) -> None:
     """A signed Time Sheet opens only for its employee, the approving manager,
     the company's HR contact, Full HR and Global Admins (Neil, Oct 20 2026 -
     timesheet_review.can_view_envelope). 404, not 403: a hidden envelope does
-    not admit it exists. Every other envelope is unchanged."""
+    not admit it exists. A performance review's opens only for whoever may
+    see the review (perf_reviews.can_view_envelope, Oct 27 2026). Every
+    other envelope is unchanged."""
+    if req is not None and (getattr(req, "link_kind", "") or "") == "perf_review":
+        import perf_reviews
+        if not perf_reviews.can_view_envelope(db, req, user):
+            raise HTTPException(404, "Request not found")
+        return
     if req is None or (getattr(req, "link_kind", "") or "") != "timesheet":
         return
     import timesheet_review
@@ -2465,6 +2475,28 @@ def _require_view(db: Session, req: HrSignRequest, user: dict) -> None:
 
 def _require_view_rid(db: Session, rid: str, user: dict) -> None:
     _require_view(db, db.query(HrSignRequest).filter(HrSignRequest.id == rid).first(), user)
+
+
+def _require_manage(db: Session, req: HrSignRequest, user: dict) -> None:
+    """The write side of _require_view (release review, Oct 27 2026). A
+    performance review's envelope is changed (parties corrected, voided,
+    reminded, held, its signing link copied) only by HR for the review's
+    company (performance.hr_for) - never by the employee it is about; the
+    managers in the chain may only view it. Every other envelope keeps
+    _require_view."""
+    _require_view(db, req, user)
+    if req is not None and (getattr(req, "link_kind", "") or "") == "perf_review":
+        import models as _m
+        import performance
+        r = db.get(_m.PerfReview, getattr(req, "link_id", "") or "")
+        me = (user.get("email") or "").strip().lower()
+        if (r is None or me == (r.employee_email or "").strip().lower()
+                or not performance.hr_for(db, user, r.company_id or "")):
+            raise HTTPException(403, "Only HR changes a performance review's envelope")
+
+
+def _require_manage_rid(db: Session, rid: str, user: dict) -> None:
+    _require_manage(db, db.query(HrSignRequest).filter(HrSignRequest.id == rid).first(), user)
 
 
 def _require_pay_access(db: Session, req: HrSignRequest, user: dict) -> None:
@@ -2491,7 +2523,7 @@ def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
     if not req or not party:
         raise HTTPException(404, "Not found")
     _require_pay_access(db, req, user)
-    _require_view(db, req, user)
+    _require_manage(db, req, user)
     _check_expiry(db, req)
     if req.status != "pending":
         raise HTTPException(409, f"Request is {req.status}")
@@ -2534,7 +2566,7 @@ def party_link(rid: str, pid: str, user: dict = Depends(require_hr_write),
     if not req or not party:
         raise HTTPException(404, "Not found")
     _require_pay_access(db, req, user)
-    _require_view(db, req, user)
+    _require_manage(db, req, user)
     if party.kind != "external":
         raise HTTPException(400, "Teammates sign inside Nexus - there is no external link")
     if req.status != "pending":
@@ -2552,9 +2584,10 @@ def download_final(rid: str, user: dict = Depends(get_current_user), db: Session
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req or not req.final_pdf_path:
         raise HTTPException(404, "No completed document")
-    if (req.link_kind or "") == "timesheet":
+    if (req.link_kind or "") in ("timesheet", "perf_review"):
         # The approving manager opens it from the Time Sheet without an HR grant
-        # (Neil, Oct 20: "Valinda should be able to see this").
+        # (Neil, Oct 20: "Valinda should be able to see this"); a performance
+        # review opens for whoever may see the review (perf_reviews.py).
         _require_view(db, req, user)
     else:
         require_hr_read(user=user, db=db)
@@ -3055,6 +3088,20 @@ def _link_hook(event: str, db: Session, req: HrSignRequest, *args) -> None:
               "completed": ca_breaks.on_completed}.get(event)
         if fn:
             ca_breaks.safe(fn, db, req, *args)
+    elif kind == "hr_letter":
+        # A letter an employee requested from My HR (hr_letters.py, Oct 27 2026).
+        import hr_letters
+        fn = {"declined": hr_letters.on_declined, "voided": hr_letters.on_voided,
+              "completed": hr_letters.on_completed, "expired": hr_letters.on_expired}.get(event)
+        if fn:
+            hr_letters.safe(fn, db, req, *args)
+    elif kind == "perf_review":
+        # A performance review the employee acknowledges (perf_reviews.py, Oct 27 2026).
+        import perf_reviews
+        fn = {"declined": perf_reviews.on_declined, "voided": perf_reviews.on_voided,
+              "completed": perf_reviews.on_completed}.get(event)
+        if fn:
+            perf_reviews.safe(fn, db, req, *args)
 
 
 def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:
@@ -5025,11 +5072,15 @@ def _signed_folder(db: Session, req: HrSignRequest) -> str:
     emailed; losing the copy would be the worse outcome."""
     if (req.egnyte_folder or "").strip():
         return req.egnyte_folder.strip()
-    if (getattr(req, "link_kind", "") or "") == "life_event":
+    if (getattr(req, "link_kind", "") or "") in ("life_event", "hr_letter", "perf_review"):
         # Filed into the subject PERSON's folder by hr_life_events' filing pass
         # (the hire's folder does not exist until the packet is signed). The
         # requester fallback below would drop a new hire's offer letter into
-        # the HR sender's own work folder.
+        # the HR sender's own work folder. An employee's requested HR letter
+        # (hr_letters.py) is filed into their folder by its own pass, in a
+        # worker thread, outside this sealing transaction. A signed performance
+        # review is the employee's record - never the sender's work folder or
+        # the module default (release review, Oct 27 2026).
         return ""
     if (getattr(req, "link_kind", "") or "") == "timesheet":
         # The EMPLOYEE's person folder (Neil, Oct 16) - never a requester's

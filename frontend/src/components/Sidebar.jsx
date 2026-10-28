@@ -18,6 +18,8 @@ import {
   HardDrive, FolderOpen, ClipboardList,
   MonitorDot, Gauge, CalendarClock,
   Map as MapIcon,
+  Inbox,
+  Workflow,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
 import InsightsChart from "./icons/InsightsChart";
@@ -83,9 +85,13 @@ export const NAV = [
       // Requests = the manager's inbox (Charmi, 09/30); staff ask in Workday >
       // Time Off, and shift types / groups live in Settings > Global Settings.
       { subview: "requests", label: "Requests",         icon: ClipboardList, minRole: 'manager' },
-      { subview: "contact",  label: "Contact",          icon: Contact },
+      { subview: "contact",  label: "Company Directory", icon: Contact },
     ],
   },
+  // Approvals (Neil, Oct 27 2026): everything waiting on your decision,
+  // across modules (views/Approvals.jsx). Everyone - an employee has swaps
+  // and signatures too; its count is the Approvals registry's total.
+  { view: "approvals", code: "APR", label: "Approvals", icon: Inbox },
   { divider: true },
   // Tasks + Tickets are grant-driven like every other module (Aug 10): they
   // only appear when an Access Group / job role grants them (most job roles
@@ -183,8 +189,12 @@ export const NAV = [
       { subview: "hr-people", label: "People",    icon: Users },
       { subview: "hr-hiring", label: "Hiring",    icon: CheckSquare },
       { subview: "hr-org",    label: "Org Chart", icon: Files },
-      { subview: "hr-leave",  label: "Leave",     icon: PenTool },
+      // People > Leave became Time > Time Off (leave depth, Oct 27 2026).
+      { subview: "hr-time-off", label: "Time Off", icon: PenTool },
       { subview: "hr-checklists", label: "Checklists", icon: CheckSquare },
+      { subview: "hr-analytics", label: "Analytics", icon: BarChart3 },
+      { subview: "hr-exits", label: "Exits", icon: Files },
+      { subview: "hr-performance", label: "Performance", icon: BarChart3 },
     ],
   },
   {
@@ -195,6 +205,9 @@ export const NAV = [
   // BI board (Neil, Sep 14): cross-module KPIs, sortable/filterable, reusing
   // the same widget-grid engine as Dashboard - see dashboard/useDashboards.js.
   { view: "bi", code: "INS", label: "Insights", icon: InsightsChart, minRole: 'supervisor' },
+  // Workflows (Oct 28 2026): cross-module automations - build, pause, review
+  // what ran. Granted like the other modules; the group sorts itself by name.
+  { view: "workflows", code: "WFL", label: "Workflows", icon: Workflow, minRole: 'supervisor' },
   { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
   { divider: true },
   // Help Center (Neil, Oct 13 2026; was Support): Submit a Ticket,

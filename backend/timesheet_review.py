@@ -230,6 +230,15 @@ def fingerprint(db: Session, email: str, start: str, end: str) -> str:
     prem = ca_breaks.premium_rows(db, email, start, end)
     if prem:
         body += sorted(["prem", p.id, p.local_date, p.kind] for p in prem)
+    # India Contractor Extra Time claims (Oct 27 2026) change the pay - only a
+    # card that has any adds them, so every other fingerprint is unchanged.
+    from models import ExtraTimeClaim
+    claims = (db.query(ExtraTimeClaim)
+              .filter(ExtraTimeClaim.employee_email == email, ExtraTimeClaim.status != "withdrawn",
+                      ExtraTimeClaim.local_date >= start, ExtraTimeClaim.local_date <= end).all())
+    if claims:
+        body += sorted(["xt", c.id, c.local_date, c.status, int(c.claimed_min or 0), int(c.approved_min or 0)]
+                       for c in claims)
     # Bonuses are NOT part of it (Neil, Oct 23): one added after an approval or
     # a signature never makes either go stale.
     return hashlib.sha256(json.dumps(body).encode()).hexdigest()
@@ -244,7 +253,10 @@ _SIGNED_KEYS = {
                ("vacationMin", "Vacation"), ("personalMin", "Personal"), ("workedMin", "Total Worked"),
                ("mealPremiumMin", "Meal Premium"), ("restPremiumMin", "Rest Premium")),
     "fixed": (("workedMin", "Worked"), ("missedFullDays", "Missed Full Days"),
-              ("missedHalfDays", "Missed Half Days"), ("weekendDaysWorked", "Weekend Days Worked")),
+              ("missedHalfDays", "Missed Half Days"), ("weekendDaysWorked", "Weekend Days Worked"),
+              # India Contractor policy (Oct 27 2026): approved Extra Time is
+              # pay the signature vouches for (0 on every other card).
+              ("extraTimeMin", "Approved Extra Time")),
 }
 TOTALS_CHANGED_NOTE = "Pay settings changed after approval - sent back for a fresh signature"
 
@@ -381,6 +393,15 @@ def _round(db: Session, r: TimesheetReview, *, by: str, action: str, note: str =
         r.last_snapshot = now
     r.rounds = list(r.rounds or []) + [entry]
     r.updated_at = entry["at"]
+    # Workflows (Oct 28 2026): every round is one outbox row - never raises.
+    import workflows
+    try:
+        from workflows.packs.time import review_status_change
+        change = review_status_change(r, action)
+    except Exception:   # noqa: BLE001 - a pack that fails to load is the catalog's problem, never a round's
+        change = ("", r.status or "")
+    workflows.emit(db, "timesheet.review_changed", subject=r, actor=entry["by"], changes={"status": change},
+                   extra={"action": action, "by": entry["by"], "note": entry["note"], "for": entry.get("for", "")})
     return entry
 
 
@@ -542,6 +563,14 @@ def approve_blocker(db: Session, email: str, start: str, end: str) -> str:
         # employee signs a card with nothing left open on it.
         return (f"{display_name(db, email)} has {pending} change{'' if pending == 1 else 's'} waiting for your "
                 f"decision on the time sheet above - approve or reject {'it' if pending == 1 else 'them'} first.")
+    # India Contractor Extra Time (Neil, Oct 27 2026): nothing is approved
+    # while a claim of the month is still waiting on a decision.
+    from routers import extra_time
+    xt = extra_time.pending_count(db, email, start, end)
+    if xt:
+        return (f"{display_name(db, email)} has {xt} Extra Time claim{'' if xt == 1 else 's'} pending for this "
+                f"month - approve or decline {'it' if xt == 1 else 'them'} first (on the time sheet above, or "
+                "People > Time > Extra Time).")
     return ""
 
 
@@ -1447,17 +1476,24 @@ def _finalized_step(db: Session, r: TimesheetReview, offset: int) -> list:
              "when": us_datetime(row.approved_at or "", offset), "note": row.note or ""}]
 
 
-def paper_pdf(db: Session, employee_email: str, anchor: str, actor: str) -> tuple[bytes, str]:
-    """HR prints a period's time sheet to be signed on PAPER, not through
-    Nexus Sign (Neil, Oct 23 2026: a stopgap for someone hired on a Friday who
-    must be paid that Friday before their intake is finished). Any period, in
-    review, finalized or locked, for any kind of employee; it changes nothing.
-    is_hr is the gate. Returns (pdf, filename)."""
+# Review stages a time sheet prints at: the manager has approved it.
+PRINTABLE = ("approved", "signing", "completed", CORRECTING)
+
+
+def paper_pdf(db: Session, employee_email: str, anchor: str, actor: str, team: bool = False) -> tuple[bytes, str]:
+    """A period's time sheet to be signed on PAPER, not through Nexus Sign
+    (Neil, Oct 23 2026), for any kind of employee; it changes nothing. HR, or
+    the manager side (`team` - the caller checked the employee is in their
+    scope), never on their own card - and only once the manager has approved
+    it or it is finalized (Oct 28 2026). Returns (pdf, filename)."""
     email = (employee_email or "").strip().lower()
-    if not is_hr(db, actor, email):
-        raise HTTPException(403, "Only HR or a Global Admin can print a time sheet to sign on paper.")
+    if actor == email or not (team or is_hr(db, actor, email)):
+        raise HTTPException(403, "Only the employee's manager or HR can print a time sheet to sign on paper.")
     start, end, pay_type = period_for(db, email, anchor)
-    r = active_review(db, email, start) or TimesheetReview(
+    r = active_review(db, email, start)
+    if not ((r and r.status in PRINTABLE) or _tc()._finalized_row(db, email, start, end)):
+        raise HTTPException(409, "The time sheet prints once the manager has approved it.")
+    r = r or TimesheetReview(
         employee_email=email, period_start=start, period_end=end, pay_type=pay_type, rounds=[], status="paper")
     pdf, _ = build_pdf(db, r, paper_by=actor)
     return pdf, f"Time Sheet - {display_name(db, email)} - {start} to {end}.pdf"

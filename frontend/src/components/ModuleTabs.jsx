@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight } from 'lucide-react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Check, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
 import AnchoredMenu from './AnchoredMenu';
 import TabInk from './TabInk';
 
@@ -72,7 +72,12 @@ export function useHeaderTabs() {
 //
 // compactGroups=true (Accounting, Oct 22): a dropdown tab shows only its own
 // label, never "Dashboard · Overview".
-export default function ModuleTabs({ tabs, active, onChange, mobileInline = true, syncTitle = false, inline = false, compactGroups = false }) {
+//
+// overflow=true (People, Oct 27 2026): the header strip shows the tabs that
+// fit and folds the rest into a "More" dropdown (HeaderOverflowTabs below),
+// instead of scrolling them out of sight with no scrollbar. Opt-in - every
+// other module's strip is untouched. Phones keep the swipeable strip.
+export default function ModuleTabs({ tabs, active, onChange, mobileInline = true, syncTitle = false, inline = false, compactGroups = false, overflow = false }) {
   const ctx = useContext(HeaderTabsContext);
   const setEntry = inline ? null : ctx?.setEntry;
 
@@ -87,9 +92,9 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   const signature = tabs.map(t => `${t.key} ${t.label} ${t.title ?? ''} ${t.badge ?? ''}${t.landing ? ` >${t.landing}` : ''}${itemsSig(t.items)}`).join('|');
   useEffect(() => {
     if (!setEntry) return;
-    setEntry({ tabs, active, syncTitle, compactGroups, onChange: key => onChangeRef.current?.(key) });
+    setEntry({ tabs, active, syncTitle, compactGroups, overflow, onChange: key => onChangeRef.current?.(key) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setEntry, signature, active, syncTitle, compactGroups]);
+  }, [setEntry, signature, active, syncTitle, compactGroups, overflow]);
 
   useEffect(() => {
     if (!setEntry) return;
@@ -158,6 +163,7 @@ export function TabGroupButton({ tab, active, onSelect, className, iconSize = 16
         {Icon && <Icon size={iconSize} strokeWidth={2} />}
         <span>{label}</span>
         {current && current.label !== label && <span className="tab-group-current">{current.label}</span>}
+        {tab.badge > 0 && <span className="hdr-tab-badge">{tab.badge}</span>}
         <ChevronDown size={14} className="tab-group-caret" style={{ opacity: 0.7, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
       <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} minWidth={200} aria-label={label} style={MENU_STYLE}>
@@ -181,6 +187,7 @@ function MenuRows({ items, active, onPick }) {
       onMouseEnter={() => setFlyout(null)} onClick={() => onPick(it.key)} style={rowStyle(it.key === active)}>
       {it.Icon ? <it.Icon size={15} /> : null}
       <span style={{ flex: 1 }}>{it.label}</span>
+      {it.badge > 0 ? <span className="hdr-tab-badge">{it.badge}</span> : null}
       {it.key === active ? <Check size={14} /> : null}
     </button>
   )));
@@ -202,6 +209,66 @@ function FlyoutRow({ item, active, onPick, open, onOpen, onClose }) {
       <AnchoredMenu anchorRef={row} open={open} onClose={onClose} side="right" minWidth={200} aria-label={item.label} style={MENU_STYLE}>
         <MenuRows items={item.items} active={active} onPick={onPick} />
       </AnchoredMenu>
+    </>
+  );
+}
+
+// The header strip with a "More" overflow (overflow=true, People, Oct 27
+// 2026). It measures every tab's natural width in an invisible copy of the
+// strip, shows as many as fit the header center (leaving room for More) and
+// lists the rest in the More dropdown, re-measuring when the window, the
+// sidebar or a badge changes the room. An active tab inside More lights More
+// up (TabInk follows it) and carries the check in its menu; the hidden tabs'
+// counts add up on More.
+export function HeaderOverflowTabs({ entry, onPick, renderTab, ink }) {
+  const { tabs, active } = entry;
+  const measure = useRef(null);
+  const [fit, setFit] = useState(tabs.length);
+  const sig = tabs.map((t) => `${t.key}:${t.label}:${t.badge ?? ''}`).join('|');
+  useLayoutEffect(() => {
+    const box = measure.current;
+    const host = box?.parentElement;
+    if (!box || !host) return undefined;
+    const calc = () => {
+      const widths = [...box.children].map((c) => c.getBoundingClientRect().width);
+      const more = widths.pop();      // the last probe is the More button
+      const room = host.clientWidth;
+      if (!room) return;              // not laid out (the header center is hidden on phones)
+      const gap = 2;
+      const all = widths.reduce((s, w) => s + w, 0) + gap * Math.max(0, widths.length - 1);
+      if (all <= room) { setFit(widths.length); return; }
+      let used = more;
+      let k = 0;
+      while (k < widths.length && used + gap + widths[k] <= room) { used += gap + widths[k]; k += 1; }
+      setFit(Math.max(1, k));
+    };
+    calc();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(calc);
+    ro.observe(host);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [sig]);
+  const shown = fit >= tabs.length ? tabs : tabs.slice(0, fit);
+  const rest = fit >= tabs.length ? [] : tabs.slice(fit);
+  const restBadge = rest.reduce((s, t) => s + (Number(t.badge) || 0), 0);
+  return (
+    <>
+      <div ref={measure} className="hdr-tabs hdr-tabs-measure" aria-hidden="true">
+        {tabs.map((t) => renderTab(t, true))}
+        <button type="button" className="hdr-tab" tabIndex={-1}>
+          <MoreHorizontal size={16} strokeWidth={2} /><span>More</span><ChevronDown size={14} />
+        </button>
+      </div>
+      <nav className="hdr-tabs" aria-label="Module sections" data-tour="module-tabs">
+        {ink}
+        {shown.map((t) => renderTab(t, false))}
+        {rest.length > 0 && (
+          <TabGroupButton key="__more" className="hdr-tab" compact onSelect={onPick} active={active}
+            tab={{ key: '__more', label: 'More', Icon: MoreHorizontal, badge: restBadge,
+              items: rest.map(({ key, label, Icon, badge }) => ({ key, label, Icon, badge })) }} />
+        )}
+      </nav>
     </>
   );
 }

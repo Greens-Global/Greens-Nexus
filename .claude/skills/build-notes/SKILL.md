@@ -16,6 +16,20 @@ allowed-tools:
   - Bash(npx vitest*)
   - Bash(playwright-cli:*)
   - Bash(npx playwright:*)
+  # Windows has `python`, not `python3`, and may run commands in PowerShell.
+  - Bash(python tools/build_notes/*)
+  - Bash(python repro_pin_*)
+  - Bash(cd backend && python -m pytest *)
+  - PowerShell(python tools/build_notes/*)
+  - PowerShell(git *)
+  - PowerShell(gh pr create*)
+  - PowerShell(gh pr view*)
+  - PowerShell(npm run *)
+  - PowerShell(npx vitest*)
+  - PowerShell(npx playwright*)
+  # The claimed pin's brief, screenshots and evidence live outside the repo.
+  - Read(~/.cache/nexus-build-notes/**)
+  - Write(~/.cache/nexus-build-notes/**)
 ---
 
 # Build Notes
@@ -24,9 +38,11 @@ You are Claude Code working a batch of Build Mode pins. A **Pin** is one capture
 
 The arguments are pin ids: `/build-notes <id> <id> ...`. With no ids, work every pin in `dispatched`.
 
-Everything here runs from the repository root. Use `python3 tools/build_notes/cli.py` (standard library only, no virtualenv needed). The token comes from `~/.config/nexus/build-notes.token` or `NEXUS_BUILD_TOKEN`; `--api http://localhost:8000` points the CLI at a local backend. If any CLI call says "Your Build Token was revoked or expired" or "Build Mode is not enabled for you", stop and tell the user what it said.
+Everything here runs from the repository root. Use `python3 tools/build_notes/cli.py` (standard library only, no virtualenv needed). On Windows the command is `python`, not `python3` (`python3` there opens the Microsoft Store) - read every `python3` below as `python`. The token comes from `~/.config/nexus/build-notes.token` or `NEXUS_BUILD_TOKEN`; `--api http://localhost:8000` points the CLI at a local backend. If any CLI call says "Your Build Token was revoked or expired" or "Build Mode is not enabled for you", stop and tell the user what it said.
 
 ## The procedure
+
+First run `python3 tools/build_notes/cli.py whoami`. When it prints `Collect Fixes Into One PR: on`, section 13 changes steps 4 and 8-12 for this session - read it before you start.
 
 ### 1. Claim and read
 
@@ -227,10 +243,22 @@ Match the pin's viewport. Skip this step quietly when playwright-cli or the dev 
 
 Tell the user: the branch, the PR link, which pins were fixed and what evidence each carries, which are **Ready To Check** on http://localhost:5174 (or why the preview did not start), which are waiting on an answer (Needs Input) and why - including any pin parked because its fix needs another developer's file - which were **held for an owner** (the `Not claimed: ... waits for <Owner>` lines), which were not reproduced, and which Questions you answered. For a reopened pin, say it was reworked on the same branch and PR - or on a new `-r2` branch and PR because the first one had merged. **Never merge the PR** - Neil merges. Do not edit `dev` or `main`, do not touch `.env` files, do not commit tokens, cache folders, repro scripts or style JSON files.
 
+### 13. Collect Fixes Into One PR (the author's setting)
+
+When `whoami` says `Collect Fixes Into One PR: on`, the author wants every batch they send while this Claude Code session is open on ONE branch and in ONE PR, opened only when they say so in this terminal ("open a PR", "open the PR", "raise the PR").
+
+- **One branch.** The first batch makes its branch as in step 4. Every later batch in this session goes on that SAME branch, whatever Build Session it came from - never a second branch.
+- **After each batch:** steps 1-7 as usual (claim, fix, checks, evidence), then commit and push the branch (`git push -u origin <branch>`) so nothing is lost if the terminal closes - but do NOT open a PR, run `complete` or start the preview. Post `Fixed - the PR opens when you say so` on each fixed pin. Tell the user in a few lines what you fixed, then: **Send more from Nexus, or type "open a PR" when you are done.**
+- **Wait for the next batch.** Run `python3 tools/build_notes/cli.py wait` with the Bash tool's `run_in_background: true`; it prints `Pins arrived: <ids>` and exits when the author sends more, and you are told when it does - do not poll it. Work those ids from step 1 on the same branch, then start the wait again. Keep only one wait running.
+- **"Open a PR":** stop the background wait, then do steps 8-12 ONCE for every pin fixed on the branch in this session, all batches together: one PR listing them all, one `complete` with all their ids, one preview with all of them. Then start the background wait again; the next batch begins a NEW branch from fresh `origin/dev` (step 4), never the one that now has a PR.
+- **A pin reopened on the preview** still goes back to its own branch and PR (step 4's reopen rules), not to the collecting branch.
+- **The session ends before "open a PR"** (the user exits): the commits are safe on the pushed branch. Say its name in your last message so the next session can be told "open a PR for <branch>".
+
 ## Quick reference
 
 ```
 python3 tools/build_notes/cli.py whoami
+python3 tools/build_notes/cli.py wait                         # blocks until you send more pins (section 13)
 python3 tools/build_notes/cli.py list [--status dispatched|building|needs_input|pr_open] [--json]
 python3 tools/build_notes/cli.py claim <id>... [--out DIR] [--no-download]
 python3 tools/build_notes/cli.py progress <id> "one line"

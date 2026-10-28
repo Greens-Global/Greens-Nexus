@@ -14,6 +14,8 @@ import {
 import { formatTime, formatWeekday, formatMonthDay } from '../lib/datetime';
 import { api } from '../api';
 import { myTasksFootnote, MY_TASKS_RULE } from './myTasksCount';
+import { myTicketsFootnote, myTicketsFilter, MY_TICKETS_RULE } from './myTicketsCount';
+import { setPendingOpen } from '../lib/pendingOpen';
 import { LinkIcon } from '../components/LinkIcon.jsx';
 import { useNotifications } from '../contexts/NotificationContext.jsx';
 import { useRole } from '../contexts/RoleContext';
@@ -77,6 +79,8 @@ const C = (name) => `hsl(var(--color-${name}))`;
 export const KPI_CATALOG = {
   open_tasks:           { label: 'Open Tasks',              color: 'blue',   Icon: ListTodo,      hint: 'Across your team',     nav: { view: 'tasks' } },
   my_open_tasks:        { label: 'My Open Tasks',           color: 'blue',   Icon: ListTodo,      hint: 'Due soon or in progress', nav: { view: 'tasks' } },
+  // The ticket twin of My Open Tasks (Oct 26 2026) - myTicketsCount.js.
+  my_open_tickets:      { label: 'My Open Tickets',         color: 'red',    Icon: TicketIcon,    hint: 'Assigned to you',      nav: { view: 'tickets' } },
   pending_requisitions: { label: 'Requisitions to Approve', color: 'orange', Icon: ClipboardCheck, hint: 'Awaiting approval',   nav: { view: 'myhr', sub: 'purchase' } },
   pending_inventory:    { label: 'Inventory Requests',      color: 'orange', Icon: Package,       hint: 'Awaiting approval',    nav: { view: 'inventory', sub: 'checkouts' } },
   open_purchases:       { label: 'Open Purchases',          color: 'purple', Icon: Package,       hint: 'In progress',          nav: { view: 'myhr', sub: 'purchase' } },
@@ -165,13 +169,32 @@ function StatCard({ label, value, color, Icon, nav, hint, hintShort, hero, onCli
 
 
 // ── Widgets ───────────────────────────────────────────────────────────────────
+// The two "mine" counts name what they left out under the number (the
+// footnote), and say their rule in the tooltip.
+const FOOTNOTES = {
+  my_open_tasks: { note: myTasksFootnote, rule: MY_TASKS_RULE },
+  my_open_tickets: { note: myTicketsFootnote, rule: MY_TICKETS_RULE },
+};
+
+// My Open Tickets lands on the desk's own list - Assigned to Me, or
+// Unassigned when that is all there is (TicketsView's nexus:ticket-filter).
+function openMyTickets(kpis) {
+  const filter = myTicketsFilter(kpis);
+  setPendingOpen('ticketFilter', filter);
+  navigate('tickets');
+  setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:ticket-filter', { detail: { filter } })), 0);
+}
+
 function KpiWidget({ config, kpis }) {
   const { openPanel } = useNotifications();
-  const meta = KPI_CATALOG[config?.metric] || { label: 'Metric', color: 'blue', Icon: BarChart3 };
-  const onClick = config?.metric === 'unread_notifications' ? openPanel : undefined;
-  const note = config?.metric === 'my_open_tasks' ? myTasksFootnote(kpis) : null;
-  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={note || meta.hint} hintShort={note ? myTasksFootnote(kpis, true) : undefined} hero={!!config?.hero} onClick={onClick}
-    tip={config?.metric === 'my_open_tasks' ? `${meta.label} - ${MY_TASKS_RULE}${note ? `. ${note}` : ''}` : undefined} noted={!!note} />;
+  const metric = config?.metric;
+  const meta = KPI_CATALOG[metric] || { label: 'Metric', color: 'blue', Icon: BarChart3 };
+  const onClick = metric === 'unread_notifications' ? openPanel
+    : metric === 'my_open_tickets' ? () => openMyTickets(kpis) : undefined;
+  const foot = FOOTNOTES[metric];
+  const note = foot ? foot.note(kpis) : null;
+  return <StatCard label={meta.label} value={kpis?.[metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={note || meta.hint} hintShort={note ? foot.note(kpis, true) : undefined} hero={!!config?.hero} onClick={onClick}
+    tip={foot ? `${meta.label} - ${foot.rule}${note ? `. ${note}` : ''}` : undefined} noted={!!note} />;
 }
 
 function TeamStatWidget({ config, kpis }) {
@@ -1160,6 +1183,11 @@ export const WIDGETS = {
   'team-time':     { title: 'Team Time',          cat: 'Team',      icon: Timer,         size: { w: 12, h: 6 }, limits: { minW: 8, minH: 5, maxW: 12, maxH: 8 }, render: TeamTimePanel,     minRole: 'manager', phoneRowsWhen: () => 10 },
   // Phase 3 (Sep 25). Tickets is a supervisor module; the time-off list,
   // punch exceptions and purchases are manager-level on the server.
+  // My Open Tickets (Neil, Oct 26 2026): the ticket desk's twin of the My
+  // Open Tasks tile - a KPI tile with its metric fixed, for whoever can open
+  // Tickets (administrators, or the tickets grant - the module is
+  // grant-driven). The KPI Stat tile can pick the same metric.
+  'my-tickets':        { title: 'My Open Tickets',   cat: 'Team', icon: TicketIcon,   size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <KpiWidget {...p} config={{ ...(p.config || {}), metric: 'my_open_tickets' }} />, module: 'tickets', moduleLabel: 'Tickets', compact: true },
   'ticket-queue':      { title: 'My Ticket Queue',   cat: 'Team', icon: TicketIcon,   size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TicketQueueWidget,      minRole: 'supervisor' },
   'time-exceptions':   { title: 'Time Exceptions',   cat: 'Team', icon: Timer,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TimeExceptionsWidget,   minRole: 'manager' },
   'out-today':         { title: 'Out Today',         cat: 'Team', icon: UserMinus,    size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: OutTodayWidget,         minRole: 'manager' },

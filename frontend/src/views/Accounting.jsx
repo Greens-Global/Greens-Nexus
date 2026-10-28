@@ -1,14 +1,14 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import {
   Activity, ArrowLeftRight, Banknote, BookOpen, Building2, Calculator, ChartColumn, CheckSquare, CreditCard, Database, FileStack, FileText,
-  Hammer, HandCoins, Handshake, KeyRound, Landmark, LayoutGrid, Library, ListChecks, Loader2, MessageCircleQuestion, PieChart, Receipt,
-  ReceiptText, Scale, Search, ShieldCheck, Split, Target, TrendingUp, Upload, UserPen, Users, Wallet, Wrench, X,
+  Hammer, HandCoins, Handshake, KeyRound, Landmark, LayoutGrid, Library, ListChecks, MessageCircleQuestion, PieChart, Receipt,
+  ReceiptText, Scale, ShieldCheck, Split, Target, TrendingUp, Upload, UserPen, Users, Wallet, Wrench,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import ModuleTabs from '../components/ModuleTabs';
-import { control } from '../components/accounting/reportControls';
+import ModuleSearch from '../components/accounting/ModuleSearch';
 import { dashDensityOf, useAccountingPrefs } from '../components/accounting/prefs';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
@@ -126,8 +126,14 @@ const BASE_TABS = [
         rpt('pnl-t12', 'T12', TrendingUp),
         rpt('pnl-ytd-py', 'YTD vs. Prior Year', TrendingUp),
         rpt('pnl-mom', 'This Month vs. Last Month', TrendingUp),
+        // 10/27 item 16 (Charmi; Neil: "Income Statement - not Profit & Loss").
+        rpt('pnl-customer', 'Income Statement by Customer', Users),
+        rpt('pnl-job', 'Income Statement by Job', Hammer),
+        rpt('pnl-department', 'Income Statement by Department', Building2),
       ] },
       rpt('general-ledger', 'General Ledger', BookOpen),
+      // 10/27 item 17 (Charmi: "pull a report by vendor name").
+      rpt('vendor-spend', 'Spend by Vendor', Receipt),
       rpt('cash-flow', 'Statement of Cash Flows', ArrowLeftRight),
       rpt('cash-position', 'Cash Position', Wallet),
     ] },
@@ -162,6 +168,10 @@ const BASE_TABS = [
       { key: 'manual-je', label: 'Manual Journal Entries', Icon: UserPen },
       // Oct 15: per-entity NOI / net income / debt service vs prior year.
       { key: 'profitability', label: 'Profitability', Icon: ChartColumn },
+    ] },
+    // 10/27 item 18 (Neil, Viral): tax forms from the ledger - Schedule C first.
+    { key: 'grp-tax', label: 'Tax', Icon: Landmark, items: [
+      rpt('schedule-c', 'Schedule C (Draft)', FileText),
     ] },
   ] },
   // Oct 2 (Neil and Charmi): loans set up from the ledger and reviewed per
@@ -414,22 +424,12 @@ export default function Accounting({ activeSub, onSubChange }) {
             Accounting" link is gone from every tab. The slot stays so the
             search keeps its place. */}
         <div className="acct-header-actions" />
+        {/* Chat 10/26, item 13: an icon that opens on a click or Ctrl+F (ModuleSearch). */}
         <div className="acct-header-search">
           {/* Oct 7 (Neil, screenshot 3): no ledger search on the PFS tab. */}
           {access && sub !== 'pfs' && (
-            <form role="search" onSubmit={(e) => { e.preventDefault(); clearTimeout(searchTimer.current); goSearch(searchText); }} style={{ position: 'relative', width: '100%' }}>
-              {searchWaiting && isReports(sub)
-                ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
-                : <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />}
-              <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} aria-label="Search the ledger"
-                placeholder="Search vendor, customer, invoice, amount, memo..." style={{ ...control, width: '100%', paddingLeft: 28, paddingRight: 26 }} />
-              {searchText && (
-                <button type="button" onClick={() => setSearchText('')} aria-label="Clear search"
-                  style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}>
-                  <X size={14} />
-                </button>
-              )}
-            </form>
+            <ModuleSearch value={searchText} onChange={setSearchText} waiting={searchWaiting && isReports(sub)}
+              onSubmit={(text) => { clearTimeout(searchTimer.current); goSearch(text); }} />
           )}
         </div>
       </div>

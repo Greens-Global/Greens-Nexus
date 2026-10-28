@@ -54,7 +54,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification, HrCompanyHoliday, NexusRole, ScheduleDayNote,
                     ShiftAvailability, TimecardNote, TimecardBonus, PayrollRateHistory, ShiftAvailabilityDate,
-                    ShiftAvailabilityPref)
+                    ShiftAvailabilityPref, TimeEntryBatch, AuditLog)
 from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from client_ip import client_ip as _trusted_ip
 from routers.stepup import require_stepup
@@ -72,6 +72,8 @@ from currency import is_currency
 import ca_breaks
 import payroll_codes
 import pay_premiums
+import india_contractor_pay
+import workflows
 from shift_day import shift_day as _shift_day, shift_bounds_by_day as _shift_bounds_by_day
 import shift_log
 
@@ -306,7 +308,12 @@ PAY_KEYS = frozenset({"pay", "rate", "rateSet", "rateSplits", "amount", "regPay"
                       "diffPay", "callBackPay",
                       # CA meal / rest premiums (ca_breaks.py) - pay, like the rest.
                       "mealPremiumPay", "restPremiumPay",
-                      "bonusPay"})
+                      "bonusPay",
+                      # Salary advance repayments (salary_advance.py, Oct 27) -
+                      # the lines go whole, with the deduction and net pay.
+                      "advanceRepayments", "advanceRepayment", "netPay",
+                      # India Contractor Extra Time (india_contractor_pay.py, Oct 27 2026).
+                      "extraPay", "extraTimePay", "hourlyEquivalent"})
 
 
 def strip_pay(o):
@@ -2217,6 +2224,13 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
         exc = _blocking_exceptions(db, email, body.start, body.end)
         if exc:
             _exceptions_409(exc)
+    # India Contractor Extra Time (Oct 27 2026): pay is not final while a
+    # claim of the month waits on a decision - Allow Exceptions overrides
+    # punch exceptions only, never a pending claim (release review).
+    from routers import extra_time
+    if extra_time.pending_count(db, email, body.start, body.end):
+        raise HTTPException(409, "An Extra Time claim for this month is still pending - approve or "
+                                 "decline it first.")
     _end_nx = (date.fromisoformat(body.end) + timedelta(days=1)).isoformat()
     # Freeze the pay rate + OT rule as of finalize, so a later change can't
     # re-price this locked, paid period (see _compute_timecard).
@@ -2226,10 +2240,17 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
     if _is_fixed:
         # PIN the whole fixed result as-of-finalize: statuses key off "today", so a
         # month finalized mid-month would otherwise re-price as its days elapse.
-        _ft = _fixed_card(db, email, body.start).get("totals", {})
+        _fcard = _fixed_card(db, email, body.start)
+        _ft = _fcard.get("totals", {})
         worked = _ft.get("workedMin", 0)   # unrounded - matches the fixed card + the sign
         _fixed_snap = {k: _ft.get(k) for k in ("totalPay", "deduction", "weekendBonus",
                        "missedFullDays", "missedHalfDays", "weekendDaysWorked", "missedReasons")}
+        # India Contractor policy (Oct 27 2026): the policy version and the
+        # whole reconciliation, day by day, so a later rule change, a leave
+        # balance moving or a claim never re-prices this month. Only an
+        # in-scope card carries the key.
+        if _fcard.get("indiaPolicy"):
+            _fixed_snap["indiaPolicy"] = india_contractor_pay.snapshot(_fcard)
     else:
         worked = sum(v["workedMin"] for k, v in _day_summaries(
             _live_punches(db, email, body.start, _end_nx), _round_min(db, email),
@@ -2315,6 +2336,14 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
         leave_balances.record_period(db, email, body.start, body.end, row.id, user["email"])
     except Exception as _leave_err:  # noqa: BLE001
         print(f"[leave] could not record {email} {body.start}-{body.end}: {_leave_err}")
+    # Salary advance repayments (salary_advance.py, Oct 27): record what this
+    # card takes for each installment in the period and carry any shortfall
+    # forward - before the contractor invoice, which reads it. Never blocks.
+    try:
+        import salary_advance
+        salary_advance.on_finalize(db, email, body.start, body.end, row.id, user["email"])
+    except Exception as _adv_err:  # noqa: BLE001
+        print(f"[salary-advance] could not record {email} {body.start}-{body.end}: {_adv_err}")
     # A contractor's invoice for the period (contractor_invoices.py, Oct 21):
     # a draft and a bell to HR only - the email goes on HR's click, never here.
     try:
@@ -2411,6 +2440,8 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(get_current_user)
     leave_balances.remove_period(db, row.id)
     from routers import contractor_invoices
     contractor_invoices.void_for_final(db, row.id)   # its draft invoice goes; a sent one stays
+    import salary_advance
+    salary_advance.on_unfinalize(db, row.id, user["email"])   # its repayments are taken again at the next finalize
     # The review is HR's to correct until the employee signs again (or the
     # corrected card is accepted after the wait) - never back to the manager.
     _tsr.start_correction(db, email, body.start, body.end, user["email"], reason[:500])
@@ -2742,6 +2773,18 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
         # only when someone in the file has one - every other file is unchanged.
         ca_prem = any((c["totals"].get("mealPremiumMin") or c["totals"].get("restPremiumMin")) for c in cards.values())
 
+        # Salary advance repayments (salary_advance.py, Oct 27): two more
+        # columns at the very END - the deduction and the net paid out - only
+        # when someone in the file has one. Total Pay stays the gross.
+        adv = any("advanceRepayment" in c["totals"] for c in cards.values())
+
+        def _acols(x: dict, total: bool) -> list:
+            if not adv:
+                return []
+            if not total or "advanceRepayment" not in x:
+                return ["", ""]
+            return [f"{x['advanceRepayment']:.2f}", f"{x['netPay']:.2f}"]
+
         def _pcols(x: dict) -> list:
             if not ca_prem:
                 return []
@@ -2755,7 +2798,8 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                     "Total Pay", "Approved"]
                    + (["Shift Differential Hours", "Shift Differential Pay", "Call-Back Hours", "Call-Back Pay"]
                       if prem else [])
-                   + (["Meal Premium Hours", "Meal Premium Pay", "Rest Premium Hours", "Rest Premium Pay"] if ca_prem else []))
+                   + (["Meal Premium Hours", "Meal Premium Pay", "Rest Premium Hours", "Rest Premium Pay"] if ca_prem else [])
+                   + (["Salary Advance Repayment", "Net Pay"] if adv else []))
         for r in rows:
             card = cards[r["email"]]
             cday = {d["date"]: d for d in card["days"]}
@@ -2777,7 +2821,7 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                             "yes" if (r["email"], date) in day_ok else ""]
                            + ([f"{cd.get('diffMin', 0) / 60:.2f}", f"{cd.get('diffPay', 0):.2f}",
                                f"{cd.get('callBackMin', 0) / 60:.2f}", f"{cd.get('callBackPay', 0):.2f}"] if prem else [])
-                           + _pcols(cd))
+                           + _pcols(cd) + _acols(cd, False))
             all_days_ok = bool(r["days"]) and all((r["email"], dt) in day_ok for dt in r["days"])
             w.writerow([r["name"], r["email"], "TOTAL", "", "",
                         f"{T['workedMin'] / 60:.2f}", f"{T['regMin'] / 60:.2f}",
@@ -2792,7 +2836,7 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                         "yes" if (r["email"] in approved or all_days_ok) else "no"]
                        + ([f"{T.get('diffMin', 0) / 60:.2f}", f"{T.get('diffPay', 0):.2f}",
                            f"{T.get('callBackMin', 0) / 60:.2f}", f"{T.get('callBackPay', 0):.2f}"] if prem else [])
-                       + _pcols(T))
+                       + _pcols(T) + _acols(T, True))
     buf.seek(0)
     fname = f"timeclock-{mode}-{start or 'all'}-to-{end or 'now'}.csv"
     return StreamingResponse(iter([buf.getvalue()]),
@@ -2992,7 +3036,7 @@ _INTACCT_PAY_CLASSES = (("regPay", "regular", "regMin"), ("otPay", "overtime", "
 
 
 def payroll_intacct_entries(cards: list[dict], *, start: str, end: str, journal: str, expense: str, clearing: str,
-                            location: str, description: str = "") -> list[dict]:
+                            location: str, description: str = "", advances: str = "") -> list[dict]:
     """The period's payroll as ONE Intacct GL entry (intacct_gl layout): per
     employee, a debit to the wage expense account per pay class (the memo
     names the class and the hours, DEPT_ID the person's department,
@@ -3000,7 +3044,11 @@ def payroll_intacct_entries(cards: list[dict], *, start: str, end: str, journal:
     clearing account for their total. `cards` are payroll cards with `name`,
     `department`, `employeeId` and `payType` added, and optionally
     `payCodes` (the company's export codes, payroll_codes.codebook). Pure, so
-    it is testable without punches."""
+    it is testable without punches.
+    A salary advance repayment (totals.advanceRepayment, salary_advance.py)
+    is not a wage: the wage lines stay gross, the repayment is a credit to
+    the employee advances account (`advances`, blank for Intacct to ask) and
+    the clearing credit is the net paid out."""
     lines = []
 
     def side(amount: float, debit_side: bool) -> dict:
@@ -3033,6 +3081,11 @@ def payroll_intacct_entries(cards: list[dict], *, start: str, end: str, journal:
                 lines.append({**base, "memo": f"{name} - {label}{hours}", **side(amt, True)})
                 total += amt
         total = round(total, 2)
+        repay = round(float(t.get("advanceRepayment") or 0), 2)
+        if repay:
+            label = (card.get("payCodes") or {}).get("advanceRepayment") or payroll_codes.DEFAULTS["advanceRepayment"]
+            lines.append({**base, "acct_no": advances, "memo": f"{name} - {label}", **side(repay, False)})
+            total = round(total - repay, 2)
         if total:
             lines.append({**base, "acct_no": clearing, "memo": f"{name} - Payroll {_us_date(start)} to {_us_date(end)}", **side(total, False)})
     for i, line in enumerate(lines):
@@ -3050,7 +3103,7 @@ def _us_date(ds: str) -> str:
 
 @router.get("/export-intacct.csv")
 def export_intacct(start: str = "", end: str = "", journal: str = "PYRJ", expense: str = "", clearing: str = "",
-                   location: str = "", user: dict = Depends(require_team_read_pay),
+                   location: str = "", advances: str = "", user: dict = Depends(require_team_read_pay),
                    _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """Intacct General Ledger import of the period's payroll by employee
     (Neil, 10/01: "payroll export from QB to Intacct employee"). Same column
@@ -3078,7 +3131,7 @@ def export_intacct(start: str = "", end: str = "", journal: str = "PYRJ", expens
         cards.append(card)
     entries = payroll_intacct_entries(cards, start=start, end=end, journal=(journal or "PYRJ").strip()[:20],
                                       expense=(expense or "").strip()[:40], clearing=(clearing or "").strip()[:40],
-                                      location=(location or "").strip()[:40])
+                                      location=(location or "").strip()[:40], advances=(advances or "").strip()[:40])
     body = intacct_gl.to_csv(entries)
     fname = f"Intacct GL Import - Payroll - {start} to {end}.csv"
     return PlainTextResponse(body, media_type="text/csv",
@@ -9189,6 +9242,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     # raise can't retro-price an already-paid month (mirrors the hourly freeze).
     _fin_snap = _finalized_row(db, em, m_start, m_end)
     _frozen = {}   # finalize-time totals - pin the whole result so it can't re-price
+    _icp_frozen = None   # the India Contractor reconciliation a finalized month was priced by
     if _fin_snap and _fin_snap.note:
         try:
             _sn = json.loads(_fin_snap.note)
@@ -9201,8 +9255,21 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                 if _sn.get("totalPay") is not None:
                     _frozen = {k: _sn.get(k) for k in ("totalPay", "deduction", "weekendBonus",
                                "missedFullDays", "missedHalfDays", "weekendDaysWorked", "missedReasons")}
+                # India Contractor policy (Oct 27 2026): a month finalized under
+                # it keeps its frozen reconciliation; one finalized without it
+                # keeps the old rules, whatever the switch says now.
+                if isinstance(_sn.get("indiaPolicy"), dict):
+                    _icp_frozen = _sn["indiaPolicy"]
         except Exception:   # noqa: BLE001 - a bad snapshot must not break the card
             pass
+    # India Contractor Work Hours and Extra Time Policy (Neil, Oct 27 2026,
+    # india_contractor_pay.py / docs/India-Contractor-Pay.md): None = the
+    # rules below, exactly as before.
+    if _fin_snap:
+        _icp = ({"applies": True, "version": _icp_frozen.get("version", ""), "startDate": _icp_frozen.get("startDate", ""),
+                 "constants": _icp_frozen.get("constants") or {}} if _icp_frozen is not None else None)
+    else:
+        _icp = india_contractor_pay.scope(db, em, rr, m_start)
 
     first = datetime.strptime(m_start, "%Y-%m-%d").date()
     last = datetime.strptime(m_end, "%Y-%m-%d").date()
@@ -9355,13 +9422,35 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                            "dailyRate": round(daily_d, 2),
                            "holidayName": (hol or {}).get("name", "")})
 
+    # India Contractor policy: the month is priced by its reconciliation
+    # instead (credits, the pool, recovery, Extra Time); the automatic weekend
+    # pay and its floor do not apply (Neil, Oct 27 2026: "that policy is
+    # overwritten now"). Nothing above changes for anyone else.
+    _icp_extra = 0.0
+    _icp_totals = None
+    if _icp is not None:
+        if _icp_frozen is not None:
+            _icp_res = {"days": _icp_frozen.get("days") or {}, "totals": _icp_frozen.get("reconciliation") or {},
+                        "claims": {ds: india_contractor_pay.claim_dict(c) for ds, c in
+                                   india_contractor_pay.live_claims(db, em, m_start, m_end).items()}}
+        else:
+            _icp_res = india_contractor_pay.price_month(
+                db, em, first=first, days_in_month=days_in_month, today=today, worked_by_day=worked_by_day,
+                leave_by_day=leave_by_day, leave_min_by_day=leave_min_by_day, open_by_day=open_by_day,
+                holidays=holidays, daily_on=_daily_on,
+                requested_by_day=india_contractor_pay.requested_leave(db, em, m_start, m_end))
+        deduction, missed_full, missed_half, missed_reasons = _india_overlay(fixed_days, _icp_res, timeoff_by_day)
+        weekend_bonus = 0.0
+        _icp_totals = dict(_icp_res["totals"])
+        _icp_extra = float(_icp_totals.get("extraTimePay") or 0)
+
     weekend_bonus = round(weekend_bonus, 2)
     base_pay = round(base_pay, 2)
     # Absences never take more than the month's pay (Oct 23: Aarav, absent all
     # 22 working days of June at 1/261 of a year's fee each, was "owed" -344.83
     # before his bonus). A month with no work pays 0, not less.
     deduction = round(min(deduction, base_pay), 2)
-    total_pay = round(base_pay - deduction + weekend_bonus, 2)
+    total_pay = round(base_pay - deduction + weekend_bonus + _icp_extra, 2)
     _bt = {"totalPay": total_pay}
     _add_bonuses(card, _bt, _bonus_rows(db, em, m_start, m_end), db)
     total_pay = _bt["totalPay"]   # the finalize snapshot below already holds it
@@ -9404,9 +9493,78 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                       "personalDays": leave_days["personal"],
                       "deduction": deduction, "weekendBonus": weekend_bonus,
                       **({"bonusPay": _bt["bonusPay"]} if "bonusPay" in _bt else {}), "totalPay": total_pay}
+    # Salary advance repayments come off the month's pay as its own line (the
+    # grid's _compute_timecard put hourly figures there - replaced here).
+    _add_advance_repayments(card, card["totals"], db, em, m_start, m_end)
     card["periodStart"], card["periodEnd"] = m_start, m_end
     card["periodDays"] = days_in_month
+    if _icp is not None:
+        # The Month-End Reconciliation the card, the PDF and the invoice show
+        # (keys only on an in-scope card - every other card is unchanged).
+        card["weekendFloor"] = 0.0
+        card["indiaPolicy"] = {**_icp, "frozen": _icp_frozen is not None, "reconciliation": _icp_totals or {},
+                               "extraTime": {"multiplier": india_contractor_pay.EXTRA_TIME_MULT,
+                                             "hoursPerDay": india_contractor_pay.HOURS_PER_DAY,
+                                             "hourlyEquivalent": round(daily / india_contractor_pay.HOURS_PER_DAY, 2),
+                                             "rate": round(daily / india_contractor_pay.HOURS_PER_DAY
+                                                           * india_contractor_pay.EXTRA_TIME_MULT, 2)}}
+        _rt = _icp_totals or {}
+        card["totals"].update({"extraTimeMin": int(_rt.get("extraTimeMin") or 0),
+                               "extraTimePay": float(_rt.get("extraTimePay") or 0),
+                               "recoveredHalfDays": int(_rt.get("recoveredHalves") or 0),
+                               "unpaidHalfDays": int(_rt.get("unpaidHalves") or 0),
+                               "poolMin": int(_rt.get("poolMin") or 0)})
     return card
+
+
+# India Contractor policy: each day as the card shows it (Oct 27 2026).
+_ICP_REASON = {"none": "absent", "half": "half_day"}
+
+
+def _india_overlay(fixed_days: list, res: dict, timeoff_by_day: dict) -> tuple:
+    """Puts the reconciliation onto the card's days: each day's credit, pool
+    hours, claim and Extra Time, its deduction (the halves still unpaid after
+    recovery, at that day's rate), no weekend pay. Returns (deduction,
+    unpaid full days, unpaid half days, missed reasons) for the totals."""
+    days, claims = res.get("days") or {}, res.get("claims") or {}
+    deduction = 0.0
+    full = half = 0
+    reasons = {}
+    for fd in fixed_days:
+        ds = fd["date"]
+        r = days.get(ds)
+        if not r:
+            continue
+        kind, credit, state = r.get("kind"), r.get("credit"), r.get("state")
+        status = r.get("status") or fd["status"]
+        if not r.get("status"):
+            if kind == "scheduled" and state == "past" and not fd.get("leaveClass"):
+                status = {"full": "present", "half": "half", "none": "absent"}.get(credit, fd["status"])
+            elif kind == "holiday":
+                status = "holiday_worked" if fd.get("workedMin") else "holiday"
+        unpaid = int(r.get("unpaidHalves") or 0)
+        deduct = float(r.get("deduct") or 0)
+        fd.update({"status": status, "deduct": round(deduct, 2), "bonus": 0.0,
+                   "dayKind": kind, "credit": credit, "creditHalves": int(r.get("creditHalves") or 0),
+                   "leaveHalves": int(r.get("leaveHalves") or 0), "missingHalves": int(r.get("missingHalves") or 0),
+                   "recoveredHalves": int(r.get("recoveredHalves") or 0), "unpaidHalves": unpaid,
+                   "poolMin": int(r.get("poolMin") or 0), "claimableMin": int(r.get("claimableMin") or 0),
+                   "extraMin": int(r.get("extraMin") or 0), "extraPay": round(float(r.get("extraPay") or 0), 2),
+                   "leaveCovered": bool(r.get("leaveHalves")), "leaveUsedMin": int(r.get("leaveUsedMin") or 0),
+                   "leaveBucket": r.get("leaveBucket") or "", "claim": claims.get(ds),
+                   # Paid from an approved time off request, no leave punch (Oct 27 2026).
+                   "leaveFromRequest": bool(r.get("leaveFromRequest"))})
+        deduction += deduct
+        if unpaid:
+            if unpaid == 2:
+                full += 1
+            else:
+                half += 1
+            reason = (fd.get("leaveClass") or timeoff_by_day.get(ds)
+                      or ("holiday_half" if kind == "half_holiday" else _ICP_REASON.get(credit, "absent")))
+            slot = reasons.setdefault(reason, {"full": 0, "half": 0})
+            slot["full" if unpaid == 2 else "half"] += 1
+    return deduction, full, half, reasons
 
 
 def _pay_type(db: Session, em: str) -> str:
@@ -9557,6 +9715,50 @@ def set_rounding(body: RoundingIn, company: str = "", user: dict = Depends(requi
     cfg = {"enabled": bool(body.enabled), "nearestMin": min(30, max(0, int(body.nearestMin)))}
     _save_pay_rule(db, _ROUNDING_KEY, cfg, cid, body.reset, user)
     return _pay_rule_payload(db, _ROUNDING_KEY, _rounding_cfg(db, cid), cid)
+
+
+# ── India Contractor Policy (Neil, Oct 27 2026, india_contractor_pay.py) ─────
+# Per company: the switch (on by default for an India company) and Policy
+# Starts (11/01/2026 by default - months that start before it keep the old
+# rules, so October is never re-priced). Same permissions as Punch Rounding.
+
+def _india_policy_payload(db: Session, cid: str) -> dict:
+    cfg = india_contractor_pay.config(db, cid)
+    out = _pay_rule_payload(db, india_contractor_pay.SETTING_KEY, cfg, cid)
+    out.update({"defaultStart": india_contractor_pay.DEFAULT_START, "version": india_contractor_pay.POLICY_VERSION,
+                "companyCountry": india_contractor_pay.company_country(db, cid) if cid else "",
+                "enabled": india_contractor_pay.enabled_for_company(db, cid, cfg) if cid else None})
+    return out
+
+
+@router.get("/payroll/india-contractor-policy")
+def get_india_contractor_policy(company: str = "", user: dict = Depends(require_team_read),
+                                db: Session = Depends(get_db)):
+    return _india_policy_payload(db, _pay_company(db, company))
+
+
+class IndiaPolicyIn(BaseModel):
+    mode: str = ""            # '' = the default (on for an India company), 'on', 'off'
+    startDate: str = ""       # YYYY-MM-DD; '' = 11/01/2026
+    reset: bool = False       # a company: back to the default for every company
+
+
+@router.put("/payroll/india-contractor-policy")
+def set_india_contractor_policy(body: IndiaPolicyIn, company: str = "", user: dict = Depends(require_administrator),
+                                db: Session = Depends(get_db)):
+    cid = _pay_company(db, company)
+    mode = (body.mode or "").strip().lower()
+    if mode and mode not in india_contractor_pay.MODES:
+        raise HTTPException(400, "India Contractor Policy is on, off or the default.")
+    start = (body.startDate or "").strip()[:10]
+    if start:
+        try:
+            start = date.fromisoformat(start).isoformat()
+        except ValueError:
+            raise HTTPException(400, "Policy Starts must be a date.")
+    _save_pay_rule(db, india_contractor_pay.SETTING_KEY,
+                   {"mode": mode, "startDate": start or india_contractor_pay.DEFAULT_START}, cid, body.reset, user)
+    return _india_policy_payload(db, cid)
 
 
 # ── Payroll export codes (Neil, Oct 17 2026) ──────────────────────────────────
@@ -10380,8 +10582,11 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
         if actor and actor not in _hr_actor:
             _hr_actor[actor] = _tsr.is_hr(db, actor, em)
         return bool(actor) and _hr_actor[actor]
+    def _rec(p):   # Add Time From Record (Oct 27 2026): HR keyed it in from a record
+        return (getattr(p, "entry_source", "") or "") == _RECORD_SOURCE
     punch_meta = {p.id: {"kind": p.kind, "at": p.at, "originalAt": p.original_at or "",
-                         "source": _src.get(p.source or "", p.source or ""), "ip": p.ip or "",
+                         "source": "Entered By HR From Record" if _rec(p) else _src.get(p.source or "", p.source or ""),
+                         "ip": p.ip or "",
                          "site": p.work_site_name or "", "manual": p.source in MANUAL_SOURCES,
                          "createdBy": _who(p.created_by), "createdAt": p.created_at or "",
                          "adjustedBy": _who(p.adjusted_by), "adjustedAt": p.adjusted_at or "",
@@ -10393,7 +10598,11 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          # so a pending edit on a break punch was saved but never
                          # shown (Miranda, Oct 20).
                          "pendingAt": p.pending_at or "", "editStatus": p.edit_status or "",
-                         "editReason": p.edit_reason or ""} for p in punches}
+                         "editReason": p.edit_reason or "",
+                         # The record's tag: the card and the PDF say "Entered By HR
+                         # From Record" with the reason (recordBatches has the rest).
+                         **({"entrySource": _RECORD_SOURCE, "batchId": p.batch_id or "",
+                             "recordReason": p.note or ""} if _rec(p) else {})} for p in punches}
 
     # Shift differentials + call-back pay (pay_premiums.py) - off by default
     # per company; while off nothing below changes.
@@ -10437,6 +10646,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     if _prem is not None:
         pay_premiums.add_totals(card["totals"], _prem)
     _add_bonuses(card, card["totals"], _bonus_rows(db, em, start, end), db)
+    _add_advance_repayments(card, card["totals"], db, em, start, end)
     return card
 
 
@@ -10493,8 +10703,15 @@ def payroll_timecard(email: str, start: str, end: str,
         card["notes"] = _timecard_notes(db, em, card["periodStart"], card["periodEnd"])
         card["zoneKey"] = _employee_zone_key(db, em)   # India staff open in India time (Oct 20)
         card.update(_invoice_keys(db, em, card["periodStart"], card["periodEnd"], user))
+        if card.get("indiaPolicy"):
+            # Approve / decline Extra Time on the card (Oct 27 2026): HR, the
+            # HR contact or a Global Admin - never the contractor themself.
+            from routers import extra_time
+            card["extraTimeCanDecide"] = extra_time.can_decide(db, user.get("email") or "", em)
+        _card_record_batches(db, user, em, card)   # Add Time From Record's tag (Oct 27 2026)
         return _no_pay(db, user, card)
     card = _compute_timecard(db, em, start, end)
+    _card_record_batches(db, user, em, card)   # Add Time From Record's tag (Oct 27 2026)
     if em == (user.get("email") or "").lower():
         # Your own card: no CA meal flag, as on /my-payroll (Charmi, Oct 20).
         for _d in card.get("days") or []:
@@ -10621,6 +10838,25 @@ def _add_bonuses(card: dict, totals: dict, rows: list, db: Session) -> None:
                        for b in rows]
     totals["bonusPay"] = round(sum(x["amount"] for x in card["bonuses"]), 2)
     totals["totalPay"] = round(float(totals.get("totalPay") or 0) + totals["bonusPay"], 2)
+
+
+def _add_advance_repayments(card: dict, totals: dict, db: Session, em: str, start: str, end: str) -> None:
+    """Salary advance repayments (salary_advance.py, Neil, Oct 27 2026): one
+    "Salary Advance Repayment" line per installment in the period. A
+    deduction from what is paid out, not a cut in wages - `totalPay` stays the
+    gross the exports' wage lines and taxes read; `advanceRepayment` and
+    `netPay` ride only on a card that has a line, so every other card is
+    unchanged."""
+    import salary_advance
+    card.pop("advanceRepayments", None)
+    totals.pop("advanceRepayment", None)
+    totals.pop("netPay", None)
+    lines = salary_advance.card_lines(db, em, start, end, float(totals.get("totalPay") or 0), card.get("currency") or "")
+    if not lines:
+        return
+    card["advanceRepayments"] = lines
+    totals["advanceRepayment"] = round(sum(x["applied"] for x in lines), 2)
+    totals["netPay"] = round(float(totals.get("totalPay") or 0) - totals["advanceRepayment"], 2)
 
 
 class TimecardBonusIn(BaseModel):
@@ -10777,9 +11013,15 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
         card["notes"] = _timecard_notes(db, user["email"], card["periodStart"], card["periodEnd"], own=True)
         card["zoneKey"] = _employee_zone_key(db, user["email"])
         card.update(_invoice_keys(db, user["email"], card["periodStart"], card["periodEnd"]))
+        if card.get("indiaPolicy"):
+            # Whether Claim Extra Time is still open for this month (Oct 27 2026).
+            from routers import extra_time
+            card["extraTimeFiling"] = extra_time.filing_state(db, user["email"], card["periodStart"], card["periodEnd"])
+        _card_record_batches(db, user, user["email"], card)   # the tag and reason, never the document
         return card
     p_start, p_end = _pay_period(anchor)
     card = _compute_timecard(db, user["email"], p_start, p_end)
+    _card_record_batches(db, user, user["email"], card)   # the tag and reason, never the document
     # The CA meal check's flag ("Meal Missed") is for HR only - the employee
     # never sees it, not even in the response (Charmi, Oct 20). Premium pay
     # lines are their pay and stay.
@@ -10942,10 +11184,10 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
 # composition bar via TimeScreenshot.idle_sec.
 
 
-def _signed_url(path: str, bucket: str = "") -> str:
+def _signed_url(path: str, bucket: str = "", expires: int = 3600) -> str:
     try:
         r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{bucket or _DOC_BUCKET}/{path}",
-                       headers=_storage_headers(), json={"expiresIn": 3600}, timeout=20)
+                       headers=_storage_headers(), json={"expiresIn": expires}, timeout=20)
         if r.is_success:
             return f"{_SUPABASE_URL}/storage/v1{r.json().get('signedURL', '')}"
     except Exception:
@@ -11625,6 +11867,7 @@ class _TimeoffPrivacy:
         self._approvers = {}
         self._stand_ins = {}
         self._any_deleg = None
+        self._hr = {}
 
     def _emp(self, email: str):
         if self._emps is None:
@@ -11673,6 +11916,18 @@ class _TimeoffPrivacy:
         self._stand_ins[em] = out
         return out
 
+    def is_hr_for(self, employee_email: str) -> bool:
+        """HR for this person - the ONE scoped HR rule (hr_access.is_hr_for:
+        the company's HR contact, or an administrator / Full HR grant whose
+        People scope covers the person's company; never the manager tier's
+        own-team view) - the second level of Second Approval By HR. Never for
+        their own request."""
+        em = (employee_email or "").strip().lower()
+        if em not in self._hr:
+            import hr_access
+            self._hr[em] = bool(self.viewer) and hr_access.is_hr_for(self.db, self.viewer, em)
+        return self._hr[em]
+
     def can_see(self, r) -> bool:
         if not _is_confidential(r):
             return True
@@ -11680,14 +11935,22 @@ class _TimeoffPrivacy:
         if not self.viewer:
             return False
         if (self.viewer == em or self.viewer in self.approvers(em)
-                or self.viewer == (r.approver or "").strip().lower()):
+                or self.viewer == (r.approver or "").strip().lower()
+                or self.viewer == (getattr(r, "first_approver", "") or "").strip().lower()):
             return True
-        return r.status == "pending" and self.viewer in self.stand_ins(em)
+        if _awaiting_hr(r) and self.is_hr_for(em):
+            return True        # HR decides it now, so HR reads why
+        return r.status == "pending" and not _awaiting_hr(r) and self.viewer in self.stand_ins(em)
 
     def can_decide(self, r) -> bool:
         em = (r.employee_email or "").strip().lower()
         if not self.viewer or self.viewer == em:
             return False
+        if _awaiting_hr(r):
+            # The manager's level is done: only HR decides now, and never the
+            # person who approved the first level.
+            return (self.is_hr_for(em)
+                    and self.viewer != (getattr(r, "first_approver", "") or "").strip().lower())
         return (not _is_confidential(r) or self.viewer in self.approvers(em)
                 or self.viewer in self.stand_ins(em))
 
@@ -11701,6 +11964,12 @@ class _TimeoffPrivacy:
         return ", ".join(names[:3]) + (" and others" if len(names) > 3 else "")
 
 
+def _awaiting_hr(r) -> bool:
+    """A request the manager approved that now waits for HR (Second Approval
+    By HR). Still status 'pending': nothing counts it as approved yet."""
+    return getattr(r, "status", "") == "pending" and (getattr(r, "approval_stage", "") or "") == "hr"
+
+
 def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" = None) -> dict:
     out = {"id": r.id, "email": r.employee_email,
            "name": (names or {}).get(r.employee_email, ""),
@@ -11712,18 +11981,29 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" 
            "createdAt": r.created_at,
            "requestedBy": getattr(r, "requested_by", "") or "",
            "requestedByName": (names or {}).get(getattr(r, "requested_by", "") or "", ""),
-           "confidential": _is_confidential(r), "redacted": False}
+           "confidential": _is_confidential(r), "redacted": False,
+           # Second Approval By HR (Oct 27 2026): whose turn it is, and the
+           # manager's first-level approval once given.
+           "stage": getattr(r, "approval_stage", "") or "",
+           "awaitingHr": _awaiting_hr(r),
+           "statusLabel": "Awaiting HR Approval" if _awaiting_hr(r) else (r.status or "").title(),
+           "firstApprover": getattr(r, "first_approver", "") or "",
+           "firstApproverName": (names or {}).get(getattr(r, "first_approver", "") or "", ""),
+           "firstDecidedAt": getattr(r, "first_decided_at", "") or "",
+           "firstNote": getattr(r, "first_note", "") or ""}
     if priv is not None:
         out["canDecide"] = priv.can_decide(r)
         # Who decides it, whenever the viewer cannot: a confidential request,
         # or the viewer's own (nobody approves their own time off - Visesh,
         # 09/30: "no approval or decline for me"; the approvers are named).
-        if _is_confidential(r) or not out["canDecide"]:
+        if _awaiting_hr(r):
+            out["reviewer"] = "HR"
+        elif _is_confidential(r) or not out["canDecide"]:
             out["reviewer"] = priv.reviewer_names(r)
         if priv.viewer and priv.viewer == (r.employee_email or "").strip().lower():
             out["own"] = True
         if not priv.can_see(r):
-            out.update(note="", decideNote="", redacted=True)
+            out.update(note="", decideNote="", firstNote="", redacted=True)
     return out
 
 
@@ -11831,6 +12111,7 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
                          note=(body.note or "").strip()[:400], created_at=now,
                          confidential=1 if body.confidential else 0)
     db.add(row)
+    workflows.emit(db, "time_off.requested", subject=row, actor=user["email"])
     who = _display_name(db, user["email"])
     # A bell's text reaches every recipient alike (manager, HR contact, Global
     # Admins), so a confidential request never names its type there.
@@ -11918,6 +12199,7 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
                          note=(body.note or "").strip()[:400], created_at=now,
                          requested_by=user["email"], confidential=1 if body.confidential else 0)
     db.add(row)
+    workflows.emit(db, "time_off.requested", subject=row, actor=user["email"], extra={"onBehalf": True})
     filer = _display_name(db, user["email"])
     if target != user["email"]:
         # The employee's own copy may name the type - it is theirs.
@@ -12045,6 +12327,9 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     row = db.query(TimeOffRequest).filter(TimeOffRequest.id == req_id).with_for_update().first()
     if not row:
         raise HTTPException(404, "Request not found")
+    if _awaiting_hr(row):
+        # The manager approved; HR decides now - whatever the caller's team.
+        return _decide_hr_level(db, user, row, body)
     scope = _visible_emails(db, user)
     if scope is not None and row.employee_email not in scope:
         raise HTTPException(403, "You can only decide your own team's requests.")
@@ -12075,12 +12360,22 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
             out["shiftsRemoved"] = len(conflicts)
             return out
         raise HTTPException(409, f"Already {row.status}")
+    # Second Approval By HR (Oct 27 2026): the company wants HR to approve
+    # too - the manager's approval moves it to HR, unless the manager IS HR
+    # for this person (their one approval is HR's).
+    import hr_access
+    if (body.status == "approved" and _second_hr_on(db, row.employee_email)
+            and not hr_access.is_hr_for(db, user["email"], row.employee_email)):
+        return _approve_first_level(db, user, row, body, priv)
     row.status = body.status
     row.approver = user["email"]
     row.decided_at = _now_iso()
     _close_approver_notices(db, [row.id], row.employee_email)
     # A stand-in's decision says who it was decided for (approver delegation).
     row.decide_note = _decided_note(db, user, row.employee_email, (body.note or "").strip()[:400])
+    workflows.emit(db, "time_off.decided", subject=row, actor=user["email"],
+                   changes={"status": ("pending", body.status)},
+                   extra={"decision": body.status, "note": row.decide_note, "level": "manager"})
     _audit_delegated(db, user, row.employee_email, f"{body.status.title()} time off request", "time_off_requests", row.id)
     # The shifts this leave lands on, so the approver sees them - and, when
     # asked, marks them for removal in the same transaction (published, so
@@ -12121,8 +12416,16 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
     was_approved = row.status == "approved"
     row.status = "cancelled"
     row.decided_at = _now_iso()
+    workflows.emit(db, "time_off.cancelled", subject=row, actor=user["email"],
+                   changes={"status": ("approved" if was_approved else "pending", "cancelled")},
+                   extra={"wasApproved": was_approved})
     if not was_approved:
         _close_approver_notices(db, [row.id], row.employee_email)   # nothing left to decide
+        # Their own "Awaiting HR Approval" notice has nothing left to wait for.
+        for n in (db.query(NexusNotification)
+                  .filter(NexusNotification.recipient == (row.employee_email or "").strip().lower(),
+                          NexusNotification.ref_id == row.id, NexusNotification.title == _HR_WAIT_TITLE).all()):
+            n.actioned = True
     if was_approved:
         _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                            title="Time Off Canceled",
@@ -12133,6 +12436,285 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
         _tell_reports_manager_off(db, row, "Your Manager's Time Off Is Canceled", "is no longer off")
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
+
+
+# ── Second Approval By HR (Neil, Oct 27 2026) ───────────────────────────────
+# A per-company switch (Settings > Time & Pay > Time-Off Approval, layered
+# through scoped_settings, off by default). When it is on, a manager's
+# approval is the first level: the request stays 'pending' with
+# approval_stage 'hr' - so balances, the schedule, payroll and every other
+# reader still treat it as not approved - until HR (timesheet_review.is_hr:
+# the company's HR contact, an administrator or a Full HR grant) approves or
+# rejects it. Nobody decides their own request, and the manager who approved
+# the first level does not approve the second. A manager who is HR for the
+# person approves both levels at once. The employee's bell is ONE notice for
+# the workflow, updated in place ("Awaiting HR Approval" -> "Approved" /
+# "Rejected"). A request already waiting for HR keeps waiting if the switch
+# is turned off.
+_TIMEOFF_APPROVAL_KEY = "timeoff.approval"
+_TIMEOFF_APPROVAL_DEFAULT = {"secondHr": False}
+_HR_WAIT_TITLE = "Time Off Awaiting HR Approval"
+
+
+def _timeoff_approval_cfg(db: Session, company_id: str = "") -> dict:
+    cfg = scoped_settings.get(db, _TIMEOFF_APPROVAL_KEY, _TIMEOFF_APPROVAL_DEFAULT, company_id)
+    cfg["secondHr"] = bool(cfg.get("secondHr"))
+    return cfg
+
+
+def _second_hr_on(db: Session, email: str) -> bool:
+    """The employee's company's switch (their company's override, else the
+    default for every company)."""
+    return _timeoff_approval_cfg(db, _company_of(db, (email or "").strip().lower()))["secondHr"]
+
+
+@router.get("/timeoff/approval-settings")
+def get_timeoff_approval(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    cid = _pay_company(db, company)
+    return _pay_rule_payload(db, _TIMEOFF_APPROVAL_KEY, _timeoff_approval_cfg(db, cid), cid)
+
+
+class TimeOffApprovalIn(BaseModel):
+    secondHr: bool = False
+    reset: bool = False
+
+
+@router.put("/timeoff/approval-settings")
+def set_timeoff_approval(body: TimeOffApprovalIn, company: str = "", user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """Administrators and Full HR - who approves leave is HR's policy."""
+    from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, level_for
+    me = (user.get("email") or "").strip().lower()
+    if not (level_for(me, db) >= _LEVELS["administrator"] or _module_level(me, "hr", db) >= _MODULE_LEVEL_RANK["full"]):
+        raise HTTPException(403, "Only an administrator or HR with Full access can change this.")
+    cid = _pay_company(db, company)
+    _save_pay_rule(db, _TIMEOFF_APPROVAL_KEY, {"secondHr": bool(body.secondHr)}, cid, body.reset, user)
+    return _pay_rule_payload(db, _TIMEOFF_APPROVAL_KEY, _timeoff_approval_cfg(db, cid), cid)
+
+
+def _hr_level_recipients(db: Session, employee_email: str, actor: str) -> list:
+    """Who hears that a request waits for HR: the company's HR contact; with
+    none on file, the Global Admins. Never the employee or the actor."""
+    import timesheet_review
+    em, actor = (employee_email or "").strip().lower(), (actor or "").strip().lower()
+    hr = timesheet_review.hr_of(db, em)
+    out = [hr] if hr and hr not in (em, actor) else []
+    if not out:
+        out = sorted({(r.email or "").strip().lower() for r in db.query(NexusRole)
+                      .filter(NexusRole.role == "owner").all()} - {"", em, actor})
+    return out
+
+
+def _notify_in_place(db: Session, recipient: str, ref_id: str, match_title: str, title: str, body: str,
+                     action: Optional[dict] = None) -> None:
+    """One bell per workflow: update the recipient's notice for this request
+    (found by its title) in place and mark it unread, else write it."""
+    em = (recipient or "").strip().lower()
+    if not em:
+        return
+    n = (db.query(NexusNotification)
+         .filter(NexusNotification.recipient == em, NexusNotification.ref_id == ref_id,
+                 NexusNotification.type == "custom_alert", NexusNotification.title == match_title)
+         .order_by(NexusNotification.created_at.desc()).first())
+    if n is None:
+        _hr_notify(db, em, title, body, ref_id=ref_id, action=action)
+        return
+    n.title, n.body, n.read_by, n.actioned = title, body, "", False
+    n.created_at = datetime.now(timezone.utc).isoformat()
+    if action:
+        n.action = json.dumps(action)
+
+
+def _when_of(row) -> str:
+    return (f"{_us_span(row.start_date, row.end_date)}"
+            f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}")
+
+
+def _approve_first_level(db: Session, user: dict, row, body, priv) -> dict:
+    """The manager's approval when the company wants HR's too: the request
+    moves to HR and stays pending."""
+    me = (user.get("email") or "").strip().lower()
+    row.approval_stage = "hr"
+    row.first_approver = me
+    row.first_decided_at = _now_iso()
+    row.first_note = _decided_note(db, user, row.employee_email, (body.note or "").strip()[:400])
+    _close_approver_notices(db, [row.id], row.employee_email)
+    _audit_delegated(db, user, row.employee_email, "Approved time off request (first level)", "time_off_requests", row.id)
+    who, by = _display_name(db, row.employee_email), _display_name(db, me)
+    for rcp in _hr_level_recipients(db, row.employee_email, me):
+        _hr_notify(db, rcp, "Time-Off Request Awaiting HR Approval",
+                   f"{by} approved {who}'s {_bell_kind(row)} request {_when_of(row)}. It needs HR approval."
+                   f"{_bell_reason(row)}",
+                   ref_id=row.id, requested_by=me, action={"view": "hr", "sub": "hr-time-off"})
+    _notify_in_place(db, row.employee_email, row.id, _HR_WAIT_TITLE, _HR_WAIT_TITLE,
+                     f"Your manager approved your {row.type} request {_when_of(row)}. It now waits for HR "
+                     "approval - you'll hear once HR decides.", action={"view": "timeclock", "sub": ""})
+    conflicts = _timeoff_shift_conflicts(db, row)
+    presets = {s.id: s for s in db.query(Shift).all()} if conflicts else {}
+    team_tz = _team_tz(db) if conflicts else ""
+    db.commit()
+    out = _ser_timeoff(row, priv=_TimeoffPrivacy(db, me))
+    out["conflicts"] = [_sched_dict(r, presets, effective=True, team_tz=team_tz) for r in conflicts]
+    out["shiftsRemoved"] = 0
+    return out
+
+
+def _decide_hr_level(db: Session, user: dict, row, body) -> dict:
+    """HR's decision on a request the manager approved - the final word."""
+    if body.status not in ("approved", "rejected"):
+        raise HTTPException(400, "status must be approved or rejected")
+    me = (user.get("email") or "").strip().lower()
+    priv = _TimeoffPrivacy(db, me)
+    if (row.employee_email or "").strip().lower() == me:
+        raise HTTPException(403, "You can't approve or reject your own time off - your manager or HR decides it.")
+    if not priv.can_decide(row):
+        if me == (row.first_approver or "").strip().lower():
+            raise HTTPException(403, "You approved the first level - HR approves the second.")
+        raise HTTPException(403, "This request waits for HR approval - HR decides it.")
+    row.status = body.status
+    row.approver = me
+    row.decided_at = _now_iso()
+    row.decide_note = (body.note or "").strip()[:400]
+    workflows.emit(db, "time_off.decided", subject=row, actor=me, changes={"status": ("pending", body.status)},
+                   extra={"decision": body.status, "note": row.decide_note, "level": "hr"})
+    _close_approver_notices(db, [row.id], row.employee_email)
+    conflicts = _timeoff_shift_conflicts(db, row)
+    if body.status == "approved" and body.remove_shifts:
+        for r in conflicts:
+            r.pending_delete = 1
+    presets = {s.id: s for s in db.query(Shift).all()} if conflicts else {}
+    team_tz = _team_tz(db) if conflicts else ""
+    _notify_in_place(db, row.employee_email, row.id, _HR_WAIT_TITLE, f"Time Off {body.status.title()}",
+                     f"Your {row.type} request {_when_of(row)} was {body.status} by HR."
+                     + (f" Note: {row.decide_note}" if row.decide_note else ""),
+                     action={"view": "timeclock", "sub": ""})
+    first = (row.first_approver or "").strip().lower()
+    if first and first != me:
+        _hr_notify(db, first, f"Time Off {body.status.title()} by HR",
+                   f"HR {body.status} {_display_name(db, row.employee_email)}'s {_bell_kind(row)} request "
+                   f"{_when_of(row)} that you approved.",
+                   ref_id=row.id, requested_by=me, action={"view": "hr", "sub": "hr-time-off"})
+    if body.status == "approved":
+        _tell_reports_manager_off(db, row, "Your Manager Is Off", "is off")
+    db.commit()
+    out = _ser_timeoff(row, priv=priv)
+    out["conflicts"] = [_sched_dict(r, presets, effective=True, team_tz=team_tz) for r in conflicts]
+    out["shiftsRemoved"] = len(conflicts) if body.status == "approved" and body.remove_shifts else 0
+    return out
+
+
+@router.post("/timeoff/{req_id}/hr-decision")
+def hr_decide_timeoff(req_id: str, body: TimeOffDecision, user: dict = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    """HR's door to the second level - an HR contact need not hold the team
+    approval rights the manager's PATCH asks for."""
+    row = db.query(TimeOffRequest).filter(TimeOffRequest.id == req_id).with_for_update().first()
+    if not row:
+        raise HTTPException(404, "Request not found")
+    if not _awaiting_hr(row):
+        raise HTTPException(409, "This request is not waiting for HR approval.")
+    return _decide_hr_level(db, user, row, body)
+
+
+@router.get("/timeoff/awaiting-hr")
+def timeoff_awaiting_hr(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The requests waiting for THIS caller as HR (second level)."""
+    me = (user.get("email") or "").strip().lower()
+    rows = (db.query(TimeOffRequest)
+            .filter(TimeOffRequest.status == "pending", TimeOffRequest.approval_stage == "hr")
+            .order_by(TimeOffRequest.start_date.asc()).limit(_TIMEOFF_LIST_LIMIT).all())
+    priv = _TimeoffPrivacy(db, me)
+    mine = [r for r in rows if priv.can_decide(r)]
+    if not mine:
+        return []
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    return [_ser_timeoff(r, names, priv) for r in mine]
+
+
+# ── Team Leave Calendar (Neil, Oct 27 2026) ─────────────────────────────────
+# One month of who is out, in the Time Off area (People > Time > Time Off and
+# Workday > Time Off). Whose leave a viewer sees, and how much of it:
+#   * in full (approved AND pending, with the kind of leave): the people the
+#     viewer manages (_visible_emails - a manager's own team per the Oct 6
+#     rule, the whole company for an administrator or an unrestricted People
+#     grant, a scoped grant's companies), a company HR contact's whole
+#     company, and their own;
+#   * approved only, as "Out": the rest of the viewer's own team (their
+#     manager, the people who share that manager, their direct reports) -
+#     what the Contact Directory already shows anyone ("Off Today", never
+#     the type).
+# A confidential request reads "Out" to anyone who may not see its reason
+# (_TimeoffPrivacy.can_see). Company holidays of the people shown are marked.
+
+@router.get("/timeoff/calendar")
+def timeoff_calendar(month: str = "", company: str = "", user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    from models import HrEntity
+    me = (user.get("email") or "").strip().lower()
+    try:
+        y, m = (int(x) for x in (month or date.today().strftime("%Y-%m"))[:7].split("-"))
+        first = date(y, m, 1)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "month is YYYY-MM")
+    last = (first.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    lo, hi = first.isoformat(), last.isoformat()
+    emps = {(e.work_email or "").strip().lower(): e for e in db.query(NexusEmployee)
+            .filter(NexusEmployee.work_email != "", NexusEmployee.status.in_(["active", "onboarding"]),
+                    func.coalesce(NexusEmployee.identity_type, "internal") == "internal").all()}
+    vis = _visible_emails(db, user)
+    full = set(emps) if vis is None else {(e or "").lower() for e in vis}
+    hr_cos = {e.id for e in db.query(HrEntity).filter(func.lower(HrEntity.hr_contact_email) == me).all()}
+    if hr_cos:
+        full |= {em for em, e in emps.items() if (e.company or "") in hr_cos}
+    full.add(me)
+    mine = emps.get(me)
+    mgr = ((mine.manager_email if mine else "") or "").strip().lower()
+    team = {me}
+    if mgr:
+        team.add(mgr)
+        team |= {em for em, e in emps.items() if (e.manager_email or "").strip().lower() == mgr}
+    team |= {em for em, e in emps.items() if (e.manager_email or "").strip().lower() == me}
+    shown = {em for em in (full | team) if em in emps}
+    cid = (company or "").strip()
+    if cid:
+        shown = {em for em in shown if (emps[em].company or "") == cid}
+    names = {em: (f"{e.first_name or ''} {e.last_name or ''}".strip() or em) for em, e in emps.items()}
+    rows = (db.query(TimeOffRequest)
+            .filter(TimeOffRequest.status.in_(["approved", "pending"]),
+                    TimeOffRequest.start_date <= hi, TimeOffRequest.end_date >= lo,
+                    func.lower(TimeOffRequest.employee_email).in_(sorted(shown)))
+            .order_by(TimeOffRequest.start_date.asc()).all()) if shown else []
+    priv = _TimeoffPrivacy(db, me)
+    entries = []
+    for r in rows:
+        em = (r.employee_email or "").strip().lower()
+        detail = em in full
+        if not detail and r.status != "approved":
+            continue
+        see = detail and priv.can_see(r)
+        kind = (r.type or "time off").replace("_", " ").title()
+        entries.append({"id": r.id, "email": em, "name": names.get(em, em),
+                        "startDate": r.start_date, "endDate": r.end_date or r.start_date,
+                        "startTime": getattr(r, "start_time", "") or "", "endTime": getattr(r, "end_time", "") or "",
+                        "status": r.status if detail else "approved",
+                        "awaitingHr": detail and _awaiting_hr(r),
+                        "label": kind if see else "Out", "own": em == me})
+    holidays = {}
+    for em, days in _company_holidays_for_many(db, {em: emps[em] for em in shown}, lo, hi).items():
+        for d, h in days.items():
+            holidays.setdefault((d, h.get("name") or "Holiday"), h.get("type") or "mandatory")
+    can_pick = vis is None or len(hr_cos) > 1
+    companies = []
+    if can_pick:
+        allowed = None if vis is None else hr_cos
+        companies = [{"id": e.id, "name": e.name or ""} for e in db.query(HrEntity).order_by(HrEntity.name).all()
+                     if allowed is None or e.id in allowed]
+    return {"month": first.strftime("%Y-%m"), "start": lo, "end": hi,
+            "scope": "all" if vis is None else ("company" if hr_cos else ("team" if len(full) > 1 else "own")),
+            "people": len(shown), "company": cid, "companies": companies,
+            "entries": entries,
+            "holidays": [{"date": d, "name": n, "type": t} for (d, n), t in sorted(holidays.items())]}
 
 
 # ── Add Time (Neil, Oct 14 2026) ─────────────────────────────────────────────
@@ -12451,6 +13033,11 @@ def add_time(body: AddTimeIn, user: dict = Depends(require_team_write), db: Sess
         body=f"{_display_name(db, user['email'])} added {hrs} over {n} day{'' if n == 1 else 's'} ({dates}) "
              f"to {_display_name(db, em)}'s time sheet: {reason[:200]}",
         ref_id=batch_id)
+    # Workflows (Oct 28 2026): one event per batch, the person as subject.
+    from workflows.packs._people import employee_row as _wf_person
+    workflows.emit(db, "time.add_time_batch", subject=_wf_person(db, em), actor=user["email"],
+                   extra={"batchId": batch_id, "source": "manager", "dates": [r["date"] for r in doing],
+                          "minutes": total, "replaced": 0, "reason": reason[:300]})
     db.commit()
     return {"batchId": batch_id, "days": public, "added": n, "totalMin": total}
 
@@ -12464,6 +13051,10 @@ def add_time_undo(batch_id: str, user: dict = Depends(require_team_write), db: S
         raise HTTPException(404, "Nothing left to undo for this batch.")
     em = _add_time_scope(db, user, rows[0].employee_email)
     _refuse_own_time(user, em, _OWN_EDIT)
+    if batch_id.startswith(_DUP_PREFIX):
+        # HR's Add Time From Record (Oct 27 2026) may have replaced punches -
+        # only its own undo brings those back.
+        raise HTTPException(403, "This time was added by HR from a record - undo it from there.")
     for ds in sorted({r.local_date for r in rows}):
         _guard_not_finalized(db, em, ds)
         _guard_review(db, em, ds, user["email"])
@@ -12482,6 +13073,794 @@ def add_time_undo(batch_id: str, user: dict = Depends(require_team_write), db: S
                             ref_id=batch_id)
     db.commit()
     return {"voided": len(rows)}
+
+
+# ── Add Time From Record (Neil, Oct 27 2026; was Duplicate Day) ─────────────
+# "We need an option for HR to rapidly add time to a time sheet that wasn't
+# done through Nexus. Should be able to replicate a specific day across a
+# period of days. HR/Global Admin only." A paper time sheet (or any record
+# kept outside Nexus) keyed in fast: HR fills in one day - or picks one
+# already on the card - as the template, lays it over any range of up to 62
+# days (All Working Days: the person's shift days - shift_expect, the one
+# rule - else Monday to Friday, never a holiday or approved full-day time
+# off; All Days; or picked days), and then reviews one row per day, each
+# editable on its own (times, breaks, Sick Day / Vacation, Off). The rows
+# travel as `rows`, every day explicit; the older template request (one
+# template for every target, `mode` / `targets`) still works.
+#
+# HR only: hr_access.is_hr_for, the ONE scoped HR rule (the company's HR
+# contact; an administrator / owner / Global Admin or a Full People grant
+# whose scope covers the person; never the manager tier, never on their own
+# card) - enforced on every route here; a plain manager keeps Add Time.
+# Built on Add Time: the same day state, the same finalized / review lock
+# (guard_edit - HR's override line, so a card out for signature comes back
+# for the employee to sign the updated version), the same overlap and punch
+# order checks, a dry run that IS the preview, a person lock on the write.
+# A day that already has punches is skipped unless its row says Replace;
+# the punches it replaces are voided (kept for audit) and carry the batch
+# (replaced_by_batch), so the batch's one Undo restores them. Every punch
+# written carries entry_source 'hr_record' and the batch id; the batch row
+# (time_entry_batches) holds the reason, the range and the source document
+# (the scanned paper sheet - private hr-docs bucket, HR opens it through a
+# five-minute signed link). The employee sees "Entered By HR From Record"
+# and the reason on the card and in the Time Sheet PDF, never the document.
+
+_DUP_PREFIX = "dup-"
+_RECORD_MAX_DAYS = 62                  # a range of two months or less
+_RECORD_SOURCE = "hr_record"
+_RECORD_DOC_DIR = "time-records"       # hr-docs/<dir>/<employee>/<uuid>-<name>
+_RECORD_DOC_MAX = 15 * 1024 * 1024
+
+
+def _record_doc_type(data: bytes) -> str:
+    """The stored type of a source document, from its own first bytes - never
+    the client's header: a PDF or a raster picture only (an SVG or HTML file
+    could run script when HR opens it)."""
+    head = data[:16]
+    if head.startswith(b"%PDF-"):
+        return "application/pdf"
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    if head[4:8] == b"ftyp" and head[8:12] in (b"heic", b"heix", b"hevc", b"heim", b"heis", b"mif1", b"msf1"):
+        return "image/heic"
+    return ""
+
+
+def _record_doc_dir(em: str) -> str:
+    """The person's staging folder (an email made path-safe)."""
+    return f"{_RECORD_DOC_DIR}/{re.sub(r'[^a-z0-9@._-]', '_', (em or '').lower())}/"
+
+
+class DupBreak(BaseModel):
+    start_at: str = ""             # UTC ISO
+    end_at: str = ""               # UTC ISO
+
+
+class RecordRow(BaseModel):
+    """One day of the review grid, as HR left it."""
+    date: str                      # the employee's local date, YYYY-MM-DD
+    kind: str = "work"             # work (a shift; Sick Day / Vacation by its category) | off
+    in_at: str = ""                # UTC ISO
+    out_at: str = ""               # UTC ISO
+    breaks: List[DupBreak] = []
+    category: Optional[str] = ""   # job / leave type on the clock-in ("Sick Day", "Vacation"...)
+    replace: bool = False          # the day's punches give way to this row
+    tz_offset_min: Optional[int] = None   # this day's own offset (DST can differ across a range)
+
+
+class DuplicateDayIn(BaseModel):
+    employee_email: str
+    reason: str
+    source_date: str = ""          # copy this day's punches as they are, or...
+    fill_date: str = ""            # ...the local date the typed times below are on
+    in_at: str = ""                # UTC ISO
+    out_at: str = ""               # UTC ISO
+    breaks: List[DupBreak] = []
+    category: Optional[str] = ""   # job / leave type on the clock-in ("Sick Day", "Vacation"...)
+    mode: str = "days"             # days (the picked `targets`) | working | all (of start..end)
+    targets: List[str] = []
+    start: str = ""
+    end: str = ""
+    replace: bool = False          # overwrite days that already have punches
+    tz_offset_min: Optional[int] = 0          # the zone the times were typed in (JS getTimezoneOffset)
+    tz_offsets: Optional[dict] = None         # {date: offset} for each target (DST can differ)
+    dry_run: bool = False
+    # Add Time From Record: every day explicit (the review grid) - then no
+    # template and no mode; start / end are the record's range.
+    rows: List[RecordRow] = []
+    source_doc_path: str = ""      # from POST /duplicate-day/source-doc
+    source_doc_name: str = ""
+
+
+def _require_hr_for(db: Session, user: dict, em: str) -> None:
+    import hr_access   # the ONE scoped HR rule - inside the caller's HR scope
+    if not hr_access.is_hr_for(db, user.get("email") or "", em):
+        raise HTTPException(403, "Add Time From Record is for HR - the company's HR contact, an administrator "
+                                 "or a Full HR grant. Use Add Time instead.")
+
+
+def _record_who(db: Session, user: dict, email: str) -> str:
+    """The person, checked the way every route here checks them."""
+    em = _add_time_scope(db, user, email)
+    _refuse_own_time(user, em, _OWN_EDIT)
+    _require_hr_for(db, user, em)
+    return em
+
+
+def _dup_groups(punches: list) -> list:
+    """The punches as shifts, in time order: a clock-in opens one, its breaks
+    and the clock-out that closes it join it; a punch with no open clock-in
+    is a group of its own. A group belongs to its FIRST punch's day, so an
+    overnight shift's clock-out stays with the day it started."""
+    groups, cur = [], None
+    for p in sorted(punches, key=lambda x: (x.at or "", x.created_at or "")):
+        if p.kind == "in":
+            cur = [p]
+            groups.append(cur)
+        elif cur is not None:
+            cur.append(p)
+            if p.kind == "out":
+                cur = None
+        else:
+            groups.append([p])
+    return groups
+
+
+def _dup_well_formed(kinds: list) -> bool:
+    """in, (break_start, break_end)*, out."""
+    if len(kinds) < 2 or kinds[0] != "in" or kinds[-1] != "out":
+        return False
+    mid = kinds[1:-1]
+    return len(mid) % 2 == 0 and all(mid[i] == "break_start" and mid[i + 1] == "break_end"
+                                     for i in range(0, len(mid), 2))
+
+
+def _dup_minutes(at: str, tz: int, day: str) -> int:
+    """Minutes from `day`'s local midnight to the UTC instant `at`."""
+    t = _parse_iso(at)
+    return int(((t - timedelta(minutes=int(tz or 0))).replace(tzinfo=None)
+                - datetime.fromisoformat(day)).total_seconds() // 60)
+
+
+def _dup_template(db: Session, em: str, body: DuplicateDayIn) -> tuple:
+    """(source day, [shift]) where a shift is [{kind, min, category}] - the
+    day to copy as wall-clock minutes from its local midnight."""
+    src = (body.source_date or "")[:10]
+    if src:
+        try:
+            d0 = date.fromisoformat(src)
+        except ValueError:
+            raise HTTPException(400, f"Bad date: {body.source_date!r}")
+        around = _live_punches(db, em, (d0 - timedelta(days=1)).isoformat(), (d0 + timedelta(days=1)).isoformat())
+        groups = [g for g in _dup_groups(around) if g[0].local_date == src]
+        if not groups:
+            raise HTTPException(400, f"{_us_day(src)} has no punches to copy.")
+        if any(not _dup_well_formed([p.kind for p in g]) for g in groups):
+            raise HTTPException(400, f"{_us_day(src)} has an open shift, a break with no end or a stray punch - "
+                                     "fix that day first, then copy it.")
+        shifts = [[{"kind": p.kind, "min": _dup_minutes(p.at, p.tz_offset_min or 0, src),
+                    "category": (p.category or "") if p.kind == "in" else ""} for p in g] for g in groups]
+        return src, shifts
+    fill = (body.fill_date or "")[:10]
+    try:
+        date.fromisoformat(fill)
+    except ValueError:
+        raise HTTPException(400, "Pick the day to copy, or fill in the day's times.")
+    tz = int(body.tz_offset_min or 0)
+    t_in, t_out = _parse_iso(body.in_at), _parse_iso(body.out_at)
+    if not t_in or not t_out:
+        raise HTTPException(400, "Both a clock-in and a clock-out time are needed.")
+    if t_out <= t_in:
+        raise HTTPException(400, "The clock-out must be after the clock-in.")
+    if (t_out - t_in) > timedelta(hours=16):
+        raise HTTPException(400, "A shift longer than 16 hours cannot be copied.")
+    cat = (body.category or "").strip()[:80]
+    shift = [{"kind": "in", "min": _dup_minutes(body.in_at, tz, fill), "category": cat}]
+    last = t_in
+    for b in sorted(body.breaks or [], key=lambda x: x.start_at or ""):
+        b0, b1 = _parse_iso(b.start_at), _parse_iso(b.end_at)
+        if not b0 or not b1 or b1 <= b0 or b0 <= last or b1 >= t_out:
+            raise HTTPException(400, "Each break has to sit inside the shift, after the one before it.")
+        shift += [{"kind": "break_start", "min": _dup_minutes(b.start_at, tz, fill), "category": ""},
+                  {"kind": "break_end", "min": _dup_minutes(b.end_at, tz, fill), "category": ""}]
+        last = b1
+    shift.append({"kind": "out", "min": _dup_minutes(body.out_at, tz, fill), "category": ""})
+    return fill, [shift]
+
+
+def _dup_hhmm(m: int) -> str:
+    """Template minutes as a wall-clock 'HH:MM' (+1 day past midnight)."""
+    return f"{(m // 60) % 24:02d}:{m % 60:02d}" + (" +1" if m >= 1440 else "")
+
+
+def _dup_template_public(shifts: list) -> list:
+    out = []
+    for s in shifts:
+        brks = [[_dup_hhmm(s[i]["min"]), _dup_hhmm(s[i + 1]["min"])] for i in range(1, len(s) - 1, 2)]
+        out.append({"in": _dup_hhmm(s[0]["min"]), "out": _dup_hhmm(s[-1]["min"]), "breaks": brks,
+                    "category": s[0].get("category") or "",
+                    "minutes": s[-1]["min"] - s[0]["min"] - sum(s[i + 1]["min"] - s[i]["min"] for i in range(1, len(s) - 1, 2))})
+    return out
+
+
+def _dup_working(db: Session, em: str, d0: date, d1: date) -> tuple:
+    """(the working days of d0..d1, {date: why it is not one}) - the person's
+    shift days (shift_expect, the one rule) when they have a schedule, else
+    Monday to Friday; never a company holiday or approved full-day time off."""
+    import shift_expect
+    holidays = _company_holidays_for_employee(db, em, d0.isoformat(), d1.isoformat())
+    offs = (db.query(TimeOffRequest)
+            .filter(TimeOffRequest.employee_email == em, TimeOffRequest.status == "approved",
+                    TimeOffRequest.start_date <= d1.isoformat(), TimeOffRequest.end_date >= d0.isoformat()).all())
+    # Someone with no shift on the schedule and no usual hours works Monday
+    # to Friday (the standard week the Workforce Scorecard falls back on).
+    has_schedule = bool(db.query(ShiftAssignment.id).filter(ShiftAssignment.employee_email == em,
+                                                            ShiftAssignment.shift_id != "").first()) \
+        or bool(db.query(ScheduledShift.id).filter(ScheduledShift.employee_email == em, ScheduledShift.published == 1,
+                                                   ScheduledShift.work_date >= d0.isoformat(),
+                                                   ScheduledShift.work_date <= d1.isoformat()).first())
+    works, left_out = set(), {}
+    for i in range((d1 - d0).days + 1):
+        dd = d0 + timedelta(days=i)
+        ds = dd.isoformat()
+        if ds in holidays:
+            left_out[ds] = f"Holiday - {holidays[ds].get('name') or 'company holiday'}."
+            continue
+        off = next((o for o in offs if (o.start_date or "") <= ds <= (o.end_date or "")
+                    and not (getattr(o, "start_time", "") or getattr(o, "end_time", ""))), None)
+        if off:
+            left_out[ds] = f"Approved time off ({(off.type or 'other').replace('_', ' ').title()})."
+            continue
+        if (shift_expect.expected_start(db, em, dd) is not None) if has_schedule else dd.weekday() < 5:
+            works.add(ds)
+    return works, left_out
+
+
+def _record_range(start: str, end: str) -> tuple:
+    try:
+        d0, d1 = date.fromisoformat((start or "")[:10]), date.fromisoformat((end or "")[:10])
+    except (TypeError, ValueError):
+        raise HTTPException(400, "start and end must be YYYY-MM-DD")
+    if d1 < d0:
+        raise HTTPException(400, "The range ends before it starts.")
+    if (d1 - d0).days >= _RECORD_MAX_DAYS:
+        raise HTTPException(400, f"Pick a range of {_RECORD_MAX_DAYS} days or less.")
+    return d0, d1
+
+
+def _dup_targets(db: Session, em: str, body: DuplicateDayIn, source: str) -> tuple:
+    """([target date], {date: why it is left out}) for the request's mode."""
+    mode = (body.mode or "days").strip().lower()
+    if mode == "days":
+        out = []
+        for t in body.targets or []:
+            ds = (t or "")[:10]
+            try:
+                date.fromisoformat(ds)
+            except ValueError:
+                raise HTTPException(400, f"Bad date: {t!r}")
+            if ds not in out:
+                out.append(ds)
+        if out and (date.fromisoformat(max(out)) - date.fromisoformat(min(out))).days >= _RECORD_MAX_DAYS:
+            raise HTTPException(400, f"Pick days within {_RECORD_MAX_DAYS} days of each other.")
+        return sorted(out), {}
+    if mode not in ("working", "all"):
+        raise HTTPException(400, "Copy onto picked days, All Working Days or All Days.")
+    d0, d1 = _record_range(body.start, body.end)
+    days = [(d0 + timedelta(days=i)).isoformat() for i in range((d1 - d0).days + 1)]
+    days = [ds for ds in days if ds != source]
+    if mode == "all":
+        return days, {}
+    works, left_out = _dup_working(db, em, d0, d1)
+    return [ds for ds in days if ds in works], {ds: why for ds, why in left_out.items() if ds != source}
+
+
+def _record_india_days(db: Session, em: str, dates: list) -> set:
+    """The days the India Contractor policy credits (Full / Half / None from
+    hours worked): its scope for the day's month (india_contractor_pay.scope -
+    a fixed-pay contractor working in India, the company's switch on, the
+    month on or after its start date) and a scheduled day (Monday to Friday,
+    not a full company holiday)."""
+    if not dates:
+        return set()
+    rr = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+    if rr is None or (getattr(rr, "pay_type", None) or "hourly") != "fixed":
+        return set()
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == em).first()
+    months = {ds[:7] for ds in dates}
+    ok = {m for m in months if india_contractor_pay.scope(db, em, rr, f"{m}-01", emp=emp)}
+    if not ok:
+        return set()
+    holidays = _company_holidays_for_employee(db, em, min(dates), max(dates))
+
+    def scheduled(ds: str) -> bool:
+        h = holidays.get(ds)
+        return date.fromisoformat(ds).weekday() < 5 and (h is None or h.get("type") == "half_day")
+    return {ds for ds in dates if ds[:7] in ok and scheduled(ds)}
+
+
+def _record_credit(worked_min: int) -> str:
+    return {2: "full", 1: "half", 0: "none"}[india_contractor_pay.work_halves(worked_min)]
+
+
+def _record_row_shift(row: RecordRow, ds: str, tz: int) -> tuple:
+    """([(kind, at, category)], why the row cannot be written) for one grid row."""
+    t_in, t_out = _parse_iso(row.in_at), _parse_iso(row.out_at)
+    if not t_in or not t_out:
+        return [], "Both a clock-in and a clock-out time are needed."
+    if t_out <= t_in:
+        return [], "The clock-out must be after the clock-in."
+    if (t_out - t_in) > timedelta(hours=16):
+        return [], "A shift longer than 16 hours cannot be added in one go."
+    fmt = "%Y-%m-%dT%H:%M:%S"
+    if _local_date(t_in.strftime(fmt), tz) != ds:
+        return [], "The clock-in is not on this date in the employee's time zone."
+    cat = (row.category or "").strip()[:80]
+    if row.breaks and _leave_class(cat):
+        return [], f"A {cat} entry has no breaks - take them off, or make it Work."
+    shift, last = [("in", t_in.strftime(fmt), cat)], t_in
+    for b in sorted(row.breaks or [], key=lambda x: x.start_at or ""):
+        b0, b1 = _parse_iso(b.start_at), _parse_iso(b.end_at)
+        if not b0 or not b1 or b1 <= b0 or b0 <= last or b1 >= t_out:
+            return [], "Each break has to sit inside the shift, after the one before it."
+        shift += [("break_start", b0.strftime(fmt), ""), ("break_end", b1.strftime(fmt), "")]
+        last = b1
+    shift.append(("out", t_out.strftime(fmt), ""))
+    return shift, ""
+
+
+def _record_shift_minutes(shift: list) -> int:
+    """Paid minutes of one planned shift: in to out, less its breaks."""
+    ts = [_parse_iso(at) for _k, at, _c in shift]
+    total = (ts[-1] - ts[0]).total_seconds()
+    total -= sum((ts[i + 1] - ts[i]).total_seconds() for i in range(1, len(ts) - 1, 2))
+    return int(total // 60)
+
+
+def _sim_punch(em: str, pid: str, kind: str, at: str, local_date: str, tz: int, category: str) -> TimePunch:
+    """A planned punch for reading the day as the card will (never stored -
+    not added to any session), like _projected_out."""
+    return TimePunch(id=pid, employee_email=em, kind=kind, at=at, original_at="", local_date=local_date,
+                     tz_offset_min=tz, lat="", lng="", accuracy_m=0, geo_status="no_location", work_site_id="",
+                     work_site_name="", distance_m=0, source="manual", note="", adjusted_by="",
+                     adjusted_at="", adjust_note="", voided=0, category=category if kind == "in" else "",
+                     created_by="", created_at="", pending_at="", edit_reason="", edited_by="", edited_at="",
+                     edit_status="", edit_reviewed_by="", edit_reviewed_at="", site_set_by="", batch_id="",
+                     entry_source=_RECORD_SOURCE)
+
+
+def _dup_judge(db: Session, em: str, items: list, actor: str, *, replace_hint: str) -> list:
+    """Judge every day: what will be written (and replaced), or why it is
+    skipped. An item: {date, tz, replace, off, shifts: [[(kind, at, category)]],
+    why}. `why` = the row cannot be written whatever the day holds (checked
+    after the day's own state, so a locked day says it is locked)."""
+    today = _employee_today(db, em)
+    now = datetime.now(timezone.utc)
+    live_day = _clocked_in_now(db, em)
+    pending = {r.local_date for r in db.query(PunchRequest.local_date)
+               .filter(PunchRequest.employee_email == em, PunchRequest.status == "pending").all()}
+    rmin, bcfg = _round_min(db, em), _break_cfg_for(db, em)
+    india = _record_india_days(db, em, [it["date"] for it in items])
+    planned = []   # (start, end) of shifts already planned in this batch
+    replaced_ids = set()   # punches this batch replaces on the days planned so far
+    plan = []
+    for it in sorted(items, key=lambda x: x["date"]):
+        ds, tz = it["date"], it["tz"]
+        row = {"date": ds, "action": "skip", "reason": "", "minutes": 0, "existingMin": 0, "replaces": 0,
+               "workedMin": 0}
+        plan.append(row)
+        if it.get("source"):
+            row["reason"] = "This is the day being copied."
+            continue
+        if ds > today:
+            row["reason"] = "This day has not happened yet."
+            continue
+        lock = _add_time_lock(db, em, ds, actor)
+        if lock:
+            row["reason"] = lock
+            continue
+        if live_day == ds:
+            row["reason"] = "On the clock right now - the shift has not ended."
+            continue
+        d0 = date.fromisoformat(ds)
+        around = _live_punches(db, em, (d0 - timedelta(days=1)).isoformat(), (d0 + timedelta(days=1)).isoformat())
+        groups = _dup_groups(around)
+        mine = [g for g in groups if g[0].local_date == ds]
+        # A shift this batch replaces on an earlier target is not "kept".
+        others = [g for g in groups if g[0].local_date != ds and not any(p.id in replaced_ids for p in g)]
+        row["existingMin"] = int(_day_summaries(around, rmin, break_cfg=bcfg).get(ds, {}).get("workedMin") or 0)
+        replaced = [p for g in mine for p in g]
+        if replaced and not it["replace"]:
+            row["reason"] = (f"Already has punches ({row['existingMin'] // 60}h {row['existingMin'] % 60:02d}m) - "
+                             f"{replace_hint}")
+            continue
+        if replaced and ds in pending:
+            row["reason"] = "A punch fix request on this day is waiting for a decision - decide it first."
+            continue
+        if it.get("why"):
+            row["reason"] = it["why"]
+            continue
+        shifts = it["shifts"] if not it.get("off") else []
+        writes = [(k, at, _local_date(at, tz), c) for s in shifts for k, at, c in s]
+        if it.get("off") and not replaced:
+            row["action"] = "off"     # nothing on the day, nothing to write
+            continue
+        spans = [(_parse_iso(s[0][1]), _parse_iso(s[-1][1])) for s in shifts]
+        if any(e > now for _s, e in spans):
+            row["reason"] = "The shift would end in the future."
+            continue
+        # What stays on the card around it: shifts that began on another day
+        # (a night shift running into this one) and this batch's own.
+        kept = [(_parse_iso(g[0].at), _parse_iso(g[-1].at)) for g in others if g[0].kind == "in" and g[-1].kind == "out"]
+        clash = next(((a, b) for (a, b) in kept + planned for (s0, s1) in spans if a and b and a < s1 and b > s0), None)
+        if clash:
+            row["reason"] = (f"It overlaps a shift already there ({_fmt_local(clash[0].strftime('%Y-%m-%dT%H:%M:%S'), tz)} - "
+                             f"{_fmt_local(clash[1].strftime('%Y-%m-%dT%H:%M:%S'), tz)}).")
+            continue
+        # A punch written to - or replaced on - another day (an overnight
+        # clock-out) must not slip into a period that is locked there.
+        other_days = sorted(({w[2] for w in writes} | {p.local_date for p in replaced}) - {ds})
+        later = next((lk for lk in (_add_time_lock(db, em, od, actor) for od in other_days) if lk), "")
+        if later:
+            row["reason"] = later
+            continue
+        if not replaced:
+            # The same punch-order check a single added punch gets.
+            try:
+                extra = []
+                for kind, at, ld, _c in writes:
+                    if kind in ("in", "out"):
+                        _guard_punch_order(db, em, kind=kind, at=at, local_date=ld, extra=extra)
+                    extra.append(SimpleNamespace(id=f"new-{ds}-{kind}-{at}", kind=kind, at=at, local_date=ld))
+            except HTTPException as e:
+                row["reason"] = str(e.detail)
+                continue
+        # The day as the card will read it: what stays, plus what is written.
+        gone = {p.id for p in replaced}
+        sim = [p for p in around if p.id not in gone] + [
+            _sim_punch(em, f"sim-{ds}-{i}", k, at, ld, tz, c) for i, (k, at, ld, c) in enumerate(writes)]
+        worked = int(_day_summaries(sorted(sim, key=lambda p: p.at or ""), rmin, break_cfg=bcfg)
+                     .get(ds, {}).get("workedMin") or 0)
+        classes = {_leave_class(s[0][2]) for s in shifts} or {""}
+        row.update(action=("clear" if it.get("off") else "replace") if replaced else "add", replaces=len(replaced),
+                   minutes=sum(_record_shift_minutes(s) for s in shifts), workedMin=worked)
+        if writes:
+            row.update(inAt=writes[0][1], outAt=writes[-1][1])
+        if ds in india:
+            # Sick / Vacation fill the day from the paid balance; Personal is
+            # unpaid (india_contractor_pay.PAID_LEAVE); work is credited by hours.
+            row["credit"] = (("leave" if classes <= {"sick", "vacation"} else "none") if "" not in classes
+                             else _record_credit(worked))
+        row["_writes"], row["_tz"], row["_replaced"] = writes, tz, replaced
+        row["_days"] = sorted({ds, *other_days})
+        planned += spans
+        replaced_ids |= gone
+    return plan
+
+
+def _dup_plan(db: Session, em: str, body: DuplicateDayIn, actor: str) -> tuple:
+    """(source, template, plan): every target judged - what will be written
+    (and replaced), or why it is skipped."""
+    if body.rows:
+        return "", [], _record_plan(db, em, body, actor)
+    source, shifts = _dup_template(db, em, body)
+    targets, left_out = _dup_targets(db, em, body, source)
+    if len(targets) > _RECORD_MAX_DAYS:
+        raise HTTPException(400, f"Copy onto at most {_RECORD_MAX_DAYS} days at a time.")
+    if not targets and not left_out:
+        raise HTTPException(400, "Pick at least one day to copy onto.")
+    offsets = body.tz_offsets if isinstance(body.tz_offsets, dict) else {}
+    items = []
+    for ds in targets:
+        tz = offsets.get(ds)
+        try:
+            tz = int(tz if tz is not None else (body.tz_offset_min or 0))
+        except (TypeError, ValueError):
+            tz = int(body.tz_offset_min or 0)
+        midnight = datetime.fromisoformat(ds)
+        laid = [[(p["kind"], (midnight + timedelta(minutes=p["min"] + tz)).strftime("%Y-%m-%dT%H:%M:%S"),
+                  p.get("category") or "") for p in s] for s in shifts]
+        items.append({"date": ds, "tz": tz, "replace": body.replace, "shifts": laid, "source": ds == source})
+    plan = _dup_judge(db, em, items, actor, replace_hint="tick Replace Existing to overwrite them.")
+    plan += [{"date": ds, "action": "skip", "reason": why, "minutes": 0, "existingMin": 0, "replaces": 0,
+              "workedMin": 0} for ds, why in left_out.items()]
+    plan.sort(key=lambda r: r["date"])
+    return source, shifts, plan
+
+
+def _record_plan(db: Session, em: str, body: DuplicateDayIn, actor: str) -> list:
+    """The review grid's rows, each judged on its own."""
+    d0, d1 = _record_range(body.start, body.end)
+    if len(body.rows) > _RECORD_MAX_DAYS:
+        raise HTTPException(400, f"Add at most {_RECORD_MAX_DAYS} days at a time.")
+    items, seen = [], set()
+    for r in body.rows:
+        ds = (r.date or "")[:10]
+        try:
+            dd = date.fromisoformat(ds)
+        except ValueError:
+            raise HTTPException(400, f"Bad date: {r.date!r}")
+        if not d0 <= dd <= d1:
+            raise HTTPException(400, f"{_us_day(ds)} is outside {_us_day(d0.isoformat())} - {_us_day(d1.isoformat())}.")
+        if ds in seen:
+            raise HTTPException(400, f"{_us_day(ds)} is in the list twice.")
+        seen.add(ds)
+        kind = (r.kind or "work").strip().lower()
+        if kind not in ("work", "off"):
+            raise HTTPException(400, "A day is Work, Sick Day, Vacation or Off.")
+        try:
+            tz = int(r.tz_offset_min if r.tz_offset_min is not None else (body.tz_offset_min or 0))
+        except (TypeError, ValueError):
+            tz = int(body.tz_offset_min or 0)
+        shift, why = ([], "") if kind == "off" else _record_row_shift(r, ds, tz)
+        items.append({"date": ds, "tz": tz, "replace": bool(r.replace), "off": kind == "off",
+                      "shifts": [shift] if shift else [], "why": why})
+    if not items:
+        raise HTTPException(400, "Pick at least one day.")
+    return _dup_judge(db, em, items, actor, replace_hint="pick Replace on the row to overwrite them.")
+
+
+def _record_doc_ok(em: str, path: str) -> str:
+    """A source document path staged for THIS person by the upload route."""
+    p = (path or "").strip()
+    if not p:
+        return ""
+    if not p.startswith(_record_doc_dir(em)) or ".." in p or "\\" in p:
+        raise HTTPException(400, "That source document was not uploaded for this person.")
+    return p[:500]
+
+
+@router.get("/duplicate-day/days")
+def record_days(email: str, start: str, end: str, user: dict = Depends(require_team_write),
+                db: Session = Depends(get_db)):
+    """The review grid's days: Add Time's day rows (state, worked minutes,
+    lock, shift / usual hours, time off, holiday) plus what the grid needs -
+    the day's punches as shifts (to copy a day or show what a Replace
+    overwrites), a pending punch fix, whether All Working Days takes it, and
+    whether the India Contractor policy credits it."""
+    em = _record_who(db, user, email)
+    d0, d1 = _record_range(start, end)
+    base = add_time_days(em, d0.isoformat(), d1.isoformat(), user=user, db=db)
+    works, left_out = _dup_working(db, em, d0, d1)
+    around = _live_punches(db, em, (d0 - timedelta(days=1)).isoformat(), (d1 + timedelta(days=1)).isoformat())
+    by_day = {}
+    for g in _dup_groups(around):
+        by_day.setdefault(g[0].local_date, []).append(
+            {"wellFormed": _dup_well_formed([p.kind for p in g]),
+             "punches": [{"kind": p.kind, "at": p.at, "category": (p.category or "") if p.kind == "in" else ""}
+                         for p in g]})
+    pending = {r.local_date for r in db.query(PunchRequest.local_date)
+               .filter(PunchRequest.employee_email == em, PunchRequest.status == "pending",
+                       PunchRequest.local_date >= d0.isoformat(), PunchRequest.local_date <= d1.isoformat()).all()}
+    today = _employee_today(db, em)
+    india = _record_india_days(db, em, [d["date"] for d in base["days"]])
+    for d in base["days"]:
+        ds = d["date"]
+        d.update(shifts=by_day.get(ds, []), pendingFix=ds in pending, working=ds in works,
+                 leftOut=left_out.get(ds, ""), future=ds > today, india=ds in india)
+    return {**base, "start": d0.isoformat(), "end": d1.isoformat(), "today": today,
+            "maxDays": _RECORD_MAX_DAYS,
+            "india": ({"fullMin": india_contractor_pay.FULL_CREDIT_MIN, "halfMin": india_contractor_pay.HALF_CREDIT_MIN}
+                      if india else None)}
+
+
+@router.post("/duplicate-day/source-doc")
+def record_source_doc(email: str, file: UploadFile = File(...), user: dict = Depends(require_team_write),
+                      db: Session = Depends(get_db)):
+    """Stage the record itself (the paper time sheet, scanned or photographed:
+    a picture or a PDF) in the private hr-docs bucket; the batch saved after
+    references it. HR only, for this person."""
+    em = _record_who(db, user, email)
+    data = file.file.read(_RECORD_DOC_MAX + 1)
+    if not data:
+        raise HTTPException(400, "That file is empty.")
+    if len(data) > _RECORD_DOC_MAX:
+        raise HTTPException(400, "File too large (max 15 MB).")
+    ctype = _record_doc_type(data)
+    if not ctype:
+        raise HTTPException(400, "The source document is a picture (PNG, JPEG, GIF, WebP, HEIC) or a PDF.")
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "record")[:120]
+    path = f"{_record_doc_dir(em)}{uuid.uuid4()}-{safe}"
+    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
+                      headers={**_storage_headers(), "Content-Type": ctype},
+                      content=data, timeout=60)
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    return {"path": path, "name": (file.filename or safe)[:200]}
+
+
+@router.get("/duplicate-day/{batch_id}/source-doc")
+def record_source_doc_url(batch_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """A five-minute signed link to a batch's source document - HR for the
+    person only (the employee reads the reason, not the document)."""
+    b = db.query(TimeEntryBatch).filter(TimeEntryBatch.id == batch_id).first()
+    if not b or not b.doc_path:
+        raise HTTPException(404, "No source document")
+    _record_who(db, user, b.employee_email)
+    url = _signed_url(b.doc_path, _DOC_BUCKET, expires=300)
+    if not url:
+        raise HTTPException(502, "Could not open the source document")
+    return {"url": url, "expiresIn": 300, "name": b.doc_name or ""}
+
+
+def _record_batches(db: Session, em: str, batch_ids, with_doc: bool) -> list:
+    """The batches behind a card's HR-entered punches, for its tag: the reason
+    (the employee reads it), who and when, and - HR only - the document."""
+    ids = sorted({b for b in batch_ids if b and b.startswith(_DUP_PREFIX)})
+    if not ids:
+        return []
+    rows = (db.query(TimeEntryBatch)
+            .filter(TimeEntryBatch.id.in_(ids), TimeEntryBatch.employee_email == em).all())
+    return [{"id": b.id, "reason": b.reason or "", "by": _display_name(db, b.created_by or ""),
+             "at": b.created_at or "", "start": b.range_start or "", "end": b.range_end or "",
+             **({"docName": b.doc_name or "Source Document"} if with_doc and b.doc_path else {})}
+            for b in rows]
+
+
+def _card_record_batches(db: Session, user: dict, em: str, card: dict) -> None:
+    """Hang the record batches on a computed card (see _record_batches)."""
+    meta = card.get("punchMeta") or {}
+    ids = {m.get("batchId") for m in meta.values() if m.get("entrySource") == _RECORD_SOURCE}
+    if not ids:
+        return
+    import hr_access
+    card["recordBatches"] = _record_batches(
+        db, em, ids, with_doc=hr_access.is_hr_for(db, user.get("email") or "", em))
+
+
+@router.post("/duplicate-day")
+def duplicate_day(body: DuplicateDayIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """HR adds time from a record: the review grid's rows (`rows`), or one
+    day copied onto others. `dry_run` answers with the plan only - the
+    preview, so what is shown is exactly what will be written."""
+    em = _record_who(db, user, body.employee_email)
+    reason = (body.reason or "").strip()
+    if len(reason) < 3:
+        raise HTTPException(400, "Say why this time is being added - the employee reads it on every day.")
+    doc_path = _record_doc_ok(em, body.source_doc_path)
+    if not body.dry_run:
+        _lock_person(db, em)   # judge and write against committed punches only
+    source, shifts, plan = _dup_plan(db, em, body, user["email"])
+    doing = [r for r in plan if r.get("_writes") is not None]
+    total = sum(r["minutes"] for r in doing)
+    public = [{k: v for k, v in r.items() if not k.startswith("_")} for r in plan]
+    out = {"source": source, "template": _dup_template_public(shifts), "days": public,
+           "added": sum(1 for r in doing if r["action"] in ("add", "replace")),
+           "replaced": sum(1 for r in doing if r["action"] in ("replace", "clear")),
+           "cleared": sum(1 for r in doing if r["action"] == "clear"), "totalMin": total}
+    if body.dry_run:
+        return {"dryRun": True, **out}
+    if not doing:
+        return {"batchId": "", **out}
+    batch_id = _DUP_PREFIX + str(uuid.uuid4())
+    now = _now_iso()
+    days = sorted({d for r in doing for d in r["_days"]})
+    first, last = doing[0]["date"], doing[-1]["date"]
+    span = _us_day(first) if first == last else f"{_us_day(first)} - {_us_day(last)}"
+    what = (f"copied {_us_day(source)} onto {len(doing)} day{'' if len(doing) == 1 else 's'}: {reason[:200]}"
+            if source else f"added time from a record for {span}: {reason[:200]}")
+    # The review lock again, for real this time: HR's change is logged on
+    # the review (one line per pass) and a card out for signature comes back
+    # for the employee to sign the updated version.
+    import timesheet_review
+    for ds in days:
+        _guard_not_finalized(db, em, ds)
+        timesheet_review.guard_edit(db, em, ds, user["email"], what=what)
+    for r in doing:
+        for p in r["_replaced"]:
+            p.voided = 1
+            p.adjusted_by = user["email"]
+            p.adjusted_at = now
+            p.adjust_note = f"Replaced by Add Time From Record: {reason[:250]}"
+            p.replaced_by_batch = batch_id
+        for kind, at, ld, cat in r["_writes"]:
+            db.add(TimePunch(id=str(uuid.uuid4()), employee_email=em, kind=kind, at=at,
+                             local_date=ld, tz_offset_min=r["_tz"], geo_status="no_location",
+                             note=reason[:300], source="manual", category=cat[:80] if kind == "in" else "",
+                             created_by=user["email"], created_at=now, batch_id=batch_id,
+                             entry_source=_RECORD_SOURCE))
+    d0 = (body.start or first)[:10] if body.rows else min(days)
+    d1 = (body.end or last)[:10] if body.rows else max(days)
+    db.add(TimeEntryBatch(id=batch_id, employee_email=em, kind=_RECORD_SOURCE, reason=reason[:2000],
+                          range_start=d0, range_end=d1, days=days, minutes=total,
+                          doc_path=doc_path, doc_name=(body.source_doc_name or "").strip()[:200] if doc_path else "",
+                          created_by=user["email"], created_at=now))
+    db.add(AuditLog(timestamp=now, user_email=user["email"], user_role=user.get("role", "") or "",
+                    action="Added time from a record", resource_type="time_entry_batches", resource_id=batch_id,
+                    module="timeclock", kind="create",
+                    details=json.dumps({"employee": em, "days": days, "minutes": total, "reason": reason[:300],
+                                        "replaced": out["replaced"], "document": bool(doc_path)})[:4000]))
+    hrs = f"{total // 60}h {total % 60:02d}m"
+    rng = _us_day(d0) if d0 == d1 else f"{_us_day(d0)} - {_us_day(d1)}"
+    # ONE notice to the employee per batch (its own key - never folded into
+    # the day's other edits), with the reason.
+    from notify_rollup import upsert_rollup
+    upsert_rollup(db, recipient=em, key=f"tc-record:{batch_id}", title="HR Added Time From A Record",
+                  line=f"HR added time for {rng} from a record ({hrs} over {len(doing)} "
+                       f"day{'' if len(doing) == 1 else 's'}): {reason[:200]}",
+                  action={"view": "timeclock", "sub": "timecard", "start": first},
+                  company=notification_company(db, em))
+    _notify_timecard_change(
+        db, employee_email=em, actor_email=user["email"], local_date=first,
+        body=f"{_display_name(db, user['email'])} (HR) added time from a record for {rng} to "
+             f"{_display_name(db, em)}'s time sheet ({hrs}): {reason[:200]}",
+        ref_id=batch_id)
+    # Workflows (Oct 28 2026): one event per batch, the person as subject.
+    from workflows.packs._people import employee_row as _wf_person
+    workflows.emit(db, "time.add_time_batch", subject=_wf_person(db, em), actor=user["email"],
+                   extra={"batchId": batch_id, "source": "record", "dates": days, "minutes": total,
+                          "replaced": out["replaced"], "reason": reason[:300]})
+    db.commit()
+    return {"batchId": batch_id, **out}
+
+
+@router.post("/duplicate-day/{batch_id}/undo")
+def duplicate_day_undo(batch_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """Take a batch back as a whole: void every punch it wrote and bring back
+    every punch it replaced. Refused as a whole when any of its days has
+    since been finalized, or changed after it."""
+    if not batch_id.startswith(_DUP_PREFIX):
+        raise HTTPException(404, "Not an Add Time From Record batch.")
+    rows = db.query(TimePunch).filter(TimePunch.batch_id == batch_id, TimePunch.voided == 0).all()
+    gone = db.query(TimePunch).filter(TimePunch.replaced_by_batch == batch_id, TimePunch.voided == 1).all()
+    if not rows and not gone:
+        raise HTTPException(404, "Nothing left to undo for this batch.")
+    em = _record_who(db, user, (rows or gone)[0].employee_email)
+    _lock_person(db, em)
+    days = sorted({r.local_date for r in rows} | {r.local_date for r in gone})
+    # Release review, Oct 27 2026: a day changed after this batch (another
+    # batch replaced its punches, or new punches were added there) is never
+    # undone underneath that change - restoring the punches this batch
+    # replaced would double the day. Refused as a whole.
+    own = db.query(TimePunch).filter(TimePunch.batch_id == batch_id).all()
+    batch = db.query(TimeEntryBatch).filter(TimeEntryBatch.id == batch_id).first()
+    written_at = min((p.created_at or "" for p in own), default="") or (batch.created_at if batch else "")
+    changed = {p.local_date for p in own if p.voided and (p.replaced_by_batch or "")}
+    if written_at:
+        later = (db.query(TimePunch.local_date)
+                 .filter(TimePunch.employee_email == em, TimePunch.local_date.in_(days), TimePunch.voided == 0,
+                         TimePunch.batch_id != batch_id, TimePunch.created_at >= written_at).all())
+        changed |= {d for (d,) in later}
+    if changed:
+        raise HTTPException(409, "This batch can't be undone: "
+                                 f"{', '.join(_us_day(d) for d in sorted(changed))} changed after it (another "
+                                 "batch or new punches). Undo that change first, or fix the day by hand.")
+    import timesheet_review
+    for ds in days:
+        _guard_not_finalized(db, em, ds)
+        timesheet_review.guard_edit(db, em, ds, user["email"], what="undid time added from a record")
+    now = _now_iso()
+    for r in rows:
+        r.voided = 1
+        r.adjusted_by = user["email"]
+        r.adjusted_at = now
+        r.adjust_note = "Undo of Add Time From Record"
+    for r in gone:
+        r.voided = 0
+        r.replaced_by_batch = ""
+        r.adjusted_by = user["email"]
+        r.adjusted_at = now
+        r.adjust_note = "Restored by undo of Add Time From Record"
+    if batch:
+        batch.undone_by, batch.undone_at = user["email"], now
+    dates = ", ".join(_us_day(d) for d in days)
+    from notify_rollup import upsert_rollup
+    upsert_rollup(db, recipient=em, key=f"tc-record:{batch_id}", title="HR Took Back Time Added From A Record",
+                  line=f"HR took back the time added from a record on {dates}.", replace=True,
+                  action={"view": "timeclock", "sub": "timecard", "start": days[0]},
+                  company=notification_company(db, em))
+    _notify_timecard_change(db, employee_email=em, actor_email=user["email"], local_date=days[0],
+                            body=f"{_display_name(db, user['email'])} (HR) undid the time added from a record to "
+                                 f"{_display_name(db, em)}'s time sheet for {dates}.",
+                            ref_id=batch_id)
+    db.commit()
+    return {"voided": len(rows), "restored": len(gone)}
 
 
 # ── Shifts Phase 1: scheduled vs. punched (Oct 14 2026) ──────────────────────

@@ -171,7 +171,115 @@ def log_activity(db: Session, *, type: str, actor_email: str, entity_kind: str =
         seen.append((entity_id, type, row.at, row))
         if len(seen) > 500:
             del seen[:-200]
+    _emit_workflow_event(db, row)
     return aid
+
+
+# ── Workflows (Oct 28 2026): THE emit line for Tasks and Tickets ─────────────
+# Every activity row of a mapped type becomes one workflow outbox row (spec
+# 5.2: "from routers/task_util.log_activity, one choke point"). A status move
+# that is a milestone (a ticket resolved / reopened) emits its own key AS WELL
+# as the general status key, so "Ticket Status Changes" never misses one.
+# The from / to travels from the row's field_change; a ticket's confidential
+# desk rides in `extra`. Never raises - an outbox miss is a log line.
+_WF_TASK_EVENTS = {
+    "created": "task.created", "status_changed": "task.status_changed",
+    "assignee_changed": "task.assigned", "completed": "task.completed",
+    "commented": "task.commented", "due_changed": "task.due_date_changed",
+    "field_changed": "task.field_changed",
+}
+_WF_TICKET_EVENTS = {
+    "created": "ticket.filed", "assigned": "ticket.assigned", "auto_assigned": "ticket.assigned",
+    "status_changed": "ticket.status_changed", "escalated": "ticket.escalated",
+    "commented": "ticket.commented", "approval_requested": "ticket.approval_requested",
+    "approved": "ticket.approval_decided", "rejected": "ticket.approval_decided",
+}
+# task_history field names -> the task entity's registered field keys; any
+# other field (a custom field, a section) rides in extra.field / fieldId.
+_WF_TASK_FIELD_KEYS = {"status": "status", "assigneeIds": "assignees", "dueOn": "due_date",
+                       "priority": "priority", "title": "title", "projectId": "project", "tags": "tags",
+                       "startOn": "start_date"}
+_WF_TICKET_DONE = ("resolved", "closed")
+
+
+def _wf_session_row(db: Session, model, row_id: str):
+    """The ORM row for `row_id` as THIS request holds it: a row added but not
+    flushed (autoflush is off) is found in db.new, else the identity map /
+    database. A ticket is read with the confidential rows let through - the
+    workflow entity's own `visible_to` decides who may build on it."""
+    for o in db.new:
+        if isinstance(o, model) and getattr(o, "id", None) == row_id:
+            return o
+    if model is Task:
+        return db.get(Task, row_id)
+    import ticket_confidential
+    return ticket_confidential.include(db.query(model)).filter(model.id == row_id).first()
+
+
+def _emit_workflow_event(db: Session, row: TaskActivity) -> None:
+    try:
+        kind, type_ = row.entity_kind or "task", row.type or ""
+        if kind == "task":
+            key = _WF_TASK_EVENTS.get(type_)
+        elif kind == "ticket":
+            key = _WF_TICKET_EVENTS.get(type_)
+        else:
+            key = None
+        if not key or not row.entity_id:
+            return
+        import workflows
+        from workflows import catalog
+        catalog.load_packs()
+        if key not in catalog.EVENTS:
+            return
+        from models import TaskTicket
+        subject = _wf_session_row(db, Task if kind == "task" else TaskTicket, row.entity_id)
+        if subject is None:
+            return
+        ch = row.field_change if isinstance(row.field_change, dict) else None
+        changes, extra = {}, {"activity": type_}
+        if ch and ("from" in ch or "to" in ch):
+            fld = str(ch.get("field") or "")
+            fkey = _WF_TASK_FIELD_KEYS.get(fld) if kind == "task" else fld
+            if fkey:
+                frm, to = ch.get("from"), ch.get("to")
+                if fkey == "assignees":   # a people list: nobody is [], never None
+                    frm, to = list(frm or []), list(to or [])
+                changes[fkey] = {"from": frm, "to": to}
+            if ch.get("fieldId"):
+                extra["fieldId"] = ch["fieldId"]
+            if ch.get("label"):
+                extra["field"] = ch["label"]
+        if kind == "task" and type_ == "completed":
+            changes.setdefault("completed", {"from": False, "to": True})
+        if kind == "ticket":
+            extra["confidentialDesk"] = getattr(subject, "confidential_desk", "") or ""
+            if type_ in ("approved", "rejected"):
+                decision = "approve" if type_ == "approved" else "reject"
+                changes["approval_status"] = {"from": "pending", "to": subject.approval_status or ""}
+                extra.update(decision=decision, note=subject.approval_note or "")
+            elif type_ == "approval_requested":
+                extra["approver"] = (subject.approver_email or "").lower()
+            elif type_ in ("assigned", "auto_assigned"):
+                changes.setdefault("assignee", {"from": "", "to": (subject.assignee_email or "").lower()})
+            elif type_ == "status_changed":
+                # a move logged without its from (a requester's reply resuming
+                # a waiting ticket) still says where the ticket is now
+                changes.setdefault("status", {"from": None, "to": subject.status or ""})
+            elif type_ == "commented":
+                from routers.tickets import _is_internal_activity
+                extra["internal"] = bool(_is_internal_activity(row.detail))
+        actor = row.actor_email or ""
+        workflows.emit(db, key, subject=subject, actor=actor, changes=changes, extra=extra)
+        if kind == "ticket" and type_ == "status_changed":
+            st = changes.get("status") or {}
+            frm, to = str(st.get("from") or ""), str(st.get("to") or subject.status or "")
+            if to in _WF_TICKET_DONE and frm not in _WF_TICKET_DONE:
+                workflows.emit(db, "ticket.resolved", subject=subject, actor=actor, changes=changes, extra=extra)
+            elif to == "reopened" or (frm in _WF_TICKET_DONE and to not in _WF_TICKET_DONE):
+                workflows.emit(db, "ticket.reopened", subject=subject, actor=actor, changes=changes, extra=extra)
+    except Exception as e:   # noqa: BLE001 - an outbox miss never fails the activity write
+        print(f"[workflows] activity emit skipped ({type(e).__name__}: {str(e)[:160]})")
 
 
 def admin_emails(db: Session) -> list[str]:

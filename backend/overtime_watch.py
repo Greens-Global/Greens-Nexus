@@ -59,6 +59,7 @@ from sqlalchemy.orm import Session
 import models
 from database import SessionLocal
 from notify_rollup import upsert_rollup
+import job_switch
 
 SCAN_SEC = 5 * 60
 OPEN_WINDOW_MIN = 16 * 60    # timeclock._MAX_SHIFT_MIN: an older open punch is not a running shift
@@ -330,6 +331,8 @@ def overtime_scan(db: Session, now_utc: datetime = None) -> dict:
 
 
 def _tick() -> dict:
+    if job_switch.off("overtime_watch"):   # Workflows > Automations switch
+        return {}
     db = SessionLocal()
     try:
         return overtime_scan(db)

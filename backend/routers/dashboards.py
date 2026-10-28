@@ -264,6 +264,15 @@ def kpis(scope: str = "self", tz_offset_min: int = 0, user: dict = Depends(get_c
         # a "my" metric) - feeds the BI board's cross-module view of Support.
         safe("open_tickets", lambda: db.query(M.TaskTicket).filter(
             M.TaskTicket.status.notin_(["resolved", "closed"])).count())
+        # My Open Tickets (Oct 26 2026): open tickets assigned to me, with
+        # how many are past SLA and - for a desk member - how many wait for
+        # them to assign (my_work.ticket_focus_counts).
+        def my_tickets():
+            c = my_work.ticket_focus_counts(db, user, (email or "").strip().lower())
+            out["my_open_tickets_breached"] = c["breached"]
+            out["my_open_tickets_unassigned"] = c["unassigned"]
+            return c["mine"]
+        safe("my_open_tickets", my_tickets)
 
         def warranties():
             cutoff = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
@@ -298,7 +307,8 @@ def _time_off_pending(db: Session, user: dict, email: str) -> int:
     reports'. It used to count every pending request company-wide for anyone
     with team widgets, so managers saw other teams' leave."""
     import models as M
-    q = db.query(M.TimeOffRequest).filter(M.TimeOffRequest.status == "pending")
+    q = db.query(M.TimeOffRequest).filter(M.TimeOffRequest.status == "pending",
+                                          func.coalesce(M.TimeOffRequest.approval_stage, "") != "hr")
     if int(user.get("level", 0)) < 5:
         import backup_manager          # direct reports + the people they back up (Oct 13)
         reports = sorted(backup_manager.managed_directly(db, email))
@@ -594,7 +604,10 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
             interviews_7d = pipeline.filter(
                 M.HrCandidate.interview_at != "", M.HrCandidate.interview_at >= today,
                 M.HrCandidate.interview_at <= week_ahead + "T23:59:59").count()
-            leave_pending = db.query(M.HrLeaveRequest).filter(M.HrLeaveRequest.status == "pending").count()
+            # Time Off is where leave is requested (Oct 27 2026 - the legacy
+            # HR Leave table takes no new requests): every pending request,
+            # either approval level.
+            leave_pending = db.query(M.TimeOffRequest).filter(M.TimeOffRequest.status == "pending").count()
             docs_expiring = db.query(M.HrDocument).filter(
                 M.HrDocument.expires_on != "", M.HrDocument.expires_on >= today, M.HrDocument.expires_on <= month_ahead).count()
             # Current pipeline distribution by stage (not a cumulative "ever
@@ -932,8 +945,16 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
             emp_names = {e.id: (e.display_name or f"{e.first_name} {e.last_name}".strip())
                          for e in db.query(M.NexusEmployee.id, M.NexusEmployee.display_name, M.NexusEmployee.first_name, M.NexusEmployee.last_name).all()}
             if metric == "leave_pending":
-                rows = db.query(M.HrLeaveRequest).filter(M.HrLeaveRequest.status == "pending").all()
-                items = [(emp_names.get(r.employee_id, r.employee_id), f"{r.leave_type} · {_us(r.start_date)} to {_us(r.end_date)}") for r in rows]
+                # Time Off, as the stat above (Oct 27 2026). Kind of leave only,
+                # never the note - confidential or not, the note stays private.
+                by_email = {(e.work_email or "").lower(): (e.display_name or f"{e.first_name} {e.last_name}".strip())
+                            for e in db.query(M.NexusEmployee.work_email, M.NexusEmployee.display_name,
+                                              M.NexusEmployee.first_name, M.NexusEmployee.last_name).all() if e.work_email}
+                rows = (db.query(M.TimeOffRequest).filter(M.TimeOffRequest.status == "pending")
+                        .order_by(M.TimeOffRequest.start_date.asc()).all())
+                items = [(by_email.get((r.employee_email or "").lower(), r.employee_email),
+                          f"{(r.type or 'time off').replace('_', ' ').title()} · {_us(r.start_date)} to {_us(r.end_date)}"
+                          + (" · Awaiting HR Approval" if (r.approval_stage or "") == "hr" else "")) for r in rows]
             else:
                 rows = db.query(M.HrDocument).filter(M.HrDocument.expires_on != "", M.HrDocument.expires_on >= today, M.HrDocument.expires_on <= month_ahead).order_by(M.HrDocument.expires_on).all()
                 items = [(emp_names.get(r.employee_id, r.employee_id), f"{r.kind} · expires {_us(r.expires_on)}") for r in rows]

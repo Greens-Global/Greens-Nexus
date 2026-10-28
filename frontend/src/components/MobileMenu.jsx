@@ -27,11 +27,11 @@ export const SUBMENUS = {
       { sub: 'shifts', label: 'Shifts' },
       { sub: 'schedule', label: 'Schedule' },
       { sub: 'requests', label: 'Requests' },
-      { sub: 'contact', label: 'Contact' },
+      { sub: 'contact', label: 'Company Directory' },
     ],
     employee: [
       { sub: 'shifts', label: 'Shifts' },
-      { sub: 'contact', label: 'Contact' },
+      { sub: 'contact', label: 'Company Directory' },
     ],
   },
   inventory: {
@@ -72,8 +72,12 @@ export const SUBMENUS = {
     { sub: 'hr-people', label: 'People' },
     { sub: 'hr-hiring', label: 'Hiring' },
     { sub: 'hr-org',    label: 'Org Chart' },
-    { sub: 'hr-leave',  label: 'Leave' },
+    // People > Leave became Time > Time Off (leave depth, Oct 27 2026).
+    { sub: 'hr-time-off', label: 'Time Off' },
     { sub: 'hr-checklists', label: 'Checklists' },
+    { sub: 'hr-analytics', label: 'Analytics' },
+    { sub: 'hr-exits', label: 'Exits' },
+    { sub: 'hr-performance', label: 'Performance' },
   ],
   marketing: [
     { sub: 'marketing-ads',        label: 'Google Ads Performance' },
@@ -83,6 +87,15 @@ export const SUBMENUS = {
     { sub: 'index',    label: 'Library' },
     { sub: 'training', label: 'Training' },
     { sub: 'health',   label: 'Manage' },
+  ],
+  // Workflows (Oct 28 2026): the module's six tabs.
+  workflows: [
+    { sub: 'overview',    label: 'Overview' },
+    { sub: 'list',        label: 'Workflows' },
+    { sub: 'automations', label: 'Automations' },
+    { sub: 'runs',        label: 'Runs' },
+    { sub: 'templates',   label: 'Templates' },
+    { sub: 'catalog',     label: 'Catalog' },
   ],
 };
 

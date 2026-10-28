@@ -25,6 +25,7 @@ from datetime import datetime, timedelta, timezone
 import graph_mail
 from database import SessionLocal
 from models import NexusEmployee, NexusNotification, TimePunch
+import job_switch
 
 LONG_SESSION_HOURS = 12   # the cap agreed Jul 27 - nudge past this
 # Once per open session (Oct 14 2026; it used to repeat every 12 hours) -
@@ -101,6 +102,8 @@ def _email(db, email: str, hours: int):
 
 
 def _scan_once():
+    if job_switch.off("long_session"):   # Workflows > Automations switch
+        return
     db = SessionLocal()
     try:
         for email, start in _open_sessions(db):

@@ -5,6 +5,7 @@ import { SendHiringPacketModal, PacketSigner, PersonLifeEvents, PaperworkStatus,
 import PacketReview from '../components/PacketReview';
 import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
+import { ProbationBadge, ProbationCard } from '../components/HrProbation';
 import MailboxExportResult from '../components/MailboxExportResult';
 import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
@@ -17,7 +18,8 @@ import {
   Building2, Trash2, MapPinned, Wallet, Receipt, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw, ArrowLeftRight,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
-  ListChecks, RefreshCw, Hourglass,
+  ListChecks, RefreshCw, Hourglass, ListPlus, BarChart3,
+  Target,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -32,8 +34,8 @@ import { qk } from '../lib/queryClient';
 import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
+import { setPendingOpen } from '../lib/pendingOpen';
 import TimeAdmin from '../components/TimeAdmin';
-import LeaveBalancesAdmin from '../components/LeaveBalances';
 import ModuleTabs from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
@@ -63,9 +65,11 @@ import { PersonSelect } from '../tasks/components';
 import { US_STATE_NAMES } from '../lib/usStates';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
 import RecordsAudit from '../components/RecordsAudit';
-import { ApprovalDelegationsAdmin } from '../components/DelegateApprovals';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { PersonReimbursements } from '../components/Reimbursements';
+import { EmployeeMoreDetails } from '../components/EmployeeCustomFields';
+import { formatFieldValue, matchesFieldFilter } from '../lib/employeeCustomFields';
+import { LetterRequestsPanel } from '../components/HrLetters';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -73,6 +77,14 @@ const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').th
 const CompanyRoles = lazy(() => import('./CompanyRoles'));
 // Sync Employee Codes From Intacct (Charmi, Oct 21 2026) - HR only, lazy.
 const IntacctEmployeeCodes = lazy(() => import('../components/IntacctEmployeeCodes'));
+// Hiring > Openings and Headcount (Neil, Oct 27 2026) - lazy, own chunks.
+const JobOpenings = lazy(() => import('../components/hiring/JobOpenings'));
+const HeadcountRequests = lazy(() => import('../components/hiring/HeadcountRequests'));
+// Performance (Oct 27 2026): HR's review cycles and company goals - lazy.
+const PerformanceAdmin = lazy(() => import('../performance/PerformanceAdmin'));
+// People Analytics and Exits (Oct 27 2026) load with their tab - their own chunks.
+const HrAnalytics = lazy(() => import('../components/HrAnalytics'));
+const ExitsTab = lazy(() => import('../components/ExitsTab'));
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -103,15 +115,17 @@ const isExternalPerson = (e) => ['guest', 'external'].includes(e?.identityType |
 // LIST rather than filtering the current one. The sentinel cannot collide with a
 // real status value.
 const DELETED_F = '__deleted__';
+// "Probation Ending" (Oct 27 2026): people whose probation ends inside the
+// company's reminder window, or has passed undecided - a lens, not a status.
+const PROBATION_F = '__probation__';
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
 const AVATAR_HUES = ['215,75%,45%', '142,60%,35%', '30,80%,48%', '271,60%,48%', '350,65%,48%'];
 const fullName = e => [e.firstName, e.lastName].filter(Boolean).join(' ');
 // Rows for the Tasks people picker (PersonSelect) from employee records: name
-// and photo, keyed by the lowercased work email. pickRows is for a field that
-// saves the email; idPickRows for one that saves the employee id (anyone with
-// no work email yet is keyed by id, so they stay pickable).
+// and photo, keyed by the lowercased work email - for a field that saves the
+// email.
 const pickRows = (list) => {
   const seen = new Set();
   return list.filter(e => {
@@ -120,15 +134,6 @@ const pickRows = (list) => {
     seen.add(em);
     return true;
   }).map(e => ({ email: e.workEmail.toLowerCase(), name: fullName(e), external: isExternalPerson(e) }));
-};
-const idPickRows = (list) => {
-  const seen = new Set();
-  return list.map(e => {
-    let email = (e.workEmail || '').toLowerCase();
-    if (!email || seen.has(email)) email = `id:${e.id}`.toLowerCase();
-    seen.add(email);
-    return { id: e.id, email, name: fullName(e), external: isExternalPerson(e) };
-  });
 };
 // Directory rows ({ email, name }) for the same picker.
 const dirPickRows = (list) => list.filter(p => p.email).map(p => ({ email: p.email.toLowerCase(), name: p.name || p.email, external: !!p.external }));
@@ -1247,20 +1252,44 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
   );
 }
 
-// "Ask HR" inbox - employee self-service requests raised from My HR. Open ones
-// surface at the top of the People tab; resolving notifies the employee and
-// shows your response on their My HR screen.
+// "Ask HR" (Neil, Oct 27 2026): requests are confidential HR tickets now, so
+// HR works them on the ticket desk - this is the way in. The open HR tickets
+// of the companies you are HR for, each opening its ticket, a link to the
+// desk filtered to HR, and the requests from before the move (Earlier
+// Requests, read-only - their files can still be added to the person's
+// documents). An old request that could not be moved yet keeps its Resolve.
+const ASK_HR_KIND = { document: 'Document Update', profile: 'Profile Change', question: 'HR Question', other: 'Other HR Request' };
 function EmployeeRequestsPanel({ toastOk, toastErr }) {
-  const [reqs, setReqs] = useState([]);
+  const { can, myGrantedModules } = useRole();
+  const canOpenTickets = can('administrator') || myGrantedModules.has('tickets') || myGrantedModules.has('tasks');
+  const [desk, setDesk] = useState(null);             // open HR tickets, null while loading
+  const [reqs, setReqs] = useState([]);               // the old hr_self_requests rows
+  const [showEarlier, setShowEarlier] = useState(false);
   const [resolving, setResolving] = useState(null);   // request id with the reply box open
   const [response, setResponse] = useState('');
   const [busy, setBusy] = useState(false);
   const [filedKind, setFiledKind] = useState('other');
   const [filed, setFiled] = useState({});             // request id -> true once added to docs
-  useEffect(() => { api.hrSelfRequests().then(setReqs).catch(() => {}); }, []);
-  const open = reqs.filter(r => r.status === 'open');
-  if (open.length === 0) return null;
+  useEffect(() => {
+    api.askHrDesk(true).then(r => setDesk(Array.isArray(r) ? r : [])).catch(() => setDesk([]));
+    api.hrSelfRequests().then(r => setReqs(Array.isArray(r) ? r : [])).catch(() => {});
+  }, []);
+  const stuck = reqs.filter(r => r.status === 'open' && !r.ticketId);   // not moved into a ticket yet
+  const earlier = reqs.filter(r => r.status !== 'open' || r.ticketId);
+  if (desk === null) return <SkeletonBlocks count={1} height={72} />;
+  if (desk.length === 0 && stuck.length === 0 && earlier.length === 0) return null;
   const TYPE_LABEL = { document: 'Document update', profile: 'Profile change', question: 'Question', other: 'Request' };
+  const openTicket = (id) => {
+    const view = canOpenTickets ? 'tickets' : 'support';
+    setPendingOpen('ticket', id);
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view } }));
+    window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId: id } }));
+  };
+  const openDesk = () => {
+    setPendingOpen('ticket-desk', 'hr');
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tickets' } }));
+    window.dispatchEvent(new CustomEvent('nexus:ticket-desk', { detail: { desk: 'hr' } }));
+  };
   const resolve = async (id) => {
     setBusy(true);
     try {
@@ -1282,45 +1311,69 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
       toastOk?.("Added to the employee's documents");
     } catch (e) { toastErr?.(e?.message || 'Could not add to documents'); }
   };
+  const attachmentRow = (r) => r.attachmentName && (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
+      <button onClick={() => viewAttachment(r.id)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontSize: 12, fontWeight: 600, fontFamily: 'Inter,sans-serif', padding: 0 }}>
+        <FileText size={12} /> {r.attachmentName}
+      </button>
+      {filed[r.id] ? (
+        <span style={{ fontSize: 11.5, color: 'hsl(var(--color-green))', fontWeight: 600 }}>✓ Added to their documents</span>
+      ) : (
+        <>
+          <select className="form-input" value={filedKind} onChange={e => setFiledKind(e.target.value)}
+            style={{ fontSize: 11.5, padding: '3px 22px 3px 8px', height: 'auto' }}>
+            <option value="id">ID</option>
+            <option value="contract">Contract</option>
+            <option value="certificate">Certificate</option>
+            <option value="resume">Resume</option>
+            <option value="other">Other</option>
+          </select>
+          <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 10px' }}
+            onClick={() => fileAttachment(r.id)}>
+            Add to Employee Documents
+          </button>
+        </>
+      )}
+    </div>
+  );
   return (
     <div style={{ border: '1px solid hsla(var(--color-blue),0.25)', borderRadius: 12, background: 'hsla(var(--color-blue),0.03)', padding: '14px 16px', marginBottom: 18 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>
-        Employee requests - {open.length} open
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+        <div style={{ flex: 1, minWidth: 180, fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+          Ask HR - {desk.length + stuck.length ? `${desk.length + stuck.length} open` : 'nothing open'}
+        </div>
+        {canOpenTickets && (
+          <button className="secondary-btn" style={{ fontSize: 12, padding: '5px 12px' }} onClick={openDesk}>
+            Open HR Desk in Tickets
+          </button>
+        )}
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', margin: '-4px 0 10px' }}>
+        Requests are confidential HR tickets - only the employee, the people on it and HR see them. Reply, assign and resolve on the ticket.
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {open.map(r => (
+        {desk.map(t => (
+          <button type="button" key={t.id} onClick={() => openTicket(t.id)} className="nx-needs-you--card"
+            style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '10px 12px', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{t.requesterName}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {ASK_HR_KIND[t.askHrKind] || 'HR Request'} · #{t.code} · {formatDate(t.createdAt?.slice(0, 10))}</span>
+                <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>{t.subject}</div>
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', flexShrink: 0 }}>{t.assigneeId ? '' : 'Unassigned · '}Open Ticket</span>
+            </div>
+          </button>
+        ))}
+        {stuck.map(r => (
           <div key={r.id} className="nx-needs-you--card" style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '10px 12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {formatDate(r.createdAt?.slice(0, 10))}</span>
                 <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
-                {r.attachmentName && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
-                    <button onClick={() => viewAttachment(r.id)}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontSize: 12, fontWeight: 600, fontFamily: 'Inter,sans-serif', padding: 0 }}>
-                      <FileText size={12} /> {r.attachmentName}
-                    </button>
-                    {filed[r.id] ? (
-                      <span style={{ fontSize: 11.5, color: 'hsl(var(--color-green))', fontWeight: 600 }}>✓ Added to their documents</span>
-                    ) : (
-                      <>
-                        <select className="form-input" value={filedKind} onChange={e => setFiledKind(e.target.value)}
-                          style={{ fontSize: 11.5, padding: '3px 22px 3px 8px', height: 'auto' }}>
-                          <option value="id">ID</option>
-                          <option value="contract">Contract</option>
-                          <option value="certificate">Certificate</option>
-                          <option value="resume">Resume</option>
-                          <option value="other">Other</option>
-                        </select>
-                        <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 10px' }}
-                          onClick={() => fileAttachment(r.id)}>
-                          Add to Employee Documents
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
+                {attachmentRow(r)}
               </div>
               {resolving !== r.id && (
                 <button className="secondary-btn" style={{ fontSize: 12, padding: '5px 12px', flexShrink: 0 }}
@@ -1337,7 +1390,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
                   <button className="secondary-btn" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => setResolving(null)} disabled={busy}>Cancel</button>
                   <button className="primary-btn" style={{ fontSize: 12, padding: '5px 14px' }} onClick={() => resolve(r.id)} disabled={busy}>
-                    {busy ? 'Resolving…' : 'Mark resolved'}
+                    {busy ? 'Resolving…' : 'Mark Resolved'}
                   </button>
                 </div>
               </div>
@@ -1345,6 +1398,34 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
           </div>
         ))}
       </div>
+      {earlier.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <button type="button" onClick={() => setShowEarlier(v => !v)}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-blue))', fontFamily: 'Inter,sans-serif' }}>
+            {showEarlier ? 'Hide Earlier Requests' : `Earlier Requests (${earlier.length})`}
+          </button>
+          {showEarlier && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+              {earlier.map(r => (
+                <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '8px 12px' }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {formatDate(r.createdAt?.slice(0, 10))}
+                    {' · '}{r.ticketId ? 'Moved to a ticket' : (r.status === 'resolved' ? 'Resolved' : r.status)}</span>
+                  <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
+                  {r.response && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}><strong>HR:</strong> {r.response}</div>}
+                  {attachmentRow(r)}
+                  {r.ticketId && (
+                    <button type="button" onClick={() => openTicket(r.ticketId)}
+                      style={{ marginTop: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-blue))', fontFamily: 'Inter,sans-serif' }}>
+                      Open Ticket
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1673,7 +1754,7 @@ function OfficeContact({ e, row, canSync, onSynced, toastOk, toastErr }) {
   );
 }
 
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged, onReload }) {
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], focusProbation = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged, onReload }) {
   // Removed from Nexus (soft delete) - the record is intact and restorable.
   const isRemoved = !!e.deletedAt;
   const [provisionOpen, setProvisionOpen] = useState(false);
@@ -1685,6 +1766,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   // HR's actions on an employee (Neil, Oct 8): promote / change role / offboard
   const [roleAction, setRoleAction] = useState(null);      // 'choose' (Change Role asks first) | 'promotion'
   const [offboardOpen, setOffboardOpen] = useState(false);
+  // End Employment on probation opens Offboard with Termination and the reason (Oct 27 2026).
+  const [offboardInitial, setOffboardInitial] = useState(null);
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a letter
   const [reviewEvent, setReviewEvent] = useState(null);    // a letter / package built from Documents, being reviewed (Oct 14)
   const [eventsKey, setEventsKey] = useState(0);
@@ -1746,6 +1829,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const directReport = teamView && !!mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase();
   const tabs = (teamView ? [
     ['overview', 'Overview', Contact],
+    ['details', 'More Details', ListPlus],
     ['access', 'Role', Shield],
     directReport && ['pay', 'Pay & Benefits', Wallet],
     directReport && ['expenses', 'Reimbursements', Receipt],
@@ -1754,6 +1838,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     ['bod', 'Work Logs', Clock],
   ] : [
     ['overview', 'Overview', Contact],
+    // HR's own fields (Oct 27 2026) - HR Only ones never reach a manager.
+    ['details', 'More Details', ListPlus],
     // Everyone in People sees Role (Pranshu, Oct 14): the pending role
     // change and the role history; managing access stays admin-only.
     ['access', 'Role', Shield],
@@ -1827,6 +1913,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         </button>
         {/* Open onboarding / offboarding / leave checklist at a glance. */}
         {checklists.map(p => <ChecklistChip key={p.checklistId} p={p} onClick={() => setTab('checklist')} />)}
+        <ProbationBadge p={e.probation} />
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
@@ -1920,10 +2007,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
           else toastOk(`Letter sent - ${e.firstName} signs first, then their manager.`);
         }} />}
-      {offboardOpen && <OffboardModal employee={e} companyName={companyName} toastErr={toastErr}
-        onClose={() => setOffboardOpen(false)}
+      {offboardOpen && <OffboardModal employee={e} companyName={companyName} toastErr={toastErr} initial={offboardInitial}
+        onClose={() => { setOffboardOpen(false); setOffboardInitial(null); }}
         onSent={ev => {
-          setOffboardOpen(false); setEventsKey(n => n + 1);
+          setOffboardOpen(false); setOffboardInitial(null); setEventsKey(n => n + 1);
           // Left now, or scheduled with a checklist started: either way the
           // whole People page re-reads (tiles, lists, chips) right away.
           if (ev.applyStatus === 'applied') onEmployeeUpdated?.({ ...e, status: 'offboarded' });
@@ -1972,6 +2059,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       <div style={{ marginTop: 16 }}>
         {tab === 'overview' && (
           <>
+            {!isRemoved && (
+              <ProbationCard employee={e} focus={focusProbation} toastOk={toastOk} toastErr={toastErr}
+                onChanged={() => onReload?.()}
+                onOffboard={init => { setOffboardInitial(init); setOffboardOpen(true); }} />
+            )}
             <div>
               {row(Mail, 'Work email', e.workEmail)}
               {row(Mail, 'Personal', e.personalEmail)}
@@ -2021,6 +2113,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {row(Heart, 'Emergency contact', e.personal?.emergency?.name ? [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone, e.personal.emergency.email].filter(Boolean).join(' · ') : '')}
             </div>
           </>
+        )}
+
+        {tab === 'details' && (
+          <EmployeeMoreDetails employee={e} readOnly={teamView || isRemoved || !canEditProfile} toastOk={toastOk} toastErr={toastErr} />
         )}
 
         {tab === 'pay' && (canSeeComp || directReport) && (
@@ -2154,6 +2250,13 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [packetRefresh, setPacketRefresh] = useState(0);
   const { canAccessModule } = useRole();
   const canSeePay = canAccessModule('hr_comp', 'owner', 'viewer');
+  // Pipeline | Openings | Headcount (Neil, Oct 27 2026): hiring starts before the
+  // candidate - a headcount request, then the job opening the careers page lists.
+  const [hView, setHView] = useState('pipeline');
+  const [openings, setOpenings] = useState([]);
+  const [openingFilter, setOpeningFilter] = useState('');   // '' = every candidate
+  const loadOpenings = useCallback(() => { api.listOpenings().then(setOpenings).catch(() => {}); }, []);
+  useEffect(() => { loadOpenings(); }, [loadOpenings]);
   // Roles typed in as Other on Add Candidate that have no hiring packet yet
   // (Neil, Oct 12) - the Packets button carries the count until each has one.
   const [needPackets, setNeedPackets] = useState([]);
@@ -2196,8 +2299,31 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   // Neil, Oct 14: Hired and Rejected stay on the board ("there's no need to keep
   // this closed"); a rejected candidate leaves it when removed, or after 90 days.
   const inactive = candidates.filter(c => c.inactive);
-  const byStage = s => candidates.filter(c => c.stage === s && !c.inactive);
+  const byStage = s => candidates.filter(c => c.stage === s && !c.inactive && (!openingFilter || c.openingId === openingFilter));
   const LANES = [...STAGES, 'rejected'];
+  // The openings still taking candidates, with how many are on the board for each.
+  const activeOpenings = openings.filter(o => ['draft', 'open', 'paused'].includes(o.status) || o.id === openingFilter);
+  const viewTabs = (
+    <div className="scroll-tabs" role="tablist" aria-label="Hiring" style={{ display: 'flex', gap: 4 }}>
+      {[['pipeline', 'Pipeline'], ['openings', `Openings${activeOpenings.length ? ` (${activeOpenings.length})` : ''}`], ['headcount', 'Headcount']].map(([k, label]) => (
+        <button key={k} type="button" role="tab" aria-selected={hView === k} onClick={() => { setHView(k); if (k === 'pipeline') { refreshBoard(); loadOpenings(); } }}
+          className={hView === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 12.5, padding: '5px 12px' }}>{label}</button>
+      ))}
+    </div>
+  );
+  if (hView !== 'pipeline') {
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>{viewTabs}</div>
+        <Suspense fallback={<SkeletonBlocks count={3} height={64} />}>
+          {hView === 'openings'
+            ? <JobOpenings toastOk={toastOk} toastErr={toastErr} canSeePay={canSeePay}
+              onFilterPipeline={id => { setOpeningFilter(id); setHView('pipeline'); refreshBoard(); loadOpenings(); }} />
+            : <HeadcountRequests toastOk={toastOk} toastErr={toastErr} />}
+        </Suspense>
+      </div>
+    );
+  }
 
   // Drag a card to another stage (Neil, Oct 14: "you should be able to drag
   // and drop people ... you should be able to go backwards"). Each target runs
@@ -2310,6 +2436,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+        {viewTabs}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {/* Neil, Oct 14: the questionnaires and the documents are settings -
               set up in Settings > Hiring, never edited on the board. */}
@@ -2350,6 +2477,24 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           </div>
         ))}
       </div>
+
+      {activeOpenings.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginRight: 4 }}>Openings</span>
+          {[{ id: '', title: 'All Candidates' }, ...activeOpenings].map(o => {
+            const on = openingFilter === o.id;
+            const n = o.id ? candidates.filter(c => c.openingId === o.id && !c.inactive).length : null;
+            return (
+              <button key={o.id || 'all'} type="button" aria-pressed={on} onClick={() => setOpeningFilter(o.id)}
+                title={o.id ? `${o.statusLabel} - ${o.counts?.hired || 0} of ${o.seats} hired` : 'Every candidate'}
+                style={{ fontSize: 12, fontWeight: on ? 700 : 600, padding: '4px 10px', borderRadius: 999, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                  border: `1px solid ${on ? 'var(--pine, #15803d)' : 'var(--line)'}`, background: on ? 'hsla(var(--color-green),0.08)' : 'var(--card)', color: 'var(--ink)' }}>
+                {o.title}{n != null && <span style={{ color: 'var(--muted)', fontWeight: 600 }}> · {n}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {candidates.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
@@ -3126,303 +3271,10 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, toas
   );
 }
 
-// ── Leave tracker (Phase 6) ───────────────────────────────────────────────────
-const LEAVE_TYPES = [['annual', 'Annual'], ['sick', 'Sick'], ['unpaid', 'Unpaid']];
-const LEAVE_STATUS = {
-  pending:  { label: 'Pending',  bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
-  approved: { label: 'Approved', bg: 'hsla(var(--color-green),0.1)',   fg: 'hsl(var(--color-green))' },
-  rejected: { label: 'Rejected', bg: 'hsla(var(--color-red),0.1)',     fg: 'hsl(var(--color-red))' },
-};
-
-function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
-  const [f, setF] = useState({ employee_id: '', leave_type: 'annual', start_date: '', end_date: '', days: 1, reason: '' });
-  const [busy, setBusy] = useState(false);
-  const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
-  const canSave = f.employee_id && f.start_date && f.days > 0;
-  async function save() {
-    if (!canSave || busy) return;
-    setBusy(true);
-    try { onSaved(await api.createLeave({ ...f, days: Number(f.days) })); onClose(); }
-    catch (err) { toastErr(err?.message || 'Could not record leave.'); setBusy(false); }
-  }
-  const dirty = !!(f.employee_id || f.start_date || f.end_date || f.reason.trim() || f.days !== 1);
-  const guard = useUnsavedGuard(dirty, onClose, canSave ? save : undefined);
-  const pickable = idPickRows(employees.filter(e => e.status !== 'offboarded'));
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>New Leave Request</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: 'auto auto auto 1fr', gap: 14 }}>
-          <div style={{ gridColumn: '1 / -1' }}><label style={FL}>EMPLOYEE *</label>
-            <PersonSelect value={pickable.find(p => p.id === f.employee_id)?.email || null}
-              onChange={v => set('employee_id', pickable.find(p => p.email === v)?.id || '')}
-              people={pickable} placeholder="Pick a person" allowNone={false} ariaLabel="Employee" style={PICK_BOX} /></div>
-          <div><label style={FL}>TYPE</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.leave_type} onChange={e => set('leave_type', e.target.value)}>
-              {LEAVE_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select></div>
-          <div><label style={FL}>DAYS *</label>
-            <input className="form-input" type="number" min="0.5" step="0.5" style={{ width: '100%' }} value={f.days} onChange={e => set('days', e.target.value)} /></div>
-          <div><label style={FL}>FROM *</label>
-            <input className="form-input" type="date" style={{ width: '100%' }} value={f.start_date} onChange={e => set('start_date', e.target.value)} /></div>
-          <div><label style={FL}>TO</label>
-            <input className="form-input" type="date" style={{ width: '100%' }} value={f.end_date} onChange={e => set('end_date', e.target.value)} /></div>
-          <div className="nx-fill" style={{ gridColumn: '1 / -1' }}><label style={FL}>REASON</label>
-            <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.reason} onChange={e => set('reason', e.target.value)} /></div>
-        </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={!canSave || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!canSave || busy) ? 0.6 : 1 }}>
-            {busy ? <Spinner size={14} /> : <Plus size={14} />} Submit
-          </button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={canSave ? guard.saveAndClose : undefined} saving={busy} />
-      )}
-    </div>
-  );
-}
-
-// Searchable multi-person filter: type to find people, pick several as chips.
-// Empty selection = everyone.
-function PeopleFilter({ employees, selected, onChange }) {
-  const [q, setQ] = useState('');
-  const [open, setOpen] = useState(false);
-  const boxRef = useRef(null);
-  // The suggestions match the search box's width, measured as it opens.
-  const [boxWidth, setBoxWidth] = useState();
-  const openList = () => { setBoxWidth(boxRef.current?.offsetWidth); setOpen(true); };
-  const selSet = new Set(selected);
-  const matches = q.trim()
-    ? employees.filter(e => !selSet.has(e.id) && fullName(e).toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8)
-    : [];
-  const pick = (e) => { onChange([...selected, e.id]); setQ(''); };
-  return (
-    <div ref={boxRef} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
-      border: '1px solid var(--line)', borderRadius: 10, padding: '5px 10px', background: 'var(--card)', minWidth: 260, flex: '0 1 460px' }}>
-      <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-      {selected.map(id => {
-        const e = employees.find(x => x.id === id);
-        return (
-          <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', borderRadius: 8, padding: '2px 8px' }}>
-            {e ? fullName(e) : id}
-            <X size={11} style={{ cursor: 'pointer' }} onClick={() => onChange(selected.filter(x => x !== id))} />
-          </span>
-        );
-      })}
-      <input className="nx-inline-edit" value={q} onChange={e => { setQ(e.target.value); openList(); }}
-        onFocus={openList} onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onKeyDown={e => {
-          if (e.key === 'Enter' && matches[0]) { e.preventDefault(); pick(matches[0]); }
-          if (e.key === 'Backspace' && !q && selected.length) onChange(selected.slice(0, -1));
-        }}
-        placeholder={selected.length ? 'Add another person…' : 'Filter by person - type a name…'}
-        style={{ flex: 1, minWidth: 140, border: 'none', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', padding: '3px 0' }} />
-      {selected.length > 0 && (
-        <button onClick={() => onChange([])} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}>Clear</button>
-      )}
-      <AnchoredMenu anchorRef={boxRef} open={open && matches.length > 0} onClose={() => setOpen(false)} role="listbox"
-        style={{ width: boxWidth, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)' }}>
-        {matches.map(e => (
-          <button key={e.id} onMouseDown={ev => { ev.preventDefault(); pick(e); }}
-            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)' }}
-            onMouseEnter={ev => ev.currentTarget.style.background = 'var(--mist)'}
-            onMouseLeave={ev => ev.currentTarget.style.background = 'none'}>
-            {fullName(e)} <span style={{ color: 'var(--muted)', fontSize: 11 }}>· {e.department || e.jobTitle || ''}</span>
-          </button>
-        ))}
-      </AnchoredMenu>
-    </div>
-  );
-}
-
-
-// "Who's out this week" - Mon–Sun strip merging both leave sources: HR-recorded
-// leave (HrLeaveRequest) and self-service time off (Time Clock / My HR).
-function WhosOutWeek({ employees, hrLeave, selIds = [] }) {
-  const [timeoff, setTimeoff] = useState([]);
-  useEffect(() => { api.timeOffList('').then(setTimeoff).catch(() => {}); }, []);
-  const byId = Object.fromEntries(employees.map(e => [e.id, e]));
-
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  // Sunday-first, ending Saturday - the app-wide calendar convention (Neil,
-  // Sept 7). getDay() is already 0=Sun, so the week's start needs no rotation.
-  const weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay());
-  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
-  const isoD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-  // Respect the people filter: empty selection = everyone.
-  const selSet = new Set(selIds);
-  const selEmails = new Set(selIds.map(id => (byId[id]?.workEmail || '').toLowerCase()).filter(Boolean));
-  const entries = [
-    ...(hrLeave || []).filter(r => ['approved', 'pending'].includes(r.status))
-      .filter(r => !selSet.size || selSet.has(r.employeeId)).map(r => ({
-        name: fullName(byId[r.employeeId] || { firstName: '?' }),
-        start: r.startDate || r.start_date || '', end: r.endDate || r.end_date || '',
-        status: r.status, type: r.leaveType || r.type || '',
-      })),
-    ...timeoff.filter(r => ['approved', 'pending'].includes(r.status))
-      .filter(r => !selSet.size || selEmails.has((r.email || '').toLowerCase())).map(r => ({
-        name: r.name || (r.email || '').split('@')[0].replace('.', ' '),
-        start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.type || '',
-      })),
-  ].filter(e => e.start && e.end);
-
-  const weekHasAnyone = days.some(d => entries.some(e => e.start <= isoD(d) && isoD(d) <= e.end));
-
-  return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: '12px 14px', marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 10 }}>
-        Who's out this week
-      </div>
-      {!weekHasAnyone ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Everyone's in - no approved or pending leave this week.</div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
-          {days.map(d => {
-            const key = isoD(d);
-            const isToday = key === isoD(today);
-            const out = entries.filter(e => e.start <= key && key <= e.end);
-            return (
-              <div key={key} style={{ borderRadius: 10, padding: '7px 8px', minHeight: 58, background: isToday ? 'hsla(var(--color-blue),0.06)' : 'var(--mist)', outline: isToday ? '1.5px solid hsla(var(--color-blue),0.4)' : 'none' }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: isToday ? 'hsl(var(--color-blue))' : 'var(--muted)', marginBottom: 5 }}>
-                  {d.toLocaleDateString('en-US', { weekday: 'short' })} {d.getDate()}
-                </div>
-                {out.length === 0 ? (
-                  <div style={{ fontSize: 10.5, color: 'var(--muted)', opacity: 0.6 }}>-</div>
-                ) : out.map((e, i) => (
-                  <div key={i} title={`${e.name} · ${e.type}${e.status === 'pending' ? ' (pending)' : ''}`}
-                    style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 6px', borderRadius: 8, marginBottom: 3,
-                      background: e.status === 'approved' ? 'hsla(var(--color-green),0.12)' : 'hsla(var(--color-orange),0.12)',
-                      color: e.status === 'approved' ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {e.name.split(' ')[0]}{e.status === 'pending' ? ' ?' : ''}
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-
-function LeaveTab({ employees, toastOk, toastErr }) {
-  const [leave, setLeave] = useState(null);
-  const [formOpen, setFormOpen] = useState(false);
-  const [selF, setSelF] = useState([]);          // people filter - empty = everyone
-  const [balances, setBalances] = useState(null);
-  const [busyId, setBusyId] = useState(null);
-  const [loadErr, setLoadErr] = useState(false);
-  const year = new Date().getFullYear();
-  const empF = selF.length === 1 ? selF[0] : 'All';   // balances show for exactly one person
-
-  const loadLeave = useCallback(() => {
-    setLoadErr(false); setLeave(null);
-    api.getLeave().then(setLeave).catch(() => setLoadErr(true));   // don't mask a failure as "no requests"
-  }, []);
-  useEffect(() => { loadLeave(); }, [loadLeave]);
-  useEffect(() => {
-    if (empF === 'All') { setBalances(null); return; }
-    api.getLeaveBalances(empF, year).then(setBalances).catch(() => setBalances(null));
-  }, [empF, year]);
-
-  const byId = Object.fromEntries(employees.map(e => [e.id, e]));
-
-  async function decide(r, action) {
-    setBusyId(r.id);
-    try {
-      const updated = await api.decideLeave(r.id, { action });
-      setLeave(prev => prev.map(x => x.id === r.id ? updated : x));
-      toastOk(`Leave ${action === 'approve' ? 'approved' : 'rejected'} for ${fullName(byId[r.employeeId] || { firstName: '?' })}.`);
-      if (empF === r.employeeId) api.getLeaveBalances(empF, year).then(setBalances).catch(() => {});
-    } catch (err) { toastErr(err?.message || 'Could not update request.'); }
-    setBusyId(null);
-  }
-
-  if (loadErr) return <ErrorBanner message="Couldn't load leave requests right now." onRetry={loadLeave} />;
-  if (leave === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Spinner size="section" /></div>;
-
-  const visible = selF.length === 0 ? leave : leave.filter(r => selF.includes(r.employeeId));
-  const pending = visible.filter(r => r.status === 'pending').length;
-
-  return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-        <PeopleFilter employees={employees} selected={selF} onChange={setSelF} />
-        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{pending} pending · {visible.length} shown</span>
-        {/* Employees request their own leave from My HR - this is the approve/track
-            view. HR keeps a de-emphasised "log on behalf" for phone-ins and
-            staff without portal access. */}
-        <button className="secondary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} onClick={() => setFormOpen(true)}>
-          <Plus size={13} /> Log on Behalf
-        </button>
-      </div>
-
-      <WhosOutWeek employees={employees} hrLeave={leave} selIds={selF} />
-
-      {/* Balance cards when a person is picked - used computes from approvals */}
-      {balances && (
-        <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-          {balances.map(b => (
-            <div key={b.leaveType} className={`kpi-card ${b.leaveType === 'annual' ? 'card-green' : b.leaveType === 'sick' ? 'card-orange' : 'card-blue'}`}>
-              <div className="kpi-label">{LEAVE_TYPES.find(([v]) => v === b.leaveType)?.[1]} {year}</div>
-              <div className="kpi-value">{b.used}<span style={{ fontSize: 14, color: 'var(--muted)', fontWeight: 600 }}> / {b.allocated || '∞'} used</span></div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {visible.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
-          <CalendarOff size={30} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
-          <div style={{ fontSize: 13.5 }}>No leave requests{empF !== 'All' ? ' for this person' : ''} yet.</div>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {visible.map(r => {
-            const e = byId[r.employeeId];
-            const lm = LEAVE_STATUS[r.status] || LEAVE_STATUS.pending;
-            return (
-              <div key={r.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', boxShadow: 'var(--shadow-sm)' }}>
-                {e ? <Avatar e={e} size={34} /> : null}
-                <div style={{ flex: 1, minWidth: 160 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{e ? fullName(e) : 'Unknown'} <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 12 }}>· {LEAVE_TYPES.find(([v]) => v === r.leaveType)?.[1]} · {r.days} day{r.days !== 1 ? 's' : ''}</span></div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
-                    {formatDate(r.startDate)}{r.endDate && r.endDate !== r.startDate ? ` → ${formatDate(r.endDate)}` : ''}{r.reason ? ` · ${r.reason}` : ''}
-                  </div>
-                  {r.decisionNote && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Note: {r.decisionNote}</div>}
-                </div>
-                <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: lm.bg, color: lm.fg, flexShrink: 0 }}>{lm.label}</span>
-                {r.status === 'pending' && (
-                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    <button onClick={() => decide(r, 'reject')} disabled={busyId === r.id}
-                      style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>
-                      Reject
-                    </button>
-                    <button className="primary-btn" onClick={() => decide(r, 'approve')} disabled={busyId === r.id}
-                      style={{ fontSize: 12, padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      {busyId === r.id ? <Spinner size={12} /> : <CheckCircle size={12} />} Approve
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {formOpen && <LeaveFormModal employees={employees} toastErr={toastErr} onClose={() => setFormOpen(false)}
-        onSaved={r => { setLeave(prev => [r, ...prev]); toastOk('Leave request recorded - pending approval.'); }} />}
-    </div>
-  );
-}
+// The People > Leave tab (the Phase 6 leave tracker) is retired (Neil, Oct
+// 27 2026): leave is requested, approved and balanced in Time Off. Its rows
+// stay readable in People > Time > Time Off > Leave History (Before Time Off)
+// - components/LeaveHistory.jsx - and old 'hr-leave' links land on Time Off.
 
 // ── Main view ─────────────────────────────────────────────────────────────────
 // ── Companies / legal entities manager (HR Section A) ────────────────────────
@@ -6023,10 +5875,13 @@ export default function HR({ activeSub, onSubChange }) {
   // hr-access moved to the Admin module (Pranshu, Sep 9) - old deep links
   // redirect there by the effect below, so it's not in this list any more.
   // Dashboard tiles open the Time tab on a specific inner list.
-  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices' };
+  // 'hr-leave' was the People > Leave tab until Oct 27 2026 - it is Time Off now.
+  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-leave': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices', 'hr-time-extra': 'extra' };
   // The manager tier sees its own team in People (Oct 6): People and Time only.
   const { hrTeam } = useRole();
-  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'];
+  // People Analytics (Oct 27 2026) is HR's: the manager tier's /hr allowlist
+  // does not open it either.
+  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-exits', 'hr-performance'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
     : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
@@ -6063,6 +5918,11 @@ export default function HR({ activeSub, onSubChange }) {
   // Inactive tab. The status dropdown narrows further inside a lens.
   const [listTab,   setListTab]   = useState('active');
   const [typeF,     setTypeF]     = useState('All');   // All | employee | contractor | external
+  // More Details (Oct 27 2026): pick a field to see it on every row, and
+  // optionally narrow to a value. Only the fields this viewer may see arrive.
+  const [cfDefs,    setCfDefs]    = useState([]);
+  const [cfKey,     setCfKey]     = useState('');
+  const [cfF,       setCfF]       = useState('');
   // DELETED_F is a view, not a status: a removed person keeps whatever status
   // they had, so it cannot live in STATUS_META alongside active/onboarding.
   const [deletedEmployees, setDeletedEmployees] = useState([]);
@@ -6093,6 +5953,13 @@ export default function HR({ activeSub, onSubChange }) {
   useEffect(() => {
     const m = String(activeSub || '').match(/^hr-role-change-(.+)$/);
     if (m) { setRoleDecisionId(m[1]); onSubChange?.('hr-people'); }
+  }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The probation bell / email (Oct 27 2026) lands on hr-probation-<employee id>:
+  // their profile, Overview, the Probation section in view.
+  const [probationFocus, setProbationFocus] = useState('');
+  useEffect(() => {
+    const m = String(activeSub || '').match(/^hr-probation-(.+)$/);
+    if (m) { setProbationFocus(m[1]); setOpenTab('overview'); setSelectedId(m[1]); onSubChange?.('hr-people'); }
   }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = !hrTeam && canAccessModule('hr_comp', 'owner', 'viewer');   // a team view never shows pay
@@ -6173,6 +6040,9 @@ export default function HR({ activeSub, onSubChange }) {
   const loadSites = () => api.getWorkSites().then(setSites).catch(() => setSites([]));
   useEffect(load, []);
   useEffect(() => { loadEntities(); loadSites(); }, []);
+  useEffect(() => { api.hrCustomFields().then(r => setCfDefs(Array.isArray(r) ? r : [])).catch(() => setCfDefs([])); }, []);
+  const cfField = cfDefs.find(f => f.fieldKey === cfKey) || null;
+  const cfShown = e => (cfField ? formatFieldValue(cfField, e.customFields?.[cfField.fieldKey]) : '');
   // Every person action (offboard, hire, status change, remove, restore,
   // provision, push to M365...) calls refreshPeople, so the tiles, the
   // directory, its counts, the open profile and the checklist chips all
@@ -6210,21 +6080,23 @@ export default function HR({ activeSub, onSubChange }) {
       : [...employees, ...extEmployees].sort((a, b) => fullName(a).localeCompare(fullName(b)));
     return source.filter(e => {
       if (!showingDeleted && statusF === 'All' && INACTIVE_STATUSES.has(e.status || 'active') !== (listTab === 'inactive')) return false;
+      if (statusF === PROBATION_F && (!e.probation?.ending || INACTIVE_STATUSES.has(e.status || 'active'))) return false;
       if (typeF === 'employee' && (isExtRow(e) || e.employmentType === 'contractor')) return false;
       if (typeF === 'contractor' && (isExtRow(e) || e.employmentType !== 'contractor')) return false;
       if (typeF === 'external' && !isExtRow(e)) return false;
       if (companyF !== 'All' && e.company !== companyF) return false;
       if (deptF !== 'All' && e.department !== deptF) return false;
+      if (cfField && !matchesFieldFilter(cfField, e.customFields?.[cfField.fieldKey], cfF)) return false;
       // Skipped while showing removed people - they keep their old status, so
       // matching on it here would filter the list down to nothing.
-      if (!showingDeleted && statusF !== 'All' && e.status !== statusF) return false;
+      if (!showingDeleted && statusF !== 'All' && statusF !== PROBATION_F && e.status !== statusF) return false;
       if (search.trim()) {
         const q = search.trim().toLowerCase();
         return [fullName(e), e.workEmail, e.employeeCode, e.jobTitle, e.department, e.externalCompany].some(v => (v || '').toLowerCase().includes(q));
       }
       return true;
     });
-  }, [employees, extEmployees, deletedEmployees, showingDeleted, typeF, companyF, deptF, statusF, search, listTab]);
+  }, [employees, extEmployees, deletedEmployees, showingDeleted, typeF, companyF, deptF, statusF, search, listTab, cfField, cfF]);
   // Tab counts over the whole directory (not the other filters), so the
   // Inactive count reads the same whichever company or department is open.
   const tabCounts = useMemo(() => {
@@ -6250,7 +6122,7 @@ export default function HR({ activeSub, onSubChange }) {
   // directory - a match "on page 10" simply becomes page 1 of the results.
   const PAGE_SIZE = 12;
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [search, companyF, deptF, statusF, typeF]);
+  useEffect(() => { setPage(1); }, [search, companyF, deptF, statusF, typeF, cfKey, cfF]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const curPage = Math.min(page, totalPages);
   const paged = useMemo(() => filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE),
@@ -6312,9 +6184,15 @@ export default function HR({ activeSub, onSubChange }) {
     { key: 'hr-people', label: 'People',    Icon: Users },
     { key: 'hr-hiring', label: 'Hiring',    Icon: UserPlus },
     { key: 'hr-org',    label: 'Org Chart', Icon: Network },
-    { key: 'hr-leave',  label: 'Leave',     Icon: CalendarOff },
     { key: 'hr-time',   label: 'Time',      Icon: Clock },
     { key: 'hr-checklists', label: 'Checklists', Icon: ListChecks },
+    // People Analytics (Neil, Oct 27 2026): the overview's headcount grown
+    // into trends, attrition, tenure, absence and leave liability.
+    { key: 'hr-analytics', label: 'Analytics', Icon: BarChart3 },
+    // Exits In Progress + the final settlement statement (Neil, Oct 27 2026).
+    { key: 'hr-exits', label: 'Exits', Icon: LogOut },
+    // Performance (Oct 27 2026): review cycles and the company's goals.
+    { key: 'hr-performance', label: 'Performance', Icon: Target },
     // The External tab is gone (Neil, Aug 24): external/guest people live in
     // the People directory with a worker-type filter, and their lifecycle
     // actions sit on their profile card.
@@ -6389,7 +6267,7 @@ export default function HR({ activeSub, onSubChange }) {
 
       {/* Tabs - desktop renders them centered in the top header; phones keep
           the in-page strip (ModuleTabs handles both) */}
-      <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} />
+      <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} overflow />
 
       {codesOpen && (
         <Suspense fallback={<ModalLoading />}>
@@ -6411,11 +6289,14 @@ export default function HR({ activeSub, onSubChange }) {
           }} />
       )}
       {sub === 'hr-org' && <OrgChartTab employees={employees} externals={extEmployees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-leave' && <LeaveBalancesAdmin toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
-      {/* Approval Delegations (Oct 17): HR sees and sets everyone's stand-ins. */}
-      {sub === 'hr-leave' && <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} toastOk={toastOk} toastErr={toastErr} />}
+      {/* Leave balances, the year end, approval stand-ins and the old Leave
+          history sit under Time > Time Off now (hrPanels, Oct 27 2026). */}
+      {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} hrPanels toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-analytics' && (
+        <Suspense fallback={<SkeletonBlocks count={3} height={140} />}>
+          <HrAnalytics onOpenPerson={id => { setOpenTab('overview'); setSelectedId(id); onSubChange?.('hr-people'); }} />
+        </Suspense>
+      )}
       {/* Operations only (Neil, Oct 19: "once it's set up, we should be just
           operating it") - the steps are set up in Settings. */}
       {sub === 'hr-checklists' && (
@@ -6427,8 +6308,21 @@ export default function HR({ activeSub, onSubChange }) {
         </>
       )}
 
+      {sub === 'hr-exits' && (
+        <Suspense fallback={<SkeletonBlocks count={3} height={60} />}>
+          <ExitsTab toastOk={toastOk} toastErr={toastErr} />
+        </Suspense>
+      )}
+      {sub === 'hr-performance' && (
+        <Suspense fallback={<SkeletonBlocks count={2} height={140} />}>
+          <PerformanceAdmin toastOk={toastOk} toastErr={toastErr} />
+        </Suspense>
+      )}
+
       {sub === 'hr-people' && (<>
         {!hrTeam && <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />}
+        {/* HR letters waiting on HR (Oct 27 2026) - the server decides who sees them: the company's HR contact, administrators, Full HR. */}
+        <LetterRequestsPanel toastOk={toastOk} toastErr={toastErr} />
         {!hrTeam && <RecordsAudit entityName={entityName} refreshKey={employees} onOpen={id => { setOpenTab('documents'); setSelectedId(id); }} />}
         {/* Stat cards - headcount composition, status breakdown, department
             spread (real data, designed zero/loading states) */}
@@ -6452,7 +6346,7 @@ export default function HR({ activeSub, onSubChange }) {
           </button>
           <EmployeeDetail key={selected.id} e={selected} employees={[...employees, ...extEmployees]} isMobile={isMobile} teamView={hrTeam}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
-            initialTab={openTab} checklists={clProgress[selected.id] || []}
+            initialTab={openTab} checklists={clProgress[selected.id] || []} focusProbation={probationFocus === selected.id}
             toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
             onExternalChanged={refreshPeople} onReload={refreshPeople}
             onEdit={emp => { setEditing(emp); setFormOpen(true); }}
@@ -6503,8 +6397,31 @@ export default function HR({ activeSub, onSubChange }) {
                   style={{ ...(isMobile ? PHONE_FILTER : { width: 135 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
                   <option value="All">All statuses</option>
                   {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+                  <option value={PROBATION_F}>Probation Ending</option>
                   <option value={DELETED_F}>Deleted</option>
                 </select>
+                {cfDefs.length > 0 && (
+                  <select className="form-input" aria-label="Show a More Details field" value={cfKey}
+                    onChange={e => { setCfKey(e.target.value); setCfF(''); }}
+                    title="Show one of the More Details fields on every row, and narrow the list by it"
+                    style={{ ...(isMobile ? PHONE_FILTER : { width: 165 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                    <option value="">More Details field</option>
+                    {cfDefs.map(f => <option key={f.fieldKey} value={f.fieldKey}>{f.label}</option>)}
+                  </select>
+                )}
+                {cfField && (cfField.fieldType === 'dropdown' || cfField.fieldType === 'checkbox' ? (
+                  <select className="form-input" aria-label={`Filter by ${cfField.label}`} value={cfF} onChange={e => setCfF(e.target.value)}
+                    style={{ ...(isMobile ? PHONE_FILTER : { width: 150 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                    <option value="">Any {cfField.label}</option>
+                    {cfField.fieldType === 'checkbox'
+                      ? <><option value="yes">Yes</option><option value="no">No</option></>
+                      : <>{(cfField.options || []).map(o => <option key={o} value={o}>{o}</option>)}<option value="__empty">No value</option></>}
+                  </select>
+                ) : (
+                  <input className="form-input" aria-label={`Filter by ${cfField.label}`} value={cfF} onChange={e => setCfF(e.target.value)}
+                    placeholder={`${cfField.label} contains…`}
+                    style={{ ...(isMobile ? PHONE_FILTER : { width: 160 }), padding: '7px 10px', fontSize: 13.5, height: 38 }} />
+                ))}
               </div>
             </div>
             {!showingDeleted && statusF === 'All' && (
@@ -6545,6 +6462,7 @@ export default function HR({ activeSub, onSubChange }) {
                     <th>Employee</th>
                     <th className="ppl-col-secondary">Position</th>
                     <th className="ppl-col-secondary">Department</th>
+                    {cfField && <th>{cfField.label}</th>}
                     <th>Status</th>
                     <th style={{ width: 34 }} aria-label="Open profile" />
                   </tr>
@@ -6570,8 +6488,10 @@ export default function HR({ activeSub, onSubChange }) {
                         </td>
                         <td className="ppl-col-secondary">{e.jobTitle || '-'}</td>
                         <td className="ppl-col-secondary">{e.department || '-'}</td>
+                        {cfField && <td>{cfShown(e) || '-'}</td>}
                         <td>
                           <span style={{ padding: '4px 11px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, background: sm.bg, color: sm.fg, whiteSpace: 'nowrap' }}>{sm.label}</span>
+                          {e.probation?.ending && <div style={{ marginTop: 4 }}><ProbationBadge p={e.probation} /></div>}
                           {(clProgress[e.id] || []).map(p => <div key={p.checklistId} style={{ marginTop: 4 }}><ChecklistChip p={p} compact onClick={() => openChecklistOf(e.id)} /></div>)}
                         </td>
                         <td><ChevronRight size={14} style={{ color: 'var(--wk-faint)' }} /></td>
@@ -6610,6 +6530,12 @@ export default function HR({ activeSub, onSubChange }) {
                                 <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                             </div>
                             <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>
+                            {cfField && (
+                              <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <span style={{ fontWeight: 600 }}>{cfField.label}:</span> {cfShown(e) || '-'}
+                              </div>
+                            )}
+                            {e.probation?.ending && <div style={{ marginTop: 4 }}><ProbationBadge p={e.probation} /></div>}
                             {(clProgress[e.id] || []).length > 0 && (
                               <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                                 {clProgress[e.id].map(p => <ChecklistChip key={p.checklistId} p={p} compact onClick={() => openChecklistOf(e.id)} />)}
@@ -6636,7 +6562,7 @@ export default function HR({ activeSub, onSubChange }) {
                   {selected ? (
                     <EmployeeDetail key={selected.id} e={selected} employees={[...employees, ...extEmployees]} isMobile={isMobile} teamView={hrTeam}
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
-                      initialTab={openTab} checklists={clProgress[selected.id] || []}
+                      initialTab={openTab} checklists={clProgress[selected.id] || []} focusProbation={probationFocus === selected.id}
                       toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
                       onExternalChanged={refreshPeople} onReload={refreshPeople}
                       onEdit={emp => { setEditing(emp); setFormOpen(true); }}

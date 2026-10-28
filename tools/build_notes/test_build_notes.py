@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from tools.build_notes import cli, common, preview, repro_template, run_e2e, watch
+from tools.build_notes import cli, common, connect, preview, repro_template, run_e2e, watch
 
 GOOD_TOKEN = "nxbn_" + "a" * 43
 REVOKED_TOKEN = "nxbn_" + "r" * 43
@@ -186,7 +186,7 @@ class FakeApi(BaseHTTPRequestHandler):
         q = parse_qs(parsed.query)
         st["calls"].append(("GET", path, q))
         if path == "/dev-notes/cli/whoami":
-            return self._json(200, {"email": "neil@greensglobal.com", "tokenLabel": "Neil's MacBook"})
+            return self._json(200, {"email": "neil@greensglobal.com", "tokenLabel": "Neil's MacBook", "onePr": bool(st.get("one_pr"))})
         if path == "/dev-notes/cli/wait":
             batches = st.get("wait_batches") or []
             if batches:
@@ -364,6 +364,7 @@ class BuildNotesToolsTest(unittest.TestCase):
     def setUp(self):
         self.server.state["calls"].clear()
         self.server.state["wait_batches"].clear()
+        self.server.state.pop("one_pr", None)
         self.server.state.pop("list_needs_session", None)
 
     # -- resolution ------------------------------------------------------------
@@ -429,6 +430,17 @@ class BuildNotesToolsTest(unittest.TestCase):
         code, out, err = run_cli(["--api", self.server.base, "whoami"])
         self.assertEqual(code, 0)
         self.assertIn("neil@greensglobal.com (Neil's MacBook)", out)
+        self.assertIn("Collect Fixes Into One PR: off", out)
+        self.server.state["one_pr"] = True
+        self.assertIn("Collect Fixes Into One PR: on", run_cli(["--api", self.server.base, "whoami"])[1])
+
+    def test_wait_blocks_until_pins_arrive_then_prints_their_ids(self):
+        self.server.state["wait_batches"].append({"notes": [], "sessions": []})
+        self.server.state["wait_batches"].append({"notes": [sample_note(self.server.base, with_media=False)], "sessions": []})
+        code, out, _ = run_cli(["--api", self.server.base, "wait"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "Pins arrived: " + NOTE_ID)
+        self.assertEqual(len([c for c in self.server.state["calls"] if c[1] == "/dev-notes/cli/wait"]), 2)
 
     def test_list_filters_by_status(self):
         code, out, _ = run_cli(["--api", self.server.base, "list", "--status", "dispatched"])
@@ -513,6 +525,33 @@ class BuildNotesToolsTest(unittest.TestCase):
             watch.run_claude, watch._sleep = real_run, real_sleep
         return code, out.getvalue(), launches, sleeps
 
+    def test_idle_watcher_restarts_when_its_code_changes(self):
+        stamps = iter([(1.0, 1.0), (1.0, 1.0), (2.0, 1.0)])   # start, first idle poll, after a git pull
+        real = watch._code_stamp
+        watch._code_stamp = lambda: next(stamps)
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                code = watch.main(["--api", self.server.base, "--timeout", "1"])
+        finally:
+            watch._code_stamp = real
+        self.assertEqual(code, watch.RESTART)
+        self.assertIn("The watcher was updated - restarting it with the new code.", out.getvalue())
+
+    def test_heartbeat_keeps_the_token_in_use_until_stopped(self):
+        calls, stop = [], threading.Event()
+
+        class Client:
+            def get(self, path, **kw):
+                calls.append(path)
+                if len(calls) == 2:
+                    raise common.ApiError(None, "blip")  # a failed beat does not end the heartbeat
+                if len(calls) == 3:
+                    stop.set()
+
+        watch._heartbeat(Client(), stop, every=0.01)
+        self.assertEqual(calls, ["/cli/whoami"] * 3)
+
     def test_watch_backs_off_when_the_same_pins_come_straight_back(self):
         batch = {"notes": [sample_note(self.server.base, with_media=False)], "sessions": []}
         other = {"notes": [sample_note(self.server.base, NOTE_ID_2, 4, with_media=False)], "sessions": []}
@@ -555,6 +594,23 @@ class BuildNotesToolsTest(unittest.TestCase):
         finally:
             watch.shutil.which = real_which
 
+    def test_run_claude_starts_the_path_which_found(self):
+        # Windows: npm's claude.cmd starts only by its full path (Oct 27).
+        found = r"C:\Users\me\AppData\Roaming\npm\claude.CMD"
+        real_which, real_run = watch.shutil.which, watch.subprocess.run
+        seen = []
+
+        def fake_run(cmd, **kw):
+            seen.append(cmd)
+            return type("R", (), {"returncode": 0})()
+        watch.shutil.which, watch.subprocess.run = (lambda name: found), fake_run
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(watch.run_claude(["a"], "", self.tmp.name), 0)
+        finally:
+            watch.shutil.which, watch.subprocess.run = real_which, real_run
+        self.assertEqual(seen, [[found, "--permission-mode", "acceptEdits", "/build-notes a"]])
+
     def test_watch_uses_the_cli_labels(self):
         self.assertFalse(hasattr(watch, "PRIORITY_LABELS"))
         line = watch.describe_batch([dict(sample_note("http://x", with_media=False), kind="change", priority="nice")], [])[0]
@@ -563,6 +619,8 @@ class BuildNotesToolsTest(unittest.TestCase):
     def test_claude_command_shape(self):
         cmd = watch.claude_command(["a", "b"], '--model opus --permission-mode "accept edits"')
         self.assertEqual(cmd, ["claude", "--model", "opus", "--permission-mode", "accept edits", "/build-notes a b"])
+        # No mode given: file edits are accepted, so a pin run does not stop per file.
+        self.assertEqual(watch.claude_command(["a"]), ["claude", "--permission-mode", "acceptEdits", "/build-notes a"])
         self.assertTrue((common.repo_root() / "CLAUDE.md").exists())
 
     # -- claim ------------------------------------------------------------------------
@@ -1937,6 +1995,66 @@ class RunE2ETest(_ServerTestBase):
     def test_cors_ports_and_import_rewrite(self):
         self.assertEqual(run_e2e.cors_ports('["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5180"]'), [5173, 5180])
         self.assertEqual(run_e2e.generated_spec("import { go } from '../helpers.mjs';"), "import { go } from '../../helpers.mjs';")
+
+
+class ConnectTests(unittest.TestCase):
+    """connect.py (Oct 26 2026): one command links this computer's Claude Code
+    to the person's Nexus and makes VS Code start the watcher with the folder."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_task_is_added_to_a_new_tasks_file(self):
+        f = self.tmp / ".vscode" / "tasks.json"
+        self.assertEqual(connect.upsert_task(f, connect.watcher_task("py")), "added")
+        data = json.loads(f.read_text(encoding="utf-8"))
+        self.assertEqual(data["version"], "2.0.0")
+        (task,) = data["tasks"]
+        self.assertEqual(task["label"], connect.TASK_LABEL)
+        self.assertEqual(task["command"], "py")
+        self.assertEqual(task["args"], ["${workspaceFolder}/tools/build_notes/watch.py"])
+        self.assertEqual(task["runOptions"], {"runOn": "folderOpen"})
+
+    def test_task_replaces_its_old_self_and_keeps_the_rest(self):
+        f = self.tmp / "tasks.json"
+        f.write_text(json.dumps({"version": "2.0.0", "tasks": [{"label": "Mine"}, {"label": connect.TASK_LABEL, "command": "old"}]}), encoding="utf-8")
+        self.assertEqual(connect.upsert_task(f, connect.watcher_task("new")), "updated")
+        tasks = json.loads(f.read_text(encoding="utf-8"))["tasks"]
+        self.assertEqual([t["label"] for t in tasks], ["Mine", connect.TASK_LABEL])
+        self.assertEqual(tasks[1]["command"], "new")
+
+    def test_a_tasks_file_with_comments_is_never_overwritten(self):
+        f = self.tmp / "tasks.json"
+        text = '{\n  // mine\n  "version": "2.0.0", "tasks": []\n}\n'
+        f.write_text(text, encoding="utf-8")
+        self.assertEqual(connect.upsert_task(f, connect.watcher_task()), "skipped")
+        self.assertEqual(f.read_text(encoding="utf-8"), text)
+
+    def test_the_connected_api_beats_the_environment_and_the_flag_beats_both(self):
+        api_file = self.tmp / "build-notes.api"
+        api_file.write_text("https://nexus-api.example/\n", encoding="utf-8")
+        saved, env = common.API_FILE, os.environ.pop(common.API_ENV, None)
+        common.API_FILE = api_file
+        try:
+            self.assertEqual(common.resolve_api_base(), "https://nexus-api.example")
+            self.assertEqual(common.resolve_api_base("http://localhost:8000/"), "http://localhost:8000")
+            os.environ[common.API_ENV] = "https://env.example"     # an old machine-wide setting
+            self.assertEqual(common.resolve_api_base(), "https://nexus-api.example")
+            api_file.unlink()
+            self.assertEqual(common.resolve_api_base(), "https://env.example")
+            del os.environ[common.API_ENV]
+            self.assertEqual(common.resolve_api_base(), common.DEFAULT_API_BASE)
+        finally:
+            common.API_FILE = saved
+            if env is not None:
+                os.environ[common.API_ENV] = env
+
+    def test_a_non_token_is_refused_before_anything_is_written(self):
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(connect.main(["not-a-token", "--no-watch", "--repo", str(self.tmp)]), 2)
+        self.assertIn("not a Build Token", err.getvalue())
+        self.assertFalse((self.tmp / ".vscode").exists())
 
 
 if __name__ == "__main__":

@@ -51,13 +51,13 @@ describe('Composer - ownership', () => {
     expect(onSave).toHaveBeenCalledWith(false);
   });
 
-  it('an owner who is me (held false): as before - Save Pin and Save And Send, no owner line', async () => {
+  it('an owner who is me (held false): as before - only Save Pin, no owner line', async () => {
     mount('src/asset/AssetShell.jsx');
     await waitFor(() => expect(api.devNotesOwnerOf).toHaveBeenCalledWith('src/asset/AssetShell.jsx'));
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByTestId('bm-owner-line')).toBeNull();
     expect(screen.getByRole('button', { name: /Save Pin/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Save And Send/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Save And Send/ })).toBeNull();
   });
 
   it('no source stamp: no lookup, the v1 buttons', async () => {
@@ -66,7 +66,20 @@ describe('Composer - ownership', () => {
     await new Promise((r) => setTimeout(r, 350));
     expect(api.devNotesOwnerOf).not.toHaveBeenCalled();
     expect(screen.queryByTestId('bm-owner-line')).toBeNull();
+    expect(screen.getByRole('button', { name: /Save Pin/ })).toBeTruthy();
+  });
+
+  it('Send Instantly off: only Save Pin, and Ctrl+Enter saves without sending (Pranshu, Oct 27)', () => {
+    const { onSave } = mount(null);
+    expect(screen.queryByRole('button', { name: /Save And Send/ })).toBeNull();
+    fireEvent.keyDown(screen.getByTestId('bm-composer'), { key: 'Enter', ctrlKey: true });
+    expect(onSave).toHaveBeenCalledWith(false);
+  });
+
+  it('Send Instantly on: the one button is Save And Send', () => {
+    mount(null, { sendInstantly: true });
     expect(screen.getByRole('button', { name: /Save And Send/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Save Pin/ })).toBeNull();
   });
 
   it('asks once per file: a second pick on the same file uses the cache', async () => {
@@ -78,5 +91,59 @@ describe('Composer - ownership', () => {
     await new Promise((r) => setTimeout(r, 350));
     expect(api.devNotesOwnerOf.mock.calls.filter(([p]) => p === 'src/tasks/Home.jsx').length).toBe(calls);
     expect(screen.queryByTestId('bm-owner-line')).toBeNull();
+  });
+});
+
+describe('Composer - the words first (Oct 26 2026)', () => {
+  const type = (d, text) => {
+    const onChange = vi.fn();
+    render(<Composer pick={pickAt('src/tasks/Home.jsx')} draft={{ ...draft, ...d }} onChange={onChange} onCancel={vi.fn()} onSave={vi.fn()} settings={{}} view="tasks" />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Comment' }), { target: { value: text } });
+    return onChange.mock.calls.at(-1)[0];
+  };
+
+  it('the kind follows the words until the person picks one', () => {
+    expect(type({}, 'Can we add a filter for owner')).toEqual({ comment: 'Can we add a filter for owner', kind: 'change' });
+    cleanup();
+    expect(type({}, 'Where do I find last week')).toEqual({ comment: 'Where do I find last week', kind: 'question' });
+    cleanup();
+    expect(type({}, 'The total is wrong after I filter')).toEqual({ comment: 'The total is wrong after I filter', kind: 'bug' });
+    cleanup();
+    expect(type({ kind: 'bug', kindSet: true }, 'Can we add a filter')).toEqual({ comment: 'Can we add a filter' });
+  });
+
+  it('kind and priority sit under More Options; picking a kind there stops the guessing', () => {
+    const onChange = vi.fn();
+    render(<Composer pick={pickAt('src/tasks/Home.jsx')} draft={draft} onChange={onChange} onCancel={vi.fn()} onSave={vi.fn()} settings={{}} view="tasks" />);
+    const more = screen.getByText('More Options').closest('details');
+    expect(more.open).toBe(false);
+    expect(more.textContent).toContain('Bug · Normal');
+    fireEvent.click(screen.getAllByRole('radio', { name: 'Question', hidden: true })[0]);
+    expect(onChange).toHaveBeenLastCalledWith({ kind: 'question', kindSet: true });
+  });
+});
+
+describe('guessKind', () => {
+  it('reads questions, change requests and bugs', async () => {
+    const { guessKind } = await import('./meta');
+    expect(guessKind('')).toBe('bug');
+    expect(guessKind('Why is this empty?')).toBe('question');
+    expect(guessKind('how do i export')).toBe('question');
+    expect(guessKind('It would be nice to see the owner here')).toBe('change');
+    expect(guessKind('Please add a due date column')).toBe('change');
+    expect(guessKind('Button does nothing when clicked')).toBe('bug');
+    expect(guessKind('Shows the wrong date')).toBe('bug');
+  });
+});
+
+describe('Composer - your Claude Code is not connected', () => {
+  it('only Save Pin, with a line saying how to send; Ctrl+Enter only saves', () => {
+    const onSave = vi.fn();
+    render(<Composer pick={pickAt('src/tasks/Home.jsx')} draft={draft} onChange={vi.fn()} onCancel={vi.fn()} onSave={onSave} settings={{ sendInstantly: true }} view="tasks" claudeConnected={false} />);
+    expect(screen.queryByRole('button', { name: /Save And Send/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Save Pin/ })).toBeTruthy();
+    expect(screen.getByTestId('bm-no-claude').textContent).toMatch(/not connected/);
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter', ctrlKey: true });
+    expect(onSave).toHaveBeenLastCalledWith(false);
   });
 });

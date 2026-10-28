@@ -1318,6 +1318,37 @@ def _run_migrations():
             "ALTER TABLE dev_notes ADD COLUMN preview_verdict VARCHAR DEFAULT ''",
             "ALTER TABLE dev_notes ADD COLUMN preview_verdict_at VARCHAR DEFAULT ''",
             "ALTER TABLE dev_notes ADD COLUMN regression_case_id VARCHAR DEFAULT ''",
+            # Build Mode: a sent pin goes to its sender's Claude Code only (Oct 26) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN dispatched_by VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_seen_at VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_partner_changes ADD COLUMN intacct_check JSON",
+            # Employee custom fields (Oct 27 2026) - see the Postgres list.
+            "ALTER TABLE nexus_employees ADD COLUMN custom_fields JSON",
+            # Duplicate Day (Oct 27) - see the Postgres list. models.TimePunch.
+            "ALTER TABLE time_punches ADD COLUMN replaced_by_batch TEXT DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_time_punches_replaced_by_batch ON time_punches (replaced_by_batch)",
+            # Hiring careers page (Oct 27 2026) - see the Postgres list.
+            "ALTER TABLE hr_candidates ADD COLUMN opening_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN location VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN linkedin_url VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN consent_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN applied_at VARCHAR DEFAULT ''",
+            # Ask HR runs through Tickets (Oct 27 2026) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN confidential_desk VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_confidential_desk ON task_tickets (confidential_desk)",
+            "ALTER TABLE hr_self_requests ADD COLUMN ticket_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_hr_self_requests_ticket_id ON hr_self_requests (ticket_id)",
+            # Probation tracking (Oct 27 2026) - see the Postgres list.
+            "ALTER TABLE nexus_employees ADD COLUMN probation JSON DEFAULT '{}'",
+            # Second Approval By HR on time off (Oct 27) - see the Postgres list.
+            "ALTER TABLE time_off_requests ADD COLUMN approval_stage VARCHAR DEFAULT ''",
+            "ALTER TABLE time_off_requests ADD COLUMN first_approver VARCHAR DEFAULT ''",
+            "ALTER TABLE time_off_requests ADD COLUMN first_decided_at VARCHAR DEFAULT ''",
+            "ALTER TABLE time_off_requests ADD COLUMN first_note VARCHAR DEFAULT ''",
+            # Add Time From Record (Oct 27) - see the Postgres list. models.TimePunch.
+            "ALTER TABLE time_punches ADD COLUMN entry_source VARCHAR DEFAULT ''",
+            # Workflows run cap (Oct 28) - see the Postgres list. models.WorkflowRun.
+            "ALTER TABLE workflow_runs ADD COLUMN active_seconds FLOAT DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3038,6 +3069,10 @@ def _run_migrations():
         "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS closed_through VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_ama_push_previews ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_ama_push_log ENABLE ROW LEVEL SECURITY",
+        # Account Reconciliations: liability accounts reconciled in Nexus, never
+        # sent to Intacct (Charmi + Neil, 10/25-10/26, item 09). New tables.
+        "ALTER TABLE accounting_liability_recons ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_liability_recon_log ENABLE ROW LEVEL SECURITY",
         # Build Mode v2 (Neil, Oct 24 2026, docs/Build-Mode.md "v2"): the owner a
         # pin is held for (code_owners.py), who released it to Claude Code, the
         # Ready To Check local preview and its verdict, and the regression test
@@ -3050,6 +3085,105 @@ def _run_migrations():
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict VARCHAR DEFAULT ''",
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS preview_verdict_at VARCHAR DEFAULT ''",
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS regression_case_id VARCHAR DEFAULT ''",
+        # Build Mode (Oct 26): who sent a pin - only that person's Claude Code
+        # (their Build Token's watcher) sees and claims it. models.DevNote.
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS dispatched_by VARCHAR DEFAULT ''",
+        # Reports > Schedule C (draft) (Neil, Viral, 10/27 triage item 18): the
+        # account-to-tax-line mapping, kept in Nexus only - never written to
+        # Intacct. New table - explicit RLS. models.AccountingTaxLine.
+        "ALTER TABLE accounting_tax_lines ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_seen_at VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_partner_changes ADD COLUMN IF NOT EXISTS intacct_check JSON",
+        # Employee custom fields (Neil, Oct 27 2026, hr_custom_fields.py): the
+        # values on each person, and the definitions table (new - explicit RLS).
+        # models.NexusEmployee.custom_fields, models.EmployeeCustomField.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS custom_fields JSON",
+        "ALTER TABLE employee_custom_fields ENABLE ROW LEVEL SECURITY",
+        # HR letters an employee requests from My HR (Neil, Oct 27 2026,
+        # hr_letters.py). New table - explicit RLS. models.HrLetterRequest.
+        "ALTER TABLE hr_letter_requests ENABLE ROW LEVEL SECURITY",
+        # Duplicate Day (Oct 27 2026): the HR batch that replaced (voided) a
+        # punch, so undoing the batch restores it. models.TimePunch.
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS replaced_by_batch TEXT DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_time_punches_replaced_by_batch ON time_punches (replaced_by_batch)",
+        # Headcount requests, job openings and the public careers page (Neil,
+        # Oct 27 2026; routers/hiring.py, routers/careers.py). A candidate
+        # carries the opening they applied for and what the apply form asks.
+        # models.HrCandidate, HrHeadcountRequest, HrJobOpening. New tables -
+        # explicit RLS.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS opening_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS linkedin_url VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS consent_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS applied_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_headcount_requests ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_job_openings ENABLE ROW LEVEL SECURITY",
+        # Ask HR runs through Tickets (Neil, Oct 27 2026, hr_tickets.py): the
+        # confidential HR desk on tickets (ticket_confidential.py) and the
+        # ticket an open hr_self_requests row was moved into. Additive only.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS confidential_desk VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_confidential_desk ON task_tickets (confidential_desk)",
+        "ALTER TABLE hr_self_requests ADD COLUMN IF NOT EXISTS ticket_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_hr_self_requests_ticket_id ON hr_self_requests (ticket_id)",
+        # Probation tracking (Neil, Oct 27 2026): status, dates, the manager's
+        # recommendation, the decision, the letter and the history, as JSON on
+        # the person. models.NexusEmployee.probation, hr_probation.py.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS probation JSON DEFAULT '{}'",
+        # Second Approval By HR on time off (Neil, Oct 27 2026): whose turn a
+        # pending request is ('' manager, 'hr') and the first level's decision.
+        # models.TimeOffRequest.
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS approval_stage VARCHAR DEFAULT ''",
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS first_approver VARCHAR DEFAULT ''",
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS first_decided_at VARCHAR DEFAULT ''",
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS first_note VARCHAR DEFAULT ''",
+        # Salary advances (Neil, Oct 27 2026, salary_advance.py): the advance
+        # and its per-period repayments - new tables, so explicit RLS on top of
+        # the _enable_rls_everywhere sweep. models.SalaryAdvance /
+        # SalaryAdvanceInstallment.
+        "ALTER TABLE salary_advances ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE salary_advance_installments ENABLE ROW LEVEL SECURITY",
+        # Final settlement statements (Neil, Oct 27 2026, exit_statement.py) -
+        # a new table: explicit RLS. models.ExitStatement.
+        "ALTER TABLE exit_statements ENABLE ROW LEVEL SECURITY",
+        # Performance: goals and 1:1s (Neil, Oct 27 2026) - new tables, so
+        # explicit RLS. models.PerfGoal / PerfGoalCheckin / PerfOneOnOne /
+        # PerfMeeting / PerfAgendaItem / PerfActionItem.
+        "ALTER TABLE hr_perf_goals ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_goal_checkins ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_one_on_ones ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_meetings ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_agenda_items ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_action_items ENABLE ROW LEVEL SECURITY",
+        # Performance review cycles (Neil, Oct 27 2026) - new tables, explicit
+        # RLS. models.PerfReviewCycle / PerfReview.
+        "ALTER TABLE hr_perf_review_cycles ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_perf_reviews ENABLE ROW LEVEL SECURITY",
+        # India Contractor Extra Time claims (Neil, Oct 27 2026,
+        # docs/India-Contractor-Pay.md). New table - explicit RLS.
+        # models.ExtraTimeClaim.
+        "ALTER TABLE extra_time_claims ENABLE ROW LEVEL SECURITY",
+        # Add Time From Record (Neil, Oct 27 2026): where an HR-keyed punch came
+        # from, and the batch it belongs to (reason, source document) - a new
+        # table, explicit RLS. models.TimePunch.entry_source, TimeEntryBatch.
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS entry_source VARCHAR DEFAULT ''",
+        "ALTER TABLE time_entry_batches ENABLE ROW LEVEL SECURITY",
+        # Workflows (Neil, Oct 28 2026, docs/superpowers/specs/
+        # 2026-10-28-workflows-design.md): eight new tables - the workflows,
+        # their versions, the event outbox, runs, run steps, the wait queue,
+        # approval asks and the per-subject marks. Explicit RLS on every one.
+        # models.Workflow ... WorkflowSubjectMark.
+        "ALTER TABLE workflows ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_versions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_events ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_runs ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_run_steps ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_waits ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_approvals ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_subject_marks ENABLE ROW LEVEL SECURITY",
+        # Workflows run cap (Oct 28 2026): the seconds a run's actions took so
+        # far - the engine fails the run at 10 minutes of active work (spec
+        # 6.5). models.WorkflowRun.active_seconds.
+        "ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS active_seconds FLOAT DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3677,6 +3811,39 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] checklist ID evidence backfill skipped: {e}")
+    # Ask HR runs through Tickets (Neil, Oct 27 2026): every OPEN old Ask HR
+    # request becomes a confidential HR ticket, once (hr_tickets.migrate_open
+    # - a row that has its ticket_id is never moved again; resolved rows stay
+    # as Earlier Requests). Safe on every boot.
+    try:
+        from database import SessionLocal
+        import hr_tickets
+        db = SessionLocal()
+        try:
+            res = hr_tickets.migrate_open(db)
+            if res["moved"] or res["failed"]:
+                print(f"[startup] Ask HR: {res['moved']} open request(s) moved into tickets, {res['failed']} failed")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] Ask HR move skipped: {e}")
+    # Probation (Oct 27 2026): the default Confirmation / Extension letters in
+    # Documents, and ON-33's probation_confirmed condition - each once.
+    try:
+        import hr_probation
+        db = SessionLocal()
+        try:
+            n = hr_probation.seed_templates(db)
+            m = hr_probation.backfill_checklist_signal(db)
+            if n or m:
+                print(f"[startup] probation: {n} letter template(s), ON-33 condition on {m} template(s)")
+            b = hr_probation.backfill_existing(db)
+            if b:
+                print(f"[startup] probation: {b} existing employee(s) still inside their window now tracked")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] probation seeds skipped: {e}")
 
 
 @asynccontextmanager
@@ -3830,6 +3997,15 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] period close alerts loop skipped: {e}")
         try:
+            # Tickets to Assign (Oct 26 2026): every minute, in a thread - a
+            # priority notice for each desk member while open tickets wait
+            # for an assignee, cleared once they all have one. See
+            # ticket_assign_alerts.py.
+            from ticket_assign_alerts import ticket_assign_loop
+            _tasks.append(_a.create_task(ticket_assign_loop()))
+        except Exception as e:
+            print(f"[startup] ticket assign alerts loop skipped: {e}")
+        try:
             # Employee codes from Intacct (Charmi, Oct 21 2026): once a night,
             # only for companies that switched it on, work-email matches only.
             # Deployed-worker gated inside. See routers/hr_intacct_codes.py.
@@ -3837,6 +4013,26 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(employee_code_sync_loop()))
         except Exception as e:
             print(f"[startup] intacct employee code sync skipped: {e}")
+        try:
+            # Performance reminders (Oct 27 2026): every half hour, in a
+            # thread - a 1:1 tomorrow with an empty agenda, a goal overdue a
+            # check-in; both grow one notice. See performance.py.
+            from performance import performance_loop
+            _tasks.append(_a.create_task(performance_loop()))
+        except Exception as e:
+            print(f"[startup] performance reminders loop skipped: {e}")
+        try:
+            # Workflows (Oct 28 2026): the runner - every 5 s, in a thread -
+            # drains the workflow_events outbox, runs the workflows each
+            # event starts, resumes due waits, fires schedules and date
+            # triggers. The whole tick runs only on the deployed API or on a
+            # laptop's own SQLite (runner.may_run_here): a laptop pointed at
+            # the shared Postgres wins the lease but claims nothing. See
+            # workflows/runner.py.
+            from workflows.runner import workflows_loop
+            _tasks.append(_a.create_task(workflows_loop()))
+        except Exception as e:
+            print(f"[startup] workflows runner skipped: {e}")
         # The jobs below keep their own is_deployed_worker() gate INSIDE the
         # leader's job set, and the two gates answer different questions. Leader
         # election stops several DEPLOYED instances doing the same work twice;
@@ -4140,6 +4336,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[startup] leader election unavailable, running jobs directly: {e}")
         _start_background_jobs()
+    try:
+        # Workflows (Oct 28 2026): load the catalog packs in every worker at
+        # boot, so the first emit() of a request never pays the import and
+        # a pack that fails to import is seen here, not on a user's save.
+        import workflows as _workflows
+        _workflows.load_packs()
+    except Exception as e:
+        print(f"[startup] workflow packs not loaded: {e}")
     try:
         yield
     finally:
@@ -4544,6 +4748,8 @@ from routers import accounting_loan_plans  # noqa: E402
 app.include_router(accounting_loan_plans.router)   # Accounting > Loans: amortization schedules + rate stress scenarios per loan (Oct 6)
 from routers import accounting_mre  # noqa: E402
 app.include_router(accounting_mre.router)          # Accounting > Reporting > MRE: monthly recurring expenses, paid read from the ledger (Oct 6)
+from routers import accounting_tax_lines  # noqa: E402
+app.include_router(accounting_tax_lines.router)    # Accounting > Reports > Schedule C (draft): account-to-line mapping, Nexus only (10/27 item 18)
 from routers import pfs_access, pfs_affiliates  # noqa: E402
 app.include_router(pfs_access.router)              # Accounting > PFS: one-time code per file, borrower notice, access log (Charmi, 10/04)
 app.include_router(pfs_affiliates.router)          # Accounting > PFS > Affiliated Entities + co-borrower executive profile (Charmi, 10/04)
@@ -4648,3 +4854,34 @@ from routers import accounting_manual_je  # noqa: E402
 app.include_router(accounting_manual_je.router)    # Accounting > Audit & Insights > Manual Journal Entries: who keyed each entry, read from Intacct (Neil + Charmi, CR-10, Oct 23 2026)
 from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: create_all + _enable_rls_everywhere, no ALTER lines
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
+from routers import accounting_liability_recon  # noqa: E402
+app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
+from routers import hr_custom_fields as hr_custom_fields_router  # noqa: E402 - new table: create_all + explicit RLS line above
+app.include_router(hr_custom_fields_router.router)     # People > More Details: HR-defined custom fields on employee records (Neil, Oct 27 2026)
+app.include_router(hr_custom_fields_router.my_router)  # My HR > More Details: the fields an employee may see or edit
+from routers import hr_analytics as hr_analytics_router  # noqa: E402
+app.include_router(hr_analytics_router.router)  # People > Analytics: headcount, attrition, tenure, absence, leave liability (Neil, Oct 27 2026)
+from routers import approvals as approvals_router  # noqa: E402
+app.include_router(approvals_router.router)        # Approvals: everything waiting on my decision, across modules (Neil, Oct 27 2026)
+from routers import hr_letters as hr_letters_router  # noqa: E402 - new table hr_letter_requests: create_all + RLS line above
+app.include_router(hr_letters_router.router)  # HR letters employees request from My HR; HR issues them through Nexus Sign (Neil, Oct 27 2026)
+from routers import hiring as hiring_router  # noqa: E402
+app.include_router(hiring_router.router)  # Hiring: headcount requests and job openings (Neil, Oct 27 2026)
+from routers import careers as careers_router  # noqa: E402
+app.include_router(careers_router.router)  # Public careers page + apply form, no login (Neil, Oct 27 2026)
+from routers import ask_hr as ask_hr_router  # noqa: E402
+app.include_router(ask_hr_router.router)  # Ask HR runs through Tickets: the confidential HR desk, Earlier Requests, the move (Neil, Oct 27 2026)
+from routers import hr_probation as hr_probation_router  # noqa: E402
+app.include_router(hr_probation_router.router)  # People > a person's probation: length, reminder, Confirm / Extend / End, the letter (Neil, Oct 27 2026)
+from routers import salary_advances as salary_advances_router  # noqa: E402 - new tables: create_all + explicit RLS lines
+app.include_router(salary_advances_router.router)  # Workday > Salary Advance: request (manager tier and up), HR decides, pays out, repaid from pay (Neil, Oct 27 2026)
+from routers import exit_statements as exit_statements_router  # noqa: E402 - new table: create_all + explicit RLS line
+app.include_router(exit_statements_router.router)  # People > Exits: exits in progress and the final settlement statement for payroll (Neil, Oct 27 2026)
+from routers import performance as performance_router  # noqa: E402 - new tables: create_all + explicit RLS lines, no ALTER columns
+app.include_router(performance_router.router)  # Performance: goals and 1:1s - Workday > Performance, People > Performance (Neil, Oct 27 2026)
+from routers import perf_reviews as perf_reviews_router  # noqa: E402 - new tables: create_all + explicit RLS lines, no ALTER columns
+app.include_router(perf_reviews_router.router)  # Performance: review cycles - People > Performance, Workday > Performance (Neil, Oct 27 2026)
+from routers import extra_time as extra_time_router  # noqa: E402
+app.include_router(extra_time_router.router)  # India Contractor Extra Time claims: file, approve, decline (Neil, Oct 27 2026, docs/India-Contractor-Pay.md)
+from routers import workflows as workflows_router  # noqa: E402 - eight new tables: create_all + explicit RLS lines above
+app.include_router(workflows_router.router)  # Workflows: when X happens, do Y across modules - catalog, builder, runs, approvals, settings (Neil, Oct 28 2026)

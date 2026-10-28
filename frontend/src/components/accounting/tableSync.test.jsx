@@ -290,6 +290,30 @@ describe('ControlBar', () => {
     expect(panel().hidden).toBe(true);
   });
 
+  // UI test 10/27 (MRE / MRI at 1024 and 390): More read "More (1 changed)"
+  // with nothing changed - the Completeness gaps were counted. Gaps are what
+  // the data is missing, not a change the person made: MRE and MRI give that
+  // group no `active`, so More counts only real changes (the Category here).
+  it('counts only real changes on More, never the Completeness gaps moved into it', () => {
+    const GapBar = ({ category = '' }) => (
+      <ControlBar>
+        <select data-w="160" aria-label="Report" />
+        <button type="button" data-w="140">All <span className="acct-bar-label-2" data-lw="90">entities</span></button>
+        <BarMore level={2} active={category ? 1 : 0}><button type="button" data-w="120">Category</button></BarMore>
+        <div className="acct-bar-end">
+          <BarMore level={1}><button type="button" data-w="200" aria-label="Completeness: 3 gaps"><span className="acct-bar-label" data-lw="60">Completeness</span> 3</button></BarMore>
+          <button type="button" data-w="110"><span className="acct-bar-label" data-lw="70">Export</span></button>
+        </div>
+      </ControlBar>
+    );
+    width = 400;
+    const { rerender } = render(<GapBar />);
+    expect(within(panel()).getByRole('button', { name: 'Completeness: 3 gaps', hidden: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'More' }).textContent).toBe('');
+    rerender(<GapBar category="rent" />);
+    expect(screen.getByRole('button', { name: 'More (1 changed)' }).textContent).toBe('1');
+  });
+
   // Round 3 (UI test 10/24: "Loans 14 · Balance ..." pushed Loans and
   // Management Fees onto two lines even with the sidebar closed). Row widths
   // with gaps of 8 (the summary at most 120 px short):

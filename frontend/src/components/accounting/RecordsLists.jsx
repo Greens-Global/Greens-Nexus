@@ -6,6 +6,8 @@ import { useFitHeight, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
+import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
+import { filterColumnsOf } from './viewFilterColumns';
 import { downloadBlob } from './reportModel';
 import { linesFile } from './linesExport';
 import { SECTION_LABEL } from './builderModel';
@@ -42,9 +44,13 @@ function RecordsTable({ tableKey, title, about, columns, rows, loading, error, n
   const fit = useFitHeight(box);
   const [q, setQ] = useState('');
   const searched = useMemo(() => matchRows(rows || [], columns, q), [rows, columns, q]);
-  const view = useTableView(tableKey, columns, searched);
+  // Item 14 (Charmi, 10/26: "There should be search option for all"): a box
+  // under every heading; the view, the count, the pages and Export follow it.
+  const filterCols = useMemo(() => filterColumnsOf(columns), [columns]);
+  const filters = useColumnFilters(searched, filterCols);
+  const view = useTableView(tableKey, columns, filters.rows);
   const shown = view.rows;
-  const paged = usePaged(shown, PAGE, [q, view.state]);
+  const paged = usePaged(shown, PAGE, [q, view.state, filters.typed]);
   const [busy, setBusy] = useState('');
   const [failed, setFailed] = useState('');
   const exportAs = async (format) => {
@@ -90,9 +96,12 @@ function RecordsTable({ tableKey, title, about, columns, rows, loading, error, n
             <table className="req-table acct-sticky-head">
               <thead>
                 <tr>{view.columns.map((c) => <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={c.type === 'number' ? 'acct-num' : undefined} style={headStyle(c.width)} />)}</tr>
+                <ColumnFilterRow columns={view.columns} filterColumns={filterCols} typed={filters.typed} onChange={filters.setFilter} />
               </thead>
               <tbody>
-                {!paged.rows.length && <tr><td colSpan={view.columns.length} style={{ padding: 16, color: 'var(--text-secondary)' }}>{q || view.count ? 'Nothing matches the search and filters.' : 'Nothing to list.'}</td></tr>}
+                {!paged.rows.length && (filters.filtering
+                  ? <ColumnFiltersEmpty colSpan={view.columns.length} onClear={filters.clear} style={{ padding: 16 }} />
+                  : <tr><td colSpan={view.columns.length} style={{ padding: 16, color: 'var(--text-secondary)' }}>{q || view.count ? 'Nothing matches the search and filters.' : 'Nothing to list.'}</td></tr>)}
                 {paged.rows.map((r) => (
                   <tr key={columns[0].text(r)} style={r.inactive ? { color: 'var(--text-muted)' } : undefined}>
                     {view.columns.map((c) => <td key={c.key} style={cellStyle(c.width, c.type === 'number' ? { textAlign: 'right' } : null)} title={c.text(r)}>{c.text(r)}</td>)}

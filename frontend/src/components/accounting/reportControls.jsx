@@ -46,6 +46,10 @@ const panel = (width) => ({
   background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10,
   boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 10,
 });
+// A picker panel whose list is its only scroller (chat 10/26, item 12 - Neil:
+// "So it removes double scroll"): the panel is a column held to the room on
+// screen, the list (OptionList `fill`) takes what is left of it.
+const fillPanel = (width) => ({ ...panel(width), display: 'flex', flexDirection: 'column' });
 const row = (on) => ({
   display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6,
   background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: '0.8rem',
@@ -77,10 +81,16 @@ export function PopoverPanel({ anchor, open, setOpen, align, ...rest }) {
 // (rows carrying `parent`) - every ancestor of a match, flagged `dim`, so the
 // hierarchy still reads (Charmi, 10/06: "66001-1" alone says nothing about
 // where it sits). Order is kept. Exported for the tests.
+// 10/27 item 17 (Charmi: "pull a report by vendor name"): every word typed
+// must be in the code or the name, in any order, punctuation aside - "depot
+// home" and "home depot inc" both find "The Home Depot, Inc.".
+const plainText = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9&]+/g, ' ');
 export function filterOptions(options, query) {
   const s = (query || '').trim().toLowerCase();
   if (!s) return options;
-  const hit = (o) => o.code.toLowerCase().includes(s) || (o.name || '').toLowerCase().includes(s);
+  const words = plainText(s).split(' ').filter(Boolean);
+  const hit = (o) => o.code.toLowerCase().includes(s) || (o.name || '').toLowerCase().includes(s)
+    || (words.length > 0 && words.every((w) => plainText(`${o.code} ${o.name || ''}`).includes(w)));
   const matched = new Set(options.filter(hit).map((o) => o.code));
   const byCode = new Map(options.map((o) => [o.code, o]));
   const need = new Set(matched);
@@ -98,7 +108,10 @@ export function filterOptions(options, query) {
 // `onPick(code)` turns it into a single-select list: a click or Enter picks.
 // Arrow keys move through the rows, Enter ticks / picks the highlighted one.
 // `onFree(text)` (Oct 23) offers a typed code that is not on the list.
-function OptionList({ options, value, onChange, onPick, onFree, placeholder, empty, loading, error, allLabel, codeFirst = false, maxHeight = LIST_HEIGHT }) {
+// `searchEnd` sits beside the search box (the entity picker's Done); `fill`
+// lets the list take the panel's height and be its ONE scroller - the panel
+// must be a flex column (fillPanel).
+function OptionList({ options, value, onChange, onPick, onFree, placeholder, empty, loading, error, allLabel, codeFirst = false, maxHeight = LIST_HEIGHT, searchEnd = null, fill = false }) {
   const [q, setQ] = useState('');
   const [active, setActive] = useState(-1);
   const listRef = useRef(null);
@@ -132,14 +145,17 @@ function OptionList({ options, value, onChange, onPick, onFree, placeholder, emp
     if (target && !target.dim) toggle(target.code);
     else if (!target && free) onFree(free);
   };
+  const search = (
+    <div style={{ position: 'relative', flex: searchEnd ? '1 1 auto' : undefined, minWidth: 0 }}>
+      <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
+      <input type="text" value={q} onChange={(e) => { setQ(e.target.value); setActive(-1); }} onKeyDown={onKeyDown} placeholder={placeholder} aria-label={placeholder} autoFocus
+        style={{ ...control, width: '100%', paddingLeft: 26 }} />
+    </div>
+  );
   return (
     <>
-      <div style={{ position: 'relative' }}>
-        <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
-        <input type="text" value={q} onChange={(e) => { setQ(e.target.value); setActive(-1); }} onKeyDown={onKeyDown} placeholder={placeholder} aria-label={placeholder} autoFocus
-          style={{ ...control, width: '100%', paddingLeft: 26 }} />
-      </div>
-      <div ref={listRef} style={{ maxHeight, overflowY: 'auto', overflowX: 'hidden', marginTop: 6, display: 'grid', gap: 1 }}>
+      {searchEnd ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{search}{searchEnd}</div> : search}
+      <div ref={listRef} data-option-list="" style={{ maxHeight, overflowY: 'auto', overflowX: 'hidden', marginTop: 6, display: 'grid', alignContent: 'start', gap: 1, ...(fill ? { flex: '1 1 auto', minHeight: 96 } : null) }}>
         {error && <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)', padding: 6 }}>{error}</div>}
         {loading && <SkeletonBlocks count={3} />}
         {allLabel && !q.trim() && (
@@ -246,12 +262,15 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, sho
         <span className={value.length ? undefined : 'acct-bar-label-2'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Entities" aria-multiselectable="true" style={panel(540)}>
-        <OptionList options={options} value={value} onChange={onChange} allLabel={all} codeFirst
-          placeholder="Search entity by name or code" empty="No entities on the ledger yet." />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 10 }}>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{value.length > 1 ? 'Several entities add together.' : showHistorical ? 'An entity includes its sub-entities.' : 'An entity includes its sub-entities. Customize > Show Historical Entities lists the (H) ones too.'}</span>
-          <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
+      {/* Chat 10/26, item 12 (Charmi: "Move the Done button on TOP"; Neil: "So
+          it removes double scroll"): Done beside the search, the list the one
+          thing that scrolls, the hint fixed under it. */}
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Entities" aria-multiselectable="true" style={fillPanel(540)}>
+        <OptionList options={options} value={value} onChange={onChange} allLabel={all} codeFirst fill
+          placeholder="Search entity by name or code" empty="No entities on the ledger yet."
+          searchEnd={<button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px', flexShrink: 0 }} onClick={() => setOpen(false)}>Done</button>} />
+        <div style={{ marginTop: 8, flexShrink: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+          {value.length > 1 ? 'Several entities add together.' : showHistorical ? 'An entity includes its sub-entities.' : 'An entity includes its sub-entities. Customize > Show Historical Entities lists the (H) ones too.'}
         </div>
       </PopoverPanel>
     </div>
@@ -303,8 +322,8 @@ export function EntityPicker({ entities, value = '', onChange, extra = [], group
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, textAlign: 'left' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} style={panel(500)}>
-        <OptionList options={options} value={[value]} onPick={(code) => { setOpen(false); if (code !== value) onChange(code); }} codeFirst
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} style={fillPanel(500)}>
+        <OptionList options={options} value={[value]} onPick={(code) => { setOpen(false); if (code !== value) onChange(code); }} codeFirst fill
           placeholder="Search entity by name or code" empty="No entities on the ledger yet." />
       </PopoverPanel>
     </div>
@@ -379,7 +398,9 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
   const [open, setOpen, ref] = usePopover();
   const [kind, setKind] = useState(kinds[0] || POPOVER_DIMS[0]);
   const [lists, setLists] = useState({});       // kind -> { values } | { error } | { unavailable }
-  const n = countDims(dims);
+  // One kind (Spend by Vendor's Vendors button, 10/27): just its list, and the count is its picks.
+  const single = kinds.length === 1;
+  const n = single ? (dims[kinds[0].key] || []).length : countDims(dims);
   // A picked kind loads its names even while the panel is closed, for the chips.
   const wanted = kinds.filter((k) => (dims[k.key] || []).length && !lists[k.kind]).map((k) => k.kind);
   const need = open && !lists[kind.kind] ? kind.kind : wanted[0];
@@ -418,12 +439,13 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(n > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} aria-label={label} title={label}>
         <Funnel size={14} style={{ flexShrink: 0, color: n ? 'inherit' : 'var(--text-muted)' }} />
-        <span className="acct-bar-label-2">{label}</span>
+        {/* A one-kind button (Vendors) keeps its word, so it never reads as a second Filters funnel. */}
+        <span className={single ? undefined : 'acct-bar-label-2'}>{label}</span>
         {n > 0 && <span style={count}>{n}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label={label} style={{ ...panel(640), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
-        <div style={{ display: 'grid', gap: 1, alignContent: 'start' }}>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label={label} style={single ? panel(460) : { ...panel(640), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
+        {!single && <div style={{ display: 'grid', gap: 1, alignContent: 'start' }}>
           <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', padding: '2px 8px 6px' }}>Filter this report by</div>
           {kinds.map((k) => {
             const c = (dims[k.key] || []).length;
@@ -435,7 +457,7 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
             );
           })}
           {n > 0 && <button type="button" style={{ ...link, textAlign: 'left', padding: '8px 8px 0' }} onClick={() => onChange({ ...EMPTY_DIMS })}>Clear all</button>}
-        </div>
+        </div>}
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
             <strong style={{ fontSize: '0.8rem' }}>{kind.label}{picked.length ? ` · ${picked.length} selected` : ''}</strong>

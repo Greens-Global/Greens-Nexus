@@ -44,6 +44,7 @@ import uuid
 from datetime import datetime, timedelta, timezone, date
 
 import equipment_reminder_config as erc
+import job_switch
 
 # The windows the old property_assets scan used ("within N days, once ever").
 # A reminder row written by that scan carries no `lead` in its action; it is
@@ -431,6 +432,8 @@ def run_asset_alerts(db, cfg: dict = None) -> int:
 def run_daily() -> int:
     """Both scans in one session and one commit. Sync - the loop runs it in a
     thread (asyncio.to_thread), never on the event loop."""
+    if job_switch.off("equipment_reminders"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     db = SessionLocal()
     try:

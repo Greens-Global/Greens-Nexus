@@ -74,6 +74,7 @@ describe('Accounting view', () => {
     const onSubChange = vi.fn();
     render(<Accounting activeSub="cash" onSubChange={onSubChange} />);
     await screen.findByText('cash-tab');
+    fireEvent.click(screen.getByRole('button', { name: 'Search the Ledger' }));   // an icon since chat 10/26, item 13
     fireEvent.change(screen.getByLabelText('Search the ledger'), { target: { value: 'sunbelt' } });
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     // Oct 23: the statements screen, on the Income Statement (`reports` is the Report Center now).
@@ -87,7 +88,8 @@ describe('Accounting view', () => {
   it('carries only the header, bar and dashboard helpers - every screen loads on first open', async () => {
     const src = (await import('./Accounting.jsx?raw')).default;
     const upFront = [...src.matchAll(/^import .* from '\.\.\/components\/accounting\/([^']+)';\r?$/gm)].map((m) => m[1]).sort();
-    expect(upFront).toEqual(['assumptions', 'dashboard/DashContext', 'dashboard/registry', 'drill', 'prefs', 'reportControls', 'reportModel']);
+    // ModuleSearch (the header search, chat 10/26 item 13) brings reportControls' `control` with it, as before.
+    expect(upFront).toEqual(['ModuleSearch', 'assumptions', 'dashboard/DashContext', 'dashboard/registry', 'drill', 'prefs', 'reportModel']);
     expect(src).toMatch(/const OverviewTab = lazy\(/);
   });
 });
