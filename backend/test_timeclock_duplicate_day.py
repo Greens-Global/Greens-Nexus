@@ -174,7 +174,7 @@ class DuplicateDayTests(unittest.TestCase):
                          {f"{WEEK[2]}T15:30:00", f"{WEEK[2]}T19:00:00", f"{WEEK[2]}T19:30:00", f"{WEEK[3]}T00:30:00"})
         old = self.db.query(models.TimePunch).filter(models.TimePunch.id.in_(old_ids)).all()
         self.assertTrue(all(p.voided == 1 and p.replaced_by_batch == res["batchId"] and p.adjusted_by == HR
-                            and p.adjust_note.startswith("Replaced by Duplicate Day") for p in old))
+                            and p.adjust_note.startswith("Replaced by Add Time From Record") for p in old))
         # One undo takes the copy back and brings the replaced punches back.
         out = T.duplicate_day_undo(res["batchId"], user=HR_USER, db=self.db)
         self.assertEqual((out["voided"], out["restored"]), (4, 2))

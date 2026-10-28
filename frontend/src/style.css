@@ -7575,3 +7575,29 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   position: absolute; left: 0; top: 0; height: 0; max-width: none; overflow: hidden;
   visibility: hidden; pointer-events: none;
 }
+
+/* Add Time From Record (Oct 27 2026, AddTimeFromRecordModal.jsx): the review
+   grid - one row per day, its controls in columns (Day, Type, In, Out,
+   Breaks, Hours, Credit for India contractors, Status). Rows stack on a
+   narrow screen: the day, the breaks and the status full width, the other
+   controls two to a line. */
+.nx-rec-row {
+  display: grid;
+  grid-template-columns: 118px 100px 92px 92px minmax(110px, 1fr) 54px minmax(110px, 1.2fr);
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+.nx-rec-india .nx-rec-row { grid-template-columns: 118px 100px 92px 92px minmax(110px, 1fr) 54px 64px minmax(110px, 1.2fr); }
+.nx-rec-row:first-child { border-top: none; }
+.nx-rec-head { position: sticky; top: 0; z-index: 1; background: var(--wk-hover, var(--bg)); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.nx-rec-foot { grid-template-columns: 1fr 1fr; }
+@media (max-width: 1280px) {
+  .nx-rec-row, .nx-rec-india .nx-rec-row { grid-template-columns: 1fr 1fr; }
+  .nx-rec-row > * { grid-column: auto !important; }
+  .nx-rec-row > label, .nx-rec-row > .nx-rec-wide, .nx-rec-row > .nx-rec-skip, .nx-rec-row > .nx-rec-breaks { grid-column: 1 / -1 !important; }
+  .nx-rec-head { display: none; }
+  .nx-rec-foot { grid-template-columns: 1fr; }
+}

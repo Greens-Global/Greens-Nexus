@@ -3068,6 +3068,12 @@ export const api = {
   // Duplicate Day (HR only, Oct 27 2026): copy one day onto others; dry_run is the preview.
   timeDuplicateDay: (data) => req("/timeclock/duplicate-day", { method: "POST", body: JSON.stringify(data) }),
   timeDuplicateDayUndo: (batchId) => req(`/timeclock/duplicate-day/${encodeURIComponent(batchId)}/undo`, { method: "POST" }),
+  // Add Time From Record (HR only, Oct 27 2026): the review grid's days, the
+  // record itself (a picture or PDF, staged in the private hr-docs bucket) and
+  // a five-minute link to open it. The batch saves through timeDuplicateDay.
+  timeRecordDays: (email, start, end) => req(`/timeclock/duplicate-day/days?email=${encodeURIComponent(email)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`),
+  timeRecordSourceDoc: (email, file) => { const fd = new FormData(); fd.append('file', file); return req(`/timeclock/duplicate-day/source-doc?email=${encodeURIComponent(email)}`, { method: 'POST', body: fd, timeoutMs: 120_000 }); },
+  timeRecordSourceDocUrl: (batchId) => req(`/timeclock/duplicate-day/${encodeURIComponent(batchId)}/source-doc`),
   // Hiring before the candidate (Neil, Oct 27 2026, routers/hiring.py):
   // headcount requests (department line, then HR) and the job openings an
   // approval makes. Salary / pay fields come back only for Pay & Benefits.

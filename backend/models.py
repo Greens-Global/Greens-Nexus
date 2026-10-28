@@ -2310,6 +2310,11 @@ class TimePunch(Base):
     # Duplicate Day (Oct 27 2026): a punch HR's "Replace existing" voided -
     # the batch that replaced it, so undoing that batch brings it back.
     replaced_by_batch = Column(String, default="", index=True)
+    # Add Time From Record (Oct 27 2026): where a punch came from when it was
+    # not the clock - 'hr_record' = HR keyed it in from a paper time sheet or
+    # another record (its batch is batch_id -> time_entry_batches). '' = as
+    # `source` says.
+    entry_source      = Column(String, default="")
 
 
 class TimeScreenshot(Base):
@@ -8907,3 +8912,30 @@ class ExtraTimeClaim(Base):
     history        = Column(JSON, default=list)                      # [{at, by, action, minutes, note}]
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")
+
+
+class TimeEntryBatch(Base):
+    """Add Time From Record (Neil, Oct 27 2026): one HR batch of time keyed in
+    from a record kept outside Nexus (a paper time sheet). The punches carry
+    its id (time_punches.batch_id) and entry_source = 'hr_record'; this row
+    holds what belongs to the batch as a whole - the reason the employee
+    reads, the source document HR attached (private hr-docs bucket, a path,
+    opened through a signed link for HR only), the range and who did it.
+    Kept after an undo (undone_at / undone_by) - the audit record.
+    RELEASE: new table - `ALTER TABLE time_entry_batches ENABLE ROW LEVEL
+    SECURITY` on dev AND prod (main.py's Postgres list carries the line)."""
+    __tablename__ = "time_entry_batches"
+    id             = Column(String, primary_key=True)                # the punches' batch_id ('dup-...')
+    employee_email = Column(String, default="", index=True)
+    kind           = Column(String, default="hr_record")
+    reason         = Column(Text, default="")
+    range_start    = Column(String, default="")                      # YYYY-MM-DD
+    range_end      = Column(String, default="")
+    days           = Column(JSON, default=list)                      # the dates written / replaced
+    minutes        = Column(Integer, default=0)
+    doc_path       = Column(String, default="")                      # hr-docs object path, '' = none
+    doc_name       = Column(String, default="")
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    undone_by      = Column(String, default="")
+    undone_at      = Column(String, default="")
