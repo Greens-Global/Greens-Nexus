@@ -277,11 +277,18 @@ def view_of(db: Session, viewer: dict | None, adv: SalaryAdvance) -> str:
     me, em = norm(user.get("email")), norm(adv.employee_email)
     if me and me == em:
         return "full"
-    if is_hr_for(db, user, em):
-        return "full" if has_comp(db, user) else "exists"
-    if me and (adv.source or "request") == "request" and norm(adv.requested_by) == me and not user.get("external"):
+    hr = is_hr_for(db, user, em)
+    if hr and has_comp(db, user):
+        return "full"
+    asker = bool(me) and (adv.source or "request") == "request" and norm(adv.requested_by) == me \
+        and not user.get("external")
+    # The direct manager who asked keeps the requester view of what they
+    # asked for even when they are also HR without the pay grant (Oct 29
+    # 2026 review). HR without the pay grant who is NOT the person's manager
+    # still sees only that it exists - it never sees the amount again.
+    if asker and (not hr or is_direct_manager(db, user, em)):
         return "requester"
-    return ""
+    return "exists" if hr else ""
 
 
 def log(adv: SalaryAdvance, by: str, action: str, note: str = "", detail: dict | None = None) -> None:
@@ -393,10 +400,11 @@ def serialize(db: Session, adv: SalaryAdvance, rows: list | None = None, names: 
     """The advance as `viewer` may see it (None = everything - internal
     callers), by view_of (rule 3). "exists" (HR without the pay grant): the
     amounts, balances, the schedule and the history's notes (they quote
-    amounts) are left out - that it exists and its status, no more, and it
-    cannot decide. "requester" (the manager who asked): the amount, status,
+    amounts) are left out, and the reason and decision note are blank (they
+    can quote it) - that it exists and its status, no more, and it cannot
+    decide. "requester" (the manager who asked): the amount, status,
     decision and paid-out date - no repayment schedule, balance or payment
-    reference. Callers filter out the advances view_of says "" for."""
+    reference, and Repaying / Repaid read Paid Out. Callers filter out the advances view_of says "" for."""
     rows = installments(db, adv.id) if rows is None else rows
     names = {} if names is None else names
     view = view_of(db, viewer, adv)
@@ -443,10 +451,15 @@ def serialize(db: Session, adv: SalaryAdvance, rows: list | None = None, names: 
         hist = [{k: h.get(k) for k in keep if k in h} for h in out["history"]]
         if view == "requester":   # the decision, not how it is repaid
             hist = [h for h in hist if h.get("action") in _REQUESTER_ACTIONS]
+            # Repaying / Repaid would hint at the schedule: to the one who
+            # asked it reads Paid Out (Oct 29 2026 review).
+            if out["status"] in ("repaying", "repaid"):
+                out["status"], out["statusLabel"] = "paid_out", STATUS_LABEL["paid_out"]
         out["history"] = hist
     if view == "exists":
         out.pop("amount", None)
         out["decisionNote"] = ""      # a decision note may quote the amount
+        out["reason"] = ""            # so may the reason the manager gave
     return out
 
 

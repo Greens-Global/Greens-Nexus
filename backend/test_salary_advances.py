@@ -255,6 +255,53 @@ class WhoTests(AdvanceCase):
         self.assertIn("HR decides", self._status(403, self._paid, self._ask(email=EMP, who=MANAGER, amount=5.0)["id"],
                                                  who=MANAGER))
 
+    def test_hr_without_the_pay_grant_never_sees_the_reason(self):
+        # Oct 29 2026 review: a manager's reason can quote the amount - the
+        # "exists" view blanks it like the decision note.
+        self._drop_pay_grant()
+        aid = self._ask(amount=75.0)["id"]                       # Erin's manager: "Car repair"
+        row = api.for_person(EMP, user=HR_USER, db=self.db)["advances"][0]
+        self.assertEqual((row["id"], row["reason"], row["decisionNote"], row["payVisible"]), (aid, "", "", False))
+        self.assertNotIn("amount", row)
+
+    def test_a_direct_manager_who_is_hr_without_the_pay_grant_sees_what_they_asked(self):
+        # Oct 29 2026 review: the requester rule comes before the exists rule
+        # for the person's direct manager who is also HR without the pay grant.
+        self._drop_pay_grant()
+        self.db.query(models.NexusEmployee).filter_by(work_email=EMP).update({"manager_email": HR})
+        self.db.commit()
+        out = self._ask(who=HR_USER, amount=60.0)
+        self.assertEqual((out["status"], out["amount"], out["payVisible"], out["reason"]),
+                         ("requested", 60.0, True, "Car repair"))
+        row = api.for_person(EMP, user=HR_USER, db=self.db)["advances"][0]
+        self.assertEqual((row["id"], row["amount"], row["canDecide"]), (out["id"], 60.0, False))
+        self.assertEqual(row["schedule"], [])
+        # An advance someone ELSE asked for stays "exists" to them.
+        self.db.query(models.SalaryAdvance).filter_by(id=out["id"]).update({"requested_by": MGR})
+        self.db.commit()
+        self.db.expire_all()
+        row = api.for_person(EMP, user=HR_USER, db=self.db)["advances"][0]
+        self.assertNotIn("amount", row)
+
+    def test_the_asking_manager_reads_paid_out_while_it_is_repaid(self):
+        # Oct 29 2026 review: Repaying / Repaid hint at the schedule - to the
+        # one who asked it stays Paid Out; Erin sees the real status.
+        aid = self._ask(amount=90.0, n=2)["id"]
+        api.decide(aid, api.DecideIn(action="approve"), user=HR_USER, db=self.db)
+        self._paid(aid)
+
+        def deduct(n):
+            for r in sa.installments(self.db, aid)[:n]:
+                r.status, r.deducted_amount = "deducted", r.amount
+            self.db.commit()
+            self.db.expire_all()
+        for n, real in ((1, ("repaying", "Repaying")), (2, ("repaid", "Repaid"))):
+            deduct(n)
+            mine = api.for_person(EMP, user=EMPLOYEE, db=self.db)["advances"][0]
+            self.assertEqual((mine["status"], mine["statusLabel"]), real)
+            row = api.for_person(EMP, user=MANAGER, db=self.db)["advances"][0]
+            self.assertEqual((row["status"], row["statusLabel"]), ("paid_out", "Paid Out"))
+
     def test_the_person_endpoint_is_the_person_hr_and_the_direct_manager(self):
         self._grant()
         self._status(404, api.for_person, EMP, user=STRANGER, db=self.db)
