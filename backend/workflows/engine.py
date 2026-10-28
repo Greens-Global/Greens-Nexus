@@ -270,6 +270,24 @@ def build_context(db, wf: models.Workflow, *, definition: dict, event=None, enti
                       company_id=company, plan_only=plan_only)
 
 
+NOT_VISIBLE = "Not visible to the owner"
+
+
+def subject_visible(ctx: RunContext) -> bool:
+    """Whether the run-as identity may act on the subject at all (spec 6.5:
+    checked before anything about the record leaves the engine). The
+    entity's own rule for the owner; Nexus (no identity) sees every record
+    but one a module keeps to its own people - a confidential ticket, a
+    restricted task. No entity rule, or no row to check, admits."""
+    if ctx.entity is None or ctx.subject is None or ctx.entity.visible_to is None:
+        return True
+    try:
+        return bool(ctx.entity.can_see(ctx.db, ctx.run_as, ctx.subject))
+    except Exception as e:   # noqa: BLE001 - a rule that cannot run hides the record, never shows it
+        print(f"[workflows] visibility of {ctx.entity.key} {ctx.subject_id()} not read: {type(e).__name__}: {str(e)[:120]}")
+        return False
+
+
 def evaluate_entry(ctx: RunContext, definition: dict) -> tuple[bool, list]:
     """Trigger filters (one AND group) then the conditions (groups OR)."""
     trig = definition.get("trigger") or {}
@@ -325,6 +343,10 @@ def handle_event(db, ev: models.WorkflowEvent) -> list[models.WorkflowRun]:
         definition = store.definition_of(wf)
         settings = definition.get("settings") or {}
         ctx = build_context(db, wf, definition=definition, event=ev)
+        if not subject_visible(ctx):
+            if settings.get("logSkips"):
+                runs.append(_skipped_run(db, wf, ctx, trigger_kind="event", event=ev, reason=NOT_VISIBLE))
+            continue
         person = ""
         if ctx.entity is not None and "self" in ctx.entity.people and ctx.subject is not None:
             try:
@@ -361,6 +383,10 @@ def run_for(db, wf: models.Workflow, *, trigger_kind: str, entity=None, subject=
     ctx = build_context(db, wf, definition=definition, entity=ent, subject=subject, payload=payload,
                         actor=started_by or "")
     subject_id = ctx.subject_id()
+    if not subject_visible(ctx):
+        if settings.get("logSkips"):
+            return _skipped_run(db, wf, ctx, trigger_kind=trigger_kind, event=None, reason=NOT_VISIBLE)
+        return None
     if check_enrollment:
         ok, reason = enroll_ok(db, wf, entity=ent.key if ent else "", subject_id=subject_id, company_id=ctx.company())
         if not ok:
@@ -898,6 +924,20 @@ def replay(db, run: models.WorkflowRun, by: str) -> models.WorkflowRun:
     wf = db.get(models.Workflow, run.workflow_id)
     if wf is None:
         raise ValueError("The workflow no longer exists")
+    if wf.status != "active":
+        raise ValueError("Switch the workflow on before replaying a run")
+    person = ""
+    ent = catalog.ENTITIES.get(run.entity or "")
+    if ent is not None and "self" in ent.people and run.subject_id:
+        try:
+            row = ent.load_row(db, run.subject_id)
+            person = (ent.people["self"](db, row) or [""])[0] if row is not None else ""
+        except Exception:   # noqa: BLE001
+            person = ""
+    ok, reason = enroll_ok(db, wf, entity=run.entity or "", subject_id=run.subject_id or "",
+                           company_id=run.company_id or "", person=person)
+    if not ok:
+        raise ValueError(f"The run cannot be replayed: {reason}")
     new = models.WorkflowRun(id=str(uuid.uuid4()), workflow_id=wf.id, workflow_name=wf.name or "",
                              version=int(wf.version or 0), event_id=run.event_id or "", trigger_kind="replay",
                              entity=run.entity or "", subject_id=run.subject_id or "",
@@ -957,10 +997,14 @@ def test_run(db, wf: models.Workflow, *, event: Optional[models.WorkflowEvent] =
                        "extra": {}, "actor": by or ""}
         ctx = build_context(db, wf, definition=definition, entity=ent, subject=subject, payload=payload,
                             plan_only=True, actor=by or "")
-    passed, trace = evaluate_entry(ctx, definition)
+    visible = subject_visible(ctx)
+    passed, trace = evaluate_entry(ctx, definition) if visible else (False, [])
     run = start(db, wf, ctx=ctx, trigger_kind=str((definition.get("trigger") or {}).get("kind") or "test"),
                 event=event, started_by=by, plan_only=True, trace=trace, passed=passed)
-    if passed:
+    if not visible:
+        run.summary = f"{NOT_VISIBLE}: nothing would run"
+        run.finished_at = _iso()
+    elif passed:
         run = execute(db, run, definition=definition, ctx=ctx)
     else:
         run.summary = "Conditions did not match: nothing would run"

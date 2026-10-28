@@ -185,8 +185,9 @@ def test_task_commented_is_high_volume_and_the_rest_normal():
 
 def test_entities_and_actions_are_registered():
     assert catalog.ENTITIES["task"].model is models.Task and catalog.ENTITIES["ticket"].model is models.TaskTicket
-    assert set(catalog.ENTITIES["task"].people) == {"assignees", "owner", "creator", "followers", "project_owner"}
-    assert set(catalog.ENTITIES["ticket"].people) == {"assignee", "requester", "participants", "creator", "approver"}
+    assert set(catalog.ENTITIES["task"].people) == {"self", "assignees", "owner", "creator", "followers", "project_owner"}
+    assert set(catalog.ENTITIES["ticket"].people) == {"self", "assignee", "requester", "participants", "creator",
+                                                      "approver"}
     assert {k for k in catalog.ACTIONS if k.startswith("task.")} == {"task.create", "task.comment", "task.assign",
                                                                      "task.set_field"}
     assert {k for k in catalog.ACTIONS if k.startswith("ticket.")} == {"ticket.create", "ticket.comment",
@@ -406,6 +407,34 @@ def test_restricted_task_is_visible_to_its_people_only(db):
     ent = catalog.ENTITIES["task"]
     assert ent.can_see(db, SAM, t) and ent.can_see(db, MANAGER, t)
     assert not ent.can_see(db, PRIYA, t) and not ent.can_see(db, OUTSIDER, t)
+
+
+def test_nexus_never_sees_a_confidential_ticket_or_a_restricted_task(db):
+    """H6: the Nexus system actor (no identity) reads every record's public
+    fields except what a module keeps to its own people."""
+    assert not catalog.ENTITIES["ticket"].can_see(db, None, _ticket(db, confidential=True))
+    assert catalog.ENTITIES["ticket"].can_see(db, None, _ticket(db))
+    p = _project(db, access_level="restricted", members=[SAM["email"]])
+    assert not catalog.ENTITIES["task"].can_see(db, None, _task(db, project_id=p.id, assignee_emails=[SAM["email"]]))
+    assert catalog.ENTITIES["task"].can_see(db, None, _task(db))
+
+
+def test_self_is_the_task_owner_and_the_ticket_requester_for_approvals(db):
+    """L3: an approval about a task or a ticket is never decided by its own
+    person unless the step says allowSelf."""
+    from workflows import approvals
+    t = _task(db)
+    ctx = RunContext(db=db, workflow=WF, definition={"v": 1, "settings": {}}, entity=catalog.ENTITIES["task"],
+                     subject=t, run_as=MANAGER, company_id="")
+    spec = [{"kind": "self"}, {"kind": "person", "value": DESK["email"]}]
+    assert approvals.approver_emails(ctx, {"approvers": spec})[0] == [DESK["email"]]
+    assert approvals.approver_emails(ctx, {"approvers": spec, "allowSelf": True})[0] == [MANAGER["email"], DESK["email"]]
+    k = _ticket(db)
+    ctx = RunContext(db=db, workflow=WF, definition={"v": 1, "settings": {}}, entity=catalog.ENTITIES["ticket"],
+                     subject=k, run_as=DESK, company_id="")
+    assert approvals.approver_emails(ctx, {"approvers": [{"kind": "self"}, {"kind": "person", "value": DESK["email"]}]})[0] \
+        == [DESK["email"]]
+    assert approvals.approver_emails(ctx, {"approvers": [{"kind": "self"}], "allowSelf": True})[0] == [SAM["email"]]
 
 
 # ── actions: tasks ───────────────────────────────────────────────────────────

@@ -188,7 +188,7 @@ _CUSTOM_TYPES = {"text": "text", "number": "number", "date": "date", "dropdown":
 # hr_letters.LETTER_TYPES) - repeated here so the catalog needs no module
 # import at load; sync_catalog re-reads them from the modules.
 CHECKLIST_KINDS = [("onboarding", "Onboarding"), ("promotion", "Promotion"), ("offboarding", "Offboarding"),
-                   ("inactive", "Inactive")]
+                   ("inactive", "Leave or Suspension")]
 EXIT_TYPES = ["resignation", "resignation_no_notice", "termination", "end_of_contract", "retirement", "death"]
 LETTER_TYPES = [("employment_verification", "Employment Verification"), ("salary_certificate", "Salary Certificate"),
                 ("experience_letter", "Experience Letter"), ("address_proof", "Address Proof"),
@@ -837,11 +837,16 @@ def _days(params, default: int = 14) -> int:
 
 
 def _people(db, ctx):
+    """The people a list may hold: in the workflow's company (when it has
+    one) and within the run-as user's own sight (the person entity's rule -
+    HR for them, their manager, an administrator; Nexus sees everyone's
+    public fields), as the task and ticket lists do."""
     q = db.query(models.NexusEmployee).filter(models.NexusEmployee.status.in_(("onboarding", "active")))
     company = ctx.company() if ctx is not None else ""
     if company:
         q = q.filter(models.NexusEmployee.company == company)
-    return q.all()
+    run_as = ctx.run_as if ctx is not None else None
+    return [e for e in q.all() if _employee.can_see(db, run_as, e)]
 
 
 def _today(ctx) -> date:
@@ -895,7 +900,9 @@ def _timeoff_pending_older_than(db, ctx, params) -> list:
     if company:
         emails = {(e.work_email or "").lower() for e in _people(db, ctx)}
         rows = [r for r in rows if (r.employee_email or "").lower() in emails]
-    return rows
+    ent = catalog.ENTITIES["time_off_request"]
+    run_as = ctx.run_as if ctx is not None else None
+    return [r for r in rows if ent.can_see(db, run_as, r)]
 
 
 list_source("employees.probation_ending", label="People Whose Probation Ends Within N Days", entity="employee",

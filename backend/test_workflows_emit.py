@@ -100,8 +100,25 @@ def test_emit_writes_one_outbox_row_in_the_same_transaction(db, employee_row):
     assert ev.payload["extra"] == {"reason": "Resigned"}
     sub = ev.payload["subject"]
     assert sub["name"] == "Priya Shah" and sub["manager_email"] == "max@greensglobal.com"
-    assert sub["start_date"] == "2026-11-12" and sub["birthday"] == "1994-03-08"
+    assert sub["start_date"] == "2026-11-12"
+    assert "birthday" not in sub          # an HR-only field never reaches the outbox (permissions review H1)
     assert ev.payload["subjectLabel"] == "Priya Shah"
+
+
+def test_payload_for_keeps_only_public_fields_unless_a_ceiling_is_raised(db, employee_row):
+    """H1: the outbox, a For Each item list and a run's payload carry only
+    what everyone may see; the engine re-reads hidden fields off the row
+    for whoever may see them."""
+    ent = catalog.ENTITIES["employee"]
+    public = emit.payload_for(ent, employee_row)
+    assert public["name"] == "Priya Shah" and "birthday" not in public
+    assert not any(ent.field(k).visibility != "all" for k in public)
+    assert emit.payload_for(ent, employee_row, ceiling="hr")["birthday"] == "1994-03-08"
+    assert "birthday" in emit.payload_for(ent, employee_row, ceiling="comp")
+    workflows.emit(db, "employee.status_changed", subject=employee_row, changes={"birthday": ("1994-03-08", "1994-03-09")})
+    db.commit()
+    ev = db.query(models.WorkflowEvent).one()
+    assert "birthday" not in ev.payload["subject"]
 
 
 def test_emit_accepts_the_subject_id(db, employee_row):

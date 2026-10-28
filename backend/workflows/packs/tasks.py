@@ -27,6 +27,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import object_session
 
 import models
+from workflows import catalog
 from workflows.catalog import F, P, action, entity, event, list_source
 
 PRIORITIES = [("low", "Low"), ("medium", "Medium"), ("high", "High"), ("urgent", "Urgent")]
@@ -75,6 +76,12 @@ def _owner(db, row) -> list[str]:
     return _emails([row.owner_email])
 
 
+def _self(db, row) -> list[str]:
+    """The task's own person: its owner, else whoever created it (the
+    Tasks module's own reading of "the owner")."""
+    return _emails([row.owner_email or row.created_by])
+
+
 def _followers(db, row) -> list[str]:
     return _emails(row.follower_emails or [])
 
@@ -103,6 +110,12 @@ def _label(row) -> str:
     return (row.title or "").strip() or (row.code or "") or (row.id or "")
 
 
+def _nexus_visible(db, row) -> bool:
+    """The Nexus system actor never acts on a restricted task (a private
+    project or a task narrowed to its own people)."""
+    return not _tu()._restricted(row)
+
+
 # ── entity ───────────────────────────────────────────────────────────────────
 TASK_FIELDS = [
     F("title", "Title", "text"),
@@ -123,13 +136,16 @@ TASK_FIELDS = [
 entity("task", label="Task", model=models.Task, module="tasks",
        company=_task_company,
        link=lambda row: {"view": "tasks", "sub": "mine", "taskId": row.id},
-       people={"assignees": _assignees, "owner": _owner, "creator": _creator, "followers": _followers,
-               "project_owner": _project_owner},
+       people={"self": _self, "assignees": _assignees, "owner": _owner, "creator": _creator,
+               "followers": _followers, "project_owner": _project_owner},
        fields=TASK_FIELDS,
        dates=["due_date", "start_date"],
        label_of=_label,
        visible_to=_task_visible,
-       people_labels={"owner": "Task Owner"})
+       nexus_visible=_nexus_visible,
+       # `self` is the task's owner: the person an approval about the task
+       # may not decide unless the step allows it (allowSelf)
+       people_labels={"self": "The Person (Task Owner)", "owner": "Task Owner"})
 
 SAMPLE_TASK = {
     "title": "Replace the gate motor at Escondido", "code": "TASK-1042", "status": "in_progress",
@@ -514,10 +530,11 @@ def _overdue(db, ctx, params) -> list:
                  func.coalesce(models.Task.type, "task") != "section")
          .order_by(models.Task.due_on, models.Task.id))
     out = []
+    ent = catalog.ENTITIES["task"]
     for t in q.limit(MAX_LIST * 4).all():
         if company and _task_company(t) != company:
             continue
-        if not _task_visible(db, ctx.run_as, t):
+        if not ent.can_see(db, ctx.run_as, t):
             continue
         out.append(t)
         if len(out) >= MAX_LIST:

@@ -29,6 +29,7 @@ from workflows import catalog, validate  # noqa: E402
 GA = {"email": "gail.wf@greensglobal.com", "role": "owner", "level": 5}
 EDITOR = {"email": "ed.wf@greensglobal.com", "role": "supervisor", "level": 2}
 NOBODY = {"email": "nob.wf@greensglobal.com", "role": "employee", "level": 1}
+NO_HR = {"email": "loop.wf@greensglobal.com", "role": "supervisor", "level": 2}   # Workflows editor, no HR grant
 ENTITY = "ent-val"
 
 
@@ -56,6 +57,8 @@ def _setup():
     s = database.SessionLocal()
     s.add(models.NexusGroup(id="g-wf", name="Workflow Editors", allowed_modules="workflows:editor,hr:viewer"))
     s.add(models.NexusGroupMember(group_id="g-wf", email=EDITOR["email"]))
+    s.add(models.NexusGroup(id="g-wf-nohr", name="Workflow Editors Without HR", allowed_modules="workflows:editor"))
+    s.add(models.NexusGroupMember(group_id="g-wf-nohr", email=NO_HR["email"]))
     s.commit()
     s.close()
     auth._role_cache.clear()
@@ -280,6 +283,59 @@ def test_schedule_date_manual_triggers_and_for_each(db):
     probs = validate.validate(db, _definition(trigger=sched, conditions=[], steps=steps), owner=GA, run_as="owner",
                               company_id=ENTITY)
     assert "steps[0].source" in _paths(probs)
+
+
+def test_for_each_needs_the_lists_module_grant_and_hides_item_fields(db):
+    """H2: a For Each over an HR list needs the HR grant like an HR event
+    does, and the nested templates see the item as the owner would - a
+    comp field is not a field for a non-comp owner."""
+    sched = {"kind": "schedule", "every": "day", "days": [], "time": "08:00", "zone": "company"}
+    steps = [{"id": "fe", "kind": "for_each", "source": {"key": "test.people_starting", "params": {"days": 14}},
+              "as": "item", "steps": [{"id": "n", "kind": "action", "action": "test.notify",
+                                       "params": {"to": [{"kind": "global_admins"}], "title": "{{ item.name }}"}}]}]
+    d = _definition(trigger=sched, conditions=[], steps=steps)
+    probs = validate.validate(db, d, owner=NO_HR, run_as="owner", company_id=ENTITY)
+    assert _paths(probs) == ["steps[0].source"] and "People Starting Soon" in probs[0].message
+    assert validate.validate(db, d, owner=EDITOR, run_as="owner", company_id=ENTITY) == []
+    catalog.ENTITIES["employee"].fields.append(catalog.F("pay", "Pay", "money", visibility="comp",
+                                                         path="compensation.base"))
+    try:
+        d["steps"][0]["steps"][0]["params"]["title"] = "{{ item.name }} earns {{ item.pay }}"
+        probs = validate.validate(db, d, owner=EDITOR, run_as="owner", company_id=ENTITY)
+        assert _paths(probs) == ["steps[0].steps[0].params.title"] and "item.pay" in probs[0].message
+        assert validate.validate(db, d, owner=GA, run_as="owner", company_id=ENTITY) == []
+    finally:
+        catalog.ENTITIES["employee"].fields.pop()
+
+
+def test_date_and_manual_triggers_need_the_modules_grant_and_a_visible_date(db):
+    """M1: a date or manual trigger on a module's records needs that
+    module's grant like an event does, and a date the owner may not see is
+    refused."""
+    plain = [{"id": "p1", "kind": "action", "action": "test.notify",
+              "params": {"to": [{"kind": "self"}], "title": "{{ subject.name }} on {{ today | us_date }}"}}]
+    date_t = {"kind": "date", "entity": "employee", "field": "start_date", "offsetDays": 0, "time": "08:00"}
+    probs = validate.validate(db, _definition(trigger=date_t, conditions=[], steps=plain), owner=NO_HR,
+                              run_as="owner", company_id=ENTITY)
+    assert _paths(probs) == ["trigger.entity"] and "Person" in probs[0].message
+    probs = validate.validate(db, _definition(trigger={"kind": "manual", "entity": "employee"}, conditions=[],
+                                              steps=plain), owner=NO_HR, run_as="owner", company_id=ENTITY)
+    assert _paths(probs) == ["trigger.entity"]
+    assert validate.validate(db, _definition(trigger=date_t, conditions=[], steps=plain), owner=EDITOR,
+                             run_as="owner", company_id=ENTITY) == []
+    emp = catalog.ENTITIES["employee"]
+    emp.fields.append(catalog.F("pay_review", "Pay Review", "date", visibility="comp", path="compensation.review"))
+    emp.dates.append(catalog.D("pay_review", "Pay Review"))
+    try:
+        hidden = dict(date_t, field="pay_review")
+        probs = validate.validate(db, _definition(trigger=hidden, conditions=[], steps=plain), owner=EDITOR,
+                                  run_as="owner", company_id=ENTITY)
+        assert _paths(probs) == ["trigger.field"] and probs[0].message == "You may not use Pay Review"
+        assert validate.validate(db, _definition(trigger=hidden, conditions=[], steps=plain), owner=GA,
+                                 run_as="owner", company_id=ENTITY) == []
+    finally:
+        emp.fields.pop()
+        emp.dates.pop()
 
 
 def test_settings_caps(db):

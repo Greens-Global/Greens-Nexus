@@ -397,7 +397,7 @@ def test_items_visible_to_the_person_their_manager_and_the_grant(db):
     assert ent.can_see(db, ITEMS_USER, co)
     assert ent.can_see(db, ADMIN, co)
     assert not ent.can_see(db, EMPLOYEE, co)
-    assert not ent.can_see(db, None, co)
+    assert ent.can_see(db, None, co)      # Nexus reads every record's public fields (permissions review H6)
 
 
 # ── access ───────────────────────────────────────────────────────────────────

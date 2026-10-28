@@ -145,11 +145,19 @@ def field_value(entity_def: catalog.EntityDef, row, f: catalog.Field) -> Any:
     return v
 
 
-def payload_for(entity_def: catalog.EntityDef, row) -> dict:
+def payload_for(entity_def: catalog.EntityDef, row, *, ceiling: str = "all") -> dict:
     """The subject's registered fields as a JSON-safe dict (the payload's
-    "subject"). A field that cannot be read is left blank, never raised."""
+    "subject"), up to the visibility `ceiling` - "all" (the default) keeps
+    only what everyone may see, so an outbox row, a For Each item list or a
+    run's payload never carries pay or an HR-only field: the engine re-reads
+    the row for conditions and templates through `RunContext.field_value`,
+    which checks the run-as user's own sight. A field that cannot be read is
+    left blank, never raised."""
+    top = catalog.VISIBILITY_RANK.get(ceiling, 0)
     out = {}
     for f in entity_def.fields:
+        if catalog.VISIBILITY_RANK.get(f.visibility, 0) > top:
+            continue
         try:
             out[f.key] = field_value(entity_def, row, f)
         except Exception:   # noqa: BLE001 - one odd field never loses the event

@@ -38,6 +38,15 @@ def _setup():
     assert os.path.abspath(database.engine.url.database or "") == os.path.abspath(_tmp_db.name)
     models.Base.metadata.create_all(bind=database.engine)
     catalog.load_packs()
+    # a throwaway record kind only Max may see (H6): the person rows, read
+    # through a rule that refuses the Global Admin who owns the workflow
+    catalog.entity("test_dated_secret", label="Dated Secret", model=models.NexusEmployee, module="core",
+                   company=lambda row: row.company,
+                   people={"self": lambda db, row: [row.work_email], "manager": lambda db, row: [row.manager_email]},
+                   fields=[catalog.F("name", "Name", "text", path="__label__"),
+                           catalog.F("start_date", "Start Date", "date")],
+                   dates=["start_date"], label_of=lambda row: f"{row.first_name} {row.last_name}",
+                   visible_to=lambda db, user, row: (user or {}).get("email") == MAX)
     s = database.SessionLocal()
     s.add(models.HrEntity(id=ENTITY, name="Greens Sch"))
     s.add(models.HrEntity(id=OTHER, name="Other Sch"))
@@ -161,6 +170,26 @@ def test_yearly_date_matches_month_day(db):
     assert scheduler.fires_today({"yearly": True, "offsetDays": 0}, date(2024, 2, 29), date(2026, 2, 28))
     assert not scheduler.fires_today({"offsetDays": 0}, date(2021, 11, 3), date(2026, 11, 3))
     assert scheduler.fires_today({"offsetDays": 3}, date(2026, 11, 3), date(2026, 11, 6))
+
+
+def test_date_trigger_never_runs_on_a_record_the_owner_may_not_see(db):
+    """H6: the date scan finds the row, the claim is taken, but no run
+    starts (a skipped row says why when logSkips is on) - nothing about
+    the record reaches anyone."""
+    trigger = {"kind": "date", "entity": "test_dated_secret", "field": "start_date", "offsetDays": 0, "time": "08:00"}
+    definition = {"v": 1, "trigger": trigger, "conditions": [], "steps": [DATE_NOTIFY],
+                  "settings": {**validate.DEFAULT_SETTINGS, "logSkips": True}}
+    wf = store.create(db, name="Secret Dates", owner=GAIL, company_id=ENTITY, definition=definition, by=GAIL)
+    wf.tested_hash = validate.definition_hash(store.draft_of(wf))
+    store.publish(db, wf, GAIL)
+    db.commit()
+    _person(db, "e-psecret", "2026-11-03")
+    assert len(scheduler.due_dates(db, _local(2026, 11, 3, 9, 0))) == 1
+    assert runner.fire_dates(db, _local(2026, 11, 3, 9, 0)) == 1      # the skipped row is all that is written
+    run = db.query(models.WorkflowRun).one()
+    assert run.status == "skipped" and run.summary == "Not visible to the owner" and run.subject_id == "e-psecret"
+    assert db.query(models.NexusNotification).count() == 0
+    assert runner.fire_dates(db, _local(2026, 11, 3, 10, 0)) == 0        # claimed: never retried the same day
 
 
 def test_date_trigger_stays_in_the_workflow_company(db):

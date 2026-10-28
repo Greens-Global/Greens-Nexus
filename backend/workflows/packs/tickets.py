@@ -104,6 +104,12 @@ def _label(row) -> str:
     return (row.subject or "").strip() or (row.code or "") or (row.id or "")
 
 
+def _nexus_visible(db, row) -> bool:
+    """The Nexus system actor never acts on a confidential-desk ticket."""
+    import ticket_confidential
+    return not ticket_confidential.is_confidential(row)
+
+
 # ── entity ───────────────────────────────────────────────────────────────────
 TICKET_FIELDS = [
     F("title", "Subject", "text", path="subject"),
@@ -124,14 +130,17 @@ TICKET_FIELDS = [
 entity("ticket", label="Ticket", model=models.TaskTicket, module="tickets",
        company=lambda row: (row.company_id or "").strip(),
        link=lambda row: {"view": "tickets", "ticketId": row.id},
-       people={"assignee": _assignee, "requester": _requester, "participants": _participants,
+       people={"self": _requester, "assignee": _assignee, "requester": _requester, "participants": _participants,
                "creator": _creator, "approver": _approver},
        fields=TICKET_FIELDS,
        dates=["created_at", "sla_due"],
        load=_load,
        label_of=_label,
        visible_to=_ticket_visible,
-       people_labels={"creator": "Filed By"})
+       nexus_visible=_nexus_visible,
+       # `self` is the requester: the person an approval about the ticket
+       # may not decide unless the step allows it (allowSelf)
+       people_labels={"self": "The Person (Requester)", "creator": "Filed By"})
 
 SAMPLE_TICKET = {
     "title": "Laptop will not start", "code": "TIC-00318", "status": "open", "priority": "high",
@@ -538,12 +547,14 @@ action("ticket.request_approval", label="Request Ticket Approval", module="ticke
 # ── list sources ─────────────────────────────────────────────────────────────
 def _visible_rows(db, ctx, q) -> list:
     import ticket_confidential
+    from workflows import catalog
     company = ctx.company()
+    ent = catalog.ENTITIES["ticket"]
     out = []
     for t in ticket_confidential.include(q).limit(MAX_LIST * 4).all():
         if company and (t.company_id or "") != company:
             continue
-        if not _ticket_visible(db, ctx.run_as, t):
+        if not ent.can_see(db, ctx.run_as, t):
             continue
         out.append(t)
         if len(out) >= MAX_LIST:

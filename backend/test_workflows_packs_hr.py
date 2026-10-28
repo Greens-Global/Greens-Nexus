@@ -328,7 +328,7 @@ class HrPackCase(unittest.TestCase):
         aid = res.json()["id"]
         req = self._one("salary_advance.requested")
         self.assertEqual(req.subject_id, aid)
-        self.assertEqual(req.payload["subject"]["amount"], 500)
+        self.assertNotIn("amount", req.payload["subject"])     # pay never reaches the outbox (review H1)
         self.assertEqual(req.payload["subject"]["employee"], MGR)
         self._as(GA)
         res = self.client.post(f"/salary-advances/{aid}/decide", json={"action": "approve", "note": "Approved"})
@@ -618,6 +618,32 @@ class HrPackCase(unittest.TestCase):
         self.assertEqual(src["employees.contract_ending"].fn(self.db, one, {"days": 30}), [])
         self.assertEqual({e.work_email for e in src["employees.started_within"].fn(self.db, one, {})},
                          {EMP, HRC, GA})
+
+    def test_list_sources_hold_only_the_people_the_run_as_user_may_see(self):
+        """H2: the HR lists filter rows by the entity's own visibility rule
+        for the run-as user (a manager: their reports; a person: themselves;
+        Nexus: everyone's public fields), as the task and ticket lists do."""
+        self.emp.probation = {"status": "in_probation", "endDate": (TODAY + timedelta(days=10)).isoformat()}
+        other = self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == OTHER).first()
+        other.probation = {"status": "extended", "endDate": (TODAY + timedelta(days=3)).isoformat()}
+        self.db.add(models.TimeOffRequest(id="to-emp", employee_email=EMP, type="vacation", start_date=SOON,
+                                          end_date=SOON, status="pending", created_at=_iso(6)))
+        self.db.add(models.TimeOffRequest(id="to-other", employee_email=OTHER, type="sick", start_date=SOON,
+                                          end_date=SOON, status="pending", created_at=_iso(9)))
+        self.db.commit()
+        src = catalog.LIST_SOURCES
+        mgr = self._ctx(MGR_USER)                       # Max manages Erin, is nobody's HR
+        self.assertEqual([e.work_email for e in src["employees.probation_ending"].fn(self.db, mgr, {"days": 14})], [EMP])
+        self.assertEqual({e.work_email for e in src["employees.started_within"].fn(self.db, mgr, {"days": 7})}, {EMP, MGR})
+        self.assertEqual([r.id for r in src["timeoff.pending_older_than"].fn(self.db, mgr, {"days": 3})], ["to-emp"])
+        me = self._ctx(EMP_USER)
+        self.assertEqual([e.work_email for e in src["employees.probation_ending"].fn(self.db, me, {"days": 14})], [EMP])
+        self.assertEqual([r.id for r in src["timeoff.pending_older_than"].fn(self.db, me, {"days": 3})], ["to-emp"])
+        nexus = self._ctx(None)
+        self.assertEqual([e.work_email for e in src["employees.probation_ending"].fn(self.db, nexus, {"days": 14})],
+                         [OTHER, EMP])
+        hr = self._ctx(HRC_USER)                        # the HR contact of ENTITY and ENTITY_IN, not ENTITY_2
+        self.assertEqual([e.work_email for e in src["employees.probation_ending"].fn(self.db, hr, {"days": 14})], [EMP])
 
 
 if __name__ == "__main__":
