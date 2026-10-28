@@ -82,7 +82,7 @@ class ShiftAuditTests(unittest.TestCase):
                                             country="US" if em == A else "IN" if em == B else ""))
             db.add(models.NexusRole(email=BOSS, role="administrator", assigned_by="test"))
             db.add(models.NexusRole(email=M1, role="manager", assigned_by="test"))
-            db.add(models.ShiftGroup(id=GROUP, name="Saud Store"))
+            db.add(models.ShiftGroup(open_shifts=1, id=GROUP, name="Saud Store"))
             for i, em in enumerate((A, B)):
                 db.add(models.ShiftGroupMember(id=f"sgm-saud-{i}", group_id=GROUP, employee_email=em))
             db.add(models.Shift(id=PRESET, code="SAU", name="Saud Day", start_hhmm="09:00", end_hhmm="17:00",

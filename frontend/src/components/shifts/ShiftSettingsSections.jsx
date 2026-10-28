@@ -25,7 +25,14 @@ import { PersonSelect } from '../../tasks/components';
 import AsyncSection, { Spinner, SkeletonBlocks } from '../AsyncState';
 import { SettingRow, SwitchRow, NumberBox, SettingCard } from '../settings/SettingsUI';
 import { Avatar } from '../ShiftScheduleExtras';
-import { SHIFT_COLORS, orderGroups, alpha, DEFAULT_SHIFT_COLOR } from './shiftLib';
+import { SHIFT_COLORS, orderGroups, alpha, DEFAULT_SHIFT_COLOR, paidMinutes, hrsNumber } from './shiftLib';
+
+// Paid hours a shift type puts on the schedule: end - start (overnight aware)
+// minus the unpaid break (Neil, Oct 28 2026: "I need to see the total number of hours").
+export const paidHoursText = (start, end, breakMin) => {
+  const h = hrsNumber(paidMinutes({ start, end, breakMin }));
+  return `${h} paid ${h === 1 ? 'hour' : 'hours'}`;
+};
 
 const DAYS = [['1', 'Mon'], ['2', 'Tue'], ['3', 'Wed'], ['4', 'Thu'], ['5', 'Fri'], ['6', 'Sat'], ['7', 'Sun']];
 const BLANK = { name: '', code: '', start_hhmm: '09:00', end_hhmm: '17:00', days: '1,2,3,4,5', grace_min: 10, break_min: 0, color: '#2563eb', timezone: 'America/Los_Angeles' };
@@ -626,6 +633,7 @@ export function ShiftTypesPanel({ toastOk, toastErr, company: scoped }) {
                 {canManage && <button type="button" onClick={() => remove(s)} aria-label={`Delete shift type ${s.name}`} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex' }}><Trash2 size={12} /></button>}
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}>{formatHHMM(s.start)} - {formatHHMM(s.end)} · {daysLabel(s.days)}</div>
+              <div data-paid-hours style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 700, marginTop: 2 }}>{paidHoursText(s.start, s.end, s.breakMin)}</div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{s.graceMin}m grace{s.breakMin ? ` · ${s.breakMin}m unpaid break` : ''} · {zoneOptionLabel(s.timezone || 'America/Los_Angeles')}</div>
               {(canPick || s.companyId) && <div style={{ marginTop: 6 }}><CompanyTag id={s.companyId} companies={companies} /></div>}
             </div>
@@ -658,6 +666,9 @@ export function ShiftTypesPanel({ toastOk, toastErr, company: scoped }) {
                   <label style={{ flex: 1, minWidth: 110, fontSize: 11, color: 'var(--muted)' }}>End<input type="time" className="form-input" value={form.end_hhmm} onChange={(e) => setForm({ ...form, end_hhmm: e.target.value })} style={{ width: '100%', fontSize: 13 }} /></label>
                   <label style={{ width: 80, fontSize: 11, color: 'var(--muted)' }}>Grace (min)<input type="number" min="0" className="form-input" value={form.grace_min} onChange={(e) => setForm({ ...form, grace_min: e.target.value })} style={{ width: '100%', fontSize: 13 }} /></label>
                   <label style={{ width: 110, fontSize: 11, color: 'var(--muted)' }} title="Unpaid minutes inside the shift, e.g. a 30-minute lunch. Scheduled hours are shown without it.">Unpaid break (min)<input type="number" min="0" max="480" step="5" className="form-input" value={form.break_min ?? 0} onChange={(e) => setForm({ ...form, break_min: e.target.value })} style={{ width: '100%', fontSize: 13 }} /></label>
+                </div>
+                <div data-paid-hours style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>
+                  {form.start_hhmm && form.end_hhmm ? `${paidHoursText(form.start_hhmm, form.end_hhmm, form.break_min)} a shift` : ''}
                 </div>
                 <label style={{ fontSize: 11, color: 'var(--muted)', display: 'grid', gap: 4 }}>
                   Time zone this shift runs on
@@ -745,6 +756,9 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
   // the order saved is still the whole list's.
   const visible = useMemo(() => (groups || []).filter((g) => !company || !g.companyId || g.companyId === company), [groups, company]);
   const who = (email) => { const p = people.find((x) => emailOf(x) === (email || '').toLowerCase()); return nameOf(email, p?.name); };
+  // Departments people are in, for the group's company when it has one.
+  const departmentsFor = (companyId) => [...new Set(people.filter((p) => !companyId || p.company === companyId)
+    .map((p) => (p.department || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const directory = useMemo(() => people.filter((p) => emailOf(p)).map((p) => ({ email: emailOf(p), name: nameOf(emailOf(p), p.name), photoUrl: p.photoUrl || p.photo_url || '', external: p.external === true })).sort((a, b) => a.name.localeCompare(b.name)), [people, nameOf]);
 
   async function save() {
@@ -753,7 +767,7 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
     const payload = { name: form.name, members: form.members, schedulers: form.schedulers || [], teams_chat_id: form.teamsChatId || '', teams_chat_name: form.teamsChatName || '',
       teams_target: form.teamsTarget || 'chat', teams_team_id: form.teamsTeamId || '', teams_team_name: form.teamsTeamName || '',
       work_site_id: form.workSiteId || '', weather_deciders: form.weatherDeciders || [], weather_alerts: form.weatherAlerts !== false,
-      company_id: form.companyId || '' };
+      company_id: form.companyId || '', open_shifts: form.openShifts === true, department: form.department || '' };
     try {
       if (form.id) await api.timeShiftGroupSet(form.id, payload); else await api.timeShiftGroupCreate(payload);
       toastOk?.('Group saved.'); setForm(null); reload();
@@ -782,9 +796,10 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
     setQ('');
     setForm(g ? { id: g.id, name: g.name, members: g.members, schedulers: g.schedulers || [], teamsChatId: g.chatId || '', teamsChatName: g.chatName || '',
       teamsTarget: g.teamsTarget || 'chat', teamsTeamId: g.teamId || '', teamsTeamName: g.teamName || '',
-      workSiteId: g.workSiteId || '', weatherDeciders: g.weatherDeciders || [], weatherAlerts: g.weatherAlerts !== false, companyId: g.companyId || '' }
+      workSiteId: g.workSiteId || '', weatherDeciders: g.weatherDeciders || [], weatherAlerts: g.weatherAlerts !== false, companyId: g.companyId || '',
+      openShifts: g.openShifts === true, department: g.department || '', autoMembers: g.autoMembers || [] }
       : { name: '', members: [], schedulers: [], teamsChatId: '', teamsChatName: '', teamsTarget: 'chat', teamsTeamId: '', teamsTeamName: '',
-        workSiteId: '', weatherDeciders: [], weatherAlerts: true, companyId: company || '' });
+        workSiteId: '', weatherDeciders: [], weatherAlerts: true, companyId: company || '', openShifts: false, department: '', autoMembers: [] });
   };
   const toggleMember = (em) => setForm((f) => ({ ...f, members: f.members.includes(em) ? f.members.filter((x) => x !== em) : [...f.members, em] }));
   // First-name matches first, as in every people picker (lib/peopleSearch.js).
@@ -820,7 +835,7 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
                   {(canPick || g.companyId) && <CompanyTag id={g.companyId} companies={companies} />}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                  {g.members.length} member{g.members.length === 1 ? '' : 's'}{g.members.length > 0 && ` · ${g.members.slice(0, 3).map(who).join(', ')}${g.members.length > 3 ? '…' : ''}`}
+                  {g.department ? `Follows ${g.department} · ` : ''}{g.openShifts ? 'Open Shifts On · ' : ''}{g.members.length} member{g.members.length === 1 ? '' : 's'}{g.members.length > 0 && ` · ${g.members.slice(0, 3).map(who).join(', ')}${g.members.length > 3 ? '…' : ''}`}
                 </div>
                 <div style={{ fontSize: 11.5, marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 5, color: g.chatId ? 'var(--wk-brand)' : 'var(--muted)' }}>
                   {g.teamsTarget === 'channel' ? <Hash size={12} /> : <MessageSquare size={12} />}
@@ -848,9 +863,25 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
               </div>
               <input className="form-input" placeholder="Group name (e.g. Construction)" aria-label="Group name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={{ fontSize: 13, marginBottom: 12 }} />
               {canPick && <div style={{ marginBottom: 12 }}><CompanySelect label="Group company" value={form.companyId} onChange={(v) => setForm({ ...form, companyId: v })} companies={companies} /></div>}
+              {/* Neil, Oct 28 2026: a group follows its department, so nobody is left off by hand. */}
+              <label style={{ display: 'grid', gap: 4, marginBottom: 12 }}>
+                <span style={LBL}>Department - its people join this group by themselves, and leave it when they leave the department</span>
+                <select className="form-input" aria-label="Group department" value={form.department || ''} onChange={(e) => setForm({ ...form, department: e.target.value })} style={{ fontSize: 13 }}>
+                  <option value="">No department - members are added by hand</option>
+                  {[...new Set([...departmentsFor(form.companyId), ...(form.department ? [form.department] : [])])].map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </label>
+              {/* Open shifts are per team and off by default (Neil, Oct 28 2026). */}
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, cursor: 'pointer', marginBottom: 12 }}>
+                <input type="checkbox" checked={form.openShifts === true} onChange={(e) => setForm({ ...form, openShifts: e.target.checked })} aria-label="Open shifts for this group" style={{ marginTop: 2 }} />
+                <span><span style={{ fontWeight: 700 }}>Open Shifts</span>
+                  <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)' }}>Post unfilled shifts on this team's schedule. Useful for Ops or retail; leave off for office teams. Ones already posted stay.</span></span>
+              </label>
               <div style={{ ...LBL, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ flex: 1 }}>Members ({form.members.length})</span></div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-                {form.members.map((em) => <button key={em} type="button" style={chip(true)} aria-label={`Remove ${who(em)}`} onClick={() => toggleMember(em)}>{who(em)} ×</button>)}
+                {form.members.map((em) => (form.department && (form.autoMembers || []).includes(em)
+                  ? <span key={em} style={{ ...chip(true), cursor: 'default' }} title={`In ${form.department} - leaves the group when they leave the department`}>{who(em)}</span>
+                  : <button key={em} type="button" style={chip(true)} aria-label={`Remove ${who(em)}`} onClick={() => toggleMember(em)}>{who(em)} ×</button>))}
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 8, padding: '4px 10px', marginBottom: 6 }}>
                 <Search size={13} color="var(--muted)" />
