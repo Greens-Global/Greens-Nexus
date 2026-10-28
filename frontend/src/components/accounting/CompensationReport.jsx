@@ -221,6 +221,7 @@ export default function CompensationReport() {
   )]));
 
   return (
+    <>
     <div ref={setBox} className="acct-fit-stack" data-testid="compensation-stack" style={fit}>
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <span style={inline}>
@@ -344,17 +345,20 @@ export default function CompensationReport() {
           </p>
         </div>
       )}
-
-      {panel?.kind === 'statement' && report && (
-        <StatementPanel key={`s-${panel.name}`} panel={panel} curLabel={curLabel} priorLabel={priorLabel} onClose={() => setPanel(null)}
-          onLines={(key, period, account) => openLines(panel.subject, panel.name, key, period, account, panel)}
-          exportItems={(build) => exportItems('statement', build, false)} />
-      )}
-      {panel?.kind === 'lines' && report && (
-        <LedgerLinesPanel key={`l-${panel.name}-${panel.key}-${panel.period}-${panel.account || ''}`} panel={panel} periods={periods}
-          onClose={() => setPanel(null)} onBack={panel.back ? () => setPanel(panel.back) : null} onReports={openInReports} />
-      )}
     </div>
+    {/* Beside the stack, not in it: the stack lets each child grow to its content
+        (.acct-fit-stack > *), which stretched the fixed panel past the window so a
+        long report could not scroll (1440 check, 10/28). */}
+    {panel?.kind === 'statement' && report && (
+      <StatementPanel key={`s-${panel.name}`} panel={panel} curLabel={curLabel} priorLabel={priorLabel} onClose={() => setPanel(null)}
+        onLines={(key, period, account) => openLines(panel.subject, panel.name, key, period, account, panel)}
+        exportItems={(build) => exportItems('statement', build, false)} />
+    )}
+    {panel?.kind === 'lines' && report && (
+      <LedgerLinesPanel key={`l-${panel.name}-${panel.key}-${panel.period}-${panel.account || ''}`} panel={panel} periods={periods}
+        onClose={() => setPanel(null)} onBack={panel.back ? () => setPanel(panel.back) : null} onReports={openInReports} />
+    )}
+    </>
   );
 }
 
@@ -502,19 +506,19 @@ const NO_LINES = { lines: [], total: 0 };
 // drags to its width, kept per person (useColumnWidths).
 const GL_COLUMNS = [
   { key: 'date', label: 'Posted Date', width: 92, text: (l) => formatDate(l.entry_date) },
-  { key: 'entry', label: 'Entry', width: 96 },
-  { key: 'doc', label: 'Doc', width: 84, text: (l) => l.doc },
-  { key: 'account', label: 'Account', width: 170 },
-  { key: 'memo', label: 'Memo', width: 200, text: (l) => l.memo || l.description },
-  { key: 'location', label: 'Location', width: 150, text: (l) => l.location_name || l.location },
-  { key: 'vendor', label: 'Vendor', width: 140, text: (l) => l.vendor_name || l.vendor_id },
-  { key: 'customer', label: 'Customer', width: 140, text: (l) => l.customer_name || l.customer_id },
-  { key: 'item', label: 'Item', width: 120, text: (l) => l.item_name || l.item_id },
-  { key: 'employee', label: 'Employee', width: 140, text: (l) => l.employee_name || l.employee_id },
-  { key: 'department', label: 'Department', width: 120, text: (l) => l.department_name || l.department },
-  { key: 'debit', label: 'Debit', width: 96, num: true },
-  { key: 'credit', label: 'Credit', width: 96, num: true },
-  { key: 'balance', label: 'Balance', width: 104, num: true },
+  { key: 'entry', label: 'Entry', width: 86 },
+  { key: 'doc', label: 'Doc', width: 64, text: (l) => l.doc },
+  { key: 'account', label: 'Account', width: 140 },
+  { key: 'memo', label: 'Memo', width: 150, text: (l) => l.memo || l.description },
+  { key: 'location', label: 'Location', width: 112, text: (l) => l.location_name || l.location },
+  { key: 'vendor', label: 'Vendor', width: 110, text: (l) => l.vendor_name || l.vendor_id },
+  { key: 'customer', label: 'Customer', width: 90, text: (l) => l.customer_name || l.customer_id },
+  { key: 'item', label: 'Item', width: 80, text: (l) => l.item_name || l.item_id },
+  { key: 'employee', label: 'Employee', width: 110, text: (l) => l.employee_name || l.employee_id },
+  { key: 'department', label: 'Department', width: 90, text: (l) => l.department_name || l.department },
+  { key: 'debit', label: 'Debit', width: 84, num: true },
+  { key: 'credit', label: 'Credit', width: 84, num: true },
+  { key: 'balance', label: 'Balance', width: 92, num: true },
 ];
 const GL_WIDTHS = Object.fromEntries(GL_COLUMNS.map((c) => [c.key, c.width]));
 
@@ -569,6 +573,7 @@ function LedgerLinesPanel({ panel, periods, onClose, onBack, onReports }) {
       {onBack && <div><button type="button" style={linkBtn} onClick={onBack}>Back to {name}&apos;s report</button></div>}
       {wc && <WorkersCompNote subject={subject} period={period} />}
       {wc && <div style={{ ...muted, fontWeight: 600 }}>The gross wages it is worked out on - the Bonus and Salaried / Hourly Payroll lines:</div>}
+      {!!lines.length && <div style={muted}>Open Full shows every column; drag a heading&apos;s edge to resize it (kept for you).</div>}
       {error ? <ErrorBanner message={error} /> : !data ? <LoadingDots compact hint="Reading the ledger lines." /> : (
         <div style={{ ...card, overflowX: 'auto' }}>
           <table aria-label={`Ledger lines - ${title}`} style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: GL_COLUMNS.reduce((n, c) => n + (cw.width(c.key) || c.width), 0) }}>

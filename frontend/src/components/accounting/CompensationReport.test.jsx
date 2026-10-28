@@ -149,6 +149,8 @@ describe('CompensationReport', () => {
     render(<CompensationReport />);
     fireEvent.click(await screen.findByTitle("Open Valinda Cranfill's compensation report"));
     const p = panel();
+    // Not inside the fit-to-window stack, whose children grow to their content: a long report scrolls in the panel.
+    expect(screen.getByTestId('compensation-stack').contains(p)).toBe(false);
     expect(within(p).getByRole('heading', { name: 'Valinda Cranfill (E-0084)' })).toBeTruthy();
     expect(within(p).getByRole('button', { name: /Open Full/ })).toBeTruthy();
     const table = within(p).getByRole('table', { name: /Employee Compensation Report/ });
