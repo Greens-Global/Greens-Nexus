@@ -92,6 +92,15 @@ export const APPROVAL_ACTIONS = {
     yes: (r, note) => api.addTaskComment(r.id, { body: voteBody('Yes', note) }),
     no: (r, note) => api.addTaskComment(r.id, { body: voteBody('No', note) }),
   },
+  // Workflows (Oct 28 2026): an Ask For Approval step names its own options
+  // (Approve / Decline, or whatever the builder wrote), so EVERY action key
+  // the row offers decides it - POST /workflows/approvals/{id}/decide with
+  // that option. A Proxy answers any key; `open` still opens the run.
+  workflow: new Proxy({}, {
+    get: (_, key) => (typeof key === 'string' && key !== 'open'
+      ? (r, note) => api.wfApprovalDecide(r.id, { option: key, note: note || '' })
+      : undefined),
+  }),
 };
 
 /** Can this action run in place (else the row opens its module)? */
