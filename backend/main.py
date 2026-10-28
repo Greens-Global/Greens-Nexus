@@ -4866,3 +4866,5 @@ from routers import perf_reviews as perf_reviews_router  # noqa: E402 - new tabl
 app.include_router(perf_reviews_router.router)  # Performance: review cycles - People > Performance, Workday > Performance (Neil, Oct 27 2026)
 from routers import extra_time as extra_time_router  # noqa: E402
 app.include_router(extra_time_router.router)  # India Contractor Extra Time claims: file, approve, decline (Neil, Oct 27 2026, docs/India-Contractor-Pay.md)
+from routers import workflows as workflows_router  # noqa: E402 - eight new tables: create_all + explicit RLS lines above
+app.include_router(workflows_router.router)  # Workflows: when X happens, do Y across modules - catalog, builder, runs, approvals, settings (Neil, Oct 28 2026)

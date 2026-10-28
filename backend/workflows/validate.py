@@ -424,16 +424,22 @@ def _check_steps(steps: list, path: str, ent: Optional[catalog.EntityDef], ctx: 
                 sp = (src.get("params") or {}) if isinstance(src, dict) else {}
                 for prm in ls.params:
                     _check_param(None, prm, sp.get(prm.key), f"{p}.source.params.{prm.key}", ent, ctx, problems)
+                # Inside a For Each the item IS the subject (the engine swaps
+                # the entity, the subject and the people roles to the list
+                # source's entity for the nested steps), so the nested steps
+                # are checked against that entity and its sample; the item
+                # carries no change, so `changed*` operators are refused.
                 inner = catalog.ENTITIES.get(ls.entity)
                 inner_ctx = None
                 if ctx is not None and inner is not None:
                     sample_ev = next((e for e in catalog.EVENTS.values() if e.entity == inner.key and e.sample), None)
                     item = catalog.sample_payload(sample_ev)["subject"] if sample_ev else {}
-                    inner_ctx = RunContext(db=db, definition=ctx.definition, entity=ctx.entity, subject=None,
-                                           payload=ctx.payload, actor=ctx.actor, run_as=ctx.run_as,
-                                           today=ctx.today, item=item, company_id=ctx.company_id)
-                _check_steps(step.get("steps") or [], f"{p}.steps", ent, inner_ctx or ctx, owner, run_as, db,
-                             problems, changes_only=changes_only)
+                    inner_ctx = RunContext(db=db, definition=ctx.definition, entity=inner, subject=None,
+                                           payload={"subject": dict(item), "changes": {}, "extra": {}, "actor": ctx.actor},
+                                           actor=ctx.actor, run_as=ctx.run_as, today=ctx.today, item=item,
+                                           company_id=ctx.company_id)
+                _check_steps(step.get("steps") or [], f"{p}.steps", inner or ent, inner_ctx or ctx, owner, run_as, db,
+                             problems, changes_only=set())
         elif kind == "stop":
             pass
 
