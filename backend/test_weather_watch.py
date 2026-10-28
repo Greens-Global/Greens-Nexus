@@ -69,11 +69,14 @@ class WatchTests(unittest.TestCase):
         self.db = database.SessionLocal()
         for m in (models.NexusRole, models.NexusEmployee, models.ShiftGroup, models.ShiftGroupMember, models.HrWorkSite,
                   models.HrEntity, models.ScheduledShift, models.NexusNotification, models.ScheduleDayNote,
-                  models.WeatherOutlook, models.WeatherAdvisory, models.NexusSetting):
+                  models.WeatherOutlook, models.WeatherAdvisory, models.NexusSetting, models.HrDepartment):
             self.db.query(m).delete()
         for em, first in ((BOSS, "Boss"), (MGR, "Mia"), (EMP, "Eve")):
+            # The crew is in Construction: the watch covers weather departments only (10/29/2026).
             self.db.add(models.NexusEmployee(id=f"emp-{em}", first_name=first, last_name="X", work_email=em,
-                                             status="active", deleted_at="", company=ENT))
+                                             status="active", deleted_at="", company=ENT,
+                                             department="Construction" if em == EMP else ""))
+        self.db.add(models.HrDepartment(id="d-ww-con", company_id=ENT, name="Construction"))   # starts on
         self.db.add(models.NexusRole(email=BOSS, role="administrator", assigned_by="test"))
         self.db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
         self.db.add(models.HrEntity(id=ENT, name="Greens", manager_email=BOSS, manager_emails=[BOSS]))
