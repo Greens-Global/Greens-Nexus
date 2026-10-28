@@ -393,6 +393,15 @@ def _round(db: Session, r: TimesheetReview, *, by: str, action: str, note: str =
         r.last_snapshot = now
     r.rounds = list(r.rounds or []) + [entry]
     r.updated_at = entry["at"]
+    # Workflows (Oct 28 2026): every round is one outbox row - never raises.
+    import workflows
+    try:
+        from workflows.packs.time import review_status_change
+        change = review_status_change(r, action)
+    except Exception:   # noqa: BLE001 - a pack that fails to load is the catalog's problem, never a round's
+        change = ("", r.status or "")
+    workflows.emit(db, "timesheet.review_changed", subject=r, actor=entry["by"], changes={"status": change},
+                   extra={"action": action, "by": entry["by"], "note": entry["note"], "for": entry.get("for", "")})
     return entry
 
 

@@ -13033,6 +13033,12 @@ def add_time(body: AddTimeIn, user: dict = Depends(require_team_write), db: Sess
         body=f"{_display_name(db, user['email'])} added {hrs} over {n} day{'' if n == 1 else 's'} ({dates}) "
              f"to {_display_name(db, em)}'s time sheet: {reason[:200]}",
         ref_id=batch_id)
+    # Workflows (Oct 28 2026): one event per batch, the person as subject.
+    import workflows
+    from workflows.packs._people import employee_row as _wf_person
+    workflows.emit(db, "time.add_time_batch", subject=_wf_person(db, em), actor=user["email"],
+                   extra={"batchId": batch_id, "source": "manager", "dates": [r["date"] for r in doing],
+                          "minutes": total, "replaced": 0, "reason": reason[:300]})
     db.commit()
     return {"batchId": batch_id, "days": public, "added": n, "totalMin": total}
 
@@ -13410,7 +13416,7 @@ def _record_row_shift(row: RecordRow, ds: str, tz: int) -> tuple:
     return shift, ""
 
 
-def _shift_minutes(shift: list) -> int:
+def _record_shift_minutes(shift: list) -> int:
     """Paid minutes of one planned shift: in to out, less its breaks."""
     ts = [_parse_iso(at) for _k, at, _c in shift]
     total = (ts[-1] - ts[0]).total_seconds()
@@ -13524,7 +13530,7 @@ def _dup_judge(db: Session, em: str, items: list, actor: str, *, replace_hint: s
                      .get(ds, {}).get("workedMin") or 0)
         classes = {_leave_class(s[0][2]) for s in shifts} or {""}
         row.update(action=("clear" if it.get("off") else "replace") if replaced else "add", replaces=len(replaced),
-                   minutes=sum(_shift_minutes(s) for s in shifts), workedMin=worked)
+                   minutes=sum(_record_shift_minutes(s) for s in shifts), workedMin=worked)
         if writes:
             row.update(inAt=writes[0][1], outAt=writes[-1][1])
         if ds in india:
@@ -13786,6 +13792,12 @@ def duplicate_day(body: DuplicateDayIn, user: dict = Depends(require_team_write)
         body=f"{_display_name(db, user['email'])} (HR) added time from a record for {rng} to "
              f"{_display_name(db, em)}'s time sheet ({hrs}): {reason[:200]}",
         ref_id=batch_id)
+    # Workflows (Oct 28 2026): one event per batch, the person as subject.
+    import workflows
+    from workflows.packs._people import employee_row as _wf_person
+    workflows.emit(db, "time.add_time_batch", subject=_wf_person(db, em), actor=user["email"],
+                   extra={"batchId": batch_id, "source": "record", "dates": days, "minutes": total,
+                          "replaced": out["replaced"], "reason": reason[:300]})
     db.commit()
     return {"batchId": batch_id, **out}
 
