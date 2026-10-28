@@ -3165,6 +3165,19 @@ def _run_migrations():
         # table, explicit RLS. models.TimePunch.entry_source, TimeEntryBatch.
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS entry_source VARCHAR DEFAULT ''",
         "ALTER TABLE time_entry_batches ENABLE ROW LEVEL SECURITY",
+        # Workflows (Neil, Oct 28 2026, docs/superpowers/specs/
+        # 2026-10-28-workflows-design.md): eight new tables - the workflows,
+        # their versions, the event outbox, runs, run steps, the wait queue,
+        # approval asks and the per-subject marks. Explicit RLS on every one.
+        # models.Workflow ... WorkflowSubjectMark.
+        "ALTER TABLE workflows ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_versions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_events ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_runs ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_run_steps ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_waits ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_approvals ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workflow_subject_marks ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

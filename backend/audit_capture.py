@@ -161,6 +161,9 @@ NOISE_TABLES: frozenset[str] = frozenset({
     "marketing_gbp_daily", "marketing_gbp_keywords", "marketing_gbp_locations",
     "marketing_ads_daily", "marketing_ads_keywords", "marketing_ads_campaigns",
     "marketing_ads_accounts", "marketing_reviews",
+    # the Workflows event outbox and per-step run log (Oct 28 2026): one row
+    # per observed change and per step - the run itself is the record
+    "workflow_events", "workflow_run_steps",
 })
 NOISE_PREFIXES: tuple[str, ...] = ("cubby_", "asana_", "third_party_fetch")
 
