@@ -165,6 +165,22 @@ keep the diff minimal.
   button (`lib/usePopupNudge.js`); Close, Cancel and Escape close.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
+- **Every amount on every Accounting report drills down to its ledger lines
+  and on to the source transaction; columns resizable** (Charmi, call of
+  10/27/2026, item 17 - asked before and it did not stick, so it is a house
+  rule now; no one should have to ask for it on a new report). A figure that
+  is posted opens the lines behind it: on Reports through `drill.js`
+  (`requestReportDrill` - the General Ledger lines, `LedgerSearch.jsx`), on
+  any other screen in the side panel (`LinesPanel.jsx` with `lineQuery` from
+  `reportModel.js`; Open in Reports for the full grid). The lines read like
+  Intacct's General Ledger (Doc, Memo/Description, Entity, Vendor, Customer,
+  Item, Employee, Department, Debit / Credit, running Balance on a
+  drill-down, totals) and every line opens its transaction (`EntryDetail`
+  `panel`: right-side panel with Open Full). Every report column takes a
+  `ColumnResizer` with `useColumnWidths('<table key>')` so each person's
+  widths are kept. Only a figure that is worked out rather than posted
+  (a variance, a percent, a budget, a projection, a computed cash-flow line)
+  may stay plain - say which and why in the PR.
 - **Settings saves one way (Oct 23 2026):** a switch, a select, a chip list
   or a reorder saves on change, with a toast; a form with typed fields keeps
   a draft beside the saved value (`lib/useDraft.js`) and has ONE Save row at

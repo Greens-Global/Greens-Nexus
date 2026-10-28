@@ -96,19 +96,17 @@ export const LINE_COLUMNS = [
   { key: 'balance', label: 'Balance', width: 124, num: true, drillOnly: true, text: (r) => (r.balance == null ? '' : money(r.balance)) },
 ];
 /**
- * The lines with a running `balance` (debits less credits), added up oldest
- * first - by date, then entry and line - whatever order they arrive in, as
+ * The lines oldest first - by date, then entry and line - whatever order they
+ * arrive in, each with its running `balance` (debits less credits), as
  * Intacct's General Ledger carries it down the page (item 17). Each line keeps
- * its own balance however the grid is then sorted or filtered.
+ * its own balance however the person then sorts or filters the grid.
  */
 export function withBalance(lines) {
   const order = [...lines].sort((a, b) => String(a.entry_date || '').localeCompare(String(b.entry_date || ''))
     || String(a.entry_no || '').localeCompare(String(b.entry_no || ''), undefined, { numeric: true })
     || String(a.line_id || '').localeCompare(String(b.line_id || ''), undefined, { numeric: true }));
   let run = 0;
-  const at = new Map();
-  order.forEach((l) => { run += (Number(l.debit) || 0) - (Number(l.credit) || 0); at.set(l, Math.round(run * 100) / 100); });
-  return lines.map((l) => ({ ...l, balance: at.get(l) }));
+  return order.map((l) => { run += (Number(l.debit) || 0) - (Number(l.credit) || 0); return { ...l, balance: Math.round(run * 100) / 100 }; });
 }
 const MIN_WIDTH = 60;
 // What the standard table view needs to filter and sort a column as a date or

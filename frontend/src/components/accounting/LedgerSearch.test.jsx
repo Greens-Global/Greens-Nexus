@@ -83,6 +83,8 @@ describe('LedgerSearch grid', () => {
     expect(balanceOf('Pala Vista Gas')).toBe('20.00');
     expect(balanceOf('Fuel for vehicle')).toBe('82.00');
     expect(balanceOf('Fuel for company vehicle')).toBe('162.07');
+    // Listed oldest first, as Intacct lists them, so the balance grows down the page.
+    expect([...document.querySelectorAll('.acct-lines tbody tr.acct-line-opens')].map((tr) => tr.children[4].textContent)).toEqual(['Pala Vista Gas', 'Fuel for vehicle', 'Fuel for company vehicle']);
     // The totals row ends on the closing figure, under Balance.
     expect(document.querySelector('.acct-grand td:nth-last-child(2)').textContent).toBe('162.07');
 
