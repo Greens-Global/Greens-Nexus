@@ -8939,3 +8939,23 @@ class TimeEntryBatch(Base):
     created_at     = Column(String, default="")
     undone_by      = Column(String, default="")
     undone_at      = Column(String, default="")
+
+
+class WorkersCompRate(Base):
+    """A person's workers' comp rate (Charmi, 10/27 call, item 14: "it changes
+    every year ... I would enter here in the HR module, in the people's module
+    when I'm setting that up"): a percent of gross wages, in force from
+    `effective_year` until a later year has its own. Append-only - a changed
+    rate is a new row and the newest row for a year wins, so every earlier
+    entry stays as the history. Written from People > Pay, Benefits & Bank
+    (hr_comp editors); read by Accounting > Compensation, which charges
+    rate x gross wages for each year of the period. New table - RLS on dev and
+    prod at release."""
+    __tablename__ = "workers_comp_rates"
+    id             = Column(String, primary_key=True)                 # uuid
+    employee_id    = Column(String, nullable=False, index=True)       # NexusEmployee.id
+    effective_year = Column(Integer, nullable=False)
+    rate_pct       = Column(Float, nullable=False)                    # percent of gross wages, e.g. 3.5
+    note           = Column(String, default="")
+    set_by         = Column(String, default="")
+    set_at         = Column(String, default="")                       # ISO timestamp, UTC

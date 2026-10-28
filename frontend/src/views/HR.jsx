@@ -5333,7 +5333,7 @@ const OT_RULES = [['ca', 'California (daily 8h / 12h, 7th day, weekly 40h)'], ['
 const COMP_DEFAULTS = { base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [],
   overtimeRule: '', fullDayHours: '8' };
 
-function CompensationModal({ employee, onClose, toastOk, toastErr }) {
+export function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   const [comp, setComp] = useState(COMP_DEFAULTS);
   const [bank, setBank] = useState([]);
   const [gstin, setGstin] = useState('');   // India GST number, printed on a contractor's invoices (Oct 21)
@@ -5342,6 +5342,9 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   const [ownPayLocked, setOwnPayLocked] = useState(false);   // your own record: another admin or HR sets your pay (Oct 20)
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  // Workers' comp rate per year (Charmi, 10/27 item 14): the rates so far, and a new one typed here.
+  const [wc, setWc] = useState({ rates: [], history: [] });
+  const [wcDraft, setWcDraft] = useState({ year: String(new Date().getFullYear()), ratePct: '' });
   const setC = (k, v) => setComp(p => ({ ...p, [k]: v }));
   // Baseline for the unsaved-changes guard, re-synced once the real record
   // loads (the pre-fetch defaults above aren't a meaningful baseline).
@@ -5364,6 +5367,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
       })
       .catch(e => toastErr(e?.message || 'Could not load compensation.'))
       .finally(() => live && setLoading(false));
+    api.getWorkersCompRates(employee.id).then(r => { if (live) setWc(r || { rates: [], history: [] }); }).catch(() => {});
     return () => { live = false; };
   }, [employee.id]);
 
@@ -5377,20 +5381,28 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
 
   async function save() {
     if (busy) return;
+    const wcRate = wcDraft.ratePct === '' ? null : Number(wcDraft.ratePct);
+    if (wcRate !== null && !(wcRate >= 0 && wcRate <= 100)) { toastErr("The workers' comp rate is a percent of gross wages, from 0 to 100."); return; }
     const up = await ensureStepUp();
     if (!up.ok) { if (!up.cancelled) toastErr('Identity check didn’t complete.'); return; }
     setBusy(true);
     try {
-      const clean = { ...comp }; delete clean.history;   // server owns history
-      // GSTIN rides on the same PUT (the server keeps it beside the bank list).
-      await api.saveCompensation(employee.id, { compensation: clean, bank, gstin, pan });
+      if (payDirty || wcRate === null) {
+        const clean = { ...comp }; delete clean.history;   // server owns history
+        // GSTIN rides on the same PUT (the server keeps it beside the bank list).
+        await api.saveCompensation(employee.id, { compensation: clean, bank, gstin, pan });
+      }
+      if (wcRate !== null) await api.addWorkersCompRate(employee.id, { year: Number(wcDraft.year), ratePct: wcRate });
       toastOk('Compensation saved.'); onClose();
     } catch (e) { toastErr(e?.message || 'Could not save compensation.'); setBusy(false); }
   }
   const money = (v, cur) => v ? `${moneyPrefix(cur)}${Number(v).toLocaleString()}` : '-';
   const gstinBad = !!gstin && !GSTIN_RE.test(gstin);
   const panBad = !!pan && !PAN_RE.test(pan);
-  const dirty = JSON.stringify({ comp, bank, gstin, pan }) !== JSON.stringify(baselineRef.current);
+  const payDirty = JSON.stringify({ comp, bank, gstin, pan }) !== JSON.stringify(baselineRef.current);
+  const dirty = payDirty || wcDraft.ratePct !== '';
+  const thisYear = new Date().getFullYear();
+  const wcNow = (wc.rates || []).find(r => r.year <= thisYear);
   const guard = useUnsavedGuard(dirty, onClose, save);
 
   return (
@@ -5456,6 +5468,35 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
                 <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Set on the person's role in Settings &gt; Access, beside the screen-share exemption.</div>
               </div>
             </div>
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '20px 0 10px' }}>WORKERS' COMP</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }} data-testid="comp-workers-comp">
+              <div>
+                <label style={FL} htmlFor="comp-wc-year">EFFECTIVE YEAR</label>
+                <input id="comp-wc-year" className="form-input" type="number" min="2000" max={thisYear + 1} step="1" style={{ width: '100%' }} value={wcDraft.year} onChange={e => setWcDraft(d => ({ ...d, year: e.target.value }))} />
+              </div>
+              <div>
+                <label style={FL} htmlFor="comp-wc-rate">RATE (% OF GROSS WAGES)</label>
+                <input id="comp-wc-rate" className="form-input" type="number" min="0" max="100" step="0.01" style={{ width: '100%' }} value={wcDraft.ratePct} onChange={e => setWcDraft(d => ({ ...d, ratePct: e.target.value }))} placeholder={wcNow ? `In force: ${wcNow.ratePct}%` : 'e.g. 3.5'} />
+              </div>
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>
+              Accounting &gt; Compensation charges this percent of Bonus plus Salaried / Hourly Payroll from the effective year on, until a later year has its own rate.
+              {wcNow ? ` In force now: ${wcNow.ratePct}% (from ${wcNow.year}).` : ' No rate set yet.'} A new rate for a year replaces it there; every earlier entry stays below.
+            </div>
+            {wc.history?.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                {wc.history.map((h, i) => {
+                  const live = wc.rates.some(r => r.year === h.year && r.setAt === h.setAt);
+                  return (
+                    <div key={`${h.year}-${h.setAt}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--line)', color: live ? 'var(--ink)' : 'var(--muted)' }}>
+                      <span>{h.year} · {h.ratePct}%{live ? '' : ' (replaced)'}</span>
+                      <span>{h.setBy}{h.setAt ? ` · ${formatDate(h.setAt.slice(0, 10))}` : ''}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             </fieldset>
 
             {comp.history?.length > 0 && (

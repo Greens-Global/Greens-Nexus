@@ -1,32 +1,44 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, Printer } from 'lucide-react';
 import { api } from '../../api';
-import AsyncSection, { SkeletonBlocks } from '../AsyncState';
+import { ErrorBanner } from '../AsyncState';
 import Amount, { formatAmount } from './Amount';
-import { BarMore, ControlBar, control, ExportMenu, SyncButton } from './reportControls';
+import { BarMore, ColumnResizer, ControlBar, control, ExportMenu, SyncButton } from './reportControls';
 import { useTableSync } from './tableSync';
-import { useFitHeight } from './tableHooks';
+import { useColumnWidths, useFitHeight } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { downloadBlob } from './reportModel';
 import { linesFile } from './linesExport';
 import { formatDate } from '../../lib/datetime';
 import { isStepUpRequired, StepUpNeeded } from '../../stepup/StepUp';
-import { buildingHint, compensationTable, emptyReason, HOUR_COLUMNS, hoursOf, LEDGER_SPLIT_COLUMNS, ledgerTable, loadErrorMessage, monthsBetween, payTypeLabel, rateLabel, viewRows, VIEWS } from './compensationModel';
+import {
+  buildingHint, combine, drillSpec, emptyReason, groupRows, HOUR_COLUMNS, hoursOf, hoursRange, lineLabel, LINES, loadErrorMessage,
+  monthsBetween, payTypeLabel, periodLabel, rateLabel, statementRows, statementTable, visibleRows, VIEWS, withHours,
+} from './compensationModel';
 import { COMP_REQUEST_TIMEOUT_MS } from './assumptions';
-import { ColumnFilterRow, useColumnFilters } from './columnFilters';
+import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
 import { filterCellOf, filterColumnsOf } from './viewFilterColumns';
+import SidePanel from './SidePanel';
+import EntryDetail from './EntryDetail';
+import { parkDrillReturn, requestReportDrill, takeDrillReturn } from './drill';
+import { Avatar } from '../../tasks/components';
 
 // Accounting > Reporting > Employee Compensation (Neil, 10/15: "We still need
-// to make employee compensation report"). For a run of months: each person's
-// company, department, title, pay type and rate, regular / overtime / double
-// time hours, sick / vacation / personal leave hours and gross wages - straight
-// from the Time Clock payroll card, the same engine as the timecard and the
-// Allocations entry - with totals by company and department. Below it, payroll
-// expense on the ledger by department or employee, where employer taxes and
-// benefits are booked. Wages for everyone are payroll figures: the screen is
-// only offered at the Full level on Accounting, and the backend also asks for
-// a fresh identity check (step-up) like the payroll card.
+// to make employee compensation report"). Rebuilt after the 10/27 call with
+// Charmi (items 11-19): every figure is the Intacct LEDGER's - the lines that
+// carry the employee - laid out like Intacct's Employee Compensation Report
+// (Payroll Expenses, Benefits, Employer Payroll Taxes, Workers' Comp, Total
+// Employer Expenses, and the employee's Deductions, Taxes Withheld and Net
+// Pay). Hours stay Time Clock's and say so. One table (the lower "Payroll
+// Expense on the Ledger" box is gone, item 16) with By Employee / By Company /
+// By Department at the top; a name opens that person's full report on the
+// right, with last year beside it (Open Full widens it); any amount opens the
+// ledger lines behind it (item 17). Wages for everyone are payroll figures:
+// the screen is only offered at the Full level on Accounting, and the backend
+// also asks for a fresh identity check (step-up).
 
 const MAX_MONTHS = 12;
+const RETURN = 'compensation';
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const th = { textAlign: 'left', padding: '6px 8px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)', verticalAlign: 'bottom' };
 const thNum = { ...th, textAlign: 'right' };
@@ -35,145 +47,138 @@ const tdNum = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', w
 // 10/23 meeting, item 02 (fix 10/24): the words sit beside the boxes, not above them, so the bar is one line.
 const inline = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' };
 const muted = { color: 'var(--text-muted)', fontSize: '0.72rem' };
+const note = { margin: 0, padding: '8px 12px 12px', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.5 };
 const seg = (on) => ({ ...control, cursor: 'pointer', fontWeight: on ? 700 : 400, color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', borderColor: on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)' });
+const plainBtn = { border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textAlign: 'inherit' };
+const drillBtn = { ...plainBtn, textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3 };
+const linkBtn = { ...plainBtn, color: 'var(--wk-brand, #2b45e1)', textDecoration: 'underline', textUnderlineOffset: 3 };
 
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+// The year so far, as Intacct's "Year Ending 12/31" column reads it.
 function defaultRange(now = new Date()) {
-  const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  return [monthKey(new Date(last.getFullYear(), 0, 1)), monthKey(last)];
+  return [monthKey(new Date(now.getFullYear(), 0, 1)), monthKey(new Date(now.getFullYear(), 11, 1))];
 }
 const hrs = (min) => hoursOf(min).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pct = (n) => `${Number(n).toLocaleString('en-US', { maximumFractionDigits: 4 })}%`;
 
-// The people table's columns for the standard table view (10/23 meeting,
-// item 01), one set per grouping: hours compare as numbers, rates and wages
-// as amounts. Employee ID and the currency export beside them, as before.
+// The table's columns for the standard table view (10/23 meeting, item 01),
+// one set per grouping. Hours compare as numbers, every line of the report as
+// an amount; the detail lines start hidden (Columns shows them).
 function compColumns(grouping) {
   const hours = HOUR_COLUMNS.map((c) => ({ key: c.key, label: c.label, type: 'number', total: true, value: (r) => hoursOf(r[c.key]), text: (r) => (r[c.key] ? hrs(r[c.key]) : '') }));
-  const wages = { key: 'wages', label: 'Gross Wages', type: 'amount', total: true, value: (r) => Number(r.wages) || 0, text: (r) => formatAmount(r.wages) };
+  const money = LINES.map((l) => ({ key: l.key, label: l.label, type: 'amount', total: true, off: !l.shown, value: (r) => Number(r.cur?.[l.key]) || 0, text: (r) => formatAmount(r.cur?.[l.key] || 0) }));
   if (grouping === 'people') {
     return [
-      { key: 'name', label: 'Employee', text: (r) => r.name || '', exportAs: [{ label: 'Employee', width: 160, get: (r) => r.name }, { label: 'Employee ID', width: 80, get: (r) => r.employeeId }] },
-      { key: 'company', label: 'Company', text: (r) => r.companyName || '', exportAs: [{ label: 'Company', width: 140, get: (r) => r.companyName }] },
-      { key: 'department', label: 'Department', text: (r) => r.department || '', exportAs: [{ label: 'Department', width: 110, get: (r) => r.department }] },
-      { key: 'title', label: 'Title', text: (r) => r.title || '', exportAs: [{ label: 'Title', width: 120, get: (r) => r.title }] },
-      { key: 'payType', label: 'Pay Type', text: (r) => payTypeLabel(r.payType), exportAs: [{ label: 'Pay Type', width: 60, get: (r) => payTypeLabel(r.payType) }, { label: 'Currency', width: 55, get: (r) => r.currency }] },
-      { key: 'rate', label: 'Rate', type: 'amount', value: (r) => Number(r.rate) || 0, text: (r) => formatAmount(r.rate) },
-      ...hours, wages,
+      { key: 'name', label: 'Employee', fixed: true, text: (r) => r.name || '', exportAs: [{ label: 'Employee', width: 160, get: (r) => r.name }, { label: 'Employee ID', width: 80, get: (r) => r.code }] },
+      { key: 'company', label: 'Company', text: (r) => r.companyName || '' },
+      { key: 'department', label: 'Department', text: (r) => r.department || '' },
+      { key: 'title', label: 'Title', off: true, text: (r) => r.title || '' },
+      { key: 'payType', label: 'Pay Type (Time Clock)', off: true, text: (r) => payTypeLabel(r.payType) },
+      { key: 'rate', label: 'Rate (Time Clock)', off: true, type: 'amount', value: (r) => Number(r.rate) || 0, text: (r) => (r.rate ? formatAmount(r.rate) : '') },
+      ...hours, ...money,
     ];
   }
   const head = grouping === 'company' ? 'Company' : 'Department';
   return [
-    { key: 'label', label: head, text: (r) => r.label || '', exportAs: [{ label: head, width: 180, get: (r) => r.label }, { label: 'Currency', width: 60, get: (r) => r.currency }] },
+    { key: 'label', label: head, fixed: true, text: (r) => r.label || '' },
     { key: 'people', label: 'Employees', type: 'number', total: true, value: (r) => Number(r.people) || 0, text: (r) => String(r.people ?? '') },
-    ...hours, wages,
+    ...hours, ...money,
   ];
 }
 
 // 10/27: the boxes under the headings (columnFilters.jsx, as on MRE). The
 // Employee box also finds the employee ID shown under the name.
-const compFilterColumns = (columns) => filterColumnsOf(columns, { instead: { name: (r) => `${r.name || ''} ${r.employeeId || ''}` } });
-const filterCell = filterCellOf();
+const compFilterColumns = (columns) => filterColumnsOf(columns, { instead: { name: (r) => `${r.name || ''} ${r.code || ''}` } });
+// The first column (the name) stays put while the amounts scroll sideways.
+const PINNED = new Set(['name', 'label']);
+const pin = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--bg-card)' };
+const filterCell = (col) => filterCellOf(PINNED.has(col.key) ? col.key : '')(col);
 
-// The ledger table's boxes: the department or employee, then every amount.
-const LEDGER_AMOUNTS = [['wages', 'Wages'], ['taxes', 'Employer Taxes'], ['benefits', 'Benefits'], ...LEDGER_SPLIT_COLUMNS.map((c) => [c.key, c.label]), ['total', 'Total']];
-const ledgerFilterColumns = (head) => [
-  { key: 'label', label: head, text: (r) => `${r.label || ''} ${r.key || ''}` },
-  ...LEDGER_AMOUNTS.map(([key, label]) => ({ key, label, num: true, value: (r) => Number(r[key]) || 0 })),
-];
-/** The ledger figures over the rows the boxes leave: the same shape, the totals added up from them. */
-function ledgerShown(ledger, rows, filtering) {
-  if (!ledger || !filtering) return ledger;
-  const r2 = (n) => Math.round(n * 100) / 100;
-  return { ...ledger, rows, totals: Object.fromEntries(LEDGER_AMOUNTS.map(([k]) => [k, r2(rows.reduce((s, r) => s + (Number(r[k]) || 0), 0))])) };
+/** Item 18: "just like dot dot dot that is loading" - never the pale blocks, never a blank screen. */
+function LoadingDots({ hint, compact = false }) {
+  return (
+    <div role="status" aria-live="polite" className={compact ? undefined : 'acct-stack-card acct-stack-main'}
+      style={compact ? { padding: '14px 4px', textAlign: 'center' } : { ...card, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 220, padding: '40px 16px', textAlign: 'center' }}>
+      <div style={{ fontSize: compact ? '0.84rem' : '0.95rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+        Loading
+        <span aria-hidden="true">
+          {[0, 1, 2].map((i) => <span key={i} style={{ display: 'inline-block', animation: 'nxl-breathe 1.2s ease-in-out infinite', animationDelay: `${i * 0.2}s` }}>.</span>)}
+        </span>
+      </div>
+      {hint && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxWidth: 520 }}>{hint}</div>}
+    </div>
+  );
 }
 
-/** The totals by currency over some rows (wages in USD and INR never add together). */
-function totalsOf(rows, grouping) {
-  const by = new Map();
-  rows.forEach((r) => {
-    const t = by.get(r.currency) || { currency: r.currency, people: 0, wages: 0, ...Object.fromEntries(HOUR_COLUMNS.map((c) => [c.key, 0])) };
-    t.people += grouping === 'people' ? 1 : Number(r.people) || 0;
-    t.wages = Math.round((t.wages + (Number(r.wages) || 0)) * 100) / 100;
-    HOUR_COLUMNS.forEach((c) => { t[c.key] += Number(r[c.key]) || 0; });
-    by.set(r.currency, t);
-  });
-  return [...by.values()];
+/** An amount that opens the ledger lines behind it (item 17); nothing to open on a zero. */
+function DrillAmount({ value, onOpen, label }) {
+  if (!Number(value)) return <Amount value={0} zero="dash" />;
+  return <button type="button" style={drillBtn} onClick={onOpen} title={`Open the ledger lines behind ${label}`} aria-label={`${label}: ${formatAmount(value)} - open the ledger lines`}><Amount value={value} /></button>;
 }
 
 export default function CompensationReport() {
-  const [[from, to], setRange] = useState(() => defaultRange());
-  const [asked, setAsked] = useState(() => defaultRange());
-  const [view, setView] = useState('people');
-  const [data, setData] = useState(null);
+  // Back from the ledger lines in Reports (drill.js): the screen as it was.
+  const [parked] = useState(() => takeDrillReturn(RETURN));
+  const [[from, to], setRange] = useState(() => parked?.asked || defaultRange());
+  const [asked, setAsked] = useState(() => parked?.asked || defaultRange());
+  const [view, setView] = useState(() => parked?.view || 'people');
+  const [report, setReport] = useState(null);
   const [state, setState] = useState({ loading: true, error: '', stepUp: false });
-  const [by, setBy] = useState('department');
-  const [ledger, setLedger] = useState(null);
-  const [ledgerState, setLedgerState] = useState({ loading: false, error: '' });
+  const [hours, setHours] = useState(null);
+  const [hoursState, setHoursState] = useState({ loading: true, error: '' });
+  const [panel, setPanel] = useState(null);
   const [busy, setBusy] = useState('');
-  // Item 05 (fix 10/24): the screen is as tall as the window; the two tables
-  // share what the bar leaves, each scrolling in its own card (style.css
-  // .acct-fit-stack).
+  // Item 05 (fix 10/24): the screen is as tall as the window; the table scrolls in its own card (style.css .acct-fit-stack).
   const [box, setBox] = useState(null);
   const fit = useFitHeight(box);
 
   const span = monthsBetween(from, to);
   const rangeError = span < 1 ? 'The start month must be on or before the end month.' : span > MAX_MONTHS ? `Pick at most ${MAX_MONTHS} months.` : '';
 
-  // `quiet` (a Sync, 10/23 meeting item 13): the table stays on screen while it reads.
-  const loadPeople = useCallback(([f, t], quiet = false) => {
+  // The ledger figures (`quiet` = a Sync, 10/23 item 13: the table stays on screen while it reads).
+  const loadReport = useCallback(([f, t], quiet = false) => {
     if (quiet) setState((s) => ({ ...s, syncing: true }));
-    else setState({ loading: true, error: '', stepUp: false });
-    // One attempt (api.js noRetry): the server stops a run that runs long and
-    // says why, so a failure is shown at once instead of after silent retries.
-    return api.getCompensationPeople(f, t, { timeoutMs: COMP_REQUEST_TIMEOUT_MS })
-      .then((d) => { setData(d); setState({ loading: false, error: '', stepUp: false }); })
-      .catch((e) => { setData(null); setState({ loading: false, error: isStepUpRequired(e) ? '' : loadErrorMessage(e, monthsBetween(f, t)), stepUp: isStepUpRequired(e) }); });
+    else { setState({ loading: true, error: '', stepUp: false }); setPanel(null); }
+    return api.getCompensationReport(f, t)
+      .then((d) => { setReport(d); setState({ loading: false, error: '', stepUp: false }); })
+      .catch((e) => {
+        const stepUp = isStepUpRequired(e);
+        if (!quiet || stepUp) setReport(null);
+        setState({ loading: false, error: stepUp ? '' : (e?.message || 'Could not read payroll from the ledger.'), stepUp });
+      });
   }, []);
-  const loadLedger = useCallback(([f, t], b, quiet = false) => {
-    setLedgerState(quiet ? (s) => ({ ...s, syncing: true }) : { loading: true, error: '' });
-    return api.getCompensationLedger(f, t, b)
-      .then((d) => { setLedger(d); setLedgerState({ loading: false, error: '' }); })
-      .catch((e) => { setLedger(null); setLedgerState({ loading: false, error: isStepUpRequired(e) ? 'Verify your identity above to see the ledger figures.' : (e?.message || 'Could not read payroll expense from the ledger.') }); });
+  // Time Clock's hours for the months that have started - the slow read, so it
+  // never holds the ledger figures back. One attempt (api.js noRetry).
+  const loadHours = useCallback((range, quiet = false) => {
+    const hr = hoursRange(range);
+    if (!hr) { setHours({ people: [] }); setHoursState({ loading: false, error: '' }); return Promise.resolve(); }
+    if (quiet) setHoursState((s) => ({ ...s, syncing: true }));
+    else { setHours(null); setHoursState({ loading: true, error: '' }); }
+    return api.getCompensationPeople(hr[0], hr[1], { timeoutMs: COMP_REQUEST_TIMEOUT_MS })
+      .then((d) => { setHours(d); setHoursState({ loading: false, error: '' }); })
+      .catch((e) => setHoursState({ loading: false, error: isStepUpRequired(e) ? '' : loadErrorMessage(e, monthsBetween(hr[0], hr[1])) }));
   }, []);
-  useEffect(() => { loadPeople(asked); }, [asked, loadPeople]);
-  // The ledger read waits for the people read: it needs the same identity check.
-  // (Once there are people: a Sync of the people does not re-read the ledger.)
-  const peopleIn = !!data;
-  useEffect(() => { if (peopleIn) loadLedger(asked, by); }, [peopleIn, asked, by, loadLedger]);
-  // Item 13: each table has its own Sync - the people's re-reads only the
-  // people, the ledger's only the ledger figures.
-  const peopleSync = useTableSync(useCallback(() => loadPeople(asked, true), [asked, loadPeople]));
-  const ledgerSync = useTableSync(useCallback(() => loadLedger(asked, by, true), [asked, by, loadLedger]));
+  useEffect(() => { loadReport(asked); loadHours(asked); }, [asked, loadReport, loadHours]);
+  // Sync reads the ledger fresh (a correction made in Intacct shows, item 11) and the hours again.
+  const sync = useTableSync(useCallback(() => Promise.all([loadReport(asked, true), loadHours(asked, true)]), [asked, loadReport, loadHours]));
+  const reloadAll = () => { loadReport(asked); loadHours(asked); };
 
   const run = () => { if (!rangeError) setAsked([from, to]); };
-  const period = data ? `${formatDate(data.from)} - ${formatDate(data.to)}` : '';
-  const all = useMemo(() => viewRows(data, view), [data, view]);
-  // Item 01: the standard view over the rows of the grouping picked (each
-  // grouping keeps its own); the totals follow it once it filters.
+  const periods = report ? { cur: { from: report.from, to: report.to }, prior: report.prior || { from: '', to: '' } } : null;
+  const curLabel = report ? periodLabel(report.from, report.to) : '';
+  const priorLabel = report?.prior ? periodLabel(report.prior.from, report.prior.to) : '';
+  const merged = useMemo(() => withHours(report?.people, hours), [report, hours]);
+  const all = useMemo(() => (view === 'people' ? merged.rows : groupRows(merged.rows, view)), [merged, view]);
+  // Item 01: the standard view over the rows of the grouping picked (each grouping keeps its own); the totals follow it.
   const columns = useMemo(() => compColumns(view), [view]);
   const boxes = useMemo(() => compFilterColumns(columns), [columns]);
   const filters = useColumnFilters(all, boxes);
-  const tv = useTableView(`comp-${view}`, columns, filters.rows);
+  const tv = useTableView(`comp-ledger-${view}`, columns, filters.rows);
   const rows = tv.rows;
   const narrowed = !!tv.count || filters.filtering;
-  const totals = narrowed ? totalsOf(rows, view) : data?.totals || [];
-  // The ledger table's own boxes; its totals and its export follow them.
-  const ledgerBoxes = useMemo(() => ledgerFilterColumns(ledger?.by === 'employee' ? 'Employee' : 'Department'), [ledger?.by]);
-  const ledgerFilters = useColumnFilters(ledger?.rows, ledgerBoxes);
-  const shownLedger = ledgerShown(ledger, ledgerFilters.rows, ledgerFilters.filtering);
+  const total = useMemo(() => combine(rows), [rows]);
   const pickView = (k) => { if (k !== view) filters.clear(); setView(k); };
-  // Exactly what the view leaves, with one Total line per currency when there are several.
-  const peopleTable = () => {
-    const base = compensationTable(data, view, { period });
-    const currencies = [...new Set(rows.map((r) => r.currency))];
-    const t = viewTable(rows, tv.columns, { title: base.title, subtitle: base.subtitle, period: base.period, totals: currencies.length <= 1 });
-    if (currencies.length <= 1) return t;
-    const lines = currencies.map((cur) => {
-      const one = viewTable(rows.filter((r) => r.currency === cur), tv.columns, { totals: true });
-      return (one.totals || []).map((v) => (typeof v === 'string' && v.startsWith('Total') ? `Total ${cur}` : v));
-    });
-    return { ...t, rows: [...t.rows, ...lines] };
-  };
+  const hoursPending = hoursState.loading && !hours;
 
   const exportFile = async (key, build, format) => {
     setBusy(`${key}-${format}`);
@@ -187,8 +192,36 @@ export default function CompensationReport() {
     { key: 'pdf', label: 'PDF', hint: 'Landscape, ready to print', onPick: () => exportFile(key, build, 'pdf'), busy: busy === `${key}-pdf`, disabled },
     { key: 'csv', label: 'CSV', onPick: () => exportFile(key, build, 'csv'), busy: busy === `${key}-csv`, disabled },
   ];
+  // Exactly what the view leaves (no Personal Hours anywhere, item 15).
+  const tableExport = () => viewTable(rows, tv.columns, {
+    title: `Compensation - ${VIEWS.find((v) => v.key === view)?.label || ''}`,
+    subtitle: `${curLabel}  ·  From the Intacct ledger; hours from Time Clock`, period: curLabel.replace(/\//g, '-'),
+  });
+
+  const nameOf = (r) => r.name || r.label || 'Total';
+  const openStatement = (r, name = nameOf(r)) => setPanel({ kind: 'statement', subject: r, name, code: r.code || '' });
+  const openLines = (subject, name, key, period, account = null, back = null) => setPanel({ kind: 'lines', subject, name, key, period, account, back });
+  // A drill all the way to Reports' ledger lines; Back there returns here as it is (drill.js).
+  const openInReports = ({ account, accountName, subject, name, period }) => {
+    parkDrillReturn(RETURN, { asked, view });
+    const codes = subject.codes || [];
+    requestReportDrill({
+      account, accountName, from: periods[period].from, to: periods[period].to,
+      ...(codes.length === 1 ? { party: { kind: 'employee', code: codes[0], name } } : { dims: { employee: codes } }),
+      back: { label: 'Back to Compensation', sub: RETURN },
+    });
+  };
+  const moneyCells = (r, name) => Object.fromEntries(LINES.map((l) => [l.key, (
+    <td style={{ ...tdNum, ...(l.parts ? { fontWeight: 600 } : null) }}>
+      <DrillAmount value={r.cur?.[l.key]} label={`${l.label} for ${name}`} onOpen={() => openLines(r, name, l.key, 'cur')} />
+    </td>
+  )]));
+  const hourCells = (r, strong = false) => Object.fromEntries(HOUR_COLUMNS.map((c) => [c.key, (
+    <td style={{ ...tdNum, ...(strong ? { fontWeight: 700 } : null) }} title="From Time Clock's payroll cards">{hoursPending ? <span style={muted}>...</span> : r[c.key] ? hrs(r[c.key]) : '-'}</td>
+  )]));
 
   return (
+    <>
     <div ref={setBox} className="acct-fit-stack" data-testid="compensation-stack" style={fit}>
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <span style={inline}>
@@ -206,10 +239,10 @@ export default function CompensationReport() {
         {/* Round 3 (item 02): on a short row Sync is the fourth to move into More, Export the fifth. */}
         <div className="acct-bar-end">
           <BarMore level={4}>
-          <SyncButton onSync={peopleSync.sync} busy={!!state.syncing} syncedAt={peopleSync.syncedAt} what="Compensation" />
+          <SyncButton onSync={sync.sync} busy={!!state.syncing || !!hoursState.syncing} syncedAt={sync.syncedAt} what="Compensation" />
           </BarMore>
           <BarMore level={5}>
-          <ExportMenu disabled={!data || !rows.length} items={exportItems('people', peopleTable, !data)} />
+          <ExportMenu disabled={!report || !rows.length} items={exportItems('people', tableExport, !report)} />
           </BarMore>
         </div>
         {/* Its own line on purpose: the bar does not count it as wrapping. */}
@@ -217,147 +250,376 @@ export default function CompensationReport() {
       </ControlBar>
 
       {state.stepUp ? (
-        <StepUpNeeded label="Wages and hours by person." onVerified={() => loadPeople(asked)} />
-      ) : (
-        <AsyncSection loading={state.loading} error={!!state.error} errorMessage={state.error} onRetry={() => loadPeople(asked)}
-          skeleton={(
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div role="status" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{buildingHint(monthsBetween(asked[0], asked[1]))}</div>
-              <SkeletonBlocks count={2} />
-            </div>
-          )}
-          isEmpty={!!data && !data.people?.length}
-          emptyContent={<div style={{ ...card, padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>{emptyReason(data)}</div>}>
-          {data && (
-            <div className="acct-stack-card acct-stack-main" style={card}>
-              <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'baseline' }}>
-                <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Compensation</h3>
-                <span style={muted}>{period} · {data.people.length} {data.people.length === 1 ? 'employee' : 'employees'}{narrowed ? ` · ${rows.length} of ${all.length} rows pass the filters` : ''}</span>
-              </div>
-              {/* Item 05 (round 3): the heading block pins as one piece (acct-sticky-head) -
-                  each heading keeps position: relative for its drag handle, which stopped it pinning by itself.
-                  10/27: the filter boxes are in that block, under the headings. */}
-              <table className="acct-sticky-head acct-comp" style={{ borderCollapse: 'collapse', width: '100%' }}>
-                <thead>
-                  <tr>
-                    {tv.columns.map((c) => {
-                      const w = tv.manualWidth(c.key);
-                      return <ViewHead key={c.key} view={tv} col={c} aria-label={c.label} style={{ ...(c.type ? thNum : th), position: 'relative', ...(w ? { width: w, minWidth: w, maxWidth: w } : null) }} />;
-                    })}
-                  </tr>
-                  <ColumnFilterRow columns={tv.columns} filterColumns={boxes} typed={filters.typed} onChange={filters.setFilter} cellProps={filterCell} />
-                </thead>
-                <tbody>
-                  {!rows.length && <NoMatch span={tv.columns.length} onClear={filters.clear} />}
-                  {rows.map((r) => (
-                    <tr key={view === 'people' ? r.email : `${r.key}-${r.currency}`}>
-                      {viewCells(tv, {
-                        name: <td style={td}><strong>{r.name}</strong>{r.employeeId ? <div style={muted}>{r.employeeId}</div> : null}</td>,
-                        company: <td style={td}>{r.companyName || <span style={muted}>No Company</span>}</td>,
-                        department: <td style={td}>{r.department || <span style={muted}>-</span>}</td>,
-                        title: <td style={td}>{r.title || <span style={muted}>-</span>}</td>,
-                        payType: <td style={td}>{payTypeLabel(r.payType)}</td>,
-                        rate: (
-                          <td style={tdNum} title={r.rateChanged ? 'The rate changed in these months; the latest is shown.' : rateLabel(r)}>
-                            <Amount value={r.rate} zero="dash" />{r.currency !== 'USD' ? ` ${r.currency}` : ''}{r.rateChanged ? ' *' : ''}
-                            <div style={muted}>{rateLabel(r)}</div>
-                          </td>
-                        ),
-                        label: <td style={td}><strong>{r.label}</strong>{r.currency !== 'USD' ? <span style={muted}> {r.currency}</span> : null}</td>,
-                        people: <td style={tdNum}>{r.people}</td>,
-                        ...Object.fromEntries(HOUR_COLUMNS.map((c) => [c.key, <td style={tdNum}>{r[c.key] ? hrs(r[c.key]) : '-'}</td>])),
-                        wages: <td style={{ ...tdNum, fontWeight: 600 }}><Amount value={r.wages} zero="dash" />{r.currency !== 'USD' ? ` ${r.currency}` : ''}</td>,
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  {totals.map((t) => (
-                    <tr key={t.currency}>
-                      {viewCells(tv, {
-                        [view === 'people' ? 'name' : 'label']: <td style={{ ...td, fontWeight: 700 }}>{totals.length > 1 ? `Total ${t.currency}` : 'Total'}</td>,
-                        people: <td style={{ ...tdNum, fontWeight: 700 }}>{t.people}</td>,
-                        ...Object.fromEntries(HOUR_COLUMNS.map((c) => [c.key, <td style={{ ...tdNum, fontWeight: 700 }}>{hrs(t[c.key])}</td>])),
-                        wages: <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={t.wages} zero="dash" />{t.currency !== 'USD' ? ` ${t.currency}` : ''}</td>,
-                      }, () => <td style={td} />)}
-                    </tr>
-                  ))}
-                </tfoot>
-              </table>
-              <p style={{ margin: 0, padding: '8px 12px 12px', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                Hours and gross wages are each month&apos;s Time Clock payroll card added up. Leave hours are Sick Day / PTO punches, paid at the base rate.
-                A salaried person&apos;s rate is the monthly salary and all their worked time is regular. * The rate changed in these months; the latest is shown.
-                {totals.length > 1 ? ' Wages in different currencies are totaled separately.' : ''}
-              </p>
-            </div>
-          )}
-        </AsyncSection>
-      )}
-
-      {data && !state.stepUp && (
-        <div className="acct-stack-card" style={card}>
-          <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-            <h3 style={{ margin: 0, fontSize: '0.95rem', flex: 1 }}>Payroll Expense on the Ledger</h3>
-            <div style={{ display: 'flex', gap: 4 }} role="group" aria-label="Ledger Group By">
-              {[['department', 'By Department'], ['employee', 'By Employee']].map(([k, l]) => <button key={k} type="button" style={seg(by === k)} aria-pressed={by === k} onClick={() => { if (k !== by) ledgerFilters.clear(); setBy(k); }}>{l}</button>)}
-            </div>
-            <SyncButton onSync={ledgerSync.sync} busy={!!ledgerState.syncing} syncedAt={ledgerSync.syncedAt} what="Ledger" />
-            <ExportMenu disabled={!shownLedger?.rows?.length} items={exportItems('ledger', () => ledgerTable(shownLedger, { period }), !ledger)} />
+        <StepUpNeeded label="Payroll, benefits and taxes by person." onVerified={reloadAll} />
+      ) : state.loading ? (
+        <LoadingDots hint={buildingHint(monthsBetween(asked[0], asked[1]))} />
+      ) : state.error ? (
+        <ErrorBanner message={state.error} onRetry={reloadAll} />
+      ) : report && !report.people?.length ? (
+        <div style={{ ...card, padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>{emptyReason(report)}</div>
+      ) : report && (
+        <div className="acct-stack-card acct-stack-main" style={card}>
+          <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'baseline' }}>
+            <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Compensation</h3>
+            <span style={muted}>{curLabel} · {report.people.length} {report.people.length === 1 ? 'employee' : 'employees'}{narrowed ? ` · ${rows.length} of ${all.length} rows pass the filters` : ''}</span>
+            {hoursPending && <span role="status" style={muted}>Loading Time Clock hours... {buildingHint(monthsBetween(asked[0], asked[1]))}</span>}
           </div>
-          <AsyncSection loading={ledgerState.loading} error={!!ledgerState.error} errorMessage={ledgerState.error} onRetry={() => loadLedger(asked, by)} skeleton={<SkeletonBlocks count={1} height={80} />}
-            isEmpty={!!ledger && !ledger.rows?.length}
-            emptyContent={<p style={{ margin: 0, padding: '8px 12px 14px', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>No payroll accounts posted on the ledger in these months.</p>}>
-            {ledger && (
-              <table className="acct-sticky-head acct-comp" aria-label="Payroll Expense on the Ledger" style={{ borderCollapse: 'collapse', width: '100%' }}>
-                <thead><tr><th style={th}>{ledger.by === 'employee' ? 'Employee' : 'Department'}</th><th style={thNum}>Wages</th><th style={thNum}>Employer Taxes</th><th style={thNum}>Benefits</th>
-                  {LEDGER_SPLIT_COLUMNS.map((c) => <th key={c.key} style={thNum}>{c.label}</th>)}<th style={thNum}>Total</th></tr>
-                  <ColumnFilterRow columns={ledgerBoxes} typed={ledgerFilters.typed} onChange={ledgerFilters.setFilter} cellProps={filterCell} />
-                </thead>
-                <tbody>
-                  {!shownLedger.rows.length && <NoMatch span={ledgerBoxes.length} onClear={ledgerFilters.clear} />}
-                  {shownLedger.rows.map((r) => (
-                    <tr key={r.key || 'none'}>
-                      <td style={td}>{r.label}{r.key && r.key !== r.label ? <span style={muted}> {r.key}</span> : null}</td>
-                      <td style={tdNum}><Amount value={r.wages} zero="dash" /></td>
-                      <td style={tdNum}><Amount value={r.taxes} zero="dash" /></td>
-                      <td style={tdNum}><Amount value={r.benefits} zero="dash" /></td>
-                      {LEDGER_SPLIT_COLUMNS.map((c) => <td key={c.key} style={tdNum}><Amount value={r[c.key]} zero="dash" /></td>)}
-                      <td style={{ ...tdNum, fontWeight: 600 }}><Amount value={r.total} zero="dash" /></td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td style={{ ...td, fontWeight: 700 }}>Total</td>
-                    <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={shownLedger.totals.wages} zero="dash" /></td>
-                    <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={shownLedger.totals.taxes} zero="dash" /></td>
-                    <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={shownLedger.totals.benefits} zero="dash" /></td>
-                    {LEDGER_SPLIT_COLUMNS.map((c) => <td key={c.key} style={{ ...tdNum, fontWeight: 700 }}><Amount value={shownLedger.totals[c.key]} zero="dash" /></td>)}
-                    <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={shownLedger.totals.total} zero="dash" /></td>
-                  </tr>
-                </tfoot>
-              </table>
+          {hoursState.error && (
+            <div role="alert" style={{ margin: '0 12px 6px', fontSize: '0.76rem', color: '#b45309' }}>
+              Time Clock hours could not be built: {hoursState.error}{' '}
+              <button type="button" style={linkBtn} onClick={() => loadHours(asked)}>Try Again</button>
+            </div>
+          )}
+          {/* Item 05 (round 3): the heading block pins as one piece (acct-sticky-head) -
+              each heading keeps position: relative for its drag handle (ViewHead's ColumnResizer:
+              widths are kept per person, item 17). 10/27: the filter boxes are in that block. */}
+          <table className="acct-sticky-head acct-comp" style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <thead>
+              <tr>
+                {tv.columns.map((c) => {
+                  const w = tv.manualWidth(c.key);
+                  // Headings wrap (a dozen amounts at 1440): each column is as wide as its filter box, not its title.
+                  return (
+                    <ViewHead key={c.key} view={tv} col={c} aria-label={c.label} className={PINNED.has(c.key) ? 'acct-head' : undefined}
+                      style={{ ...(c.type ? thNum : th), position: PINNED.has(c.key) ? 'sticky' : 'relative', ...(w ? { width: w, minWidth: w, maxWidth: w } : null) }}>
+                      <span style={{ whiteSpace: 'normal' }}>{c.label}</span>
+                    </ViewHead>
+                  );
+                })}
+              </tr>
+              <ColumnFilterRow columns={tv.columns} filterColumns={boxes} typed={filters.typed} onChange={filters.setFilter} cellProps={filterCell} />
+            </thead>
+            <tbody>
+              {!rows.length && <ColumnFiltersEmpty colSpan={tv.columns.length} onClear={filters.clear} />}
+              {rows.map((r) => (
+                <tr key={view === 'people' ? r.code : r.key || 'none'}>
+                  {viewCells(tv, {
+                    name: (
+                      <td style={{ ...td, ...pin }}>
+                        <button type="button" style={{ ...plainBtn, display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => openStatement(r)} title={`Open ${r.name}'s compensation report`}>
+                          <Avatar email={r.email} name={r.name} size={26} card={false} />
+                          <span><strong>{r.name}</strong><div style={muted}>{r.code}</div></span>
+                        </button>
+                      </td>
+                    ),
+                    company: <td style={td}>{r.companyName || <span style={muted}>No Company</span>}</td>,
+                    department: <td style={td}>{r.department || <span style={muted}>-</span>}</td>,
+                    title: <td style={td}>{r.title || <span style={muted}>-</span>}</td>,
+                    payType: <td style={td}>{payTypeLabel(r.payType) || <span style={muted}>-</span>}</td>,
+                    rate: (
+                      <td style={tdNum} title={r.rateChanged ? 'The rate changed in these months; the latest is shown.' : rateLabel(r)}>
+                        <Amount value={r.rate} zero="dash" />{r.currency && r.currency !== 'USD' ? ` ${r.currency}` : ''}{r.rateChanged ? ' *' : ''}
+                        <div style={muted}>{rateLabel(r)}</div>
+                      </td>
+                    ),
+                    label: <td style={{ ...td, ...pin }}><button type="button" style={{ ...plainBtn, fontWeight: 700 }} onClick={() => openStatement(r)} title={`Open the compensation report for ${r.label}`}>{r.label}</button></td>,
+                    people: <td style={tdNum}>{r.people}</td>,
+                    ...hourCells(r),
+                    ...moneyCells(r, nameOf(r)),
+                  })}
+                </tr>
+              ))}
+            </tbody>
+            {!!rows.length && (
+              <tfoot>
+                <tr>
+                  {viewCells(tv, {
+                    [view === 'people' ? 'name' : 'label']: <td style={{ ...td, ...pin, fontWeight: 700 }}><button type="button" style={{ ...plainBtn, fontWeight: 700 }} onClick={() => openStatement(total, 'Total')}>Total</button></td>,
+                    people: <td style={{ ...tdNum, fontWeight: 700 }}>{total.people}</td>,
+                    ...hourCells(total, true),
+                    ...Object.fromEntries(LINES.map((l) => [l.key, (
+                      <td style={{ ...tdNum, fontWeight: 700 }}><DrillAmount value={total.cur?.[l.key]} label={`${l.label}, total`} onOpen={() => openLines(total, 'Total', l.key, 'cur')} /></td>
+                    )])),
+                  }, () => <td style={td} />)}
+                </tr>
+              </tfoot>
             )}
-          </AsyncSection>
-          <p style={{ margin: 0, padding: '8px 12px 12px', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            Expense accounts whose titles say payroll, salary, wage, bonus or commission count as wages; payroll tax, FICA, FUTA, SUTA and Medicare as employer taxes;
-            health, dental, 401(k), retirement and workers&apos; comp as benefits. Contract labor is not payroll.
-            {LEDGER_SPLIT_COLUMNS.length ? ' Direct is payroll booked to cost of sales (labor charged to properties and jobs); Indirect is payroll booked to operating and other expense (overhead).' : ''}
+          </table>
+          <p style={note}>
+            Payroll, benefits and taxes are the Intacct ledger&apos;s lines that carry the employee; Sync reads them again, so a correction made in Intacct shows here.
+            Every other expense line with the employee on it counts under Other Benefits, by account. Deductions and taxes withheld are taken out of pay, so they show as negatives.
+            Workers&apos; Comp is the rate on the person&apos;s pay setup (People &gt; Pay, Benefits &amp; Bank) times Bonus plus Salaried / Hourly Payroll, year by year.
+            Hours are Time Clock&apos;s payroll cards. Click a name for the full report with last year beside it; click any amount for the ledger lines behind it.
+            {report.notInPeople ? ` ${report.notInPeople} ${report.notInPeople === 1 ? 'employee on the ledger has' : 'employees on the ledger have'} no matching employee ID in People, so they show the ledger's name and no company or department.` : ''}
+            {merged.timeClockOnly.length ? ` Time Clock hours but nothing on the ledger: ${merged.timeClockOnly.join(', ')}.` : ''}
           </p>
         </div>
       )}
     </div>
+    {/* Beside the stack, not in it: the stack lets each child grow to its content
+        (.acct-fit-stack > *), which stretched the fixed panel past the window so a
+        long report could not scroll (1440 check, 10/28). */}
+    {panel?.kind === 'statement' && report && (
+      <StatementPanel key={`s-${panel.name}`} panel={panel} curLabel={curLabel} priorLabel={priorLabel} onClose={() => setPanel(null)}
+        onLines={(key, period, account) => openLines(panel.subject, panel.name, key, period, account, panel)}
+        exportItems={(build) => exportItems('statement', build, false)} />
+    )}
+    {panel?.kind === 'lines' && report && (
+      <LedgerLinesPanel key={`l-${panel.name}-${panel.key}-${panel.period}-${panel.account || ''}`} panel={panel} periods={periods}
+        onClose={() => setPanel(null)} onBack={panel.back ? () => setPanel(panel.back) : null} onReports={openInReports} />
+    )}
+    </>
   );
 }
 
-/** The row a table shows when the boxes under its headings leave nothing. */
-function NoMatch({ span, onClear }) {
-  return (
-    <tr>
-      <td colSpan={span || 1} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }}>
-        Nothing matches these column filters.
-        <button type="button" onClick={onClear} style={{ marginLeft: 8, border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', textDecoration: 'underline' }}>Clear Column Filters</button>
+/** Close on Escape (SidePanel leaves Escape to its caller) - unless a popup above it is open. */
+function useEscape(onClose, off = false) {
+  useEffect(() => {
+    if (off) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, off]);
+}
+
+/** Print a built file (the statement's PDF) from a hidden frame; a blocked frame opens it in a new tab instead. */
+function printFile(file) {
+  const url = URL.createObjectURL(file);
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  frame.onload = () => {
+    try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch { window.open(url, '_blank', 'noopener'); }
+    // Long enough for the print dialog to have read the file.
+    setTimeout(() => { frame.remove(); URL.revokeObjectURL(url); }, 60_000);
+  };
+  frame.src = url;
+  document.body.appendChild(frame);
+}
+
+const fmtHours = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const FOLDING = new Set(['section', 'heading']);
+
+/**
+ * One person's report, Intacct's Employee Compensation Report (item 13): the
+ * person and code over last year and the period asked; Employee Metrics
+ * (Rates, Hours Worked, Accruals), Employer Expenses and Employee Net Pay,
+ * each group folding like Intacct's triangles with its own total; Print and
+ * Excel as on Intacct's bar (Email is left out until Charmi asks).
+ */
+function StatementPanel({ panel, curLabel, priorLabel, onClose, onLines, exportItems }) {
+  useEscape(onClose);
+  const { subject, name, code } = panel;
+  const rows = useMemo(() => statementRows(subject), [subject]);
+  const [folded, setFolded] = useState(() => new Set());
+  const [printing, setPrinting] = useState(false);
+  const foldId = (r) => (r.kind === 'section' ? r.section : r.group);
+  const toggle = (id) => setFolded((f) => { const n = new Set(f); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const allIds = useMemo(() => rows.filter((r) => FOLDING.has(r.kind)).map(foldId), [rows]);
+  const anyFolded = folded.size > 0;
+  const shown = visibleRows(rows, folded);
+  const heading = `${name}${code ? ` (${code})` : ''}`;
+  const table = () => statementTable(subject, { name: heading, curLabel, priorLabel });
+  const print = async () => {
+    setPrinting(true);
+    try { printFile(await linesFile(table(), 'pdf')); } finally { setPrinting(false); }
+  };
+  const caption = [subject.companyName, subject.department, subject.title].filter(Boolean).join(' · ') || (subject.people > 1 ? `${subject.people} employees` : '');
+  const cell = (r, period) => {
+    const v = r[period];
+    const isFolded = FOLDING.has(r.kind) && folded.has(foldId(r));
+    // An open heading leaves its figure to its total row; a folded one shows it, as Intacct does.
+    if (FOLDING.has(r.kind) && !isFolded) return <td style={tdNum} />;
+    if (v == null) return <td style={tdNum}><span style={muted}>-</span></td>;
+    const strong = r.kind === 'total' || isFolded;
+    if (r.hours || r.kind === 'hours') {
+      return <td style={{ ...tdNum, ...(strong ? { fontWeight: 700 } : null) }} title="From Time Clock's payroll cards, for the period asked">{v ? fmtHours(v) : '-'}</td>;
+    }
+    if (r.kind === 'rate') return <td style={tdNum} title={r.key === 'fixed' ? 'Monthly salary on the pay setup (Time Clock)' : 'Hourly rate on the pay setup (Time Clock)'}><Amount value={v} zero="dash" /></td>;
+    return (
+      <td style={{ ...tdNum, ...(strong ? { fontWeight: 700 } : null) }}>
+        <DrillAmount value={v} label={`${r.label} for ${name}, ${period === 'cur' ? curLabel : priorLabel}`} onOpen={() => onLines(r.key, period, r.kind === 'account' ? r.account : null)} />
       </td>
-    </tr>
+    );
+  };
+  const labelCell = (r) => {
+    const pad = 8 + r.level * 16;
+    if (FOLDING.has(r.kind)) {
+      const id = foldId(r);
+      const open = !folded.has(id);
+      return (
+        <td style={{ ...td, paddingLeft: pad - 2, paddingTop: r.kind === 'section' ? 10 : 6 }}>
+          <button type="button" style={{ ...plainBtn, display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700, color: 'var(--wk-brand, #2b45e1)' }}
+            aria-expanded={open} onClick={() => toggle(id)} title={open ? `Fold ${r.label}` : `Open ${r.label}`}>
+            {open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}{r.label}
+          </button>
+        </td>
+      );
+    }
+    return <td style={{ ...td, paddingLeft: pad + 16, fontWeight: r.kind === 'total' ? 700 : 400, ...(r.kind === 'account' ? { color: 'var(--text-secondary)' } : null) }}>{r.label}</td>;
+  };
+  return (
+    <SidePanel label="Employee Compensation Report" title={heading} caption={caption || 'Employee Compensation Report'} onClose={onClose}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ ...muted, flex: 1, minWidth: 220 }}>From the Intacct ledger; hours and rates from Time Clock. Click an amount for its ledger lines.</span>
+        <button type="button" style={{ ...control, cursor: 'pointer' }} onClick={() => setFolded(anyFolded ? new Set() : new Set(allIds))}>{anyFolded ? 'Expand All' : 'Collapse All'}</button>
+        <button type="button" style={{ ...control, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={print} disabled={printing} aria-busy={printing}>
+          <Printer size={14} aria-hidden="true" />Print
+        </button>
+        <ExportMenu items={exportItems(table)} />
+      </div>
+      <div style={{ ...card, overflowX: 'auto' }}>
+        <table aria-label={`Employee Compensation Report - ${name}`} style={{ borderCollapse: 'collapse', width: '100%' }}>
+          <thead>
+            <tr><th style={{ ...th, borderBottom: 'none' }} /><th colSpan={2} style={{ ...thNum, textAlign: 'center', borderBottom: 'none', color: 'var(--text-primary)', fontSize: '0.8rem' }}>{heading}</th></tr>
+            <tr><th style={th} /><th style={thNum}>{priorLabel}</th><th style={thNum}>{curLabel}</th></tr>
+          </thead>
+          <tbody>
+            {shown.map((r, i) => (
+              <tr key={`${r.kind}-${r.section}-${r.group || ''}-${r.key || r.label}-${r.account || i}`} style={r.strong ? { background: 'var(--bg-secondary)' } : undefined}>
+                {labelCell(r)}
+                {cell(r, 'prior')}
+                {cell(r, 'cur')}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <WorkersCompNote subject={subject} />
+    </SidePanel>
+  );
+}
+
+/** How Workers' Comp was worked out: the rate in force each year x that year's gross wages (item 14). */
+function WorkersCompNote({ subject, period = 'cur' }) {
+  const parts = subject.workersComp?.[period] || [];
+  if (!parts.length) {
+    const none = subject.codes?.length === 1 && subject.hasRate === false;
+    return <p style={{ ...muted, margin: 0 }}>{none ? "No workers' comp rate is set for this person. HR or payroll adds it on People > Pay, Benefits & Bank." : "Workers' Comp: no rate in force for these months."}</p>;
+  }
+  return (
+    <div style={{ ...muted, display: 'grid', gap: 2 }}>
+      <strong>Workers&apos; Comp</strong>
+      {parts.map((w, i) => (
+        <span key={`${w.name || ''}-${w.year}-${i}`}>
+          {w.name && subject.codes?.length > 1 ? `${w.name}: ` : ''}{w.year}: {pct(w.ratePct)} of {formatAmount(w.gross)} gross wages = {formatAmount(w.amount)}{w.rateYear !== w.year ? ` (the rate set for ${w.rateYear})` : ''}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+const NO_LINES = { lines: [], total: 0 };
+
+// Intacct's General Ledger report columns (10/27 call, 14:48: the lines behind
+// Valinda's Fuel) plus the entry and account, with a running balance. Each
+// drags to its width, kept per person (useColumnWidths).
+const GL_COLUMNS = [
+  { key: 'date', label: 'Posted Date', width: 92, text: (l) => formatDate(l.entry_date) },
+  { key: 'entry', label: 'Entry', width: 86 },
+  { key: 'doc', label: 'Doc', width: 64, text: (l) => l.doc },
+  { key: 'account', label: 'Account', width: 140 },
+  { key: 'memo', label: 'Memo', width: 150, text: (l) => l.memo || l.description },
+  { key: 'location', label: 'Location', width: 112, text: (l) => l.location_name || l.location },
+  { key: 'vendor', label: 'Vendor', width: 110, text: (l) => l.vendor_name || l.vendor_id },
+  { key: 'customer', label: 'Customer', width: 90, text: (l) => l.customer_name || l.customer_id },
+  { key: 'item', label: 'Item', width: 80, text: (l) => l.item_name || l.item_id },
+  { key: 'employee', label: 'Employee', width: 110, text: (l) => l.employee_name || l.employee_id },
+  { key: 'department', label: 'Department', width: 90, text: (l) => l.department_name || l.department },
+  { key: 'debit', label: 'Debit', width: 84, num: true },
+  { key: 'credit', label: 'Credit', width: 84, num: true },
+  { key: 'balance', label: 'Balance', width: 92, num: true },
+];
+const GL_WIDTHS = Object.fromEntries(GL_COLUMNS.map((c) => [c.key, c.width]));
+
+/** The ledger lines behind one figure, in Intacct's General Ledger columns; each entry opens its transaction (item 17). */
+function LedgerLinesPanel({ panel, periods, onClose, onBack, onReports }) {
+  const { subject, name, key, period, account } = panel;
+  const range = periods[period];
+  const spec = useMemo(() => drillSpec(subject, key, period, account), [subject, key, period, account]);
+  // The panel is keyed by the figure, so another figure starts a fresh read.
+  const nothing = !spec.accounts.length || !spec.employees.length;
+  const [fetched, setFetched] = useState(null);
+  const [error, setError] = useState('');
+  const [entry, setEntry] = useState(null);
+  useEscape(onClose, !!entry);
+  const specKey = JSON.stringify(spec);
+  useEffect(() => {
+    if (nothing) return undefined;
+    let alive = true;
+    api.getCompensationLines({ from: range.from, to: range.to, employees: spec.employees, accounts: spec.accounts })
+      .then((d) => { if (alive) setFetched(d); })
+      .catch((e) => { if (alive) setError(e?.message || 'Could not read the ledger lines.'); });
+    return () => { alive = false; };
+  }, [specKey, range.from, range.to]); // eslint-disable-line react-hooks/exhaustive-deps
+  const data = nothing ? NO_LINES : fetched;
+  const accountRow = account ? (subject.accounts?.[period]?.[key] || []).filter((a) => a.account === account) : [];
+  const figure = account ? accountRow.reduce((s, a) => s + a.amount, 0) : Number(subject[period]?.[key]) || 0;
+  const wc = key === 'workersComp';
+  const title = `${lineLabel(key)}${account ? ` - ${account} ${accountRow[0]?.title || ''}`.trimEnd() : ''}`;
+  const lines = data?.lines || [];
+  const off = data && !wc && Math.abs((Number(data.total) || 0) - figure) > 0.005;
+  const accountsShown = [...new Map(lines.map((l) => [l.gl_code, l.account_name])).entries()];
+  const cw = useColumnWidths('compensation-lines', GL_WIDTHS, { min: 50 });
+  // The balance after each line, as on Intacct's General Ledger.
+  const running = useMemo(() => (data?.lines || []).reduce((acc, l) => {
+    acc.push(Math.round(((acc.at(-1) || 0) + (Number(l.amount) || 0)) * 100) / 100);
+    return acc;
+  }, []), [data]);
+  const sum = (k) => lines.reduce((n, l) => n + (Number(l[k]) || 0), 0);
+  const glCell = (c, l, i) => {
+    if (c.key === 'entry') {
+      return l.entry_id
+        ? <button type="button" style={linkBtn} onClick={() => setEntry({ id: l.entry_id, no: l.entry_no })} title="Open the transaction behind this line">{l.entry_no || 'Open'}</button>
+        : l.entry_no;
+    }
+    if (c.key === 'account') return <><span className="acct-code">{l.gl_code}</span> {l.account_name}</>;
+    if (c.key === 'balance') return <Amount value={running[i]} />;
+    if (c.num) return <Amount value={Number(l[c.key]) || 0} zero="dash" />;
+    return c.text(l) || <span style={muted}>-</span>;
+  };
+  return (
+    <SidePanel label="Ledger Lines" title={title} caption={`${name} · ${periodLabel(range.from, range.to)} · ${formatAmount(figure)}`} onClose={onClose}>
+      {onBack && <div><button type="button" style={linkBtn} onClick={onBack}>Back to {name}&apos;s report</button></div>}
+      {wc && <WorkersCompNote subject={subject} period={period} />}
+      {wc && <div style={{ ...muted, fontWeight: 600 }}>The gross wages it is worked out on - the Bonus and Salaried / Hourly Payroll lines:</div>}
+      {!!lines.length && <div style={muted}>Open Full shows every column; drag a heading&apos;s edge to resize it (kept for you).</div>}
+      {error ? <ErrorBanner message={error} /> : !data ? <LoadingDots compact hint="Reading the ledger lines." /> : (
+        <div style={{ ...card, overflowX: 'auto' }}>
+          <table aria-label={`Ledger lines - ${title}`} style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: GL_COLUMNS.reduce((n, c) => n + (cw.width(c.key) || c.width), 0) }}>
+            <thead>
+              <tr>
+                {GL_COLUMNS.map((c) => (
+                  <th key={c.key} style={{ ...(c.num ? thNum : th), position: 'relative', width: cw.width(c.key) }}>
+                    {c.label}<ColumnResizer {...cw.resizer(c.key, c.label)} />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {!lines.length && <tr><td colSpan={GL_COLUMNS.length} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }}>No ledger lines.</td></tr>}
+              {lines.map((l, i) => (
+                <tr key={`${l.line_id || i}-${l.gl_code}`}>
+                  {GL_COLUMNS.map((c) => (
+                    <td key={c.key} style={c.num ? tdNum : { ...td, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.text ? c.text(l) || undefined : undefined}>{glCell(c, l, i)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+            {!!lines.length && (
+              <tfoot>
+                <tr>
+                  <td colSpan={GL_COLUMNS.length - 3} style={{ ...td, fontWeight: 700 }}>Total - {lines.length} {lines.length === 1 ? 'line' : 'lines'}</td>
+                  <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={sum('debit')} zero="dash" /></td>
+                  <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={sum('credit')} zero="dash" /></td>
+                  <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={data.total} /></td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+      {data?.truncated && <p style={{ ...muted, margin: 0 }}>More lines than shown here - open the account in Reports for every line.</p>}
+      {off && <p role="note" style={{ ...muted, margin: 0, color: '#b45309' }}>These lines add up to {formatAmount(data.total)}; the report shows {formatAmount(figure)}. The ledger may have changed since the report was read - Sync reads it again.</p>}
+      {!!accountsShown.length && (
+        <div style={{ ...muted, display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'baseline' }}>
+          <span>Open in Reports:</span>
+          {accountsShown.map(([acct, accountName]) => (
+            <button key={acct} type="button" style={linkBtn} onClick={() => onReports({ account: acct, accountName, subject, name, period })}>{acct} {accountName}</button>
+          ))}
+        </div>
+      )}
+      {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
+    </SidePanel>
   );
 }
