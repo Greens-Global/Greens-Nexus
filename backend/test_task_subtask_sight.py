@@ -25,6 +25,7 @@ checks, GET /tasks, the delta, search and My Day:
 
 Throwaway SQLite, no network.  python -m pytest test_task_subtask_sight.py
 """
+import datetime as _dt
 import os
 import tempfile
 import unittest
@@ -61,7 +62,9 @@ MEMBER = {"email": "member@greensglobal.com", "level": 1}     # on the restricte
 OTHERCO = {"email": "b@greensglobal.com", "level": 3}         # a manager in another company
 EXT = {"email": "guest@vendor.com", "level": 1, "external": True}
 COA, COB = "co-a", "co-b"
-TODAY = "2026-10-22"
+# My Day only plans the person's today (task_my_day._check_day: within a day
+# of the server's UTC date), so the test day is today, not a fixed date.
+TODAY = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
 
 
 class Base(unittest.TestCase):
