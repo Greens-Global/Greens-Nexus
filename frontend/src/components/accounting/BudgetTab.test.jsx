@@ -28,6 +28,7 @@ vi.mock('../../api', () => ({
     getPeopleDirectory: vi.fn(async () => [{ email: 'charmi@greensglobal.com', name: 'Charmi Desai' }]),
     getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
     saveAccountingPrefs: vi.fn(async () => ({})),
+    searchAccountingLedger: vi.fn(async () => ({ rows: [], total: 0, debit: 0, credit: 0 })),
   },
 }));
 vi.mock('../../ui/dialog', () => ({ dialog: { alert: vi.fn(async () => true), confirm: vi.fn(async () => true), prompt: vi.fn(async () => '') } }));
@@ -112,6 +113,24 @@ describe('BudgetTab', () => {
     const row = (await screen.findByText('Professional Fees - Accounting')).closest('tr');
     expect(within(row).getByText('(150.00)')).toBeTruthy();
     expect(within(row).getByText('(37.5%)')).toBeTruthy();
+  });
+
+  it('opens the lines behind an Actual on the right; the columns resize (10/27 call, item 17)', async () => {
+    const y = new Date().getFullYear();
+    render(<BudgetTab canEdit />);
+    await screen.findByText('Rental Income');
+    expect(screen.getByRole('separator', { name: 'Resize the Account column' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Budget vs Actual' }));
+    fireEvent.change(await screen.findByLabelText('Through month'), { target: { value: '2' } });
+    const row = (await screen.findByText('Rental Income')).closest('tr');
+    fireEvent.click(within(row).getByRole('button', { name: '2,100.00' }));
+    const panel = await screen.findByTestId('acct-side-panel');
+    await waitFor(() => expect(api.searchAccountingLedger).toHaveBeenCalled());
+    const end = new Date(y, 2, 0).getDate();
+    expect(api.searchAccountingLedger.mock.calls[0][0]).toMatchObject({ account: '41101', from: `${y}-01-01`, to: `${y}-02-${end}`, location: '13000', book: 'accrual' });
+    expect(within(panel).getByText(/Jan - Feb/)).toBeTruthy();
+    // The Budget column is the plan: nothing to open.
+    expect(within(row).queryByRole('button', { name: '2,000.00' })).toBeNull();
   });
 
   it('says so when the accounting app has not shipped budgets yet', async () => {

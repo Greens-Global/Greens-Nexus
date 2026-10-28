@@ -356,8 +356,11 @@ describe('MreTab shared controls', () => {
     render(<MreTab canEdit />);
     const row = (await screen.findByText('San Diego Gas & Electric')).closest('tr');
     fireEvent.click(within(row).getByRole('button', { name: 'Ledger lines for Jan 2026' }));
+    // Call of 10/27, item 17: in the side panel, with Open Full, the list beside it.
     const dialog = screen.getByRole('dialog', { name: 'San Diego Gas & Electric, Jan 2026' });
-    expect(api.searchAccountingLedger).toHaveBeenCalledWith({ account: '62100', party_kind: 'vendor', party: 'V-SDGE', location: '15000', from: '2026-01-01', to: '2026-01-31', limit: 100 });
+    expect(dialog.getAttribute('data-testid')).toBe('acct-side-panel');
+    expect(within(dialog).getByRole('button', { name: /Open Full/ })).toBeTruthy();
+    expect(api.searchAccountingLedger).toHaveBeenCalledWith({ account: '62100', party_kind: 'vendor', party: 'V-SDGE', location: '15000', from: '2026-01-01', to: '2026-01-31', offset: 0, limit: 500 });
     fireEvent.click(await within(dialog).findByRole('button', { name: 'AP-2001' }));
     await waitFor(() => expect(api.getAccountingEntry).toHaveBeenCalledWith('e-1'));
     // The year's Total drills the same way.

@@ -4,8 +4,11 @@ import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import Amount from './Amount';
-import { AccountsPicker, EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, control } from './reportControls';
-import { POPOVER_DIMS, bookOptions, csvFileName, csvRows, downloadBlob, downloadCsv, entityText, periodText, setUserBooks } from './reportModel';
+import { AccountsPicker, ColumnResizer, EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, control } from './reportControls';
+import { POPOVER_DIMS, bookOptions, csvFileName, csvRows, downloadBlob, downloadCsv, entityText, lineQuery, periodText, setUserBooks } from './reportModel';
+import LinesPanel from './LinesPanel';
+import { useColumnWidths } from './tableHooks';
+import { cellStyle, headStyle } from './columnStyles';
 import {
   BUILDER_COLUMNS, BUILDER_PERIODS, defaultBuilder, includedAccounts, isPublished, readChart, resolveBuilder, runBuilder, storableBuilder,
 } from './builderModel';
@@ -176,6 +179,29 @@ export default function ReportBuilder({ canPublish = true }) {
 
   // Folded groups hide their accounts; the group row keeps its total.
   const visible = (shown?.rows || []).filter((r) => !(r.kind === 'account' && r.section && collapsed.has(r.section)));
+  // Call of 10/27 with Charmi, item 17: every amount opens the ledger lines
+  // behind it on the right (LinesPanel), the report still on screen - an
+  // account's in that column's window, a group's or the Grand Total's every
+  // account under it. A variance or a percent is worked out, not posted. The
+  // columns drag wider or narrower, the widths kept per person.
+  const widths = useColumnWidths('report-builder', {}, { min: 60 });
+  const [lines, setLines] = useState(null);   // { title, caption, queries, report }
+  const openLines = (r, c) => {
+    const b = shown.builder;
+    const accounts = r.kind === 'account' ? [r] : shown.rows.filter((x) => x.kind === 'account' && (r.kind === 'grand' || x.section === r.section));
+    const queries = accounts.map((a) => lineQuery({ account: a.code, drill: c.drill, entities: b.entities || [], dims: b.dims, pl: a.pl }));
+    if (!queries.length) return;
+    const one = r.kind === 'account' ? queries[0] : null;
+    const dimsOn = b.dims && Object.values(b.dims).some((v) => Array.isArray(v) && v.length);
+    setLines({
+      key: `${r.kind}-${r.code || r.label}-${c.key}`,
+      title: r.kind === 'account' ? `${r.code} ${r.title}` : r.label,
+      caption: `${c.label} · ${accounts.length === 1 ? '1 account' : `${accounts.length} accounts`}`,
+      queries,
+      report: one ? { account: r.code, accountName: r.title, from: one.from || '', to: one.to, book: one.book || 'accrual',
+        ...(c.drill?.entity ? { entity: c.drill.entity } : { entities: b.entities || [] }), ...(c.drill?.party ? { party: c.drill.party } : {}), ...(dimsOn ? { dims: b.dims } : {}) } : null,
+    });
+  };
   const toggle = (key) => setCollapsed((c) => { const n = new Set(c); if (n.has(key)) n.delete(key); else n.add(key); return n; });
 
   return (
@@ -319,17 +345,23 @@ export default function ReportBuilder({ canPublish = true }) {
             <table className="acct-report">
               <thead>
                 <tr>
-                  <th className="acct-label acct-head" style={{ position: 'sticky' }}>Account</th>
-                  {shown.columns.map((c) => <th key={c.key} className="acct-num" title={c.hint} style={c.emphasis || c.compare ? EMPHASIS : undefined}>{c.label}</th>)}
+                  <th className="acct-label acct-head" style={headStyle(widths.width('__label'), { position: 'sticky' })}>Account<ColumnResizer {...widths.resizer('__label', 'Account')} /></th>
+                  {shown.columns.map((c) => <th key={c.key} className="acct-num" title={c.hint} style={headStyle(widths.width(c.key), c.emphasis || c.compare ? EMPHASIS : null)}>{c.label}<ColumnResizer {...widths.resizer(c.key, c.label)} /></th>)}
                 </tr>
               </thead>
               <tbody>
                 {visible.map((r, i) => {
-                  const cells = shown.columns.map((c, k) => (
-                    <td key={c.key} className="acct-num" style={c.emphasis || c.compare ? EMPHASIS : undefined}>
-                      {typeof r.values[k] === 'number' ? <Amount value={r.values[k]} zero="dash" /> : r.values[k] || null}
-                    </td>
-                  ));
+                  const cells = shown.columns.map((c, k) => {
+                    const v = r.values[k];
+                    const opens = typeof v === 'number' && Math.abs(v) >= 0.005 && !!c.drill;
+                    return (
+                      <td key={c.key} className="acct-num" style={cellStyle(widths.width(c.key), c.emphasis || c.compare ? EMPHASIS : null)}>
+                        {opens
+                          ? <button type="button" className="acct-drill" title={r.kind === 'account' ? 'See the lines behind this amount' : 'See every line behind this total'} onClick={(e) => { e.stopPropagation(); openLines(r, c); }}><Amount value={v} /></button>
+                          : typeof v === 'number' ? <Amount value={v} zero="dash" /> : v || null}
+                      </td>
+                    );
+                  });
                   if (r.kind === 'section') {
                     const open = !collapsed.has(r.section);
                     return (
@@ -348,7 +380,7 @@ export default function ReportBuilder({ canPublish = true }) {
                   if (r.kind === 'account') {
                     return (
                       <tr key={`a-${r.section || ''}-${r.code}`}>
-                        <td className={`acct-label${r.section ? ' acct-indent' : ''}`} title={`${r.code} ${r.title}`}><span className="acct-code">{r.code}</span><span>{r.title}</span></td>
+                        <td className={`acct-label${r.section ? ' acct-indent' : ''}`} style={cellStyle(widths.width('__label'))} title={`${r.code} ${r.title}`}><span className="acct-code">{r.code}</span><span>{r.title}</span></td>
                         {cells}
                       </tr>
                     );
@@ -358,6 +390,7 @@ export default function ReportBuilder({ canPublish = true }) {
               </tbody>
             </table>
           </div>
+          {lines && <LinesPanel key={lines.key} title={lines.title} caption={lines.caption} queries={lines.queries} report={lines.report} widthsKey="report-builder" onClose={() => setLines(null)} />}
           <div style={{ marginTop: 6, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
             Generated {formatDate(shown.generatedAt)} from the Nexus Accounting ledger. Each account is in its normal balance - income, liabilities and equity as credits less debits, everything else as debits less credits - and a group or grand total adds those up as shown.
             {config.period === 'asof' ? ' As of a date, balance sheet accounts are their balance on that date and income and expense accounts their year to date.' : ''}

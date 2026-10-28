@@ -43,25 +43,67 @@ const headers = () => within(document.querySelector('.acct-lines thead tr')).get
 // once up front, so a busy run never waits on them inside a test.
 beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('LedgerSearch grid', () => {
-  it('shows the working columns, keeps Doc No off until it is asked for', async () => {
+  it('shows the columns of the Intacct General Ledger, and the person chooses their own', async () => {
     render(<LedgerSearch term="amazon" entities={['12000']} entityName="Greens Global, Inc. (12000)" onClose={() => {}} onClearDrill={() => {}} />);
     await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
-    // Date, Entry, Account, Description, Entity, then Vendor and Customer as two columns (Charmi, 09/29 call).
-    expect(headers()).toEqual(['Date', 'Entry', 'Account', 'Description', 'Entity', 'Vendor', 'Customer', 'Journal', 'Debit', 'Credit']);
+    // Call of 10/27 with Charmi, item 17 (14:48): Doc, then Location (Entity), Vendor,
+    // Customer, Item, Employee, Department as Intacct lays them out. A typed search
+    // has no running Balance - that is a drill-down's.
+    expect(headers()).toEqual(['Date', 'Entry', 'Doc No', 'Account', 'Description', 'Entity', 'Vendor', 'Customer', 'Item', 'Employee', 'Department', 'Journal', 'Debit', 'Credit']);
     expect(screen.getByText('08/19/2026')).toBeTruthy();
+    expect(screen.getByText('INV-77')).toBeTruthy();
+    expect(screen.getByText('Personal')).toBeTruthy();
     expect(api.searchAccountingLedger.mock.calls[0][0]).toMatchObject({ q: 'amazon', location: '12000' });
 
     // 10/23 meeting, item 01: the standard view's column chooser.
     fireEvent.click(screen.getByRole('button', { name: 'Show or Hide Columns' }));
     fireEvent.click(await screen.findByLabelText('Doc No'));
     fireEvent.click(screen.getByLabelText('Project-Job'));
-    expect(headers()).toContain('Doc No');
-    expect(screen.getByText('INV-77')).toBeTruthy();
+    expect(headers()).not.toContain('Doc No');
     expect(screen.getByText('Valley Center')).toBeTruthy();
     expect(screen.getByText('Unsaved')).toBeTruthy();
     // The layout is the person's own and is saved for them (their view of the lines).
     await waitFor(() => expect(api.saveAccountingPrefs).toHaveBeenCalled(), { timeout: 2000 });
-    expect(api.saveAccountingPrefs.mock.calls.at(-1)[0].tableViews['ledger-lines'].draft.vis).toEqual({ doc: true, project: true });
+    expect(api.saveAccountingPrefs.mock.calls.at(-1)[0].tableViews['ledger-lines'].draft.vis).toEqual({ doc: false, project: true });
+  });
+
+  it('a drill-down carries a running Balance, oldest first, and a line opens its transaction on the right (item 17)', async () => {
+    // The ledger hands them back newest first; the balance still runs from the oldest.
+    const fuel = [
+      { ...line, line_id: 'f3', entry_id: 'e3', entry_no: 'GJ-2521', entry_date: '2026-01-26', description: 'Fuel for company vehicle', debit: 80.07 },
+      { ...line, line_id: 'f2', entry_id: 'e2', entry_no: 'GJ-2268', entry_date: '2026-01-12', description: 'Fuel for vehicle', debit: 62 },
+      { ...line, line_id: 'f1', entry_id: 'e1', entry_no: 'GJ-2202', entry_date: '2026-01-05', description: 'Pala Vista Gas', debit: 20 },
+    ];
+    api.searchAccountingLedger.mockResolvedValue({ rows: fuel, total: 3, debit: 162.07, credit: 0, facets: {} });
+    render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+      drill={{ account: '63203', accountName: 'Fuel', from: '2026-01-01', to: '2026-12-31', book: 'accrual', party: { kind: 'employee', code: 'E-0084', name: 'Valinda Cranfill' } }} />);
+    await screen.findByText('Pala Vista Gas');
+    expect(headers().at(-1)).toBe('Balance');
+    const balanceOf = (text) => screen.getByText(text).closest('tr').querySelector('td:nth-last-child(2)').textContent;
+    expect(balanceOf('Pala Vista Gas')).toBe('20.00');
+    expect(balanceOf('Fuel for vehicle')).toBe('82.00');
+    expect(balanceOf('Fuel for company vehicle')).toBe('162.07');
+    // Listed oldest first, as Intacct lists them, so the balance grows down the page.
+    expect([...document.querySelectorAll('.acct-lines tbody tr.acct-line-opens')].map((tr) => tr.children[4].textContent)).toEqual(['Pala Vista Gas', 'Fuel for vehicle', 'Fuel for company vehicle']);
+    // The totals row ends on the closing figure, under Balance.
+    expect(document.querySelector('.acct-grand td:nth-last-child(2)').textContent).toBe('162.07');
+
+    // A click anywhere on the line (not only its entry number) opens the
+    // transaction beside the lines, with Open Full - Intacct's head over its entries.
+    fireEvent.click(screen.getByText('Pala Vista Gas'));
+    const panel = await screen.findByTestId('acct-side-panel');
+    expect(screen.getByText('Pala Vista Gas').closest('tr').className).toContain('is-open');
+    await within(panel).findByTestId('entry-facts');
+    expect(within(panel).getByRole('button', { name: /Open Full/ })).toBeTruthy();
+    const facts = within(panel).getByTestId('entry-facts').textContent;
+    expect(facts).toContain('Total22.46');
+    expect(facts).toContain('PayeeV00225 American Express');
+    expect(api.getAccountingEntry).toHaveBeenCalledWith('e1');
+    // The lines behind stay on screen and clickable: another line swaps the panel.
+    fireEvent.click(screen.getByText('Fuel for vehicle'));
+    await waitFor(() => expect(api.getAccountingEntry).toHaveBeenLastCalledWith('e2'));
+    expect(screen.getAllByTestId('acct-side-panel')).toHaveLength(1);
+    api.searchAccountingLedger.mockImplementation(async () => ({ rows: [line], total: 1, debit: 22.46, credit: 0, facets: {} }));
   });
 
   it('keeps a layout chosen before views existed as the built-in default', async () => {

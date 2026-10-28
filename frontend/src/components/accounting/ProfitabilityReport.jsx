@@ -3,8 +3,10 @@ import { X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import Amount, { Figure } from './Amount';
-import { BarMore, ControlBar, control, EntitiesPicker, ExportMenu, SyncButton, fitSelect } from './reportControls';
-import { useFitHeight } from './tableHooks';
+import { BarMore, ColumnResizer, ControlBar, control, EntitiesPicker, ExportMenu, SyncButton, fitSelect, widest } from './reportControls';
+import { useColumnWidths, useFitHeight } from './tableHooks';
+import { cellStyle, headStyle } from './columnStyles';
+import LinesPanel from './LinesPanel';
 import { useTableSync } from './tableSync';
 import { downloadBlob, iso, presetRange } from './reportModel';
 import { requestReportDrill } from './drill';
@@ -51,6 +53,14 @@ export default function ProfitabilityReport({ limited = false }) {
   const [data, setData] = useState(null);
   const [state, setState] = useState({ loading: true, error: '' });
   const [open, setOpen] = useState(null);     // { code, key }
+  // Call of 10/27 with Charmi, item 17: an account's amount under a figure
+  // opens its ledger lines in the side panel; every column drags wider or
+  // narrower, kept per person.
+  const [linesOf, setLinesOf] = useState(null);    // { account, title, entity, name }
+  const closeLines = useCallback(() => setLinesOf(null), []);
+  const widths = useColumnWidths('profitability', {}, { min: 60 });
+  const W = (key, base) => ({ ...base, ...headStyle(widths.width(key)), ...(base === thLeft ? { position: 'sticky' } : {}) });
+  const C = (key, base) => ({ ...base, ...cellStyle(widths.width(key)) });
   const [busy, setBusy] = useState('');
 
   useEffect(() => {
@@ -107,7 +117,7 @@ export default function ProfitabilityReport({ limited = false }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
-        <select value={period} onChange={(e) => pickPeriod(e.target.value)} style={{ ...control, ...fitSelect(PERIODS.find((p) => p.key === period)?.label) }} aria-label="Period" title="Period">
+        <select value={period} onChange={(e) => pickPeriod(e.target.value)} style={{ ...control, ...fitSelect(PERIODS.find((p) => p.key === period)?.label, { base: widest(PERIODS.map((p) => p.label)) }) }} aria-label="Period" title="Period">
           {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
         </select>
         <span style={inline}>
@@ -116,14 +126,14 @@ export default function ProfitabilityReport({ limited = false }) {
           <input type="date" value={to} onChange={(e) => { setPeriod('custom'); setRange([from, e.target.value]); }} style={control} aria-label="To" title="To" />
         </span>
         <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} />
-        <select value={book} onChange={(e) => setBook(e.target.value)} style={{ ...control, ...fitSelect(book === 'cash' ? 'Cash' : 'Accrual') }} aria-label="Book" title="Book">
+        <select value={book} onChange={(e) => setBook(e.target.value)} style={{ ...control, ...fitSelect(book === 'cash' ? 'Cash' : 'Accrual', { base: 'Accrual' }) }} aria-label="Book" title="Book">
           <option value="accrual">Accrual</option>
           <option value="cash">Cash</option>
         </select>
         <BarMore level={2} active={compareOn !== COMPARE_ON[0].key ? 1 : 0}>
         <label style={inline}>
           <span className="acct-bar-label-2">Compare On</span>
-          <select value={compareOn} onChange={(e) => setCompareOn(e.target.value)} style={{ ...control, ...fitSelect(COMPARE_ON.find((c) => c.key === compareOn)?.label) }} aria-label="Compare On" title="Compare On">
+          <select value={compareOn} onChange={(e) => setCompareOn(e.target.value)} style={{ ...control, ...fitSelect(COMPARE_ON.find((c) => c.key === compareOn)?.label, { base: widest(COMPARE_ON.map((c) => c.label)) }) }} aria-label="Compare On" title="Compare On">
             {COMPARE_ON.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
         </label>
@@ -160,9 +170,13 @@ export default function ProfitabilityReport({ limited = false }) {
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
               <thead>
                 <tr>
-                  <th style={thLeft}>Entity</th>
-                  {PROFIT_COLUMNS.map((c) => <th key={c.key} style={th}>{c.label}</th>)}
-                  {withPrior && <><th style={th}>Prior Year {cmp.label}</th><th style={th}>Change $</th><th style={th}>Change %</th></>}
+                  <th style={W('entity', thLeft)}>Entity<ColumnResizer {...widths.resizer('entity', 'Entity')} /></th>
+                  {PROFIT_COLUMNS.map((c) => <th key={c.key} style={W(c.key, th)}>{c.label}<ColumnResizer {...widths.resizer(c.key, c.label)} /></th>)}
+                  {withPrior && <>
+                    <th style={W('prior', th)}>Prior Year {cmp.label}<ColumnResizer {...widths.resizer('prior', 'Prior Year')} /></th>
+                    <th style={W('change', th)}>Change $<ColumnResizer {...widths.resizer('change', 'Change $')} /></th>
+                    <th style={W('changePct', th)}>Change %<ColumnResizer {...widths.resizer('changePct', 'Change %')} /></th>
+                  </>}
                 </tr>
               </thead>
               <tbody>
@@ -170,15 +184,15 @@ export default function ProfitabilityReport({ limited = false }) {
                   const ch = r.change?.[compareOn] || {};
                   return (
                     <tr key={r.code}>
-                      <td style={{ ...tdLeft, paddingLeft: 8 + r.depth * 18 }}>
+                      <td style={{ ...C('entity', tdLeft), paddingLeft: 8 + r.depth * 18 }}>
                         <span style={{ fontWeight: r.depth ? 400 : 600 }}>{r.name}</span> <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{r.code}</span>
                       </td>
-                      {PROFIT_COLUMNS.map((c) => <td key={c.key} style={{ ...td, background: open?.code === r.code && open?.key === c.key ? 'var(--wk-brand-tint, #e8ecfd)' : undefined }}>{figure(r, c)}</td>)}
+                      {PROFIT_COLUMNS.map((c) => <td key={c.key} style={{ ...C(c.key, td), background: open?.code === r.code && open?.key === c.key ? 'var(--wk-brand-tint, #e8ecfd)' : undefined }}>{figure(r, c)}</td>)}
                       {withPrior && (
                         <>
-                          <td style={td}>{r.prior?.[compareOn] == null ? '-' : <Amount value={r.prior[compareOn]} zero="dash" />}</td>
-                          <td style={td}>{ch.amount == null ? '-' : <Amount value={ch.amount} zero="dash" />}</td>
-                          <td style={td}><Figure text={pctText(ch.pct) || '-'} /></td>
+                          <td style={C('prior', td)}>{r.prior?.[compareOn] == null ? '-' : <Amount value={r.prior[compareOn]} zero="dash" />}</td>
+                          <td style={C('change', td)}>{ch.amount == null ? '-' : <Amount value={ch.amount} zero="dash" />}</td>
+                          <td style={C('changePct', td)}><Figure text={pctText(ch.pct) || '-'} /></td>
                         </>
                       )}
                     </tr>
@@ -229,13 +243,23 @@ export default function ProfitabilityReport({ limited = false }) {
                     <button type="button" style={cellBtn} onClick={() => requestReportDrill({ account: l.account, accountName: l.title, from: data.from, to: data.to, entity: openRow.code, book })}>{l.account}</button>
                   </td>
                   <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal' }}>{l.title}</td>
-                  <td style={td}><Amount value={l.signed} zero="dash" /></td>
+                  <td style={td}>
+                    {Math.abs(Number(l.amount) || 0) >= 0.005
+                      ? <button type="button" style={cellBtn} onClick={() => setLinesOf({ account: l.account, title: l.title, entity: openRow.code, name: openRow.name })} aria-label={`Lines behind ${l.account} ${l.title}`} title="See the ledger lines behind this amount"><Amount value={l.signed} zero="dash" /></button>
+                      : <Amount value={l.signed} zero="dash" />}
+                  </td>
                 </tr>
               ))}
             </tbody>
             <tfoot><tr><td style={{ ...td, textAlign: 'left', fontWeight: 700 }} colSpan={3}>{openCol.label}</td><td style={{ ...td, fontWeight: 700 }}><Amount value={openRow.current[openCol.key]} zero="dash" /></td></tr></tfoot>
           </table>
         </div>
+      )}
+      {linesOf && data && (
+        <LinesPanel key={`${linesOf.entity}|${linesOf.account}`} label={`${linesOf.account} ${linesOf.title}, ${linesOf.name}`} title={`${linesOf.account} ${linesOf.title}`} widthsKey="profitability" onClose={closeLines}
+          caption={`${linesOf.name} (${linesOf.entity}), ${periodLine(data)}, ${book === 'cash' ? 'Cash' : 'Accrual'}`}
+          queries={[{ account: linesOf.account, location: linesOf.entity, from: data.from, to: data.to, book }]}
+          report={{ account: linesOf.account, accountName: linesOf.title, from: data.from, to: data.to, entity: linesOf.entity, book }} />
       )}
     </div>
   );

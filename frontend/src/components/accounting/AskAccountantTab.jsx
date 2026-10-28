@@ -3,7 +3,7 @@ import { Maximize2, MessageCircleQuestion, Minimize2, Plus, Send, Settings, Tras
 import { api } from '../../api';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import Amount, { formatAmount } from './Amount';
-import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, Pager, SyncButton, control, fitSelect } from './reportControls';
+import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, Pager, SyncButton, control, fitSelect, widest } from './reportControls';
 import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { useTableSync } from './tableSync';
 import { useAccountingPrefs } from './prefs';
@@ -666,7 +666,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
         <BarMore level={3}>
         {/* Item 04 (chat triage 10/27): Current Month / Previous Month / Custom, MM/DD/YYYY boxes. */}
         <select value={period.key} onChange={(e) => pickPeriod(e.target.value)} aria-label="Period" title={`Lines dated ${formatDate(from)} - ${formatDate(to)}`}
-          style={{ ...control, ...fitSelect(AMA_PERIODS.find((p) => p.key === period.key)?.label) }}>
+          style={{ ...control, ...fitSelect(AMA_PERIODS.find((p) => p.key === period.key)?.label, { base: widest(AMA_PERIODS.map((p) => p.label)) }) }}>
           {AMA_PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
         </select>
         {period.key === 'custom' && (
@@ -684,7 +684,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
         </BarMore>
         {/* 10/23 meeting, item 02 (fix 10/24): the list as wide as the choice, the search an icon until used. */}
         <BarMore level={2} active={mine !== 'all' ? 1 : 0}>
-        <select value={mine} onChange={(e) => setMine(e.target.value)} aria-label="Whose" style={{ ...control, ...fitSelect(WHOSE[mine]) }}>
+        <select value={mine} onChange={(e) => setMine(e.target.value)} aria-label="Whose" style={{ ...control, ...fitSelect(WHOSE[mine], { base: widest(Object.values(WHOSE)) }) }}>
           {Object.entries(WHOSE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
         </BarMore>

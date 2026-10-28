@@ -198,6 +198,17 @@ describe('Cross-tab drill with filters (Oct 7)', () => {
   });
 });
 
+// Call of 10/27 with Charmi, item 17: a total sent from another screen has no
+// account - it used to be dropped as an empty search; several entities travel.
+describe('Cross-tab drill of a total (10/27, item 17)', () => {
+  it('opens every line of the window, on the entities sent', async () => {
+    requestReportDrill({ account: '', accountName: 'Actual', from: '2026-01-01', to: '2026-02-28', book: 'accrual', entities: ['13000', '15000'], department: '9100' });
+    render(<ReportsTab />);
+    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('drill::2026-02-28:accrual'));
+    expect(screen.getByTestId('ledger-search').dataset.from).toBe('2026-01-01');
+  });
+});
+
 // Accounting call 10/23, item 07: lines opened from a vendor's record go Back
 // to Vendors & Customers, not to the Income Statement.
 describe('Back to the screen the lines came from (10/23)', () => {

@@ -158,7 +158,7 @@ export default function ManualJournalEntries() {
         <FiltersButton dims={config.dims} onChange={(d) => patch({ dims: d })} kinds={JOURNAL_KIND} label="Journals" />
         </BarMore>
         <BarMore level={2} active={user ? 1 : 0}>
-        <select value={user} onChange={(e) => setUser(e.target.value)} aria-label="User" style={{ ...control, ...fitSelect(user || 'All Users', { max: 200 }) }}>
+        <select value={user} onChange={(e) => setUser(e.target.value)} aria-label="User" title={user || 'All Users'} style={{ ...control, ...fitSelect(user || 'All Users', { max: 200, base: 'All Users' }) }}>
           <option value="">All Users</option>
           {[...new Set([...(data?.users || []), ...(user ? [user] : [])])].map((u) => <option key={u} value={u}>{u}</option>)}
         </select>
@@ -228,7 +228,8 @@ export default function ManualJournalEntries() {
                         </td>
                       ) : (
                         <td key={c.key} style={cellStyle(c.width, c.num ? { textAlign: 'right' } : null)} title={c.text(r)}>
-                          {c.num ? <Amount value={c.value(r)} /> : c.text(r)}
+                          {/* Call of 10/27 with Charmi, item 17: the amount opens the entry behind it, as Open does. */}
+                          {c.num ? <button type="button" className="acct-drill" disabled={opening === r.recordNo} onClick={() => open(r)} title="Open the entry behind this amount"><Amount value={c.value(r)} /></button> : c.text(r)}
                           {c.key === 'postedBy' && r.kind === 'edited' && <span style={{ marginLeft: 6, fontSize: '0.68rem', padding: '1px 6px', borderRadius: 999, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)' }}>Changed by a Person</span>}
                         </td>
                       )))}

@@ -15,6 +15,8 @@ vi.mock('../../api', () => ({
 import { CustomizeButton, EntitiesPicker, EntityPicker, Pager, SelectAllCheckbox, entityOptions, filterOptions } from './reportControls';
 import { pageSlice, useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
 import { resetAccountingPrefs } from './prefs';
+import fs from 'node:fs';
+import path from 'node:path';
 
 beforeEach(() => {
   try { localStorage.clear(); } catch { /* none */ }
@@ -164,6 +166,42 @@ describe('EntitiesPicker', () => {
     const panel = screen.getByRole('listbox', { name: 'Entity' });
     expect(panel.style.display).toBe('flex');
     expect(panel.querySelector('[data-option-list]').style.flex).toMatch(/^1 1/);
+  });
+});
+
+// Call of 10/27 with Charmi, item 09 ("Anytime I select a filter, it should
+// say stagnant"): a picker in the bar is as wide as its default words, the
+// pick cut with "..." over them and in full in the tooltip.
+describe('bar pickers keep their width whatever is picked', () => {
+  const LONG = [...ENTITIES, { code: '10000', name: 'Rajesh & Darshana Kadakia', parent_code: null }];
+  it('the Entities picker sizes from "All entities" and shows the long pick in full on hover', () => {
+    const { rerender } = render(<EntitiesPicker entities={LONG} value={[]} onChange={() => {}} />);
+    const words = () => screen.getByRole('button', { name: 'Entities' }).querySelector('.acct-pick');
+    expect(words().dataset.base).toBe('All entities');
+    expect(words().classList.contains('acct-bar-label-2')).toBe(true);
+    rerender(<EntitiesPicker entities={LONG} value={['10000']} onChange={() => {}} />);
+    expect(words().dataset.base).toBe('All entities');
+    expect(words().textContent).toBe('Rajesh & Darshana Kadakia (10000)');
+    expect(screen.getByRole('button', { name: 'Entities' }).title).toBe('Rajesh & Darshana Kadakia (10000)');
+    // On a row that folds the default words, a pick folds with them: the
+    // picker is as wide picked as unpicked (browser check at 1440, MRE).
+    expect(words().classList.contains('acct-bar-label-2')).toBe(true);
+  });
+
+  it('a select with a base is one width for every pick', async () => {
+    const { fitSelect, widest } = await import('./reportControls');
+    expect(fitSelect('Dues & Subscriptions', { base: 'All Categories' }).width).toBe(fitSelect('All Categories', { base: 'All Categories' }).width);
+    expect(fitSelect('Q1', { base: widest(['Full Year', 'Q1', 'Custom Months']) }).width).toBe('clamp(64px, calc(13ch + 34px), 320px)');
+    expect(fitSelect('Dues & Subscriptions', { base: 'All Categories' }).textOverflow).toBe('ellipsis');
+    // Without a base it is as before: as wide as the pick.
+    expect(fitSelect('Q1').width).toBe('clamp(64px, calc(2ch + 34px), 320px)');
+  });
+
+  it('the stylesheet draws the width from data-base and cuts the pick with "..."', () => {
+    const css = fs.readFileSync(path.join(__dirname, '..', '..', 'style.css'), 'utf8').replace(/\r\n/g, '\n');
+    const rule = (sel) => css.split('\n').find((l) => l.startsWith(sel)) || '';
+    expect(rule('.acct-pick::before {')).toMatch(/content: attr\(data-base\).*visibility: hidden/);
+    expect(rule('.acct-pick > .acct-pick-text {')).toMatch(/position: absolute.*text-overflow: ellipsis/);
   });
 });
 

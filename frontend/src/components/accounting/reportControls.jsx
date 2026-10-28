@@ -259,7 +259,8 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, sho
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label="Entities" title={label}>
         <Building2 size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span className={value.length ? undefined : 'acct-bar-label-2'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        {/* As wide as "All entities" whatever is picked (10/27 call, item 09). */}
+        <PickText text={label} base={all} />
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       {/* Chat 10/26, item 12 (Charmi: "Move the Done button on TOP"; Neil: "So
@@ -314,12 +315,15 @@ export function EntityPicker({ entities, value = '', onChange, extra = [], group
   const e = !x && value ? (entities || []).find((o) => o.code === value) : null;
   const label = x ? x.name : value ? `${e?.name || 'Unnamed'} (${value})` : (noneLabel || placeholder);
   const lit = active ?? (!!value && value !== extra[0]?.code);
+  // In a control bar: as wide as its default words whatever is picked (10/27 call, item 09).
+  const inBar = !!useContext(BarContext);
   return (
     <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
       <button type="button" style={{ ...button(lit), ...(disabled ? { opacity: 0.6, cursor: 'default' } : {}), ...(style || {}) }} disabled={disabled}
         onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} title={label}>
         <Building2 size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, textAlign: 'left' }}>{label}</span>
+        {inBar ? <PickText text={label} base={extra[0]?.name || noneLabel || placeholder} />
+          : <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, textAlign: 'left' }}>{label}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} style={fillPanel(500)}>
@@ -507,7 +511,7 @@ export function AccountsPicker({ accounts, value, onChange, showHistorical = fal
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} title={label}>
         <ListFilter size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span className={value.length ? undefined : 'acct-bar-label-2'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        <PickText text={label} base={allLabel} />
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} aria-multiselectable="true" style={panel(480)}>
@@ -557,7 +561,8 @@ export function PeriodStepper({ config, period, onChange }) {
     <div role="group" aria-label="Report period" style={custom ? group : { ...group, flexWrap: 'nowrap', minWidth: 0, maxWidth: '100%' }}>
       <button type="button" style={{ ...arrow, flexShrink: 0 }} onClick={() => step(-1)} aria-label="Previous period" title="Previous period"><ChevronLeft size={14} /></button>
       {/* Item 02 (10/23): as wide as the period picked - "Custom Dates" no longer holds the width of its longest option. */}
-      <select value={config.preset} onChange={(e) => onChange({ preset: e.target.value })} aria-label="Period" style={{ ...control, ...fitSelect(periodLabel(config.preset), { max: 300 }) }}>
+      {/* 10/27 call, item 09: as wide as Year-to-Date's whatever is picked, so a period never moves the bar's buttons. */}
+      <select value={config.preset} onChange={(e) => onChange({ preset: e.target.value })} aria-label="Period" title={periodLabel(config.preset)} style={{ ...control, ...fitSelect(periodLabel(config.preset), { max: 300, base: periodLabel('ytd') }) }}>
         {PRESETS.map((p) => <option key={p.key} value={p.key}>{periodLabel(p.key)}</option>)}
       </select>
       {config.preset === 'custom' && (
@@ -1276,10 +1281,45 @@ export function BarSearch({ value, onChange, label, placeholder = '', width = 24
  * the period list's "This Quarter · 10/01/2026 - 12/31/2026" no longer holds
  * 280px of the row while it reads "Custom Dates". The list still opens with
  * every option in full. `label` is the picked option's text.
+ *
+ * `base` (call of 10/27 with Charmi, item 09: "Anytime I select a filter, it
+ * should say stagnant"): as wide as `base` WHATEVER is picked - the default
+ * words of an open list ("All Categories"), or the widest of a short one
+ * (widest(...)) - so a pick never widens the select and the bar never folds
+ * its buttons' words over it. A longer pick is cut with "..." (give the
+ * select a `title` with it in full).
  */
-export function fitSelect(label, { min = 64, max = 320 } = {}) {
-  const chars = String(label || '').length;
-  return { width: `clamp(${min}px, calc(${chars}ch + 34px), ${max}px)`, minWidth: 0 };
+export function fitSelect(label, { min = 64, max = 320, base = null } = {}) {
+  const chars = String(base ?? label ?? '').length;
+  return { width: `clamp(${min}px, calc(${chars}ch + 34px), ${max}px)`, minWidth: 0, ...(base != null ? { textOverflow: 'ellipsis' } : {}) };
+}
+
+/** The longest of some option labels - a short list's `base` for fitSelect. */
+export const widest = (labels) => (labels || []).reduce((a, b) => (String(b || '').length > a.length ? String(b) : a), '');
+
+/**
+ * A picker's words in the control bar (call of 10/27 with Charmi, item 09:
+ * "Any time we give a filter, the tab changes. It should not be changing").
+ * As wide as `base` - what the picker reads at its default ("All entities",
+ * "Built-in Default") - whatever is picked: a longer pick is cut with "..."
+ * and the button's tooltip has it in full. So picking a long entity, a
+ * category or a saved view never widens the picker, and the bar never folds
+ * Sync, Customize, Export, Settings or Columns down to icons over it. The
+ * width comes from `base` through CSS (.acct-pick::before reads data-base),
+ * so the picked text is still the only text on the button.
+ *
+ * `fold` (default on): on a row short enough to fold the pickers' default
+ * words (data-fold 2), a pick folds with them - the picker stays an icon,
+ * lit, the pick in its tooltip - so a pick never brings words back that
+ * push the bar's buttons into More (browser check at 1440 with the side
+ * menu open, MRE: picking an entity moved Columns and Settings into More).
+ */
+export function PickText({ text, base, fold = true }) {
+  return (
+    <span className={`acct-pick${fold ? ' acct-bar-label-2' : ''}`} data-base={base || text}>
+      <span className="acct-pick-text">{text}</span>
+    </span>
+  );
 }
 
 /**
