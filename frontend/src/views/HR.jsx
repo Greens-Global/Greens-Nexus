@@ -34,6 +34,7 @@ import { qk } from '../lib/queryClient';
 import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
+import { Switch } from '../components/settings/SettingsUI';
 import { setPendingOpen } from '../lib/pendingOpen';
 import TimeAdmin from '../components/TimeAdmin';
 import ModuleTabs from '../components/ModuleTabs';
@@ -3282,7 +3283,7 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, toas
 // ── Companies / legal entities manager (HR Section A) ────────────────────────
 // Manage one company's department list (Neil: departments live within a company,
 // custom per company - not a Nexus-wide hardcoded list).
-function CompanyDepartments({ entity, toastOk, toastErr }) {
+export function CompanyDepartments({ entity, toastOk, toastErr }) {
   const [depts, setDepts] = useState(null);
   const [name, setName] = useState('');
   const [head, setHead] = useState('');          // department head for the one being added
@@ -3319,6 +3320,18 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
       toastOk?.(email ? `${nameOf(email)} is now the ${what} of ${d.name}.` : `${d.name} has no ${what} now.`);
     } catch (e) { toastErr(e?.message || `Could not set the ${what}.`); }
   }
+  // Weather Calls (Neil, 10/29/2026): rain advisories and weather calls apply
+  // only to the people of departments with this on - Construction by default.
+  async function setWeather(d, on) {
+    setDepts((list) => list.map((x) => (x.id === d.id ? { ...x, weather: on } : x)));
+    try {
+      setDepts(await api.updateCompanyDepartment(entity.id, d.id, { weather: on }));
+      toastOk?.(on ? `Weather calls now apply to ${d.name}.` : `Weather calls no longer apply to ${d.name}.`);
+    } catch (e) {
+      setDepts((list) => list.map((x) => (x.id === d.id ? { ...x, weather: !on } : x)));
+      toastErr(e?.message || 'Could not change Weather Calls.');
+    }
+  }
   const headPicker = (value, onPick, onClear, label) => value ? (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, fontSize: 12.5 }}>
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>{nameOf(value)}</span>
@@ -3352,6 +3365,7 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
         Departments for <strong>{entity.name}</strong>. These are the only choices when picking a department for someone in this company.
         The department head is the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Contact Directory.
         The head and the backup both get the HR, IT and Accounting steps of every checklist, so set a backup for anyone who can be out.
+        Weather Calls: rain advisories and weather calls apply only to the people of departments with it on - on for Construction by default.
       </p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <input className="form-input" style={{ flex: '1 1 180px' }} placeholder="e.g. Estimating" value={name}
@@ -3393,6 +3407,11 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
                     {headPicker(value, (email) => setDeptPerson(d, field, email), () => setDeptPerson(d, field, ''), label)}
                   </div>
                 ))}
+                <label data-dept-weather={d.id} title="Rain advisories and weather calls apply to this department's people. On for Construction by default."
+                  style={{ flex: '0 1 auto', display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>Weather Calls</span>
+                  <Switch checked={!!d.weather} onChange={(on) => setWeather(d, on)} label={`Weather Calls for ${d.name}`} />
+                </label>
                 <button onClick={() => remove(d)} title={`Remove ${d.name}`} aria-label={`Remove ${d.name}`}
                   style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: '50%', padding: 0 }}
                   onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}

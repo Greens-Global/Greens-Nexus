@@ -444,6 +444,7 @@ export const DOCS = [
       {
         title: 'Make a Weather Call',
         steps: [
+          'Weather calls are for the people of departments with Weather Calls on - Construction by default, every other department off. Turn a department on or off in Settings > Companies > Departments (10/29/2026). People of other departments on the same group are not on the call and keep their shifts and pay.',
           'When the weather watch sees major rain for a group, its deciders get a bell, and a rain icon shows on the day in Team > Schedule. Click either.',
           'Untick anyone who can still work with pay, pick the call (Cancel the Day, Delay the Start, End Early, Move the Crew or Proceed as Planned) and give the crew a reason.',
           'Click Make the Call, then Confirm. Nexus changes the shifts and tells each person by bell, email, Teams and text; the call shows who has acknowledged, with Remind the Silent and Reinstate.',
