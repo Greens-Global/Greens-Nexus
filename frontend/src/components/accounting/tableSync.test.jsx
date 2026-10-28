@@ -328,17 +328,24 @@ describe('ControlBar', () => {
     }
   });
 
-  it('item 09: tries again once the row needs less room, and brings the control back', async () => {
+  // UI test 10/28 (Profitability at 1366): after a pick the row needed a
+  // little less room, and the bar brought Compare On out of More by folding
+  // the words of Sync, Export and the entities. A control comes back from More
+  // only when it fits beside the words the row shows.
+  it('item 09: a row that needs less room keeps its words; a More control comes back only with room for it', async () => {
     width = 450;
     const { rerender } = render(<PickBar />);
     await step(rerender, <PickBar saved={300} />);
     width = 600;
     await step(rerender, <PickBar saved={300} />);
-    expect(state().inMore).toEqual(['Saved Reports']);
-    await step(rerender, <PickBar saved={300} report={60} />);   // 100 px less on the row: 542 at level 0, fold 2
-    expect(state().inMore).toEqual([]);
-    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    expect(state()).toEqual({ fold: undefined, inMore: ['Saved Reports'] });
+    await step(rerender, <PickBar saved={300} report={60} />);   // 100 px less: fits at level 0 only with every word folded (542)
+    expect(state()).toEqual({ fold: undefined, inMore: ['Saved Reports'] });
     expect(barWraps(bar())).toBe(false);
+    width = 2000;                                                // room for it beside the words
+    await step(rerender, <PickBar saved={300} report={60} />);
+    expect(state()).toEqual({ fold: undefined, inMore: [] });
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
   });
 
   // UI test 10/27 (MRE / MRI at 1024 and 390): More read "More (1 changed)"

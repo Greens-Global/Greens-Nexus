@@ -1099,8 +1099,12 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
     const top = Math.max(0, ...[...groups.current.values()].map((g) => g.level));
     // The screen dropped the controls of the deepest levels (another tab).
     if (lvl > top) { setLvl(top); return; }
-    // 1. Room again for what moved into More? Bring back as many levels as fit.
-    el.dataset.fold = '2';
+    // 1. Room again for what moved into More? Bring back as many levels as fit
+    // AS THE ROW IS SHOWN NOW (item 09, UI test 10/28, Profitability at 1366:
+    // measured with every word folded, a pick brought Compare On out of More
+    // and took the words of Sync, Export and the entities - a pick must never
+    // trade a control's words for a More control). A narrower row folds its
+    // words first (2.), so this never makes it wrap.
     const folded = barNeed(el, true);
     const failed = blocked.current.get(`${lvl}@${width}`);
     if (lvl > 0 && !(failed !== undefined && folded >= failed - 1)) {
