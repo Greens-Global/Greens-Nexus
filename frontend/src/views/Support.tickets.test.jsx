@@ -121,6 +121,43 @@ describe('Support - the ticket table fits the card', () => {
     } finally { restore(); }
   });
 
+  // Neil, 10/28/2026: Confirm / Reopen "hang outside the table", and a small
+  // horizontal scrollbar showed on Closed Tickets.
+  it('puts the row actions in an Actions column inside the table', async () => {
+    const restore = stubCardWidth(1400);
+    try {
+      const { container } = render(<Support activeSub={null} onSubChange={() => {}} />);
+      const btn = await screen.findByRole('button', { name: 'Mark Resolved' });
+      expect(container.querySelector('[data-tier]').dataset.tier).toBe('full');
+      expect(screen.getByText('Actions')).toBeTruthy();
+      expect(btn.closest('[role="button"][tabindex="0"]')).not.toBeNull();   // inside the row, not beside it
+    } finally { restore(); }
+  });
+
+  it('gives up a column rather than scroll when the full table plus Actions does not fit', async () => {
+    // Seven columns at their floors (1028px) + Mark Resolved (150px) = 1178px.
+    const restore = stubCardWidth(1170);
+    try {
+      const { container } = render(<Support activeSub={null} onSubChange={() => {}} />);
+      await screen.findByText('Printer jam');
+      expect(container.querySelector('[data-tier]').dataset.tier).toBe('compact');
+      expect(screen.queryByTitle('Sort by Created')).toBeNull();
+    } finally { restore(); }
+  });
+
+  it('has no Actions column and no scroll box on Closed Tickets', async () => {
+    const restore = stubCardWidth(1400);
+    try {
+      const { container } = render(<Support activeSub={null} onSubChange={() => {}} />);
+      await screen.findByText('Printer jam');
+      await act(async () => { fireEvent.click(screen.getByRole('tab', { name: /^Closed Tickets/ })); });
+      expect(await screen.findByText('Old laptop')).toBeTruthy();
+      expect(screen.queryByText('Actions')).toBeNull();
+      const card = container.querySelector('[data-tier]');
+      expect([...card.querySelectorAll('div')].some((d) => d.style.overflowX === 'auto')).toBe(false);
+    } finally { restore(); }
+  });
+
   it('leaves Enter on a button inside a row to that button', async () => {
     const restore = stubCardWidth(700);
     try {
