@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 import httpx
 
 from countries import country_code, country_name
+import job_switch
 
 SYNC_EVERY_SEC = 15 * 60
 
@@ -212,6 +213,8 @@ def sync_person(db, emp) -> dict:
 
 def sync_all() -> dict:
     """Every linked person. Synchronous - run it off the event loop."""
+    if job_switch.off("m365_contact_sync"):   # Workflows > Automations switch
+        return {"checked": 0, "pulled": 0, "pushed": 0, "failed": 0}
     from database import SessionLocal
     from models import NexusEmployee
     from routers.hr import _entra_writes_enabled, _graph_token

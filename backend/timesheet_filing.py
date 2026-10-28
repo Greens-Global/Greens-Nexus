@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 
 from database import SessionLocal
 from models import HrSignEvent, HrSignRequest
+import job_switch
 
 # Minutes after the latest failure before the next attempt; past the end, give up.
 RETRY_AFTER_MIN = (5, 30, 120)
@@ -109,6 +110,8 @@ def retry_one(db, req: HrSignRequest, now: datetime) -> str:
 
 def process_due(now: datetime = None, db=None) -> dict:
     """The pass. Runs in a worker thread, never on the event loop."""
+    if job_switch.off("timesheet_filing"):   # Workflows > Automations switch
+        return {"filed": 0, "failed": 0, "gave_up": 0}
     own = db is None
     db = db or SessionLocal()
     now = now or _now()

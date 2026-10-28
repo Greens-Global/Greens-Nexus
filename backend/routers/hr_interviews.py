@@ -43,6 +43,7 @@ from models import HrInterview, HrInterviewTemplate, HrCandidate, HrStageEvent
 from routers.hr import (require_hr_read, require_hr_write, _graph_token, _GRAPH,
                         _hr_notify)
 from auth import hr_scope
+import job_switch
 
 
 # Company scoping (Neil, Aug 25): candidates carry a company, and a company-
@@ -1052,6 +1053,8 @@ def start_after_meeting(db: Session, limit: int = 20) -> int:
 
 
 def process_followups(limit: int = 10) -> int:
+    if job_switch.off("interview_followup"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     db = SessionLocal()
     n = 0

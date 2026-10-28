@@ -42,6 +42,7 @@ import httpx
 
 import safe_fetch
 from ops_market import size_key
+import job_switch
 
 AGENT_NAME = "GreensNexus-MarketRates"   # the token a site's robots.txt can address
 MAX_PAGE_BYTES = 1_500_000
@@ -561,6 +562,8 @@ def nearby_elements(facility_id: str, lat: float, lng: float, radius_km: float) 
 def _due() -> list[tuple[str, date]]:
     """(competitor id, its facility's day) for every watched competitor with a
     rates page that has not been read in this interval. Blocking."""
+    if job_switch.off("market_watch"):   # Workflows > Automations switch
+        return []
     import cubby
     import models
     from database import SessionLocal

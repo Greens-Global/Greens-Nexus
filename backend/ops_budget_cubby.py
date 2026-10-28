@@ -34,6 +34,7 @@ from datetime import date
 
 import ops_budget as ob
 import ops_unit_classes as uc
+import job_switch
 
 EVERY_SEC = 15 * 60          # matches the Cubby sync
 FIRST_WAIT_SEC = 300         # after the first Cubby sync of a fresh boot
@@ -335,8 +336,12 @@ def run_facility(db, fac, cubby_fac, today: date, rules) -> dict:
     return {"facility": fac.id, "rows": written, "month": current}
 
 
-def snapshot_all() -> dict:
-    """Every linked facility. Blocking - call it in a thread."""
+def snapshot_all(trigger: str = "schedule") -> dict:
+    """Every linked facility. Blocking - call it in a thread. The Workflows >
+    Automations switch stops only the scheduled run; an admin's Snapshot Now
+    (trigger "manual") always runs."""
+    if trigger == "schedule" and job_switch.off("ops_budget"):
+        return {}
     import cubby
     from database import SessionLocal
     db = SessionLocal()

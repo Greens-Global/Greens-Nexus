@@ -29,6 +29,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session
 
+import workflows
 from models import AuditLog, EmployeeCustomField, NexusEmployee
 
 FIELD_TYPES = ("text", "number", "date", "dropdown", "checkbox")
@@ -269,6 +270,9 @@ def apply_changes(db: Session, emp: NexusEmployee, changes: dict, audience: str,
                         details=json.dumps({"employee": emp.work_email, "section": "More Details",
                                             "labels": {f"custom.{k}": defs[k].label for k in diff},
                                             "changes": shown})[:4000]))
+        for k, (b, a) in diff.items():
+            workflows.emit(db, "employee.custom_field_changed", subject=emp, actor=actor.get("email") or "",
+                           changes={f"custom.{k}": (b, a)}, extra={"field": k, "label": defs[k].label})
     return diff
 
 

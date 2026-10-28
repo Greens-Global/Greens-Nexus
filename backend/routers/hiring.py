@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session
 
 import hiring_openings as ho
 import models
+import workflows
 from auth import (_module_level, company_of, company_ok, company_scope, get_current_user, hr_scope,
                   hr_team_limited, is_team_scope)
 from database import get_db
@@ -409,6 +410,7 @@ def _submit(db: Session, user: dict, row: models.HrHeadcountRequest) -> None:
     import hr_checklists as hc
     line = department_line(db, row.company, row.department, row.role_id)
     now = _now()
+    prev_status = row.status
     row.submitted_at, row.decline_note = now, ""
     row.dept_decided_by = row.dept_decided_at = row.hr_decided_by = row.hr_decided_at = ""
     row.status = "awaiting_approval"
@@ -436,6 +438,8 @@ def _submit(db: Session, user: dict, row: models.HrHeadcountRequest) -> None:
                            "No department approver other than the requester - sent to HR")
             row.step = "hr"
             _ask(db, row, hr_targets(db, row.company, asker), me, after_department=False)
+    workflows.emit(db, "headcount.requested", subject=row, actor=me,
+                   changes={"status": (prev_status, "awaiting_approval")}, extra={"step": row.step})
 
 
 @router.get("/headcount/meta")
@@ -542,6 +546,7 @@ def decide_headcount(rid: str, body: DecideIn, user: dict = Depends(get_current_
     note = _clean(body.note, 2000)
     me, now = user["email"].lower(), _now()
     who = _name(_names(db, [me]), me)
+    prev_status, prev_step = row.status, row.step
     if decision == "decline":
         if not note:
             raise HTTPException(400, "Say why it is declined.")
@@ -575,6 +580,8 @@ def decide_headcount(rid: str, body: DecideIn, user: dict = Depends(get_current_
     else:
         raise HTTPException(400, "decision must be approve or decline")
     row.updated_at = now
+    workflows.emit(db, "headcount.decided", subject=row, actor=me, changes={"status": (prev_status, row.status)},
+                   extra={"decision": decision, "step": prev_step, "note": note})
     db.commit()
     db.refresh(row)
     return _out(db, user, [row])[0]

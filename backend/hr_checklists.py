@@ -50,6 +50,7 @@ from models import (
     NexusNotification,
     NexusSetting,
 )
+import job_switch
 
 KINDS = ("onboarding", "promotion", "offboarding", "inactive")
 # Neil, Oct 19: "payroll isn't anything, that should be accounting ...
@@ -1583,6 +1584,7 @@ def run_daily() -> int:
     from reminders import _hr_team_emails
     db = SessionLocal()
     sent, new_tasks = 0, []
+    remind_off = job_switch.off("hr_checklists")   # Workflows > Automations switch: the reminders only
     try:
         hr_team = _hr_team_emails(db)
         for cl in db.query(HrChecklist).filter(HrChecklist.status == "open").all():
@@ -1594,7 +1596,7 @@ def run_daily() -> int:
                 sync(db, cl, emp)
                 db.flush()
                 new_tasks += sync_tasks(db, cl, emp)
-                if cl.status == "open":
+                if cl.status == "open" and not remind_off:
                     sent += remind(db, cl, emp, hr_team)
             except Exception as e:   # noqa: BLE001 - one checklist never stops the pass
                 print(f"[checklists] {cl.id} skipped: {e}")

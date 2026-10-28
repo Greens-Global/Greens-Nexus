@@ -42,6 +42,7 @@ import models
 import secret_box
 from gbp_client import GbpError
 from routers.task_util import gen_id, now_iso
+import job_switch
 
 CONN_ID = "gbp"
 STATE_TTL = 10 * 60
@@ -295,6 +296,8 @@ def _sync(db: Session, force: bool) -> dict:
 
 
 def sync_once() -> None:
+    if job_switch.off("gbp_sync"):   # Workflows > Automations switch
+        return
     from database import SessionLocal
     db = SessionLocal()
     try:

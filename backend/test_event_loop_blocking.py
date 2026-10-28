@@ -42,6 +42,7 @@ GUARDED = {
     "routers/task_config.py": ["task_ocr"],
     "audit.py": ["AuditMiddleware.dispatch"],
     "middleware_hardening.py": ["AuthFailureThrottle.dispatch", "RequestRateLimit.dispatch"],
+    "workflows/runner.py": ["workflows_loop"],
 }
 
 # Calls that block: anything on these objects...

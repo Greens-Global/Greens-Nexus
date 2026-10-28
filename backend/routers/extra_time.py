@@ -46,6 +46,7 @@ from sqlalchemy.orm import Session
 
 import india_contractor_pay as icp
 import timesheet_review as tsr
+import workflows
 from auth import get_current_user
 from database import get_db
 from models import ExtraTimeClaim, NexusEmployee, NexusNotification, NexusRole, PayrollRate
@@ -343,6 +344,7 @@ def file_claim(body: ClaimIn, user: dict = Depends(get_current_user), db: Sessio
     _history(c, email, "filed", minutes, note)
     db.add(c)
     db.flush()
+    workflows.emit(db, "extra_time.claimed", subject=c, actor=email)
     refresh_approver_notices(db, c.period_start, approvers(db, email))
     db.commit()
     return _out(db, c, email)
@@ -438,11 +440,14 @@ def decide_claim(claim_id: str, body: DecideIn, user: dict = Depends(get_current
             return _out(db, c, actor)
         new_status = "declined"
     changing = c.status != "pending"
+    prev_status = c.status
     tsr.guard_edit(db, email, c.local_date, actor,
                    what=f"{'changed an Extra Time decision' if changing else 'decided an Extra Time claim'} "
                         f"({tsr.us_date(c.local_date)})")
     c.status, c.approved_min, c.decision_note = new_status, minutes, reason
     c.decided_by, c.decided_at = actor, _now()
+    workflows.emit(db, "extra_time.decided", subject=c, actor=actor, changes={"status": (prev_status, new_status)},
+                   extra={"decision": decision, "minutes": minutes, "reason": reason, "changed": changing})
     _history(c, actor, ("re" if changing else "") + ("approved" if new_status == "approved" else "declined"),
              minutes, reason)
     db.flush()

@@ -1926,9 +1926,12 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # activity trail + notifications for meaningful changes
     changed = []
 
-    def _log(kind, detail):
+    def _log(kind, detail, change=None):
+        # `change` (status / assignee moves): the from / to the Workflows
+        # outbox carries (task_util._emit_workflow_event), as a field-history
+        # entry on the row like a task's.
         log_activity(db, type=kind, actor_email=user["email"], entity_kind="ticket",
-                     entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=detail)
+                     entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=detail, change=change)
         changed.append(kind)
     tk_action = {"view": "tickets", "label": "View Ticket"}
     status_changed = t.status != prev_status   # includes the assignment's auto In Progress
@@ -1939,7 +1942,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     requester = (t.requester_email or "").lower()
     tell_requester = bool(requester) and requester != user["email"].lower()
     if status_changed:
-        _log("status_changed", f"changed status to {tmpl.status_label(t.status)}")
+        _log("status_changed", f"changed status to {tmpl.status_label(t.status)}",
+             change={"field": "status", "label": "Status", "from": prev_status or "", "to": t.status or ""})
         if not (t.status in ("resolved", "closed") and tell_requester):
             # keep watchers and the assignee in the loop on any status move
             _notify_participants(db, t, user["email"], kind="ticket_status",
@@ -1952,7 +1956,9 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         # assignment that no longer exists.
         t.assigned_by_email = user["email"].lower() if t.assignee_email else ""
         _log("assigned", f"assigned to {t.assignee_email or 'nobody'}"
-                         + (f" by {t.assigned_by_email}" if t.assigned_by_email else ""))
+                         + (f" by {t.assigned_by_email}" if t.assigned_by_email else ""),
+             change={"field": "assignee", "label": "Assignee", "from": prev_assignee,
+                     "to": (t.assignee_email or "").strip().lower()})
         if t.assignee_email and t.assignee_email != user["email"].lower():
             task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
                         title="You Were Assigned a Ticket", body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)

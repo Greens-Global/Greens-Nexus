@@ -25,6 +25,7 @@ from datetime import date, timedelta
 import models
 import property_links
 from routers.task_util import gen_id, log_activity, now_iso, task_notify
+import job_switch
 
 REMINDER_DAYS = 15
 UNITS = ("", "week", "month", "year")
@@ -177,6 +178,8 @@ def run_due(db, today: date | None = None) -> dict:
 
 def run_daily() -> dict:
     """Own session and commit. Sync - reminders_loop runs it in a thread."""
+    if job_switch.off("maintenance_services"):   # Workflows > Automations switch
+        return {"reminded": 0, "opened": 0}
     from database import SessionLocal
     db = SessionLocal()
     try:

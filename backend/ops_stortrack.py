@@ -42,6 +42,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import cubby_warehouse
 from ops_market import FRESH_DAYS, size_key
+import job_switch
 
 SETTING_KEY = "stortrack_sync"
 SOURCE = "stortrack"
@@ -373,6 +374,8 @@ def due(db) -> bool:
 def sync_if_due() -> dict:
     """The scheduled run, hung off the Cubby sync loop (every 15 minutes) and
     acting only every `every_hours()`. Blocking - call it in a thread."""
+    if job_switch.off("stortrack_sync"):   # Workflows > Automations switch
+        return {"status": "off"}
     if not cubby_warehouse.configured():
         return {"status": "not_connected"}
     from database import SessionLocal

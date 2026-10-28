@@ -67,6 +67,7 @@ import shift_expect
 from app_url import app_url
 from routers.timeclock import (_day_summaries, _shift_minutes, time_tracking_exempt_emails,
                                _breakpolicy_cfg, _team_tz, _leave_class)
+import job_switch
 
 MODULE_ID = "workforce-scorecard"
 _SETTINGS_KEY = "workforce_scorecard_config"
@@ -974,6 +975,8 @@ def acquire_lock(db: Session, email: str) -> None:
 
 
 def _scan_once() -> int:
+    if job_switch.off("scorecard"):   # Workflows > Automations switch
+        return 0
     db = SessionLocal()
     sent = 0
     try:

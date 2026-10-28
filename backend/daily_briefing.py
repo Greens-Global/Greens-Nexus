@@ -58,6 +58,7 @@ from ticket_code import display_number
 from app_url import app_url
 from routers.task_util import task_assignees
 from routers.timeclock import _shift_start_for, _shift_local_now
+import job_switch
 
 _SETTINGS_KEY = "daily_briefing_config"
 _DEFAULT_SETTINGS = {
@@ -1890,6 +1891,8 @@ def _acquire_employee_lock(db: Session, email: str) -> None:
 
 
 def _scan_once() -> int:
+    if job_switch.off("daily_briefing"):   # Workflows > Automations switch
+        return 0
     db = SessionLocal()
     sent = 0
     try:

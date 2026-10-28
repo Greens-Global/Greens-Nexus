@@ -73,6 +73,7 @@ import ca_breaks
 import payroll_codes
 import pay_premiums
 import india_contractor_pay
+import workflows
 from shift_day import shift_day as _shift_day, shift_bounds_by_day as _shift_bounds_by_day
 import shift_log
 
@@ -12110,6 +12111,7 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
                          note=(body.note or "").strip()[:400], created_at=now,
                          confidential=1 if body.confidential else 0)
     db.add(row)
+    workflows.emit(db, "time_off.requested", subject=row, actor=user["email"])
     who = _display_name(db, user["email"])
     # A bell's text reaches every recipient alike (manager, HR contact, Global
     # Admins), so a confidential request never names its type there.
@@ -12197,6 +12199,7 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
                          note=(body.note or "").strip()[:400], created_at=now,
                          requested_by=user["email"], confidential=1 if body.confidential else 0)
     db.add(row)
+    workflows.emit(db, "time_off.requested", subject=row, actor=user["email"], extra={"onBehalf": True})
     filer = _display_name(db, user["email"])
     if target != user["email"]:
         # The employee's own copy may name the type - it is theirs.
@@ -12370,6 +12373,9 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     _close_approver_notices(db, [row.id], row.employee_email)
     # A stand-in's decision says who it was decided for (approver delegation).
     row.decide_note = _decided_note(db, user, row.employee_email, (body.note or "").strip()[:400])
+    workflows.emit(db, "time_off.decided", subject=row, actor=user["email"],
+                   changes={"status": ("pending", body.status)},
+                   extra={"decision": body.status, "note": row.decide_note, "level": "manager"})
     _audit_delegated(db, user, row.employee_email, f"{body.status.title()} time off request", "time_off_requests", row.id)
     # The shifts this leave lands on, so the approver sees them - and, when
     # asked, marks them for removal in the same transaction (published, so
@@ -12410,6 +12416,9 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
     was_approved = row.status == "approved"
     row.status = "cancelled"
     row.decided_at = _now_iso()
+    workflows.emit(db, "time_off.cancelled", subject=row, actor=user["email"],
+                   changes={"status": ("approved" if was_approved else "pending", "cancelled")},
+                   extra={"wasApproved": was_approved})
     if not was_approved:
         _close_approver_notices(db, [row.id], row.employee_email)   # nothing left to decide
         # Their own "Awaiting HR Approval" notice has nothing left to wait for.
@@ -12566,6 +12575,8 @@ def _decide_hr_level(db: Session, user: dict, row, body) -> dict:
     row.approver = me
     row.decided_at = _now_iso()
     row.decide_note = (body.note or "").strip()[:400]
+    workflows.emit(db, "time_off.decided", subject=row, actor=me, changes={"status": ("pending", body.status)},
+                   extra={"decision": body.status, "note": row.decide_note, "level": "hr"})
     _close_approver_notices(db, [row.id], row.employee_email)
     conflicts = _timeoff_shift_conflicts(db, row)
     if body.status == "approved" and body.remove_shifts:
@@ -13022,6 +13033,11 @@ def add_time(body: AddTimeIn, user: dict = Depends(require_team_write), db: Sess
         body=f"{_display_name(db, user['email'])} added {hrs} over {n} day{'' if n == 1 else 's'} ({dates}) "
              f"to {_display_name(db, em)}'s time sheet: {reason[:200]}",
         ref_id=batch_id)
+    # Workflows (Oct 28 2026): one event per batch, the person as subject.
+    from workflows.packs._people import employee_row as _wf_person
+    workflows.emit(db, "time.add_time_batch", subject=_wf_person(db, em), actor=user["email"],
+                   extra={"batchId": batch_id, "source": "manager", "dates": [r["date"] for r in doing],
+                          "minutes": total, "replaced": 0, "reason": reason[:300]})
     db.commit()
     return {"batchId": batch_id, "days": public, "added": n, "totalMin": total}
 
@@ -13399,7 +13415,7 @@ def _record_row_shift(row: RecordRow, ds: str, tz: int) -> tuple:
     return shift, ""
 
 
-def _shift_minutes(shift: list) -> int:
+def _record_shift_minutes(shift: list) -> int:
     """Paid minutes of one planned shift: in to out, less its breaks."""
     ts = [_parse_iso(at) for _k, at, _c in shift]
     total = (ts[-1] - ts[0]).total_seconds()
@@ -13513,7 +13529,7 @@ def _dup_judge(db: Session, em: str, items: list, actor: str, *, replace_hint: s
                      .get(ds, {}).get("workedMin") or 0)
         classes = {_leave_class(s[0][2]) for s in shifts} or {""}
         row.update(action=("clear" if it.get("off") else "replace") if replaced else "add", replaces=len(replaced),
-                   minutes=sum(_shift_minutes(s) for s in shifts), workedMin=worked)
+                   minutes=sum(_record_shift_minutes(s) for s in shifts), workedMin=worked)
         if writes:
             row.update(inAt=writes[0][1], outAt=writes[-1][1])
         if ds in india:
@@ -13775,6 +13791,11 @@ def duplicate_day(body: DuplicateDayIn, user: dict = Depends(require_team_write)
         body=f"{_display_name(db, user['email'])} (HR) added time from a record for {rng} to "
              f"{_display_name(db, em)}'s time sheet ({hrs}): {reason[:200]}",
         ref_id=batch_id)
+    # Workflows (Oct 28 2026): one event per batch, the person as subject.
+    from workflows.packs._people import employee_row as _wf_person
+    workflows.emit(db, "time.add_time_batch", subject=_wf_person(db, em), actor=user["email"],
+                   extra={"batchId": batch_id, "source": "record", "dates": days, "minutes": total,
+                          "replaced": out["replaced"], "reason": reason[:300]})
     db.commit()
     return {"batchId": batch_id, **out}
 

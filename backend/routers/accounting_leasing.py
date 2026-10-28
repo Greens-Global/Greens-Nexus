@@ -67,6 +67,7 @@ from database import SessionLocal
 from routers import accounting, acct_scan, leasing
 from routers.accounting import _csv, _limit, entity_scope
 from routers.accounting_loans import ScanJob, _entities, _sem, forget_jobs, leaf_entities, month_bounds, scan_job, scan_result, shift_month
+import job_switch
 
 _HISTORICAL = re.compile(r"\(\s*H\s*\)", re.I)
 _CHUNK = 20        # entity codes per by=entity read (Oct 7: 100 a read timed out on most batches)
@@ -618,7 +619,8 @@ async def leasing_sync_loop():
     scope = {"user": {"email": SYNC_EMAIL, "name": "Ledger Sync"}, "allowed": None}
     while True:
         try:
-            if accounting._ACCT_BASE and accounting._ACCT_KEY:
+            if accounting._ACCT_BASE and accounting._ACCT_KEY \
+                    and not await asyncio.to_thread(job_switch.off, "leasing_sync"):   # Workflows > Automations switch
                 out = await ledger_sync(scope, {"email": SYNC_EMAIL})
                 if out["linked"] or out["created"]:
                     print(f"[leasing-sync] linked {len(out['linked'])}, added {len(out['created'])}")

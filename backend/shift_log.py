@@ -123,6 +123,18 @@ def record(db, action: str, row_or_dict, actor: str, before: dict = None, after:
         before_json=json.dumps(before) if before else "", after_json=json.dumps(after) if after else "",
         reason=(reason or "").strip()[:300], publish_id=publish_id or "")
     db.add(entry)
+    # Workflows (Oct 28 2026): shared / changed / removed / claimed are
+    # events (workflows/packs/shifts.py maps the action); never raises.
+    import workflows
+    try:
+        from workflows.packs.shifts import log_event_key
+        key = log_event_key(action)
+    except Exception:   # noqa: BLE001 - a pack that fails to load is the catalog's problem, never the log's
+        key = ""
+    if key:
+        workflows.emit(db, key, subject=sid if isinstance(row_or_dict, dict) else row_or_dict, actor=entry.actor,
+                       extra={"action": entry.action, "reason": entry.reason, "before": before or {},
+                              "after": after or {}, "publishId": entry.publish_id})
     return entry
 
 

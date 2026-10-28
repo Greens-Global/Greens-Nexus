@@ -51,6 +51,7 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import NexusEmployee, NexusNotification, NexusRole, TimePunch, TimesheetReview
 from notify_rollup import resolve_rollup, upsert_rollup
+import job_switch
 
 CHECK_EVERY_SEC = 30 * 60
 DEFAULT_ESCALATE_DAYS = 2
@@ -150,13 +151,14 @@ def _collect(db: Session, now_utc: datetime) -> dict:
     from routers.timeclock import _finalized_row, time_tracking_exempt_emails
     want: dict = {}
 
-    def add(kind, recipient, start, end, pay_type, name, line=None, days=0):
+    def add(kind, recipient, start, end, pay_type, name, line=None, days=0, email=""):
         key = _ref(kind, recipient, start, end)
         slot = want.setdefault(key, {"recipient": recipient, "kind": kind, "start": start, "end": end,
-                                     "payType": pay_type, "names": [], "lines": [], "days": days})
+                                     "payType": pay_type, "names": [], "lines": [], "days": days, "emails": []})
         slot["days"] = min(slot["days"] or days, days or slot["days"])
         slot["names"].append(name)
         slot["lines"].append(line or name)
+        slot["emails"].append(email)
 
     exempt = time_tracking_exempt_emails(db)
     admins = _global_admins(db)
@@ -188,7 +190,7 @@ def _collect(db: Session, now_utc: datetime) -> dict:
                 approvers = [lead] if lead else [a for a in admins if a != em]
             name = tr.display_name(db, em)
             for a in approvers:
-                add(CLOSE, a, start, end, pay_type, name)
+                add(CLOSE, a, start, end, pay_type, name, email=em)
             days = _escalate_days(db, emp.company or "", esc_cache)
             if days and len(approvers) == 1 and _days_after(today, end) > days:
                 up = _skip_level(db, approvers[0], em)
@@ -250,6 +252,23 @@ _CLOSED_WORDS = {
 }
 
 
+def _emit_period_closed(db: Session, slot: dict, old, told: set) -> None:
+    """One `period.closed` outbox row per person and period, when their name
+    first joins an approver's Time Sheets to Approve notice (the names a
+    notice already carries were told before). `told` dedupes a person whose
+    period waits on several approvers within one scan."""
+    import workflows
+    from workflows.packs._people import employee_row
+    body = (old.body or "") if old is not None else ""
+    for name, em in zip(slot["names"], slot.get("emails") or []):
+        if not em or (em, slot["start"], slot["end"]) in told or (old is not None and name in body):
+            continue
+        told.add((em, slot["start"], slot["end"]))
+        workflows.emit(db, "period.closed", subject=employee_row(db, em),
+                       extra={"start": slot["start"], "end": slot["end"], "payType": slot["payType"],
+                              "approver": slot["recipient"]})
+
+
 def scan(db: Session, now_utc: datetime | None = None) -> dict:
     """One pass: write / refresh / resolve the notices. Commits. Returns
     counts {opened, updated, resolved}."""
@@ -257,6 +276,7 @@ def scan(db: Session, now_utc: datetime | None = None) -> dict:
     now_utc = now_utc or datetime.now(timezone.utc)
     want = _collect(db, now_utc)
     stats = {"opened": 0, "updated": 0, "resolved": 0}
+    closed_told: set = set()
     for key, slot in want.items():
         title, body = _words(slot)
         old = (db.query(NexusNotification)
@@ -267,6 +287,10 @@ def scan(db: Session, now_utc: datetime | None = None) -> dict:
             continue
         # Back to the top, unread, only when someone new joined the list.
         fresh = old is None or any(n not in (old.body or "") for n in slot["names"])
+        if slot["kind"] == CLOSE:
+            # Workflows (Oct 28 2026): `period.closed` once per person and
+            # period - the first time an approver is told about it.
+            _emit_period_closed(db, slot, old, closed_told)
         if upsert_rollup(db, recipient=slot["recipient"], key=key, title=title, line=body,
                          action=_action(slot), company=notification_company(db, slot["recipient"]),
                          replace=True, quiet=not fresh, priority=1, open_only=True):
@@ -319,6 +343,9 @@ def _tick() -> dict:
     except Exception as e:   # noqa: BLE001 - the notices below still run
         db.rollback()
         print(f"[period-close] Extra Time reminder failed: {e}")
+    if job_switch.off("period_close"):   # Workflows > Automations switch: the notices only
+        db.close()
+        return {}
     try:
         return scan(db)
     except Exception as e:   # noqa: BLE001 - a bad row must not kill the loop
