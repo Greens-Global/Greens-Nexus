@@ -174,13 +174,13 @@ describe('EntitiesPicker', () => {
 // pick cut with "..." over them and in full in the tooltip.
 describe('bar pickers keep their width whatever is picked', () => {
   const LONG = [...ENTITIES, { code: '10000', name: 'Rajesh & Darshana Kadakia', parent_code: null }];
-  it('the Entities picker sizes from "All entities" and shows the long pick in full on hover', () => {
+  it('the Entities picker sizes from "All Entities" and shows the long pick in full on hover', () => {
     const { rerender } = render(<EntitiesPicker entities={LONG} value={[]} onChange={() => {}} />);
     const words = () => screen.getByRole('button', { name: 'Entities' }).querySelector('.acct-pick');
-    expect(words().dataset.base).toBe('All entities');
+    expect(words().dataset.base).toBe('All Entities');
     expect(words().classList.contains('acct-bar-label-2')).toBe(true);
     rerender(<EntitiesPicker entities={LONG} value={['10000']} onChange={() => {}} />);
-    expect(words().dataset.base).toBe('All entities');
+    expect(words().dataset.base).toBe('All Entities');
     expect(words().textContent).toBe('Rajesh & Darshana Kadakia (10000)');
     expect(screen.getByRole('button', { name: 'Entities' }).title).toBe('Rajesh & Darshana Kadakia (10000)');
     // On a row that folds the default words, a pick folds with them: the

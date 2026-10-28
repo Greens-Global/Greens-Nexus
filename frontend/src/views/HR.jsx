@@ -5523,7 +5523,7 @@ export function CompensationModal({ employee, onClose, toastOk, toastErr }) {
                 <button onClick={() => removeBenefit(i)} style={{ marginTop: 8, background: 'none', border: 'none', color: 'hsl(var(--color-red))', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Remove</button>
               </div>
             ))}
-            <button className="secondary-btn" onClick={addBenefit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 4 }}><Plus size={13} /> Add benefit / deduction</button>
+            <button className="secondary-btn" onClick={addBenefit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 4 }}><Plus size={13} /> Add Benefit / Deduction</button>
 
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '20px 0 10px', display: 'flex', alignItems: 'center', gap: 6 }}><Landmark size={13} /> BANK ACCOUNTS</div>
             {bank.map((acc, i) => (

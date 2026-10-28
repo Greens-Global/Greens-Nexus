@@ -205,6 +205,28 @@ describe('CompensationReport', () => {
       party: { kind: 'employee', code: 'E-0084', name: 'Valinda Cranfill' }, back: { label: 'Back to Compensation', sub: 'compensation' } }));
   });
 
+  it('the Memo column of the ledger lines drags wider, and the width is kept for the next figure (UI test 10/28)', async () => {
+    render(<CompensationReport />);
+    await screen.findByText('Valinda Cranfill');
+    fireEvent.click(screen.getByRole('button', { name: 'Bonus for Valinda Cranfill: 850.00 - open the ledger lines' }));
+    const table = await within(panel()).findByRole('table', { name: /Ledger lines/ });
+    const memo = () => within(panel()).getByRole('table', { name: /Ledger lines/ }).querySelectorAll('thead th')[4];
+    expect(memo().style.width).toBe('150px');
+    const before = parseFloat(table.style.width);
+    // jsdom measures every cell 0 wide, so the drag's 240 px is the new width
+    // (pointer events as MouseEvents: jsdom's PointerEvent drops clientX).
+    const at = (type, x) => new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x });
+    fireEvent(within(table).getByRole('separator', { name: 'Resize the Memo column' }), at('pointerdown', 100));
+    fireEvent(window, at('pointermove', 340));
+    fireEvent(window, at('pointerup', 340));
+    await waitFor(() => expect(memo().style.width).toBe('240px'));
+    expect(parseFloat(table.style.width)).toBe(before + 90);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'Bonus for Valinda Cranfill: 850.00 - open the ledger lines' }));
+    await within(panel()).findByRole('table', { name: /Ledger lines/ });
+    expect(memo().style.width).toBe('240px');
+  });
+
   it('from the person\'s report, a figure opens its lines with a way back; the health split asks for one side only', async () => {
     render(<CompensationReport />);
     fireEvent.click(await screen.findByTitle("Open Valinda Cranfill's compensation report"));

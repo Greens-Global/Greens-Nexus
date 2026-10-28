@@ -253,13 +253,13 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, sho
   const [open, setOpen, ref] = usePopover();
   const options = useMemo(() => entityOptions(entities, { showHistorical, keep: value }), [entities, showHistorical, value]);
   const one = value.length === 1 ? entities.find((e) => e.code === value[0]) : null;
-  const all = limited ? 'All my entities' : 'All entities';
+  const all = limited ? 'All My Entities' : 'All Entities';
   const label = !value.length ? all : value.length === 1 ? `${one?.name || 'Unnamed'} (${value[0]})` : `${value.length} entities`;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label="Entities" title={label}>
         <Building2 size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        {/* As wide as "All entities" whatever is picked (10/27 call, item 09). */}
+        {/* As wide as "All Entities" whatever is picked (10/27 call, item 09). */}
         <PickText text={label} base={all} />
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
@@ -1325,7 +1325,7 @@ export const widest = (labels) => (labels || []).reduce((a, b) => (String(b || '
 /**
  * A picker's words in the control bar (call of 10/27 with Charmi, item 09:
  * "Any time we give a filter, the tab changes. It should not be changing").
- * As wide as `base` - what the picker reads at its default ("All entities",
+ * As wide as `base` - what the picker reads at its default ("All Entities",
  * "Built-in Default") - whatever is picked: a longer pick is cut with "..."
  * and the button's tooltip has it in full. So picking a long entity, a
  * category or a saved view never widens the picker, and the bar never folds

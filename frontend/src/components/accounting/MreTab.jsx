@@ -489,7 +489,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
       })
       .catch(() => load());
   };
-  const entityLabel = !picked.length ? (limited ? 'All my entities' : 'All entities')
+  const entityLabel = !picked.length ? (limited ? 'All My Entities' : 'All Entities')
     : picked.length === 1 ? `${entities.find((e) => e.code === picked[0])?.name || picked[0]} (${picked[0]})` : `${picked.length} entities`;
   // Exactly what the view leaves: its rows, order and columns (item 01).
   const table = () => {
@@ -863,7 +863,7 @@ function NotesCell({ line, canEdit, onSave }) {
     return (
       <button type="button" onClick={() => { setText(line.notes || ''); setEditing(true); setError(''); }} aria-label={`Notes for ${line.vendorName}`}
         style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: '0.78rem', textAlign: 'left', cursor: 'text', color: line.notes ? 'var(--text-secondary)' : 'var(--text-muted)', width: '100%' }}>
-        {line.notes || 'Add a note'}
+        {line.notes || 'Add a Note'}
       </button>
     );
   }
@@ -1202,7 +1202,7 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
 // be taken out from MRE"; Urmi: slow, and the count "keeps reducing back").
 // Kept for the API and tests; its progress now never goes backward
 // (steadyProgress) should it be reached again.
-export function MreFromLedger({ entities = [], entityLabel = 'All entities', onClose, onCreated, pollMs = POLL_MS }) {
+export function MreFromLedger({ entities = [], entityLabel = 'All Entities', onClose, onCreated, pollMs = POLL_MS }) {
   const [min, setMin] = useState(3);
   // The furthest progress seen per request; cleared by any final answer or error.
   const seen = useRef({});
