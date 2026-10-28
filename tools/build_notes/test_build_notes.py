@@ -609,7 +609,7 @@ class BuildNotesToolsTest(unittest.TestCase):
                 self.assertEqual(watch.run_claude(["a"], "", self.tmp.name), 0)
         finally:
             watch.shutil.which, watch.subprocess.run = real_which, real_run
-        self.assertEqual(seen, [[found, "/build-notes a"]])
+        self.assertEqual(seen, [[found, "--permission-mode", "acceptEdits", "/build-notes a"]])
 
     def test_watch_uses_the_cli_labels(self):
         self.assertFalse(hasattr(watch, "PRIORITY_LABELS"))
@@ -619,6 +619,8 @@ class BuildNotesToolsTest(unittest.TestCase):
     def test_claude_command_shape(self):
         cmd = watch.claude_command(["a", "b"], '--model opus --permission-mode "accept edits"')
         self.assertEqual(cmd, ["claude", "--model", "opus", "--permission-mode", "accept edits", "/build-notes a b"])
+        # No mode given: file edits are accepted, so a pin run does not stop per file.
+        self.assertEqual(watch.claude_command(["a"]), ["claude", "--permission-mode", "acceptEdits", "/build-notes a"])
         self.assertTrue((common.repo_root() / "CLAUDE.md").exists())
 
     # -- claim ------------------------------------------------------------------------
