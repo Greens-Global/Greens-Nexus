@@ -128,7 +128,7 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
           <div data-hours-prefs title="Their preferred and most hours a week (My Availability). A guide, never a block." style={{ fontSize: 10.5, color: 'var(--muted)', ...ELLIPSIS }}>{prefsText}</div>
         )}
         {usual && (
-          <div title="Their usual hours (shift type). Fill From Usual Hours places them." style={{ fontSize: 11, color: 'var(--muted)', ...ELLIPSIS }}>
+          <div title="Their usual hours (shift type). Fill Automatically places them." style={{ fontSize: 11, color: 'var(--muted)', ...ELLIPSIS }}>
             Usual {shiftShortText(usual)}
           </div>
         )}

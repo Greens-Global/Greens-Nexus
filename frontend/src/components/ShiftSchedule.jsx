@@ -8,6 +8,8 @@ import { formatDate, formatWeekday, formatMonthYear, formatHHMM } from '../lib/d
 import { zoneOptionLabel } from '../lib/worldClockZones';
 import { exportExcel } from '../tasks/exporting';
 import { dialog } from '../ui/dialog';
+import { setLeaveGuard } from '../lib/dialogGuard';
+import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { ErrorBanner, SkeletonBlocks } from './AsyncState';
 import { ShiftTypeWeek, ImportModal, ShiftMenu, PersonMenu, ShiftDetails } from './ShiftScheduleExtras';
 import { printSchedule, DEFAULT_VIEW_PREFS } from './shiftScheduleLib';
@@ -111,6 +113,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   const [teamPick, setTeamPick] = useState(() => readTeam(teamKey));
   useEffect(() => { setTeamPick(readTeam(teamKey)); }, [teamKey]);
   const [frozenDefault, setFrozenDefault] = useState(null);
+  const leaveAskRef = useRef(null);   // { team } - the team switch's Save / Keep Editing / Discard ask, set below
   const rootRef = useRef(null);
   const scrollMem = useRef({});
   const glowRef = useRef(true);                    // today's column glows once, on the first load
@@ -266,6 +269,13 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   const mode = team === ALL_TEAMS || !team ? 'all' : team === NO_TEAM ? 'none' : 'group';
   const groupFilter = mode === 'group' ? team : '';
   const pickTeam = (id) => {
+    if (id !== team && leaveAskRef.current?.team) {
+      leaveAskRef.current.team().then((ok) => { if (ok) switchTeam(id); });
+      return;
+    }
+    switchTeam(id);
+  };
+  const switchTeam = (id) => {
     const grid = rootRef.current?.querySelector('.week-grid');
     scrollMem.current[team] = { top: grid?.scrollTop || 0, left: grid?.scrollLeft || 0 };
     setTeamPick(id);
@@ -465,7 +475,6 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   const readOnlyMsg = 'You can view this group, but only its own manager can change its schedule.';
   const localUnshared = (data?.scheduled || []).filter(isUnshared).length;
   const unsharedCount = Number.isFinite(Number(data?.unsharedCount)) && data?.unsharedCount != null ? Number(data.unsharedCount) : localUnshared;
-  const discardCount = (data?.scheduled || []).filter((s) => s.hasChanges || s.pendingDelete).length;
 
   // ── API actions ────────────────────────────────────────────────────────
   // Undo (10/02): after a delete, move, paste, place or fill, a bar with
@@ -547,7 +556,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     { ok: `${p.code || p.name} placed as a draft.`, fail: 'Could not place the shift.', undo: (r) => (r?.id ? () => api.timeSchedDelete(r.id) : null) });
   // Fill usual hours for some people across the visible dates (one bulk call
   // per shift type); Undo removes exactly the drafts it made.
-  async function fillUsual(emails, who) {
+  async function fillUsual(emails, who, opts = {}) {
+    const from = opts.start_date || start, to = opts.end_date || end;
     const byPreset = {};
     emails.forEach((e) => { const p = usualOf(e); if (p) (byPreset[p.id] ||= { p, emails: [] }).emails.push(e); });
     const batches = Object.values(byPreset);
@@ -557,7 +567,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     try {
       let made = 0;
       for (const b of batches) {
-        const r = await api.timeSchedBulk({ shift_id: b.p.id, emails: b.emails, start_date: start, end_date: end, weekdays: presetWeekdays(b.p), skip_timeoff: true, overwrite: false });
+        const r = await api.timeSchedBulk({ shift_id: b.p.id, emails: b.emails, start_date: from, end_date: to, weekdays: presetWeekdays(b.p),
+          skip_timeoff: opts.skip_timeoff ?? true, overwrite: !!opts.overwrite });
         made += Number(r?.created) || 0;
       }
       const next = await api.timeSchedule(start, end);
@@ -565,7 +576,9 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       const set = new Set(emails);
       const ids = (next?.scheduled || []).filter((x) => !before.has(x.id) && set.has(x.email) && x.published === false).map((x) => x.id);
       const msg = made ? `Placed ${made} shift${made === 1 ? '' : 's'} from usual hours for ${who}.` : `Nothing to fill - every usual day for ${who} already has a shift or time off.`;
-      offerUndo(msg, ids.length ? async () => { for (const id of ids) await api.timeSchedDelete(id); } : null);
+      // A fill that replaced shifts cannot be put back by deleting what it made.
+      offerUndo(msg, ids.length && !opts.overwrite ? async () => { for (const id of ids) await api.timeSchedDelete(id); } : null);
+      opts.after?.();
     } catch (e) { toastErr?.(e?.message || 'Could not fill the usual hours.'); }
     finally { setBusy(false); }
   }
@@ -602,11 +615,19 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   const bulkAssign = (payload) => run(() => api.timeSchedBulk(payload), {
     ok: (r) => { const bits = [`Placed ${r.created} shift${r.created !== 1 ? 's' : ''} across ${r.people} ${r.people === 1 ? 'person' : 'people'}`]; if (r.replaced) bits.push(`replaced ${r.replaced}`); if (r.skipped) bits.push(`kept ${r.skipped} existing`); if (r.timeoffSkipped) bits.push(`skipped ${r.timeoffSkipped} on time off`); return `${bits.join(' · ')}.`; },
     fail: 'Could not fill the schedule.', after: () => setOpen('') });
+  // Fill Automatically: each person's usual hours, or one shift type for all.
+  const fillAuto = (payload) => (payload.usual
+    ? fillUsual(payload.emails, groupFilter ? (groups.find((g) => g.id === groupFilter)?.name || 'the team') : 'everyone in view', { ...payload, after: () => setOpen('') })
+    : bulkAssign(payload));
+  // Discard (Neil, Oct 28 2026): everything not shared yet goes - new drafts
+  // deleted, edited and removed shifts back to what the team sees. A group id
+  // narrows it to one team; no dates = every week.
+  const discardEverything = (groupId = '') => run(() => api.timeSchedDiscardAll({ include_drafts: true, ...(groupId ? { group_id: groupId } : {}) }),
+    { ok: (r) => (r.discarded ? `Discarded ${r.discarded} unsaved change${r.discarded === 1 ? '' : 's'}.` : 'There was nothing to discard.'), fail: 'Could not discard the changes.' });
   async function discardAll() {
-    const ok = await dialog.confirm(`Discard ${discardCount} unshared change${discardCount === 1 ? '' : 's'} in this ${view === 'month' ? 'month' : view === 'day' ? 'day' : 'week'}? Edited and removed shifts go back to what the team sees now. New drafts stay.`,
-      { title: 'Discard Changes', confirmText: 'Discard' });
-    if (!ok) return;
-    run(() => api.timeSchedDiscardAll({ start_date: start, end_date: end }), { ok: (r) => `Discarded ${r.discarded} unshared change${r.discarded === 1 ? '' : 's'}.`, fail: 'Could not discard the changes.' });
+    const ok = await dialog.confirm(`Discard ${unsharedCount} unsaved change${unsharedCount === 1 ? '' : 's'}? New shifts you placed are removed, and edited or removed shifts go back to what the team sees now. This covers every week, not just the one on screen.`,
+      { title: 'Discard Changes', confirmText: 'Discard', danger: true });
+    if (ok) discardEverything();
   }
   async function teamAction(g, action) {
     const group = groups.find((x) => x.id === g.id) || g;
@@ -913,6 +934,29 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   // Keyboard: Left / Right move a week (outside the grid and any field), T
   // is today, 1-9 pick a team while the schedule has focus.
   const [keysOpen, setKeysOpen] = useState(false);
+  // Leaving with unsaved changes (Neil, Oct 28 2026: "don't be able to move
+  // without getting the option to save or keep editing or discard"): leaving
+  // the Schedule (another tab, module or the browser) asks about everything
+  // unshared; switching team asks about the team on screen. Paging between
+  // weeks never asks - the changes stay as drafts and Save & Share counts them.
+  const [leaveAsk, setLeaveAsk] = useState(null);   // { count, groupId, resolve }
+  const [shareGroup, setShareGroup] = useState('');
+  const teamUnshared = managing ? shown.filter(isUnshared).length : 0;
+  const ask = (count, groupId) => new Promise((resolve) => setLeaveAsk({ count, groupId, resolve }));
+  leaveAskRef.current = { team: teamUnshared > 0 && mode === 'group' ? () => ask(teamUnshared, groupFilter) : null };
+  const leaveCount = managing ? unsharedCount : 0;
+  useEffect(() => {
+    if (!leaveCount) { setLeaveGuard(null); return undefined; }
+    setLeaveGuard(() => ask(leaveCount, ''));
+    return () => setLeaveGuard(null);
+  }, [leaveCount]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const answerLeave = async (choice) => {
+    const q = leaveAsk; setLeaveAsk(null);
+    if (!q) return;
+    if (choice === 'discard') { const r = await discardEverything(q.groupId); q.resolve(!!r); return; }
+    if (choice === 'save') { setShareGroup(q.groupId || groupFilter || ''); setOpen('share'); }
+    q.resolve(false);
+  };
   const navRef = useRef(null);
   useEffect(() => { navRef.current = { shiftRange, goToday, pickTeam, liveGroups, blocked: !!panel || !!open || !!menu || !!personMenu || keysOpen || !!weatherCall }; });
   useEffect(() => {
@@ -955,7 +999,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       {managing && (
         <span style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
           <button type="button" className="primary-btn" disabled={busy} onClick={() => fillUsual(soleSection.members.filter((m) => rowEditable(m.email)).map((m) => m.email), teamName)}
-            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><CalendarDays size={13} /> Fill Usual Hours</button>
+            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><CalendarDays size={13} /> Fill Automatically</button>
           <button type="button" className="secondary-btn" disabled={busy} onClick={() => copyLastWeek(soleSection.isGroup ? soleSection : null)}
             style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><CopyIcon size={13} /> Copy Last Week</button>
         </span>
@@ -1033,6 +1077,12 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     el.classList.add('m-pulse');
     setTimeout(() => el.classList.remove('m-pulse'), 2600);
   };
+  // The team picker (Neil, Oct 28 2026): on its own line above the schedule
+  // in Day, Week and Month, so the grid always says which team it shows.
+  const teamPicker = groups.length > 0 ? (
+    <TeamPicker teams={teamNumbers.list} value={mode === 'all' ? ALL_TEAMS : team} onChange={pickTeam} all={teamNumbers.all} none={teamNumbers.none}
+      compact={phone} shortcuts={!phone} style={phone ? { flex: 1 } : undefined} />
+  ) : null;
   // The manager controls stay on the toolbar while loading or after a failed
   // load (disabled), so the row never jumps - the grid itself says what happened.
   const toolbarManage = data ? canManage : true;
@@ -1041,10 +1091,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     <div ref={rootRef} data-sched-root="" style={{ fontFamily: 'Inter,sans-serif' }}>
       <ScheduleToolbar view={view} onView={pickView} onPrev={() => shiftRange(-1)} onNext={() => shiftRange(1)} onToday={goToday}
         range={{ first: start, last: isoDate(days[days.length - 1] || allDays[allDays.length - 1]), weekStart }} onJump={jumpTo} showToday={showToday} slide={reduce ? 0 : slide}
-        teamSwitcher={groups.length > 0 ? (
-          <TeamPicker teams={teamNumbers.list} value={mode === 'all' ? ALL_TEAMS : team} onChange={pickTeam} all={teamNumbers.all} none={teamNumbers.none}
-            compact={phone} shortcuts={!phone} style={phone ? { flex: 1 } : undefined} />
-        ) : null}
+        teamSwitcher={phone ? teamPicker : null}
         canManage={toolbarManage} busy={busy} ready={ready}
         unsharedCount={managing ? unsharedCount : 0} phone={phone}
         confirmations={managing ? confirmations : null} onNudge={nudge}
@@ -1055,10 +1102,9 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
           if (kind === 'open') setPanel({ cell: { email: '', date, groupId: groupFilter || groups[0]?.id || '' }, mode: 'shift' });
           else setPanel({ cell: { email: firstPerson, date }, mode: kind === 'timeoff' ? 'timeoff' : 'shift' });
         }}
-        onShare={() => setOpen('share')}
-        actions={{ canTimeOff, hideEmpty: !!prefs.hideEmpty, toggleHideEmpty: () => setPrefs({ ...prefs, hideEmpty: !prefs.hideEmpty }), copy: () => setOpen('copy'), fill: () => setOpen('fill'), clear: () => setOpen('clear'), importFile: () => setOpen('import'),
-          exportFile: exportSchedule, print: printView, viewOptions: () => setOpen('view'), discard: discardAll, discardCount, shortcuts: () => setKeysOpen(true),
-          coverage: showCoverage, toggleCoverage: () => setPrefs({ ...prefs, coverage: !showCoverage }),
+        onShare={() => { setShareGroup(groupFilter || ''); setOpen('share'); }}
+        actions={{ canTimeOff, copy: () => setOpen('copy'), fill: () => setOpen('fill'), clear: () => setOpen('clear'), importFile: () => setOpen('import'),
+          exportFile: exportSchedule, print: printView, viewOptions: () => setOpen('view'), discard: discardAll, shortcuts: () => setKeysOpen(true),
           requests: () => (onOpenRequests ? onOpenRequests() : window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'requests' } }))) }} />
 
       {managing && weatherSetup.length > 0 && !weatherSetupHidden && (
@@ -1092,6 +1138,12 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
         </div>
       )}
 
+      {!phone && teamPicker && (
+        <div data-team-bar="" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          {teamPicker}
+          {mode === 'all' && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Every team, one under the other</span>}
+        </div>
+      )}
       {error ? (
         <ErrorBanner message={`The schedule could not be loaded - ${error}`} onRetry={load} />
       ) : data === null ? (
@@ -1150,7 +1202,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
           onSaveTimeOff={saveTimeOff} onClose={() => setPanel(null)} />
       )}
       {open === 'share' && (
-        <ShareDialog defaultStart={start} defaultEnd={end} lastPublishedAt={data?.lastPublishedAt || ''} localCount={localUnshared} groups={groups.filter((g) => !g.archived)}
+        <ShareDialog defaultStart={start} defaultEnd={end} defaultGroupId={shareGroup} lastPublishedAt={data?.lastPublishedAt || ''} localCount={localUnshared} groups={groups.filter((g) => !g.archived)}
           totalCount={unsharedCount} thisWeek={{ start: isoDate(weekStartOf(new Date(), weekStart)) }}
           busy={busy} onPublish={publish} onJump={jumpToShift} onClose={() => setOpen('')} memo={shareMemo} onMemo={setShareMemo} />
       )}
@@ -1174,6 +1226,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
         <ViewOptionsDialog prefs={prefs} onPrefs={setPrefs} query={query} onQuery={setQuery} groupBy={groupBy} onGroupBy={setGroupBy}
           presetFilter={presetFilter} onPresetFilter={setPresetFilter} presets={presets} canViewByShift={view === 'week'}
           twoWeeks={view === 'twoweeks' || !!prefs.twoWeeks}
+          coverage={showCoverage} onCoverage={groupBy === 'group' ? (on) => setPrefs({ ...prefs, coverage: on }) : null}
           onTwoWeeks={(on) => { setPrefs({ ...prefs, twoWeeks: on }); if (view === 'week' || view === 'twoweeks') setView(on ? 'twoweeks' : 'week'); }}
           onClose={() => setOpen('')} />
       )}
@@ -1181,8 +1234,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       {open === 'copy' && <CopyModal groups={groups.filter((g) => !g.archived)} defaultStart={start} defaultEnd={end} busy={busy} onApply={copySchedule} onClose={() => setOpen('')} />}
       {open === 'clear' && <ClearModal groups={groups.filter((g) => !g.archived)} defaultStart={start} defaultEnd={end} busy={busy} onApply={clearSchedule} onClose={() => setOpen('')} />}
       {open === 'fill' && (
-        <BulkModal groups={groups.filter((g) => !g.archived)} shifts={presets} allEmails={(data?.employees || []).map((e) => e.email)}
-          defaultStart={start} defaultEnd={end} busy={busy} onApply={bulkAssign} onClose={() => setOpen('')} />
+        <BulkModal groups={groups.filter((g) => !g.archived)} shifts={presets} allEmails={[...visibleEmails]} defaultGroupId={groupFilter}
+          usualOf={usualOf} nameOf={(e) => names[e] || nameOf(e)} defaultStart={start} defaultEnd={end} busy={busy} onApply={fillAuto} onClose={() => setOpen('')} />
       )}
       {open === 'reorder' && <ReorderTeamsModal groups={groups} busy={busy} onClose={() => setOpen('')} onSave={saveOrder} />}
       {addTo && (
@@ -1190,6 +1243,11 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
           onAdd={async (emails) => { const r = await run(() => api.timeShiftGroupMembers(addTo.id, { add: emails }), { ok: `Added ${emails.length} ${emails.length === 1 ? 'person' : 'people'} to ${addTo.name}.`, fail: 'Could not add them.' }); if (r) setAddTo(null); }} />
       )}
 
+      {leaveAsk && (
+        <UnsavedChangesPrompt title="Save Your Changes?" saveText="Save & Share" saving={busy}
+          message={`${leaveAsk.count} change${leaveAsk.count === 1 ? '' : 's'} ${leaveAsk.groupId ? 'on this team ' : ''}${leaveAsk.count === 1 ? 'has' : 'have'} not been shared with the team yet. Save & Share sends ${leaveAsk.count === 1 ? 'it' : 'them'}; Discard throws ${leaveAsk.count === 1 ? 'it' : 'them'} away.`}
+          onKeepEditing={() => answerLeave('keep')} onDiscard={() => answerLeave('discard')} onSave={() => answerLeave('save')} />
+      )}
       {undo && (
         <div role="status" className="m-bar" style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 1450, display: 'flex', alignItems: 'center', gap: 14,
           background: 'var(--ink)', color: 'var(--card)', borderRadius: 12, padding: '10px 10px 10px 16px', fontSize: 13, fontWeight: 600, boxShadow: '0 12px 32px rgba(15,23,42,0.28)', maxWidth: 'min(560px, 92vw)' }}>

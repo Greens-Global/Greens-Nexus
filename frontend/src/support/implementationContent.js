@@ -419,7 +419,7 @@ export const IMPL_PHASES = [
         'Switch on each company to watch (off by default), check the rain thresholds and quiet hours, and click Check Now.',
       ]},
       { title: 'Build and publish the first schedule', where: 'Team > Schedule', view: 'shifts', sub: 'schedule', items: [
-        'Fill a week per group (... > Fill From Usual Hours), copy it forward (Copy Week), then Share - Review shows every change and rule warning first.',
+        'Fill a week or month per team (Fill Automatically), copy it forward (Copy Week), then Save & Share - Review shows every change and rule warning first.',
       ]},
       { title: 'Test day messages', where: 'Workday (as a test person)', view: 'myhr', items: [
         'Punch in as someone in each role: the beginning-of-day message posts to their role’s Teams chat or channel, ending with "Sent by Nexus".',

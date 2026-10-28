@@ -7,6 +7,7 @@ import { SkeletonBlocks } from '../components/AsyncState';
 import ShiftRequestsPage from '../components/ShiftRequestsPage';
 import ShiftSchedule from '../components/ShiftSchedule';
 import { useManagerInbox } from '../components/shifts/useManagerInbox';
+import { hasUnsavedWork, askToLeave } from '../lib/dialogGuard';
 
 // Team (Neil, Oct 13 2026; was Shifts, Sep 29): everything about the people
 // you work with. Contact (the Contact Directory, moved out of Support) and
@@ -89,6 +90,8 @@ export default function Shifts({ activeSub, onSubChange }) {
   const toastOk = useCallback((msg) => show(msg, 'ok'), [show]);
   const toastErr = useCallback((msg) => show(msg, 'error'), [show]);
   const openRequests = useCallback(() => onSubChange?.('requests'), [onSubChange]);
+  // Leaving the Schedule with unshared changes asks first (Neil, Oct 28 2026).
+  const goTab = (key) => (key !== tab && hasUnsavedWork() ? askToLeave().then((ok) => ok && onSubChange?.(key)) : onSubChange?.(key));
   // Where the Contact tab's Manage / Export buttons go: the right end of the tab row.
   const [toolSlot, setToolSlot] = useState(null);
 
@@ -112,7 +115,7 @@ export default function Shifts({ activeSub, onSubChange }) {
           const on = tab === key;
           const badge = key === 'requests' ? requests.pendingCount : key === 'headcount' ? headcount.waiting : 0;
           return (
-            <button key={key} type="button" role="tab" aria-selected={on} onClick={() => onSubChange?.(key)}
+            <button key={key} type="button" role="tab" aria-selected={on} onClick={() => goTab(key)}
               aria-label={badge ? `${label}, ${badge} waiting` : undefined}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 14px', border: 'none', background: 'none',
                 cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13.5, fontWeight: on ? 700 : 600,
