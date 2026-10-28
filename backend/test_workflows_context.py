@@ -148,7 +148,8 @@ def test_resolve_falls_back_to_the_payload_without_a_row(db):
     ctx.subject = None
     assert ctx.resolve("subject.name") == "Priya Shah"
     assert ctx.resolve("subject.start_date") == "2026-11-12"
-    assert ctx.resolve("subject.manager_email") is MISSING
+    assert ctx.resolve("subject.manager_email") is None      # a registered field the payload left out: blank
+    assert ctx.resolve("subject.nope") is MISSING            # not a field at all: missing
 
 
 def test_item_and_vars(db):

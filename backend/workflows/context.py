@@ -181,7 +181,8 @@ class RunContext:
             except Exception:   # noqa: BLE001
                 return None
         sub = (self.payload or {}).get("subject") or {}
-        return sub.get(f.key, MISSING) if isinstance(sub, dict) else MISSING
+        # a registered field the sample / payload left out is blank, not unknown
+        return sub.get(f.key) if isinstance(sub, dict) else None
 
     # ── paths ──
     def resolve(self, path: str) -> Any:
