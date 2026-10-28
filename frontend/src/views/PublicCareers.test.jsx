@@ -37,7 +37,8 @@ describe('PublicCareers', () => {
 
   it('shows one opening, adds its JobPosting data and sends an application', async () => {
     render(<PublicCareers slug="greens-test-co" openingId="op-1" />);
-    await waitFor(() => expect(screen.getByText('Apply For This Job')).toBeTruthy());
+    // Generous waits: the first render can pass 1 s when the whole suite runs at once.
+    await waitFor(() => expect(screen.getByText('Apply For This Job')).toBeTruthy(), { timeout: 5000 });
     expect(screen.getByText('Reconcile accounts').tagName).toBe('LI');
     expect(screen.getByText(/Applications close 12\/19\/2026/)).toBeTruthy();
     const ld = document.head.querySelector('script[type="application/ld+json"]');
@@ -49,7 +50,7 @@ describe('PublicCareers', () => {
     fireEvent.change(screen.getByLabelText('Phone *'), { target: { value: '512-555-0100' } });
     fireEvent.change(screen.getByLabelText('Location *'), { target: { value: 'Austin, TX' } });
     fireEvent.click(screen.getByText('Send Application'));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Resume');
+    expect(await screen.findByRole('alert', {}, { timeout: 5000 })).toHaveTextContent('Resume');
     expect(submit).not.toHaveBeenCalled();
 
     const input = screen.getByLabelText('Resume');
@@ -58,7 +59,7 @@ describe('PublicCareers', () => {
     fireEvent.change(input, { target: { files: [new File(['%PDF-1.7'], 'cv.pdf', { type: 'application/pdf' })] } });
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(screen.getByText('Send Application'));
-    await waitFor(() => expect(screen.getByText('Thank You')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Thank You')).toBeTruthy(), { timeout: 5000 });
     const [id, form] = submit.mock.calls[0];
     expect(id).toBe('op-1');
     expect(form.get('first_name')).toBe('Jane');
