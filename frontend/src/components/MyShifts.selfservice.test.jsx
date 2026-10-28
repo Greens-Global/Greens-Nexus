@@ -145,7 +145,7 @@ describe('MyShifts week and group grid', () => {
     expect(me.textContent).not.toMatch(/Hrs/);
     expect(bob.textContent).not.toMatch(/Hrs/);
     const block = me.querySelector('[data-shift="mine1"]');
-    expect(block.textContent).toBe('9:00a - 5:00pGSTFront Desk');       // one line, the code in color, the label under it
+    expect(block.textContent).toBe('9:00a - 5:00pFront Desk');       // the time, the label under it - no code (Oct 28 2026)
     expect(block.getAttribute('title')).toContain('Lunch 30m');          // the lunch is the hover title
     expect(block.textContent).not.toMatch(/PDT|PST/);                    // same zone as the team: no chip
     expect(block.getAttribute('style')).not.toMatch(/border-left|inset/);          // no colored edge stripe (Neil, Oct 14): the tint carries the color

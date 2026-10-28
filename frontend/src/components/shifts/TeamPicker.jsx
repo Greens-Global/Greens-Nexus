@@ -53,13 +53,11 @@ export default function TeamPicker({ teams = [], value, onChange, all = null, no
   // Every pickable row in order: the teams, then All Teams, People Without a
   // Team, then the archived teams.
   const options = useMemo(() => {
-    const rows = live.filter(match).map((t) => ({ ...t, kind: 'team', key: live.indexOf(t) < 9 ? String(live.indexOf(t) + 1) : '' }));
+    const rows = !needle && all ? [{ ...all, id: ALL_TEAMS, name: 'All Teams', kind: 'all' }] : [];
+    live.filter(match).forEach((t) => rows.push({ ...t, kind: 'team', key: live.indexOf(t) < 9 ? String(live.indexOf(t) + 1) : '' }));
     archived.filter(match).forEach((t, i) => rows.push({ ...t, kind: 'archived', head: i === 0 }));
-    // All Teams and People Without a Team sit in a footer that never scrolls away.
-    if (!needle) {
-      if (all) rows.push({ ...all, id: ALL_TEAMS, name: 'All Teams', kind: 'all' });
-      if (none && none.people > 0) rows.push({ ...none, id: NO_TEAM, name: 'People Without a Team', kind: 'none' });
-    }
+    // People Without a Team sits in a footer that never scrolls away.
+    if (!needle && none && none.people > 0) rows.push({ ...none, id: NO_TEAM, name: 'People Without a Team', kind: 'none' });
     return rows;
   }, [teams, all, none, needle]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -153,11 +151,11 @@ export default function TeamPicker({ teams = [], value, onChange, all = null, no
           <div ref={listRef} id={listId} role="listbox" aria-label="Teams" tabIndex={searchable ? -1 : 0} onKeyDown={keys}
             aria-activedescendant={options[active] ? `team-opt-${active}` : undefined}
             style={{ maxHeight: 'min(420px, 60vh)', overflowY: 'auto', padding: searchable ? '0 6px 6px' : 6 }}>
-            {options.map((o, i) => (o.kind === 'team' || o.kind === 'archived' ? row(o, i) : null))}
+            {options.map((o, i) => (o.kind === 'all' || o.kind === 'team' || o.kind === 'archived' ? row(o, i) : null))}
             {!options.length && <div style={{ padding: '10px 12px', fontSize: 12.5, color: 'var(--muted)' }}>No teams match.</div>}
-            {options.some((o) => o.kind === 'all' || o.kind === 'none') && (
+            {options.some((o) => o.kind === 'none') && (
               <div role="group" aria-label="Other views" style={{ position: 'sticky', bottom: searchable ? -6 : -6, margin: '6px -6px -6px', padding: 6, borderTop: '1px solid var(--line)', background: 'var(--card)' }}>
-                {options.map((o, i) => (o.kind === 'all' || o.kind === 'none' ? row(o, i) : null))}
+                {options.map((o, i) => (o.kind === 'none' ? row(o, i) : null))}
               </div>
             )}
           </div>

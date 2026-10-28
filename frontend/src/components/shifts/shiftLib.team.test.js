@@ -94,7 +94,11 @@ describe('coverageFor', () => {
     expect(sat).toMatchObject({ expected: 1, on: 1, short: 0, tone: 'met' });
   });
   it('is blank with nobody expected and nobody on; a partial day off still expects them', () => {
-    expect(coverageFor([{ email: 'x', name: 'X' }], ['2026-09-28'], { usualOf: () => null })[0].tone).toBe('none');
+    expect(coverageFor([{ email: 'x', name: 'X' }], ['2026-10-03'], { usualOf: () => null })[0].tone).toBe('none');   // a Saturday
+    // Neil, Oct 28 2026: four on the team, three on shift, only one with usual hours = 3 of 4, never 3 of 1.
+    const team = ['a', 'b', 'c', 'd'].map((e) => ({ email: e, name: e.toUpperCase() }));
+    const byCell = { 'a|2026-09-28': [{ id: 1 }], 'b|2026-09-28': [{ id: 2 }], 'c|2026-09-28': [{ id: 3 }] };
+    expect(coverageFor(team, ['2026-09-28'], { byCell, usualOf: (e) => (e === 'a' ? weekdays : null) })[0]).toMatchObject({ expected: 4, on: 3, short: 1 });
     const offOn = () => [{ status: 'approved', allDay: false, startTime: '14:00', endTime: '15:00' }];
     expect(coverageFor([people[0]], ['2026-09-28'], { offOn, usualOf: () => weekdays })[0]).toMatchObject({ expected: 1, short: 1 });
   });

@@ -9,6 +9,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { ErrorBanner, SkeletonBlocks } from './AsyncState';
 import { shiftPhase } from './shiftScheduleLib';
 import TeamShiftGrid from './TeamShiftGrid';
+import { ALL_TEAMS } from './shifts/TeamPicker';
 import ShiftRequestDialog, { PENDING } from './shifts/ShiftRequestDialog';
 import { ShiftBlock, TimeOffBlock } from './shifts/ShiftBlock';
 import DateBlock from './shifts/DateBlock';
@@ -239,7 +240,13 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   }, [data, days, clockOf, actualOf]);
 
   const teams = data?.teams || [];
-  const team = teams.find((t) => t.id === teamId) || teams[0] || null;
+  // All Teams: everyone on any of your teams, once each, one under the other.
+  const allTeam = useMemo(() => {
+    if (teams.length < 2) return null;
+    const seen = new Set();
+    return { id: ALL_TEAMS, name: 'All Teams', members: teams.flatMap((t) => t.members || []).filter((m) => !seen.has(m.email) && seen.add(m.email)) };
+  }, [teams]);
+  const team = (teamId === ALL_TEAMS && allTeam) || teams.find((t) => t.id === teamId) || teams[0] || null;
   const teamRows = useMemo(() => {
     if (!team) return [];
     return team.members.map((m) => ({
@@ -421,7 +428,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
       )}
 
       {mine ? null : data && team ? (
-        <TeamShiftGrid teams={teams} team={team} onPickTeam={setTeamId} days={days} rows={teamRows} onNow={onNow}
+        <TeamShiftGrid teams={teams} team={team} allTeam={allTeam} onPickTeam={setTeamId} days={days} rows={teamRows} onNow={onNow}
           openShifts={openList} onRequestOpen={requestOpen} busyOpenId={busyOpen} thisWeek={thisWeek} live={thisWeek ? liveMap : null}
           timeZoneLabel={teamZoneLabel} teamZone={teamZone} />
       ) : data && teamZoneLabel ? (
