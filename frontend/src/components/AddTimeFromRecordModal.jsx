@@ -31,7 +31,8 @@ const SOURCES = ['Fill In A Day', 'Copy A Day'];
 const MODES = { 'All Working Days': 'working', 'All Days': 'all', 'Pick Days': 'days' };
 const TPL_TYPES = ['Work', 'Sick Day', 'Vacation', 'Personal'];
 const MAX_DAYS = 62;
-const DOC_TYPES = 'image/*,application/pdf';
+const DOC_TYPES = 'image/png,image/jpeg,image/gif,image/webp,image/heic,application/pdf';
+const savedDays = (r) => (r?.days || []).filter((d) => ['add', 'replace', 'clear'].includes(d.action)).length;
 const daysBetween = (a, b) => Math.round((new Date(`${b}T12:00:00`) - new Date(`${a}T12:00:00`)) / 86400000);
 
 export default function AddTimeFromRecordModal({ email, name = '', start, end, onClose, onDone, toastOk, toastErr }) {
@@ -188,7 +189,7 @@ export default function AddTimeFromRecordModal({ email, name = '', start, end, o
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <span style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,162,91,0.12)', color: 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Check size={18} /></span>
               <div style={{ fontSize: 15, fontWeight: 800 }}>
-                {done.batchId ? `Saved ${done.added} day${done.added === 1 ? '' : 's'} - ${hm(done.totalMin)} in all${done.cleared ? `, ${done.cleared} cleared` : ''}.` : 'Nothing was saved.'}
+                {done.batchId ? `Saved ${savedDays(done)} day${savedDays(done) === 1 ? '' : 's'} - ${hm(done.totalMin)} added${done.cleared ? `, ${done.cleared} cleared to Off` : ''}.` : 'Nothing was saved.'}
               </div>
             </div>
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>{resultRows(done.days || [])}</div>

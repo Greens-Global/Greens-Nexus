@@ -339,6 +339,7 @@ class AddTimeFromRecordTests(unittest.TestCase):
 
         def fake_post(url, **kw):
             calls.append(url)
+            self._sent_type = (kw.get("headers") or {}).get("Content-Type", self.__dict__.get("_sent_type"))
             return Resp({"signedURL": "/object/sign/hr-docs/x?token=t"} if "/sign/" in url else {})
         real, real_headers = T.httpx.post, T._storage_headers
         T.httpx.post, T._storage_headers = fake_post, lambda: {"Authorization": "Bearer service"}
@@ -352,6 +353,14 @@ class AddTimeFromRecordTests(unittest.TestCase):
             # Not a picture or a PDF, or not HR: refused.
             bad = UploadFile(file=io.BytesIO(b"x"), filename="a.exe", headers=Headers({"content-type": "application/x-msdownload"}))
             self._status(400, T.record_source_doc, EMP, file=bad, user=HR_USER, db=self.db)
+            # The type comes from the file itself: an SVG (script) sent as a picture is refused.
+            svg = UploadFile(file=io.BytesIO(b"<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>"),
+                             filename="a.svg", headers=Headers({"content-type": "image/svg+xml"}))
+            self._status(400, T.record_source_doc, EMP, file=svg, user=HR_USER, db=self.db)
+            png = UploadFile(file=io.BytesIO(b"\x89PNG\r\n\x1a\nrest"), filename="p.png",
+                             headers=Headers({"content-type": "application/octet-stream"}))
+            T.record_source_doc(EMP, file=png, user=HR_USER, db=self.db)
+            self.assertEqual(self._sent_type, "image/png")
             up2 = UploadFile(file=io.BytesIO(b"%PDF"), filename="a.pdf", headers=Headers({"content-type": "application/pdf"}))
             self._status(403, T.record_source_doc, EMP, file=up2, user=MGR_USER, db=self.db)
             # A path staged for someone else cannot be attached.
@@ -402,6 +411,12 @@ class AddTimeFromRecordTests(unittest.TestCase):
         self.assertIn("09/14/2026 - 09/23/2026", n[0].body)
         self.assertIn(REASON, n[0].body)
         self.assertNotIn("2026-09", n[0].body)   # US dates only
+        # Undo rewrites the same notice - it never reads as still true.
+        batch = self.db.query(models.TimeEntryBatch).one()
+        T.duplicate_day_undo(batch.id, user=HR_USER, db=self.db)
+        mine = self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == EMP).all()
+        self.assertEqual([x.title for x in mine], ["HR Took Back Time Added From A Record"])
+        self.assertIn("took back", mine[0].body)
 
     # -- India contractor --------------------------------------------------------
     def test_india_contractor_credit_from_entered_hours(self):

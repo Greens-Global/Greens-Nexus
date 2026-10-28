@@ -39,7 +39,18 @@ export function dupTemplateText(template, t12) {
 export const ROW_TYPES = ['Work', 'Sick Day', 'Vacation', 'Personal', 'Off'];
 export const LEAVE_TYPES = ['Sick Day', 'Vacation', 'Personal'];
 
-const toMin = (hhmm) => { const [h, m] = String(hhmm || '').split(':').map(Number); return Number.isNaN(h) ? NaN : h * 60 + (m || 0); };
+const toMin = (hhmm) => { if (!/^\d{1,2}:\d{2}$/.test(String(hhmm || ''))) return NaN; const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+
+/** The grid's leave type for a punch category, the way the server's
+ *  _leave_class reads it (sick; vacation / PTO / paid time off / annual
+ *  leave; personal) - '' for work. */
+export function leaveTypeOf(category) {
+  const c = String(category || '');
+  if (/\bsick\b/i.test(c)) return 'Sick Day';
+  if (/\b(vacation|pto|paid time off|annual leave)\b/i.test(c)) return 'Vacation';
+  if (/\bpersonal\b/i.test(c)) return 'Personal';
+  return '';
+}
 
 /** Paid minutes of a row: in to out, less its breaks (leave rows have none). */
 export function rowMinutes(r) {
@@ -89,7 +100,7 @@ export function rowFromShifts(shifts, toLocal) {
     }
   }
   const cat = first.category || '';
-  const type = LEAVE_TYPES.includes(cat) ? cat : 'Work';
+  const type = leaveTypeOf(cat) || 'Work';
   return { type, in: hhmm(first.at), out: hhmm(ps[ps.length - 1].at), breaks: type === 'Work' ? breaks : [], category: type === 'Work' ? cat : '' };
 }
 

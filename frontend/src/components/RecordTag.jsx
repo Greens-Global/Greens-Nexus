@@ -13,6 +13,7 @@ export default function RecordTag({ recs, batches = [], toastErr }) {
   const open = async (id) => {
     // The tab opens before the fetch so the browser does not treat it as a pop-up.
     const tab = window.open('', '_blank');
+    if (tab) tab.opener = null;   // the document never reaches back into Nexus
     try {
       const r = await api.timeRecordSourceDocUrl(id);
       if (tab && r?.url) tab.location.href = r.url; else if (r?.url) window.open(r.url, '_blank', 'noopener');

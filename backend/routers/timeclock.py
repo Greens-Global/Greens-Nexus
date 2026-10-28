@@ -11183,10 +11183,10 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
 # composition bar via TimeScreenshot.idle_sec.
 
 
-def _signed_url(path: str, bucket: str = "") -> str:
+def _signed_url(path: str, bucket: str = "", expires: int = 3600) -> str:
     try:
         r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{bucket or _DOC_BUCKET}/{path}",
-                       headers=_storage_headers(), json={"expiresIn": 3600}, timeout=20)
+                       headers=_storage_headers(), json={"expiresIn": expires}, timeout=20)
         if r.is_success:
             return f"{_SUPABASE_URL}/storage/v1{r.json().get('signedURL', '')}"
     except Exception:
@@ -13094,7 +13094,31 @@ _RECORD_MAX_DAYS = 62                  # a range of two months or less
 _RECORD_SOURCE = "hr_record"
 _RECORD_DOC_DIR = "time-records"       # hr-docs/<dir>/<employee>/<uuid>-<name>
 _RECORD_DOC_MAX = 15 * 1024 * 1024
-_RECORD_DOC_TYPES = ("image/", "application/pdf")
+
+
+def _record_doc_type(data: bytes) -> str:
+    """The stored type of a source document, from its own first bytes - never
+    the client's header: a PDF or a raster picture only (an SVG or HTML file
+    could run script when HR opens it)."""
+    head = data[:16]
+    if head.startswith(b"%PDF-"):
+        return "application/pdf"
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    if head[4:8] == b"ftyp" and head[8:12] in (b"heic", b"heix", b"hevc", b"heim", b"heis", b"mif1", b"msf1"):
+        return "image/heic"
+    return ""
+
+
+def _record_doc_dir(em: str) -> str:
+    """The person's staging folder (an email made path-safe)."""
+    return f"{_RECORD_DOC_DIR}/{re.sub(r'[^a-z0-9@._-]', '_', (em or '').lower())}/"
 
 
 class DupBreak(BaseModel):
@@ -13307,6 +13331,8 @@ def _dup_targets(db: Session, em: str, body: DuplicateDayIn, source: str) -> tup
                 raise HTTPException(400, f"Bad date: {t!r}")
             if ds not in out:
                 out.append(ds)
+        if out and (date.fromisoformat(max(out)) - date.fromisoformat(min(out))).days >= _RECORD_MAX_DAYS:
+            raise HTTPException(400, f"Pick days within {_RECORD_MAX_DAYS} days of each other.")
         return sorted(out), {}
     if mode not in ("working", "all"):
         raise HTTPException(400, "Copy onto picked days, All Working Days or All Days.")
@@ -13569,7 +13595,7 @@ def _record_doc_ok(em: str, path: str) -> str:
     p = (path or "").strip()
     if not p:
         return ""
-    if not p.startswith(f"{_RECORD_DOC_DIR}/{em}/") or ".." in p or "\\" in p:
+    if not p.startswith(_record_doc_dir(em)) or ".." in p or "\\" in p:
         raise HTTPException(400, "That source document was not uploaded for this person.")
     return p[:500]
 
@@ -13615,18 +13641,18 @@ def record_source_doc(email: str, file: UploadFile = File(...), user: dict = Dep
     a picture or a PDF) in the private hr-docs bucket; the batch saved after
     references it. HR only, for this person."""
     em = _record_who(db, user, email)
-    ctype = (file.content_type or "").lower()
-    if not ctype.startswith(_RECORD_DOC_TYPES):
-        raise HTTPException(400, "The source document is a picture or a PDF.")
-    data = file.file.read()
+    data = file.file.read(_RECORD_DOC_MAX + 1)
     if not data:
         raise HTTPException(400, "That file is empty.")
     if len(data) > _RECORD_DOC_MAX:
         raise HTTPException(400, "File too large (max 15 MB).")
+    ctype = _record_doc_type(data)
+    if not ctype:
+        raise HTTPException(400, "The source document is a picture (PNG, JPEG, GIF, WebP, HEIC) or a PDF.")
     safe = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "record")[:120]
-    path = f"{_RECORD_DOC_DIR}/{em}/{uuid.uuid4()}-{safe}"
+    path = f"{_record_doc_dir(em)}{uuid.uuid4()}-{safe}"
     resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
-                      headers={**_storage_headers(), "Content-Type": ctype or "application/octet-stream"},
+                      headers={**_storage_headers(), "Content-Type": ctype},
                       content=data, timeout=60)
     if not resp.is_success:
         raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
@@ -13641,12 +13667,10 @@ def record_source_doc_url(batch_id: str, user: dict = Depends(require_team_write
     if not b or not b.doc_path:
         raise HTTPException(404, "No source document")
     _record_who(db, user, b.employee_email)
-    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{b.doc_path}",
-                      headers=_storage_headers(), json={"expiresIn": 300}, timeout=15)
-    if not resp.is_success:
+    url = _signed_url(b.doc_path, _DOC_BUCKET, expires=300)
+    if not url:
         raise HTTPException(502, "Could not open the source document")
-    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300,
-            "name": b.doc_name or ""}
+    return {"url": url, "expiresIn": 300, "name": b.doc_name or ""}
 
 
 def _record_batches(db: Session, em: str, batch_ids, with_doc: bool) -> list:
@@ -13805,7 +13829,11 @@ def duplicate_day_undo(batch_id: str, user: dict = Depends(require_team_write), 
     if batch:
         batch.undone_by, batch.undone_at = user["email"], now
     dates = ", ".join(_us_day(d) for d in days)
-    _tell_employee_timecard(db, em, days[0], f"HR took back the time added from a record on {dates}.")
+    from notify_rollup import upsert_rollup
+    upsert_rollup(db, recipient=em, key=f"tc-record:{batch_id}", title="HR Took Back Time Added From A Record",
+                  line=f"HR took back the time added from a record on {dates}.", replace=True,
+                  action={"view": "timeclock", "sub": "timecard", "start": days[0]},
+                  company=notification_company(db, em))
     _notify_timecard_change(db, employee_email=em, actor_email=user["email"], local_date=days[0],
                             body=f"{_display_name(db, user['email'])} (HR) undid the time added from a record to "
                                  f"{_display_name(db, em)}'s time sheet for {dates}.",

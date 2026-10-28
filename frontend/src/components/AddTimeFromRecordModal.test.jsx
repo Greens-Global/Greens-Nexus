@@ -13,7 +13,7 @@ const apiMock = vi.hoisted(() => ({
 vi.mock('../api', () => ({ api: apiMock }));
 
 import AddTimeFromRecordModal from './AddTimeFromRecordModal';
-import { dupPlanText, dupTemplateText, periodDays, rowMinutes, creditOf, rowFromShifts, defaultPicks, recordRows, recordOf } from '../lib/duplicateDay';
+import { dupPlanText, dupTemplateText, periodDays, rowMinutes, creditOf, rowFromShifts, defaultPicks, recordRows, recordOf, leaveTypeOf } from '../lib/duplicateDay';
 import { t12 } from '../lib/addTime';
 import { utcToInputTz, inputToUtcTz } from '../lib/displayTz';
 
@@ -65,6 +65,8 @@ describe('Add Time From Record words and arithmetic', () => {
     expect(rowMinutes({ type: 'Work', in: '22:00', out: '06:00', breaks: [{ start: '02:00', end: '02:30' }] })).toBe(450);
     expect(rowMinutes({ type: 'Sick Day', in: '09:00', out: '17:00', breaks: [{ start: '12:00', end: '12:30' }] })).toBe(480);
     expect(rowMinutes({ type: 'Off', in: '09:00', out: '17:00' })).toBe(0);
+    expect(rowMinutes({ type: 'Work', in: '08:30', out: '', breaks: [] })).toBe(0);   // a cleared box is not midnight
+    expect(['Sick', 'PTO', 'Annual Leave', 'Personal time', 'Operations'].map(leaveTypeOf)).toEqual(['Sick Day', 'Vacation', 'Vacation', 'Personal', '']);
     const cfg = { fullMin: 480, halfMin: 240 };
     expect([creditOf({ type: 'Work', in: '09:00', out: '17:00', breaks: [] }, cfg), creditOf({ type: 'Work', in: '09:00', out: '13:30', breaks: [] }, cfg),
       creditOf({ type: 'Work', in: '09:00', out: '12:00', breaks: [] }, cfg), creditOf({ type: 'Vacation' }, cfg), creditOf({ type: 'Work' }, null)])
