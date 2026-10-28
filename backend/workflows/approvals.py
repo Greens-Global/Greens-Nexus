@@ -223,7 +223,10 @@ def _workflow_asks(db, user: dict, ctx: dict) -> list:
     """Every open workflow ask waiting on the caller (a current approver,
     or a live stand-in for one): the step's options as buttons - EVERY
     key decides it through POST /workflows/approvals/{id}/decide - and Open
-    shows the run."""
+    lands on the SUBJECT record (the person, task, ticket or time sheet the
+    ask is about). An approver is often an employee with no Workflows grant
+    (App.jsx gates the view at supervisor, GET /runs/{id} needs the grant),
+    so the run's own link travels separately as `runLink`."""
     import approval_delegation
     me = (user.get("email") or "").strip().lower()
     if not me or user.get("external"):
@@ -245,9 +248,32 @@ def _workflow_asks(db, user: dict, ctx: dict) -> list:
             for_name = person_name(db, who)
         actions = [{"key": o, "label": o, "tone": "primary" if i == 0 else "plain", "note": "optional"}
                    for i, o in enumerate(ap.options or [])] + [a_open("Open")]
-        out.append(inbox_row("workflow", ap.id, person_email="", person_name=ap.subject_label or "",
-                             title=f"{ap.workflow_name}: {ap.question}"[:200],
-                             detail=f"About {ap.subject_label}" if ap.subject_label else "",
-                             created_at=ap.asked_at, actions=actions,
-                             link={"view": "workflows", "sub": f"run:{ap.run_id}"}, for_name=for_name))
+        run_link = {"view": "workflows", "sub": f"run:{ap.run_id}"}
+        row = inbox_row("workflow", ap.id, person_email="", person_name=ap.subject_label or "",
+                        title=f"{ap.workflow_name}: {ap.question}"[:200],
+                        detail=f"About {ap.subject_label}" if ap.subject_label else "",
+                        created_at=ap.asked_at, actions=actions,
+                        link=subject_link(db, ap) or run_link, for_name=for_name)
+        row["runLink"] = run_link
+        out.append(row)
     return out
+
+
+def subject_link(db, ap: models.WorkflowApproval) -> dict:
+    """The subject record's own navigate detail: what the ask stored, else
+    resolved again from the run's entity and subject id (an older row, a
+    link the pack could not build at ask time); {} when there is none."""
+    stored = ap.subject_link if isinstance(ap.subject_link, dict) else {}
+    if stored.get("view"):
+        return dict(stored)
+    run = db.get(models.WorkflowRun, ap.run_id) if ap.run_id else None
+    if run is None or not run.entity or not run.subject_id:
+        return {}
+    from workflows import catalog
+    ent = catalog.ENTITIES.get(run.entity)
+    if ent is None:
+        return {}
+    try:
+        return ent.link_for(ent.load_row(db, run.subject_id), db)
+    except Exception:   # noqa: BLE001 - a link that cannot be built is no link
+        return {}

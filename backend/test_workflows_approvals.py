@@ -7,7 +7,10 @@
   * a decision resumes the run into the option's branch;
   * `all` waits for everyone (a decline decides at once), `sequence` asks
     one approver at a time; a live stand-in may decide for an approver;
-  * expiry resumes the `expired` branch.
+  * expiry resumes the `expired` branch;
+  * the inbox row's Open is the SUBJECT record's link (the run link rides
+    along as `runLink`) and an employee approver with no Workflows grant
+    decides through POST /workflows/approvals/{id}/decide.
 
     cd backend && python -m pytest test_workflows_approvals.py -q
 """
@@ -153,11 +156,39 @@ def test_ask_creates_inbox_row_for_each_approver(client, db):
         row = next(r for r in rows if r["kind"] == "workflow")
         assert row["id"] == ap.id and row["title"] == "Leaver Check: Let Priya Apr go?"
         assert [a["key"] for a in row["actions"]] == ["Approve", "Decline", "open"]
-        assert row["actions"][0]["tone"] == "primary" and row["link"] == {"view": "workflows", "sub": f"run:{run.id}"}
+        # Open lands on the person the ask is about, never the run (an
+        # approver may hold no Workflows grant); the run link rides along
+        assert row["actions"][0]["tone"] == "primary" and row["link"] == {"view": "hr", "sub": "people:e-priya"}
+        assert row["runLink"] == {"view": "workflows", "sub": f"run:{run.id}"}
         assert row["group"] == "workflows"
     assert not [r for r in approvals_inbox.collect(db, _user(PRIYA, 1))["rows"] if r["kind"] == "workflow"]
     as_user(MAX)
     assert client.get("/me/action-counts").json()["counts"]["workflows"] == {"overview": 1}
+
+
+def test_employee_approver_without_grant_opens_subject_and_decides(client, db):
+    """An approver who is an employee with no `workflows` grant (Hana: no
+    role row, hr:viewer only - the HR contact): the inbox row is hers with
+    the subject's link, GET /workflows/runs/{id} is refused, and the
+    decision goes through (the decide route carries no grant)."""
+    _wf(db, _approval([{"kind": "role", "value": "hr_contact"}]))
+    run = _run(db)
+    ap = _ask(db)
+    assert ap.approvers == [HANA]
+    rows = [r for r in approvals_inbox.collect(db, _user(HANA, 1))["rows"] if r["kind"] == "workflow"]
+    assert len(rows) == 1 and rows[0]["id"] == ap.id
+    assert rows[0]["link"] == {"view": "hr", "sub": "people:e-priya"}
+    assert rows[0]["runLink"] == {"view": "workflows", "sub": f"run:{run.id}"}
+    assert rows[0]["title"] == "Leaver Check: Let Priya Apr go?" and rows[0]["person"]["name"] == "Priya Apr"
+    # an older row with no stored link resolves it again from the run
+    ap.subject_link = {}
+    db.commit()
+    assert approvals.subject_link(db, ap) == {"view": "hr", "sub": "people:e-priya"}
+    as_user(HANA)
+    assert client.get(f"/workflows/runs/{run.id}").status_code == 403
+    r = client.post(f"/workflows/approvals/{ap.id}/decide", json={"option": "Approve"})
+    assert r.status_code == 200 and r.json()["decided"] and r.json()["runStatus"] == "succeeded"
+    assert _notes(db, PRIYA) == ["Approved: Priya Apr"]
 
 
 def test_decide_by_non_approver_403(client, db):
