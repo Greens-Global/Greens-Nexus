@@ -9066,6 +9066,7 @@ class WorkflowRun(Base):
     replay_of     = Column(String, default="")
     started_by    = Column(String, default="")                  # who pressed Run / Test / Replay, '' = the runner
     depth         = Column(Integer, default=0)
+    active_seconds = Column(Float, default=0.0)                 # seconds its actions ran so far (capped at 10 min, spec 6.5)
 
 
 class WorkflowRunStep(Base):

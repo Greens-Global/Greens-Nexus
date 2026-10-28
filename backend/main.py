@@ -1347,6 +1347,8 @@ def _run_migrations():
             "ALTER TABLE time_off_requests ADD COLUMN first_note VARCHAR DEFAULT ''",
             # Add Time From Record (Oct 27) - see the Postgres list. models.TimePunch.
             "ALTER TABLE time_punches ADD COLUMN entry_source VARCHAR DEFAULT ''",
+            # Workflows run cap (Oct 28) - see the Postgres list. models.WorkflowRun.
+            "ALTER TABLE workflow_runs ADD COLUMN active_seconds FLOAT DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3178,6 +3180,10 @@ def _run_migrations():
         "ALTER TABLE workflow_waits ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE workflow_approvals ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE workflow_subject_marks ENABLE ROW LEVEL SECURITY",
+        # Workflows run cap (Oct 28 2026): the seconds a run's actions took so
+        # far - the engine fails the run at 10 minutes of active work (spec
+        # 6.5). models.WorkflowRun.active_seconds.
+        "ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS active_seconds FLOAT DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

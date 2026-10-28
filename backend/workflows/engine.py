@@ -228,9 +228,10 @@ def enroll_ok(db, wf: models.Workflow, *, entity: str = "", subject_id: str = ""
                     pass
     cap, _ = _effective_caps(db, wf, company_id)
     since = (now - timedelta(hours=1)).isoformat()
+    # a Test and a logged skip did no work: neither counts toward the cap
     n = (db.query(models.WorkflowRun)
          .filter(models.WorkflowRun.workflow_id == wf.id, models.WorkflowRun.started_at >= since,
-                 models.WorkflowRun.status != "test").count())
+                 models.WorkflowRun.status.notin_(["test", "skipped"])).count())
     if n >= cap:
         pause_needs_attention(db, wf, f"Paused: ran {n} times in an hour (the cap is {cap})")
         db.commit()
@@ -417,6 +418,16 @@ class _Walk:
         self.failed_detail = ""
         self.on_error = str((definition.get("settings") or {}).get("onError") or "stop")
         self.lines = 0
+        # active work (spec 6.5: a run at most 10 min of it) - the seconds
+        # actions took so far on the row, plus what this walk adds
+        self.base_active = float(run.active_seconds or 0)
+        self.spent_seconds = 0.0
+
+    def over_cap(self) -> bool:
+        return not self.ctx.plan_only and self.base_active + self.spent_seconds >= RUN_ACTIVE_SECONDS
+
+    def spent(self, seconds: float) -> None:
+        self.spent_seconds += max(0.0, float(seconds))
 
     # ── rows ──
     def row(self, sid: str, step: dict, label: str = "") -> models.WorkflowRunStep:
@@ -434,6 +445,11 @@ class _Walk:
         r.status = status
         r.detail = (detail or "")[:1000]
         r.finished_at = _iso()
+        try:
+            self.run = self.db.merge(self.run)
+            self.run.active_seconds = round(self.base_active + self.spent_seconds, 3)
+        except Exception:   # noqa: BLE001 - the step row still lands
+            pass
         self.db.commit()
 
     def over_budget(self) -> bool:
@@ -466,6 +482,12 @@ class _Walk:
                 return "failed"
             if self.over_budget():
                 return "budget"
+            if self.over_cap():
+                r = self.row(sid, step)
+                self.finish_row(r, "failed", f"The run used its {RUN_ACTIVE_SECONDS // 60} minutes of active work "
+                                             f"({int(self.base_active + self.spent_seconds)} s) before this step")
+                self.failed_detail = self.failed_detail or f"{r.label}: {r.detail}"
+                return "failed"
             res = self.do(step, sid, r, ctx)
             if res != "done":
                 return res
@@ -544,7 +566,11 @@ class _Walk:
                 reason = action.allowed(ctx, params) or ""
                 if reason:
                     raise StepRefused(str(reason))
-            out = action.run(ctx, params) or {}
+            t0 = time.monotonic()
+            try:
+                out = action.run(ctx, params) or {}
+            finally:
+                self.spent(time.monotonic() - t0)
             merged = {**ctx.step_output, **out}
             r.output = merged
             r.affected = list(out.get("affected") or [])
@@ -664,18 +690,20 @@ class _Walk:
             return self.after_failure(r)
         total = len(rows)
         rows = rows[:MAX_ITEMS]
+        # the row keeps `{id, label}` per item only: `each` reloads the record
+        # and `item.<field>` reads it off the row, so 500 full payloads never
+        # sit on one step row (a source that hands back dicts keeps its own
+        # small shape - there is no row to reload)
         items = []
         for row in rows:
             if isinstance(row, dict):
                 fields = dict(row)
-            elif ent is not None:
-                fields = payload_for(ent, row)
-            else:
-                fields = {}
-            fields.setdefault("id", str(getattr(row, "id", "") or fields.get("id") or ""))
-            fields.setdefault("label", ent.label_for(row) if ent is not None and not isinstance(row, dict)
-                              else str(fields.get("name") or fields.get("title") or fields.get("id") or ""))
-            items.append(fields)
+                fields.setdefault("id", str(fields.get("id") or ""))
+                fields.setdefault("label", str(fields.get("name") or fields.get("title") or fields.get("id") or ""))
+                items.append(fields)
+                continue
+            rid = str(getattr(row, "id", "") or "")
+            items.append({"id": rid, "label": (ent.label_for(row) if ent is not None else rid) or rid})
         r.input = {"source": key, "params": params}
         r.output = {"count": total, "items": items}
         note = f"{total} item" + ("" if total == 1 else "s")
@@ -808,6 +836,12 @@ def execute(db, run: models.WorkflowRun, *, definition: Optional[dict] = None, c
     token = CURRENT_RUN.set((run.id, int(run.depth or 0)))
     try:
         res = walk.steps(definition.get("steps") or [], "", ctx)
+    except Exception as e:   # noqa: BLE001 - a walk that raises outside a step is a failed run, never a stuck one
+        try:
+            db.rollback()
+        except Exception:   # noqa: BLE001
+            pass
+        return _crashed(db, run, wf, f"{type(e).__name__}: {str(e)[:300]}", plan_only=plan_only)
     finally:
         CURRENT_RUN.reset(token)
     run = db.merge(run)
@@ -869,6 +903,74 @@ def _run_fault_steps(db, run, wf, definition, ctx) -> None:
         CURRENT_RUN.reset(token)
 
 
+def _crashed(db, run: models.WorkflowRun, wf: models.Workflow, error: str, *, plan_only: bool) -> models.WorkflowRun:
+    """The walk itself raised (not a step - those fail on their own row):
+    the run is `failed` with the error and the owner is told, exactly as a
+    failed step would; a Test says what would have failed."""
+    run = db.merge(run)
+    run.finished_at = _iso()
+    if plan_only:
+        run.summary = f"Would fail: {error}"[:500]
+        db.commit()
+        return run
+    run.status = "failed"
+    run.error = error
+    run.summary = f"Failed: {error}"[:500]
+    wf = db.merge(wf)
+    wf.fail_count = int(wf.fail_count or 0) + 1
+    wf.run_count = int(wf.run_count or 0) + 1
+    wf.last_run_at = run.finished_at
+    for w in db.query(models.WorkflowWait).filter(models.WorkflowWait.run_id == run.id).all():
+        db.delete(w)
+    db.commit()
+    print(f"[workflows] run {run.id} of {wf.id} crashed: {error[:200]}")
+    _bell(db, [wf.owner_email or ""], f"wf-failed:{wf.id}", f"Workflow Failed: {wf.name}",
+          f"{run.subject_label or 'A run'}: {error}"[:400], company=run.company_id or "",
+          action={"view": "workflows", "sub": f"run:{run.id}"}, priority=1)
+    db.commit()
+    return run
+
+
+STUCK_MINUTES = 5
+
+
+def claim_wait(db, wait_id: str, *, now: Optional[datetime] = None, stale_before: str = "") -> bool:
+    """The one atomic claim on a wait row (decide, the approval sweep and
+    the runner all take a wait through it): `UPDATE ... WHERE claimed_at =
+    ''` - True when this caller won. `stale_before` also takes a row whose
+    claim is older than that stamp (a resume that died holding it)."""
+    W = models.WorkflowWait
+    cond = (W.claimed_at == "") if not stale_before else ((W.claimed_at == "") | (W.claimed_at < stale_before))
+    n = (db.query(W).filter(W.id == wait_id, cond)
+         .update({W.claimed_at: _iso(now)}, synchronize_session=False))
+    db.commit()
+    return bool(n)
+
+
+def requeue_stuck(db, now: Optional[datetime] = None) -> int:
+    """A run left `running` with no wait row and nothing touched for
+    STUCK_MINUTES (a worker recycled mid-walk, a tick that died) gets a
+    delay wait due now: the walk is idempotent, so the resume simply
+    carries on from the last finished step. Returns how many."""
+    now = now or _now()
+    cutoff = (now - timedelta(minutes=STUCK_MINUTES)).isoformat()
+    from sqlalchemy import select
+    R, S, W = models.WorkflowRun, models.WorkflowRunStep, models.WorkflowWait
+    waiting = select(W.run_id).where(W.run_id != "")
+    n = 0
+    for run in (db.query(R).filter(R.status == "running", R.started_at < cutoff, R.id.notin_(waiting)).all()):
+        touched = max([run.started_at or ""] + [max(s.started_at or "", s.finished_at or "") for s in
+                                                  db.query(S).filter(S.run_id == run.id).all()])
+        if touched >= cutoff:
+            continue
+        db.add(W(id=str(uuid.uuid4()), run_id=run.id, workflow_id=run.workflow_id, step_id="", due_at=_iso(now),
+                 kind="delay", state={"stuck": True, "since": touched}))
+        n += 1
+    if n:
+        db.commit()
+    return n
+
+
 def resume(db, wait: models.WorkflowWait, *, outcome: Optional[str] = None,
            budget_seconds: float = 20) -> Optional[models.WorkflowRun]:
     """A due wait, a retry or an approval decision: mark the parked step and
@@ -891,6 +993,13 @@ def resume(db, wait: models.WorkflowWait, *, outcome: Optional[str] = None,
                 r.status = "done"
                 r.detail = f"Outcome: {out['outcome']}"
                 r.finished_at = _iso()
+                # the ask itself carries the outcome too (a resume into
+                # `expired` from the runner must close the inbox row)
+                aid = str((wait.state or {}).get("approvalId") or "")
+                if aid:
+                    A = models.WorkflowApproval
+                    (db.query(A).filter(A.id == aid, A.outcome == "")
+                     .update({A.outcome: out["outcome"], A.decided_at: _iso()}, synchronize_session=False))
             else:
                 r.status = "done"
                 r.detail = "Waited"

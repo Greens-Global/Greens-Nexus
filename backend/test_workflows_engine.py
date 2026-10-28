@@ -518,8 +518,9 @@ def test_for_each_items_hold_public_fields_only(db):
     assert run.status == "succeeded"
     rows = _steps(db, run)
     items = rows[0].output["items"]
-    assert len(items) == 6 and all("birthday" not in it and "pay.base" not in it for it in items)
-    assert {it["name"] for it in items} >= {"Priya Eng", "Gail Eng"}
+    # the row keeps id + label only (the walk reloads the record per item)
+    assert len(items) == 6 and all(set(it) == {"id", "label"} for it in items)
+    assert {it["label"] for it in items} >= {"Priya Eng", "Gail Eng"}
     priya = next(r for r in rows if r.label.endswith("Priya Eng"))
     assert priya.detail == "Notified Priya Eng: Priya Eng 03/08/1994"
 
