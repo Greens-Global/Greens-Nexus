@@ -186,6 +186,7 @@ def emit(db, key: str, *, subject, actor: str = "", changes: Optional[dict] = No
     """Write one outbox row for event `key` about `subject` (the ORM row or
     its id) inside the caller's transaction. Never raises."""
     try:
+        catalog.load_packs()     # a request worker's first emit may come before any flush loaded them
         ev = catalog.EVENTS.get(key)
         if ev is None:
             _log(f"unknown event {key!r}")

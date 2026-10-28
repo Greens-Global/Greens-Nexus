@@ -139,6 +139,10 @@ class RunContext:
     # half-way finds what already went out and never sends it twice.
     step_output: dict = field(default_factory=dict)
     plan_only: bool = False                   # a Test run: plan lines, no side effects
+    # BackgroundTasks-like hook for module functions that take one (packs
+    # wrap it as task_automation._Later(ctx.defer)); None in the runner's
+    # thread, where "later" is simply now.
+    defer: Any = None
 
     # ── derived ──
     def company(self) -> str:

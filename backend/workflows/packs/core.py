@@ -184,12 +184,30 @@ def _hr_letter_templates(db) -> list:
     return [{"value": t["key"], "label": t["label"]} for t in hr_letters.LETTER_TYPES]
 
 
+def _task_custom_fields(db) -> list:
+    rows = db.query(models.TaskCustomField).all()
+    return sorted([{"value": r.id, "label": r.name or r.id} for r in rows], key=lambda o: o["label"].lower())
+
+
+def _task_statuses(db) -> list:
+    rows = db.query(models.TaskCustomStatus).order_by(models.TaskCustomStatus.position).all()
+    return [{"value": r.id, "label": r.label or r.id} for r in rows]
+
+
+def _ticket_types(db) -> list:
+    import ticket_taxonomy
+    return [{"value": k, "label": k.replace("_", " ").title()} for k in ticket_taxonomy.TICKET_TYPES]
+
+
 option_source("companies", _companies)
 option_source("departments", _departments)
 option_source("locations", _locations)
 option_source("ticket_departments", _ticket_departments)
+option_source("ticket_types", _ticket_types)
 option_source("hr_checklist_templates", _hr_checklist_templates)
 option_source("hr_letter_templates", _hr_letter_templates)
+option_source("task_custom_fields", _task_custom_fields)
+option_source("task_statuses", _task_statuses)
 # "task_projects" is deliberately NOT registered: the builder loads projects
 # through its own API (the list is per caller), and the name passes through.
 
