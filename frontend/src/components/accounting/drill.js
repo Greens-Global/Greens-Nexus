@@ -11,6 +11,10 @@
 // filter lists - departments, vendor, customer, employee, project, item,
 // journals) narrow the lines too, and show as chips over them.
 //
+// Call of 10/27 with Charmi, item 17: the same call, two optional fields more -
+// `entities` (several, where `entity` is one) and `department` - and a drill
+// with no account (a total: its window `to` only) opens every line of it.
+//
 // Oct 23 (Neil, item 05): `reports` is the Report Center (the catalogue), so
 // a drill or a search lands on the statements screen itself, opened on the
 // Income Statement as `reports` used to open it.

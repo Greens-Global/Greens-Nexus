@@ -3,8 +3,10 @@ import { ChevronLeft, ChevronRight, Copy, Download, Save } from 'lucide-react';
 import { api, withFreshReads } from '../../api';
 import Amount, { Figure, parseAmountInput } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
-import { BarMore, BarSummary, ControlBar, EntityPicker, SyncButton, control, entityOptions } from './reportControls';
-import { useFitHeight } from './tableHooks';
+import { BarMore, BarSummary, ColumnResizer, ControlBar, EntityPicker, SyncButton, control, entityOptions } from './reportControls';
+import { useColumnWidths, useFitHeight } from './tableHooks';
+import { headStyle } from './columnStyles';
+import LinesPanel from './LinesPanel';
 import { useTableSync } from './tableSync';
 import { useAccountingPrefs } from './prefs';
 import { downloadCsv, iso } from './reportModel';
@@ -25,6 +27,15 @@ import { intacctBudgetFile } from './budgetExport';
 //
 // Until the accounting app ships the budgets route it answers 404, which
 // the backend passes on as 501: the tab says so and nothing else breaks.
+//
+// Call of 10/27 with Charmi, item 17 ("everything should have the drill down
+// option ... make sure this is also all resizable"): every Actual on Budget vs
+// Actual opens the ledger lines behind it on the right (LinesPanel - year
+// start through the month picked, this entity; Open in Reports for the
+// General Ledger), the budget still on screen; the Total, the lines of every
+// account with an Actual. Budget and Variance are the plan, not ledger
+// postings - they have no lines to open. The columns of both tables drag wider or narrower,
+// the widths kept per person.
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const th = { textAlign: 'right', padding: '6px 8px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, background: 'var(--bg-card)' };
@@ -113,8 +124,27 @@ export default function BudgetTab({ canEdit = false }) {
   const fit = useFitHeight(box);   // item 05: the grid scrolls inside its own box
 
   const totals = useMemo(() => gridTotals(rows), [rows]);
+  const gridCols = useColumnWidths('budget-grid', {}, { min: 60 });
+  const bvaCols = useColumnWidths('budget-bva', {}, { min: 60 });
+  const gridHead = (key, label, extra = null) => <th key={key} style={{ ...th, ...headStyle(gridCols.width(key), { position: 'sticky', ...(extra || {}) }) }}>{label}<ColumnResizer {...gridCols.resizer(key, label)} /></th>;
+  const bvaHead = (key, label, extra = null) => <th key={key} style={{ ...th, ...headStyle(bvaCols.width(key), { position: 'sticky', ...(extra || {}) }) }}>{label}<ColumnResizer {...bvaCols.resizer(key, label)} /></th>;
   const bva = useMemo(() => (actuals ? budgetVsActual(rows, actuals, through) : null), [rows, actuals, through]);
   const entityName = entities?.find((e) => e.code === location)?.name || location;
+  // The lines behind an Actual: the year to the end of the month picked.
+  const [lines, setLines] = useState(null);   // { key, title, caption, queries, report }
+  const drillActual = (accountNo, title) => {
+    const m = bva?.through || through;
+    const span = { from: `${year}-01-01`, to: `${year}-${String(m).padStart(2, '0')}-${String(new Date(year, m, 0).getDate()).padStart(2, '0')}`, book: 'accrual', location };
+    const accounts = accountNo ? [accountNo] : (bva?.rows || []).filter((r) => r.actual).map((r) => r.accountNo);
+    if (!accounts.length) return;
+    setLines({
+      key: `${accountNo || 'total'}-${location}-${year}-${m}`,
+      title: accountNo ? `${accountNo} ${title}` : 'Actual - every account',
+      caption: `${entityName} · Jan - ${MONTHS[m - 1]} ${year}`,
+      queries: accounts.map((account) => ({ account, ...span })),
+      report: accountNo ? { account: accountNo, accountName: title, from: span.from, to: span.to, book: 'accrual', entity: location } : null,
+    });
+  };
 
   const setCell = (i, m, text) => {
     const v = parseAmountInput(text);
@@ -289,9 +319,9 @@ export default function BudgetTab({ canEdit = false }) {
                 <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
                   <thead>
                     <tr>
-                      <th style={{ ...th, textAlign: 'left', left: 0, zIndex: 1 }}>Account</th>
-                      {MONTHS.map((m) => <th key={m} style={th}>{m}</th>)}
-                      <th style={th}>Total</th>
+                      {gridHead('account', 'Account', { textAlign: 'left', left: 0, zIndex: 1 })}
+                      {MONTHS.map((m) => gridHead(m, m))}
+                      {gridHead('total', 'Total')}
                     </tr>
                   </thead>
                   <tbody>
@@ -330,15 +360,17 @@ export default function BudgetTab({ canEdit = false }) {
                   <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
                     <thead>
                       <tr>
-                        <th style={{ ...th, textAlign: 'left' }}>Account</th>
-                        <th style={th}>Actual</th><th style={th}>Budget</th><th style={th}>Variance $</th><th style={th}>Variance %</th>
+                        {bvaHead('account', 'Account', { textAlign: 'left' })}
+                        {bvaHead('actual', 'Actual')}{bvaHead('budget', 'Budget')}{bvaHead('variance', 'Variance $')}{bvaHead('pct', 'Variance %')}
                       </tr>
                     </thead>
                     <tbody>
                       {bva.rows.map((r) => (
                         <tr key={r.accountNo}>
                           <td style={{ ...td, padding: '4px 8px', whiteSpace: 'nowrap' }}><span style={{ color: 'var(--text-muted)', marginRight: 6 }}>{r.accountNo}</span>{r.title}</td>
-                          <td style={{ ...td, textAlign: 'right', padding: '4px 8px' }}><Amount value={r.actual} zero="dash" /></td>
+                          <td style={{ ...td, textAlign: 'right', padding: '4px 8px' }}>
+                            {r.actual ? <button type="button" className="acct-drill" title="See the lines behind this amount" onClick={() => drillActual(r.accountNo, r.title)}><Amount value={r.actual} /></button> : <Amount value={r.actual} zero="dash" />}
+                          </td>
                           <td style={{ ...td, textAlign: 'right', padding: '4px 8px' }}><Amount value={r.budget} zero="dash" /></td>
                           <td style={{ ...td, textAlign: 'right', padding: '4px 8px' }}><Amount value={r.variance} zero="dash" /></td>
                           <td style={{ ...td, textAlign: 'right', padding: '4px 8px' }}><Figure text={pctText(r.pct)} /></td>
@@ -348,7 +380,9 @@ export default function BudgetTab({ canEdit = false }) {
                     <tfoot>
                       <tr>
                         <td style={{ ...td, fontWeight: 700, padding: '6px 8px' }}>Total</td>
-                        <td style={{ ...td, textAlign: 'right', fontWeight: 700, padding: '6px 8px' }}><Amount value={bva.totals.actual} zero="dash" /></td>
+                        <td style={{ ...td, textAlign: 'right', fontWeight: 700, padding: '6px 8px' }}>
+                          {bva.totals.actual ? <button type="button" className="acct-drill" title="See every line behind this total" onClick={() => drillActual('', 'Actual')}><Amount value={bva.totals.actual} /></button> : <Amount value={bva.totals.actual} zero="dash" />}
+                        </td>
                         <td style={{ ...td, textAlign: 'right', fontWeight: 700, padding: '6px 8px' }}><Amount value={bva.totals.budget} zero="dash" /></td>
                         <td style={{ ...td, textAlign: 'right', fontWeight: 700, padding: '6px 8px' }}><Amount value={bva.totals.variance} zero="dash" /></td>
                         <td style={{ ...td, textAlign: 'right', fontWeight: 700, padding: '6px 8px' }}><Figure text={pctText(bva.totals.pct)} /></td>
@@ -359,6 +393,7 @@ export default function BudgetTab({ canEdit = false }) {
               </div>
             </AsyncSection>
           )}
+          {lines && <LinesPanel key={lines.key} title={lines.title} caption={lines.caption} queries={lines.queries} report={lines.report} widthsKey="budget" onClose={() => setLines(null)} />}
         </AsyncSection>
       </div>
     </AsyncSection>

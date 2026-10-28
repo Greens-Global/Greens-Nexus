@@ -219,3 +219,22 @@ describe('Schedule C (Draft) (item 18)', () => {
     expect(api.getAccountingTaxLines).toHaveBeenLastCalledWith('schedule_c', '');
   });
 });
+
+// Call of 10/27 with Charmi, item 17: the ledger search behind one amount.
+describe('lineQuery (10/27 call, item 17)', () => {
+  it('takes the column window, the report entities and filters', async () => {
+    const { lineQuery } = await import('./reportModel');
+    expect(lineQuery({ account: '63203', drill: { from: '2026-01-01', to: '2026-12-31', book: 'accrual' }, entities: ['12000', '12019'], dims: { employee: ['E-0084'] } }))
+      .toEqual({ account: '63203', from: '2026-01-01', to: '2026-12-31', book: 'accrual', locations: '12000,12019', employee: 'E-0084', party_kind: 'employee', party: 'E-0084' });
+    // A column of one entity, department or party narrows to it.
+    expect(lineQuery({ account: '61000', drill: { from: '2026-01-01', to: '2026-03-31', book: 'cash', entity: '15000' }, entities: ['12000'] })).toMatchObject({ location: '15000', book: 'cash' });
+    expect(lineQuery({ account: '61000', drill: { from: '', to: '2026-03-31', department: '9100' } })).toMatchObject({ departments: '9100', from: undefined });
+    expect(lineQuery({ account: '61000', drill: { to: '2026-03-31', party: { kind: 'vendor', code: 'V1' } } })).toMatchObject({ party_kind: 'vendor', party: 'V1' });
+    // As of a date: a balance sheet account from the start, an income or expense account from January 1.
+    const asof = { from: '', to: '2026-09-30', book: 'accrual', asof: true };
+    expect(lineQuery({ account: '11000', drill: asof }).from).toBeUndefined();
+    expect(lineQuery({ account: '61000', drill: asof, pl: true }).from).toBe('2026-01-01');
+    // Both books side by side is no single book: the search reads them all.
+    expect(lineQuery({ account: '61000', drill: { to: '2026-03-31', book: 'both' } }).book).toBeUndefined();
+  });
+});

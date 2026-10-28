@@ -546,7 +546,7 @@ export function sortKeys(mode, keys, labels) {
   return [...keys].sort((a, b) => (!a ? 1 : !b ? -1 : sortText(a).localeCompare(sortText(b), 'en-US', { numeric: true })));
 }
 // The window an amount in one bucket column opens.
-function bucketDrill(mode, key, range, book, labels) {
+export function bucketDrill(mode, key, range, book, labels) {
   const base = { from: range.from || '', to: range.to, book };
   if (PERIOD_MODES.includes(mode)) {
     const d = parse(key);
@@ -2061,4 +2061,23 @@ export function downloadBlob(name, blob) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * One ledger search (api.searchAccountingLedger) for the lines behind one
+ * amount (call of 10/27 with Charmi, item 17), for screens that show them in
+ * the side panel (LinesPanel): the account, the column's window (`drill`:
+ * from / to / book, or an entity, department or party - bucketDrill), the
+ * report's entities and its filters. An as-of column reads an income or
+ * expense account (`pl`) from the start of that year, as its figure does.
+ */
+export function lineQuery({ account = '', drill, entities = [], dims = null, pl = false }) {
+  const d = drill || {};
+  const from = d.asof && pl ? `${String(d.to || '').slice(0, 4)}-01-01` : d.from || undefined;
+  const place = d.entity ? { location: d.entity } : entities.length === 1 ? { location: entities[0] } : entities.length ? { locations: entities.join(',') } : {};
+  return {
+    ...(account ? { account } : {}), from, to: d.to, book: d.book && d.book !== 'both' ? d.book : undefined, ...place, ...glLineParams(dims),
+    ...(d.department ? { departments: d.department } : {}),
+    ...(d.party ? { party_kind: d.party.kind, party: d.party.code } : {}),
+  };
 }

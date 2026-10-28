@@ -1,6 +1,6 @@
 import { formatDate } from '../../lib/datetime';
 import {
-  BOOKS, DIM_KINDS, EMPTY_DIMS, bucketLabel, fetchBuckets, isUserBook, iso, monthKeys, pct, presetLabel, priorMonthEnd, priorPeriod, resolveConfig, sortKeys,
+  BOOKS, DIM_KINDS, EMPTY_DIMS, bucketDrill, bucketLabel, fetchBuckets, isUserBook, iso, monthKeys, pct, presetLabel, priorMonthEnd, priorPeriod, resolveConfig, sortKeys,
   trialBalanceLines, yearBack,
 } from './reportModel';
 import { BUILDER_COMPARE_OPTIONS, BUILDER_DEFAULT_COMPARE, BUILDER_VARIANCE_COLUMNS } from './assumptions';
@@ -190,14 +190,14 @@ export function layoutBuilder(config, cols, accounts, titles = {}, compares = []
     const shown = lines.filter(shows);
     // A group is always listed, even at zero: it is a line of the report someone defined.
     rows.push({ kind: 'section', section: key, label: g.name || `Group ${gi + 1}`, count: shown.length, values: across(total) });
-    shown.forEach((a) => rows.push({ kind: 'account', section: key, code: a.code, title: a.title, values: across(a.values) }));
+    shown.forEach((a) => rows.push({ kind: 'account', section: key, code: a.code, title: a.title, pl: !!a.pl, values: across(a.values) }));
   });
 
   const picked = includedAccounts(config);
   const rest = (picked.length ? picked.filter((c) => !grouped.has(c)).map(lineOf) : accounts.filter((a) => !grouped.has(a.code))).sort(byNumber);
   rest.forEach((a) => addTo(grand, a.values));
   const restShown = rest.filter(shows);
-  if (restShown.length && rows.length) rows.push({ kind: 'group', group: 'ungrouped', label: 'Accounts Not in a Group', values: new Array(columns.length).fill('') });  restShown.forEach((a) => rows.push({ kind: 'account', code: a.code, title: a.title, values: across(a.values) }));
+  if (restShown.length && rows.length) rows.push({ kind: 'group', group: 'ungrouped', label: 'Accounts Not in a Group', values: new Array(columns.length).fill('') });  restShown.forEach((a) => rows.push({ kind: 'account', code: a.code, title: a.title, pl: !!a.pl, values: across(a.values) }));
   rows.push({ kind: 'grand', label: 'Grand Total', values: across(grand) });
   return { columns, rows };
 }
@@ -240,7 +240,7 @@ export async function runBuilder(api, config, { name = '', entities = [], chart 
     const sectionOf = new Map((through?.rows || []).map((r) => [r.account_no, r.section]));
     const lines = trialBalanceLines(through?.rows || [], prior?.rows || [], date)
       .filter((l) => l.code)
-      .map((l) => ({ code: l.code, title: l.title, section: sectionOf.get(l.code) || '', value: round2(CREDIT_SIDE.has(sectionOf.get(l.code)) ? -l.balance : l.balance) }));
+      .map((l) => ({ code: l.code, title: l.title, section: sectionOf.get(l.code) || '', pl: !!l.pl, value: round2(CREDIT_SIDE.has(sectionOf.get(l.code)) ? -l.balance : l.balance) }));
     return { lines, org: through?.org || '', generatedAt: through?.generated_at || '' };
   };
   // One figure per account over a range (a comparison's read).
@@ -258,10 +258,15 @@ export async function runBuilder(api, config, { name = '', entities = [], chart 
   const ranges = compareRanges(c);
   const priors = Promise.all(ranges.map((r) => (r.asof ? asOf(r.asof).then((x) => x.lines) : total(r.from, r.to))));
   priors.catch(() => {});   // awaited below; this only keeps an early failure from going unhandled
+  // Call of 10/27 with Charmi, item 17: what an amount in each data column
+  // opens - its window (a month, the period, an as-of date) or its entity,
+  // department or party - as the statements' columns do (bucketDrill).
+  let windows;
   if (c.period === 'asof') {
     const cur = await asOf(c.asof);
+    windows = [{ from: '', to: c.asof, book, asof: true }];
     cols = [{ key: 'cur', label: `As of ${formatDate(c.asof)}` }];
-    accounts = cur.lines.map((l) => ({ code: l.code, title: l.title, section: l.section, values: [l.value] }));
+    accounts = cur.lines.map((l) => ({ code: l.code, title: l.title, section: l.section, pl: l.pl, values: [l.value] }));
     org = cur.org;
     generatedAt = cur.generatedAt;
   } else {
@@ -276,6 +281,7 @@ export async function runBuilder(api, config, { name = '', entities = [], chart 
       ? [{ key: 'cur', label: `${formatDate(c.from)} - ${formatDate(c.to)}` }]
       : keys.map((k) => ({ key: k || '~none', label: bucketLabel(c.cols, k, labels) }));
     if (!cols.length) cols = [{ key: 'cur', label: `${formatDate(c.from)} - ${formatDate(c.to)}` }];
+    windows = c.cols === 'total' || !keys.length ? [{ from: c.from, to: c.to, book }] : keys.map((k) => bucketDrill(c.cols, k, { from: c.from, to: c.to }, book, labels));
     const at = new Map(keys.map((k, i) => [k, i]));
     const byCode = new Map();
     rows.forEach((r) => {
@@ -297,11 +303,18 @@ export async function runBuilder(api, config, { name = '', entities = [], chart 
   (await priors).forEach((lines, j) => lines.forEach((l) => {
     const a = byCode.get(l.code) || { code: l.code, title: l.title, section: l.section, values: new Array(n + ranges.length).fill(0) };
     a.values[n + j] = round2(a.values[n + j] + l.value);
+    if (l.pl) a.pl = true;
     byCode.set(l.code, a);
   }));
   accounts = [...byCode.values()];
   accounts.forEach((a) => { if (!a.title && titles[a.code]) a.title = titles[a.code]; });
-  const { columns, rows } = layoutBuilder(c, cols, accounts, titles, ranges);
+  const laid = layoutBuilder(c, cols, accounts, titles, ranges);
+  const { rows } = laid;
+  const drillOf = { total: c.period === 'asof' ? null : { from: c.from, to: c.to, book } };
+  cols.forEach((col, i) => { drillOf[col.key] = windows[i] || null; });
+  ranges.forEach((r) => { drillOf[`cmp-${r.key}`] = r.asof ? { from: '', to: r.asof, book, asof: true } : { from: r.from, to: r.to, book }; });
+  // A variance or a percent is worked out here, not posted: it has no lines.
+  const columns = laid.columns.map((col) => ({ ...col, drill: col.type === 'amount' ? drillOf[col.key] || null : null }));
   return {
     config: exportConfig(c), def: { key: 'builder', label: name || 'Custom Report', period: c.period },
     org, generatedAt: generatedAt || new Date().toISOString(), mode: 'single', otherLabel: '', columns, rows, summary: [], pickable: [], builder: c,

@@ -262,7 +262,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
       // filters (`dims`: vendor, customer, departments, journals ...) - they
       // follow into the lines like the report's own. A drill with none of
       // those is the Find a Transaction tile's search (`q`, Oct 1).
-      if (!(d.account || d.party || d.dims)) {
+      // 10/27 call, item 17: a total sent from another screen has no account,
+      // only its window (`to`) - every line of it, as a total on a statement.
+      if (!(d.account || d.party || d.dims || d.to)) {
         if (!d.q) return;
         setDrill(null);
         setSearchText(d.q);
@@ -271,9 +273,10 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         toTop();
         return;
       }
-      if (d.entity !== undefined) patch({ entities: d.entity ? [d.entity] : [] });
+      if (Array.isArray(d.entities)) patch({ entities: d.entities });
+      else if (d.entity !== undefined) patch({ entities: d.entity ? [d.entity] : [] });
       setDrill({ account: d.account || '', accountName: d.accountName || '', from: d.from || '', to: d.to || iso(new Date()), book: d.book || 'accrual',
-        ...(d.party ? { party: d.party } : {}), ...(d.dims ? { dims: d.dims } : {}), ...(d.back?.sub ? { back: { label: d.back.label || '', sub: d.back.sub } } : {}) });
+        ...(d.party ? { party: d.party } : {}), ...(d.department ? { department: d.department } : {}), ...(d.dims ? { dims: d.dims } : {}), ...(d.back?.sub ? { back: { label: d.back.label || '', sub: d.back.sub } } : {}) });
       toTop();
     };
     take(takePendingDrill());
