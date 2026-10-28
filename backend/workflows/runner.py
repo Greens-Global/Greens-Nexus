@@ -48,6 +48,18 @@ def _iso(dt: Optional[datetime] = None) -> str:
     return (dt or datetime.now(timezone.utc)).isoformat()
 
 
+# ── the database's part of the catalog ───────────────────────────────────────
+def sync_db_catalog(db) -> None:
+    """Once per tick, before any run context is built: the HR pack registers
+    the custom fields and the checklist / letter template choices that only
+    the database knows (`packs.hr.sync_catalog`). Never raises."""
+    try:
+        from workflows.packs import hr as hr_pack
+        hr_pack.sync_catalog(db)
+    except Exception as e:   # noqa: BLE001 - the static catalog still runs
+        print(f"[workflows] catalog sync failed: {type(e).__name__}: {str(e)[:200]}")
+
+
 # ── subscribed keys ──────────────────────────────────────────────────────────
 def refresh_subscribed(db) -> list[str]:
     keys = set()
@@ -217,6 +229,7 @@ def tick(now: Optional[datetime] = None, *, force_health: bool = False, force_pu
     out = {"events": 0, "runs": 0, "resumed": 0, "scheduled": 0, "purged": 0, "attention": 0, "approvals": {}}
     db = SessionLocal()
     try:
+        sync_db_catalog(db)
         refresh_subscribed(db)
         mono = time.monotonic()
         if force_health or mono - _last_health > 60:

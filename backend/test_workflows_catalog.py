@@ -9,8 +9,8 @@ catalog registries (workflows/catalog.py).
   * serialize() hides HR / comp fields from a person without the grant, and
     the shape is the one the builder renders (entities / events / actions /
     listSources / operators / filters / generatedAt);
-  * snapshot() is deterministic; the lock file matches it (xfail until the
-    packs land in Task 8).
+  * snapshot() is deterministic; the lock file matches it (every pack
+    loaded - regenerate it with write_lock when the catalog changes).
 
     cd backend && python -m pytest test_workflows_catalog.py -q
 """

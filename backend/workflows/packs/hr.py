@@ -188,7 +188,7 @@ _CUSTOM_TYPES = {"text": "text", "number": "number", "date": "date", "dropdown":
 # hr_letters.LETTER_TYPES) - repeated here so the catalog needs no module
 # import at load; sync_catalog re-reads them from the modules.
 CHECKLIST_KINDS = [("onboarding", "Onboarding"), ("promotion", "Promotion"), ("offboarding", "Offboarding"),
-                   ("inactive", "Inactive")]
+                   ("inactive", "Leave or Suspension")]   # = hr_checklists.KIND_LABELS (a test keeps them equal)
 EXIT_TYPES = ["resignation", "resignation_no_notice", "termination", "end_of_contract", "retirement", "death"]
 LETTER_TYPES = [("employment_verification", "Employment Verification"), ("salary_certificate", "Salary Certificate"),
                 ("experience_letter", "Experience Letter"), ("address_proof", "Address Proof"),

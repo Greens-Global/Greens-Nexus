@@ -323,15 +323,11 @@ def test_automations_lists_task_rules_and_jobs_and_toggles(client, db):
 def test_templates_all_validate(client, db):
     ga = {"email": GAIL, "role": "owner", "level": 5}
     assert len(templates.TEMPLATES) == 9
-    checked = 0
+    # every pack is loaded: no template has a need the catalog does not meet
     for t in templates.TEMPLATES:
-        if templates.missing(t):
-            continue   # needs a pack that is not on this branch yet; the integrator confirms it
+        assert templates.missing(t) == [], (t["key"], templates.missing(t))
         probs = validate.validate(db, t["definition"], owner=ga, run_as="owner", company_id="")
         assert probs == [], (t["key"], [p.to_dict() for p in probs])
-        checked += 1
-    # core + the employee events alone serve three; the other six wait for the packs (requires)
-    assert checked >= 3
     as_user(VERA)
     served = client.get("/workflows/templates").json()
     assert {t["key"] for t in served} == {t["key"] for t in templates.TEMPLATES if not templates.missing(t)}
@@ -404,6 +400,33 @@ def test_catalog_marks_new_entries_and_recent_events_feed_the_test(client, db):
     r = client.post(f"/workflows/{wf2.id}/preview-schedule")
     assert r.status_code == 200 and r.json()["count"] == 2 and r.json()["items"][0]["label"] == "Greens Api"
     assert client.get(f"/workflows/{wf2.id}/recent-events").json() == []
+
+
+def test_catalog_serves_hr_custom_fields_from_the_db(client, db):
+    # a custom field HR registers is `custom.<key>` on the employee entity on the next catalog call
+    db.add(models.EmployeeCustomField(id="cf-api-shirt", field_key="shirt_size_api", label="Shirt Size",
+                                      field_type="dropdown", options=["S", "M", "L"], visibility="employee_view"))
+    db.add(models.EmployeeCustomField(id="cf-api-cert", field_key="cert_due_api", label="Certification Due",
+                                      field_type="date", visibility="hr_only"))
+    db.commit()
+    as_user(VERA)                                                   # a viewer with no HR grant
+    cat = client.get("/workflows/catalog").json()
+    emp = next(e for e in cat["entities"] if e["key"] == "employee")
+    shirt = next(f for f in emp["fields"] if f["key"] == "custom.shirt_size_api")
+    assert shirt["type"] == "select" and [o["value"] for o in shirt["options"]] == ["S", "M", "L"]
+    assert shirt["visibility"] == "all"
+    assert not any(f["key"] == "custom.cert_due_api" for f in emp["fields"])     # HR Only stays with HR
+    as_user(EDDIE)                                                  # workflows editor with the HR grant
+    cat = client.get("/workflows/catalog").json()
+    emp = next(e for e in cat["entities"] if e["key"] == "employee")
+    cert = next(f for f in emp["fields"] if f["key"] == "custom.cert_due_api")
+    assert cert["type"] == "date" and cert["visibility"] == "hr"
+    assert {"key": "custom.cert_due_api", "label": "Certification Due", "yearly": False} in emp["dates"]
+    # the set-custom-field action offers the field by key
+    act = next(a for a in cat["actions"] if a["key"] == "hr.set_custom_field")
+    fld = next(p for p in act["params"] if p["type"] in ("select", "entity_ref") and isinstance(p["options"], list)
+               and any(o["value"] == "shirt_size_api" for o in p["options"]))
+    assert fld
 
 
 def test_describe_503_without_key(client, monkeypatch):

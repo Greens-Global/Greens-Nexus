@@ -191,8 +191,17 @@ def _catalog_keys(cat: dict) -> list[str]:
     return sorted(keys)
 
 
+def _sync_db_catalog(db) -> None:
+    """What only the database knows (the HR custom fields, checklist and
+    letter template choices) is registered before the catalog is served."""
+    catalog.load_packs()
+    from workflows.packs import hr as hr_pack
+    hr_pack.sync_catalog(db)
+
+
 @router.get("/catalog")
 def get_catalog(user: dict = Depends(R), db: Session = Depends(get_db)):
+    _sync_db_catalog(db)
     cat = catalog.serialize(db, user)
     row = db.get(models.NexusSetting, _seen_key(user))
     seen: dict = {}
@@ -210,6 +219,7 @@ def get_catalog(user: dict = Depends(R), db: Session = Depends(get_db)):
 
 @router.post("/catalog/seen")
 def catalog_seen(user: dict = Depends(R), db: Session = Depends(get_db)):
+    _sync_db_catalog(db)
     cat = catalog.serialize(db, user)
     row = db.get(models.NexusSetting, _seen_key(user))
     if row is None:

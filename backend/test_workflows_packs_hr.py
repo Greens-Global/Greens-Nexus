@@ -215,6 +215,20 @@ class HrPackCase(unittest.TestCase):
         else:
             self.assertIsInstance(value, str, where)
 
+    def test_static_choice_lists_match_the_hr_modules(self):
+        # the catalog lock is built with no database: the labels the pack
+        # carries at import must be the ones sync_catalog reads from the modules
+        import hr_checklists
+        import hr_letters
+        self.assertEqual(list(hr_checklists.KINDS), [k for k, _l in pack.CHECKLIST_KINDS])
+        self.assertEqual({k: hr_checklists.KIND_LABELS.get(k, k.title()) for k in hr_checklists.KINDS},
+                         dict(pack.CHECKLIST_KINDS))
+        self.assertEqual([(t["key"], t["label"]) for t in hr_letters.LETTER_TYPES], pack.LETTER_TYPES)
+        static_kinds, static_letters = list(pack.CHECKLIST_OPTIONS[:len(pack.CHECKLIST_KINDS)]), list(pack.LETTER_OPTIONS)
+        pack.sync_catalog(self.db)
+        self.assertEqual(pack.CHECKLIST_OPTIONS[:len(pack.CHECKLIST_KINDS)], static_kinds)
+        self.assertEqual(pack.LETTER_OPTIONS, static_letters)
+
     def test_sync_catalog_registers_custom_fields_with_their_own_visibility(self):
         self.db.add(models.EmployeeCustomField(id="cf-shirt", field_key="shirt_size", label="Shirt Size",
                                                field_type="dropdown", options=["S", "M", "L"], visibility="hr_only"))
