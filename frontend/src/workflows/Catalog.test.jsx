@@ -4,7 +4,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 // Render-smoke for Workflows > Catalog: a rail of modules, the four
 // sections for the picked one with their chips, the search, the New chips
 // shown once (the catalog is marked seen after they paint) and the summary
-// line of what is new.
+// line of what is new. Field type chips are Title Case.
 
 const wfCatalogSeen = vi.fn();
 vi.mock('../api', () => ({ api: { wfCatalogSeen: (...a) => wfCatalogSeen(...a) } }));
@@ -14,6 +14,9 @@ const CATALOG = {
     { key: 'employee', label: 'Person', module: 'hr', fields: [
       { key: 'name', label: 'Name', type: 'text', visibility: 'all' },
       { key: 'pay_rate', label: 'Pay Rate', type: 'money', visibility: 'comp' },
+      { key: 'started_at', label: 'Started At', type: 'datetime', visibility: 'all' },
+      { key: 'note', label: 'Note', type: 'template', visibility: 'all' },
+      { key: 'due', label: 'Due', type: 'date_offset', visibility: 'all' },
       { key: 'ssn_last4', label: 'SSN Last 4', type: 'text', visibility: 'hr' },
     ], dates: [{ key: 'birthday', label: 'Birthday', yearly: true }], people: [] },
     { key: 'task', label: 'Task', module: 'tasks', fields: [{ key: 'title', label: 'Title', type: 'text', visibility: 'all' }], dates: [], people: [] },
@@ -61,6 +64,11 @@ describe('Workflows Catalog', () => {
     expect(within(fields).getByText('Compensation')).toBeTruthy();
     expect(within(fields).getByText('Birthday')).toBeTruthy();
     expect(within(fields).getByText('Yearly')).toBeTruthy();
+    // Type chips are Title Case like every other chip.
+    expect(within(fields).getByText('Date And Time')).toBeTruthy();
+    expect(within(fields).getByText('Text With Fields')).toBeTruthy();
+    expect(within(fields).getByText('Date Offset')).toBeTruthy();
+    expect(within(fields).getByText('Date Trigger')).toBeTruthy();
     const actions = screen.getByRole('region', { name: 'Actions' });
     expect(within(actions).getByText('Needs: To, Title, Message')).toBeTruthy();
     expect(within(actions).getByText('Global Admin Only')).toBeTruthy();

@@ -13,9 +13,9 @@ import { useCatalog } from './lib/useCatalog';
 import { moduleLabel, sortModules } from './lib/modules';
 
 const TYPE_LABELS = {
-  text: 'Text', number: 'Number', date: 'Date', datetime: 'Date and time', select: 'Choice', person: 'Person',
-  people: 'People', bool: 'Yes / No', money: 'Money', template: 'Text with fields', recipients: 'Recipients',
-  duration: 'Duration', date_offset: 'Date offset', entity_ref: 'Record', approvers: 'Approvers', options: 'Options',
+  text: 'Text', number: 'Number', date: 'Date', datetime: 'Date And Time', select: 'Choice', person: 'Person',
+  people: 'People', bool: 'Yes / No', money: 'Money', template: 'Text With Fields', recipients: 'Recipients',
+  duration: 'Duration', date_offset: 'Date Offset', entity_ref: 'Record', approvers: 'Approvers', options: 'Options',
   list_source: 'List',
 };
 const typeLabel = (t) => TYPE_LABELS[t] || (t ? t.charAt(0).toUpperCase() + t.slice(1) : '');
@@ -56,7 +56,7 @@ function Row({ title, chips, children }) {
 }
 
 export default function Catalog() {
-  const { catalog, loading, error, isNew } = useCatalog();
+  const { catalog, loading, error, isNew, reload } = useCatalog();
   const [module, setModule] = useState('');
   const [q, setQ] = useState('');
   const seen = useRef(false);
@@ -77,7 +77,7 @@ export default function Catalog() {
   const picked = module || modules[0] || '';
   const entityLabel = (key) => (catalog?.entities || []).find((e) => e.key === key)?.label || key;
 
-  if (error) return <ErrorBanner message="The catalog could not be loaded." onRetry={() => window.location.reload()} />;
+  if (error) return <ErrorBanner message="The catalog could not be loaded." onRetry={reload} />;
   if (loading || !catalog) return <SkeletonBlocks count={3} height={120} />;
 
   const needle = q.trim().toLowerCase();
@@ -108,6 +108,7 @@ export default function Catalog() {
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} data-slash-search="" aria-label="Search the catalog"
           placeholder="Search triggers, fields, actions and lists" style={{ flex: 1, border: 'none', background: 'transparent', font: 'inherit', fontSize: 13, minWidth: 0 }} />
       </div>
+      {/* .wf-catalog-grid (style.css): one column at phone width. */}
       <div className="wf-catalog-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 190px) minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
         <nav aria-label="Modules" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {modules.map((m) => {

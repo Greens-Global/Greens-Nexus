@@ -11,12 +11,16 @@ import { useRole } from '../contexts/RoleContext';
 import { useCatalog } from './lib/useCatalog';
 import { describeTrigger } from './lib/text';
 import { moduleLabel, sortModules, blankLabel } from './lib/modules';
+import { errorText } from './lib/errors';
 
 function Chip({ children, tone = 'muted' }) {
   return <span className={`status-badge pill-${tone}`} style={{ fontWeight: 600 }}>{children}</span>;
 }
 
-// The Use Template popup: a name and the company it runs for.
+// The Use Template popup: a name and the company it runs for. A Global
+// Admin may pick Every Company; anyone else starts on Your Company ('' -
+// the server resolves the owner's own scope, as New Workflow does) and may
+// pick one of the companies they can see.
 function UseTemplateModal({ template, onClose, onCreated }) {
   const { myRole } = useRole();
   const everyCompany = myRole === 'owner';
@@ -31,27 +35,25 @@ function UseTemplateModal({ template, onClose, onCreated }) {
       if (!live) return;
       const list = Array.isArray(rows) ? rows : [];
       setCompanies(list);
-      if (!everyCompany && list.length) setCompanyId(list[0].id);
     }).catch(() => { if (live) setCompanies([]); });
     return () => { live = false; };
-  }, [everyCompany]);
+  }, []);
 
   async function create() {
     const trimmed = name.trim();
     if (!trimmed) { setErr('Give the workflow a name.'); return; }
-    if (!everyCompany && !companyId) { setErr('Pick the company it runs for.'); return; }
     setBusy(true); setErr('');
     try {
       const wf = await api.wfUseTemplate(template.key, { name: trimmed, companyId });
       onCreated(wf);
-    } catch (e) { setErr(e?.message || 'The template could not be used.'); setBusy(false); }
+    } catch (e) { setErr(errorText(e, 'The template could not be used.')); setBusy(false); }
   }
 
   return (
     <Modal title="Use Template" onClose={onClose} isDirty={name.trim() !== (template.name || '')}
       footer={<>
         <button type="button" className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-        <button type="button" className="primary-btn" onClick={create} disabled={busy}>{busy ? 'Creating…' : 'Create Draft'}</button>
+        <button type="button" className="primary-btn" onClick={create} disabled={busy}>{busy ? 'Creating...' : 'Create Draft'}</button>
       </>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
@@ -65,7 +67,7 @@ function UseTemplateModal({ template, onClose, onCreated }) {
         <label style={{ display: 'grid', gap: 6, fontSize: 13, fontWeight: 600 }}>
           Company
           <select className="form-input" value={companyId} onChange={(e) => setCompanyId(e.target.value)} disabled={companies === null}>
-            {everyCompany && <option value="">Every company</option>}
+            <option value="">{everyCompany ? 'Every Company' : 'Your Company'}</option>
             {(companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>

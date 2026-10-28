@@ -3,7 +3,9 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 
 // Render-smoke for Workflows > Templates: the gallery groups by module with
 // the trigger sentence and the blanks, Use Template asks for a name and a
-// company and then opens the new draft, and an empty list says so.
+// company (Every Company for a Global Admin, Your Company - the owner's own
+// scope - for anyone else) and then opens the new draft, and an empty list
+// says so.
 
 const wfTemplates = vi.fn();
 const wfUseTemplate = vi.fn();
@@ -64,23 +66,29 @@ describe('Workflows Templates', () => {
     expect(name.value).toBe('Probation Ending Reminder');
     fireEvent.change(name, { target: { value: 'My Probation Reminder' } });
     const company = await screen.findByLabelText('Company');
-    // A Global Admin may pick Every company; a company is listed by name.
-    expect(within(company).getByRole('option', { name: 'Every company' })).toBeTruthy();
+    // A Global Admin may pick Every Company; a company is listed by name.
+    expect(within(company).getByRole('option', { name: 'Every Company' })).toBeTruthy();
     fireEvent.change(company, { target: { value: 'c2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create Draft' }));
     await vi.waitFor(() => expect(wfUseTemplate).toHaveBeenCalledWith('probation', { name: 'My Probation Reminder', companyId: 'c2' }));
     await vi.waitFor(() => expect(go).toHaveBeenCalledWith('wf:w9'));
   });
 
-  it('keeps Every company off the list for someone who is not a Global Admin', async () => {
+  it('starts someone who is not a Global Admin on Your Company, never the first company listed', async () => {
     roleState.myRole = 'manager';
     wfTemplates.mockResolvedValue(TEMPLATES);
+    wfUseTemplate.mockResolvedValue({ id: 'w9' });
     render(<Templates go={vi.fn()} />);
     await screen.findByText('Probation Ending Reminder');
     fireEvent.click(screen.getAllByRole('button', { name: 'Use Template' })[0]);
     const company = await screen.findByLabelText('Company');
     await vi.waitFor(() => expect(within(company).getByRole('option', { name: 'Greens Global' })).toBeTruthy());
-    expect(within(company).queryByRole('option', { name: 'Every company' })).toBeNull();
+    expect(within(company).queryByRole('option', { name: 'Every Company' })).toBeNull();
+    expect(within(company).getByRole('option', { name: 'Your Company' })).toBeTruthy();
+    expect(company.value).toBe('');
+    // Create Draft sends '' - the server resolves the owner's own scope.
+    fireEvent.click(screen.getByRole('button', { name: 'Create Draft' }));
+    await vi.waitFor(() => expect(wfUseTemplate).toHaveBeenCalledWith('probation', { name: 'Probation Ending Reminder', companyId: '' }));
   });
 
   it('shows an empty state when there are no templates', async () => {
