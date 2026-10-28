@@ -122,6 +122,7 @@ export default function CompanyHolidayCalendar({ entity, toastOk, toastErr }) {
   };
   const addPublic = (s, day) => run(`add-${s.name}`, () => api.createCompanyHoliday(entity.id, {
     date: day, name: s.name, source: 'public', country_code: country, type: s.suggestedType || 'mandatory',
+    actual_date: day !== s.date ? s.date : '',
   }), 'Could not add the holiday.');
   const removePublic = (_s, row) => run(`remove-${row.id}`, () => api.deleteCompanyHoliday(entity.id, row.id, country), 'Could not remove the holiday.');
   const movePublic = (_s, row, day) => run(`date-${row.id}`, () => api.updateCompanyHoliday(entity.id, row.id, { date: day }, year), 'Could not change the date.');

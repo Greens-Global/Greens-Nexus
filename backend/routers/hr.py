@@ -3869,6 +3869,9 @@ class CompanyHolidayIn(BaseModel):
     source:       Optional[str] = "manual"   # "manual" | "public"
     country_code: Optional[str] = ""
     type:         Optional[str] = "mandatory"   # "mandatory" | "optional" | "half_day"
+    # The holiday's real date when the company takes it on another day (Oct 29
+    # 2026: Independence Day 07/04/2027 is a Sunday, taken Monday 07/05/2027).
+    actual_date:  Optional[str] = ""
 
 
 class CompanyHolidayPatchIn(BaseModel):
@@ -3910,7 +3913,8 @@ def _require_company_in_scope(user: dict, db: Session, entity_id: str, *, must_e
 
 
 def _create_or_merge_holiday(db: Session, entity_id: str, *, date_: str, name_: str,
-                             source_: str, code: str, type_: str, actor_email: str) -> HrCompanyHoliday:
+                             source_: str, code: str, type_: str, actor_email: str,
+                             actual_date_: str = "") -> HrCompanyHoliday:
     """The shared "add one of the company's own holidays" path. A public
     holiday picked for a second country merges onto the existing row (see
     create_company_holiday). Policy rows (source "policy") never merge."""
@@ -3929,9 +3933,12 @@ def _create_or_merge_holiday(db: Session, entity_id: str, *, date_: str, name_: 
                 existing.updated_at = now
                 db.flush()
             return existing
+    actual = (actual_date_ or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", actual) or actual == date_:
+        actual = ""
     row = HrCompanyHoliday(
         id=str(uuid.uuid4()), company_id=entity_id, date=date_, name=name_,
-        source=source_, country_code=code, type=type_,
+        source=source_, country_code=code, type=type_, actual_date=actual,
         created_by=actor_email, created_at=now, updated_at=now,
     )
     db.add(row)
@@ -3965,7 +3972,8 @@ def create_company_holiday(entity_id: str, body: CompanyHolidayIn,
     row = _create_or_merge_holiday(
         db, entity_id, date_=body.date.strip(), name_=body.name.strip(),
         source_=body.source or "manual", code=(body.country_code or "").strip().upper(),
-        type_=body.type or "mandatory", actor_email=user["email"])
+        type_=body.type or "mandatory", actor_email=user["email"],
+        actual_date_=body.actual_date or "")
     _holiday_audit(db, user, "Added a company holiday", "company_holiday", row.id,
                    {"company": entity_id, "date": row.date, "name": row.name, "type": row.type,
                     "countries": row.country_code})

@@ -464,3 +464,29 @@ class PolicyCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OwnHolidayRealDateCase(unittest.TestCase):
+    """A company's own weekend holiday taken on another day keeps its real date
+    (Oct 29 2026), so the calendar can say what was moved."""
+
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def test_own_holiday_keeps_its_real_date(self):
+        db = database.SessionLocal()
+        try:
+            import routers.hr as hr
+            row = hr._create_or_merge_holiday(
+                db, "own-co-realdate", date_="2027-07-05", name_="Independence Day", source_="public",
+                code="US", type_="mandatory", actor_email="hr@x.com", actual_date_="2027-07-04")
+            db.commit()
+            self.assertEqual(row.actual_date, "2027-07-04")
+            same = hr._create_or_merge_holiday(
+                db, "own-co-realdate", date_="2027-12-31", name_="Office Party", source_="manual",
+                code="", type_="mandatory", actor_email="hr@x.com", actual_date_="2027-12-31")
+            db.commit()
+            self.assertEqual(same.actual_date, "")
+        finally:
+            db.close()
