@@ -11,6 +11,7 @@ const api = {
   wfOverview: vi.fn(), wfList: vi.fn(), wfCreate: vi.fn(), wfStatus: vi.fn(), wfDuplicate: vi.fn(),
   wfAutomations: vi.fn(), wfTaskRuleEnabled: vi.fn(), wfRuns: vi.fn(), wfRunGet: vi.fn(),
   wfRunReplay: vi.fn(), wfRunCancel: vi.fn(), wfPauseAll: vi.fn(), wfCatalog: vi.fn(),
+  wfTemplates: vi.fn(), wfCatalogSeen: vi.fn(), wfGet: vi.fn(), getEntities: vi.fn(),
 };
 vi.mock('../api', () => ({ api: Object.fromEntries(Object.keys(api).map((k) => [k, (...a) => api[k](...a)])) }));
 
@@ -221,14 +222,18 @@ describe('Workflows', () => {
     await waitFor(() => expect(go).toHaveBeenCalledWith('runs'));
   });
 
-  it('shows the Templates and Catalog placeholders and a missing builder honestly', async () => {
+  it('routes the Templates, Catalog and builder subs to their screens, never blank', async () => {
     api.wfOverview.mockResolvedValue(EMPTY_OVERVIEW);
+    api.wfTemplates.mockResolvedValue([]);
+    api.wfCatalog.mockResolvedValue({ entities: [], events: [], actions: [], listSources: [], operators: {}, filters: [], newSince: [] });
+    api.wfCatalogSeen.mockResolvedValue({});
+    api.wfGet.mockReturnValue(new Promise(() => {}));
     const { rerender } = render(<Workflows activeSub="templates" onSubChange={vi.fn()} />);
-    expect(await screen.findByText(/Templates is coming in this release/)).toBeTruthy();
+    expect(await screen.findByText(/No Templates Yet/)).toBeTruthy();
     rerender(<Workflows activeSub="catalog" onSubChange={vi.fn()} />);
-    expect(screen.getByText(/The catalog browser is coming in this release/)).toBeTruthy();
+    await waitFor(() => expect(api.wfCatalog).toHaveBeenCalled());
+    expect(document.body.textContent.length).toBeGreaterThan(0);
     rerender(<Workflows activeSub="wf:w1" onSubChange={vi.fn()} />);
-    // Either the builder (when its file is present) or the placeholder - never blank.
-    await waitFor(() => expect(document.body.textContent).toMatch(/builder|Builder|Loading|Opening/));
+    await waitFor(() => expect(document.body.textContent).toMatch(/builder|Builder|Loading|Opening|Workflow/));
   });
 });

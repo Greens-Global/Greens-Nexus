@@ -3185,7 +3185,8 @@ export const api = {
   wfList: (params = {}) => req(`/workflows${_wfQs(params)}`),
   wfCreate: (data) => req("/workflows", { method: "POST", body: JSON.stringify(data) }),
   wfGet: (id) => req(`/workflows/${encodeURIComponent(id)}`),
-  wfSaveDraft: (id, data) => req(`/workflows/${encodeURIComponent(id)}/draft`, { method: "PUT", body: JSON.stringify(data) }),
+  // The draft plus the name / scope / run-as the builder edits beside it (PUT body {definition, name?, companyId?, runAs?}).
+  wfSaveDraft: (id, definition, meta = {}) => req(`/workflows/${encodeURIComponent(id)}/draft`, { method: "PUT", body: JSON.stringify({ ...meta, definition }) }),
   wfPublish: (id, data = {}) => req(`/workflows/${encodeURIComponent(id)}/publish`, { method: "POST", body: JSON.stringify(data) }),
   wfStatus: (id, data) => req(`/workflows/${encodeURIComponent(id)}/status`, { method: "POST", body: JSON.stringify(data) }),
   wfReown: (id, data) => req(`/workflows/${encodeURIComponent(id)}/reown`, { method: "POST", body: JSON.stringify(data) }),

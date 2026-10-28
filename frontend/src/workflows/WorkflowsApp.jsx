@@ -19,16 +19,13 @@ import Automations from './Automations';
 import Overview from './Overview';
 import Runs from './Runs';
 import WorkflowList from './WorkflowList';
+import Templates from './Templates';
+import Catalog from './Catalog';
 import { parseSub, tabFor } from './lib/sub';
 import { Card, FONT, errorText } from './ui';
 
-// The builder is built on its own branch (Task 13) and lands beside this
-// file. A glob resolves it when it is there and stays an empty map when it is
-// not, so this shell builds either way; the dynamic import keeps it in its
-// own chunk exactly as lazy(() => import('./Builder')) would.
-const builderModules = import.meta.glob('./Builder.jsx');
-const loadBuilder = builderModules['./Builder.jsx'];
-const Builder = loadBuilder ? lazy(loadBuilder) : null;
+// The builder is its own chunk: nobody downloads it until a workflow opens.
+const Builder = lazy(() => import('./Builder'));
 
 const TABS = [
   { key: 'overview', label: 'Overview', Icon: LayoutDashboard },
@@ -77,14 +74,14 @@ export default function WorkflowsApp({ sub, go }) {
     case 'runs': screen = <Runs go={go} />; break;
     case 'run': screen = <Runs go={go} openRunId={parsed.id} />; break;
     case 'builder':
-      screen = Builder ? (
+      screen = (
         <Suspense fallback={<ViewLoading label="Opening the builder" />}>
           <Builder id={parsed.id} go={go} />
         </Suspense>
-      ) : <ComingSoon what="The builder" />;
+      );
       break;
-    case 'templates': screen = <ComingSoon what="Templates" />; break;
-    case 'catalog': screen = <ComingSoon what="The catalog browser" />; break;
+    case 'templates': screen = <Templates go={go} />; break;
+    case 'catalog': screen = <Catalog go={go} />; break;
     default:
       screen = <Overview overview={overview} loading={loading && !overview} error={error && !overview} reload={() => { setLoading(!overview); load(); }} go={go} />;
   }
@@ -110,11 +107,3 @@ export default function WorkflowsApp({ sub, go }) {
   );
 }
 
-function ComingSoon({ what }) {
-  return (
-    <Card style={{ padding: '28px 20px', textAlign: 'center' }}>
-      <div style={{ fontSize: 15, fontWeight: 700 }}>{what} is coming in this release</div>
-      <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>This part of Workflows is being finished and lands with the same release.</div>
-    </Card>
-  );
-}

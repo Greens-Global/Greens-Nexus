@@ -106,7 +106,7 @@ export default function Catalog() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--line)', borderRadius: 10, padding: '6px 12px', background: 'var(--card)' }}>
         <Search size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} aria-hidden="true" />
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} data-slash-search="" aria-label="Search the catalog"
-          placeholder="Search triggers, fields, actions and lists" style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', font: 'inherit', fontSize: 13, minWidth: 0 }} />
+          placeholder="Search triggers, fields, actions and lists" style={{ flex: 1, border: 'none', background: 'transparent', font: 'inherit', fontSize: 13, minWidth: 0 }} />
       </div>
       <div className="wf-catalog-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 190px) minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
         <nav aria-label="Modules" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
