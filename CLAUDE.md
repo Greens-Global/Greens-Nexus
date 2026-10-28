@@ -445,6 +445,24 @@ keep the diff minimal.
   A finalized month carries `indiaPolicy` in its snapshot and never
   re-prices; everyone else keeps the old fixed-pay rules exactly.
 
+- **Workflows (Oct 28 2026, `backend/workflows/`, `frontend/src/workflows/`,
+  guide `docs/Workflows.md`)** is the ONE cross-module automation engine.
+  A module tells it what happened with one `workflows.emit(db, "<key>",
+  subject=row, actor=..., changes=...)` line at its choke point (the service
+  function, not each route; inside the transaction, never `after_commit`)
+  and never builds a second queue, bus or engine; entities, events, actions
+  and list sources are registered in `workflows/packs/<module>.py`, and the
+  builder draws only what `GET /workflows/catalog` returns. The committed
+  `workflows/catalog.lock.json` must be regenerated whenever a registration
+  changes (`c.load_packs(); c.write_lock(...)`, see the guide) - the catalog
+  test fails otherwise. Tasks automation rules stay the in-request engine
+  for task edits and are listed under Workflows > Automations. Every action
+  runs as the workflow's owner; no chaining by default (`caused_by_run`,
+  depth 2 at most). Eight tables (`workflows`, `workflow_versions`,
+  `workflow_events`, `workflow_runs`, `workflow_run_steps`,
+  `workflow_waits`, `workflow_approvals`, `workflow_subject_marks`) need RLS
+  on dev and prod - run `get_advisors` after each release.
+
 ## Asana — removed (Sep 2026)
 
 The Asana workspace is gone and the two-way sync, import, OAuth, webhook and

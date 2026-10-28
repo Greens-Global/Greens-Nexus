@@ -220,6 +220,10 @@ function _detailToMessage(detail, status) {
     if (parts.length) return parts.join('; ');
   } else if (typeof detail === 'string' && detail) {
     return detail;
+  } else if (detail && Array.isArray(detail.problems)) {
+    // A workflow definition's problems ({problems: [{path, message}]}, Workflows publish / test / restore)
+    const parts = detail.problems.map(p => (typeof p === 'string' ? p : p?.message || '')).filter(Boolean);
+    return parts.length ? parts.join('; ') : 'Fix the problems shown before continuing';
   } else if (detail && typeof detail === 'object' && detail.message) {
     // Structured error body ({ code, message, ... }) - e.g. the timecard
     // unresolved-exceptions block. Callers can still read err.detail for the rest.
@@ -367,11 +371,13 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
     return req(path, options, attempt + 1, tokenRefreshed);
   }
   if (!res.ok) {
-    let detail;
-    try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+    let detail, body;
+    try { body = await res.json(); detail = body?.detail; } catch { /* not JSON */ }
     const err = new Error(_detailToMessage(detail, res.status));
     err.status = res.status;
     err.detail = detail;
+    // err.body: a structured detail as is ({problems} from a workflow publish), else the JSON body ({detail})
+    err.body = (detail && typeof detail === 'object' && !Array.isArray(detail)) ? detail : body;
     if (res.status >= 500) _setBackendDown(true);
     throw err;
   }
@@ -3219,7 +3225,55 @@ export const api = {
   extraTimeWithdraw: (id) => req(`/extra-time/claims/${encodeURIComponent(id)}/withdraw`, { method: "POST" }),
   extraTimeDecide: (id, data) => req(`/extra-time/claims/${encodeURIComponent(id)}/decide`, { method: "POST", body: JSON.stringify(data) }),
   extraTimeQueue: () => req("/extra-time/queue"),
+  // Workflows (Oct 28 2026, routers/workflows.py): the module's every route,
+  // one wf* function each. Query strings drop empty values so the server
+  // sees only the filters the person set.
+  wfCatalog: () => req("/workflows/catalog"),
+  wfCatalogSeen: () => req("/workflows/catalog/seen", { method: "POST" }),
+  wfList: (params = {}) => req(`/workflows${_wfQs(params)}`),
+  wfCreate: (data) => req("/workflows", { method: "POST", body: JSON.stringify(data) }),
+  wfGet: (id) => req(`/workflows/${encodeURIComponent(id)}`),
+  // The draft plus the name / scope / run-as the builder edits beside it (PUT body {definition, name?, companyId?, runAs?}).
+  wfSaveDraft: (id, definition, meta = {}) => req(`/workflows/${encodeURIComponent(id)}/draft`, { method: "PUT", body: JSON.stringify({ ...meta, definition }) }),
+  wfPublish: (id, data = {}) => req(`/workflows/${encodeURIComponent(id)}/publish`, { method: "POST", body: JSON.stringify(data) }),
+  wfStatus: (id, data) => req(`/workflows/${encodeURIComponent(id)}/status`, { method: "POST", body: JSON.stringify(data) }),
+  wfReown: (id, data) => req(`/workflows/${encodeURIComponent(id)}/reown`, { method: "POST", body: JSON.stringify(data) }),
+  wfDuplicate: (id, data = {}) => req(`/workflows/${encodeURIComponent(id)}/duplicate`, { method: "POST", body: JSON.stringify(data) }),
+  wfVersions: (id) => req(`/workflows/${encodeURIComponent(id)}/versions`),
+  wfVersion: (id, v) => req(`/workflows/${encodeURIComponent(id)}/versions/${encodeURIComponent(v)}`),
+  wfRestore: (id, v) => req(`/workflows/${encodeURIComponent(id)}/versions/${encodeURIComponent(v)}/restore`, { method: "POST" }),
+  wfDiff: (id, a, b) => req(`/workflows/${encodeURIComponent(id)}/diff${_wfQs({ a, b })}`),
+  wfRecentEvents: (id) => req(`/workflows/${encodeURIComponent(id)}/recent-events`),
+  wfTest: (id, data = {}) => req(`/workflows/${encodeURIComponent(id)}/test`, { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
+  wfPreviewSchedule: (id) => req(`/workflows/${encodeURIComponent(id)}/preview-schedule`, { method: "POST" }),
+  wfRun: (id, data) => req(`/workflows/${encodeURIComponent(id)}/run`, { method: "POST", body: JSON.stringify(data) }),
+  wfRuns: (params = {}) => req(`/workflows/runs${_wfQs(params)}`),
+  wfRunGet: (id) => req(`/workflows/runs/${encodeURIComponent(id)}`),
+  wfRunReplay: (id) => req(`/workflows/runs/${encodeURIComponent(id)}/replay`, { method: "POST" }),
+  wfRunCancel: (id) => req(`/workflows/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  wfOverview: () => req("/workflows/overview"),
+  wfTemplates: () => req("/workflows/templates"),
+  wfUseTemplate: (key, data = {}) => req(`/workflows/templates/${encodeURIComponent(key)}/use`, { method: "POST", body: JSON.stringify(data) }),
+  wfSaveAsTemplate: (id, data = {}) => req(`/workflows/${encodeURIComponent(id)}/save-as-template`, { method: "POST", body: JSON.stringify(data) }),
+  wfAutomations: () => req("/workflows/automations"),
+  wfTaskRuleEnabled: (id, enabled) => req(`/workflows/automations/task-rules/${encodeURIComponent(id)}/enabled`, { method: "POST", body: JSON.stringify({ enabled: !!enabled }) }),
+  wfSettings: (company = "") => req(`/workflows/settings${_wfQs({ company })}`),
+  wfSettingsSave: (data, company = "") => req(`/workflows/settings${_wfQs({ company })}`, { method: "PUT", body: JSON.stringify(data) }),
+  wfPauseAll: (data) => req("/workflows/settings/pause-all", { method: "POST", body: JSON.stringify(data) }),
+  wfDescribe: (data) => req("/workflows/describe", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
+  wfApprovalDecide: (id, data) => req(`/workflows/approvals/${encodeURIComponent(id)}/decide`, { method: "POST", body: JSON.stringify(data) }),
+  // Built-in automation off switch (Oct 28 2026): Global Admins only, one org-wide list.
+  wfJobOff: (key, off) => req(`/workflows/automations/jobs/${encodeURIComponent(key)}/off`, { method: "POST", body: JSON.stringify({ off: !!off }) }),
 };
+
+// Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with
+// empty / null / undefined values left out.
+function _wfQs(params) {
+  const qs = new URLSearchParams();
+  Object.entries(params || {}).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== "") qs.set(k, String(v)); });
+  const s = qs.toString();
+  return s ? `?${s}` : "";
+}
 
 // Build Mode's network buffer (Oct 24 2026): every request through req()
 // reports { method, path, status, ms, at } to the listeners - status 0 when

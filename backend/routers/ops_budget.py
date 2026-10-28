@@ -157,7 +157,7 @@ def load_file(load_id: str, user: dict = Depends(require_admin), db: Session = D
 @router.post("/snapshot")
 def snapshot_now(user: dict = Depends(require_admin)):
     """Write this month's Cubby actuals now instead of waiting for the next run."""
-    return {"results": ops_budget_cubby.snapshot_all()}
+    return {"results": ops_budget_cubby.snapshot_all("manual")}
 
 
 @router.get("/hummingbird")

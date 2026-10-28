@@ -35,6 +35,7 @@ from database import get_db
 from auth import (get_current_user, require_module_grant, _module_level, _MODULE_LEVEL_RANK,
                   company_scope, company_ok, company_of_email_map)
 from notify_company import notification_company
+import job_switch
 
 router = APIRouter(
     prefix="/credvault",
@@ -1509,6 +1510,8 @@ def rotation_reminders(db: Session) -> int:
 
 def run_daily_rotation_reminders() -> int:
     """Own session + commit, called from reminders_loop in a thread."""
+    if job_switch.off("credvault_rotation"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     db = SessionLocal()
     try:

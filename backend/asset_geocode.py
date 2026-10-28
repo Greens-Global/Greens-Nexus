@@ -24,6 +24,7 @@ from typing import Optional
 
 from database import SessionLocal
 from models import PropertyAsset, PropertyWorkspaceMeta
+import job_switch
 
 PACE_SECONDS = 1.1          # Nominatim: at most one request a second (enforced by nominatim_pace)
 BATCH = 25                  # assets per pass
@@ -120,6 +121,8 @@ def geocode_pending(db, fetch=None, limit: int = BATCH, pace=None) -> int:
 
 
 def run_pass() -> int:
+    if job_switch.off("asset_geocode"):   # Workflows > Automations switch
+        return 0
     db = SessionLocal()
     try:
         return geocode_pending(db)

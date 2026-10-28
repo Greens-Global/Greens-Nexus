@@ -322,6 +322,7 @@ MODULE_API_PREFIXES = {
     "credvault":          ("/credvault",),
     "egnyte":             ("/egnyte",),
     "workforce-scorecard": ("/workforce-scorecard",),   # endpoints self-gate on the grant + scope
+    "workflows":          ("/workflows",),              # Workflows (Oct 28 2026); /workflows/approvals/* self-gates per approver
 }
 
 

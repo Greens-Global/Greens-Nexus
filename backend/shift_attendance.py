@@ -90,6 +90,7 @@ import shift_expect
 from app_url import app_url
 from database import SessionLocal
 from notify_rollup import resolve_rollup, retitle_resolved, upsert_rollup
+import job_switch
 
 SCAN_SEC = 60
 NOSHOW_WINDOW_HOURS = 6     # a start older than this is no longer watched
@@ -660,6 +661,10 @@ def noshow_scan(db: Session, now_utc: datetime = None) -> dict:
             db.add(a)
             by_key[(rcpt, gkey, work_date)] = a
             summary["alerts"] += 1
+            # Workflows (Oct 28 2026): a NEW alert is the event; a refresh is not.
+            import workflows
+            workflows.emit(db, "shift.no_show", subject=a, company_id=company,
+                           extra={"team": gname, "title": title, "people": lines})
         else:
             if a.resolved_at or "":
                 # The group-day filled again after it emptied (a later start
@@ -759,6 +764,8 @@ def _zone_of(day_rows: list, em: str, presets: dict, settings, people: dict) -> 
 
 
 def _tick() -> dict:
+    if job_switch.off("noshow"):   # Workflows > Automations switch
+        return {}
     db = SessionLocal()
     try:
         return noshow_scan(db)

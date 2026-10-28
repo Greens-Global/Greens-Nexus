@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import salary_advance as sa
+import workflows
 from auth import get_current_user
 from currency import is_currency
 from database import get_db
@@ -201,6 +202,7 @@ def request_advance(body: RequestIn, user: dict = Depends(get_current_user), db:
     adv = _new(db, me, amount, cur, reason, n, "requested", "request", me)
     sa.log(adv, me, "requested", reason)
     db.add(adv)
+    workflows.emit(db, "salary_advance.requested", subject=adv, actor=me)
     sa.tell_hr(db, adv, f"Salary Advance to Approve - {adv.employee_name}",
                f"{adv.employee_name} asked for a salary advance of {sa.money(amount, cur)}, repaid over "
                f"{n} pay period{'' if n == 1 else 's'}: {reason}", actor=me)
@@ -235,6 +237,8 @@ def grant(body: GrantIn, user: dict = Depends(get_current_user), db: Session = D
     adv.decided_by, adv.decided_at = me, sa._now()
     sa.log(adv, me, "granted", reason)
     db.add(adv)
+    workflows.emit(db, "salary_advance.decided", subject=adv, actor=me, changes={"status": ("requested", "approved")},
+                   extra={"decision": "grant", "note": reason, "installments": n})
     who = sa.name_of(db, me)
     sa.tell_person(db, adv, "Salary Advance Approved",
                    f"{who} granted you a salary advance of {sa.money(amount, cur)}, repaid over {n} pay "
@@ -284,6 +288,8 @@ def decide(aid: str, body: DecideIn, user: dict = Depends(get_current_user), db:
                        f"pay period{'' if n == 1 else 's'} starting the pay period after it is paid out.", actor=me)
         sa.tell_hr(db, adv, f"Salary Advance to Pay Out - {adv.employee_name}",
                    f"{who} approved {sa.money(adv.amount, adv.currency)}. Mark it Paid Out once it is paid.", actor=me)
+    workflows.emit(db, "salary_advance.decided", subject=adv, actor=me, changes={"status": ("requested", adv.status)},
+                   extra={"decision": body.action, "note": note, "installments": int(adv.installments or 1)})
     db.commit()
     return _out(db, adv, user)
 

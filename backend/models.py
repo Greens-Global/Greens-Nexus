@@ -8959,3 +8959,213 @@ class WorkersCompRate(Base):
     note           = Column(String, default="")
     set_by         = Column(String, default="")
     set_at         = Column(String, default="")                       # ISO timestamp, UTC
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Workflows (Neil, Oct 28 2026, docs/superpowers/specs/2026-10-28-workflows-design.md)
+# "When X happens, do Y" across every module: a catalog of entities, events
+# and actions (backend/workflows/), a transactional event outbox drained by
+# the leader-only runner, and a run log a manager can read back. Ids are
+# uuid strings, times ISO UTC strings, dates YYYY-MM-DD. Eight new tables,
+# every one with an explicit RLS line in main.py's Postgres list - the
+# backend reads them through the privileged DATABASE_URL, the anon key
+# must not. workflow_events and workflow_run_steps are NOISE for the
+# field-level audit (audit_capture.py).
+# ─────────────────────────────────────────────────────────────────────────────
+class Workflow(Base):
+    """One automation: a trigger, conditions, ordered steps and settings, with
+    an owner whose identity every action runs as (run_as 'owner'), or
+    'nexus' for the system actor a Global Admin may pick (messages only).
+    The published definition lives in trigger / conditions / steps /
+    settings (the plan listed three of the four; `conditions` has its own
+    column so the pinned trigger shape stays flat); unpublished edits sit in
+    `draft` (the whole definition) until Publish copies them over, bumps
+    `version` and writes a WorkflowVersion. `company_id` '' = every company.
+    Status: draft | active | paused | needs_attention | archived.
+    `tested_hash` is the definition hash of the last Test run; Publish is
+    refused while it differs from the draft's.
+    RELEASE: new table - `ALTER TABLE workflows ENABLE ROW LEVEL SECURITY` on
+    dev AND prod (main.py's Postgres list carries the line)."""
+    __tablename__ = "workflows"
+    id             = Column(String, primary_key=True)
+    name           = Column(String, default="")
+    description    = Column(String, default="")
+    owner_email    = Column(String, default="", index=True)
+    run_as         = Column(String, default="owner")           # owner | nexus
+    company_id     = Column(String, default="", index=True)    # '' = every company
+    status         = Column(String, default="draft", index=True)
+    version        = Column(Integer, default=0)                # current published version, 0 = never published
+    trigger        = Column(JSON, default=dict)
+    conditions     = Column(JSON, default=list)
+    steps          = Column(JSON, default=list)
+    settings       = Column(JSON, default=dict)
+    draft          = Column(JSON, default=None)                # the whole unpublished definition, None = none
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
+    last_run_at    = Column(String, default="")
+    run_count      = Column(Integer, default=0)
+    fail_count     = Column(Integer, default=0)
+    paused_reason  = Column(String, default="")
+    paused_by      = Column(String, default="")
+    paused_at      = Column(String, default="")
+    archived_at    = Column(String, default="")
+    last_tested_at = Column(String, default="")
+    tested_hash    = Column(String, default="")
+
+
+class WorkflowVersion(Base):
+    """Every Publish is a version: the whole definition as published, who and
+    when. Runs name the version they ran; Restore publishes an old one as a
+    new version. RELEASE: new table - `ALTER TABLE workflow_versions ENABLE
+    ROW LEVEL SECURITY` on dev AND prod."""
+    __tablename__ = "workflow_versions"
+    id           = Column(String, primary_key=True)
+    workflow_id  = Column(String, default="", index=True)
+    version      = Column(Integer, default=0)
+    definition   = Column(JSON, default=dict)                  # {"v":1, trigger, conditions, steps, settings}
+    published_by = Column(String, default="")
+    published_at = Column(String, default="")
+    note         = Column(String, default="")
+
+
+class WorkflowEvent(Base):
+    """The outbox. A module's `workflows.emit(...)` writes one row INSIDE its
+    own transaction (on session.connection(), the audit_capture pattern), so
+    a rollback drops it with everything else; the leader's runner claims
+    rows whose `processed_at` is '' (never NULL - the String convention).
+    `caused_by_run` / `depth` tag an event a run caused (no chaining by
+    default, depth never past 2). `wanted` = 1 when an active workflow
+    subscribed to the key at write time: a 7-day-old wanted row that was
+    never processed is reported, an unwanted one is purged quietly.
+    High-churn: NOISE for the audit. RELEASE: new table - `ALTER TABLE
+    workflow_events ENABLE ROW LEVEL SECURITY` on dev AND prod."""
+    __tablename__ = "workflow_events"
+    id            = Column(String, primary_key=True)
+    key           = Column(String, default="", index=True)      # "employee.status_changed"
+    entity        = Column(String, default="")
+    subject_id    = Column(String, default="")
+    company_id    = Column(String, default="", index=True)
+    actor         = Column(String, default="")
+    payload       = Column(JSON, default=dict)                  # {"subject": {fields}, "changes": {f: {"from","to"}}, "extra": {}, "actor"}
+    caused_by_run = Column(String, default="")                  # '' or the run id that caused it
+    depth         = Column(Integer, default=0)                  # 0 = a person's own change
+    at            = Column(String, default="")
+    processed_at  = Column(String, default="", index=True)      # '' = waiting for the runner
+    attempts      = Column(Integer, default=0)
+    error         = Column(String, default="")
+    wanted        = Column(Integer, default=0)
+
+
+class WorkflowRun(Base):
+    """One execution of one workflow for one event / schedule tick / date /
+    manual run. Status: running | waiting | succeeded | failed | skipped |
+    cancelled | test. `dedupe_key` keeps a schedule or date trigger to one
+    run per period or per subject-date (claimed by insert-or-skip).
+    `replay_of` names the failed run a Replay started from. RELEASE: new
+    table - `ALTER TABLE workflow_runs ENABLE ROW LEVEL SECURITY` on dev AND
+    prod."""
+    __tablename__ = "workflow_runs"
+    id            = Column(String, primary_key=True)
+    workflow_id   = Column(String, default="", index=True)
+    workflow_name = Column(String, default="")
+    version       = Column(Integer, default=0)
+    event_id      = Column(String, default="")
+    trigger_kind  = Column(String, default="")                  # event | schedule | date | manual | replay
+    entity        = Column(String, default="")
+    subject_id    = Column(String, default="")
+    subject_label = Column(String, default="")
+    company_id    = Column(String, default="")
+    status        = Column(String, default="running", index=True)
+    started_at    = Column(String, default="", index=True)
+    finished_at   = Column(String, default="")
+    summary       = Column(String, default="")                  # one English line
+    error         = Column(String, default="")
+    dedupe_key    = Column(String, default="", index=True)
+    replay_of     = Column(String, default="")
+    started_by    = Column(String, default="")                  # who pressed Run / Test / Replay, '' = the runner
+    depth         = Column(Integer, default=0)
+    active_seconds = Column(Float, default=0.0)                 # seconds its actions ran so far (capped at 10 min, spec 6.5)
+
+
+class WorkflowRunStep(Base):
+    """One step of one run: what it was given (input, the resolved params),
+    what it did (output: line, sent, affected) and why it stopped (detail).
+    Status: planned | running | done | skipped | failed | waiting. `attempt`
+    counts retries; (run_id, step_id) is the idempotency key a retried tick
+    checks before doing anything twice. High-churn: NOISE for the audit.
+    RELEASE: new table - `ALTER TABLE workflow_run_steps ENABLE ROW LEVEL
+    SECURITY` on dev AND prod."""
+    __tablename__ = "workflow_run_steps"
+    id          = Column(String, primary_key=True)
+    run_id      = Column(String, default="", index=True)
+    workflow_id = Column(String, default="")
+    step_id     = Column(String, default="")
+    kind        = Column(String, default="")                    # action | if | approval | wait | for_each | stop
+    action      = Column(String, default="")                    # the action key for kind 'action'
+    label       = Column(String, default="")
+    status      = Column(String, default="planned")
+    started_at  = Column(String, default="")
+    finished_at = Column(String, default="")
+    input       = Column(JSON, default=dict)
+    output      = Column(JSON, default=dict)
+    detail      = Column(String, default="")
+    affected    = Column(JSON, default=list)                    # [{"entity","id","label"}]
+    attempt     = Column(Integer, default=0)
+
+
+class WorkflowWait(Base):
+    """The resume queue: a run parked on a Wait, an Ask For Approval or a
+    retry backoff. The runner resumes due rows every tick; an approval
+    decision resumes its row at once. `claimed_at` keeps two ticks off one
+    row. RELEASE: new table - `ALTER TABLE workflow_waits ENABLE ROW LEVEL
+    SECURITY` on dev AND prod."""
+    __tablename__ = "workflow_waits"
+    id          = Column(String, primary_key=True)
+    run_id      = Column(String, default="", index=True)
+    workflow_id = Column(String, default="")
+    step_id     = Column(String, default="")
+    due_at      = Column(String, default="", index=True)
+    kind        = Column(String, default="delay")               # delay | approval | retry
+    state       = Column(JSON, default=dict)
+    claimed_at  = Column(String, default="")
+
+
+class WorkflowApproval(Base):
+    """An Ask For Approval step's question to its approvers, surfaced in the
+    Approvals inbox. mode any | all | sequence; `responses` is
+    [{email, option, note, at}]; `outcome` '' while open, else the chosen
+    option or 'expired'. RELEASE: new table - `ALTER TABLE workflow_approvals
+    ENABLE ROW LEVEL SECURITY` on dev AND prod."""
+    __tablename__ = "workflow_approvals"
+    id            = Column(String, primary_key=True)
+    run_id        = Column(String, default="", index=True)
+    workflow_id   = Column(String, default="")
+    step_id       = Column(String, default="")
+    workflow_name = Column(String, default="")
+    subject_label = Column(String, default="")
+    subject_link  = Column(JSON, default=dict)
+    company_id    = Column(String, default="")
+    approvers     = Column(JSON, default=list)
+    mode          = Column(String, default="any")
+    question      = Column(String, default="")
+    options       = Column(JSON, default=list)
+    responses     = Column(JSON, default=list)
+    outcome       = Column(String, default="", index=True)
+    asked_at      = Column(String, default="")
+    decided_at    = Column(String, default="")
+    remind_days   = Column(Integer, default=0)
+    expire_days   = Column(Integer, default=0)
+    reminded_at   = Column(String, default="")
+
+
+class WorkflowSubjectMark(Base):
+    """When a workflow last ran for a subject - "once per record" and the
+    cooldown read it. Composite key. RELEASE: new table - `ALTER TABLE
+    workflow_subject_marks ENABLE ROW LEVEL SECURITY` on dev AND prod."""
+    __tablename__ = "workflow_subject_marks"
+    workflow_id = Column(String, primary_key=True)
+    entity      = Column(String, primary_key=True)
+    subject_id  = Column(String, primary_key=True)
+    last_run_at = Column(String, default="")

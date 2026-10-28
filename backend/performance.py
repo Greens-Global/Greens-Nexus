@@ -58,6 +58,7 @@ from sqlalchemy.orm import Session
 
 import models
 import scoped_settings
+import job_switch
 
 SETTINGS_KEY = "performance"
 DEFAULTS = {"checkinEveryDays": 14, "oneOnOneReminder": True}
@@ -647,6 +648,8 @@ def _parse_any(s: str) -> Optional[datetime]:
 def reminders_pass(now: Optional[datetime] = None) -> dict:
     """One pass of the loop: keep the next meeting of every recurring 1:1,
     then the two reminders. Its own session; sync - run it in a thread."""
+    if job_switch.off("performance"):   # Workflows > Automations switch
+        return {}
     from database import SessionLocal
     now = now or datetime.now(timezone.utc)
     db = SessionLocal()

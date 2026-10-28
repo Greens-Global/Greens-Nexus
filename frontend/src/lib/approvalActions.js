@@ -92,6 +92,15 @@ export const APPROVAL_ACTIONS = {
     yes: (r, note) => api.addTaskComment(r.id, { body: voteBody('Yes', note) }),
     no: (r, note) => api.addTaskComment(r.id, { body: voteBody('No', note) }),
   },
+  // Workflows (Oct 28 2026): an Ask For Approval step names its own options
+  // (Approve / Decline, or whatever the builder wrote), so EVERY action key
+  // the row offers decides it - POST /workflows/approvals/{id}/decide with
+  // that option. A Proxy answers any key; `open` still opens the run.
+  workflow: new Proxy({}, {
+    get: (_, key) => (typeof key === 'string' && key !== 'open'
+      ? (r, note) => api.wfApprovalDecide(r.id, { option: key, note: note || '' })
+      : undefined),
+  }),
 };
 
 /** Can this action run in place (else the row opens its module)? */
@@ -104,10 +113,12 @@ export function runApproval(row, key, note = '', opts = {}) {
   return Promise.resolve().then(() => fn(row, note || '', opts));
 }
 
-// The first word of the Undo toast once a decision is queued.
+// The first word of the Undo toast once a decision is queued. A workflow's
+// option keys are whatever the builder wrote ("Approve", "Send Back"), so
+// the lookup ignores case and spacing.
 const DONE = { approve: 'Approved', reject: 'Rejected', decline: 'Declined', accept: 'Accepted',
   send_back: 'Sent back', yes: 'Voted Yes', no: 'Voted No' };
-export const doneWord = (key) => DONE[key] || 'Done';
+export const doneWord = (key) => DONE[String(key || '').trim().toLowerCase().replace(/[\s-]+/g, '_')] || 'Done';
 
 /** "Priya Sharma" -> "Priya S."; a team, a place or a role stays as it is. */
 export function shortName(person) {

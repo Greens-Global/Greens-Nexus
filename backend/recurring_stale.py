@@ -62,6 +62,7 @@ from typing import Optional
 
 import models
 from database import SessionLocal
+import job_switch
 
 SETTINGS_KEY = "acct_recurring_settings"
 LAST_CHECK_KEY = "acct_recurring_last_check"
@@ -471,7 +472,8 @@ async def recurring_stale_loop():
     await asyncio.sleep(900)  # let startup and the leasing sync settle
     while True:
         try:
-            if accounting._ACCT_BASE and accounting._ACCT_KEY:
+            if accounting._ACCT_BASE and accounting._ACCT_KEY \
+                    and not await asyncio.to_thread(job_switch.off, "recurring_stale"):   # Workflows > Automations switch
                 out = await check()
                 print(f"[recurring-stale] {out}")
         except Exception as e:  # noqa: BLE001 - tomorrow tries again

@@ -51,6 +51,7 @@ import models
 from auth import hr_scope, is_team_scope, require_module_grant
 from database import get_db
 from routers import accounting as acct
+import job_switch
 
 router = APIRouter(prefix="/hr/intacct-codes", tags=["hr"])
 
@@ -448,6 +449,8 @@ def run_nightly(db: Session, day: str = "", fetch=None) -> dict:
 
 def nightly_tick(now: Optional[datetime] = None, fetch=None) -> Optional[dict]:
     """One check of the loop: run once a day after NIGHTLY_HOUR_UTC."""
+    if job_switch.off("employee_code_sync"):   # Workflows > Automations switch
+        return None
     from database import SessionLocal
     now = now or datetime.now(timezone.utc)
     if now.hour < NIGHTLY_HOUR_UTC:

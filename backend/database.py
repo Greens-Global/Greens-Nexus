@@ -91,6 +91,13 @@ _audit_capture.wire(SessionLocal)
 import feature_request_sync as _feature_request_sync  # noqa: E402
 _feature_request_sync.wire(SessionLocal)
 
+# Workflows (Oct 28 2026, workflows/observer.py): a record registered as an
+# observed entity emits `<entity>.created` / `<entity>.field_changed` into
+# the workflow outbox at flush, in the same transaction - events for free,
+# Visesh's files untouched.
+import workflows.observer as _wf_observer  # noqa: E402
+_wf_observer.wire(SessionLocal)
+
 
 class Base(DeclarativeBase):
     pass

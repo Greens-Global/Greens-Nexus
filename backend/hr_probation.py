@@ -86,7 +86,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 import scoped_settings
+import workflows
 from models import HrEntity, HrLifeEvent, NexusEmployee, NexusNotification
+import job_switch
 
 SETTING_KEY = "hr_probation"
 CONFIRM_TEMPLATE_ID = "probation-confirmation-letter"
@@ -438,6 +440,9 @@ def start_tracking(db: Session, emp: NexusEmployee, by: str, *, reason: str = ""
                 "remindedFor": "", "pending": None, "decision": None, "letter": None, "awaitingStart": False})
     _log(rec, by, action, frm=prev, to="in_probation", end=end, reason=reason)
     _save(emp, rec)
+    workflows.emit(db, "probation.started", subject=emp, actor=by,
+                   changes={"probation.status": (prev, "in_probation")},
+                   extra={"endDate": end, "reason": reason, "how": action})
     return rec
 
 
@@ -660,6 +665,10 @@ def _apply(db: Session, user: dict, emp: NexusEmployee, decision: str, new_end: 
          end=rec["endDate"], reason=reason,
          note=f"Recommended by {person_name(db, recommended_by)}" if recommended_by else "")
     _save(emp, rec)
+    workflows.emit(db, "probation.decided", subject=emp, actor=me,
+                   changes={"probation.status": (prev_status, rec["status"]),
+                            "probation.end": (prev_end, rec["endDate"])},
+                   extra={"decision": decision, "reason": reason, "recommendedBy": recommended_by})
     _close_bells(db, emp)
     # Tell the manager (and whoever recommended it) what HR decided.
     name = full_name(emp)
@@ -1055,6 +1064,8 @@ def run_daily() -> int:
     """From reminders_loop, already in a worker thread (asyncio.to_thread) -
     never on the event loop. Own session and commit; the emails go after the
     commit. Returns how many people were reminded."""
+    if job_switch.off("hr_probation"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     db = SessionLocal()
     sent, batch = 0, []

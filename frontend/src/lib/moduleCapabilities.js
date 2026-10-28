@@ -107,6 +107,13 @@ export const MODULE_CAPABILITIES = {
     full:   'Manage shared / department dashboards.',
     owner:  'Full dashboard control, plus manage access.',
   },
+  // Workflows (Oct 28 2026).
+  workflows: {
+    viewer: 'See workflows, their runs and the automations list.',
+    editor: 'Also build, test, publish and pause their own workflows.',
+    full:   "Also pause, re-own, archive and manage anyone's workflow in their scope, and save company templates.",
+    owner:  'Full Workflows control, plus manage who else can use it.',
+  },
 };
 
 const GEN = {

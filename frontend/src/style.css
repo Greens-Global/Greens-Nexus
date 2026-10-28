@@ -7635,3 +7635,14 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .nx-rec-head { display: none; }
   .nx-rec-foot { grid-template-columns: 1fr; }
 }
+
+/* Workflows module (Oct 28 2026): the two grids with a phone face. The
+   desktop columns are inline styles, so these override them under 640px:
+   the Catalog's module rail stacks above its sections, and a webhook host
+   row (host, secret, badge, remove) wraps to host / secret / badge + remove. */
+@media (max-width: 640px) {
+  .wf-catalog-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .wf-catalog-grid > nav { flex-direction: row !important; flex-wrap: wrap; gap: 4px; }
+  .wf-webhook-row { grid-template-columns: minmax(0, 1fr) auto !important; }
+  .wf-webhook-row > input { grid-column: 1 / -1; min-width: 0; }
+}

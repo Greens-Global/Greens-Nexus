@@ -17,6 +17,7 @@ from sqlalchemy import text
 from database import SessionLocal
 from models import NexusNotification
 from routers.notifications import retention_cutoff
+import job_switch
 
 _LOCK_KEY = 794216     # stable advisory-lock id (task trash is 794215)
 _BATCH = 500
@@ -25,6 +26,8 @@ _BATCH = 500
 def sweep_batch() -> int:
     """Delete up to _BATCH notifications older than the retention window.
     Returns the number removed."""
+    if job_switch.off("notification_retention"):   # Workflows > Automations switch
+        return 0
     cutoff = retention_cutoff()
     db = SessionLocal()
     is_pg = db.bind.dialect.name == "postgresql"

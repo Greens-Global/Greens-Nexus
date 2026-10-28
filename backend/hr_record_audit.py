@@ -24,6 +24,7 @@ from sqlalchemy import func
 
 import hr_checklists as hc
 from models import HrDocument, HrEntity, NexusEmployee, NexusNotification
+import job_switch
 
 NTYPE = "hr_record_audit"
 STATUSES = ("active", "onboarding")
@@ -151,6 +152,8 @@ def _upsert(db, recipient: str, entity: HrEntity, title: str, body: str, done: b
 
 def run_daily() -> int:
     """The morning pass. Own session and commit, like hr_checklists.run_daily."""
+    if job_switch.off("hr_record_audit"):   # Workflows > Automations switch
+        return 0
     import hr_reminder_config
     from database import SessionLocal
     db = SessionLocal()

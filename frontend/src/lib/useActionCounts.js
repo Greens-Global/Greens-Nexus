@@ -68,6 +68,7 @@ const TAB_NAMES = {
   accounting: { partners: 'Partners' },
   support: { kb: 'Knowledge Base', open: 'My Tickets' },
   dashboard: { announcements: 'Announcements' },
+  workflows: { overview: 'Needs Attention' },   // Oct 28 2026: paused by the system + approvals waiting on me
 };
 export function countDetail(c, view) {
   return Object.entries(c?.[view] || {})

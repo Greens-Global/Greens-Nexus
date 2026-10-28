@@ -40,6 +40,7 @@ from models import (
     HrSignParty,
     HrSignEvent,
 )
+import job_switch
 
 _SCAN_HOUR_UTC = 13  # ~6am PT / 6:30pm IST - start of the US workday
 
@@ -359,6 +360,8 @@ def _admin_emails(db) -> list:
 
 def run_daily_scan() -> int:
     """Run all checks once. Returns how many notifications were created."""
+    if job_switch.off("reminders"):   # Workflows > Automations switch
+        return 0
     db = SessionLocal()
     sent = 0
     try:
@@ -734,6 +737,8 @@ _PUSHBACK_HOUR_UTC = 2   # ~7pm PT / 7:30am IST next day - end of the US workday
 
 
 def run_m365_pushback() -> dict:
+    if job_switch.off("m365_pushback"):   # Workflows > Automations switch
+        return {"pushed": 0, "failed": 0, "skipped": True}
     from database import SessionLocal
     from models import NexusEmployee
     from routers.hr import (_graph_token, _graph_writeback, _graph_set_manager,

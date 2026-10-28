@@ -30,6 +30,7 @@ from sqlalchemy import text
 from database import SessionLocal
 from models import Task
 from routers.task_util import purge_task_permanently
+import job_switch
 
 _LOCK_KEY = 794215     # stable advisory-lock id (screenshot loops use 794213/794214)
 _BATCH = 25
@@ -45,6 +46,8 @@ def _retention_days() -> int:
 def _sweep_batch(days: int) -> int:
     """Purge up to _BATCH trashed tasks older than `days`. Returns count
     purged, or -1 when nothing is expired."""
+    if job_switch.off("trash_purge"):   # Workflows > Automations switch
+        return -1
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
     db = SessionLocal()
     is_pg = db.bind.dialect.name == "postgresql"
