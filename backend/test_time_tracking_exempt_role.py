@@ -114,9 +114,11 @@ class TimeTrackingExemptRole(unittest.TestCase):
         self.assertEqual(r.status, "with_manager")
 
     def test_sign_reminder_skips_role_exempt(self):
-        # Freeze "today" at the day before a period ends so the nudge is due.
+        # Freeze "today" at the period's last day, when the nudge is due (the
+        # Submit Your Time Sheet reminder fires on the last day since Oct 16 -
+        # reminders.run_daily_scan; it used to be the day before).
         _, pend = timeclock._pay_period(ANCHOR)
-        frozen = datetime.strptime(pend, "%Y-%m-%d").replace(tzinfo=timezone.utc) - timedelta(days=1)
+        frozen = datetime.strptime(pend, "%Y-%m-%d").replace(tzinfo=timezone.utc, hour=12)
 
         class _Frozen(datetime):
             @classmethod

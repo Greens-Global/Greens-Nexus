@@ -156,6 +156,40 @@ class PayRulesScopeCase(_ScopeHarness):
         self.assertFalse(r.json()["hasOverride"])
 
 
+class SessionMemoCase(_ScopeHarness):
+    """scoped_settings remembers, per session, which setting rows do not
+    exist and each person's company (Oct 27 2026: payroll readiness read them
+    again for every card) - and forgets on save, flush, commit and rollback."""
+
+    def test_a_missing_row_is_read_once_and_a_save_is_seen(self):
+        from sqlalchemy import event
+        db = self.db
+        hits = [0]
+
+        def tick(*_a, **_k):
+            hits[0] += 1
+        event.listen(database.engine, "before_cursor_execute", tick)
+        try:
+            for _ in range(5):
+                self.assertEqual(scoped_settings.saved(db, "timeclock_memo_test", US), {})
+                self.assertEqual(scoped_settings.company_of_email(db, US_EMP), US)
+        finally:
+            event.remove(database.engine, "before_cursor_execute", tick)
+        self.assertEqual(hits[0], 2)                          # one settings read, one company read
+        scoped_settings.save(db, "timeclock_memo_test", US, {"a": 1}, ADMIN)
+        db.flush()
+        self.assertEqual(scoped_settings.saved(db, "timeclock_memo_test", US), {"a": 1})
+        db.rollback()
+        self.assertEqual(scoped_settings.saved(db, "timeclock_memo_test", US), {})
+
+    def test_a_company_change_is_seen_after_commit(self):
+        db = self.db
+        self.assertEqual(scoped_settings.company_of_email(db, LOOSE), "")
+        db.query(models.NexusEmployee).filter_by(work_email=LOOSE).update({"company": IN})
+        db.commit()
+        self.assertEqual(scoped_settings.company_of_email(db, LOOSE), IN)
+
+
 class EmailLogoChainCase(_ScopeHarness):
     def test_the_recipient_s_company_logo_wins_then_the_module_s(self):
         import email_theme

@@ -30,7 +30,11 @@ from routers import timeclock  # noqa: E402
 
 EMP, MGR, HR = "emp.l16@greensglobal.com", "mgr.l16@greensglobal.com", "hr.l16@greensglobal.com"
 ENTITY = "ent-l16"
-PAST = (datetime.now(timezone.utc) - timedelta(days=40)).strftime("%Y-%m-%d")   # a period fully over
+# A period fully over whose first day is still inside the 45 days a punch
+# request may reach back: the bi-weekly period holding today - 20 ends by
+# today - 7 and starts no earlier than today - 33 (40 days back put the
+# start up to 53 days back on some days of the cycle - "too far back").
+PAST = (datetime.now(timezone.utc) - timedelta(days=20)).strftime("%Y-%m-%d")
 TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 

@@ -644,6 +644,10 @@ class FixAndResubmitFlowTests(ReviewCase):
         self.db.query(models.PunchRequest).delete()
         self.db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
         self.db.commit()
+        # The role went in behind auth's back: drop its cached level (an
+        # earlier class may have left MGR cached as an employee -> 401s).
+        auth.invalidate_role_cache()
+        self.addCleanup(auth.invalidate_role_cache)
         # Errors near the period end (requests may reach 45 days back):
         # day A - two clock-ins before one clock-out (the first never closes);
         # day B - a clock-out with no clock-in.

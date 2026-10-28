@@ -25,6 +25,10 @@ class CaRule:
         self.db.query(models.PayrollRate).filter_by(employee_email=EMP).delete()
         self.db.add(models.PayrollRate(employee_email=EMP, pay_type="hourly", currency="USD", hourly_rate=20,
                                        full_day_hours=8, overtime_rule="ca"))
+        # The break statement is confirmed by signing for US staff (Pranshu,
+        # Oct 20: timesheet_review.needs_break_attestation reads the country,
+        # not the CA rule) - a California employee is in the US.
+        self.db.query(models.NexusEmployee).filter_by(work_email=EMP).update({"country": "US"})
         self.db.commit()
 
 
