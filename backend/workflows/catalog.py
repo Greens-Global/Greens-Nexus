@@ -24,6 +24,7 @@ import models) are loaded lazily by `load_packs()`.
 from __future__ import annotations
 
 import importlib
+import inspect
 import json
 import os
 import threading
@@ -179,10 +180,14 @@ class EntityDef:
                 return ""
         return str(getattr(row, "name", None) or getattr(row, "id", "") or "")
 
-    def link_for(self, row) -> dict:
+    def link_for(self, row, db=None) -> dict:
+        """The navigate detail for `row`; a link callable declared as
+        `(row, db)` also gets the session (a period lookup, say)."""
         if row is None or self.link is None:
             return {}
         try:
+            if _takes_db(self.link):
+                return dict(self.link(row, db) or {})
             return dict(self.link(row) or {})
         except Exception:   # noqa: BLE001
             return {}
@@ -251,6 +256,13 @@ OPTION_SOURCES: dict[str, Callable] = {}
 
 def _identity(obj):
     return obj
+
+
+def _takes_db(fn) -> bool:
+    try:
+        return len(inspect.signature(fn).parameters) >= 2
+    except (TypeError, ValueError):
+        return False
 
 
 def _fresh(registry: dict, key: str, what: str) -> None:

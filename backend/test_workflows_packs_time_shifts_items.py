@@ -216,6 +216,22 @@ def _punch(db, em, kind, local):
                             tz_offset_min=PDT, voided=0, created_at=at, source="web", geo_status=""))
 
 
+def test_punch_links_to_the_time_sheet_of_its_period(db):
+    db.add(models.PayrollRate(employee_email=PRIYA, pay_type="hourly", hourly_rate=20.0, overtime_rule="federal",
+                              currency="USD"))
+    _punch(db, PRIYA, "in", "2026-10-05T08:00")
+    db.commit()
+    row = db.query(models.TimePunch).filter(models.TimePunch.employee_email == PRIYA).one()
+    ent = catalog.ENTITIES["punch"]
+    link = ent.link_for(row, db)
+    assert link["view"] == "hr" and link["sub"] == "hr-time" and link["timecard"] == PRIYA
+    assert link["start"] == PS and link["payType"] == "hourly"              # the period the punch falls in
+    assert ent.link_for(row) == {"view": "hr", "sub": "hr-time", "timecard": PRIYA}   # no session: no period
+    ts = catalog.ENTITIES["timesheet"]
+    assert set(ts.link_for(models.TimesheetReview(employee_email=PRIYA, period_start=PS, period_end=PE,
+                                                  pay_type="hourly"))) == {"view", "sub", "timecard", "start", "payType"}
+
+
 def test_period_closed_fires_once_per_person_and_period(db):
     db.add(models.PayrollRate(employee_email=PRIYA, pay_type="hourly", hourly_rate=20.0, overtime_rule="federal",
                               currency="USD"))
@@ -382,7 +398,8 @@ def test_assignment_status_change_fires_from_the_observer(db):
     ent = catalog.ENTITIES["item_assignment"]
     assert ent.people["self"](db, a) == [PRIYA] and ent.people["manager"](db, a) == [MAX]
     assert ent.people["assigned_by"](db, a) == [IVY]
-    assert ent.link_for(a) == {"view": "inventory", "sub": "permanent", "assignment": "as-1"}
+    assert ent.link_for(a) == {"view": "inventory", "sub": "permanent"}
+    assert catalog.ENTITIES["item_checkout"].link_for(a) == {"view": "inventory", "sub": "checkouts"}
 
 
 def test_items_visible_to_the_person_their_manager_and_the_grant(db):

@@ -166,7 +166,7 @@ class RunContext:
 
     def subject_link(self) -> dict:
         if self.entity is not None and self.subject is not None:
-            return self.entity.link_for(self.subject)
+            return self.entity.link_for(self.subject, self.db)
         return {}
 
     def subject_id(self) -> str:

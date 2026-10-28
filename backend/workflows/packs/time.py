@@ -130,10 +130,23 @@ entity("timesheet", label="Time Sheet", model=models.TimesheetReview, module=MOD
        label_of=lambda row: f"Time Sheet {us_date(row.period_start)} - {us_date(row.period_end)} ({row.employee_email})",
        visible_to=lambda db, user, row: _person_visible(db, user, row.employee_email))
 
+def _punch_link(row, db=None) -> dict:
+    """The person's Time Sheet for the period the punch falls in (the same
+    link the timesheet entity carries, which openTarget.js knows)."""
+    out = {"view": "hr", "sub": "hr-time", "timecard": row.employee_email}
+    if db is not None:
+        try:
+            import timesheet_review
+            start, _end, pay_type = timesheet_review.period_for(db, row.employee_email, row.local_date or "")
+            out["start"], out["payType"] = start, pay_type
+        except Exception:   # noqa: BLE001 - no period known: the link still opens the person's Time Sheet
+            pass
+    return out
+
+
 entity("punch", label="Punch", model=models.TimePunch, module=MODULE,
        company=lambda row: person_company(row, row.employee_email),
-       link=lambda row: {"view": "timeclock", "sub": "timecard", "email": row.employee_email,
-                         "start": row.local_date or ""},
+       link=_punch_link,
        people={"self": _punch_self, "manager": _punch_manager},
        fields=[
            F("employee", "Person", "person", path="employee_email"),

@@ -1,6 +1,9 @@
 """The runner loop (spec 6.2): leader-only, every 5 seconds, all of it in
 a thread (`await asyncio.to_thread(tick)` - never a database call on the
-event loop). One tick:
+event loop). A tick does its work only on the deployed API or on a laptop's
+own SQLite (`may_run_here`): a laptop pointed at the shared Postgres wins
+the leader lease like any process, and must never drain dev's outbox, fire
+its schedules or resume its waits. One tick:
 
   1. refreshes the subscribed-key setting (which event keys active
      workflows use - the request workers write high-volume events only
@@ -50,6 +53,21 @@ _last_purge = 0.0
 
 def _iso(dt: Optional[datetime] = None) -> str:
     return (dt or datetime.now(timezone.utc)).isoformat()
+
+
+# ── where a tick may work ────────────────────────────────────────────────────
+def may_run_here() -> bool:
+    """The deployed API (`leader.is_deployed_worker`) or a process on its own
+    SQLite. A laptop on the shared DATABASE_URL claims nothing: no outbox
+    rows, schedules, dates, waits, reminders, digests or purges."""
+    import leader
+    from database import engine
+    if leader.is_deployed_worker():
+        return True
+    try:
+        return engine.url.get_backend_name() == "sqlite"
+    except Exception:   # noqa: BLE001
+        return False
 
 
 # ── the database's part of the catalog ───────────────────────────────────────
@@ -333,7 +351,10 @@ def tick(now: Optional[datetime] = None, *, force_health: bool = False, force_pu
     catalog.load_packs()
     now = now or datetime.now(timezone.utc)
     out = {"events": 0, "runs": 0, "resumed": 0, "scheduled": 0, "purged": 0, "attention": 0, "approvals": {},
-           "digests": 0}
+           "digests": 0, "skipped": ""}
+    if not may_run_here():
+        out["skipped"] = "not the deployed worker"
+        return out
     db = SessionLocal()
     try:
         sync_db_catalog(db)

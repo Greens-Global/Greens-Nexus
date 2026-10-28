@@ -304,9 +304,9 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // App code only, no new dependency. Needs Neil's OK with the release.
 const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE_NX_SRC;
 // Oct 28 2026: 15200 -> 15600. The Workflows module (builder, runs and the
-// actions review, templates, catalog browser, Settings panel) is ~110 KB of
-// app code in its own lazy chunks: a clean local build read 15004 KB against
-// the HR release's 14836 KB. CI's clean install reads ~200 KB above a local
+// actions review, templates, catalog browser, Settings panel) is ~135 KB in
+// lazy chunks (Builder 80, Workflows 48, Settings 7), +168 KB total: a clean
+// local build read 15004 KB against the HR release's 14836 KB. CI's clean install reads ~200 KB above a local
 // build, so 15600 leaves ~400 KB. App code only, no new dependency. Needs
 // Neil's OK with the release (he OK'd the Oct 27 raise the same way).
 const TOTAL_KB     = 15600 + (NX_SRC_ON ? 350 : 0);

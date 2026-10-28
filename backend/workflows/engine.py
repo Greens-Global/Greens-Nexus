@@ -978,6 +978,6 @@ def subject_link_for(run: models.WorkflowRun, db) -> str:
         return ""
     try:
         row = ent.load_row(db, run.subject_id)
-        return link_url(ent.link_for(row)) if row is not None else ""
+        return link_url(ent.link_for(row, db)) if row is not None else ""
     except Exception:   # noqa: BLE001
         return ""
