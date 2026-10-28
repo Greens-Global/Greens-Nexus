@@ -3878,6 +3878,12 @@ def _startup_seeds():
             b = hr_probation.backfill_existing(db)
             if b:
                 print(f"[startup] probation: {b} existing employee(s) still inside their window now tracked")
+            # Past the window = passed (Neil, Oct 29 2026): once, every open
+            # probation past its end with no recommendation waiting.
+            pw = hr_probation.pass_past_window_once(db)
+            if pw is not None:
+                print(f"[startup] probation: {pw[0]} past their end date passed automatically, "
+                      f"{pw[1]} with a recommendation left open for HR")
         finally:
             db.close()
     except Exception as e:

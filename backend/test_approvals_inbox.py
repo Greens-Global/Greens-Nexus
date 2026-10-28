@@ -380,30 +380,33 @@ class InboxCase(unittest.TestCase):
         self.assertEqual(self._inbox(MGR)["rows"], [])
         self.assertEqual(self._inbox(EMP)["rows"], [])
 
-    def test_probation_recommendations_and_overdue_decisions_wait_on_hr(self):
+    def test_probation_recommendations_wait_on_hr(self):
         past = (date.today() - timedelta(days=2)).isoformat()
         later = (date.today() + timedelta(days=20)).isoformat()
         recs = {
             "id-Erin": {"status": "in_probation", "startDate": "2026-05-01", "endDate": later,
                         "pending": {"decision": "confirm", "newEndDate": "", "reason": "Strong start", "by": MGR,
                                     "at": "2026-10-25T08:00:00+00:00"}},
+            # Past the end with nothing pending: no decision for HR - the daily
+            # pass makes it Passed Probation (Neil, Oct 29 2026).
             "id-Mia": {"status": "in_probation", "startDate": "2026-04-01", "endDate": past},
-            "id-Ned": {"status": "extended", "startDate": "2026-04-01", "endDate": later,
+            # Past the end WITH a recommendation: still HR's.
+            "id-Ned": {"status": "extended", "startDate": "2026-04-01", "endDate": past,
                        "pending": {"decision": "end", "reason": "Missed targets", "by": MGR2, "at": "2026-10-24T08:00:00+00:00"}},
-            "id-Dee": {"status": "confirmed", "startDate": "2026-01-01", "endDate": past},   # decided: nothing
+            "id-Dee": {"status": "passed", "startDate": "2026-01-01", "endDate": past},   # passed: nothing
         }
         for eid, rec in recs.items():
             self.db.query(models.NexusEmployee).filter_by(id=eid).update({"probation": rec})
         self.db.commit()
         out = self._inbox(HRC)
         rows = {r["key"]: r for r in out["rows"]}
-        self.assertEqual(set(rows), {"probation:id-Erin", "probation_due:id-Mia", "probation:id-Ned"})
+        self.assertEqual(set(rows), {"probation:id-Erin", "probation:id-Ned"})
         self.assertEqual(rows["probation:id-Erin"]["title"], "Probation - Confirm")
         self.assertEqual([a["key"] for a in rows["probation:id-Erin"]["actions"]], ["approve", "decline"])
         self.assertEqual([a["key"] for a in rows["probation:id-Ned"]["actions"]], ["open"])   # End: the Offboard flow
-        self.assertEqual(rows["probation_due:id-Mia"]["link"], {"view": "hr", "sub": "hr-probation-id-Mia"})
-        self.assertEqual(out["groups"], {"people": 3})
-        self.assertEqual(self._counts(HRC)["hr"]["hr-people"], 3)
+        self.assertEqual(rows["probation:id-Ned"]["link"], {"view": "hr", "sub": "hr-probation-id-Ned"})
+        self.assertEqual(out["groups"], {"people": 2})
+        self.assertEqual(self._counts(HRC)["hr"]["hr-people"], 2)
         # A manager recommends; only HR finalizes.
         self.assertEqual(self._inbox(MGR)["rows"], [])
 

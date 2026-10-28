@@ -121,6 +121,16 @@ const DELETED_F = '__deleted__';
 // "Probation Ending" (Oct 27 2026): people whose probation ends inside the
 // company's reminder window, or has passed undecided - a lens, not a status.
 const PROBATION_F = '__probation__';
+// Probation lenses by status (Neil, Oct 29 2026): On Probation is the open
+// ones only; Passed / Past (never tracked, past the window, derived) /
+// Removed From Probation. Sentinels like the ones above.
+const PROBATION_LENSES = [
+  ['__probation:open__', 'On Probation', (p) => ['in_probation', 'extended'].includes(p?.status)],
+  ['__probation:passed__', 'Passed Probation', (p) => p?.status === 'passed'],
+  ['__probation:past__', 'Past Probation', (p) => p?.status === 'past'],
+  ['__probation:removed__', 'Removed From Probation', (p) => p?.status === 'removed'],
+];
+const PROBATION_LENS = Object.fromEntries(PROBATION_LENSES.map(([v, , test]) => [v, test]));
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
@@ -5514,6 +5524,7 @@ export default function HR({ activeSub, onSubChange }) {
     return source.filter(e => {
       if (!showingDeleted && statusF === 'All' && INACTIVE_STATUSES.has(e.status || 'active') !== (listTab === 'inactive')) return false;
       if (statusF === PROBATION_F && (!e.probation?.ending || INACTIVE_STATUSES.has(e.status || 'active'))) return false;
+      if (PROBATION_LENS[statusF] && (!PROBATION_LENS[statusF](e.probation) || INACTIVE_STATUSES.has(e.status || 'active'))) return false;
       if (typeF === 'employee' && (isExtRow(e) || e.employmentType === 'contractor')) return false;
       if (typeF === 'contractor' && (isExtRow(e) || e.employmentType !== 'contractor')) return false;
       if (typeF === 'external' && !isExtRow(e)) return false;
@@ -5522,7 +5533,7 @@ export default function HR({ activeSub, onSubChange }) {
       if (cfField && !matchesFieldFilter(cfField, e.customFields?.[cfField.fieldKey], cfF)) return false;
       // Skipped while showing removed people - they keep their old status, so
       // matching on it here would filter the list down to nothing.
-      if (!showingDeleted && statusF !== 'All' && statusF !== PROBATION_F && e.status !== statusF) return false;
+      if (!showingDeleted && statusF !== 'All' && statusF !== PROBATION_F && !PROBATION_LENS[statusF] && e.status !== statusF) return false;
       if (search.trim()) {
         const q = search.trim().toLowerCase();
         return [fullName(e), e.workEmail, e.employeeCode, e.jobTitle, e.department, e.externalCompany].some(v => (v || '').toLowerCase().includes(q));
@@ -5846,6 +5857,7 @@ export default function HR({ activeSub, onSubChange }) {
                   <option value="All">All statuses</option>
                   {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
                   <option value={PROBATION_F}>Probation Ending</option>
+                  {PROBATION_LENSES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
                   <option value={DELETED_F}>Deleted</option>
                 </select>
                 {cfDefs.length > 0 && (

@@ -226,7 +226,11 @@ class NewHireTests(ProbationCase):
 
     def test_existing_people_and_contractors_are_not_tracked(self):
         long_ago = self._add(start_date="2027-01-04")             # already past any probation
-        self.assertEqual(long_ago["probation"]["label"], "Not Tracked")
+        # Never tracked, and past the window: Past Probation (derived, never
+        # stored), not "Not Tracked" (Neil, Oct 29 2026).
+        self.assertEqual((long_ago["probation"]["status"], long_ago["probation"]["label"],
+                          long_ago["probation"]["pastSince"]), ("past", "Past Probation", "2027-04-04"))
+        self.assertEqual(hp.record(self._emp(long_ago["id"])).get("status", ""), "")
         contractor = self._add(start_date="2030-03-01", employment_type="contractor")
         self.assertEqual(contractor["probation"]["status"], "")
         # Existing people are only picked up by the one-time startup pass
@@ -514,7 +518,7 @@ class ChecklistTests(ProbationCase):
         self.db.expire_all()
         item = self.db.query(models.HrChecklistItem).filter_by(checklist_id=cl.id, key="ON-33").one()
         self.assertEqual((item.status, item.done_by, item.done_reason),
-                         ("done", "Nexus", "Probation is Confirmed on the profile"))
+                         ("done", "Nexus", "Probation is Confirmed or Passed on the profile"))
 
     def test_an_older_checklist_takes_the_condition_then_ticks(self):
         # A library seeded before Oct 27: ON-33 without a condition, and a
@@ -535,6 +539,239 @@ class ChecklistTests(ProbationCase):
         self.db.expire_all()
         item = self.db.query(models.HrChecklistItem).filter_by(checklist_id=cl.id, key="ON-33").one()
         self.assertEqual(item.status, "done")
+
+
+class PastWindowTests(ProbationCase):
+    """Past the window = passed (Neil, Oct 29 2026): "The people that have
+    been here for 3 months or longer are not on probation, they clearly made
+    the cut ... Should be an option also to remove from probation."""
+
+    def _person(self, eid, start, rec=None, **kw):
+        self.db.add(models.NexusEmployee(**{
+            "id": eid, "work_email": f"{eid}{D}", "first_name": eid[2:].title(), "last_name": "Test", "company": CO,
+            "status": "active", "employment_type": "full_time", "manager_email": MGR, "start_date": start,
+            "probation": rec or {}, **kw}))
+        self.db.commit()
+
+    def _events(self, eid):
+        self.db.expire_all()
+        return self.db.query(models.WorkflowEvent).filter_by(key="probation.decided", subject_id=eid).all()
+
+    def _bells(self, eid="e-jane"):
+        self.db.expire_all()
+        return self.db.query(models.NexusNotification).filter_by(ref_id=f"probation:{eid}").all()
+
+    def test_daily_pass_passes_an_open_probation_past_its_end(self):
+        emp = self._emp()
+        cl = hc.start(self.db, emp, "onboarding", by=HR, notify=False)
+        self.db.commit()
+        self._track(end="2030-03-20")                             # ends 03/20/2030
+        self.assertEqual(hp.run_daily(), 1)                       # the reminder bell, 10 days out
+        self.assertTrue(self._bells() and not any(n.actioned for n in self._bells()))
+        self.db.query(models.WorkflowEvent).delete()
+        self.db.commit()
+        self.mails.clear()
+        hp._today = lambda: date(2030, 3, 20)                     # the last day: still open
+        hp.run_daily()
+        self.assertEqual(hp.record(self._emp())["status"], "in_probation")
+        hp._today = lambda: date(2030, 3, 21)                     # the day after: passed
+        self.assertEqual(hp.run_daily(), 0)
+        rec = hp.record(self._emp())
+        self.assertEqual((rec["status"], rec["remindedFor"]), ("passed", ""))
+        self.assertEqual(rec["decision"]["decision"], "passed")
+        self.assertTrue(rec["decision"]["automatic"])
+        h = rec["history"][-1]
+        self.assertEqual((h["action"], h["by"], h["from"], h["to"], h["reason"]),
+                         ("passed", "system", "in_probation", "passed", hp.AUTO_PASS_REASON))
+        self.assertTrue(all(n.actioned for n in self._bells()))   # the bells are closed
+        self.assertEqual(self.db.query(models.HrLifeEvent).count(), 0)   # no letter
+        self.assertEqual(self.mails, [])
+        item = self.db.query(models.HrChecklistItem).filter_by(checklist_id=cl.id, key="ON-33").one()
+        self.assertEqual(item.status, "done")                     # ON-33 ticks like a confirm
+        ev = self._events("e-jane")
+        self.assertEqual(len(ev), 1)
+        self.assertEqual(ev[0].payload["changes"]["probation.status"], {"from": "in_probation", "to": "passed"})
+        self.assertEqual(ev[0].payload["extra"], {"decision": "passed", "automatic": True})
+        # The card and the list say so.
+        self._as(HR)
+        p = self.client.get("/hr/employees/e-jane/probation").json()
+        self.assertEqual((p["status"], p["label"], p["canDecide"], p["canRemove"], p["canSendLetter"]),
+                         ("passed", "Passed Probation", False, False, True))
+        self.assertEqual(p["history"][0]["byName"], "Nexus")
+        rows = {e["id"]: e for e in self.client.get("/hr/employees").json()}
+        self.assertEqual((rows["e-jane"]["probation"]["label"], rows["e-jane"]["probation"]["ending"]),
+                         ("Passed Probation", False))
+        # Nothing more on the next day.
+        hp._today = lambda: date(2030, 3, 22)
+        hp.run_daily()
+        self.assertEqual(len(self._events("e-jane")), 1)
+
+    def test_a_pending_recommendation_or_a_future_end_stays_open(self):
+        self._track(end="2030-03-20")
+        self._decide(MGR, "extend", new_end_date="2030-05-01", reason="More time")   # waiting for HR
+        self._person("e-later", "2030-01-15", {"status": "in_probation", "startDate": "2030-01-15",
+                                               "endDate": "2030-04-15"})
+        self._person("e-left", "2029-01-15", {"status": "in_probation", "startDate": "2029-01-15",
+                                              "endDate": "2029-04-15"}, status="offboarded")
+        hp._today = lambda: date(2030, 3, 25)
+        hp.run_daily()
+        self.db.expire_all()
+        recs = {e.id: hp.record(e) for e in self.db.query(models.NexusEmployee).all()}
+        self.assertEqual(recs["e-jane"]["status"], "in_probation")   # a real decision in flight - HR's
+        self.assertEqual(recs["e-later"]["status"], "in_probation")  # not at its end yet
+        self.assertEqual(recs["e-left"]["status"], "in_probation")   # left: nobody to pass
+        # HR still sees the recommendation in Approvals, past the end.
+        self._as(HR)
+        keys = [r["key"] for r in self.client.get("/approvals/inbox").json()["rows"] if r["key"].startswith("probation")]
+        self.assertEqual(keys, ["probation:e-jane"])
+
+    def test_an_extended_probation_passes_after_its_new_end(self):
+        self._track()
+        self._decide(HR, "extend", new_end_date="2030-04-30", reason="More time on the close")
+        hp._today = lambda: date(2030, 4, 15)                     # past the first end, before the new one
+        hp.run_daily()
+        self.assertEqual(hp.record(self._emp())["status"], "extended")
+        hp._today = lambda: date(2030, 5, 1)
+        hp.run_daily()
+        rec = hp.record(self._emp())
+        self.assertEqual((rec["status"], rec["history"][-1]["from"]), ("passed", "extended"))
+
+    def test_the_startup_pass_runs_once(self):
+        self._person("e-old", "2029-06-01", {"status": "in_probation", "startDate": "2029-06-01",
+                                             "endDate": "2029-09-01"})
+        self._person("e-ext", "2029-06-01", {"status": "extended", "startDate": "2029-06-01",
+                                             "endDate": "2029-12-01"})
+        self._person("e-wait", "2029-06-01", {"status": "in_probation", "startDate": "2029-06-01",
+                                              "endDate": "2029-09-01",
+                                              "pending": {"decision": "confirm", "by": MGR, "at": "2029-09-02"}})
+        self._person("e-new", "2030-02-01", {"status": "in_probation", "startDate": "2030-02-01",
+                                             "endDate": "2030-05-01"})
+        self.assertEqual(hp.pass_past_window_once(self.db), (2, 1))
+        self.assertIsNone(hp.pass_past_window_once(self.db))      # once (the nexus_settings mark)
+        self.db.expire_all()
+        recs = {e.id: hp.record(e) for e in self.db.query(models.NexusEmployee).all()}
+        self.assertEqual({k for k, r in recs.items() if r.get("status") == "passed"}, {"e-old", "e-ext"})
+        self.assertEqual(recs["e-wait"]["status"], "in_probation")
+        self.assertEqual(recs["e-new"]["status"], "in_probation")
+        self.assertEqual(len(recs["e-old"]["history"]), 1)        # appended, nothing deleted
+        # The release pass does not replay the backlog into Workflows (Oct 29 2026).
+        self.assertEqual(self._events("e-old"), [])
+        self.assertEqual(self._events("e-ext"), [])
+
+    def test_never_tracked_and_past_the_window_is_past_probation(self):
+        self._person("e-four", "2029-11-10")                      # 4 months in: ended 02/10/2030
+        self._person("e-one", "2030-02-05")                       # 1 month in: not past
+        self._person("e-none", "")                                # no start date: we cannot know
+        self._person("e-own", "2029-11-10", {"months": 6})        # own length: ends 05/10/2030
+        self._person("e-con", "2029-01-10", employment_type="contractor")
+        emps = {e.id: e for e in self.db.query(models.NexusEmployee).all()}
+        s = hp.summaries(self.db, list(emps.values()))
+        self.assertEqual((s["e-four"]["status"], s["e-four"]["label"], s["e-four"]["pastSince"]),
+                         ("past", "Past Probation", "2030-02-10"))
+        self.assertFalse(s["e-four"]["ending"])
+        for eid in ("e-one", "e-none", "e-own", "e-con"):
+            self.assertEqual((s[eid]["status"], s[eid]["label"]), ("", "Not Tracked"), eid)
+        # The company's own length counts: 1 month puts e-one past too.
+        r = self.client.put("/hr/probation/settings", json={"company": CO, "settings": {"months": 1}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.db.commit()
+        self.assertEqual(hp.summaries(self.db, [emps["e-one"]])["e-one"]["status"], "past")
+        self.client.put("/hr/probation/settings", json={"company": CO, "reset": True})
+        # The card: Past Probation, no reminder, HR may start a new one.
+        p = self.client.get("/hr/employees/e-four/probation").json()
+        self.assertEqual((p["status"], p["label"], p["pastSince"], p["canDecide"]),
+                         ("past", "Past Probation", "2030-02-10", False))
+        self.assertEqual(hp.run_daily(), 0)
+        self.assertEqual(self._bells("e-four"), [])
+        # Start A New Probation counts from a day HR picks; one already over is refused.
+        r = self.client.post("/hr/employees/e-four/probation/start", json={})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("already have ended on 02/10/2030", r.json()["detail"])
+        r = self.client.post("/hr/employees/e-four/probation/start", json={"start_date": "2030-03-01",
+                                                                         "reason": "New role"})
+        self.assertEqual(r.status_code, 200, r.text)
+        p = r.json()["probation"]
+        self.assertEqual((p["status"], p["startDate"], p["endDate"]), ("in_probation", "2030-03-01", "2030-06-01"))
+        # A later edit of their start date leaves a picked start alone.
+        self.client.patch("/hr/employees/e-four", json={"start_date": "2029-11-12"})
+        self.assertEqual(hp.record(self._emp("e-four"))["startDate"], "2030-03-01")
+
+    def test_remove_from_probation(self):
+        self._track()
+        self._decide(MGR, "confirm")                              # a recommendation is waiting
+        # A manager cannot remove; the person never reaches their own.
+        self._as(MGR)
+        self.assertEqual(self.client.post("/hr/employees/e-jane/probation/remove",
+                                          json={"reason": "x"}).status_code, 403)
+        self._as(EMP)
+        self.assertIn(self.client.post("/hr/employees/e-jane/probation/remove",
+                                       json={"reason": "x"}).status_code, (403, 404))
+        self._as(HR)
+        r = self.client.post("/hr/employees/e-jane/probation/remove", json={"reason": "  "})
+        self.assertEqual(r.status_code, 400)                      # a reason is required
+        r = self.client.post("/hr/employees/e-jane/probation/remove", json={"reason": "Moved from a sister company"})
+        self.assertEqual(r.status_code, 200, r.text)
+        p = r.json()["probation"]
+        self.assertEqual((p["status"], p["label"], p["pending"], p["canRemove"]),
+                         ("removed", "Removed From Probation", None, False))
+        self.assertEqual((p["decision"]["decision"], p["decision"]["reason"], p["decision"]["byName"]),
+                         ("removed", "Moved from a sister company", "Hana Hr"))
+        self.assertEqual(p["history"][0]["action"], "removed")
+        bells = {n.recipient: n for n in self._bells()}
+        self.assertTrue(bells[HR].actioned)                       # HR's waiting bell is closed
+        self.assertIn("recommendation is closed", bells[MGR].body)   # the recommender hears it is moot
+        self.assertEqual(self.db.query(models.HrLifeEvent).count(), 0)   # no letter
+        self.assertEqual(self.client.post("/hr/employees/e-jane/probation/remove",
+                                          json={"reason": "again"}).status_code, 409)
+        # Nothing restarts it: not a start date change, the backfill, a hire or the daily pass.
+        self.client.patch("/hr/employees/e-jane", json={"start_date": "2030-02-01"})
+        self.assertEqual(hp.record(self._emp())["status"], "removed")
+        self.db.query(models.NexusSetting).filter_by(key=hp.BACKFILL_MARK).delete()
+        self.db.commit()
+        self.assertEqual(hp.backfill_existing(self.db), 0)
+        self.assertFalse(hp.start_for_new_hire(self.db, self._emp(), HR, "Hired"))
+        hp._today = lambda: date(2030, 6, 1)
+        hp.run_daily()
+        self.assertEqual(hp.record(self._emp())["status"], "removed")
+        # HR can still start a new one.
+        hp._today = lambda: TODAY
+        r = self.client.post("/hr/employees/e-jane/probation/start", json={})
+        self.assertEqual(r.json()["probation"]["status"], "in_probation")
+
+    def test_stop_is_an_alias_of_remove(self):
+        self._track()
+        r = self.client.post("/hr/employees/e-jane/probation/stop", json={"reason": "Started by mistake"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["probation"]["status"], "removed")
+        self.client.patch("/hr/employees/e-jane", json={"start_date": "2030-01-05"})
+        self.assertEqual(hp.record(self._emp())["status"], "removed")
+
+    def test_send_letter_on_a_passed_record_sends_the_confirmation_letter(self):
+        self._track()
+        hp._today = lambda: date(2030, 4, 1)
+        hp.run_daily()
+        self.assertEqual(hp.record(self._emp())["status"], "passed")
+        self._as(MGR)
+        self.assertEqual(self.client.post("/hr/employees/e-jane/probation/send-letter").status_code, 403)
+        self._as(HR)
+        r = self.client.post("/hr/employees/e-jane/probation/send-letter")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["letter"]["sent"], r.json()["letter"])
+        ev = self.db.query(models.HrLifeEvent).filter_by(employee_id="e-jane", kind="probation").one()
+        self.assertEqual((ev.inputs["outcome"], ev.effective_date), ("confirm", "2030-03-31"))
+        p = r.json()["probation"]
+        self.assertEqual((p["status"], p["letter"]["title"], p["letter"]["status"], p["canSendLetter"]),
+                         ("passed", "Probation Confirmation Letter", "sent", False))
+
+    def test_approvals_no_longer_list_a_passed_person(self):
+        self._track()
+        hp._today = lambda: date(2030, 4, 1)                      # past the end, nothing pending
+        self._as(HR)
+        rows = [r["key"] for r in self.client.get("/approvals/inbox").json()["rows"]]
+        self.assertFalse([k for k in rows if k.startswith("probation")])   # no "decide" row any more
+        hp.run_daily()
+        rows = [r["key"] for r in self.client.get("/approvals/inbox").json()["rows"]]
+        self.assertFalse([k for k in rows if k.startswith("probation")])
 
 
 class SeedTests(ProbationCase):

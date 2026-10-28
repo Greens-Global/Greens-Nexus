@@ -5,6 +5,9 @@ Confirmation Letter". Now each person can carry a probation record
 (nexus_employees.probation, JSON):
 
     status        '' (Not Tracked) | in_probation | extended | confirmed | ended
+                  | passed (Passed Probation) | removed (Removed From
+                  Probation); OPEN = in_probation / extended. 'past' (Past
+                  Probation) is DERIVED, never stored - see below
     startDate     the day it counts from (their start date)
     endDate       start + months (calendar months, a day past the end of a
                   shorter month lands on its last day); HR may set it by hand
@@ -72,6 +75,35 @@ The reminder runs in reminders_loop (already in a thread): once per end
 date, `reminderDays` before it (company setting, 0 = off), one bell per
 recipient - the manager and the company HR contact (no HR contact: the
 Global Admins) - updated in place, and one email each.
+
+Past the window (Neil, Oct 29 2026: "The people that have been here for 3
+months or longer are not on probation, they clearly made the cut. Go ahead
+and make it effectively clear so the probation tracking isn't a thing for
+those. Should be an option also to remove from probation."):
+  - Passed, automatically. The daily pass (run_daily, every day whatever
+    the Probation Ending switch says - the switch is the reminder's) moves
+    every OPEN record of an active / onboarding person whose end date is
+    before today (the company clock, _today) and that has NO pending
+    manager recommendation to `passed`: logged {action: passed, by:
+    system}, the reminder state cleared, the bells closed, ON-33 ticked like
+    a confirm (probation_confirmed counts passed), the probation.decided
+    event emitted (decision passed, automatic) - and NO letter. HR can send
+    the confirmation letter by hand (Send Letter on a passed record). A
+    record with a pending recommendation past its end stays open for HR: a
+    real decision is in flight. pass_past_window_once (main._startup_seeds,
+    nexus_settings mark PAST_MARK) ran the same move once at release.
+  - Never tracked and past the window = Past Probation. Someone with no
+    record whom applies() covers and whose start date + their length (the
+    person's months, else the company's) is before today reads the DERIVED
+    status 'past' ("Past Probation", pastSince = that end date) in summary
+    and ser: no Start Tracking prompt, no reminder, never "Not Tracked".
+    No start date stays Not Tracked (we cannot know). HR keeps Start A New
+    Probation (begin, from a day HR picks) for a real case like a new role.
+  - Remove From Probation (remove; the old stop_tracking route is its
+    alias): HR++ only, on an OPEN record, with a reason. Status `removed`,
+    logged, bells closed, no letter, and nothing restarts it by itself - not
+    the backfill, not a start date change, not a hire (start_for_new_hire /
+    on_profile_change skip it). A manager cannot remove; they recommend.
 """
 import calendar
 import copy
@@ -98,9 +130,14 @@ DEFAULTS = {"months": 3, "reminderDays": 14, "confirmTemplateId": CONFIRM_TEMPLA
 LIMITS = {"months": (1, 24), "reminderDays": (0, 90)}
 
 OPEN = ("in_probation", "extended")
-STATUSES = OPEN + ("confirmed", "ended")
+STATUSES = OPEN + ("confirmed", "ended", "passed", "removed")
+PAST = "past"                                               # derived (never stored): untracked, past the window
 LABELS = {"": "Not Tracked", "in_probation": "In Probation", "extended": "Extended",
-          "confirmed": "Confirmed", "ended": "Ended"}
+          "confirmed": "Confirmed", "ended": "Ended", "passed": "Passed Probation",
+          "removed": "Removed From Probation", PAST: "Past Probation"}
+LIVE = ("active", "onboarding")                             # still here: the passes and the reminder look at these
+AUTO_PASS_REASON = "Reached the end of probation with no decision - passed automatically."
+PAST_MARK = "hr_probation.past_window_v1"
 DECISIONS = ("confirm", "extend", "end")
 DECISION_LABELS = {"confirm": "Confirm", "extend": "Extend", "end": "End Employment"}
 DECIDED = {"confirm": "confirmed", "extend": "extended", "end": "ended"}
@@ -337,30 +374,62 @@ def _require_hr(db: Session, user: dict, emp: NexusEmployee) -> None:
 
 # ── summary (the People list) and the full record (the profile card) ─────────
 
-def summary(emp: NexusEmployee, reminder_days: int = None, today: date = None) -> dict:
+def _company_months(emp: NexusEmployee) -> int:
+    """The company's length, read through the row's own session (the People
+    serializer has no db at hand); a detached row reads the default."""
+    from sqlalchemy.orm import object_session
+    db = object_session(emp)
+    if db is None:
+        return DEFAULTS["months"]
+    try:
+        return settings(db, emp.company or "")["months"]
+    except Exception:   # noqa: BLE001 - a summary never fails a listing
+        return DEFAULTS["months"]
+
+
+def past_since(emp: NexusEmployee, rec: dict, company_months: int, today: date) -> str:
+    """The derived Past Probation (Neil, Oct 29 2026): never tracked (no
+    status), applies(), and start date + their length (the person's own
+    months, else the company's) before today -> that end date, else ''. No
+    start date: '' (we cannot know)."""
+    if rec.get("status") or not applies(emp):
+        return ""
+    start = _parse(emp.start_date or "")
+    if not start:
+        return ""
+    end = add_months(start, int(rec.get("months") or company_months or DEFAULTS["months"]))
+    return end.isoformat() if end < today else ""
+
+
+def summary(emp: NexusEmployee, reminder_days: int = None, today: date = None, months: int = None) -> dict:
     """What the People list needs: status, end date, days left and whether it
-    is ending (inside the reminder window, or past the end undecided)."""
+    is ending (inside the reminder window, or past the end undecided).
+    `months` = the company's length (None: read it), for the derived Past
+    Probation of someone never tracked."""
     rec = record(emp)
+    today = today or _today()
     st = rec.get("status", "") if rec.get("status", "") in STATUSES else ""
     end = rec.get("endDate", "")
     days = None
     # Someone who has Left or is Inactive is never "ending" (no reminder either).
-    if st in OPEN and _parse(end) and (emp.status or "active") in ("active", "onboarding"):
-        days = (_parse(end) - (today or _today())).days
+    if st in OPEN and _parse(end) and (emp.status or "active") in LIVE:
+        days = (_parse(end) - today).days
     window = DEFAULTS["reminderDays"] if reminder_days is None else reminder_days
-    return {"status": st, "label": LABELS[st], "endDate": end if st else "",
+    past = "" if st else past_since(emp, rec, _company_months(emp) if months is None else months, today)
+    shown = PAST if past else st
+    return {"status": shown, "label": LABELS[shown], "endDate": end if st else "", "pastSince": past,
             "daysLeft": days, "ending": days is not None and days <= max(window, 0),
             "pending": (rec.get("pending") or {}).get("decision", "") if st in OPEN else ""}
 
 
 def summaries(db: Session, emps: list) -> dict:
-    """{employee id: summary} with each company's own reminder window."""
+    """{employee id: summary} with each company's own reminder window and length."""
     cache, out, today = {}, {}, _today()
     for e in emps:
         c = e.company or ""
         if c not in cache:
-            cache[c] = settings(db, c)["reminderDays"]
-        out[e.id] = summary(e, cache[c], today)
+            cache[c] = settings(db, c)
+        out[e.id] = summary(e, cache[c]["reminderDays"], today, cache[c]["months"])
     return out
 
 
@@ -378,13 +447,23 @@ def _letter_out(db: Session, rec: dict) -> dict:
     return out
 
 
+def _letter_sendable(db: Session, rec: dict, st: str) -> bool:
+    """A letter can go (again): Confirmed / Extended whose letter failed or
+    was declined / voided / expired, or Passed Probation with no letter out."""
+    if st not in ("confirmed", "extended", "passed"):
+        return False
+    let = _letter_out(db, rec)
+    bad = let.get("status", "") in ("failed", "declined", "voided", "expired")
+    return bad or (st == "passed" and not let)
+
+
 def ser(db: Session, emp: NexusEmployee, user: dict) -> dict:
     rec = record(emp)
     cfg = settings(db, emp.company or "")
     role = actor_role(db, user, emp)
     st = rec.get("status", "") if rec.get("status", "") in STATUSES else ""
-    s = summary(emp, cfg["reminderDays"])
-    names = {}
+    s = summary(emp, cfg["reminderDays"], months=cfg["months"])
+    names = {"system": "Nexus"}
 
     def name(em):
         if em and em not in names:
@@ -398,7 +477,8 @@ def ser(db: Session, emp: NexusEmployee, user: dict) -> dict:
     history = [{**h, "byName": name(h.get("by", ""))} for h in reversed(rec.get("history") or [])]
     open_ = st in OPEN
     return {
-        "employeeId": emp.id, "applies": applies(emp), "status": st, "label": LABELS[st],
+        "employeeId": emp.id, "applies": applies(emp), "status": s["status"], "label": s["label"],
+        "pastSince": s["pastSince"],
         "startDate": rec.get("startDate", "") if st else "", "endDate": rec.get("endDate", "") if st else "",
         "months": rec.get("months") or cfg["months"], "monthsOverride": rec.get("months"),
         "companyMonths": cfg["months"], "endManual": bool(rec.get("endManual")),
@@ -411,6 +491,10 @@ def ser(db: Session, emp: NexusEmployee, user: dict) -> dict:
         "canDecide": open_ and role in ("hr", "manager") and not (role == "manager" and pending),
         "canFinalize": role == "hr",
         "canManage": role == "hr",
+        "canRemove": open_ and role == "hr",
+        # Send Letter: a confirmation / extension whose letter did not land,
+        # or a passed record (no letter goes by itself) whose letter is not out.
+        "canSendLetter": role == "hr" and _letter_sendable(db, rec, st),
         "employeeActive": emp.status in ("active", "onboarding"),
         "hasWorkEmail": bool((emp.work_email or "").strip()),
     }
@@ -423,11 +507,13 @@ def _months_for(db: Session, emp: NexusEmployee, rec: dict) -> int:
 
 
 def start_tracking(db: Session, emp: NexusEmployee, by: str, *, reason: str = "", months=None,
-                   action: str = "started") -> dict:
-    """Begin (or restart) probation from the start date. Caller commits."""
+                   action: str = "started", start: str = "") -> dict:
+    """Begin (or restart) probation from the start date (or `start`, the day
+    HR picked for a new probation). Caller commits."""
     if not applies(emp):
         raise ProbationError("Probation is tracked for employees only - not contractors or external people.", 409)
-    start = (emp.start_date or "")[:10]
+    picked = (start or "")[:10]
+    start = (picked or emp.start_date or "")[:10]
     if not _parse(start):
         raise ProbationError(f"Add {emp.first_name}'s start date first - probation counts from it.", 409)
     rec = record(emp)
@@ -436,7 +522,9 @@ def start_tracking(db: Session, emp: NexusEmployee, by: str, *, reason: str = ""
         rec["months"] = months
     prev = rec.get("status", "")
     end = end_for(start, _months_for(db, emp, rec))
+    # startManual: counted from a day HR picked - a start date edit leaves it alone.
     rec.update({"status": "in_probation", "startDate": start, "endDate": end, "endManual": False,
+                "startManual": bool(picked) and picked != (emp.start_date or "")[:10],
                 "remindedFor": "", "pending": None, "decision": None, "letter": None, "awaitingStart": False})
     _log(rec, by, action, frm=prev, to="in_probation", end=end, reason=reason)
     _save(emp, rec)
@@ -467,8 +555,8 @@ def start_for_new_hire(db: Session, emp: NexusEmployee, by: str, how: str) -> bo
         if not applies(emp):
             return False
         rec = record(emp)
-        if rec.get("status") in OPEN:
-            return False
+        if rec.get("status") in OPEN or rec.get("status") == "removed":
+            return False                  # HR removed them: nothing restarts it by itself
         if not _parse(emp.start_date or ""):
             rec["awaitingStart"] = True
             _save(emp, rec)
@@ -488,13 +576,16 @@ def on_profile_change(db: Session, emp: NexusEmployee, by: str, old_start: str) 
     Caller commits; never raises."""
     try:
         rec = record(emp)
+        if rec.get("status") == "removed":
+            return                        # Removed From Probation: a start date change never restarts it
         start = (emp.start_date or "")[:10]
         if rec.get("awaitingStart") and not rec.get("status") and _parse(start):
             rec["awaitingStart"] = False
             _save(emp, rec)
             start_for_new_hire(db, emp, by, "Start date added")
             return
-        if (rec.get("status") == "in_probation" and not rec.get("endManual") and _parse(start)
+        if (rec.get("status") == "in_probation" and not rec.get("endManual") and not rec.get("startManual")
+                and _parse(start)
                 and start != (old_start or "")[:10] and start != rec.get("startDate")):
             end = end_for(start, _months_for(db, emp, rec))
             rec["startDate"] = start
@@ -537,32 +628,68 @@ def edit(db: Session, user: dict, emp: NexusEmployee, *, months=None, end_date: 
     return rec
 
 
-def stop_tracking(db: Session, user: dict, emp: NexusEmployee, reason: str) -> dict:
-    """HR++: back to Not Tracked (a record started by mistake). The history
-    stays. Commits."""
+def remove(db: Session, user: dict, emp: NexusEmployee, reason: str) -> dict:
+    """HR++'s Remove From Probation (Neil, Oct 29 2026: "Should be an option
+    also to remove from probation"): an OPEN probation ends with no decision
+    and no letter - status removed. Nothing restarts it by itself (not the
+    backfill, a start date change or a hire); HR can Start A New Probation
+    later. A manager cannot remove - they recommend. The history stays.
+    Commits."""
     _require_hr(db, user, emp)
-    reason = (reason or "").strip()
+    reason = (reason or "").strip()[:1000]
     if not reason:
         raise ProbationError("Add the reason - it is kept in the probation history.")
     rec = record(emp)
-    if not rec.get("status"):
-        raise ProbationError("Probation is not tracked for them.", 409)
-    _log(rec, user["email"], "stopped", to="", reason=reason)
-    rec.update({"status": "", "pending": None, "remindedFor": "", "awaitingStart": False})
+    if rec.get("status") not in OPEN:
+        raise ProbationError("They are not on probation - there is nothing to remove.", 409)
+    me = user["email"].lower()
+    prev, pending = rec["status"], rec.get("pending") or {}
+    rec.update({"status": "removed", "pending": None, "remindedFor": "", "awaitingStart": False,
+                "decision": {"decision": "removed", "by": me, "at": _now(), "reason": reason,
+                             "previousEndDate": rec.get("endDate", ""), "newEndDate": "", "recommendedBy": ""}})
+    _log(rec, me, "removed", frm=prev, to="removed", reason=reason)
     _save(emp, rec)
+    workflows.emit(db, "probation.decided", subject=emp, actor=me,
+                   changes={"probation.status": (prev, "removed")},
+                   extra={"decision": "removed", "reason": reason})
     _close_bells(db, emp)
+    # A manager's recommendation was waiting: they hear it is moot.
+    rec_by = (pending.get("by") or "").lower()
+    if rec_by and rec_by not in (me, (emp.work_email or "").lower()):
+        _bell(db, rec_by, f"Removed From Probation - {full_name(emp)}",
+              f"HR removed {full_name(emp)} from probation, so your recommendation is closed: {reason}", emp)
     db.commit()
     return rec
 
 
-def begin(db: Session, user: dict, emp: NexusEmployee, *, months=None, reason: str = "") -> dict:
-    """HR++'s Start Tracking for someone Not Tracked (or after a decision, a
-    new probation - say, a move into a new role). Commits."""
+def stop_tracking(db: Session, user: dict, emp: NexusEmployee, reason: str) -> dict:
+    """The old Stop Tracking (a record started by mistake) - now an alias of
+    Remove From Probation: status removed, never back to Not Tracked (that
+    would let the backfill or a start date change start it again)."""
+    return remove(db, user, emp, reason)
+
+
+def begin(db: Session, user: dict, emp: NexusEmployee, *, months=None, reason: str = "",
+          start: str = "") -> dict:
+    """HR++'s Start Tracking for someone Not Tracked, or Start A New
+    Probation after a decision / a removal / past the window - say, a move
+    into a new role - counted from `start` (a day HR picks; empty = their
+    start date). A probation that would already be over is refused: past
+    the window is not probation (Neil, Oct 29 2026). Commits."""
     _require_hr(db, user, emp)
     rec = record(emp)
     if rec.get("status") in OPEN:
         raise ProbationError("Probation is already open for them.", 409)
-    start_tracking(db, emp, user["email"], months=months, reason=reason)
+    if start and not _parse(start):
+        raise ProbationError("Pick the day the new probation counts from.")
+    first = (start or emp.start_date or "")[:10]
+    if _parse(first) and applies(emp):
+        m = _check_months(months) if months is not None else _months_for(db, emp, rec)
+        end = end_for(first, m)
+        if end < _today().isoformat():
+            raise ProbationError(f"Counted from {us_date(first)} it would already have ended on {us_date(end)} - "
+                                 f"pick a later day for the new probation to count from.", 409)
+    start_tracking(db, emp, user["email"], months=months, reason=reason, start=start)
     db.commit()
     return record(emp)
 
@@ -716,15 +843,17 @@ def _supervisor(db: Session, emp: NexusEmployee) -> str:
 
 
 def letter_values(db: Session, emp: NexusEmployee, outcome: str, *, start: str, prev_end: str,
-                  new_end: str, reason: str, months: int) -> dict:
+                  new_end: str, reason: str, months: int, confirmed_on: str = "") -> dict:
     """The probation variables a letter prints (on top of the person and the
-    company Documents resolves by itself)."""
+    company Documents resolves by itself). `confirmed_on`: a Passed Probation
+    record's letter is confirmed as of the end date, not the day it is sent."""
+    confirmed = confirmed_on or _today().isoformat()
     vals = {
         "probation_start_date": long_date(start),
         "probation_end_date": long_date(prev_end),
         "probation_months": str(months),
-        "confirmation_date": long_date(_today().isoformat()),
-        "effective_date": long_date(_today().isoformat() if outcome == "confirm" else new_end),
+        "confirmation_date": long_date(confirmed),
+        "effective_date": long_date(confirmed if outcome == "confirm" else new_end),
         "supervisor": _supervisor(db, emp),
     }
     if outcome == "extend":
@@ -740,7 +869,7 @@ VARIABLE_LABELS = {"signatory": "the company signatory (Settings > Companies)",
 
 
 def letter_plan(db: Session, emp: NexusEmployee, outcome: str, *, prev_end: str, new_end: str = "",
-                reason: str = "") -> dict:
+                reason: str = "", confirmed_on: str = "") -> dict:
     """Render the letter (raises ProbationError with what HR must fix):
     {pdf, fields, title, templateId, templateVersion}."""
     import io
@@ -769,7 +898,7 @@ def letter_plan(db: Session, emp: NexusEmployee, outcome: str, *, prev_end: str,
     rec = record(emp)
     values = letter_values(db, emp, outcome, start=rec.get("startDate") or emp.start_date or "",
                            prev_end=prev_end, new_end=new_end, reason=reason,
-                           months=_months_for(db, emp, rec))
+                           months=_months_for(db, emp, rec), confirmed_on=confirmed_on)
     merge = hpd.full_merge(db, snap, employee_id=emp.id, entity_id=emp.company or "", overrides=values)
     missing = hpd.unresolved(snap, merge)
     if missing:
@@ -802,8 +931,10 @@ def preview(db: Session, user: dict, emp: NexusEmployee, decision: str, new_end:
 
 def send_letter(db: Session, user: dict, emp: NexusEmployee) -> dict:
     """Generate the letter for the last decision and send it through Nexus
-    Sign, the employee its only signer. Never raises: what went wrong is kept
-    on the record ({error}) and the decision stands. Commits."""
+    Sign, the employee its only signer. A Passed Probation record (no letter
+    goes by itself) takes the confirmation letter, confirmed as of its end
+    date. Never raises: what went wrong is kept on the record ({error}) and
+    the decision stands. Commits."""
     from fastapi import HTTPException
 
     import hr_life_events as hle
@@ -811,16 +942,18 @@ def send_letter(db: Session, user: dict, emp: NexusEmployee) -> dict:
     eid = emp.id
     rec = record(emp)
     d = rec.get("decision") or {}
-    outcome = d.get("decision", "")
+    passed = rec.get("status") == "passed"
+    outcome = "confirm" if passed else d.get("decision", "")
     try:
-        if rec.get("status") not in ("confirmed", "extended") or outcome not in LETTER_TITLES:
+        if rec.get("status") not in ("confirmed", "extended", "passed") or outcome not in LETTER_TITLES:
             raise ProbationError("There is no confirmation or extension to send a letter for.", 409)
         busy = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == eid, HrLifeEvent.kind == "probation",
                                              HrLifeEvent.status.in_(hle.ACTIVE)).first())
         if busy is not None:
             raise ProbationError("A probation letter is already out for signature - void it first.", 409)
-        plan = letter_plan(db, emp, outcome, prev_end=d.get("previousEndDate", ""),
-                           new_end=d.get("newEndDate", ""), reason=d.get("reason", ""))
+        plan = letter_plan(db, emp, outcome, prev_end=d.get("previousEndDate", "") or rec.get("endDate", ""),
+                           new_end="" if passed else d.get("newEndDate", ""), reason="" if passed else d.get("reason", ""),
+                           confirmed_on=rec.get("endDate", "") if passed else "")
         path = f"esign/{uuid.uuid4()}/{hle._safe_name(plan['title'], 90)}.pdf"
         if not esign._storage_put(esign._DOC_BUCKET, path, plan["pdf"], "application/pdf").is_success:
             raise ProbationError("Could not store the letter - try Send Letter again in a minute.", 502)
@@ -829,8 +962,9 @@ def send_letter(db: Session, user: dict, emp: NexusEmployee) -> dict:
                          employee_id=eid, subject_name=full_name(emp), subject_email=emp.work_email.lower(),
                          inputs={"outcome": outcome, "templateId": plan["templateId"],
                                  "templateVersion": plan["templateVersion"], "reason": d.get("reason", ""),
-                                 "previousEndDate": d.get("previousEndDate", ""), "newEndDate": d.get("newEndDate", "")},
-                         effective_date=d.get("newEndDate") or _today().isoformat(),
+                                 "previousEndDate": d.get("previousEndDate", ""), "newEndDate": d.get("newEndDate", ""),
+                                 "passed": passed},
+                         effective_date=(rec.get("endDate") if passed else d.get("newEndDate")) or _today().isoformat(),
                          created_by=user["email"].lower(), created_at=now, updated_at=now)
         db.add(ev)
         db.flush()
@@ -1048,7 +1182,8 @@ def remind(db: Session, eid: str, today: date = None) -> list:
             else f"{-days} day{'s' if days != -1 else ''} ago")
     title = f"Probation Ending - {name}"
     body = (f"{name}'s probation ends {us_date(end)} ({when}). Confirm, extend or end it on their profile - "
-            f"HR finalizes; a manager's choice goes to HR as a recommendation.")
+            f"HR finalizes; a manager's choice goes to HR as a recommendation. With no decision or "
+            f"recommendation by then, it passes automatically the day after.")
     batch = []
     for to in reminder_recipients(db, emp):
         _bell(db, to, title, body, emp, priority=1 if days <= 0 else 0)
@@ -1060,13 +1195,113 @@ def remind(db: Session, eid: str, today: date = None) -> list:
     return batch
 
 
+# ── past the window: passed automatically (Neil, Oct 29 2026) ────────────────
+
+def _passable(emp: NexusEmployee, today: date) -> bool:
+    """Open, still here, the end date before today, and no manager
+    recommendation waiting (that one is a real decision in flight - HR's)."""
+    rec = record(emp)
+    if (emp.status or "active") not in LIVE or rec.get("status") not in OPEN or rec.get("pending"):
+        return False
+    end = _parse(rec.get("endDate", ""))
+    return end is not None and end < today
+
+
+def due_passes(db: Session, today: date = None) -> list:
+    """The ids of the open probations past their end with nothing pending."""
+    today = today or _today()
+    return [emp.id for emp in db.query(NexusEmployee).filter(NexusEmployee.status.in_(LIVE)).all()
+            if _passable(emp, today)]
+
+
+def auto_pass(db: Session, eid: str, today: date = None, emit: bool = True) -> bool:
+    """One person's Passed Probation, on the row locked and checked again (a
+    decision or recommendation saved meanwhile wins). Logged as the system,
+    the reminder state cleared, the bells closed, ON-33 ticked like a
+    confirm, probation.decided emitted - and NO letter (HR's Send Letter
+    sends the confirmation letter by hand). Caller commits."""
+    today = today or _today()
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).with_for_update().first()
+    if emp is None or not _passable(emp, today):
+        return False
+    rec = record(emp)
+    prev, end = rec["status"], rec.get("endDate", "")
+    rec.update({"status": "passed", "pending": None, "remindedFor": "",
+                "decision": {"decision": "passed", "by": "system", "at": _now(), "reason": AUTO_PASS_REASON,
+                             "previousEndDate": end, "newEndDate": "", "recommendedBy": "", "automatic": True}})
+    rec.pop("remindedAt", None)
+    _log(rec, "system", "passed", frm=prev, to="passed", end=end, reason=AUTO_PASS_REASON)
+    _save(emp, rec)
+    if emit:   # the one-time release pass does not replay the backlog into Workflows
+        workflows.emit(db, "probation.decided", subject=emp, actor="system",
+                       changes={"probation.status": (prev, "passed")},
+                       extra={"decision": "passed", "automatic": True})
+    _close_bells(db, emp)
+    db.flush()
+    _tick_checklist(db, emp, "system")
+    return True
+
+
+def pass_past_window(db: Session, today: date = None, emit: bool = True) -> int:
+    """Every open probation past its end with nothing pending -> passed, one
+    person at a time (one never stops the pass). Commits; returns how many.
+    `emit=False` (the one-time release pass) writes no workflow events, so a
+    workflow on "Probation Is Decided" never fires for the old backlog."""
+    today, n = today or _today(), 0
+    for eid in due_passes(db, today):
+        sp = db.begin_nested()
+        try:
+            hit = auto_pass(db, eid, today, emit=emit)
+            sp.commit()
+        except Exception as e:   # noqa: BLE001
+            sp.rollback()
+            print(f"[probation] automatic pass for {eid} skipped: {type(e).__name__}: {e}")
+            continue
+        n += 1 if hit else 0
+    db.commit()
+    return n
+
+
+def pass_past_window_once(db: Session, today: date = None) -> tuple:
+    """Once at release (a nexus_settings mark): the same move for every
+    existing record, so long-tenured people stop reading In Probation the
+    moment this deploys. Nothing is deleted; history is appended. Returns
+    (passed, still open past the end with a recommendation waiting for HR),
+    or None when it already ran. Commits."""
+    from models import NexusSetting
+    if db.get(NexusSetting, PAST_MARK):
+        return None
+    today = today or _today()
+    passed = pass_past_window(db, today, emit=False)
+    waiting = 0
+    for emp in db.query(NexusEmployee).filter(NexusEmployee.status.in_(LIVE)).all():
+        r = record(emp)
+        end = _parse(r.get("endDate", ""))
+        waiting += 1 if r.get("status") in OPEN and r.get("pending") and end and end < today else 0
+    db.add(NexusSetting(key=PAST_MARK, value=_now(), updated_by="startup", updated_at=_now()))
+    db.commit()
+    return passed, waiting
+
+
 def run_daily() -> int:
     """From reminders_loop, already in a worker thread (asyncio.to_thread) -
     never on the event loop. Own session and commit; the emails go after the
-    commit. Returns how many people were reminded."""
+    commit. First the automatic Passed Probation (always - the Probation
+    Ending switch is the reminder's), then the reminders. Returns how many
+    people were reminded."""
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        passed = pass_past_window(db)
+        if passed:
+            print(f"[probation] {passed} past their end date with no decision - passed automatically")
+    except Exception as e:   # noqa: BLE001
+        db.rollback()
+        print(f"[probation] automatic pass failed: {e}")
+    finally:
+        db.close()
     if job_switch.off("hr_probation"):   # Workflows > Automations switch
         return 0
-    from database import SessionLocal
     db = SessionLocal()
     sent, batch = 0, []
     try:
@@ -1211,7 +1446,7 @@ def backfill_existing(db: Session, today: date = None) -> int:
                 continue
             rec = record(emp)
             if rec.get("status"):
-                continue                      # already tracked, confirmed or ended
+                continue                      # already tracked, decided, passed or removed - never restarted
             start = (emp.start_date or "")[:10]
             if not _parse(start):
                 continue                      # no start date: Not Tracked

@@ -203,7 +203,7 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
                        # Salary advances live on the person's Time Sheet (Oct 29 2026).
                        + a("salary_advance", 0) + a("salary_advance_payout", 0),
             "hr-people": s(lambda: _ask_hr(db, user)) + s(lambda: _role_changes(db, user))
-                         + a("probation", 0),   # recommendations and overdue decisions (Oct 27 2026)
+                         + a("probation", 0),   # recommendations (Oct 27 2026; past the end with none = passed, Oct 29)
         },
         "accounting": {
             "partners": s(lambda: _partner_changes(db, user)),

@@ -3139,6 +3139,8 @@ export const api = {
   probationLetterPreview: (eid, data) => reqBlob(`/hr/employees/${encodeURIComponent(eid)}/probation/letter-preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), timeoutMs: 60000 }),
   probationSettings: (company = '') => req(`/hr/probation/settings?company=${encodeURIComponent(company || '')}`),
   probationSaveSettings: (data) => req('/hr/probation/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  // Remove From Probation (Oct 29 2026) - HR only, a reason required; nothing restarts it by itself.
+  probationRemove: (eid, reason) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/remove`, { method: 'POST', body: JSON.stringify({ reason }) }),
   // Salary advances (Neil, Oct 27 2026; on the Time Sheet since Oct 29): HR
   // decides, pays out and changes the repayment schedule.
   salaryAdvancesPending:    ()          => req('/salary-advances/pending'),
