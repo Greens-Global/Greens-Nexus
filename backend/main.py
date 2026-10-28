@@ -3997,6 +3997,15 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] period close alerts loop skipped: {e}")
         try:
+            # Tickets to Assign (Oct 26 2026): every minute, in a thread - a
+            # priority notice for each desk member while open tickets wait
+            # for an assignee, cleared once they all have one. See
+            # ticket_assign_alerts.py.
+            from ticket_assign_alerts import ticket_assign_loop
+            _tasks.append(_a.create_task(ticket_assign_loop()))
+        except Exception as e:
+            print(f"[startup] ticket assign alerts loop skipped: {e}")
+        try:
             # Employee codes from Intacct (Charmi, Oct 21 2026): once a night,
             # only for companies that switched it on, work-email matches only.
             # Deployed-worker gated inside. See routers/hr_intacct_codes.py.

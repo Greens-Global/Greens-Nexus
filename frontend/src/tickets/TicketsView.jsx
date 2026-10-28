@@ -226,6 +226,23 @@ export default function TicketsView() {
     return () => window.removeEventListener('nexus:open-ticket', openTicket);
   }, []);
 
+  // A list to land on (Oct 26 2026): the Tickets to Assign notice and the
+  // dashboard's My Open Tickets tile open the desk on Unassigned or on
+  // Assigned to Me - the same filters the Unassigned tile and the scope
+  // pills set. Live event for a mounted screen, pending note for a first
+  // visit (lib/openTarget.js).
+  useEffect(() => {
+    const apply = (f) => {
+      if (f === 'unassigned') { setScope('all'); setSlaFilter('all'); setStatusFilter('unassigned'); }
+      else if (f === 'assigned') { setScope('assigned'); setSlaFilter('all'); setStatusFilter('open'); }
+    };
+    const onFilter = (e) => apply(e.detail?.filter);
+    window.addEventListener('nexus:ticket-filter', onFilter);
+    const pending = takePendingOpen('ticketFilter');
+    if (pending) apply(pending);
+    return () => window.removeEventListener('nexus:ticket-filter', onFilter);
+  }, []);
+
   // Guided tour - same pattern as the Task module's (views/Tasks.jsx): runs
   // itself once per person on first visit, then only from the profile menu's
   // "Tour" row (TopHeader, gated on activeView === 'tickets'), which fires
