@@ -14,7 +14,9 @@ event loop). One tick:
      with one conditional UPDATE (`processed_at == ''`) and runs the
      workflows each starts; fires due schedules and date triggers;
   5. approval reminders and expiry;
-  6. purges: outbox 7 days (a wanted row never processed is reported to
+  6. the owner digest (Monday 8:00 AM Pacific, once per owner per ISO
+     week, only when Settings > Workflows has it on);
+  7. purges: outbox 7 days (a wanted row never processed is reported to
      the Global Admins), step rows 90 days, runs 180 days.
 """
 from __future__ import annotations
@@ -23,10 +25,12 @@ import asyncio
 import importlib
 import json
 import time
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import models
+from company_time import PACIFIC
 from workflows import approvals, catalog, engine, scheduler
 from workflows import settings as wf_settings
 
@@ -198,6 +202,108 @@ def fire_dates(db, now: Optional[datetime] = None) -> int:
     return n
 
 
+# ── the owner digest ─────────────────────────────────────────────────────────
+DIGEST_ENTITY = "digest"
+DIGEST_HOUR = 8
+DIGEST_SUBJECT = "Your Workflows This Week"
+
+
+def digest_week(now_utc: Optional[datetime] = None) -> str:
+    """The ISO week the digest is due for: '' except on a Monday from 8:00
+    AM Pacific (a tick later that Monday still sends it - an API restarting
+    at 8:00 sends on its next tick, never twice: the claim is per owner and
+    week)."""
+    local = (now_utc or datetime.now(timezone.utc)).astimezone(PACIFIC)
+    year, week, weekday = local.isocalendar()
+    if weekday != 1 or local.hour < DIGEST_HOUR:
+        return ""
+    return f"{year}-W{week:02d}"
+
+
+def _digest_stats(db, wf: models.Workflow, since: str) -> dict:
+    R, S = models.WorkflowRun, models.WorkflowRunStep
+    runs = (db.query(R).filter(R.workflow_id == wf.id, R.started_at >= since, R.status != "test").all())
+    lines = Counter()
+    for s in (db.query(S).filter(S.workflow_id == wf.id, S.kind == "action", S.started_at >= since,
+                                 S.status.in_(["done", "failed"])).all()):
+        if s.detail:
+            lines[s.detail] += 1
+    return {"runs": len(runs), "failed": sum(1 for r in runs if r.status == "failed"),
+            "lines": [line for line, _n in lines.most_common(3)]}
+
+
+def _digest_body(db, owner: str, items: list[tuple], since_day: str, until_day: str) -> tuple[str, str]:
+    from workflows.context import person_name
+    first = (person_name(db, owner) or owner).split(" ")[0]
+    parts = [f"Hello {first},", "", f"Here is how your workflows ran from {since_day} to {until_day}.", ""]
+    for wf, st in items:
+        runs = st["runs"]
+        line = f"{wf.name}: {runs} run" + ("" if runs == 1 else "s")
+        if st["failed"]:
+            line += f", {st['failed']} failed"
+        parts.append(line)
+        for text in st["lines"]:
+            parts.append(f"  - {text}")
+        parts.append("")
+    parts.append("Open Workflows in Nexus to see every run and what each step did.")
+    return DIGEST_SUBJECT, "\n".join(parts)
+
+
+def send_owner_digests(db, now: Optional[datetime] = None) -> int:
+    """One themed email per owner, every Monday at 8:00 AM Pacific, listing
+    each active workflow they own with its runs and failures over the last
+    7 days and its three most common action lines. Only when Settings >
+    Workflows has Owner Digest on (and the workflow's company has not
+    switched it off), only on the deployed API; claimed through
+    workflow_subject_marks (owner, "digest", week) so one week sends once
+    across instances. Returns how many emails went."""
+    import leader
+
+    now = now or datetime.now(timezone.utc)
+    week = digest_week(now)
+    if not week or not wf_settings.get(db).get("ownerDigest"):
+        return 0
+    if not leader.is_deployed_worker():
+        return 0
+    owned: dict[str, list] = {}
+    company_on: dict[str, bool] = {}
+    for wf in (db.query(models.Workflow).filter(models.Workflow.status == "active")
+               .order_by(models.Workflow.name).all()):
+        owner = (wf.owner_email or "").lower()
+        if not owner:
+            continue
+        cid = wf.company_id or ""
+        if cid and cid not in company_on:
+            company_on[cid] = bool(wf_settings.get(db, cid).get("ownerDigest"))
+        if cid and not company_on[cid]:
+            continue
+        owned.setdefault(owner, []).append(wf)
+    if not owned:
+        return 0
+    import graph_mail
+    from workflows.context import link_url
+    from workflows.packs.core import email_html
+
+    since = (now - timedelta(days=7)).isoformat()
+    since_day = (now - timedelta(days=7)).astimezone(PACIFIC).strftime("%m/%d/%Y")
+    until_day = now.astimezone(PACIFIC).strftime("%m/%d/%Y")
+    link = link_url({"view": "workflows"})
+    sent = 0
+    for owner in sorted(owned):
+        if not scheduler.claim_mark(db, owner, DIGEST_ENTITY, week):
+            continue
+        items = [(wf, _digest_stats(db, wf, since)) for wf in owned[owner]]
+        subject, body = _digest_body(db, owner, items, since_day, until_day)
+        try:
+            html = email_html(db, owner, subject, body, link, "Weekly Owner Digest")
+            graph_mail.send_mail(from_email=graph_mail.DEFAULT_FROM_EMAIL, to=[owner], cc=None, subject=subject,
+                                 html=html)
+            sent += 1
+        except Exception as e:   # noqa: BLE001 - one owner's mail never stops the others; the week stays claimed
+            print(f"[workflows] owner digest to {owner} failed: {type(e).__name__}: {str(e)[:200]}")
+    return sent
+
+
 # ── purge ────────────────────────────────────────────────────────────────────
 def purge(db, now: Optional[datetime] = None) -> int:
     now = now or datetime.now(timezone.utc)
@@ -226,7 +332,8 @@ def tick(now: Optional[datetime] = None, *, force_health: bool = False, force_pu
     from database import SessionLocal
     catalog.load_packs()
     now = now or datetime.now(timezone.utc)
-    out = {"events": 0, "runs": 0, "resumed": 0, "scheduled": 0, "purged": 0, "attention": 0, "approvals": {}}
+    out = {"events": 0, "runs": 0, "resumed": 0, "scheduled": 0, "purged": 0, "attention": 0, "approvals": {},
+           "digests": 0}
     db = SessionLocal()
     try:
         sync_db_catalog(db)
@@ -243,6 +350,11 @@ def tick(now: Optional[datetime] = None, *, force_health: bool = False, force_pu
             out["runs"] = process_events(db, rows)
             out["scheduled"] = fire_schedules(db, now) + fire_dates(db, now)
         out["approvals"] = approvals.sweep(db, now)
+        try:
+            out["digests"] = send_owner_digests(db, now)
+        except Exception as e:   # noqa: BLE001 - the digest never stops the tick
+            db.rollback()
+            print(f"[workflows] owner digest failed: {type(e).__name__}: {str(e)[:200]}")
         if force_purge or mono - _last_purge > 3600:
             out["purged"] = purge(db, now)
             _last_purge = mono

@@ -6,7 +6,9 @@
     schedule runs once per company with the company as the subject;
   * a date trigger with offset -14 fires on the right day; a yearly date
     (work anniversary) matches month and day;
-  * the claim on the dedupe key is atomic (the composite primary key).
+  * the claim on the dedupe key is atomic (the composite primary key);
+  * the owner digest goes on Monday at 8:00 AM Pacific, once per owner per
+    ISO week, only with the setting on and only on the deployed API.
 
     cd backend && python -m pytest test_workflows_scheduler.py -q
 """
@@ -27,6 +29,7 @@ import cache  # noqa: E402
 import database  # noqa: E402
 import models  # noqa: E402
 from workflows import catalog, engine, runner, scheduler, store, validate  # noqa: E402
+from workflows import settings as wf_settings  # noqa: E402
 
 ENTITY, OTHER = "ent-sch", "ent-sch-other"
 GAIL, PRIYA, MAX = "gail.sch@greensglobal.com", "priya.sch@greensglobal.com", "max.sch@greensglobal.com"
@@ -195,3 +198,64 @@ def test_schedule_tick_through_the_runner(db):
     assert runner.tick(now=_local(2026, 11, 5, 23, 0))["scheduled"] == 1
     assert runner.tick(now=_local(2026, 11, 5, 23, 30))["scheduled"] == 0
     assert (date(2026, 11, 5) - timedelta(days=1)).isoformat() == "2026-11-04"
+
+
+# ── the owner digest ─────────────────────────────────────────────────────────
+def _run_rows(db, wf, started, status, lines):
+    rid = f"run-{started.isoformat()}-{status}-{wf.id[:6]}"
+    db.add(models.WorkflowRun(id=rid, workflow_id=wf.id, workflow_name=wf.name, version=1, trigger_kind="schedule",
+                              entity="company", subject_id=ENTITY, subject_label="Greens Sch", company_id=ENTITY,
+                              status=status, started_at=started.isoformat(), finished_at=started.isoformat()))
+    for i, line in enumerate(lines):
+        db.add(models.WorkflowRunStep(id=f"{rid}-s{i}", run_id=rid, workflow_id=wf.id, step_id=f"n{i}", kind="action",
+                                      action="notify", label="Send A Notification", status="done",
+                                      started_at=started.isoformat(), detail=line))
+    db.commit()
+
+
+def test_owner_digest_monday_once_per_owner_with_the_setting_on(db, monkeypatch):
+    import graph_mail
+    import leader
+    sent = []
+    monkeypatch.setattr(graph_mail, "send_mail", lambda **kw: sent.append(kw) or {"messageId": "m1"})
+    monkeypatch.setattr(leader, "is_deployed_worker", lambda: True)
+    daily = {"kind": "schedule", "every": "day", "days": [], "time": "23:00", "zone": "company"}
+    wf = _wf(db, daily, name="Daily Tick")
+    other = _wf(db, daily, company=OTHER, name="Other Tick")
+    monday = _local(2026, 11, 2, 8, 0)
+    assert monday.astimezone(ZONE).isoweekday() == 1
+    week = "{}-W{:02d}".format(*monday.astimezone(ZONE).isocalendar()[:2])
+    _run_rows(db, wf, monday - timedelta(days=1), "succeeded", ["Notified Max Sch: Tick for Greens Sch"])
+    _run_rows(db, wf, monday - timedelta(days=2), "succeeded", ["Notified Max Sch: Tick for Greens Sch"])
+    _run_rows(db, wf, monday - timedelta(days=3), "failed", ["Emailed Max Sch: Weekly"])
+    _run_rows(db, wf, monday - timedelta(days=9), "failed", ["Notified Max Sch: too old"])   # outside the 7 days
+    _run_rows(db, other, monday - timedelta(days=1), "succeeded", ["Notified Max Sch: Other"])
+    # off by default: nothing goes, nothing is claimed
+    assert runner.send_owner_digests(db, monday) == 0 and sent == []
+    assert db.get(models.WorkflowSubjectMark, (GAIL, "digest", week)) is None
+    wf_settings.save(db, "", {"ownerDigest": True}, GAIL)
+    wf_settings.save(db, OTHER, {"ownerDigest": False}, GAIL)      # that company switched it off
+    db.commit()
+    assert runner.digest_week(_local(2026, 11, 2, 7, 59)) == "" and runner.digest_week(_local(2026, 11, 1, 9, 0)) == ""
+    assert runner.send_owner_digests(db, _local(2026, 11, 2, 7, 59)) == 0     # not 8:00 yet
+    assert runner.send_owner_digests(db, _local(2026, 11, 1, 9, 0)) == 0      # Sunday
+    assert runner.send_owner_digests(db, monday) == 1
+    mail = sent[0]
+    assert mail["to"] == [GAIL] and mail["subject"] == "Your Workflows This Week"
+    assert "Hello Gail," in mail["html"] and "10/26/2026 to 11/02/2026" in mail["html"]
+    assert "Daily Tick: 3 runs, 1 failed" in mail["html"]
+    assert "Notified Max Sch: Tick for Greens Sch" in mail["html"] and "Emailed Max Sch: Weekly" in mail["html"]
+    assert "too old" not in mail["html"] and "Other Tick" not in mail["html"]
+    assert "/workflows" in mail["html"] and "Open In Nexus" in mail["html"]
+    # claimed for the week: a later tick that Monday sends nothing; next Monday sends again
+    assert db.get(models.WorkflowSubjectMark, (GAIL, "digest", week)) is not None
+    assert runner.send_owner_digests(db, _local(2026, 11, 2, 12, 0)) == 0
+    assert runner.send_owner_digests(db, _local(2026, 11, 9, 8, 30)) == 1 and len(sent) == 2
+    # a laptop never mails and never claims
+    monkeypatch.setattr(leader, "is_deployed_worker", lambda: False)
+    assert runner.send_owner_digests(db, _local(2026, 11, 16, 8, 30)) == 0
+    assert db.get(models.WorkflowSubjectMark, (GAIL, "digest", week[:-2] + "47")) is None
+    # the tick carries it
+    monkeypatch.setattr(leader, "is_deployed_worker", lambda: True)
+    assert runner.tick(now=_local(2026, 11, 16, 8, 30))["digests"] == 1 and len(sent) == 3
+    assert runner.tick(now=_local(2026, 11, 16, 8, 35))["digests"] == 0
