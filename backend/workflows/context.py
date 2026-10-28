@@ -230,6 +230,16 @@ class RunContext:
                 return MISSING
             if not rest:
                 return self.item.get("label") or self.item.get("name") or MISSING
+            # a registered field of the item's entity resolves exactly like
+            # subject.<field>: hidden from the run-as user = MISSING, read
+            # from the row when the item list left it out
+            f = self.entity.field(rest) if self.entity is not None else None
+            if f is not None:
+                if not self.can_see(f):
+                    return MISSING
+                if rest in self.item:
+                    return self.item[rest]
+                return self.field_value(f)
             return self.item.get(rest, MISSING)
         if root == "event":
             if self.event is not None and rest in ("key", "at", "actor", "id"):

@@ -78,6 +78,17 @@ def _setup():
                         fn=lambda db, ctx, p: db.query(models.NexusEmployee)
                         .filter(models.NexusEmployee.company == ENTITY, models.NexusEmployee.status == "active")
                         .order_by(models.NexusEmployee.work_email).all())
+    # a throwaway record kind (H6): the person rows behind a rule that only
+    # Gail passes, and that the Nexus system actor never does
+    catalog.entity("test_secret", label="Secret Record", model=models.NexusEmployee, module="core",
+                   company=lambda row: row.company,
+                   people={"self": lambda db, row: [row.work_email]},
+                   fields=[catalog.F("name", "Name", "text", path="__label__")],
+                   label_of=lambda row: f"{row.first_name} {row.last_name}",
+                   visible_to=lambda db, user, row: (user or {}).get("email") == GAIL,
+                   nexus_visible=lambda db, row: False)
+    catalog.event("test_secret.changed", entity="test_secret", label="Secret Record Changes", module="core",
+                  group="Test", sample={"name": "Priya Eng"})
     s = database.SessionLocal()
     s.add(models.HrEntity(id=ENTITY, name="Greens Eng", hr_contact_email=HANA))
     s.add(models.HrEntity(id=OTHER, name="Other Eng"))
@@ -490,6 +501,108 @@ def test_if_else_and_for_each(db):
     assert ids[3:] == [f"fe#{i}/e1" for i in range(6)]
     assert rows[3].label == "Send A Notification - Gail Eng" and rows[3].detail == "Notified Gail Eng: Hello Gail Eng"
     assert db.query(models.NexusNotification).count() == 7
+
+
+def test_for_each_items_hold_public_fields_only(db):
+    """H2: the item list a run keeps (and serves to every viewer) carries
+    only the fields everyone may see; a template reads a hidden field off
+    the row for an owner who may see it."""
+    db.query(models.NexusEmployee).filter(models.NexusEmployee.id == "e-priya").update(
+        {"personal": {"dob": "1994-03-08"}, "compensation": {"base": 95000}})
+    db.commit()
+    steps = [{"id": "fe", "kind": "for_each", "source": {"key": "test.people", "params": {}}, "as": "item",
+              "steps": [{"id": "e1", "kind": "action", "action": "notify",
+                         "params": {"to": [{"kind": "self"}], "title": "{{ item.name }} {{ item.birthday | us_date }}"}}]}]
+    _wf(db, steps=steps)                                  # the owner holds hr:viewer: birthday is theirs to read
+    run = engine.handle_event(db, _event(db))[0]
+    assert run.status == "succeeded"
+    rows = _steps(db, run)
+    items = rows[0].output["items"]
+    assert len(items) == 6 and all("birthday" not in it and "pay.base" not in it for it in items)
+    assert {it["name"] for it in items} >= {"Priya Eng", "Gail Eng"}
+    priya = next(r for r in rows if r.label.endswith("Priya Eng"))
+    assert priya.detail == "Notified Priya Eng: Priya Eng 03/08/1994"
+
+
+def test_run_detail_hides_fields_the_viewer_may_not_see(db):
+    """H1: the outbox holds public fields only; what the emitter named as a
+    change, and the conditions trace, are filtered by the VIEWER's sight
+    on the way out."""
+    db.query(models.NexusEmployee).filter(models.NexusEmployee.id == "e-priya").update({"personal": {"dob": "1994-03-08"}})
+    db.commit()
+    _wf(db, steps=[NOTIFY], conditions=[[{"field": "birthday", "op": "after", "value": "1990-01-01"}]])
+    ev = _event(db, changes={"status": ("active", "offboarded"), "birthday": ("1994-03-08", "1994-03-09")})
+    assert "birthday" not in ev.payload["subject"] and ev.payload["subject"]["name"] == "Priya Eng"
+    run = engine.handle_event(db, ev)[0]
+    assert run.status == "succeeded"
+    manager = {"email": MAX, "role": "manager", "level": 3}                # no HR grant
+    out = store.serialize_run(db, run, steps=True, viewer=manager)
+    assert "birthday" not in out["event"]["payload"]["changes"]
+    assert out["event"]["payload"]["changes"]["status"] == {"from": "active", "to": "offboarded"}
+    assert out["trace"][0]["field"] == "birthday" and out["trace"][0]["actual"] is None and out["trace"][0]["ok"]
+    hr = {"email": HANA, "role": "employee", "level": 1}                   # hr:viewer
+    out = store.serialize_run(db, run, steps=True, viewer=hr)
+    assert out["event"]["payload"]["changes"]["birthday"]["to"] == "1994-03-09"
+    assert out["trace"][0]["actual"] == "1994-03-08"
+    assert "birthday" not in store.serialize_run(db, run, steps=True)["event"]["payload"]["changes"]   # no viewer: public
+
+
+def test_no_run_on_a_record_the_run_as_may_not_see(db):
+    """H6: a record the owner may not read starts nothing (a skipped row
+    when logSkips is on), for events, manual runs and date runs alike; the
+    Nexus actor is refused where the module says so; an owner who may see
+    it runs as before."""
+    trig = {"kind": "event", "event": "test_secret.changed"}
+    step = {"id": "n1", "kind": "action", "action": "notify",
+            "params": {"to": [{"kind": "person", "value": GAIL}], "title": "Seen {{ subject.name }}"}}
+    wf = _wf(db, steps=[step], trigger=trig, settings={"logSkips": True})
+    runs = engine.handle_event(db, _event(db, key="test_secret.changed", changes={}))
+    assert [(r.workflow_id, r.status, r.summary) for r in runs] == [(wf.id, "skipped", "Not visible to the owner")]
+    assert db.query(models.NexusNotification).count() == 0
+    secret = catalog.ENTITIES["test_secret"]
+    priya = db.get(models.NexusEmployee, "e-priya")
+    assert engine.run_for(db, wf, trigger_kind="manual", entity=secret, subject=priya, started_by=OWNER).status == "skipped"
+    assert db.query(models.NexusNotification).count() == 0
+    store.set_status(db, wf, "paused", OWNER)
+    nexus = _wf(db, steps=[step], trigger=trig, owner=GAIL, run_as="nexus", name="As Nexus")
+    assert engine.handle_event(db, _event(db, key="test_secret.changed", changes={})) == []     # logSkips off: nothing
+    assert engine.run_for(db, nexus, trigger_kind="date", entity=secret, subject=priya) is None
+    store.set_status(db, nexus, "paused", GAIL)
+    gail = _wf(db, steps=[step], trigger=trig, owner=GAIL, name="As Gail")
+    run = engine.handle_event(db, _event(db, key="test_secret.changed", changes={}))[0]
+    assert run.workflow_id == gail.id and run.status == "succeeded"
+    assert db.query(models.NexusNotification).one().title == "Seen Priya Eng"
+    # a Test against a real event says so too, and plans nothing
+    test = engine.test_run(db, wf, event=_event(db, key="test_secret.changed", changes={}), by=OWNER)
+    assert test.status == "test" and test.summary == "Not visible to the owner: nothing would run"
+    assert _steps(db, test) == []
+
+
+def test_replay_honors_the_switches(db):
+    """M2: a replay is a new run - it needs the workflow on and the same
+    enrollment the original needed (the global and company switches)."""
+    wf = _wf(db, steps=[NOTIFY, {"id": "b1", "kind": "action", "action": "test.boom", "params": {}}])
+    run = engine.handle_event(db, _event(db))[0]
+    assert run.status == "failed"
+    BOOM["on"] = False
+    store.set_status(db, wf, "paused", OWNER, "hold")
+    db.commit()
+    with pytest.raises(ValueError, match="Switch the workflow on"):
+        engine.replay(db, run, OWNER)
+    store.set_status(db, wf, "active", OWNER)
+    wf_settings.pause_all(db, True, GAIL)
+    db.commit()
+    with pytest.raises(ValueError, match="paused for every company"):
+        engine.replay(db, run, OWNER)
+    wf_settings.pause_all(db, False, GAIL)
+    wf_settings.save(db, ENTITY, {"enabled": False}, GAIL)
+    db.commit()
+    with pytest.raises(ValueError, match="switched off for this company"):
+        engine.replay(db, run, OWNER)
+    wf_settings.reset(db, ENTITY)
+    db.commit()
+    assert db.query(models.WorkflowRun).count() == 1
+    assert engine.replay(db, run, OWNER).status == "succeeded"
 
 
 # ── the runner ───────────────────────────────────────────────────────────────

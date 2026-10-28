@@ -157,6 +157,21 @@ def test_item_and_vars(db):
     assert render("{{ item.name }} {{ item.due | us_date }} {{ vars.count }}", ctx)[0] == "Ravi 12/01/2026 4"
 
 
+def test_item_field_follows_the_entitys_visibility(db):
+    """H2: item.<field> resolves like subject.<field> - a field the run-as
+    user may not see is MISSING even when the item dict carries it, and a
+    registered field the list left out is read off the row for whoever may."""
+    ctx = _ctx(db, item={"name": "Ravi", "pay": 95000, "dob": "1994-03-08"})      # a manager: no hr_comp, no HR
+    assert ctx.resolve("item.pay") is MISSING and ctx.resolve("item.dob") is MISSING
+    assert render("{{ item.pay }}", ctx) == ("", ["item.pay"])
+    assert ctx.resolve("item.name") == "Ravi"
+    owner = _ctx(db, run_as={"email": MAX, "role": "owner", "level": 5}, item={"name": "Ravi"})
+    assert owner.resolve("item.pay") == 95000              # not in the item: read off the subject row
+    assert owner.resolve("item.dob") == "1994-03-08"
+    nexus = _ctx(db, run_as=None, item={"name": "Ravi", "pay": 1})
+    assert nexus.resolve("item.pay") is MISSING and nexus.resolve("item.name") == "Ravi"
+
+
 # ── recipients ───────────────────────────────────────────────────────────────
 def test_manager_and_hr_contact_resolve_and_dedupe(db):
     ctx = _ctx(db)

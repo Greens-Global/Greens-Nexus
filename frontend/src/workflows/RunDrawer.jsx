@@ -122,6 +122,7 @@ export default function RunDrawer({ id, onClose, onChanged }) {
                   <pre style={{ margin: '8px 0 0', fontSize: 12, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: 'var(--ink)', maxHeight: 320, overflow: 'auto' }}>
                     {JSON.stringify(run.event.payload ?? {}, null, 2)}
                   </pre>
+                  <Muted style={{ display: 'block', marginTop: 6 }}>Only the fields you may see are shown here.</Muted>
                 </details>
               )}
             </>

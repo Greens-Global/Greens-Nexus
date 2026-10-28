@@ -36,6 +36,9 @@ FIELD_TYPES = ("text", "number", "date", "datetime", "select", "person", "people
 PARAM_TYPES = ("text", "template", "number", "bool", "select", "recipients", "person", "entity_ref",
                "duration", "date_offset", "list_source", "options", "approvers")
 VISIBILITIES = ("all", "hr", "comp")
+# A ceiling: `payload_for(..., ceiling="hr")` keeps the fields whose
+# visibility ranks at or below hr.
+VISIBILITY_RANK = {"all": 0, "hr": 1, "comp": 2}
 VOLUMES = ("normal", "high")
 
 # Operators per field type and the English the builder shows (sentence case).
@@ -148,6 +151,10 @@ class EntityDef:
     label_of: Optional[Callable] = None      # (row) -> str
     visible_to: Optional[Callable] = None    # (db, user, row) -> bool
     people_labels: dict = dc_field(default_factory=dict)
+    # (db, row) -> bool: whether the Nexus system actor (no identity) may act
+    # on this row. None = every row; a module keeps what it hides from
+    # everyone but its own people (a confidential ticket, a restricted task).
+    nexus_visible: Optional[Callable] = None
 
     def field(self, key: str) -> Optional[Field]:
         for f in self.fields:
@@ -193,8 +200,13 @@ class EntityDef:
             return {}
 
     def can_see(self, db, user, row) -> bool:
+        """Whether `user` may act on `row`. No user is the Nexus system
+        actor: it reads every record's public fields except one the module
+        keeps to its own people (`nexus_visible`)."""
         if self.visible_to is None:
             return True
+        if not user:
+            return bool(self.nexus_visible(db, row)) if self.nexus_visible is not None else True
         return bool(self.visible_to(db, user, row))
 
     def people_label(self, role: str) -> str:
@@ -275,7 +287,7 @@ def _fresh(registry: dict, key: str, what: str) -> None:
 # ── registration ─────────────────────────────────────────────────────────────
 def entity(key: str, *, label: str, model, company=None, link=None, people=None, fields=(), dates=(),
            observe: bool = False, observe_fields=(), load=None, label_of=None, visible_to=None,
-           module: str = "core", people_labels=None):
+           module: str = "core", people_labels=None, nexus_visible=None):
     """Register a kind of record. `fields` are F(...); `dates` are field keys
     (label and yearly from the field) or D(key, label, yearly) for a second
     reading of a field ("Work Anniversary" on start_date). `people` maps a
@@ -305,7 +317,8 @@ def entity(key: str, *, label: str, model, company=None, link=None, people=None,
     ENTITIES[key] = EntityDef(key=key, label=label, model=model, module=module, company=company, link=link,
                               people=dict(people or {}), fields=flds, dates=dts, observe=bool(observe),
                               observe_fields=tuple(observe_fields), load=load, label_of=label_of,
-                              visible_to=visible_to, people_labels=dict(people_labels or {}))
+                              visible_to=visible_to, people_labels=dict(people_labels or {}),
+                              nexus_visible=nexus_visible)
     return _identity
 
 
@@ -439,10 +452,16 @@ def may_use_event(db, user: Optional[dict], ev: EventDef) -> bool:
             return bool(ev.may_use(db, user))
         except Exception:   # noqa: BLE001 - a broken rule hides the event, never 500s the catalog
             return False
+    ent = ENTITIES.get(ev.entity)
+    return may_use_module(db, user, ent.module if ent else ev.module)
+
+
+def may_use_module(db, user: Optional[dict], module: str) -> bool:
+    """Whether `user` may build on a module's records (a date or manual
+    trigger on its entity, a For Each over its list): the module is open,
+    or granted (viewer and up), or the user is an administrator."""
     if not user:
         return False
-    ent = ENTITIES.get(ev.entity)
-    module = ent.module if ent else ev.module
     if module in OPEN_MODULES:
         return True
     import auth

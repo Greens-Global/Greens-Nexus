@@ -70,17 +70,21 @@ def employee_name(row) -> str:
 
 
 def _employee_visible(db, user, row) -> bool:
-    """A person's record is visible to themselves, their manager, HR and
-    administrators - the People screen's own rule, in short."""
+    """A person's record is visible to themselves, their manager, HR (the
+    grant, or HR for their company: the HR contact, a Full People grant)
+    and administrators - the People screen's own rule, in short."""
     if not user:
         return False
     import auth
+    import hr_access
     me = (user.get("email") or "").lower()
     if int(user.get("level", 0) or 0) >= auth._LEVELS["administrator"]:
         return True
     if me and me in (_employee_self(db, row) + _employee_manager(db, row)):
         return True
-    return auth._module_level(me, "hr", db) >= 1
+    if auth._module_level(me, "hr", db) >= 1:
+        return True
+    return bool(hr_access.is_hr_for(db, user, getattr(row, "work_email", "") or ""))
 
 
 # ── entities ─────────────────────────────────────────────────────────────────
@@ -452,8 +456,12 @@ def webhook_body(ctx, params) -> dict:
     }
 
 
-def sign(secret: str, body: bytes) -> str:
-    return "sha256=" + hmac.new((secret or "").encode("utf-8"), body, hashlib.sha256).hexdigest()
+def sign(secret: str, timestamp: str, body: bytes) -> str:
+    """HMAC-SHA256 over `<timestamp>.<body>` - the receiver checks the
+    signature AND that X-Nexus-Timestamp is recent, so a captured call
+    cannot be replayed later."""
+    signed = f"{timestamp}.".encode("utf-8") + body
+    return "sha256=" + hmac.new((secret or "").encode("utf-8"), signed, hashlib.sha256).hexdigest()
 
 
 def _webhook_plan(ctx, params) -> str:
@@ -461,6 +469,7 @@ def _webhook_plan(ctx, params) -> str:
 
 
 def _webhook_run(ctx, params) -> dict:
+    import time
     import httpx
     from workflows import settings as wf_settings
     reason = _webhook_allowed(ctx, params)
@@ -468,9 +477,11 @@ def _webhook_run(ctx, params) -> dict:
         raise PermissionError(reason)
     url = str(params.get("url") or "")
     host = _host(url)
+    secret = wf_settings.webhook_secret(ctx.db, host)     # raises when a kept secret cannot be read
     body = json.dumps(webhook_body(ctx, params), default=str).encode("utf-8")
+    stamp = str(int(time.time()))
     headers = {"content-type": "application/json", "user-agent": "Nexus-Workflows/1",
-               "X-Nexus-Signature": sign(wf_settings.webhook_secret(ctx.db, host), body)}
+               "X-Nexus-Timestamp": stamp, "X-Nexus-Signature": sign(secret, stamp, body)}
     r = httpx.post(url, content=body, headers=headers, timeout=10)
     if r.status_code >= 500:
         raise TransientError(f"{host} answered {r.status_code}")

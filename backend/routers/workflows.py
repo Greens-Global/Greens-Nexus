@@ -240,6 +240,21 @@ def _visible_ids(db, user: dict) -> Optional[set]:
     return {w.id for w in store.visible_workflows(db, user).all()}
 
 
+def _run_scope(db, user: dict) -> Optional[list]:
+    """The run companies the caller may see: None = every run; else the
+    sorted list of their companies. A run of an every-company workflow
+    carries the RECORD's company, so the workflow being visible is not
+    enough - a one-company caller sees only their companies' runs, and a
+    run with no company (a record without one) only a Global Admin."""
+    scope = _companies_of(db, user)
+    return None if scope is None else sorted(scope)
+
+
+def _scoped_runs(q, db, user: dict, column):
+    scope = _run_scope(db, user)
+    return q if scope is None else q.filter(column.in_(scope))
+
+
 def _action_row(db, s: models.WorkflowRunStep, run: models.WorkflowRun) -> dict:
     out = s.output if isinstance(s.output, dict) else {}
     affected = []
@@ -299,6 +314,7 @@ def list_runs(kind: str = "runs", workflow: str = "", status: str = "", before: 
         S = models.WorkflowRunStep
         q = (db.query(S, R_).join(R_, R_.id == S.run_id)
              .filter(S.kind == "action", S.status.in_(["done", "failed"]), R_.status != "test"))
+        q = _scoped_runs(q, db, user, R_.company_id)
         if ids is not None:
             q = q.filter(S.workflow_id.in_(sorted(ids)))
         if status:
@@ -310,7 +326,7 @@ def list_runs(kind: str = "runs", workflow: str = "", status: str = "", before: 
         rows = rows[:limit]
         items = [_action_row(db, s, run) for s, run in rows]
         return {"items": items, "next": (_next(rows[-1][0].started_at, rows[-1][0].id) if more and rows else None)}
-    q = db.query(R_)
+    q = _scoped_runs(db.query(R_), db, user, R_.company_id)
     if ids is not None:
         q = q.filter(R_.workflow_id.in_(sorted(ids)))
     if status:
@@ -321,7 +337,7 @@ def list_runs(kind: str = "runs", workflow: str = "", status: str = "", before: 
     rows = q.order_by(R_.started_at.desc(), R_.id.desc()).limit(limit + 1).all()
     more = len(rows) > limit
     rows = rows[:limit]
-    return {"items": [store.serialize_run(db, r) for r in rows],
+    return {"items": [store.serialize_run(db, r, viewer=user) for r in rows],
             "next": (_next(rows[-1].started_at, rows[-1].id) if more and rows else None)}
 
 
@@ -332,12 +348,15 @@ def _run_or_404(db, user: dict, rid: str) -> models.WorkflowRun:
     wf = db.get(models.Workflow, run.workflow_id)
     if wf is None or not store.can_see(db, user, wf):
         raise HTTPException(404, "Run not found")
+    scope = _run_scope(db, user)
+    if scope is not None and (run.company_id or "") not in scope:
+        raise HTTPException(404, "Run not found")
     return run
 
 
 @router.get("/runs/{rid}")
 def get_run(rid: str, user: dict = Depends(R), db: Session = Depends(get_db)):
-    return store.serialize_run(db, _run_or_404(db, user, rid), steps=True)
+    return store.serialize_run(db, _run_or_404(db, user, rid), steps=True, viewer=user)
 
 
 @router.post("/runs/{rid}/replay")
@@ -348,7 +367,7 @@ def replay_run(rid: str, user: dict = Depends(E), db: Session = Depends(get_db))
         new = engine.replay(db, run, _me(user))
     except ValueError as e:
         raise HTTPException(409, str(e))
-    return store.serialize_run(db, new, steps=True)
+    return store.serialize_run(db, new, steps=True, viewer=user)
 
 
 @router.post("/runs/{rid}/cancel")
@@ -359,7 +378,7 @@ def cancel_run(rid: str, user: dict = Depends(E), db: Session = Depends(get_db))
         engine.cancel(db, run, _me(user))
     except ValueError as e:
         raise HTTPException(409, str(e))
-    return store.serialize_run(db, run, steps=True)
+    return store.serialize_run(db, run, steps=True, viewer=user)
 
 
 # ── overview ─────────────────────────────────────────────────────────────────
@@ -369,9 +388,10 @@ def overview(user: dict = Depends(R), db: Session = Depends(get_db)):
     ids = [w.id for w in wfs]
     since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
     R_ = models.WorkflowRun
-    recent = (db.query(R_).filter(R_.workflow_id.in_(ids), R_.status != "test")
+    runs_q = _scoped_runs(db.query(R_), db, user, R_.company_id)
+    recent = (runs_q.filter(R_.workflow_id.in_(ids), R_.status != "test")
               .order_by(R_.started_at.desc()).limit(10).all()) if ids else []
-    day = (db.query(R_).filter(R_.workflow_id.in_(ids), R_.started_at >= since, R_.status != "test").all()) if ids else []
+    day = (runs_q.filter(R_.workflow_id.in_(ids), R_.started_at >= since, R_.status != "test").all()) if ids else []
     attention = []
     for w in wfs:
         if w.status == "needs_attention":
@@ -389,7 +409,7 @@ def overview(user: dict = Depends(R), db: Session = Depends(get_db)):
         "last24h": {"runs": len(day), "succeeded": sum(1 for r in day if r.status == "succeeded"),
                     "failed": sum(1 for r in day if r.status == "failed"),
                     "waiting": sum(1 for r in day if r.status == "waiting")},
-        "recent": [store.serialize_run(db, r) for r in recent],
+        "recent": [store.serialize_run(db, r, viewer=user) for r in recent],
         "pausedAll": {"paused": bool(cfg.get("pausedAll")), "by": cfg.get("pausedBy") or "", "at": cfg.get("pausedAt") or ""},
         "counts": {"active": sum(1 for w in wfs if w.status == "active"),
                    "paused": sum(1 for w in wfs if w.status in ("paused", "needs_attention")),
@@ -444,13 +464,27 @@ def _settings_company(db, user: dict, company: str) -> str:
     return cid
 
 
-@router.get("/settings")
-def get_settings(company: str = "", user: dict = Depends(F), db: Session = Depends(get_db)):
-    cid = _settings_company(db, user, company)
+ORG_ONLY_OUT = ("webhookHosts", "webhookSecretsSet", "nexusRunAs")
+
+
+def _settings_out(db, user: dict, cid: str) -> dict:
+    """The settings as the caller may see them: the organization-only keys
+    (the webhook allow-list, which hosts hold a secret, the Nexus run-as
+    switch) are a Global Admin's - a company's full-level user reads only
+    what they may override."""
     out = wf_settings.public(db, cid)
+    if not _is_ga(user):
+        for k in ORG_ONLY_OUT:
+            out.pop(k, None)
     out["companies"] = _company_rows(db, user)
     out["company"] = cid
     return out
+
+
+@router.get("/settings")
+def get_settings(company: str = "", user: dict = Depends(F), db: Session = Depends(get_db)):
+    cid = _settings_company(db, user, company)
+    return _settings_out(db, user, cid)
 
 
 @router.put("/settings")
@@ -471,10 +505,7 @@ def put_settings(body: dict, company: str = "", user: dict = Depends(F), db: Ses
                            details=json.dumps({k: v for k, v in body.items() if k != "webhookSecrets"}, default=str),
                            module="workflows", kind="update"))
     db.commit()
-    out = wf_settings.public(db, cid)
-    out["companies"] = _company_rows(db, user)
-    out["company"] = cid
-    return out
+    return _settings_out(db, user, cid)
 
 
 @router.post("/settings/pause-all")
@@ -599,6 +630,9 @@ def publish_workflow(wid: str, body: Optional[NoteBody] = None, user: dict = Dep
     except store.ValidationError as e:
         db.rollback()
         _problem_422(e)
+    except store.Archived as e:
+        db.rollback()
+        raise HTTPException(409, str(e))
     except store.NotTested as e:
         db.rollback()
         raise HTTPException(422, str(e))
@@ -628,8 +662,24 @@ def reown_workflow(wid: str, body: OwnerBody, user: dict = Depends(F), db: Sessi
     wf = _editable(db, user, _wf_or_404(db, user, wid))
     from task_automation import _person_user
     new_owner = (body.owner or "").strip().lower()
-    if _person_user(db, new_owner) is None:
+    target = _person_user(db, new_owner)
+    if target is None:
         raise HTTPException(422, "The new owner must be a current directory person")
+    if target.get("external"):
+        raise HTTPException(422, "An external user cannot own a workflow")
+    if not _is_ga(user):
+        # the workflow runs as its owner: nobody hands one to a person with
+        # more access than their own, or outside their own companies
+        import auth
+        if int(target.get("level", 0) or 0) > int(user.get("level", 0) or 0):
+            raise HTTPException(403, "The new owner holds a higher role than you, so the workflow would run with "
+                                     "more access than yours - ask a Global Admin to re-own it")
+        if store.grant_rank(db, target) > store.grant_rank(db, user):
+            raise HTTPException(403, "The new owner holds a higher Workflows grant than you - ask a Global Admin "
+                                     "to re-own it")
+        scope = _companies_of(db, user)
+        if scope is not None and auth.company_of(target, db) not in scope:
+            raise HTTPException(403, "The new owner is outside your companies")
     problems = store.reown(db, wf, new_owner, _me(user))
     db.commit()
     out = store.serialize(db, wf, full=True)
@@ -667,11 +717,16 @@ def get_version(wid: str, v: int, user: dict = Depends(R), db: Session = Depends
 @router.post("/{wid}/versions/{v}/restore")
 def restore_version(wid: str, v: int, user: dict = Depends(E), db: Session = Depends(get_db)):
     wf = _editable(db, user, _wf_or_404(db, user, wid))
+    if wf.status == "archived":
+        raise HTTPException(409, "An archived workflow cannot be restored - switch it back on first")
     try:
         store.restore(db, wf, v, _me(user))
     except store.ValidationError as e:
         db.rollback()
         _problem_422(e)
+    except store.Archived as e:
+        db.rollback()
+        raise HTTPException(409, str(e))
     except ValueError as e:
         db.rollback()
         raise HTTPException(404, str(e))
@@ -708,12 +763,26 @@ def recent_events(wid: str, user: dict = Depends(R), db: Session = Depends(get_d
     elif scope is not None:
         q = q.filter(E_.company_id.in_(sorted(scope)))
     rows = q.order_by(E_.at.desc()).limit(50).all()
-    return [{"id": r.id, "at": r.at, "subjectLabel": str((r.payload or {}).get("subjectLabel") or r.subject_id or ""),
-             "actor": r.actor or "", "key": r.key} for r in rows]
+    # only the records the caller may see are offered - a confidential
+    # ticket's label, say, never reaches someone outside its desk
+    ev_def = catalog.EVENTS.get(str(trig["event"]))
+    ent = catalog.ENTITIES.get(ev_def.entity) if ev_def is not None else None
+    out = []
+    for r in rows:
+        if ent is not None and ent.visible_to is not None:
+            try:
+                row = ent.load_row(db, r.subject_id) if r.subject_id else None
+            except Exception:   # noqa: BLE001 - a row that cannot be read is not offered
+                row = None
+            if row is None or not ent.can_see(db, user, row):
+                continue
+        out.append({"id": r.id, "at": r.at, "subjectLabel": str((r.payload or {}).get("subjectLabel") or r.subject_id or ""),
+                    "actor": r.actor or "", "key": r.key})
+    return out
 
 
-def _test_out(db, run: models.WorkflowRun, wf: models.Workflow) -> dict:
-    out = store.serialize_run(db, run, steps=True)
+def _test_out(db, run: models.WorkflowRun, wf: models.Workflow, user: Optional[dict] = None) -> dict:
+    out = store.serialize_run(db, run, steps=True, viewer=user)
     return {"runId": run.id, "status": run.status, "summary": run.summary or "", "subjectLabel": run.subject_label or "",
             "trace": out.get("trace", []), "conditionsPassed": out.get("conditionsPassed", True),
             "steps": [{"stepId": s["stepId"], "kind": s["kind"], "action": s["action"], "label": s["label"],
@@ -741,25 +810,28 @@ def test_workflow(wid: str, body: Optional[TestBody] = None, user: dict = Depend
     except Exception as e:   # noqa: BLE001 - a test that cannot run says why, never 500s
         db.rollback()
         raise HTTPException(422, f"The test could not run: {type(e).__name__}: {str(e)[:200]}")
-    return _test_out(db, run, wf)
+    return _test_out(db, run, wf, user)
 
 
 @router.post("/{wid}/preview-schedule")
-def preview_schedule(wid: str, user: dict = Depends(R), db: Session = Depends(get_db)):
+def preview_schedule(wid: str, user: dict = Depends(E), db: Session = Depends(get_db)):
     """"If this ran now": the companies a schedule would tick for, and for
-    a definition whose first step loops over a list, that list's items."""
-    wf = _wf_or_404(db, user, wid)
+    a definition whose first step loops over a list, that list's items -
+    for someone who may edit the workflow, within their own companies, and
+    only the records they may see themselves (the list runs as the owner)."""
+    wf = _editable(db, user, _wf_or_404(db, user, wid))
     definition = store.draft_of(wf)
     trig = definition.get("trigger") or {}
     if trig.get("kind") != "schedule":
         raise HTTPException(422, "Only a schedule can be previewed")
-    companies = scheduler.companies_for(db, wf)
+    scope = _companies_of(db, user)
+    companies = [c for c in scheduler.companies_for(db, wf) if scope is None or c in scope]
     items: list[dict] = []
     ent_key = str(trig.get("entity") or "")
     ent = catalog.ENTITIES.get(ent_key) if ent_key and ent_key != "company" else None
     if ent is not None and ent.model is not None:
         for row in db.query(ent.model).limit(500).all():
-            if ent.company_of(row) in companies:
+            if ent.company_of(row) in companies and ent.can_see(db, user, row):
                 items.append({"label": ent.label_for(row), "link": ent.link_for(row, db)})
     else:
         loop = next((s for s in definition.get("steps") or [] if isinstance(s, dict) and s.get("kind") == "for_each"), None)
@@ -779,7 +851,7 @@ def preview_schedule(wid: str, user: dict = Depends(R), db: Session = Depends(ge
                     for row in rows[:500]:
                         if isinstance(row, dict):
                             items.append({"label": str(row.get("label") or row.get("name") or row.get("title") or row.get("id") or ""), "link": row.get("link") or {}})
-                        elif inner is not None:
+                        elif inner is not None and inner.can_see(db, user, row):
                             items.append({"label": inner.label_for(row), "link": inner.link_for(row, db)})
         if not items and loop is None:
             for cid in companies:
@@ -791,7 +863,9 @@ def preview_schedule(wid: str, user: dict = Depends(R), db: Session = Depends(ge
 
 @router.post("/{wid}/run")
 def run_workflow(wid: str, body: RunBody, user: dict = Depends(E), db: Session = Depends(get_db)):
-    wf = _wf_or_404(db, user, wid)
+    """Run by hand: the actions run as the OWNER, so only someone who may
+    edit the workflow (the owner, a full-level user in scope) starts one."""
+    wf = _editable(db, user, _wf_or_404(db, user, wid))
     if wf.status != "active":
         raise HTTPException(409, "Publish and switch the workflow on before running it")
     trig = store.definition_of(wf).get("trigger") or {}
@@ -812,7 +886,7 @@ def run_workflow(wid: str, body: RunBody, user: dict = Depends(E), db: Session =
                                   "extra": {"trigger": "manual"}, "actor": _me(user)})
     if run is None:
         raise HTTPException(409, "The run did not start: the conditions did not match or the record may not enroll")
-    out = store.serialize_run(db, run)
+    out = store.serialize_run(db, run, viewer=user)
     return out
 
 

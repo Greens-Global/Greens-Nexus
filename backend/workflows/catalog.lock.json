@@ -2767,6 +2767,10 @@
       "module": "tasks",
       "people": [
         {
+          "key": "self",
+          "label": "The Person (Task Owner)"
+        },
+        {
           "key": "assignees",
           "label": "Assignees"
         },
@@ -2967,6 +2971,10 @@
       "label": "Ticket",
       "module": "tickets",
       "people": [
+        {
+          "key": "self",
+          "label": "The Person (Requester)"
+        },
         {
           "key": "assignee",
           "label": "Assignee"

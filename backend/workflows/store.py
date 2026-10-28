@@ -37,6 +37,11 @@ class NotTested(ValueError):
         super().__init__("Test this workflow before publishing")
 
 
+class Archived(ValueError):
+    def __init__(self):
+        super().__init__("An archived workflow cannot be published - switch it back on first")
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -127,11 +132,31 @@ def tested_current(wf: models.Workflow) -> bool:
     return bool(wf.tested_hash) and wf.tested_hash == validate.definition_hash(draft_of(wf))
 
 
+def publisher_problems(db, wf: models.Workflow, by: str, definition=None) -> list:
+    """The problems the definition has for the person PUBLISHING it when
+    that is not the owner: a full-level user's edits still run with the
+    owner's authority, so the publisher must be allowed every step too
+    (never a way to run a workflow as someone with more access)."""
+    me = (by or "").lower()
+    if not me or me == (wf.owner_email or "").lower():
+        return []
+    from task_automation import _person_user
+    who = _person_user(db, me) or {"email": me, "role": "employee", "level": 0}
+    d = normalize_definition(definition) if definition is not None else draft_of(wf)
+    return validate.validate(db, d, owner=who, run_as=wf.run_as or "owner", company_id=wf.company_id or "")
+
+
 def publish(db, wf: models.Workflow, by: str, note: str = "") -> models.WorkflowVersion:
-    """Validate the draft, refuse it untested, write the version, make it
-    the published definition and the workflow active."""
+    """Validate the draft against the owner AND the publisher, refuse it
+    untested or archived, write the version, make it the published
+    definition and the workflow active."""
+    if wf.status == "archived":
+        raise Archived()
     definition = draft_of(wf)
     problems = problems_for(db, wf, definition)
+    for p in publisher_problems(db, wf, by, definition):
+        if p not in problems:
+            problems.append(p)
     if problems:
         raise ValidationError(problems)
     if not tested_current(wf):
@@ -381,12 +406,16 @@ def can_see(db, user: dict, wf: models.Workflow, scope=None) -> bool:
 
 
 def can_edit(db, user: dict, wf: models.Workflow) -> bool:
-    """The owner (editor and up) or a full-level user in scope."""
+    """The owner (editor and up) or a full-level user in scope. An
+    every-company workflow (blank company) is a Global Admin's alone: a
+    one-company full user sees it but never edits, publishes or runs it."""
     rank = grant_rank(db, user)
-    if rank >= 3:
-        return can_see(db, user, wf)
+    if rank < 2 or not can_see(db, user, wf):
+        return False
+    if not wf.company_id and not is_global_admin(user):
+        return False
     me = (user.get("email") or "").lower()
-    return rank >= 2 and me == (wf.owner_email or "").lower() and can_see(db, user, wf)
+    return rank >= 3 or me == (wf.owner_email or "").lower()
 
 
 def visible_workflows(db, user: dict):
@@ -481,7 +510,39 @@ def run_steps(db, run: models.WorkflowRun) -> list:
             .order_by(models.WorkflowRunStep.started_at, models.WorkflowRunStep.id).all())
 
 
-def serialize_run(db, run: models.WorkflowRun, *, steps: bool = False) -> dict:
+def _viewer_payload(db, viewer, ent, payload: dict) -> dict:
+    """The event payload as `viewer` may see it: a registered field hidden
+    from them (hr / comp) is dropped from "subject" and "changes" - the
+    outbox keeps only public fields already (emit.payload_for), this is the
+    second guard on the way out. No viewer = the public fields only."""
+    out = dict(payload or {})
+    for part in ("subject", "changes"):
+        src = out.get(part)
+        if not isinstance(src, dict):
+            continue
+        kept = {}
+        for k, v in src.items():
+            f = ent.field(k) if ent is not None else None
+            if f is not None and catalog.can_see_field(db, viewer, f.visibility):
+                kept[k] = v
+            elif f is None and ent is None:
+                kept[k] = v   # no entity to ask: nothing is registered as hidden
+        out[part] = kept
+    return out
+
+
+def _viewer_trace(db, viewer, ent, trace: list) -> list:
+    out = []
+    for r in trace or []:
+        if isinstance(r, dict) and ent is not None:
+            f = ent.field(str(r.get("field") or ""))
+            if f is not None and not catalog.can_see_field(db, viewer, f.visibility):
+                r = {**r, "actual": None}
+        out.append(r)
+    return out
+
+
+def serialize_run(db, run: models.WorkflowRun, *, steps: bool = False, viewer: Optional[dict] = None) -> dict:
     ent = catalog.ENTITIES.get(run.entity or "")
     link = {}
     if ent is not None and run.subject_id:
@@ -502,10 +563,11 @@ def serialize_run(db, run: models.WorkflowRun, *, steps: bool = False) -> dict:
     if steps:
         rows = run_steps(db, run)
         cond = next((r for r in rows if r.kind == "conditions"), None)
-        out["trace"] = (cond.output or {}).get("trace", []) if cond is not None else []
+        out["trace"] = _viewer_trace(db, viewer, ent, (cond.output or {}).get("trace", []) if cond is not None else [])
         out["conditionsPassed"] = (cond.output or {}).get("passed", True) if cond is not None else True
         out["steps"] = [_step_out(r) for r in rows if r.kind != "conditions"]
         ev = db.get(models.WorkflowEvent, run.event_id) if run.event_id else None
         out["event"] = ({"id": ev.id, "key": ev.key, "at": ev.at, "actor": ev.actor,
-                         "payload": ev.payload if isinstance(ev.payload, dict) else {}} if ev else None)
+                         "payload": _viewer_payload(db, viewer, ent, ev.payload if isinstance(ev.payload, dict) else {})}
+                        if ev else None)
     return out

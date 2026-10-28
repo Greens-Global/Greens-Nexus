@@ -421,6 +421,8 @@ def _check_steps(steps: list, path: str, ent: Optional[catalog.EntityDef], ctx: 
             if ls is None:
                 problems.append(Problem(f"{p}.source", f"{key or '(blank)'} is not a list"))
             else:
+                if not catalog.may_use_module(db, owner, ls.module):
+                    problems.append(Problem(f"{p}.source", f"You may not loop over {ls.label}"))
                 sp = (src.get("params") or {}) if isinstance(src, dict) else {}
                 for prm in ls.params:
                     _check_param(None, prm, sp.get(prm.key), f"{p}.source.params.{prm.key}", ent, ctx, problems)
@@ -482,10 +484,15 @@ def _check_trigger(trig: Any, owner: dict, db, problems: list):
     if ent is None:
         problems.append(Problem("trigger.entity", f"{trig.get('entity') or '(blank)'} is not a record kind"))
         return None, set()
+    if not catalog.may_use_module(db, owner, ent.module):
+        problems.append(Problem("trigger.entity", f"You may not build on {ent.label} records"))
     if kind == "date":
         fld = trig.get("field")
+        f = ent.field(str(fld or ""))
         if not any(d.key == fld for d in ent.dates):
             problems.append(Problem("trigger.field", f"{fld or '(blank)'} is not a date of {ent.label}"))
+        elif f is not None and not catalog.can_see_field(db, owner, f.visibility):
+            problems.append(Problem("trigger.field", f"You may not use {f.label}"))
         if not _is_int(trig.get("offsetDays", 0)):
             problems.append(Problem("trigger.offsetDays", "A whole number of days (before is negative)"))
         if not _is_time(trig.get("time", "08:00")):
