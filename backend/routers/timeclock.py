@@ -2889,7 +2889,7 @@ _IIF_PAY_CLASSES = (("regMin", "regular"), ("otMin", "overtime"), ("dtMin", "dou
 
 @router.get("/export.iif")
 def export_iif(start: str = "", end: str = "", company: str = "", approved_only: bool = False,
-               finalized_only: bool = True,
+               finalized_only: bool = True, create_time: str = "",
                user: dict = Depends(require_team_read_pay),
                _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """QuickBooks Desktop time import (IIF TIMEACT rows) - Charmi keys every
@@ -2910,7 +2910,12 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
     is named "-DRAFT" - a preview, not the import.
     COMPANYNAME is the export's company (payroll_codes.qb_company_name: HR's
     QuickBooks Company Name, else the company's name); a file spanning
-    several companies keeps "Greens Global"."""
+    several companies keeps "Greens Global".
+    `create_time` (Charmi, 10/27 call item 02) is COMPANYCREATETIME: the
+    number on the TIMERHDR line of a Timer Lists export from her QuickBooks
+    company file, which QuickBooks' Timer Activities import can check the
+    file against. Digits only; anything else (or none) keeps the 0 this file
+    always carried."""
     scope = _export_scope(db, user, company)
     rows = _team_rows(db, start, end, only_emails=scope)
     if approved_only:
@@ -2931,9 +2936,11 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
     def _clean(s: str) -> str:
         return (s or "").replace("\t", " ").replace("\r", " ").replace("\n", " ").strip()
 
+    created = (create_time or "").strip()
+    created = created if re.fullmatch(r"[0-9]{1,12}", created) else "0"
     lines = [
         "!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME",
-        f"TIMERHDR\t8\t0\t{qb_company}\tN\tY\t0",
+        f"TIMERHDR\t8\t0\t{qb_company}\tN\tY\t{created}",
         "!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS",
     ]
     book = payroll_codes.codebook(db)
@@ -2992,7 +2999,11 @@ def export_hours(start: str = "", end: str = "", company: str = "", approved_onl
         if approved_only and not approved:
             continue
         # The same filter as export.iif's (Oct 19), so the preview is the file.
-        if finalized_only and not _finalized_row(db, r["email"], start, end):
+        # Every row says whether it is finalized (Charmi, 10/27 call item 02):
+        # the screen loads everyone, names who is not finalized yet and offers
+        # to include them, instead of a preview - and an IIF - with nobody in it.
+        finalized = bool(_finalized_row(db, r["email"], start, end))
+        if finalized_only and not finalized:
             continue
         _card = _compute_timecard(db, r["email"], start, end)
         t = _card["totals"]
@@ -3014,7 +3025,7 @@ def export_hours(start: str = "", end: str = "", company: str = "", approved_onl
         for _k, _m in (("mealPremium", "mealPremiumMin"), ("restPremium", "restPremiumMin")):
             if t.get(_m):
                 hours[_k] = h(_m)
-        out.append({"email": r["email"], "name": r["name"], "approved": approved,
+        out.append({"email": r["email"], "name": r["name"], "approved": approved, "finalized": finalized,
                     "employeeCode": (emp.employee_code if emp else "") or "",
                     "department": (emp.department if emp else "") or "",
                     "company": (emp.company if emp else "") or "",

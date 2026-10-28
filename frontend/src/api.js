@@ -109,6 +109,35 @@ function _emitHealth(down) {
   _backendDown = down;
   _downCount   = down ? _downCount + 1 : 0;
   _healthListeners.forEach(fn => fn(down));
+  if (down) _startHealthProbe();
+  else {
+    _stopHealthProbe();
+    // Reads that failed while it was down are asked again (TanStack screens);
+    // App.jsx remounts the views opened during the outage.
+    _queryClient?.refetchQueries({ predicate: (q) => q.state.status === 'error' });
+  }
+}
+// Oct 28 (Charmi, 10/27 call item 21): the red bar said "Retrying
+// automatically" but cleared only when the screen happened to make another
+// request, so an idle page kept it up until someone refreshed. While it is
+// up, /health (no sign-in, exempt from the rate limit) is asked every 5s; the
+// first answer clears it. Not a keep-warm ping: it runs only while the bar
+// is showing, and stops the moment Nexus answers.
+const HEALTH_PROBE_MS = 5000;
+let _healthProbe = null;
+function _startHealthProbe() {
+  if (_healthProbe || typeof fetch !== 'function') return;
+  _healthProbe = setInterval(async () => {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), HEALTH_PROBE_MS - 500);
+    try {
+      const res = await fetch(`${BASE}/health`, { signal: controller.signal, cache: 'no-store' });
+      if (res.ok) _setBackendDown(false);
+    } catch { /* still down - try again on the next tick */ } finally { clearTimeout(tid); }
+  }, HEALTH_PROBE_MS);
+}
+function _stopHealthProbe() {
+  if (_healthProbe) { clearInterval(_healthProbe); _healthProbe = null; }
 }
 function _setBackendDown(down) {
   if (down) {
@@ -2231,8 +2260,15 @@ export const api = {
   // finalized time sheets only unless finalizedOnly is false (a -DRAFT file, Oct 19).
   timeExportHours:      (start, end, { company = '', approvedOnly = false, finalizedOnly = false } = {}) =>
     req(`/timeclock/export-hours?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
-  timeExportIifFor:     (start, end, { company = '', approvedOnly = false, finalizedOnly = true } = {}) =>
-    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
+  // createTime (10/27 call item 02): the COMPANYCREATETIME from her QuickBooks Timer Lists export; '' keeps 0.
+  timeExportIifFor:     (start, end, { company = '', approvedOnly = false, finalizedOnly = true, createTime = '' } = {}) =>
+    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}${createTime ? `&create_time=${encodeURIComponent(createTime)}` : ''}`, { timeoutMs: 120_000 }),
+  // Import Hub > Bank Statement to Intacct (Charmi, 10/27 call item 01): the
+  // team's statement rules - matched in the browser, kept here.
+  getStatementRules:    () => req('/accounting/import-hub/rules'),
+  createStatementRule:  (body) => req('/accounting/import-hub/rules', { method: 'POST', body: JSON.stringify(body) }),
+  updateStatementRule:  (id, body) => req(`/accounting/import-hub/rules/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteStatementRule:  (id) => req(`/accounting/import-hub/rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Accounting > Loans & Financing (Oct 2): loans proposed from the ledger's
   // liability accounts, the ledger-driven review (balances, principal and
   // interest paid, NOI, DSCR) for a month, and the typed fields (rate,
