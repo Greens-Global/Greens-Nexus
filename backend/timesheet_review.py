@@ -1476,17 +1476,24 @@ def _finalized_step(db: Session, r: TimesheetReview, offset: int) -> list:
              "when": us_datetime(row.approved_at or "", offset), "note": row.note or ""}]
 
 
-def paper_pdf(db: Session, employee_email: str, anchor: str, actor: str) -> tuple[bytes, str]:
-    """HR prints a period's time sheet to be signed on PAPER, not through
-    Nexus Sign (Neil, Oct 23 2026: a stopgap for someone hired on a Friday who
-    must be paid that Friday before their intake is finished). Any period, in
-    review, finalized or locked, for any kind of employee; it changes nothing.
-    is_hr is the gate. Returns (pdf, filename)."""
+# Review stages a time sheet prints at: the manager has approved it.
+PRINTABLE = ("approved", "signing", "completed", CORRECTING)
+
+
+def paper_pdf(db: Session, employee_email: str, anchor: str, actor: str, team: bool = False) -> tuple[bytes, str]:
+    """A period's time sheet to be signed on PAPER, not through Nexus Sign
+    (Neil, Oct 23 2026), for any kind of employee; it changes nothing. HR, or
+    the manager side (`team` - the caller checked the employee is in their
+    scope), never on their own card - and only once the manager has approved
+    it or it is finalized (Oct 28 2026). Returns (pdf, filename)."""
     email = (employee_email or "").strip().lower()
-    if not is_hr(db, actor, email):
-        raise HTTPException(403, "Only HR or a Global Admin can print a time sheet to sign on paper.")
+    if actor == email or not (team or is_hr(db, actor, email)):
+        raise HTTPException(403, "Only the employee's manager or HR can print a time sheet to sign on paper.")
     start, end, pay_type = period_for(db, email, anchor)
-    r = active_review(db, email, start) or TimesheetReview(
+    r = active_review(db, email, start)
+    if not ((r and r.status in PRINTABLE) or _tc()._finalized_row(db, email, start, end)):
+        raise HTTPException(409, "The time sheet prints once the manager has approved it.")
+    r = r or TimesheetReview(
         employee_email=email, period_start=start, period_end=end, pay_type=pay_type, rounds=[], status="paper")
     pdf, _ = build_pdf(db, r, paper_by=actor)
     return pdf, f"Time Sheet - {display_name(db, email)} - {start} to {end}.pdf"

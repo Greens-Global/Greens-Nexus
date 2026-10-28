@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, ClipboardCheck, RefreshCw, SlidersHorizontal, ArrowRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ClipboardCheck, RefreshCw, SlidersHorizontal, ArrowRight, X } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { FILTERS, SETTING_FIELDS, filterRows, issueLines } from '../lib/payrollReadiness';
@@ -31,7 +31,9 @@ const chip = (label, n, color, active, onClick) => (
   </button>
 );
 
-export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr }) {
+// `autoRun` / `onClose`: opened from the Run Check button in the Time tab row
+// (Oct 28 2026) - it runs on open and closes back to that button.
+export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr, autoRun = false, onClose }) {
   const [anchor, setAnchor] = useState('');          // '' = the last period that is over
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -50,6 +52,8 @@ export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr }) 
       else setError(e?.message || 'The readiness check could not run.');
     } finally { setLoading(false); }
   }, [anchor]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (autoRun) run(); }, []);
 
   const P = data?.period;
   const S = data?.summary;
@@ -78,6 +82,10 @@ export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr }) 
           {loading ? <Spinner size={13} /> : (data ? <RefreshCw size={13} /> : <ClipboardCheck size={13} />)}
           {data ? 'Refresh' : 'Run Check'}
         </button>
+        {onClose && (
+          <button type="button" className="secondary-btn" aria-label="Close" title="Close" onClick={onClose}
+            style={{ padding: '4px 6px', display: 'inline-flex' }}><X size={13} /></button>
+        )}
       </div>
 
       {!data && !loading && !error && !stepLocked && (

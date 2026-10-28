@@ -147,7 +147,7 @@ export const IMPL_PHASES = [
         'Follow docs/Actionable-Messages-Setup.md: register the originator and set the originator and audience server settings. Task emails then carry buttons that work inside Outlook.',
       ]},
       { title: 'Optional: Teams status and Outlook shift calendars', where: 'Microsoft Entra admin center (client tenant)', items: [
-        'For Teams status on Team > Contact, add the Presence.Read.All application permission and grant admin consent (docs/Teams-Presence-Setup.md). Until then Contact simply shows no status.',
+        'For Teams status on Team > Company Directory, add the Presence.Read.All application permission and grant admin consent (docs/Teams-Presence-Setup.md). Until then the Company Directory simply shows no status.',
         'To put shared shifts on Outlook calendars, add Calendars.ReadWrite (application) and grant consent (docs/Outlook-Calendar-Setup.md). Nothing is written until a company also turns it on in Settings > Shifts & Scheduling > Sharing.',
       ]},
     ],
