@@ -660,6 +660,10 @@ def noshow_scan(db: Session, now_utc: datetime = None) -> dict:
             db.add(a)
             by_key[(rcpt, gkey, work_date)] = a
             summary["alerts"] += 1
+            # Workflows (Oct 28 2026): a NEW alert is the event; a refresh is not.
+            import workflows
+            workflows.emit(db, "shift.no_show", subject=a, company_id=company,
+                           extra={"team": gname, "title": title, "people": lines})
         else:
             if a.resolved_at or "":
                 # The group-day filled again after it emptied (a later start

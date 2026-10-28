@@ -39,10 +39,10 @@ def _setup():
     models.Base.metadata.create_all(bind=database.engine)
     catalog.load_packs()
     # a throwaway high-volume event for the subscription test
-    catalog.entity("punch", label="Punch", model=models.TimePunch, module="time",
+    catalog.entity("punch_probe", label="Punch Probe", model=models.TimePunch, module="time",
                    company=lambda row: "", fields=[catalog.F("kind", "Kind", "text"),
                                                    catalog.F("employee_email", "Person", "person")])
-    catalog.event("punch.in", entity="punch", label="Punch In", module="time", group="Time Clock",
+    catalog.event("punch_probe.in", entity="punch_probe", label="Punch In", module="time", group="Time Clock",
                   sample={"kind": "in"}, volume="high")
     yield
     database.engine.dispose()
@@ -139,11 +139,11 @@ def test_emit_with_missing_subject_logs_and_does_not_raise(db, capsys):
 
 def test_high_volume_event_is_written_only_when_subscribed(db, punch_row, monkeypatch):
     monkeypatch.setattr(emit, "subscribed", lambda k, db=None: False)
-    workflows.emit(db, "punch.in", subject=punch_row)
+    workflows.emit(db, "punch_probe.in", subject=punch_row)
     db.commit()
     assert db.query(models.WorkflowEvent).count() == 0
     monkeypatch.setattr(emit, "subscribed", lambda k, db=None: True)
-    workflows.emit(db, "punch.in", subject=punch_row)
+    workflows.emit(db, "punch_probe.in", subject=punch_row)
     db.commit()
     assert db.query(models.WorkflowEvent).count() == 1
     assert db.query(models.WorkflowEvent).one().wanted == 1
@@ -151,12 +151,12 @@ def test_high_volume_event_is_written_only_when_subscribed(db, punch_row, monkey
 
 def test_subscribed_reads_the_setting_through_the_cache(db):
     import json
-    db.add(models.NexusSetting(key=emit.SUBSCRIBED_KEY, value=json.dumps(["punch.in"])))
+    db.add(models.NexusSetting(key=emit.SUBSCRIBED_KEY, value=json.dumps(["punch_probe.in"])))
     db.commit()
     emit.refresh_subscribed([])
-    assert emit.subscribed("punch.in", db) is False      # cache is fresh: not re-read yet
+    assert emit.subscribed("punch_probe.in", db) is False      # cache is fresh: not re-read yet
     emit._sub_cache["at"] = 0.0                           # make it stale
-    assert emit.subscribed("punch.in", db) is True
+    assert emit.subscribed("punch_probe.in", db) is True
     assert emit.subscribed("employee.created", db) is False
 
 
