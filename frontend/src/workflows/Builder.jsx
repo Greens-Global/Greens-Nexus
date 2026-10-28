@@ -29,6 +29,8 @@ import RailTest from './builder/RailTest';
 import RailVersions from './builder/RailVersions';
 import DescribeIt from './builder/DescribeIt';
 import RunDialog from './builder/RunDialog';
+import { Muted } from './ui';
+import { errorProblems, errorText } from './lib/errors';
 
 const RAILS = [
   { key: 'settings', label: 'Settings', icon: Settings },
@@ -143,9 +145,11 @@ export default function Builder({ id, go }) {
       flash('Draft saved.');
       return res;
     } catch (e) {
-      const list = e?.body?.problems || e?.problems;
-      if (Array.isArray(list)) setServerProblems(list);
-      await dialog.alert(e?.message || 'The draft could not be saved.');
+      // A 422 carries the definition's problems: they land under Publish
+      // (the server's list stands in for the local one) and in the alert.
+      const list = errorProblems(e);
+      if (list.length) setServerProblems(list);
+      await dialog.alert(errorText(e, 'The draft could not be saved.'));
       return null;
     } finally { setBusy(''); }
   };
@@ -168,9 +172,9 @@ export default function Builder({ id, go }) {
       flash('Published.');
       setReload((n) => n + 1);
     } catch (e) {
-      const list = e?.body?.problems || e?.problems;
-      if (Array.isArray(list) && list.length) setServerProblems(list);
-      else await dialog.alert(e?.body?.detail || e?.message || 'The workflow could not be published.');
+      const list = errorProblems(e);
+      if (list.length) setServerProblems(list);
+      else await dialog.alert(errorText(e, 'The workflow could not be published.'));
     } finally { setBusy(''); }
   };
 
@@ -181,7 +185,7 @@ export default function Builder({ id, go }) {
       if (next === 'archived') { go('list'); return; }
       setReload((n) => n + 1);
     } catch (e) {
-      await dialog.alert(e?.message || 'The status could not be changed.');
+      await dialog.alert(errorText(e, 'The status could not be changed.'));
     } finally { setBusy(''); }
   };
 
@@ -196,7 +200,7 @@ export default function Builder({ id, go }) {
       const r = await api.wfDuplicate(id, { name: `${meta.name || 'Workflow'} (Copy)`, companyId: meta.companyId });
       if (r?.id) go(`wf:${r.id}`);
     } catch (e) {
-      await dialog.alert(e?.message || 'The workflow could not be duplicated.');
+      await dialog.alert(errorText(e, 'The workflow could not be duplicated.'));
     } finally { setBusy(''); }
   };
 
@@ -210,7 +214,7 @@ export default function Builder({ id, go }) {
       setSavedMeta((s) => { try { return JSON.stringify({ ...JSON.parse(s || '{}'), ownerEmail: owner }); } catch { return s; } });
       flash('Owner changed.');
     } catch (e) {
-      await dialog.alert(e?.message || 'The owner could not be changed.');
+      await dialog.alert(errorText(e, 'The owner could not be changed.'));
     }
   };
 
@@ -239,7 +243,7 @@ export default function Builder({ id, go }) {
         }} />
         <StatusLabel label={statusMeta.label} color={statusMeta.color} />
         {workflow?.version > 0 && <span style={{ ...chip, fontSize: 11.5 }}>Version {workflow.version}</span>}
-        {dirty && <span style={{ ...chip, fontSize: 11.5, color: '#d97706', borderColor: '#d97706' }}>Unsaved</span>}
+        {dirty && <span style={{ ...chip, fontSize: 11.5, color: 'hsl(var(--color-orange))', borderColor: 'hsl(var(--color-orange))' }}>Unsaved</span>}
         {notice && <span style={{ ...hint, color: 'var(--nx-primary)' }}>{notice}</span>}
         <span style={{ flex: 1 }} />
         <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
@@ -268,7 +272,8 @@ export default function Builder({ id, go }) {
           )}
         </div>
       )}
-      {workflow?.pausedReason && status !== 'active' && <div style={{ ...hint, color: '#d97706' }}>Paused: {workflow.pausedReason}</div>}
+      {workflow?.pausedReason && status !== 'active' && <div style={{ ...hint, color: 'hsl(var(--color-orange))' }}>Paused: {workflow.pausedReason}</div>}
+      {workflow?.companyEnabled === false && <Muted style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))' }}>Paused: company switch. Workflows are off for this company in Settings &gt; Workflows.</Muted>}
 
       <AsyncSection loading={loading && !loadError && !catalogError} error={loadError || catalogError} isEmpty={false}
         errorMessage="This workflow could not be loaded." onRetry={() => setReload((n) => n + 1)}

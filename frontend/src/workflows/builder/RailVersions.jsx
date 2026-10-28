@@ -9,6 +9,7 @@ import { dialog } from '../../ui/dialog';
 import { formatDateTime } from '../../lib/datetime';
 import { btn } from '../../tasks/theme';
 import { chip, hint, sentence } from '../lib/text.builder-helpers';
+import { errorText } from '../lib/errors';
 
 export default function RailVersions({ workflow, onRestored }) {
   const id = workflow?.id;
@@ -54,7 +55,7 @@ export default function RailVersions({ workflow, onRestored }) {
       setTick((t) => t + 1);
       onRestored?.();
     } catch (e) {
-      await dialog.alert(e?.message || 'The version could not be restored.');
+      await dialog.alert(errorText(e, 'The version could not be restored.'));
     } finally { setBusy(false); }
   };
 
@@ -91,7 +92,7 @@ export default function RailVersions({ workflow, onRestored }) {
       {picked.length === 2 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ fontSize: 13, fontWeight: 700 }}>Version {Math.min(...picked)} to {Math.max(...picked)}</div>
-          {diffError && <div style={{ ...hint, color: '#dc2626' }}>{diffError}</div>}
+          {diffError && <div style={{ ...hint, color: 'hsl(var(--color-red))' }}>{diffError}</div>}
           {diff === null && !diffError && <SkeletonBlocks count={2} height={20} borderRadius={6} />}
           {diff && !diff.length && <div style={hint}>No difference.</div>}
           {(diff || []).map((line, i) => <div key={i} style={{ ...sentence, fontSize: 13 }}>{line}</div>)}

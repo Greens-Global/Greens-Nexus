@@ -12,7 +12,8 @@ import { formatDateTime } from '../lib/datetime';
 import { waited } from '../lib/approvalActions';
 import { runStatusMeta } from './lib/status';
 import { buildSub } from './lib/sub';
-import { Card, FONT, LinkButton, Muted, SectionTitle, errorText } from './ui';
+import { Card, FONT, LinkButton, Muted, SectionTitle } from './ui';
+import { errorText } from './lib/errors';
 
 export default function Overview({ overview, loading, error, reload, go }) {
   const [creating, setCreating] = useState(false);
@@ -65,7 +66,7 @@ export default function Overview({ overview, loading, error, reload, go }) {
               {attention.length === 0 ? (
                 <div style={{ padding: '18px 16px', fontSize: 13.5, color: 'var(--muted)' }}>Every workflow is running as published.</div>
               ) : attention.map((a) => (
-                <div key={a.id} className="wf-row" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
                   <AlertTriangle size={16} style={{ color: 'hsl(var(--color-red))', flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 180 }}>
                     <LinkButton onClick={() => go(buildSub('builder', a.id))} style={{ color: 'var(--ink)', fontSize: 14 }}>{a.name}</LinkButton>
@@ -83,8 +84,8 @@ export default function Overview({ overview, loading, error, reload, go }) {
             <SectionTitle>Last 24 Hours</SectionTitle>
             <Card style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', padding: '14px 8px' }}>
               <Figure label="Runs" value={last.runs} />
-              <Figure label="Succeeded" value={last.succeeded} color="#16a34a" />
-              <Figure label="Failed" value={last.failed} color={last.failed > 0 ? '#dc2626' : undefined} />
+              <Figure label="Succeeded" value={last.succeeded} color="hsl(var(--color-green))" />
+              <Figure label="Failed" value={last.failed} color={last.failed > 0 ? 'hsl(var(--color-red))' : undefined} />
             </Card>
           </section>
 

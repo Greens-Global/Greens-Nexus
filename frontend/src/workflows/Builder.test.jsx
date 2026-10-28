@@ -85,6 +85,8 @@ vi.mock('./lib/text', () => ({
 }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myRole: 'owner', myEmail: 'neil@greensglobal.com', companies: [] }) }));
 vi.mock('../components/PersonHoverCard', () => ({ default: ({ children }) => children }));
+const dialog = { confirm: vi.fn(() => Promise.resolve(true)), alert: vi.fn(() => Promise.resolve()), prompt: vi.fn() };
+vi.mock('../ui/dialog', () => ({ dialog }));
 
 const { default: Builder } = await import('./Builder');
 
@@ -107,7 +109,14 @@ function workflow(over = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   api.wfGet.mockImplementation(() => Promise.resolve(workflow()));
+  dialog.confirm.mockResolvedValue(true);
+  dialog.alert.mockResolvedValue(undefined);
 });
+
+// What api.js hands a caller on a 422 the workflow routes answer with
+// {"detail": {"problems": [...]}}: the message is the bare status, the parsed
+// detail sits on err.detail.
+const refused422 = (problems) => Object.assign(new Error('API error 422'), { status: 422, detail: { problems } });
 
 const open = (props = {}) => {
   const go = vi.fn();
@@ -224,6 +233,90 @@ describe('Builder', () => {
     await waitFor(() => expect(api.wfSaveDraft).toHaveBeenCalled());
     expect(api.wfSaveDraft.mock.calls[0][0]).toBe('w1');
     expect(api.wfSaveDraft.mock.calls[0][1]).toEqual(definition);
+  });
+
+  it('shows the problems a 422 Publish carries under Publish, never "API error 422"', async () => {
+    api.wfGet.mockImplementation(() => Promise.resolve(workflow({ testedCurrent: true })));
+    api.wfPublish.mockImplementation(() => Promise.reject(refused422([
+      { message: 'Step 1: To is required', path: 'steps.0.params.to' },
+      { message: 'Owner may not post to Teams', path: 'steps.0' },
+    ])));
+    open();
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
+    const publish = screen.getByRole('button', { name: /Publish/ });
+    expect(publish).not.toBeDisabled();
+    fireEvent.click(publish);
+    await waitFor(() => expect(api.wfPublish).toHaveBeenCalledWith('w1', { note: '' }));
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('Publish is off: Step 1: To is required (and 1 more)');
+    expect(status).toHaveTextContent('Owner may not post to Teams');
+    expect(screen.getByRole('button', { name: /Publish/ })).toBeDisabled();
+    expect(dialog.alert).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toMatch(/API error/);
+  });
+
+  it('words a refused Save Draft with the server\'s problem, not the status code', async () => {
+    api.wfSaveDraft.mockImplementation(() => Promise.reject(refused422([{ message: 'Step 1: Title is too long', path: 'steps.0.params.title' }])));
+    open();
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
+    fireEvent.click(screen.getByRole('button', { name: /Save Draft/ }));
+    await waitFor(() => expect(dialog.alert).toHaveBeenCalledWith('Step 1: Title is too long'));
+    expect(screen.getByRole('status')).toHaveTextContent('Step 1: Title is too long');
+    // A plain refusal (a 403) shows the server's sentence; a bare 500 the fallback.
+    api.wfSaveDraft.mockImplementation(() => Promise.reject(Object.assign(new Error('API error 403'), { status: 403, detail: 'Only the owner may edit this workflow' })));
+    fireEvent.click(screen.getByRole('button', { name: /Save Draft/ }));
+    await waitFor(() => expect(dialog.alert).toHaveBeenCalledWith('Only the owner may edit this workflow'));
+    api.wfSaveDraft.mockImplementation(() => Promise.reject(Object.assign(new Error('API error 500'), { status: 500, detail: null })));
+    fireEvent.click(screen.getByRole('button', { name: /Save Draft/ }));
+    await waitFor(() => expect(dialog.alert).toHaveBeenCalledWith('The draft could not be saved.'));
+  });
+
+  it('renders the approval, For Each and Wait cards and opens their controls', async () => {
+    api.wfGet.mockImplementation(() => Promise.resolve(workflow({
+      definition: {
+        ...definition,
+        steps: [
+          { id: 'ap1', kind: 'approval', params: { approvers: [{ kind: 'manager' }], mode: 'any', question: 'Approve {{ subject.name }}?', options: ['Approve', 'Decline'], remindDays: 2, expireDays: 7 }, branches: { Approve: [], Decline: [], expired: [] }, enabled: true },
+          { id: 'fe1', kind: 'for_each', source: { key: '', params: {} }, as: 'report', steps: [], enabled: true },
+          { id: 'wt1', kind: 'wait', params: { mode: 'duration', minutes: 60 }, enabled: true },
+        ],
+      },
+    })));
+    open();
+    const approval = await screen.findByText('Step approval');
+    expect(screen.getByText('Step for_each')).toBeInTheDocument();
+    expect(screen.getByText('Step wait')).toBeInTheDocument();
+    fireEvent.click(approval);
+    expect(screen.getByText('Who Approves *')).toBeInTheDocument();
+    expect(screen.getByLabelText('How They Decide').value).toBe('any');
+    expect(screen.getByLabelText('Remind after days').value).toBe('2');
+    fireEvent.click(screen.getByText('Step for_each'));
+    expect(screen.getByLabelText('Call Each One').value).toBe('report');
+    expect(screen.getByText('For Each report')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Step wait'));
+    expect(screen.getByLabelText('How long to wait').value).toBe('duration');
+  });
+
+  it('offers Who Would It Run On for a schedule only, never a date trigger', async () => {
+    api.wfGet.mockImplementation(() => Promise.resolve(workflow({
+      definition: { ...definition, trigger: { kind: 'date', entity: 'employee', field: 'start_date', offsetDays: -14, time: '08:00' }, conditions: [] },
+    })));
+    const { unmount } = render(<Builder id="w1" go={vi.fn()} />);
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
+    fireEvent.click(screen.getByRole('tab', { name: 'Test' }));
+    expect(screen.getByRole('button', { name: /Use Sample/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Who Would It Run On' })).toBeNull();
+    unmount();
+
+    api.wfGet.mockImplementation(() => Promise.resolve(workflow({
+      definition: { ...definition, trigger: { kind: 'schedule', every: 'week', days: [1], time: '08:00', zone: 'company', entity: 'employee' }, conditions: [] },
+    })));
+    render(<Builder id="w1" go={vi.fn()} />);
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
+    fireEvent.click(screen.getByRole('tab', { name: 'Test' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Who Would It Run On' }));
+    await waitFor(() => expect(api.wfPreviewSchedule).toHaveBeenCalledWith('w1'));
+    expect(await screen.findByText('Nobody right now.')).toBeInTheDocument();
   });
 
   it('never renders blank while loading or on an error', async () => {

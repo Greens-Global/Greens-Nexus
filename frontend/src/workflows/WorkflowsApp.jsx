@@ -22,7 +22,8 @@ import WorkflowList from './WorkflowList';
 import Templates from './Templates';
 import Catalog from './Catalog';
 import { parseSub, tabFor } from './lib/sub';
-import { Card, FONT, errorText } from './ui';
+import { FONT } from './ui';
+import { errorText } from './lib/errors';
 
 // The builder is its own chunk: nobody downloads it until a workflow opens.
 const Builder = lazy(() => import('./Builder'));
@@ -55,6 +56,13 @@ export default function WorkflowsApp({ sub, go }) {
     .finally(() => setLoading(false)), []);
 
   useEffect(() => { load(); return pollWhileVisible(load, POLL_MS); }, [load]);
+
+  // /workflows/settings is Settings > Workflows: send the person there (an
+  // old link, a bell) instead of landing them on Overview without a word.
+  useEffect(() => {
+    if (parsed.screen !== 'settings') return;
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'workflows' } }));
+  }, [parsed.screen]);
 
   const paused = overview?.pausedAll?.paused ? overview.pausedAll : null;
   const isGlobalAdmin = can('owner');

@@ -184,7 +184,7 @@ function Editor({ step, onChange, ctx, depth, idBase }) {
           <input id={`${idBase}-as`} type="text" value={step.as || ''} onChange={(e) => onChange({ as: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') || 'item' })} style={{ ...textInput, width: 160 }} />
           <div style={{ ...hint, marginTop: 4 }}>Steps inside can use {'{{ '}{step.as || 'item'}.name{' }}'}.</div>
         </div>
-        <Lane title={`For each ${step.as || 'item'}`} steps={step.steps || []} onChange={(s) => onChange({ steps: s })} ctx={innerCtx} depth={depth} />
+        <Lane title={`For Each ${step.as || 'item'}`} steps={step.steps || []} onChange={(s) => onChange({ steps: s })} ctx={innerCtx} depth={depth} />
       </>
     );
   }

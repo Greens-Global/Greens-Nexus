@@ -12,6 +12,7 @@ import { Spinner, ErrorBanner } from '../components/AsyncState';
 import { useRole } from '../contexts/RoleContext';
 import { dialog } from '../ui/dialog';
 import { formatDateTime } from '../lib/datetime';
+import { errorText } from './lib/errors';
 
 const RUNS_CAP = 500;
 const RECIPIENTS_CAP = 200;
@@ -36,7 +37,7 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
 
   const load = useCallback(() => {
     api.wfSettings(company).then((m) => { setLoadErr(''); setMeta(m); setVals(pick(m)); setSecrets({}); })
-      .catch((e) => setLoadErr(e?.message || 'Could not load the settings.'));
+      .catch((e) => setLoadErr(errorText(e, 'Could not load the settings.')));
   }, [company]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (meta && company) onOverride?.(!!meta.override); }, [meta, company, onOverride]);
@@ -70,7 +71,7 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
       const m = await api.wfSettingsSave(body, company);
       setMeta(m); setVals(pick(m)); setSecrets({});
       toastOk?.(reset ? 'Back to the default for every company.' : 'Saved.');
-    } catch (e) { toastErr?.(e?.message || 'Could not save.'); load(); }
+    } catch (e) { toastErr?.(errorText(e, 'Could not save.')); load(); }
     finally { setBusy(false); }
   }
 
@@ -81,7 +82,7 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
       await api.wfPauseAll({ paused });
       toastOk?.(paused ? 'All workflows are paused.' : 'Workflows are running again.');
       load();
-    } catch (e) { toastErr?.(e?.message || 'Could not change the pause.'); }
+    } catch (e) { toastErr?.(errorText(e, 'Could not change the pause.')); }
     finally { setBusy(false); }
   }
 
@@ -152,7 +153,7 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
         </p>
       ) : (
         <div className="nx-set-pad" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {dirty && <button type="button" className="primary-btn" disabled={busy} onClick={() => save(vals, { typed: secrets })}>{busy ? 'Saving…' : 'Save'}</button>}
+          {dirty && <button type="button" className="primary-btn" disabled={busy} onClick={() => save(vals, { typed: secrets })}>{busy ? 'Saving...' : 'Save'}</button>}
           {dirty && <button type="button" className="secondary-btn" disabled={busy} onClick={() => { setVals(pick(meta)); setSecrets({}); }}>Discard Changes</button>}
           {!!company && !!meta.override && <button type="button" className="secondary-btn" disabled={busy} onClick={() => save(pick(meta), { reset: true })}>Use the Default</button>}
         </div>

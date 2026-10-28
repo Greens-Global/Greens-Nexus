@@ -1,17 +1,10 @@
 // Small pieces every Workflows screen shares (Oct 28 2026): the Inter inline
-// idiom of views/Approvals.jsx, a card, a section title, a chip and the one
-// way to open another module's record (nexus:navigate + the pending-open
-// note of lib/openTarget.js).
-import { openNotificationTarget } from '../lib/openTarget';
+// idiom of views/Approvals.jsx, a card, a section title, a chip, a link
+// button and muted text. Components only (react-refresh): the way to open
+// another module's record is lib/navigate.js, the wording of a refused call
+// lib/errors.js.
 
 export const FONT = 'Inter, sans-serif';
-
-/** Open a record in its own module: `{ view, sub, taskId?, ticketId?, ... }`. */
-export function goTo(link) {
-  if (!link?.view) return;
-  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: link.view, sub: link.sub ?? null } }));
-  openNotificationTarget(link);
-}
 
 export function Card({ children, style, ...rest }) {
   return (
@@ -57,11 +50,3 @@ export function LinkButton({ children, onClick, title, style }) {
 }
 
 export const Muted = ({ children, style }) => <span style={{ color: 'var(--muted)', fontSize: 12.5, ...style }}>{children}</span>;
-
-/** Inline error for a failed action (a refused Pause, a Replay that 409s). */
-export function errorText(err, fallback = 'That did not go through - please try again.') {
-  const d = err?.detail ?? err?.message;
-  if (typeof d === 'string' && d && !/^API error|^Failed to fetch|^NetworkError/i.test(d)) return d;
-  if (d && typeof d === 'object' && typeof d.detail === 'string') return d.detail;
-  return fallback;
-}

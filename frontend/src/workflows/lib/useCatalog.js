@@ -37,6 +37,8 @@ export function useCatalog() {
     return () => { listeners.delete(fn); };
   }, []);
 
+  // The first fetch sets state only from the response; a reload (Retry on
+  // the Catalog tab, after Settings changed the packs) shows the loader.
   const load = useCallback((force = false) => {
     setLoading(!cache || force);
     setError(false);
@@ -46,7 +48,15 @@ export function useCatalog() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { if (!cache) load(); }, [load]);
+  useEffect(() => {
+    if (cache) return undefined;
+    let on = true;
+    fetchCatalog()
+      .then(() => { if (on) setError(false); })
+      .catch(() => { if (on) setError(true); })
+      .finally(() => { if (on) setLoading(false); });
+    return () => { on = false; };
+  }, []);
 
   const catalog = cache;
   const newSince = new Set(Array.isArray(catalog?.newSince) ? catalog.newSince : []);

@@ -8,6 +8,7 @@ import { Sparkles } from 'lucide-react';
 import { api } from '../../api';
 import { btn } from '../../tasks/theme';
 import { card, cardTitle, hint, textInput } from '../lib/text.builder-helpers';
+import { errorText } from '../lib/errors';
 
 export default function DescribeIt({ onDraft }) {
   const [text, setText] = useState('');
@@ -28,7 +29,7 @@ export default function DescribeIt({ onDraft }) {
       onDraft(r.definition, r.problems || [], r.notes || '');
     } catch (e) {
       const status = e?.status || e?.response?.status;
-      setError(status === 503 ? 'Describe It is not set up on this server yet. Build the workflow with Add Step instead.' : (e?.message || 'The draft could not be made.'));
+      setError(status === 503 ? 'Describe It is not set up on this server yet. Build the workflow with Add Step instead.' : errorText(e, 'The draft could not be made.'));
     } finally { setBusy(false); }
   };
 
@@ -43,12 +44,12 @@ export default function DescribeIt({ onDraft }) {
         <button type="button" onClick={draft} disabled={busy || !text.trim()} style={{ ...btn('primary'), opacity: busy || !text.trim() ? 0.6 : 1 }}>
           <Sparkles size={14} /> {busy ? 'Drafting...' : 'Draft It'}
         </button>
-        {error && <span style={{ ...hint, color: '#dc2626' }}>{error}</span>}
+        {error && <span style={{ ...hint, color: 'hsl(var(--color-red))' }}>{error}</span>}
       </div>
       {notes && <div style={hint}>{notes}</div>}
       {!!problems.length && (
         <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {problems.map((p, i) => <li key={i} style={{ ...hint, color: '#d97706' }}>{p.message}</li>)}
+          {problems.map((p, i) => <li key={i} style={{ ...hint, color: 'hsl(var(--color-orange))' }}>{p.message}</li>)}
         </ul>
       )}
     </section>

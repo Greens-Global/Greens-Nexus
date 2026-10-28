@@ -2,7 +2,8 @@
 // events of the trigger's kind, or the catalog sample, run in plan mode -
 // every condition shown with its value and a pass / fail mark, every step as
 // the line it would produce, a wait as "Would wait until ...". Nothing is
-// sent. A schedule or date trigger previews instead: "If this ran now: N".
+// sent. A schedule previews who it would run on ("If this ran now: N");
+// a date or manual trigger tests with the catalog sample only.
 import { useEffect, useState } from 'react';
 import { Check, Play, X } from 'lucide-react';
 import { api } from '../../api';
@@ -11,6 +12,7 @@ import { StatusLabel } from '../../components/StatusLabel';
 import { formatDateTime } from '../../lib/datetime';
 import { btn } from '../../tasks/theme';
 import { RUN_STEP_STATUS, chip, hint, sentence } from '../lib/text.builder-helpers';
+import { errorText } from '../lib/errors';
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
@@ -54,7 +56,7 @@ export default function RailTest({ workflow, definition, dirty, onBeforeTest, on
       setResult(r);
       onTested?.(r);
     } catch (e) {
-      setError(e?.message || 'The test could not run.');
+      setError(errorText(e, 'The test could not run.'));
     } finally { setRunning(false); }
   };
 
@@ -98,7 +100,7 @@ export default function RailTest({ workflow, definition, dirty, onBeforeTest, on
         </div>
       )}
 
-      {(kind === 'schedule' || kind === 'date') && (
+      {kind === 'schedule' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>Preview</div>
@@ -107,7 +109,7 @@ export default function RailTest({ workflow, definition, dirty, onBeforeTest, on
               <button type="button" onClick={() => run('')} disabled={running} style={btn('outline')}><Play size={13} /> Use Sample</button>
             </span>
           </div>
-          {previewError && <div style={{ ...hint, color: '#dc2626' }}>The preview could not be loaded.</div>}
+          {previewError && <div style={{ ...hint, color: 'hsl(var(--color-red))' }}>{errorText(previewError, 'The preview could not be loaded.')}</div>}
           {preview && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div style={sentence}>If this ran now: <strong>{preview.count ?? (preview.items || []).length}</strong></div>
@@ -118,7 +120,7 @@ export default function RailTest({ workflow, definition, dirty, onBeforeTest, on
         </div>
       )}
 
-      {kind === 'manual' && (
+      {(kind === 'manual' || kind === 'date') && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 700 }}>Test With The Sample</div>
           <button type="button" onClick={() => run('')} disabled={running} style={btn('outline')}><Play size={13} /> Use Sample</button>
@@ -126,7 +128,7 @@ export default function RailTest({ workflow, definition, dirty, onBeforeTest, on
       )}
 
       {running && <SkeletonBlocks count={3} height={28} borderRadius={8} />}
-      {error && <div style={{ ...hint, color: '#dc2626' }}>{error}</div>}
+      {error && <div style={{ ...hint, color: 'hsl(var(--color-red))' }}>{error}</div>}
 
       {result && !running && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }} aria-label="Test result">
@@ -141,7 +143,7 @@ export default function RailTest({ workflow, definition, dirty, onBeforeTest, on
               <div style={{ ...hint, fontWeight: 700 }}>Conditions</div>
               {trace.map((t, i) => (
                 <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5 }} data-testid="trace-row">
-                  <span aria-label={t.ok ? 'Passed' : 'Failed'} style={{ color: t.ok ? '#16a34a' : '#dc2626', flexShrink: 0, marginTop: 2 }}>{t.ok ? <Check size={14} /> : <X size={14} />}</span>
+                  <span aria-label={t.ok ? 'Passed' : 'Failed'} style={{ color: t.ok ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))', flexShrink: 0, marginTop: 2 }}>{t.ok ? <Check size={14} /> : <X size={14} />}</span>
                   <span>
                     <span style={{ color: 'var(--nx-ink)' }}>{t.field} {t.op} {Array.isArray(t.value) ? t.value.join(', ') : String(t.value ?? '')}</span>
                     <span style={hint}> (was {String(t.actual ?? '-')})</span>

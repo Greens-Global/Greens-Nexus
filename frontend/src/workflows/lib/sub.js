@@ -3,6 +3,8 @@
 //   overview | list | automations | runs | templates | catalog | settings
 //   wf:<id>   the builder for one workflow
 //   run:<id>  the Runs tab with that run's drawer open
+// `settings` is Settings > Workflows: WorkflowsApp sends the person there
+// (nexus:navigate admin-console / workflows) and shows Overview meanwhile.
 // Anything unknown (an old link, a typo) lands on Overview, never blank.
 
 export const SCREENS = ['overview', 'list', 'automations', 'runs', 'templates', 'catalog', 'settings'];

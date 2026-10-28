@@ -7,6 +7,7 @@ import { api } from '../../api';
 import { Modal, PersonSelect } from '../../tasks/components';
 import { btn } from '../../tasks/theme';
 import { fieldLabel, hint, textInput } from '../lib/text.builder-helpers';
+import { errorText } from '../lib/errors';
 
 const PERSON_ENTITIES = new Set(['employee', 'person', 'people']);
 
@@ -26,7 +27,7 @@ export default function RunDialog({ workflow, entityDef, people, onClose, go }) 
       onClose();
       if (runId) go(`run:${runId}`);
     } catch (e) {
-      setError(e?.message || 'The run could not start.');
+      setError(errorText(e, 'The run could not start.'));
     } finally { setBusy(false); }
   };
 
@@ -52,7 +53,7 @@ export default function RunDialog({ workflow, entityDef, people, onClose, go }) 
               </>
             )}
         </div>
-        {error && <div style={{ ...hint, color: '#dc2626' }}>{error}</div>}
+        {error && <div style={{ ...hint, color: 'hsl(var(--color-red))' }}>{error}</div>}
       </div>
     </Modal>
   );
