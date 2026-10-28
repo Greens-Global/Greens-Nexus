@@ -200,11 +200,33 @@ def _note_line(g: _Grid, ds: str, segs: list, ctx: dict, band: bool = False, ind
         parts.append(f"<b>Note by {escape(who)}:</b> {escape(day['note'].strip())}")
     reasons = [r for s in segs for r in _reasons(s)]
     reasons = [r for i, r in enumerate(reasons) if r not in reasons[:i]]
+    # Add Time From Record (Oct 27 2026): a day HR keyed in from a record
+    # (a paper time sheet) says so, with the reason - its footnote. The
+    # reason is not repeated under "On the punches".
+    recorded = record_reasons(segs, ctx.get("punch_meta") or {})
+    if recorded:
+        parts.append(f"<b>Entered By HR From Record:</b> <i>{escape(ctx['names_in']('  ·  '.join(recorded)))}</i>")
+        reasons = [r for r in reasons if r not in recorded]
     if reasons:
         parts.append(f"<b>On the punches:</b> <i>{escape(ctx['names_in']('  ·  '.join(reasons)))}</i>")
     if parts:
         style = _sz(ParagraphStyle("note", parent=_LEFT, leftIndent=14 if indent else 0))
         g.line(Paragraph("<br/>".join(parts), style), BAND if band else None)
+
+
+def record_reasons(segs: list, punch_meta: dict) -> list:
+    """The reasons of the HR record batches behind a day's punches, each once."""
+    out = []
+    for seg in segs:
+        ids = [seg.get("inId"), seg.get("outId")]
+        ids += [x for b in seg.get("breaks") or [] for x in (b.get("startId"), b.get("endId"))]
+        for pid in ids:
+            m = punch_meta.get(pid or "") or {}
+            if m.get("entrySource") == "hr_record":
+                r = (m.get("recordReason") or "").strip() or "-"
+                if r not in out:
+                    out.append(r)
+    return out
 
 
 def _auto_line(g: _Grid, segs: list, band: bool = False) -> None:

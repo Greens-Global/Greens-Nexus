@@ -85,6 +85,7 @@
 | ✅ | Workforce Scorecard (punched vs expected hours, weekly email) | Neil |
 | ✅ | BOD / EOD Teams updates and the desktop monitoring agent | Neil |
 | 🚀 | **Duplicate Day** - copy one day's punches to other days or people, with undo - #813 | Keka |
+| 🚀 | **Add Time From Record** - Duplicate Day grown into HR's paper time sheet entry: one day laid over up to 62 days, every day editable in a review grid (times, breaks, Sick Day / Vacation / Off, Replace), the source document attached, "Entered By HR From Record" on the card and the PDF, one Undo | Keka |
 | 🚀 | **India Contractor Work Hours and Extra Time Policy** (credit by hours, month-end reconciliation, Extra Time claims at 1.35x, Policy Starts 11/01/2026) - #821 | Neil |
 | ⛔ | Selfie / PIN kiosk clock-in | dropped (Neil) |
 | ❌ | Client time tracking (billable hours by client) | Neil |

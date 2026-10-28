@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock, Printer, Copy } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock, Printer, ClipboardList } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
@@ -23,7 +23,9 @@ import BreakPremiums from './BreakPremiums';
 import TimecardBonuses from './TimecardBonuses';
 import GeofencePunchModal from './GeofencePunchModal';
 import AddTimeModal from './AddTimeModal';
-import DuplicateDayModal from './DuplicateDayModal';
+import AddTimeFromRecordModal from './AddTimeFromRecordModal';
+import RecordTag from './RecordTag';
+import { recordOf } from '../lib/duplicateDay';
 import AnchoredMenu from './AnchoredMenu';
 import { Spinner } from './AsyncState';
 import { Modal, DateField } from '../tasks/components';
@@ -607,7 +609,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // OT rule are READ here and written only on Pay & Benefits.
   const [editDay, setEditDay] = useState(null);   // { date, seg? }
   const [addTime, setAddTime] = useState(false);   // Add Time (Oct 14): a run of shifts at once
-  const [dupDay, setDupDay] = useState(false);     // Duplicate Day (Oct 27): HR copies one day onto others
+  const [dupDay, setDupDay] = useState(false);     // Add Time From Record (Oct 27): HR keys in a record kept outside Nexus
   // A missing/wrong BREAK punch. PunchEditModal only ever deals in clock-in and
   // clock-out, so until now a break that never ended (or ended late, the phone
   // case) had no self-service path at all - the card said "never ended" and the
@@ -1050,7 +1052,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       // Same reasons/notes the fixed card shows: employee edit reasons + HR adjust
       // notes + punch notes, visible in the card (not only on the hover Info dot).
       // Internal markers like "payroll edit" are filtered out (segReasons).
-      const notes = segs.flatMap(segReasons);
+      // Add Time From Record (Oct 27 2026): the day's tag and reason, not
+      // repeated under "On the punches".
+      const recs = recordOf(segs, data?.punchMeta || {});
+      const notes = segs.flatMap(segReasons).filter(n => !recs.some(r => r.reason === n));
       // Worked a half-day holiday: the OTHER half is credited on top of the
       // punches above, not instead of them (Pranshu, Sep 22 - "half from
       // holiday and half they worked").
@@ -1060,7 +1065,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       if (d?.diffMin || d?.callBackMin) rows.push({ type: 'premium', ds, day: d });
       // The day's note line (SwipeClock's pencil line under the day): the
       // manager / employee note, the punch reasons, and the Work Log.
-      rows.push({ type: 'note', ds, band, text: notes.join('  ·  ') });
+      rows.push({ type: 'note', ds, band, text: notes.join('  ·  '), recs });
     }
     (reqsByDate[ds] || []).forEach(q => rows.push({ type: 'req', ds, req: q }));
   });
@@ -1266,7 +1271,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       if (r.type === 'wk') { cur = null; items.push(r); return; }
       // The day's note line: the card has its own footer for the note and Work
       // Log, so only the punch reasons follow their day here.
-      if (r.type === 'note') { if (r.text) cur?.extra.push(r); return; }
+      if (r.type === 'note') { if (r.text || r.recs?.length) cur?.extra.push(r); return; }
       if (!cur || cur.ds !== r.ds) { cur = { type: 'card', ds: r.ds, segs: [], extra: [] }; items.push(cur); }
       // A shift's rows and the break lines between them stay in order.
       if (r.type === 'day' || r.type === 'line') cur.segs.push(r); else cur.extra.push(r);
@@ -1365,7 +1370,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     : r.type === 'holiday' ? hHoliday(r)
                     : r.type === 'premium' ? hPremium(r)
                     : r.type === 'req' ? hReq(r)
-                    : <><Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{r.text}</>}
+                    : <>{r.recs?.length > 0 && <RecordTag recs={r.recs} batches={data?.recordBatches} toastErr={toastErr} />}
+                        {r.text && <><Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{r.text}</>}</>}
                 </div>
               ))}
               {foot && (
@@ -1533,7 +1539,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         </button>
         )}
         {!self && email && !noEdit && data?.review?.isHr && (
-        <DuplicateDayButton onClick={() => setDupDay(true)} />
+        <AddTimeFromRecordButton onClick={() => setDupDay(true)} />
         )}
         {!fin && (self || email) && (
         <button onClick={() => setNoteModal(true)} title={self ? 'Leave a note on a day for your manager' : 'Leave a note on a day - seen by managers and HR, not the employee'}
@@ -1670,7 +1676,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 /* SwipeClock's note line under a day ("Took lunch from
                    12:05-1:05"): only when there is a note, an employee note
                    or a punch reason. */
-                (r.text || noteOf(r.ds) || notes[r.ds]?.employeeNote) ? (
+                (r.text || r.recs?.length || noteOf(r.ds) || notes[r.ds]?.employeeNote) ? (
                   <tr key={i} className={`pr-day-row${r.band ? ' pr-band' : ''}`}>
                     <td colSpan={span} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12, paddingLeft: 26 }}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
@@ -1693,6 +1699,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                                 : <NoteCell date={r.ds} note={notes[r.ds]} onSave={saveNote} lines={1} maxWidth="none" />}
                             </span>
                           )}
+                          {r.recs?.length > 0 && <RecordTag recs={r.recs} batches={data?.recordBatches} toastErr={toastErr} />}
                           {r.text && <span><strong>On the punches:</strong> <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{namesIn(r.text, nameFor)}</span></span>}
                         </div>
                       </div>
@@ -1946,7 +1953,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           onDone={() => { _timecardCache.clear(); load(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
       {dupDay && !self && email && !ownCard && data?.review?.isHr && (
-        <DuplicateDayModal email={email} name={nameFor(email)} start={start} end={end} onClose={() => setDupDay(false)}
+        <AddTimeFromRecordModal email={email} name={nameFor(email)} start={start} end={end} onClose={() => setDupDay(false)}
           onDone={() => { _timecardCache.clear(); load(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
       {editDay && (
@@ -2023,7 +2030,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
   const mgrAp = data.approval;
   const [breakFix, setBreakFix] = useState(null);       // { date, breaks } - fixing a break punch
   const [noteModal, setNoteModal] = useState(false);    // Add Note in the toolbar
-  const [dupDay, setDupDay] = useState(false);          // Duplicate Day (Oct 27): HR only
+  const [dupDay, setDupDay] = useState(false);          // Add Time From Record (Oct 27): HR only
   const byDate = Object.fromEntries((data.days || []).map(d => [d.date, d]));
   const fixedDays = data.fixedDays || [];
   const pm = data.punchMeta || {};
@@ -2112,7 +2119,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <Pencil size={13} /> Add Note
         </button>
         )}
-        {!self && email && !noEdit && data.review?.isHr && <DuplicateDayButton onClick={() => setDupDay(true)} />}
+        {!self && email && !noEdit && data.review?.isHr && <AddTimeFromRecordButton onClick={() => setDupDay(true)} />}
         <div style={{ flex: 1 }} />
         {/* The California / India toggle is a payroll reviewer's tool; an
             employee's own timesheet shows one timezone (Neil, Sep 23). */}
@@ -2210,7 +2217,8 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const formal = segs.flatMap(s => s.breaks || []);
               const dayRows = segs.length + formal.length;   // the shift rows and their Break rows
               const locateEmail = (!self || isAdmin) ? (data.email || '') : '';
-              const notes = segs.flatMap(segReasons);
+              const recs = recordOf(segs, pm);   // Add Time From Record's tag (Oct 27 2026)
+              const notes = segs.flatMap(segReasons).filter(n => !recs.some(r => r.reason === n));
               const note = dayNotes[fd.date];
               const myN = myNote(fd.date);
               const hrNote = self ? (myN?.note || '') : (note?.note || '');
@@ -2326,7 +2334,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               );
 
               // ── The note line: the employee's note, HR's, what is on the punches ──
-              if (notes.length || hrNote || (!self && note?.employeeNote)) rows.push(
+              if (notes.length || recs.length || hrNote || (!self && note?.employeeNote)) rows.push(
                 <tr key={fd.date + '-notes'} className={rowCls}>
                   <td colSpan={cols} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12, paddingLeft: 26 }}>
                     <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
@@ -2343,6 +2351,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                             : <NoteCell date={fd.date} note={note} onSave={saveNote} lines={1} maxWidth="none" />}
                         </span>
                       )}
+                      {recs.length > 0 && <RecordTag recs={recs} batches={data.recordBatches} toastErr={toastErr} />}
                       {notes.length > 0 && <span><strong>On the punches:</strong> <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{namesIn(notes.join('  ·  '), nameFor)}</span></span>}
                     </div>
                   </td>
@@ -2465,7 +2474,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           onSave={self ? saveMyNote : saveNote} toastOk={toastOk} onClose={() => setNoteModal(false)} />
       )}
       {dupDay && !self && email && !ownCard && data.review?.isHr && (
-        <DuplicateDayModal email={email} name={nameFor(email)} start={data.periodStart} end={data.periodEnd} onClose={() => setDupDay(false)}
+        <AddTimeFromRecordModal email={email} name={nameFor(email)} start={data.periodStart} end={data.periodEnd} onClose={() => setDupDay(false)}
           onDone={() => { _timecardCache.clear(); load(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
       {geoMap && (
@@ -2489,13 +2498,14 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 // be signed on paper, not through Nexus Sign - any period, in review, finalized
 // or locked, hourly or salaried. The tab opens before the fetch so the browser
 // does not treat it as a pop-up.
-// Duplicate Day (Oct 27 2026): HR copies one day onto others. Shown to HR
-// only (review.isHr); the server refuses anyone else either way.
-function DuplicateDayButton({ onClick }) {
+// Add Time From Record (Oct 27 2026; was Duplicate Day): HR keys in a time
+// sheet kept outside Nexus - one day laid over a range, every day reviewed.
+// Shown to HR only (review.isHr); the server refuses anyone else either way.
+function AddTimeFromRecordButton({ onClick }) {
   return (
-    <button type="button" data-duplicate-day onClick={onClick} title="HR: copy one day - its punches, breaks and type - onto other days of this period"
+    <button type="button" data-record-time onClick={onClick} title="HR: add time from a paper time sheet or another record - set one day, lay it over a range of days, then review each day"
       style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
-      <Copy size={13} /> Duplicate Day
+      <ClipboardList size={13} /> Add Time From Record
     </button>
   );
 }

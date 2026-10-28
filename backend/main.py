@@ -1345,6 +1345,8 @@ def _run_migrations():
             "ALTER TABLE time_off_requests ADD COLUMN first_approver VARCHAR DEFAULT ''",
             "ALTER TABLE time_off_requests ADD COLUMN first_decided_at VARCHAR DEFAULT ''",
             "ALTER TABLE time_off_requests ADD COLUMN first_note VARCHAR DEFAULT ''",
+            # Add Time From Record (Oct 27) - see the Postgres list. models.TimePunch.
+            "ALTER TABLE time_punches ADD COLUMN entry_source VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3158,6 +3160,11 @@ def _run_migrations():
         # docs/India-Contractor-Pay.md). New table - explicit RLS.
         # models.ExtraTimeClaim.
         "ALTER TABLE extra_time_claims ENABLE ROW LEVEL SECURITY",
+        # Add Time From Record (Neil, Oct 27 2026): where an HR-keyed punch came
+        # from, and the batch it belongs to (reason, source document) - a new
+        # table, explicit RLS. models.TimePunch.entry_source, TimeEntryBatch.
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS entry_source VARCHAR DEFAULT ''",
+        "ALTER TABLE time_entry_batches ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
