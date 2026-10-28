@@ -4010,8 +4010,10 @@ async def lifespan(app: FastAPI):
             # Workflows (Oct 28 2026): the runner - every 5 s, in a thread -
             # drains the workflow_events outbox, runs the workflows each
             # event starts, resumes due waits, fires schedules and date
-            # triggers. Sends inside are gated by is_deployed_worker (the
-            # email action). See workflows/runner.py.
+            # triggers. The whole tick runs only on the deployed API or on a
+            # laptop's own SQLite (runner.may_run_here): a laptop pointed at
+            # the shared Postgres wins the lease but claims nothing. See
+            # workflows/runner.py.
             from workflows.runner import workflows_loop
             _tasks.append(_a.create_task(workflows_loop()))
         except Exception as e:

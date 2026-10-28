@@ -107,7 +107,7 @@ def _as_assigned_by(db, row) -> list[str]:
 # ── entities ─────────────────────────────────────────────────────────────────
 entity("item_checkout", label="Item Checkout", model=models.ItemCheckout, module=MODULE,
        company=lambda row: person_company(row, row.requested_by_email),
-       link=lambda row: {"view": "inventory", "sub": "checkouts", "checkout": row.id},
+       link=lambda row: {"view": "inventory", "sub": "checkouts"},      # the Items screens navigate by sub
        people={"self": _co_self, "manager": _co_manager, "approver": _co_approver, "allocator": _co_allocator},
        people_labels={"self": "Requester", "allocator": "Allocator"},
        fields=[
@@ -135,7 +135,7 @@ entity("item_checkout", label="Item Checkout", model=models.ItemCheckout, module
 
 entity("item_assignment", label="Item Assignment", model=models.ItemAssignment, module=MODULE,
        company=lambda row: person_company(row, row.assignee_email),
-       link=lambda row: {"view": "inventory", "sub": "permanent", "assignment": row.id},
+       link=lambda row: {"view": "inventory", "sub": "permanent"},
        people={"self": _as_self, "manager": _as_manager, "assigned_by": _as_assigned_by},
        people_labels={"self": "Assignee", "assigned_by": "Assigned By"},
        fields=[

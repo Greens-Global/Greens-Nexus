@@ -21,6 +21,7 @@ import Runs from './Runs';
 import WorkflowList from './WorkflowList';
 import Templates from './Templates';
 import Catalog from './Catalog';
+import { WorkflowsSettings } from './WorkflowsSettings';
 import { parseSub, tabFor } from './lib/sub';
 import { FONT } from './ui';
 import { errorText } from './lib/errors';
@@ -90,6 +91,7 @@ export default function WorkflowsApp({ sub, go }) {
       break;
     case 'templates': screen = <Templates go={go} />; break;
     case 'catalog': screen = <Catalog go={go} />; break;
+    case 'settings': screen = <WorkflowsSettings />; break;        // the organization face; Settings > Workflows has the company one
     default:
       screen = <Overview overview={overview} loading={loading && !overview} error={error && !overview} reload={() => { setLoading(!overview); load(); }} go={go} />;
   }

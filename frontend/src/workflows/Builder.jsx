@@ -209,9 +209,11 @@ export default function Builder({ id, go }) {
     const ok = await dialog.confirm(`Make ${who} the owner? The workflow runs with their access from the next run on.`, { title: 'Change Owner', confirmText: 'Change Owner' });
     if (!ok) return;
     try {
-      await api.wfReown(id, { owner });
+      const res = await api.wfReown(id, { owner });
       setMetaState((m) => ({ ...m, ownerEmail: owner }));
       setSavedMeta((s) => { try { return JSON.stringify({ ...JSON.parse(s || '{}'), ownerEmail: owner }); } catch { return s; } });
+      // the server answers with the workflow as it now stands (a new owner may lack a grant: needs_attention, problems)
+      if (res && typeof res === 'object' && res.id) { setWorkflow(res); setServerProblems(res.problems || []); }
       flash('Owner changed.');
     } catch (e) {
       await dialog.alert(errorText(e, 'The owner could not be changed.'));
@@ -282,7 +284,7 @@ export default function Builder({ id, go }) {
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) 380px', gap: 16, alignItems: 'start' }}>
             {/* The recipe */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
-              {stepCount === 0 && canEdit && <DescribeIt onDraft={onDraft} />}
+              {stepCount === 0 && canEdit && <DescribeIt onDraft={onDraft} companyId={meta.companyId || ''} />}
               <TriggerCard definition={definition} onChange={setDefinition} catalog={catalog} isNew={isNew} people={people}
                 open={openCard === 'when'} onToggle={() => setOpenCard(openCard === 'when' ? '' : 'when')} />
               <ConditionsCard definition={definition} onChange={setDefinition} entityDef={entityDef} eventDef={eventDef} catalog={catalog} people={people}

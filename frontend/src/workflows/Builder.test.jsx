@@ -195,7 +195,8 @@ describe('Builder', () => {
     const box = await screen.findByLabelText('Describe what should happen');
     fireEvent.change(box, { target: { value: 'Tell the manager when someone leaves' } });
     fireEvent.click(screen.getByRole('button', { name: /Draft It/ }));
-    await waitFor(() => expect(api.wfDescribe).toHaveBeenCalledWith({ text: 'Tell the manager when someone leaves' }));
+    // the draft is checked against the workflow's company, not the caller's
+    await waitFor(() => expect(api.wfDescribe).toHaveBeenCalledWith({ text: 'Tell the manager when someone leaves', companyId: '' }));
     expect(await screen.findByText('Do notify: Drafted {{ subject.name }}')).toBeInTheDocument();
     expect(screen.queryByLabelText('Describe what should happen')).toBeNull();
     expect(screen.getByText('Unsaved')).toBeInTheDocument();

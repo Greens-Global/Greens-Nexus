@@ -18,10 +18,11 @@ export const RUN_STATUS = {
   skipped:   { label: 'Skipped',   color: '#64748b' },
   cancelled: { label: 'Cancelled', color: '#64748b' },
   test:      { label: 'Test',      color: '#7c3aed' },
-  // Steps (the Actions view, the run drawer) use the run words plus these.
-  done:      { label: 'Done',      color: '#16a34a' },
+  // Steps (the Actions view, the run drawer) use the run words plus these: done (a finished step), retry (waiting to try again).
   pending:   { label: 'Pending',   color: '#94a3b8' },
   planned:   { label: 'Planned',   color: '#7c3aed' },
+  done:      { label: 'Done',      color: '#16a34a' },
+  retry:     { label: 'Retrying',  color: '#d97706' },
 };
 
 const titleCase = (s) => String(s || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).trim();

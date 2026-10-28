@@ -105,7 +105,7 @@ export default function RailTest({ workflow, definition, dirty, onBeforeTest, on
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>Preview</div>
             <span style={{ display: 'inline-flex', gap: 6 }}>
-              <button type="button" onClick={loadPreview} disabled={running} style={btn('outline')}>Who Would It Run On</button>
+              {kind === 'schedule' && <button type="button" onClick={loadPreview} disabled={running} style={btn('outline')}>Who Would It Run On</button>}
               <button type="button" onClick={() => run('')} disabled={running} style={btn('outline')}><Play size={13} /> Use Sample</button>
             </span>
           </div>

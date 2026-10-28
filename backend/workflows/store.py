@@ -420,6 +420,17 @@ def runs_7d(db, wf: models.Workflow) -> int:
                     models.WorkflowRun.status != "test").count())
 
 
+def _company_enabled(db, company_id: str) -> bool:
+    """Settings > Workflows for the workflow's company (True for every company)."""
+    if not company_id:
+        return True
+    from workflows import settings as wf_settings
+    try:
+        return bool(wf_settings.get(db, company_id).get("enabled", True))
+    except Exception:   # noqa: BLE001 - a settings read never hides the list
+        return True
+
+
 def serialize(db, wf: models.Workflow, *, full: bool = False) -> dict:
     out = {
         "id": wf.id, "name": wf.name or "", "description": wf.description or "",
@@ -434,6 +445,7 @@ def serialize(db, wf: models.Workflow, *, full: bool = False) -> dict:
         "pausedAt": wf.paused_at or "", "updatedAt": wf.updated_at or "", "updatedBy": wf.updated_by or "",
         "createdAt": wf.created_at or "", "createdBy": wf.created_by or "",
         "hasDraft": isinstance(wf.draft, dict),
+        "companyEnabled": _company_enabled(db, wf.company_id or ""),
     }
     if full:
         out["definition"] = definition_of(wf)
@@ -475,7 +487,7 @@ def serialize_run(db, run: models.WorkflowRun, *, steps: bool = False) -> dict:
     if ent is not None and run.subject_id:
         try:
             row = ent.load_row(db, run.subject_id)
-            link = ent.link_for(row) if row is not None else {}
+            link = ent.link_for(row, db) if row is not None else {}
         except Exception:   # noqa: BLE001 - a link that cannot be built is no link
             link = {}
     out = {

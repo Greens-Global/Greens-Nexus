@@ -15,6 +15,7 @@
 """
 import os
 import tempfile
+from urllib.parse import quote
 
 import pytest
 
@@ -275,13 +276,33 @@ def test_runs_actions_view_lists_affected_rows(client, db):
     assert page["next"] and len(page["items"]) == 1
     page2 = client.get(f"/workflows/runs?limit=1&before={page['next']}").json()
     assert page2["items"][0]["id"] != page["items"][0]["id"]
+    # the cursor is (started_at, id): runs that started on the same instant are never dropped or repeated
+    engine.handle_event(db, _event(db, "e-nob"))
+    from datetime import datetime, timedelta, timezone
+    same = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    for r_ in db.query(models.WorkflowRun).all():
+        r_.started_at = same
+    for s_ in db.query(models.WorkflowRunStep).all():
+        s_.started_at = same
+    db.commit()
+    for kind_ in ("runs", "actions"):
+        seen, cursor = [], ""
+        for _ in range(10):
+            pg = client.get(f"/workflows/runs?kind={kind_}&limit=1" + (f"&before={quote(cursor)}" if cursor else "")).json()
+            seen += [x["id"] for x in pg["items"]]
+            cursor = pg["next"]
+            if not cursor:
+                break
+        whole = [x["id"] for x in client.get(f"/workflows/runs?kind={kind_}&limit=100").json()["items"]]
+        assert len(whole) >= 3 and len(seen) == len(set(seen)) == len(whole) and set(seen) == set(whole), (kind_, seen)
+    assert "|" in page["next"]
     # a viewer may not replay or cancel; the owner may
     assert client.post(f"/workflows/runs/{run['id']}/replay").status_code == 403
     as_user(EDDIE)
     assert client.post(f"/workflows/runs/{run['id']}/replay").status_code == 409     # not failed
     assert client.post(f"/workflows/runs/{run['id']}/cancel").status_code == 409     # not waiting
     ov = client.get("/workflows/overview").json()
-    assert ov["last24h"] == {"runs": 2, "succeeded": 2, "failed": 0, "waiting": 0} and len(ov["recent"]) == 2
+    assert ov["last24h"] == {"runs": 3, "succeeded": 3, "failed": 0, "waiting": 0} and len(ov["recent"]) == 3
     assert ov["needsAttention"] == [] and ov["counts"]["active"] == 1
 
 
@@ -323,15 +344,11 @@ def test_automations_lists_task_rules_and_jobs_and_toggles(client, db):
 def test_templates_all_validate(client, db):
     ga = {"email": GAIL, "role": "owner", "level": 5}
     assert len(templates.TEMPLATES) == 9
-    checked = 0
+    # every pack is loaded: no template has a need the catalog does not meet
     for t in templates.TEMPLATES:
-        if templates.missing(t):
-            continue   # needs a pack that is not on this branch yet; the integrator confirms it
+        assert templates.missing(t) == [], (t["key"], templates.missing(t))
         probs = validate.validate(db, t["definition"], owner=ga, run_as="owner", company_id="")
         assert probs == [], (t["key"], [p.to_dict() for p in probs])
-        checked += 1
-    # core + the employee events alone serve three; the other six wait for the packs (requires)
-    assert checked >= 3
     as_user(VERA)
     served = client.get("/workflows/templates").json()
     assert {t["key"] for t in served} == {t["key"] for t in templates.TEMPLATES if not templates.missing(t)}
@@ -369,10 +386,18 @@ def test_settings_roundtrip_and_override_reset(client, db):
     assert s["webhookSecretsSet"] == ["hooks.example.com"] and s["nexusRunAs"] is True
     r = client.put(f"/workflows/settings?company={ENTITY}", json={"enabled": False, "maxRecipientsCap": 20})
     assert r.json()["enabled"] is False and r.json()["override"] is True and r.json()["maxRecipientsCap"] == 20
+    # the company switch travels with every workflow of that company (the list shows "Paused: company switch")
+    wf = _published(db, owner=GAIL, name="Switched Off")
+    every = _published(db, owner=GAIL, company="", name="Everywhere")
+    assert client.get(f"/workflows/{wf.id}").json()["companyEnabled"] is False
+    assert client.get(f"/workflows/{every.id}").json()["companyEnabled"] is True
+    rows = {w["id"]: w for w in client.get("/workflows?scope=all").json()}
+    assert rows[wf.id]["companyEnabled"] is False and rows[every.id]["companyEnabled"] is True
     assert r.json()["nexusRunAs"] is True                                                  # org-only, still read
     assert client.get("/workflows/settings").json()["enabled"] is True
     r = client.put(f"/workflows/settings?company={ENTITY}", json={"override": False})
     assert r.json()["override"] is False and r.json()["enabled"] is True
+    assert client.get(f"/workflows/{wf.id}").json()["companyEnabled"] is True
     assert client.get(f"/workflows/settings?company={OTHER}").status_code == 200
     assert client.get("/workflows/settings?company=nope").status_code == 404
 
@@ -404,6 +429,33 @@ def test_catalog_marks_new_entries_and_recent_events_feed_the_test(client, db):
     r = client.post(f"/workflows/{wf2.id}/preview-schedule")
     assert r.status_code == 200 and r.json()["count"] == 2 and r.json()["items"][0]["label"] == "Greens Api"
     assert client.get(f"/workflows/{wf2.id}/recent-events").json() == []
+
+
+def test_catalog_serves_hr_custom_fields_from_the_db(client, db):
+    # a custom field HR registers is `custom.<key>` on the employee entity on the next catalog call
+    db.add(models.EmployeeCustomField(id="cf-api-shirt", field_key="shirt_size_api", label="Shirt Size",
+                                      field_type="dropdown", options=["S", "M", "L"], visibility="employee_view"))
+    db.add(models.EmployeeCustomField(id="cf-api-cert", field_key="cert_due_api", label="Certification Due",
+                                      field_type="date", visibility="hr_only"))
+    db.commit()
+    as_user(VERA)                                                   # a viewer with no HR grant
+    cat = client.get("/workflows/catalog").json()
+    emp = next(e for e in cat["entities"] if e["key"] == "employee")
+    shirt = next(f for f in emp["fields"] if f["key"] == "custom.shirt_size_api")
+    assert shirt["type"] == "select" and [o["value"] for o in shirt["options"]] == ["S", "M", "L"]
+    assert shirt["visibility"] == "all"
+    assert not any(f["key"] == "custom.cert_due_api" for f in emp["fields"])     # HR Only stays with HR
+    as_user(EDDIE)                                                  # workflows editor with the HR grant
+    cat = client.get("/workflows/catalog").json()
+    emp = next(e for e in cat["entities"] if e["key"] == "employee")
+    cert = next(f for f in emp["fields"] if f["key"] == "custom.cert_due_api")
+    assert cert["type"] == "date" and cert["visibility"] == "hr"
+    assert {"key": "custom.cert_due_api", "label": "Certification Due", "yearly": False} in emp["dates"]
+    # the set-custom-field action offers the field by key
+    act = next(a for a in cat["actions"] if a["key"] == "hr.set_custom_field")
+    fld = next(p for p in act["params"] if p["type"] in ("select", "entity_ref") and isinstance(p["options"], list)
+               and any(o["value"] == "shirt_size_api" for o in p["options"]))
+    assert fld
 
 
 def test_describe_503_without_key(client, monkeypatch):

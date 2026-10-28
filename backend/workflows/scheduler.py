@@ -150,11 +150,18 @@ def claimed(db, wf: models.Workflow, dedupe_key: str) -> bool:
 
 def claim(db, wf: models.Workflow, dedupe_key: str) -> bool:
     """Insert-or-skip on the composite key: True when this process won."""
-    if claimed(db, wf, dedupe_key):
+    return claim_mark(db, wf.id, CLAIM_ENTITY, dedupe_key)
+
+
+def claim_mark(db, workflow_id: str, entity: str, subject_id: str) -> bool:
+    """The atomic claim behind every once-only job: a WorkflowSubjectMark row
+    on (workflow_id, entity, subject_id); True when this process inserted
+    it. The owner digest claims (owner email, "digest", ISO week)."""
+    if db.get(models.WorkflowSubjectMark, (workflow_id, entity, subject_id)) is not None:
         return False
     try:
         with db.begin_nested():
-            db.add(models.WorkflowSubjectMark(workflow_id=wf.id, entity=CLAIM_ENTITY, subject_id=dedupe_key,
+            db.add(models.WorkflowSubjectMark(workflow_id=workflow_id, entity=entity, subject_id=subject_id,
                                               last_run_at=_now().isoformat()))
             db.flush()
     except IntegrityError:

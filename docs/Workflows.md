@@ -204,14 +204,16 @@ turns on the record observer (below).
 **An event** - something that happens to an entity:
 
 ```python
-@event("hr.time_off.decided", entity="time_off_request", label="Time Off Is Decided",
+@event("time_off.decided", entity="time_off_request", label="Time Off Is Decided",
        module="hr", group="Time Off",
        changes=["status"],          # from / to for conditions and templates
        sample=SAMPLE_TIME_OFF,      # a realistic payload; tests and the dry-run use it
        volume="normal")             # or "high": written only while a workflow listens
 ```
 
-The key is stable forever (`<module>.<thing>.<verb>`). `may_use(db, user)`
+The key is stable forever: `<entity>.<verb>` (`time_off.decided`,
+`employee.status_changed`, `ticket.resolved`, `item_checkout.field_changed`) -
+the entity key first, never a module prefix. `may_use(db, user)`
 defaults to "the owner may read that entity's module". Normal-volume events
 are always written so Test With A Recent Event has real rows from day one;
 high-volume ones (punches, task comments) are written only while an active
@@ -261,7 +263,7 @@ route):
 ```python
 from workflows import emit
 
-emit(db, "hr.time_off.decided", subject=row, actor=user["email"],
+emit(db, "time_off.decided", subject=row, actor=user["email"],
      changes={"status": (old, new)}, extra={"note": body.note})
 ```
 
@@ -357,7 +359,12 @@ SECURITY` line in `main.py`'s Postgres migration list turns RLS on - run
 
 `workflows_loop` runs in the elected leader only (`leader.elect_and_run`),
 every 5 seconds, as `await asyncio.to_thread(tick)` - never a sync call on
-the event loop. Each tick opens its own `SessionLocal()`, claims up to 200
+the event loop. A tick does its work only on the deployed API
+(`leader.is_deployed_worker()`) or on a process whose engine is SQLite
+(`runner.may_run_here`): a laptop pointed at the shared dev Postgres wins
+the lease like any process and must claim nothing - no outbox rows, no
+schedules or dates, no waits, no reminders, no digests, no purges. Each
+tick opens its own `SessionLocal()`, claims up to 200
 unprocessed outbox rows with a conditional UPDATE (the
 `ops_report_schedules._claim` pattern), matches them to active workflows,
 runs steps committing one at a time (a crash leaves a readable trail; a
@@ -365,7 +372,7 @@ retried step is idempotent), resumes due `workflow_waits`, evaluates
 schedule and date triggers once per period or date (dedupe keys
 `wf:company:period` and `wf:subject:date`), sends approval reminders, purges
 by retention, and stops after about 20 seconds of work until the next tick.
-Sends are gated by `leader.is_deployed_worker()`. System guards: 25 steps per
+The email action checks `leader.is_deployed_worker()` again on its own. System guards: 25 steps per
 workflow, 10 nested levels, For Each over at most 500 items, one action at
 most 20 seconds, a run at most 10 minutes of active work. A step that raises
 retries 3 times with backoff (1, 5, 15 minutes) when the error is transient,

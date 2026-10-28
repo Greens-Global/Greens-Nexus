@@ -508,6 +508,30 @@ def test_runner_tick_claims_and_processes_once(db):
     assert row is not None and "employee.status_changed" in row.value
 
 
+def test_runner_tick_claims_nothing_off_the_deployed_worker(db, monkeypatch):
+    # a laptop on the shared Postgres wins the lease but must drain nothing
+    wf = _wf(db, steps=[NOTIFY])
+    ev = _event(db)
+    real = runner.may_run_here
+    monkeypatch.setattr(runner, "may_run_here", lambda: False)
+    out = runner.tick()
+    assert out["skipped"] == "not the deployed worker" and out["events"] == 0 and out["runs"] == 0
+    db.expire_all()
+    assert db.get(models.WorkflowEvent, ev.id).processed_at == "" and _runs(db, wf) == []
+    monkeypatch.setattr(runner, "may_run_here", lambda: True)
+    assert runner.tick()["events"] == 1
+    # the real rule: the deployed API, or this process's own SQLite (the tests)
+    import leader
+    monkeypatch.setattr(leader, "is_deployed_worker", lambda: False)
+    assert real() is True
+    import types
+    import database
+    monkeypatch.setattr(database, "engine", types.SimpleNamespace(url=types.SimpleNamespace(get_backend_name=lambda: "postgresql")))
+    assert real() is False
+    monkeypatch.setattr(leader, "is_deployed_worker", lambda: True)
+    assert real() is True
+
+
 def test_runner_resumes_due_waits(db):
     wf = _wf(db, steps=[NOTIFY, {"id": "w1", "kind": "wait", "params": {"mode": "duration", "minutes": 1}}, NOTIFY2])
     _event(db)

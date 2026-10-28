@@ -10,7 +10,7 @@ import { btn } from '../../tasks/theme';
 import { card, cardTitle, hint, textInput } from '../lib/text.builder-helpers';
 import { errorText } from '../lib/errors';
 
-export default function DescribeIt({ onDraft }) {
+export default function DescribeIt({ onDraft, companyId = '' }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -22,7 +22,7 @@ export default function DescribeIt({ onDraft }) {
     if (!t) return;
     setBusy(true); setError(''); setNotes(''); setProblems([]);
     try {
-      const r = await api.wfDescribe({ text: t });
+      const r = await api.wfDescribe({ text: t, companyId });
       if (!r?.definition) throw new Error('No draft came back.');
       setNotes(r.notes || '');
       setProblems(r.problems || []);

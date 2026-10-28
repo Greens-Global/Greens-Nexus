@@ -191,6 +191,10 @@ function _detailToMessage(detail, status) {
     if (parts.length) return parts.join('; ');
   } else if (typeof detail === 'string' && detail) {
     return detail;
+  } else if (detail && Array.isArray(detail.problems)) {
+    // A workflow definition's problems ({problems: [{path, message}]}, Workflows publish / test / restore)
+    const parts = detail.problems.map(p => (typeof p === 'string' ? p : p?.message || '')).filter(Boolean);
+    return parts.length ? parts.join('; ') : 'Fix the problems shown before continuing';
   } else if (detail && typeof detail === 'object' && detail.message) {
     // Structured error body ({ code, message, ... }) - e.g. the timecard
     // unresolved-exceptions block. Callers can still read err.detail for the rest.
@@ -338,11 +342,13 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
     return req(path, options, attempt + 1, tokenRefreshed);
   }
   if (!res.ok) {
-    let detail;
-    try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+    let detail, body;
+    try { body = await res.json(); detail = body?.detail; } catch { /* not JSON */ }
     const err = new Error(_detailToMessage(detail, res.status));
     err.status = res.status;
     err.detail = detail;
+    // err.body: a structured detail as is ({problems} from a workflow publish), else the JSON body ({detail})
+    err.body = (detail && typeof detail === 'object' && !Array.isArray(detail)) ? detail : body;
     if (res.status >= 500) _setBackendDown(true);
     throw err;
   }
