@@ -259,7 +259,8 @@ describe('Workflows', () => {
 
     rerender(<Workflows activeSub="run:r1" onSubChange={go} />);
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText('Send Email')).toBeTruthy();
+    // The drawer opens before the run's detail arrives; a busy CI runner needs more than 1s.
+    await within(dialog).findByText('Send Email', {}, { timeout: 5000 });
     expect(within(dialog).getByText('Create Task')).toBeTruthy();
     expect(within(dialog).getByText('attempt 2')).toBeTruthy();
     expect(within(dialog).getAllByText('Mail server refused').length).toBeGreaterThan(0);
