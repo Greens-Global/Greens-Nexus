@@ -57,10 +57,20 @@ Tests: `backend/test_india_contractor_pay.py` (exact rupee amounts).
    half-day holiday keeps the old rule (any work = the full day; no work = the holiday half
    only, half a day missing). Sick / Vacation leave on a scheduled day fills the day's missing
    halves from the paid balance (`leave_balances`), half a day (hoursPerDay / 2 hours) at a
-   time, as far as the balance goes, and uses that much balance at finalize. Personal /
-   unpaid leave, leave the balance cannot cover and any unapproved absence stay missing for
-   the pool to recover. (For in-scope contractors this replaces Pranshu's Oct 12 "leave
-   deducts like an absence" rule.)
+   time, as far as the balance goes, and uses that much balance at finalize. Each kind
+   draws only from its own bucket: Vacation from the vacation balance, Sick from the sick
+   balance - never one from the other (Neil, Oct 27 2026). Personal / unpaid leave, leave
+   its bucket cannot cover and any unapproved absence stay missing for the pool to recover.
+   (For in-scope contractors this replaces Pranshu's Oct 12 "leave deducts like an absence"
+   rule.)
+   - **Approved time off requests count too** (Neil, Oct 27 2026). An APPROVED Vacation or
+     Sick request is paid leave on its days with no leave punch, from its own bucket, the
+     same 4 hours of balance per half day, in date order. A full-day request fills the
+     day's missing halves; a part-day request's hours count toward the day's halves as if
+     worked (4 h worked + a 4 h request = a full day). A day with a leave punch is priced by
+     the punch alone - the request adds nothing, so no day is counted twice. Personal,
+     unpaid and other requests stay missing days. Finalize records the balance each day
+     actually used, per bucket. In-scope contractors only; nobody else's card changes.
 4. **The pool (reading B).** Per scheduled day: full credit `max(0, h - 9)`; half credit
    `h - 4`; no credit `h`. A half-day holiday: `max(0, h - 4.5)`. Every hour on a
    non-scheduled day (weekend, full holiday). Approved Extra Time hours are taken out (never

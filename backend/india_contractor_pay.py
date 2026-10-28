@@ -21,7 +21,17 @@ The month (routers/timeclock._fixed_card calls price_month):
   * PAID LEAVE (a Sick / Vacation entry on a scheduled day) fills the day's
     missing halves from the person's paid balance (leave_balances), half a
     day (hoursPerDay / 2 hours) at a time, as far as the balance goes.
-    Personal / unpaid leave and any absence stay missing.
+    Each kind draws ONLY from its own bucket - Vacation from vacation, Sick
+    from sick, never one from the other (Neil, Oct 27 2026); what its bucket
+    cannot cover stays missing, for the pool to recover. Personal / unpaid
+    leave and any absence stay missing.
+  * An APPROVED Vacation / Sick time off REQUEST counts the same way with no
+    leave punch (Neil, Oct 27 2026; requests are not auto-punched): a full
+    day fills the day's missing halves, a part-day request's hours count
+    toward the day's halves as if worked (4 h worked + a 4 h request = a full
+    day), both from that kind's bucket, in date order. A day with a leave
+    punch is priced by the punch alone - never both. Finalize records the
+    balance each day actually used (leave_balances.period_entries).
   * THE POOL (reading B): per scheduled day, full -> h - 9 (never below 0),
     half -> h - 4, none -> h; a half-day holiday -> h - 4.5; a non-scheduled
     day (weekend, full holiday) -> h. Hours paid as approved Extra Time are
@@ -272,6 +282,43 @@ def reconcile(days: list) -> dict:
 
 # ── The month, from the card ──────────────────────────────────────────────────
 
+def _hhmm_min(v: str):
+    try:
+        h, m = (int(x) for x in (v or "").split(":")[:2])
+        return h * 60 + m
+    except (TypeError, ValueError):
+        return None
+
+
+def requested_leave(db: Session, em: str, start: str, end: str) -> dict:
+    """{date: {"class": "vacation" | "sick", "min": minutes | None}} - the
+    person's APPROVED Vacation / Sick time off requests in [start, end]; min
+    None = the whole day, else a part-day request's minutes on each day it
+    covers. Other kinds (personal, unpaid, other) are not paid leave."""
+    out = {}
+    rows = (db.query(models.TimeOffRequest)
+            .filter(models.TimeOffRequest.employee_email == (em or "").lower(),
+                    models.TimeOffRequest.status == "approved",
+                    models.TimeOffRequest.start_date <= end, models.TimeOffRequest.end_date >= start)
+            .order_by(models.TimeOffRequest.start_date, models.TimeOffRequest.id).all())
+    for r in rows:
+        cls = (r.type or "").strip().lower()
+        if cls not in PAID_LEAVE:
+            continue
+        a, b = _hhmm_min(r.start_time or ""), _hhmm_min(r.end_time or "")
+        minutes = None
+        if (r.start_time or r.end_time):
+            if a is None or b is None or b <= a:
+                continue            # an unreadable window pays nothing rather than a whole day
+            minutes = b - a
+        d = date.fromisoformat(max(r.start_date, start)[:10])
+        last = date.fromisoformat(min(r.end_date, end)[:10])
+        while d <= last:
+            out.setdefault(d.isoformat(), {"class": cls, "min": minutes})
+            d += timedelta(days=1)
+    return out
+
+
 def live_claims(db: Session, em: str, start: str, end: str) -> dict:
     """{date: ExtraTimeClaim} - the live (not withdrawn) claim of each day."""
     rows = (db.query(models.ExtraTimeClaim)
@@ -313,7 +360,7 @@ def _balance_halves(db: Session, em: str, needed: bool) -> tuple:
 
 def price_month(db: Session, em: str, *, first: date, days_in_month: int, today: str,
                 worked_by_day: dict, leave_by_day: dict, leave_min_by_day: dict, open_by_day: dict,
-                holidays: dict, daily_on) -> dict:
+                holidays: dict, daily_on, requested_by_day: dict | None = None) -> dict:
     """Builds reconcile()'s input from the card's own day facts (the same
     dicts _fixed_card works from), runs it, and attaches each day's claim.
     Returns {days: {date: {...}}, totals, claims: {date: claim_dict}}."""
@@ -321,8 +368,13 @@ def price_month(db: Session, em: str, *, first: date, days_in_month: int, today:
     claims = live_claims(db, em, first.isoformat(), end)
     approved = {ds: int(c.approved_min or 0) for ds, c in claims.items() if c.status == "approved"}
     dates = [(first + timedelta(days=i)) for i in range(days_in_month)]
-    need_balance = any(dd.weekday() < 5 and leave_by_day.get(dd.isoformat()) in PAID_LEAVE
-                       and not holidays.get(dd.isoformat()) for dd in dates)
+    # Approved Vacation / Sick requests ({date: {"class", "min"}}, min None =
+    # the whole day) on days with no leave punch - the punch always wins.
+    requested = {ds: r for ds, r in (requested_by_day or {}).items()
+                 if r.get("class") in PAID_LEAVE and not leave_by_day.get(ds)}
+    need_balance = any(dd.weekday() < 5 and not holidays.get(dd.isoformat())
+                       and (leave_by_day.get(dd.isoformat()) in PAID_LEAVE or dd.isoformat() in requested)
+                       for dd in dates)
     halves_left, hpd = _balance_halves(db, em, need_balance)
     inputs, leave_meta = [], {}
     for dd in dates:
@@ -340,13 +392,18 @@ def price_month(db: Session, em: str, *, first: date, days_in_month: int, today:
             kind = "scheduled"
         covered = 0
         cls = leave_by_day.get(ds, "")
-        if kind == "scheduled" and cls in PAID_LEAVE:
-            bucket = PAID_LEAVE[cls]
+        req = requested.get(ds)
+        if kind == "scheduled" and (cls in PAID_LEAVE or (not cls and req)):
+            bucket = PAID_LEAVE[cls or req["class"]]
             need = 2 - work_halves(work)
+            if not cls and req.get("min") is not None:
+                # A part-day request: its hours count toward the day's halves.
+                need = min(need, work_halves(work + int(req["min"])) - work_halves(work))
             covered = min(need, halves_left.get(bucket, 0))
             halves_left[bucket] = halves_left.get(bucket, 0) - covered
             leave_meta[ds] = {"bucket": bucket, "coveredHalves": covered,
-                              "usedMin": int(round(covered * hpd * 30)), "paidLeave": True}
+                              "usedMin": int(round(covered * hpd * 30)), "paidLeave": True,
+                              "fromRequest": not cls}
         elif kind == "scheduled" and cls:
             leave_meta[ds] = {"bucket": "", "coveredHalves": 0, "usedMin": 0, "paidLeave": False}
         inputs.append({"date": ds, "kind": kind, "state": state, "workedMin": work, "dailyRate": daily_on(ds),
@@ -357,7 +414,8 @@ def price_month(db: Session, em: str, *, first: date, days_in_month: int, today:
     for od in result["days"]:
         lm = leave_meta.get(od["date"])
         if lm:
-            od.update({"leaveBucket": lm["bucket"], "leaveUsedMin": lm["usedMin"], "paidLeave": lm["paidLeave"]})
+            od.update({"leaveBucket": lm["bucket"], "leaveUsedMin": lm["usedMin"], "paidLeave": lm["paidLeave"],
+                       "leaveFromRequest": bool(lm.get("fromRequest"))})
         days[od["date"]] = od
     return {"days": days, "totals": result["totals"], "claims": {ds: claim_dict(c) for ds, c in claims.items()}}
 
@@ -368,7 +426,7 @@ def snapshot(card: dict) -> dict:
     ip = card.get("indiaPolicy") or {}
     keep = ("kind", "state", "credit", "creditHalves", "leaveHalves", "missingHalves", "poolMin", "claimableMin",
             "extraMin", "extraPay", "recoveredHalves", "unpaidHalves", "deduct", "dailyRate", "status",
-            "leaveBucket", "leaveUsedMin", "paidLeave")
+            "leaveBucket", "leaveUsedMin", "paidLeave", "leaveFromRequest")
     days = {fd["date"]: {k: fd.get(k) for k in keep if k in fd} for fd in card.get("fixedDays") or []
             if fd.get("credit") is not None}
     return {"version": ip.get("version", POLICY_VERSION), "startDate": ip.get("startDate", ""),

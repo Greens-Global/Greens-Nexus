@@ -406,7 +406,11 @@ keep the diff minimal.
   claims in `routers/extra_time.py` (approver = the HR contact, else the
   Global Admins; HR - administrator / owner / Full HR grant - only within
   the contractor's company scope, `extra_time.hr_for`; never your own;
-  Review & Approve waits for every claim).
+  Review & Approve waits for every claim). For them only, an APPROVED
+  Vacation / Sick time off request is paid leave with no punch (Oct 27
+  2026, `india_contractor_pay.requested_leave`); Sick and Vacation each
+  draw only from their own balance bucket, never borrowing; a leave punch
+  on the same day wins, never both.
   A finalized month carries `indiaPolicy` in its snapshot and never
   re-prices; everyone else keeps the old fixed-pay rules exactly.
 

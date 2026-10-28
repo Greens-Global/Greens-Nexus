@@ -396,6 +396,64 @@ class CardTests(Base):
         c = self.card()
         self.assertEqual((self.day(c, "2026-09-09")["deduct"], c["totals"]["deduction"]), (0.0, 5400.0))
 
+    def _request(self, rid, kind, start, end=None, start_time="", end_time=""):
+        self.db.add(models.TimeOffRequest(id=rid, employee_email=CON, type=kind, start_date=start,
+                                          end_date=end or start, start_time=start_time, end_time=end_time,
+                                          status="approved", created_at="2026-09-01T00:00:00"))
+
+    def test_approved_requests_are_paid_leave_from_their_own_bucket(self):
+        # Neil, Oct 27 2026: an approved Vacation / Sick request is paid leave
+        # with no leave punch - Vacation from the vacation balance, Sick from
+        # the sick balance, never borrowing. India: 8 h a day, 4 h a half.
+        self.db.query(models.TimeOffRequest).delete()
+        special = ("2026-09-09", "2026-09-10", "2026-09-11", "2026-09-14", "2026-09-15", "2026-09-16")
+        for d in WEEKDAYS:
+            if d not in special:
+                _punch(self.db, CON, d, 9)
+        self._request("r-vac", "vacation", "2026-09-09")               # covered from vacation
+        self._request("r-sick", "sick", "2026-09-10")                  # covered from sick
+        self._request("r-sick2", "sick", "2026-09-11")                 # sick used up: stays missing
+        _punch(self.db, CON, "2026-09-14", 4)                          # 4 h worked ...
+        self._request("r-part", "vacation", "2026-09-14", start_time="13:00", end_time="17:00")   # ... + 4 h off
+        _punch(self.db, CON, "2026-09-15", 8, category="Vacation")     # a punch AND a request: counted once
+        self._request("r-both", "vacation", "2026-09-15")
+        self._request("r-pers", "personal", "2026-09-16")              # Personal is unpaid
+        leave_balances.set_cutover(self.db, "2026-08-01", "test", CO)
+        self.db.commit()
+        leave_balances.set_opening(self.db, CON, 16.0, 8.0, "test")   # 2 days vacation, 1 day sick
+        self.db.commit()
+        c = self.card()
+        v, s, s2 = self.day(c, "2026-09-09"), self.day(c, "2026-09-10"), self.day(c, "2026-09-11")
+        part, both, pers = self.day(c, "2026-09-14"), self.day(c, "2026-09-15"), self.day(c, "2026-09-16")
+        self.assertEqual((v["credit"], v["deduct"], v["leaveBucket"], v["leaveUsedMin"], v["leaveFromRequest"]),
+                         ("full", 0.0, "vacation", 480, True))
+        self.assertEqual((s["credit"], s["deduct"], s["leaveBucket"], s["leaveUsedMin"]), ("full", 0.0, "sick", 480))
+        # Sick has nothing left; the vacation still there is never borrowed.
+        self.assertEqual((s2["credit"], s2["deduct"], s2.get("leaveUsedMin", 0)), ("none", 2700.0, 0))
+        # 4 h worked + a 4 h request = a full day, half of it from vacation.
+        self.assertEqual((part["credit"], part["deduct"], part["leaveUsedMin"]), ("full", 0.0, 240))
+        # The punched day uses what vacation has left (one half), and the
+        # request on the same day adds nothing.
+        self.assertEqual((both["leaveUsedMin"], both["deduct"], both["leaveFromRequest"]), (240, 1350.0, False))
+        self.assertEqual((pers["credit"], pers["deduct"]), ("none", 2700.0))
+        self.assertEqual(c["totals"]["deduction"], 2700.0 + 1350.0 + 2700.0)
+        # Finalize records what each bucket actually paid: vacation 8 + 4 + 4 h, sick 8 h.
+        tc.finalize_timecard(tc.FinalizeIn(email=CON, start=MS, end=ME, allow_exceptions=True), user=HR_USER,
+                             db=self.db)
+        used = sorted((e.bucket, round(e.hours, 2)) for e in self.db.query(models.LeaveLedgerEntry)
+                      .filter(models.LeaveLedgerEntry.employee_email == CON, models.LeaveLedgerEntry.kind == "used").all())
+        self.assertEqual(used, [("sick", -8.0), ("vacation", -16.0)])
+
+    def test_requests_change_nothing_outside_the_policy(self):
+        # Out of scope (a full-time India employee): requests are not paid leave here.
+        self.db.query(models.TimeOffRequest).delete()
+        self.db.add(models.TimeOffRequest(id="r-out", employee_email=EMP_IN, type="vacation", start_date="2026-09-09",
+                                          end_date="2026-09-09", status="approved", created_at="2026-09-01T00:00:00"))
+        self.db.commit()
+        c = self.card(EMP_IN)
+        self.assertNotIn("indiaPolicy", c)
+        self.assertGreater(c["totals"]["deduction"], 0)
+
     def test_mid_month_raise_prices_each_unpaid_day_at_its_own_rate(self):
         _worked_example(self.db, CON)
         _claim(self.db, CON, SAT, 300)

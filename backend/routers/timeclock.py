@@ -9435,7 +9435,8 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             _icp_res = india_contractor_pay.price_month(
                 db, em, first=first, days_in_month=days_in_month, today=today, worked_by_day=worked_by_day,
                 leave_by_day=leave_by_day, leave_min_by_day=leave_min_by_day, open_by_day=open_by_day,
-                holidays=holidays, daily_on=_daily_on)
+                holidays=holidays, daily_on=_daily_on,
+                requested_by_day=india_contractor_pay.requested_leave(db, em, m_start, m_end))
         deduction, missed_full, missed_half, missed_reasons = _india_overlay(fixed_days, _icp_res, timeoff_by_day)
         weekend_bonus = 0.0
         _icp_totals = dict(_icp_res["totals"])
@@ -9548,7 +9549,9 @@ def _india_overlay(fixed_days: list, res: dict, timeoff_by_day: dict) -> tuple:
                    "poolMin": int(r.get("poolMin") or 0), "claimableMin": int(r.get("claimableMin") or 0),
                    "extraMin": int(r.get("extraMin") or 0), "extraPay": round(float(r.get("extraPay") or 0), 2),
                    "leaveCovered": bool(r.get("leaveHalves")), "leaveUsedMin": int(r.get("leaveUsedMin") or 0),
-                   "leaveBucket": r.get("leaveBucket") or "", "claim": claims.get(ds)})
+                   "leaveBucket": r.get("leaveBucket") or "", "claim": claims.get(ds),
+                   # Paid from an approved time off request, no leave punch (Oct 27 2026).
+                   "leaveFromRequest": bool(r.get("leaveFromRequest"))})
         deduction += deduct
         if unpaid:
             if unpaid == 2:
