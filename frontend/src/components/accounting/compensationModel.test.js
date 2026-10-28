@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildingHint, combine, drillSpec, emptyReason, groupRows, HOUR_COLUMNS, hoursOf, hoursRange, leafLines, LINES, loadErrorMessage, monthsBetween,
-  periodLabel, statementRows, statementTable, withHours,
+  periodLabel, statementRows, statementTable, visibleRows, withHours,
 } from './compensationModel';
 
 // Employee Compensation, rebuilt from the ledger after the 10/27 call with
@@ -11,15 +11,15 @@ import {
 // Valinda Cranfill's 2026 as the backend sends it (Intacct's figures).
 const valinda = {
   code: 'E-0084', name: 'Valinda Cranfill', email: 'valinda@x.com', company: 'c1', companyName: 'Oversite Management, Inc', department: 'Operations', title: 'Area Manager III',
-  cur: { bonus: 850, payroll: 52123.06, totalPayroll: 52973.06, k401: 2520.31, health: 3249.75, otherBenefits: 1087.16, totalBenefits: 6857.22, futa: 42, medicare: 665.4, socsec: 2845.15, suta: 217, ett: 7, otherTaxes: 0, totalTaxes: 3776.55, workersComp: 1854.06, totalEmployer: 65460.89, dedHealth: -5854.22, ded401k: 0, dedOther: 0, totalDeductions: -5854.22, fedWh: -2693, medicareWh: -665.4, socsecWh: -2845.15, sdi: -596.57, stateWh: -563.02, totalWithheld: -7363.14, netPay: 39755.7 },
-  prior: { bonus: 3500, payroll: 57176.84, totalPayroll: 60676.84, otherBenefits: 27004.72, totalBenefits: 27004.72, totalEmployer: 87681.56, netPay: 60676.84 },
+  cur: { bonus: 850, payroll: 52123.06, totalPayroll: 52973.06, k401: 2520.31, health: 3249.75, totalBenefits: 5770.06, otherBenefits: 1087.16, futa: 42, medicare: 665.4, socsec: 2845.15, suta: 217, ett: 7, otherTaxes: 0, totalTaxes: 3776.55, workersComp: 1854.06, totalEmployer: 65460.89, dedHealth: -5854.22, ded401k: 0, dedOther: 0, totalDeductions: -5854.22, fedWh: -2693, medicareWh: -665.4, socsecWh: -2845.15, sdi: -596.57, stateWh: -563.02, totalWithheld: -7363.14, netPay: 39755.7 },
+  prior: { bonus: 3500, payroll: 57176.84, totalPayroll: 60676.84, otherBenefits: 27004.72, totalEmployer: 87681.56, netPay: 60676.84 },
   accounts: {
     cur: {
       bonus: [{ account: '61908', title: 'Bonus', side: '', amount: 850 }],
       payroll: [{ account: '61910', title: 'Salary', side: '', amount: 52123.06 }],
       health: [{ account: '61903', title: 'Health Insurance', side: 'd', amount: 3249.75 }],
       dedHealth: [{ account: '61903', title: 'Health Insurance', side: 'c', amount: -5854.22 }],
-      otherBenefits: [{ account: '63203', title: 'Fuel', side: '', amount: 20 }, { account: '63410', title: 'Cell Phone', side: '', amount: 1067.16 }],
+      otherBenefits: [{ account: '63203', title: 'Fuel', side: '', amount: 1087.16 }],
     },
     prior: { otherBenefits: [{ account: '63203', title: 'Fuel', side: '', amount: 27004.72 }] },
   },
@@ -50,6 +50,9 @@ describe('compensationModel', () => {
       'Other Benefits', 'Total Benefits', 'FUTA', 'Medicare', 'Social Security', 'SUTA', 'CA Employment Training Tax', "Workers' Comp", 'Total Employer Expenses',
       'Health Insurance (Employee)', 'Federal Withholding', 'Medicare (Employee)', 'Social Security (Employee)', 'SDI', 'State Withholding', 'Employee Net Pay']));
     expect(leafLines('totalPayroll')).toEqual(['bonus', 'payroll']);
+    // Intacct: Other Benefits is outside Total Benefits, inside Total Employer Expenses.
+    expect(leafLines('totalBenefits')).toEqual(['k401', 'health']);
+    expect(leafLines('totalEmployer')).toEqual(expect.arrayContaining(['otherBenefits', 'workersComp', 'k401', 'futa']));
     expect(leafLines('netPay')).toEqual(['bonus', 'payroll', 'dedHealth', 'ded401k', 'dedOther', 'fedWh', 'medicareWh', 'socsecWh', 'sdi', 'stateWh']);
   });
 
@@ -92,25 +95,57 @@ describe('compensationModel', () => {
     expect(periodLabel('2026-01-01', '2026-09-30')).toBe('01/01/2026 - 09/30/2026');
   });
 
-  it('builds one person\'s statement in Intacct\'s order, Other Benefits by account, optional lines only when used', () => {
-    const rows = statementRows({ ...withHours([valinda], { people: [{ employeeId: 'E-0084', regMin: 6000 }] }).rows[0] });
+  it('builds one person\'s statement in Intacct\'s layout: metrics, employer expenses, net pay, each group with its total', () => {
+    const v = withHours([valinda], { people: [{ employeeId: 'E-0084', regMin: 6000, sickMin: 2400, payType: 'salary', rate: 4343.59 }] }).rows[0];
+    const rows = statementRows(v);
     const labels = rows.map((r) => r.label);
-    expect(labels.slice(0, 5)).toEqual(['Hours (from Time Clock)', 'Regular', 'Overtime', 'Sick', 'Vacation']);
+    expect(rows.filter((r) => r.kind === 'section').map((r) => r.label)).toEqual(['Employee Metrics', 'Employer Expenses', 'Employee Net Pay']);
+    expect(labels.slice(0, 12)).toEqual(['Employee Metrics', 'Rates', 'Hourly', 'Fixed (per month)', 'Hours Worked', 'Regular', 'Overtime', 'Total Hours Worked',
+      'Accruals', 'Sick', 'Vacation', 'Total Accruals']);
+    expect(rows.find((r) => r.label === 'Fixed (per month)')).toMatchObject({ kind: 'rate', cur: 4343.59, prior: null });
+    expect(rows.find((r) => r.label === 'Hourly').cur).toBeNull();
     expect(rows.find((r) => r.label === 'Regular').cur).toBe(100);
+    expect(rows.find((r) => r.label === 'Total Accruals')).toMatchObject({ kind: 'total', cur: 40, hours: true });
     const at = (l) => labels.indexOf(l);
-    expect(at('Payroll Expenses')).toBeLessThan(at('Bonus'));
-    expect(at('Total Payroll Expenses')).toBeLessThan(at('Benefits'));
-    expect(at('Other Benefits')).toBeLessThan(at('63203 Fuel'));
-    expect(at('63410 Cell Phone')).toBeLessThan(at('Total Benefits'));
+    expect(at('Total Benefits')).toBeLessThan(at('Employer Payroll Taxes'));
+    expect(at('Total Employer Payroll Taxes')).toBeLessThan(at('Other Benefits'));
+    expect(at('63203 Fuel')).toBeLessThan(at('Total Other Benefits'));
+    expect(at('Total Other Benefits')).toBeLessThan(at("Workers' Comp"));
     expect(at("Workers' Comp")).toBeLessThan(at('Total Employer Expenses'));
-    expect(at('Employee Taxes Withheld')).toBeLessThan(at('Employee Net Pay'));
+    expect(at('Deductions from Gross Pay')).toBeLessThan(at('Employee Taxes Withheld'));
     expect(labels).not.toContain('Other Payroll Taxes');
-    expect(rows.find((r) => r.label === 'Salaried / Hourly Payroll')).toMatchObject({ prior: 57176.84, cur: 52123.06 });
-    expect(rows.find((r) => r.label === '63203 Fuel')).toMatchObject({ kind: 'account', account: '63203', prior: 27004.72, cur: 20 });
-    expect(rows.find((r) => r.label === 'Employee Net Pay')).toMatchObject({ kind: 'total', strong: true, cur: 39755.7 });
+    expect(rows.find((r) => r.label === 'Total Benefits')).toMatchObject({ kind: 'total', cur: 5770.06 });
+    expect(rows.find((r) => r.label === '63203 Fuel')).toMatchObject({ kind: 'account', key: 'otherBenefits', account: '63203', prior: 27004.72, cur: 1087.16 });
+    // A heading carries its total, shown while it is folded (Intacct: "Other Benefits 1,087.16").
+    expect(rows.find((r) => r.kind === 'heading' && r.label === 'Other Benefits')).toMatchObject({ key: 'otherBenefits', prior: 27004.72, cur: 1087.16 });
+    expect(rows.find((r) => r.kind === 'section' && r.label === 'Employer Expenses')).toMatchObject({ key: 'totalEmployer', cur: 65460.89 });
+    // Net Pay starts from the gross again, as Intacct's does.
+    expect(rows.filter((r) => r.label === 'Total Payroll Expenses').map((r) => r.section)).toEqual(['employer', 'net']);
+    expect(rows.find((r) => r.kind === 'total' && r.label === 'Employee Net Pay')).toMatchObject({ strong: true, cur: 39755.7 });
+  });
+
+  it('folds a section or a group down to its heading', () => {
+    const rows = statementRows(valinda);
+    const shown = (ids) => visibleRows(rows, new Set(ids)).map((r) => r.label);
+    expect(visibleRows(rows, new Set())).toHaveLength(rows.length);
+    const other = shown(['other']);
+    expect(other).toContain('Other Benefits');
+    expect(other).not.toContain('63203 Fuel');
+    expect(other).not.toContain('Total Other Benefits');
+    expect(other).toContain("Workers' Comp");
+    const net = shown(['net']);
+    expect(net.filter((l) => l === 'Employee Net Pay')).toHaveLength(1);
+    expect(net).not.toContain('Deductions from Gross Pay');
+    expect(shown([]).filter((l) => l === 'Employee Net Pay')).toHaveLength(2);
+  });
+
+  it('exports and prints the statement with every group open', () => {
     const t = statementTable(valinda, { name: 'Valinda Cranfill (E-0084)', curLabel: 'Year Ending 12/31/2026', priorLabel: 'Year Ending 12/31/2025' });
     expect(t.columns.map((c) => c.label)).toEqual(['Line', 'Year Ending 12/31/2025', 'Year Ending 12/31/2026']);
-    expect(t.rows.find((r) => r[0].trim() === 'Bonus')).toEqual(['  Bonus', 3500, 850]);
+    expect(t.rows[0]).toEqual(['Employee Metrics', '', '']);
+    expect(t.rows.find((r) => r[0].trim() === 'Bonus')).toEqual(['    Bonus', 3500, 850]);
+    expect(t.rows.find((r) => r[0].trim() === '63203 Fuel')).toEqual(['    63203 Fuel', 27004.72, 1087.16]);
+    expect(t.rows.at(-1)).toEqual(['Employee Net Pay', 60676.84, 39755.7]);
     expect(t.title).toBe('Employee Compensation Report - Valinda Cranfill (E-0084)');
   });
 

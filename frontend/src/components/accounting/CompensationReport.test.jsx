@@ -13,7 +13,7 @@ const lines = (o = {}) => ({ bonus: 0, payroll: 0, totalPayroll: 0, k401: 0, hea
   totalTaxes: 0, workersComp: 0, totalEmployer: 0, dedHealth: 0, ded401k: 0, dedOther: 0, totalDeductions: 0, fedWh: 0, medicareWh: 0, socsecWh: 0, sdi: 0, stateWh: 0, totalWithheld: 0, netPay: 0, ...o });
 const valinda = {
   code: 'E-0084', name: 'Valinda Cranfill', email: 'valinda@x.com', company: 'c1', companyName: 'Oversite Management, Inc', department: 'Operations', title: 'Area Manager III', inPeople: true, hasRate: true,
-  cur: lines({ bonus: 850, payroll: 52123.06, totalPayroll: 52973.06, health: 3249.75, otherBenefits: 20, totalBenefits: 3269.75, workersComp: 1854.06, totalEmployer: 58096.87, dedHealth: -5854.22, totalDeductions: -5854.22, netPay: 47118.84 }),
+  cur: lines({ bonus: 850, payroll: 52123.06, totalPayroll: 52973.06, health: 3249.75, totalBenefits: 3249.75, otherBenefits: 20, workersComp: 1854.06, totalEmployer: 58096.87, dedHealth: -5854.22, totalDeductions: -5854.22, netPay: 47118.84 }),
   prior: lines({ bonus: 3500, payroll: 57176.84, totalPayroll: 60676.84, totalEmployer: 60676.84, netPay: 60676.84 }),
   accounts: { cur: { bonus: [{ account: '61908', title: 'Bonus', side: '', amount: 850 }], payroll: [{ account: '61910', title: 'Salary', side: '', amount: 52123.06 }],
     health: [{ account: '61903', title: 'Health Insurance', side: 'd', amount: 3249.75 }], dedHealth: [{ account: '61903', title: 'Health Insurance', side: 'c', amount: -5854.22 }],
@@ -26,7 +26,9 @@ const lee = { ...valinda, code: 'MC-002', name: 'Lee Salaried', email: '', compa
 const report = { from: '2026-01-01', to: '2026-12-31', months: ['2026-01'], prior: { from: '2025-01-01', to: '2025-12-31' }, people: [valinda], notInPeople: 0 };
 const hours = { people: [{ employeeId: 'E-0084', name: 'Valinda Cranfill', regMin: 6000, otMin: 0, dtMin: 0, sickMin: 480, vacationMin: 0, payType: 'salary', rate: 5133.33 }] };
 const ledgerLines = { from: '2026-01-01', to: '2026-12-31', total: 850, truncated: false,
-  lines: [{ id: 'l1', entryId: 'e1', entryNo: 'PYRJ-12', date: '2026-03-15', account: '61908', accountName: 'Bonus', vendor: '', memo: 'Q1 bonus', amount: 850 }] };
+  lines: [{ line_id: 'l1', entry_id: 'e1', entry_no: 'PYRJ-12', entry_date: '2026-03-15', doc: '70376e43', gl_code: '61908', account_name: 'Bonus', memo: 'Q1 bonus',
+    location: '12018', location_name: '(AM) GS -Valley center', vendor_id: '', vendor_name: '', customer_id: '', customer_name: '', item_id: '', item_name: '',
+    employee_id: 'E-0084', employee_name: 'Valinda Cranfill', department: '9100', department_name: 'Storage', debit: 850, credit: 0, amount: 850 }] };
 
 vi.mock('../../api', () => ({
   api: {
@@ -152,10 +154,29 @@ describe('CompensationReport', () => {
     const table = within(p).getByRole('table', { name: /Employee Compensation Report/ });
     expect(within(table).getByText('Year Ending 12/31/2025')).toBeTruthy();
     expect(within(table).getByText('Year Ending 12/31/2026')).toBeTruthy();
-    for (const h of ['Hours (from Time Clock)', 'Payroll Expenses', 'Benefits', 'Employer Payroll Taxes', 'Deductions from Gross Pay', 'Employee Taxes Withheld']) expect(within(table).getByText(h)).toBeTruthy();
-    expect(within(table).getByText('Salaried / Hourly Payroll').closest('tr').textContent).toContain('57,176.84');
+    // The person and code head the period columns, as on Intacct's report.
+    expect(within(table).getByRole('columnheader', { name: 'Valinda Cranfill (E-0084)' })).toBeTruthy();
+    const groups = within(table).getAllByRole('button', { expanded: true }).map((b) => b.textContent);
+    expect(groups).toEqual(['Employee Metrics', 'Rates', 'Hours Worked', 'Accruals', 'Employer Expenses', 'Payroll Expenses', 'Benefits', 'Employer Payroll Taxes', 'Other Benefits',
+      'Employee Net Pay', 'Payroll Expenses', 'Deductions from Gross Pay', 'Employee Taxes Withheld']);
+    expect(within(table).getByText('Fixed (per month)').closest('tr').textContent).toContain('5,133.33');   // the pay setup rate
+    expect(within(table).getByText('Regular').closest('tr').textContent).toContain('100.00');   // Time Clock hours
+    expect(within(table).getAllByText('Salaried / Hourly Payroll')[0].closest('tr').textContent).toContain('57,176.84');
     expect(within(table).getByText('63203 Fuel')).toBeTruthy();   // Other Benefits by account (item 12)
     expect(within(p).getByText(/2026: 3.5% of 52,973.06 gross wages = 1,854.06/)).toBeTruthy();
+    // A group folds to its heading, which then shows its total; Collapse All / Expand All.
+    fireEvent.click(within(table).getByRole('button', { name: 'Other Benefits' }));
+    expect(within(table).queryByText('63203 Fuel')).toBeNull();
+    expect(within(table).getByRole('button', { name: 'Other Benefits' }).getAttribute('aria-expanded')).toBe('false');
+    expect(within(table).getByRole('button', { name: 'Other Benefits' }).closest('tr').textContent).toContain('20.00');
+    fireEvent.click(within(p).getByRole('button', { name: 'Expand All' }));
+    expect(within(table).getByText('63203 Fuel')).toBeTruthy();
+    fireEvent.click(within(p).getByRole('button', { name: 'Collapse All' }));
+    expect(within(table).queryByText('Bonus')).toBeNull();
+    expect(within(table).getAllByRole('button', { expanded: false }).map((b) => b.textContent)).toContain('Employee Net Pay');
+    // Print and Excel as on Intacct's bar.
+    expect(within(p).getByRole('button', { name: 'Print' })).toBeTruthy();
+    expect(within(p).getByRole('button', { name: /Export/ })).toBeTruthy();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByTestId('acct-side-panel')).toBeNull();
   });
@@ -168,9 +189,14 @@ describe('CompensationReport', () => {
     const p = panel();
     expect(within(p).getByRole('heading', { name: 'Bonus' })).toBeTruthy();
     const table = await within(p).findByRole('table', { name: /Ledger lines/ });
-    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Date', 'Entry', 'Account', 'Vendor', 'Memo', 'Amount']);
-    expect(within(table).getByText('03/15/2026')).toBeTruthy();
-    expect(within(table).getByText('Q1 bonus')).toBeTruthy();
+    // Intacct's General Ledger columns, each with its drag handle (widths kept per person).
+    const heads = within(table).getAllByRole('columnheader');
+    expect(heads.map((h) => h.firstChild.textContent)).toEqual(['Posted Date', 'Entry', 'Doc', 'Account', 'Memo', 'Location', 'Vendor', 'Customer', 'Item', 'Employee', 'Department', 'Debit', 'Credit', 'Balance']);
+    expect(within(table).getByRole('separator', { name: 'Resize the Memo column' })).toBeTruthy();
+    const line = within(table).getByText('03/15/2026').closest('tr');
+    for (const t of ['PYRJ-12', '70376e43', 'Q1 bonus', '(AM) GS -Valley center', 'Valinda Cranfill', 'Storage']) expect(line.textContent).toContain(t);
+    // The entry opens the transaction behind the line (the second level of the drill).
+    expect(within(line).getByRole('button', { name: 'PYRJ-12' }).title).toBe('Open the transaction behind this line');
     fireEvent.click(within(p).getByRole('button', { name: '61908 Bonus' }));
     expect(parkDrillReturn).toHaveBeenCalledWith('compensation', expect.objectContaining({ view: 'people' }));
     expect(requestReportDrill).toHaveBeenCalledWith(expect.objectContaining({ account: '61908', from: '2026-01-01', to: '2026-12-31',
@@ -185,7 +211,7 @@ describe('CompensationReport', () => {
     fireEvent.click(within(panel()).getByRole('button', { name: "Back to Valinda Cranfill's report" }));
     expect(within(panel()).getByRole('table', { name: /Employee Compensation Report/ })).toBeTruthy();
     // Last year's column drills into last year.
-    fireEvent.click(within(panel()).getByRole('button', { name: /^Bonus for Valinda Cranfill, Year Ending 12\/31\/2025/ }));
+    fireEvent.click(within(panel()).getAllByRole('button', { name: /^Bonus for Valinda Cranfill, Year Ending 12\/31\/2025/ })[0]);
     await waitFor(() => expect(api.getCompensationLines).toHaveBeenLastCalledWith({ from: '2025-01-01', to: '2025-12-31', employees: ['E-0084'], accounts: ['61908'] }));
   });
 

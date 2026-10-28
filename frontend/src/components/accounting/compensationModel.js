@@ -68,8 +68,7 @@ export const LINES = [
   { key: 'totalPayroll', label: 'Total Payroll Expenses', parts: ['bonus', 'payroll'] },
   { key: 'k401', label: '401(k) Contribution (Company)' },
   { key: 'health', label: 'Health Insurance (Company)' },
-  { key: 'otherBenefits', label: 'Other Benefits', byAccount: true },
-  { key: 'totalBenefits', label: 'Total Benefits', parts: ['k401', 'health', 'otherBenefits'], shown: true },
+  { key: 'totalBenefits', label: 'Total Benefits', parts: ['k401', 'health'], shown: true },
   { key: 'futa', label: 'FUTA' },
   { key: 'medicare', label: 'Medicare' },
   { key: 'socsec', label: 'Social Security' },
@@ -77,8 +76,11 @@ export const LINES = [
   { key: 'ett', label: 'CA Employment Training Tax' },
   { key: 'otherTaxes', label: 'Other Payroll Taxes', optional: true },
   { key: 'totalTaxes', label: 'Total Employer Payroll Taxes', parts: ['futa', 'medicare', 'socsec', 'suta', 'ett', 'otherTaxes'], shown: true },
+  // Intacct keeps Other Benefits (every other expense line carrying the
+  // employee, item 12) as its own group, outside Total Benefits.
+  { key: 'otherBenefits', label: 'Other Benefits', byAccount: true, shown: true },
   { key: 'workersComp', label: "Workers' Comp", shown: true },
-  { key: 'totalEmployer', label: 'Total Employer Expenses', parts: ['totalPayroll', 'totalBenefits', 'totalTaxes', 'workersComp'], shown: true },
+  { key: 'totalEmployer', label: 'Total Employer Expenses', parts: ['totalPayroll', 'totalBenefits', 'totalTaxes', 'otherBenefits', 'workersComp'], shown: true },
   { key: 'dedHealth', label: 'Health Insurance (Employee)' },
   { key: 'ded401k', label: '401(k) Contribution (Employee)' },
   { key: 'dedOther', label: 'Other Deductions', optional: true },
@@ -100,16 +102,35 @@ export function leafLines(key) {
   return l?.parts ? l.parts.flatMap(leafLines) : [key];
 }
 
-// One person's report, laid out as Intacct lays it out.
+// One person's report, laid out as Intacct's Employee Compensation Report
+// (10/27 call at 13:06 / 14:33 / 28:46): three sections, each made of groups
+// that fold like Intacct's triangles and end in their own total row. `lines`
+// are report lines, `hours` Time Clock minutes fields, `rates` the pay setup
+// rate, `accounts` the line whose accounts are listed one by one.
 export const STATEMENT = [
-  { heading: 'Payroll Expenses', lines: ['bonus', 'payroll'], total: 'totalPayroll' },
-  { heading: 'Benefits', lines: ['k401', 'health', 'otherBenefits'], total: 'totalBenefits' },
-  { heading: 'Employer Payroll Taxes', lines: ['futa', 'medicare', 'socsec', 'suta', 'ett', 'otherTaxes'], total: 'totalTaxes' },
-  { lines: ['workersComp'] },
-  { total: 'totalEmployer', strong: true },
-  { heading: 'Deductions from Gross Pay', lines: ['dedHealth', 'ded401k', 'dedOther'], total: 'totalDeductions' },
-  { heading: 'Employee Taxes Withheld', lines: ['fedWh', 'medicareWh', 'socsecWh', 'sdi', 'stateWh'], total: 'totalWithheld' },
-  { total: 'netPay', strong: true },
+  {
+    id: 'metrics', heading: 'Employee Metrics', groups: [
+      { id: 'rates', heading: 'Rates', rates: true },
+      { id: 'worked', heading: 'Hours Worked', hours: ['regMin', 'overtimeMin'], totalLabel: 'Total Hours Worked' },
+      { id: 'accruals', heading: 'Accruals', hours: ['sickMin', 'vacationMin'], totalLabel: 'Total Accruals' },
+    ],
+  },
+  {
+    id: 'employer', heading: 'Employer Expenses', total: 'totalEmployer', groups: [
+      { id: 'payroll', heading: 'Payroll Expenses', lines: ['bonus', 'payroll'], total: 'totalPayroll' },
+      { id: 'benefits', heading: 'Benefits', lines: ['k401', 'health'], total: 'totalBenefits' },
+      { id: 'taxes', heading: 'Employer Payroll Taxes', lines: ['futa', 'medicare', 'socsec', 'suta', 'ett', 'otherTaxes'], total: 'totalTaxes' },
+      { id: 'other', heading: 'Other Benefits', accounts: 'otherBenefits', total: 'otherBenefits', totalLabel: 'Total Other Benefits' },
+    ],
+    lines: ['workersComp'],
+  },
+  {
+    id: 'net', heading: 'Employee Net Pay', total: 'netPay', groups: [
+      { id: 'gross', heading: 'Payroll Expenses', lines: ['bonus', 'payroll'], total: 'totalPayroll' },
+      { id: 'deductions', heading: 'Deductions from Gross Pay', lines: ['dedHealth', 'ded401k', 'dedOther'], total: 'totalDeductions' },
+      { id: 'withheld', heading: 'Employee Taxes Withheld', lines: ['fedWh', 'medicareWh', 'socsecWh', 'sdi', 'stateWh'], total: 'totalWithheld' },
+    ],
+  },
 ];
 
 const HOUR_KEYS = HOUR_COLUMNS.map((c) => c.key);
@@ -210,46 +231,83 @@ export function periodLabel(from, to) {
   return `${formatDate(from)} - ${formatDate(to)}`;
 }
 
+const HOUR_SHORT = Object.fromEntries(HOUR_COLUMNS.map((c) => [c.key, c.short]));
+
 /**
- * One person's (or group's) report as rows, Intacct's layout: headings,
- * lines, Other Benefits by account under it, totals. Each row: { kind:
- * 'heading' | 'line' | 'account' | 'total' | 'hours', key, label, prior, cur }.
- * Hours are Time Clock's, for the period asked only.
+ * One person's (or group's) report as rows, Intacct's layout (STATEMENT).
+ * Each row: { kind: 'section' | 'heading' | 'line' | 'account' | 'hours' |
+ * 'rate' | 'total', section, group, level, key, label, prior, cur }. A
+ * section or group heading carries its total too, shown on the heading while
+ * it is folded (as Intacct shows "Other Benefits 1,087.16"). Hours are Time
+ * Clock's and rates the pay setup's, for the period asked only (prior null).
  */
 export function statementRows(subject) {
-  const out = [{ kind: 'heading', label: 'Hours (from Time Clock)' }];
-  HOUR_COLUMNS.forEach((c) => out.push({ kind: 'hours', key: c.key, label: c.short, prior: null, cur: subject?.hoursIn === false ? null : hoursOf(subject?.[c.key]) }));
+  const out = [];
   const val = (p, k) => Number(subject?.[p]?.[k]) || 0;
+  const money = (k) => ({ key: k, prior: val('prior', k), cur: val('cur', k) });
+  const hoursIn = subject?.hoursIn !== false;
+  const hoursAt = (k) => (hoursIn ? hoursOf(subject?.[k]) : null);
   STATEMENT.forEach((s) => {
-    if (s.heading) out.push({ kind: 'heading', label: s.heading });
-    (s.lines || []).forEach((k) => {
-      if (LINE[k].optional && !val('cur', k) && !val('prior', k)) return;
-      out.push({ kind: 'line', key: k, label: LINE[k].label, prior: val('prior', k), cur: val('cur', k) });
-      if (LINE[k].byAccount) {
+    out.push({ kind: 'section', section: s.id, group: null, level: 0, label: s.heading, ...(s.total ? money(s.total) : { key: null, prior: null, cur: null }) });
+    s.groups.forEach((g) => {
+      const at = { section: s.id, group: g.id };
+      if (g.rates) {
+        out.push({ kind: 'heading', ...at, level: 1, label: g.heading, key: null, prior: null, cur: null });
+        const rate = Number(subject?.rate) || 0;
+        out.push({ kind: 'rate', ...at, level: 2, key: 'hourly', label: 'Hourly', prior: null, cur: subject?.payType === 'hourly' ? rate : null });
+        out.push({ kind: 'rate', ...at, level: 2, key: 'fixed', label: 'Fixed (per month)', prior: null, cur: subject?.payType === 'salary' ? rate : null });
+        return;
+      }
+      if (g.hours) {
+        const total = hoursIn ? r2(g.hours.reduce((n, k) => n + hoursOf(subject?.[k]), 0)) : null;
+        out.push({ kind: 'heading', ...at, level: 1, label: g.heading, key: null, prior: null, cur: total, hours: true });
+        g.hours.forEach((k) => out.push({ kind: 'hours', ...at, level: 2, key: k, label: HOUR_SHORT[k], prior: null, cur: hoursAt(k) }));
+        out.push({ kind: 'total', ...at, level: 1, key: null, label: g.totalLabel, prior: null, cur: total, hours: true });
+        return;
+      }
+      out.push({ kind: 'heading', ...at, level: 1, label: g.heading, ...money(g.total) });
+      (g.lines || []).forEach((k) => {
+        if (LINE[k].optional && !val('cur', k) && !val('prior', k)) return;
+        out.push({ kind: 'line', ...at, level: 2, label: LINE[k].label, ...money(k) });
+      });
+      if (g.accounts) {
         const seen = new Map();
-        ['prior', 'cur'].forEach((p) => (subject?.accounts?.[p]?.[k] || []).forEach((a) => {
-          const row = seen.get(a.account) || { kind: 'account', key: k, account: a.account, label: `${a.account} ${a.title || ''}`.trim(), prior: 0, cur: 0 };
+        ['prior', 'cur'].forEach((p) => (subject?.accounts?.[p]?.[g.accounts] || []).forEach((a) => {
+          const row = seen.get(a.account) || { kind: 'account', ...at, level: 2, key: g.accounts, account: a.account, label: `${a.account} ${a.title || ''}`.trim(), prior: 0, cur: 0 };
           row[p] = r2(row[p] + a.amount);
           seen.set(a.account, row);
         }));
         out.push(...[...seen.values()].sort((a, b) => a.account.localeCompare(b.account)));
       }
+      out.push({ kind: 'total', ...at, level: 1, label: g.totalLabel || LINE[g.total].label, ...money(g.total) });
     });
-    if (s.total) out.push({ kind: 'total', key: s.total, label: LINE[s.total].label, prior: val('prior', s.total), cur: val('cur', s.total), strong: !!s.strong });
+    (s.lines || []).forEach((k) => out.push({ kind: 'line', section: s.id, group: null, level: 1, label: LINE[k].label, ...money(k) }));
+    if (s.total) out.push({ kind: 'total', section: s.id, group: null, level: 0, label: LINE[s.total].label, strong: true, ...money(s.total) });
   });
   return out;
 }
 
-/** The statement as a linesExport table (Excel / PDF / CSV). */
+/** The rows left on screen with some sections / groups folded (`folded` = a Set of their ids). */
+export function visibleRows(rows, folded) {
+  return (rows || []).filter((r) => {
+    if (r.kind === 'section') return true;
+    if (folded?.has(r.section)) return false;
+    if (r.kind === 'heading') return true;
+    return !(r.group && folded?.has(r.group));
+  });
+}
+
+/** The statement as a linesExport table (Excel / PDF / CSV / Print) - every group open. */
 export function statementTable(subject, { name = '', curLabel = '', priorLabel = '' } = {}) {
   const rows = statementRows(subject).map((r) => {
-    if (r.kind === 'heading') return [r.label, '', ''];
-    const label = r.kind === 'account' ? `    ${r.label}` : r.kind === 'line' || r.kind === 'hours' ? `  ${r.label}` : r.label;
+    const label = `${'  '.repeat(r.level)}${r.label}`;
+    // A heading's figure is its total row's; on paper the total row says it.
+    if (r.kind === 'section' || r.kind === 'heading') return [label, '', ''];
     return [label, r.prior ?? '', r.cur ?? ''];
   });
   return {
     title: `Employee Compensation Report - ${name}`,
-    subtitle: 'From the Intacct ledger; hours from Time Clock',
+    subtitle: 'From the Intacct ledger; hours and rates from Time Clock',
     period: curLabel.replace(/\//g, '-'),
     columns: [{ label: 'Line', num: false, width: 260 }, { label: priorLabel, num: true, width: 120 }, { label: curLabel, num: true, width: 120 }],
     rows,

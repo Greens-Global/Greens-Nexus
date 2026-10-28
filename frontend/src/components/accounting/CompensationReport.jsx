@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, Printer } from 'lucide-react';
 import { api } from '../../api';
 import { ErrorBanner } from '../AsyncState';
 import Amount, { formatAmount } from './Amount';
-import { BarMore, ControlBar, control, ExportMenu, SyncButton } from './reportControls';
+import { BarMore, ColumnResizer, ControlBar, control, ExportMenu, SyncButton } from './reportControls';
 import { useTableSync } from './tableSync';
-import { useFitHeight } from './tableHooks';
+import { useColumnWidths, useFitHeight } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { downloadBlob } from './reportModel';
 import { linesFile } from './linesExport';
@@ -12,7 +13,7 @@ import { formatDate } from '../../lib/datetime';
 import { isStepUpRequired, StepUpNeeded } from '../../stepup/StepUp';
 import {
   buildingHint, combine, drillSpec, emptyReason, groupRows, HOUR_COLUMNS, hoursOf, hoursRange, lineLabel, LINES, loadErrorMessage,
-  monthsBetween, payTypeLabel, periodLabel, rateLabel, statementRows, statementTable, VIEWS, withHours,
+  monthsBetween, payTypeLabel, periodLabel, rateLabel, statementRows, statementTable, visibleRows, VIEWS, withHours,
 } from './compensationModel';
 import { COMP_REQUEST_TIMEOUT_MS } from './assumptions';
 import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
@@ -350,7 +351,7 @@ export default function CompensationReport() {
           exportItems={(build) => exportItems('statement', build, false)} />
       )}
       {panel?.kind === 'lines' && report && (
-        <LinesPanel key={`l-${panel.name}-${panel.key}-${panel.period}-${panel.account || ''}`} panel={panel} periods={periods}
+        <LedgerLinesPanel key={`l-${panel.name}-${panel.key}-${panel.period}-${panel.account || ''}`} panel={panel} periods={periods}
           onClose={() => setPanel(null)} onBack={panel.back ? () => setPanel(panel.back) : null} onReports={openInReports} />
       )}
     </div>
@@ -367,45 +368,104 @@ function useEscape(onClose, off = false) {
   }, [onClose, off]);
 }
 
-/** One person's report, Intacct's layout, last year beside the period asked (item 13). */
+/** Print a built file (the statement's PDF) from a hidden frame; a blocked frame opens it in a new tab instead. */
+function printFile(file) {
+  const url = URL.createObjectURL(file);
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  frame.onload = () => {
+    try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch { window.open(url, '_blank', 'noopener'); }
+    // Long enough for the print dialog to have read the file.
+    setTimeout(() => { frame.remove(); URL.revokeObjectURL(url); }, 60_000);
+  };
+  frame.src = url;
+  document.body.appendChild(frame);
+}
+
+const fmtHours = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const FOLDING = new Set(['section', 'heading']);
+
+/**
+ * One person's report, Intacct's Employee Compensation Report (item 13): the
+ * person and code over last year and the period asked; Employee Metrics
+ * (Rates, Hours Worked, Accruals), Employer Expenses and Employee Net Pay,
+ * each group folding like Intacct's triangles with its own total; Print and
+ * Excel as on Intacct's bar (Email is left out until Charmi asks).
+ */
 function StatementPanel({ panel, curLabel, priorLabel, onClose, onLines, exportItems }) {
   useEscape(onClose);
   const { subject, name, code } = panel;
-  const rows = statementRows(subject);
+  const rows = useMemo(() => statementRows(subject), [subject]);
+  const [folded, setFolded] = useState(() => new Set());
+  const [printing, setPrinting] = useState(false);
+  const foldId = (r) => (r.kind === 'section' ? r.section : r.group);
+  const toggle = (id) => setFolded((f) => { const n = new Set(f); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const allIds = useMemo(() => rows.filter((r) => FOLDING.has(r.kind)).map(foldId), [rows]);
+  const anyFolded = folded.size > 0;
+  const shown = visibleRows(rows, folded);
+  const heading = `${name}${code ? ` (${code})` : ''}`;
+  const table = () => statementTable(subject, { name: heading, curLabel, priorLabel });
+  const print = async () => {
+    setPrinting(true);
+    try { printFile(await linesFile(table(), 'pdf')); } finally { setPrinting(false); }
+  };
   const caption = [subject.companyName, subject.department, subject.title].filter(Boolean).join(' · ') || (subject.people > 1 ? `${subject.people} employees` : '');
   const cell = (r, period) => {
-    if (r.kind === 'heading') return <td style={tdNum} />;
-    if (r.kind === 'hours') return <td style={tdNum} title="From Time Clock's payroll cards, for the period asked">{period === 'cur' && r.cur != null ? (r.cur ? r.cur.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-') : <span style={muted}>-</span>}</td>;
-    const strong = r.kind === 'total';
+    const v = r[period];
+    const isFolded = FOLDING.has(r.kind) && folded.has(foldId(r));
+    // An open heading leaves its figure to its total row; a folded one shows it, as Intacct does.
+    if (FOLDING.has(r.kind) && !isFolded) return <td style={tdNum} />;
+    if (v == null) return <td style={tdNum}><span style={muted}>-</span></td>;
+    const strong = r.kind === 'total' || isFolded;
+    if (r.hours || r.kind === 'hours') {
+      return <td style={{ ...tdNum, ...(strong ? { fontWeight: 700 } : null) }} title="From Time Clock's payroll cards, for the period asked">{v ? fmtHours(v) : '-'}</td>;
+    }
+    if (r.kind === 'rate') return <td style={tdNum} title={r.key === 'fixed' ? 'Monthly salary on the pay setup (Time Clock)' : 'Hourly rate on the pay setup (Time Clock)'}><Amount value={v} zero="dash" /></td>;
     return (
       <td style={{ ...tdNum, ...(strong ? { fontWeight: 700 } : null) }}>
-        <DrillAmount value={r[period]} label={`${r.label} for ${name}, ${period === 'cur' ? curLabel : priorLabel}`} onOpen={() => onLines(r.key, period, r.kind === 'account' ? r.account : null)} />
+        <DrillAmount value={v} label={`${r.label} for ${name}, ${period === 'cur' ? curLabel : priorLabel}`} onOpen={() => onLines(r.key, period, r.kind === 'account' ? r.account : null)} />
       </td>
     );
   };
+  const labelCell = (r) => {
+    const pad = 8 + r.level * 16;
+    if (FOLDING.has(r.kind)) {
+      const id = foldId(r);
+      const open = !folded.has(id);
+      return (
+        <td style={{ ...td, paddingLeft: pad - 2, paddingTop: r.kind === 'section' ? 10 : 6 }}>
+          <button type="button" style={{ ...plainBtn, display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700, color: 'var(--wk-brand, #2b45e1)' }}
+            aria-expanded={open} onClick={() => toggle(id)} title={open ? `Fold ${r.label}` : `Open ${r.label}`}>
+            {open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}{r.label}
+          </button>
+        </td>
+      );
+    }
+    return <td style={{ ...td, paddingLeft: pad + 16, fontWeight: r.kind === 'total' ? 700 : 400, ...(r.kind === 'account' ? { color: 'var(--text-secondary)' } : null) }}>{r.label}</td>;
+  };
   return (
-    <SidePanel label="Employee Compensation Report" title={`${name}${code ? ` (${code})` : ''}`} caption={caption || 'Employee Compensation Report'} onClose={onClose}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ ...muted, flex: 1 }}>Employee Compensation Report - from the Intacct ledger; hours from Time Clock. Click an amount for its ledger lines.</span>
-        <ExportMenu items={exportItems(() => statementTable(subject, { name: `${name}${code ? ` (${code})` : ''}`, curLabel, priorLabel }))} />
+    <SidePanel label="Employee Compensation Report" title={heading} caption={caption || 'Employee Compensation Report'} onClose={onClose}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ ...muted, flex: 1, minWidth: 220 }}>From the Intacct ledger; hours and rates from Time Clock. Click an amount for its ledger lines.</span>
+        <button type="button" style={{ ...control, cursor: 'pointer' }} onClick={() => setFolded(anyFolded ? new Set() : new Set(allIds))}>{anyFolded ? 'Expand All' : 'Collapse All'}</button>
+        <button type="button" style={{ ...control, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={print} disabled={printing} aria-busy={printing}>
+          <Printer size={14} aria-hidden="true" />Print
+        </button>
+        <ExportMenu items={exportItems(table)} />
       </div>
       <div style={{ ...card, overflowX: 'auto' }}>
         <table aria-label={`Employee Compensation Report - ${name}`} style={{ borderCollapse: 'collapse', width: '100%' }}>
           <thead>
+            <tr><th style={{ ...th, borderBottom: 'none' }} /><th colSpan={2} style={{ ...thNum, textAlign: 'center', borderBottom: 'none', color: 'var(--text-primary)', fontSize: '0.8rem' }}>{heading}</th></tr>
             <tr><th style={th} /><th style={thNum}>{priorLabel}</th><th style={thNum}>{curLabel}</th></tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => (
-              <tr key={`${r.kind}-${r.key || r.label}-${r.account || i}`} style={r.strong ? { background: 'var(--bg-secondary)' } : undefined}>
-                {r.kind === 'heading'
-                  ? <td colSpan={3} style={{ ...td, fontWeight: 700, color: 'var(--wk-brand, #2b45e1)', paddingTop: 10 }}>{r.label}</td>
-                  : (
-                    <>
-                      <td style={{ ...td, paddingLeft: r.kind === 'account' ? 32 : r.kind === 'total' ? 8 : 18, fontWeight: r.kind === 'total' ? 700 : 400, ...(r.kind === 'account' ? { color: 'var(--text-secondary)' } : null) }}>{r.label}</td>
-                      {cell(r, 'prior')}
-                      {cell(r, 'cur')}
-                    </>
-                  )}
+            {shown.map((r, i) => (
+              <tr key={`${r.kind}-${r.section}-${r.group || ''}-${r.key || r.label}-${r.account || i}`} style={r.strong ? { background: 'var(--bg-secondary)' } : undefined}>
+                {labelCell(r)}
+                {cell(r, 'prior')}
+                {cell(r, 'cur')}
               </tr>
             ))}
           </tbody>
@@ -437,8 +497,29 @@ function WorkersCompNote({ subject, period = 'cur' }) {
 
 const NO_LINES = { lines: [], total: 0 };
 
-/** The ledger lines behind one figure: date, entry, account, vendor, memo, amount (item 17). */
-function LinesPanel({ panel, periods, onClose, onBack, onReports }) {
+// Intacct's General Ledger report columns (10/27 call, 14:48: the lines behind
+// Valinda's Fuel) plus the entry and account, with a running balance. Each
+// drags to its width, kept per person (useColumnWidths).
+const GL_COLUMNS = [
+  { key: 'date', label: 'Posted Date', width: 92, text: (l) => formatDate(l.entry_date) },
+  { key: 'entry', label: 'Entry', width: 96 },
+  { key: 'doc', label: 'Doc', width: 84, text: (l) => l.doc },
+  { key: 'account', label: 'Account', width: 170 },
+  { key: 'memo', label: 'Memo', width: 200, text: (l) => l.memo || l.description },
+  { key: 'location', label: 'Location', width: 150, text: (l) => l.location_name || l.location },
+  { key: 'vendor', label: 'Vendor', width: 140, text: (l) => l.vendor_name || l.vendor_id },
+  { key: 'customer', label: 'Customer', width: 140, text: (l) => l.customer_name || l.customer_id },
+  { key: 'item', label: 'Item', width: 120, text: (l) => l.item_name || l.item_id },
+  { key: 'employee', label: 'Employee', width: 140, text: (l) => l.employee_name || l.employee_id },
+  { key: 'department', label: 'Department', width: 120, text: (l) => l.department_name || l.department },
+  { key: 'debit', label: 'Debit', width: 96, num: true },
+  { key: 'credit', label: 'Credit', width: 96, num: true },
+  { key: 'balance', label: 'Balance', width: 104, num: true },
+];
+const GL_WIDTHS = Object.fromEntries(GL_COLUMNS.map((c) => [c.key, c.width]));
+
+/** The ledger lines behind one figure, in Intacct's General Ledger columns; each entry opens its transaction (item 17). */
+function LedgerLinesPanel({ panel, periods, onClose, onBack, onReports }) {
   const { subject, name, key, period, account } = panel;
   const range = periods[period];
   const spec = useMemo(() => drillSpec(subject, key, period, account), [subject, key, period, account]);
@@ -464,7 +545,25 @@ function LinesPanel({ panel, periods, onClose, onBack, onReports }) {
   const title = `${lineLabel(key)}${account ? ` - ${account} ${accountRow[0]?.title || ''}`.trimEnd() : ''}`;
   const lines = data?.lines || [];
   const off = data && !wc && Math.abs((Number(data.total) || 0) - figure) > 0.005;
-  const accountsShown = [...new Map(lines.map((l) => [l.account, l.accountName])).entries()];
+  const accountsShown = [...new Map(lines.map((l) => [l.gl_code, l.account_name])).entries()];
+  const cw = useColumnWidths('compensation-lines', GL_WIDTHS, { min: 50 });
+  // The balance after each line, as on Intacct's General Ledger.
+  const running = useMemo(() => (data?.lines || []).reduce((acc, l) => {
+    acc.push(Math.round(((acc.at(-1) || 0) + (Number(l.amount) || 0)) * 100) / 100);
+    return acc;
+  }, []), [data]);
+  const sum = (k) => lines.reduce((n, l) => n + (Number(l[k]) || 0), 0);
+  const glCell = (c, l, i) => {
+    if (c.key === 'entry') {
+      return l.entry_id
+        ? <button type="button" style={linkBtn} onClick={() => setEntry({ id: l.entry_id, no: l.entry_no })} title="Open the transaction behind this line">{l.entry_no || 'Open'}</button>
+        : l.entry_no;
+    }
+    if (c.key === 'account') return <><span className="acct-code">{l.gl_code}</span> {l.account_name}</>;
+    if (c.key === 'balance') return <Amount value={running[i]} />;
+    if (c.num) return <Amount value={Number(l[c.key]) || 0} zero="dash" />;
+    return c.text(l) || <span style={muted}>-</span>;
+  };
   return (
     <SidePanel label="Ledger Lines" title={title} caption={`${name} · ${periodLabel(range.from, range.to)} · ${formatAmount(figure)}`} onClose={onClose}>
       {onBack && <div><button type="button" style={linkBtn} onClick={onBack}>Back to {name}&apos;s report</button></div>}
@@ -472,25 +571,35 @@ function LinesPanel({ panel, periods, onClose, onBack, onReports }) {
       {wc && <div style={{ ...muted, fontWeight: 600 }}>The gross wages it is worked out on - the Bonus and Salaried / Hourly Payroll lines:</div>}
       {error ? <ErrorBanner message={error} /> : !data ? <LoadingDots compact hint="Reading the ledger lines." /> : (
         <div style={{ ...card, overflowX: 'auto' }}>
-          <table aria-label={`Ledger lines - ${title}`} style={{ borderCollapse: 'collapse', width: '100%' }}>
+          <table aria-label={`Ledger lines - ${title}`} style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: GL_COLUMNS.reduce((n, c) => n + (cw.width(c.key) || c.width), 0) }}>
             <thead>
-              <tr><th style={th}>Date</th><th style={th}>Entry</th><th style={th}>Account</th><th style={th}>Vendor</th><th style={th}>Memo</th><th style={thNum}>Amount</th></tr>
+              <tr>
+                {GL_COLUMNS.map((c) => (
+                  <th key={c.key} style={{ ...(c.num ? thNum : th), position: 'relative', width: cw.width(c.key) }}>
+                    {c.label}<ColumnResizer {...cw.resizer(c.key, c.label)} />
+                  </th>
+                ))}
+              </tr>
             </thead>
             <tbody>
-              {!lines.length && <tr><td colSpan={6} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }}>No ledger lines.</td></tr>}
+              {!lines.length && <tr><td colSpan={GL_COLUMNS.length} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }}>No ledger lines.</td></tr>}
               {lines.map((l, i) => (
-                <tr key={`${l.id || i}-${l.account}`}>
-                  <td style={{ ...td, whiteSpace: 'nowrap' }}>{formatDate(l.date)}</td>
-                  <td style={{ ...td, whiteSpace: 'nowrap' }}>{l.entryId ? <button type="button" style={linkBtn} onClick={() => setEntry({ id: l.entryId, no: l.entryNo })} title="Open this journal entry">{l.entryNo || 'Open'}</button> : l.entryNo}</td>
-                  <td style={td}><span className="acct-code">{l.account}</span> {l.accountName}</td>
-                  <td style={td}>{l.vendor || <span style={muted}>-</span>}</td>
-                  <td style={td}>{l.memo || l.description || <span style={muted}>-</span>}</td>
-                  <td style={tdNum}><Amount value={l.amount} /></td>
+                <tr key={`${l.line_id || i}-${l.gl_code}`}>
+                  {GL_COLUMNS.map((c) => (
+                    <td key={c.key} style={c.num ? tdNum : { ...td, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.text ? c.text(l) || undefined : undefined}>{glCell(c, l, i)}</td>
+                  ))}
                 </tr>
               ))}
             </tbody>
             {!!lines.length && (
-              <tfoot><tr><td colSpan={5} style={{ ...td, fontWeight: 700 }}>Total - {lines.length} {lines.length === 1 ? 'line' : 'lines'}</td><td style={{ ...tdNum, fontWeight: 700 }}><Amount value={data.total} /></td></tr></tfoot>
+              <tfoot>
+                <tr>
+                  <td colSpan={GL_COLUMNS.length - 3} style={{ ...td, fontWeight: 700 }}>Total - {lines.length} {lines.length === 1 ? 'line' : 'lines'}</td>
+                  <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={sum('debit')} zero="dash" /></td>
+                  <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={sum('credit')} zero="dash" /></td>
+                  <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={data.total} /></td>
+                </tr>
+              </tfoot>
             )}
           </table>
         </div>

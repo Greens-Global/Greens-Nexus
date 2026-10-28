@@ -115,8 +115,8 @@ def valinda_rows(bucket="E-0084"):
         row("62104", "Social Security Company", "expense", 2845.15),
         row("62105", "CA - Unemployment Company", "expense", 217.00),
         row("62106", "CA - Employment Training Tax", "expense", 7.00),
-        row("63203", "Fuel", "expense", 20.00),
-        row("63410", "Cell Phone", "expense", 1067.16),
+        # 10/27 check figure (Intacct General Ledger at 15:05): 17 card lines on Fuel, 01/05-10/10/2026.
+        row("63203", "Fuel", "expense", 1087.16),
         row("23801", "Federal Withholding", "liability", 0, 2693.00),
         row("23804", "Medicare Employee Payable", "liability", 0, 665.40),
         row("23807", "Social Security Employee Payable", "liability", 0, 2845.15),
@@ -126,6 +126,8 @@ def valinda_rows(bucket="E-0084"):
         row("23700", "Payroll Liability (Net Pay)", "liability", 0, 39755.70),
         row("23802", "FUTA Payable", "liability", 0, 42.00),
         row("10100", "Chase Checking", "asset", 0, 39755.70),
+        # The 1,274.24 on Greens Global's receivable in the same employee-filtered ledger is not pay (item 12).
+        row("13503", "Greens Global", "asset", 1274.24),
         row("40100", "Rental Income", "income", 0, 500.00),
         row("61910", "Salary", "expense", 9999.00, b=""),
     ]
@@ -173,7 +175,8 @@ class LedgerReportTests(unittest.TestCase):
         self.assertEqual(list(got), ["E-0084"], "the line with no employee is left out")
         v = with_totals(got["E-0084"]["lines"])
         self.assertEqual((v["bonus"], v["payroll"], v["totalPayroll"]), (850.00, 52123.06, 52973.06))
-        self.assertEqual((v["k401"], v["health"], v["otherBenefits"], v["totalBenefits"]), (2520.31, 3249.75, 1087.16, 6857.22))
+        # Intacct's layout: Total Benefits is 401(k) and Health; Other Benefits is its own group (Fuel 1,087.16).
+        self.assertEqual((v["k401"], v["health"], v["totalBenefits"], v["otherBenefits"]), (2520.31, 3249.75, 5770.06, 1087.16))
         self.assertEqual((v["futa"], v["medicare"], v["socsec"], v["suta"], v["ett"], v["totalTaxes"]), (42.0, 665.40, 2845.15, 217.0, 7.0, 3776.55))
         self.assertEqual(v["totalEmployer"], 63606.83, "Intacct's Total Employer Expenses")
         self.assertEqual((v["dedHealth"], v["totalDeductions"]), (-5854.22, -5854.22))
@@ -182,7 +185,7 @@ class LedgerReportTests(unittest.TestCase):
         self.assertEqual(v["netPay"], 39755.70, "gross less the deduction less the taxes withheld")
         # Each figure knows its accounts (the drill-down): Other Benefits by account, health by side.
         acc = got["E-0084"]["accounts"]
-        self.assertEqual([(a["account"], a["amount"]) for a in acc["otherBenefits"]], [("63203", 20.0), ("63410", 1067.16)])
+        self.assertEqual([(a["account"], a["amount"]) for a in acc["otherBenefits"]], [("63203", 1087.16)], "the receivable is not a benefit")
         self.assertEqual([(a["account"], a["side"]) for a in acc["health"]], [("61903", "d")])
         self.assertEqual([(a["account"], a["side"], a["amount"]) for a in acc["dedHealth"]], [("61903", "c", -5854.22)])
 
@@ -256,7 +259,9 @@ class RouteTests(unittest.TestCase):
                 return {"ok": True, "rows": valinda_rows() if params["from"].startswith("2026") else [], "labels": {"E-0084": "Valinda Cranfill"}}
             self.assertTrue(path.endswith("/search"))
             line = {"line_id": f"l-{params['account']}", "entry_id": "e1", "entry_no": "PYRJ-12", "entry_date": "2026-03-15" if params["account"] == "61908" else "2026-01-05",
-                    "gl_code": params["account"], "account_name": "Bonus", "vendor_name": "", "memo": "Bonus", "debit": 850.0, "credit": 0.0}
+                    "gl_code": params["account"], "account_name": "Bonus", "vendor_name": "", "memo": "Bonus", "debit": 850.0, "credit": 0.0,
+                    "doc": "70376e43", "location_name": "(AM) GS -Valley center", "department_name": "Storage", "customer_name": None,
+                    "item_name": "Fuel & EV Charging", "employee_id": "E-0084", "employee_name": "Valinda Cranfill"}
             return {"rows": [line], "total": 1}
 
         self._people, accounting_allocations._people_and_cards = accounting_allocations._people_and_cards, fake_people
@@ -373,7 +378,13 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(searches["61908"]["employee"], "E-0084")
         self.assertNotIn("credit_op", searches["61908"])
         self.assertEqual((searches["61903"]["credit_op"], searches["61903"]["credit_v"]), ("gt", 0))
-        self.assertEqual([(x["date"], x["account"], x["amount"]) for x in d["lines"]], [("2026-01-05", "61903", 0.0), ("2026-03-15", "61908", 850.0)])
+        self.assertEqual([(x["entry_date"], x["gl_code"], x["debit"], x["credit"], x["amount"]) for x in d["lines"]],
+                         [("2026-01-05", "61903", 0.0, 0.0, 0.0), ("2026-03-15", "61908", 850.0, 0.0, 850.0)], "a split account keeps only its side")
+        # Intacct's General Ledger columns travel with each line; a missing one is empty, never null.
+        bonus = d["lines"][1]
+        self.assertEqual((bonus["doc"], bonus["location_name"], bonus["department_name"], bonus["item_name"], bonus["employee_name"], bonus["customer_name"], bonus["entry_id"]),
+                         ("70376e43", "(AM) GS -Valley center", "Storage", "Fuel & EV Charging", "Valinda Cranfill", "", "e1"))
+        self.assertEqual(d["total"], 850.0)
         self.assertFalse(d["truncated"])
         for q in ("employees=E-0084&accounts=61908;drop", "employees=E-0084&accounts=", "employees=&accounts=61908"):
             self.assertEqual(self.client.get(f"/accounting/compensation/lines?from=2026-01-01&to=2026-12-31&{q}").status_code, 400, q)

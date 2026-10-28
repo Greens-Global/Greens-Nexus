@@ -6,9 +6,10 @@ Three reads:
 
   /accounting/compensation/report   per employee, Intacct's Employee
       Compensation Report: Payroll Expenses (Bonus, Salaried / Hourly
-      Payroll), Benefits (401(k) and Health Insurance - Company, Other
-      Benefits), Employer Payroll Taxes (FUTA, Medicare, Social Security, SUTA,
-      CA Employment Training Tax), Workers' Comp, Total Employer Expenses, and
+      Payroll), Benefits (401(k) and Health Insurance - Company), Employer
+      Payroll Taxes (FUTA, Medicare, Social Security, SUTA, CA Employment
+      Training Tax), Other Benefits (by account), Workers' Comp, Total
+      Employer Expenses, and
       the employee's side: Deductions from Gross Pay, Employee Taxes Withheld
       (Federal, Medicare, Social Security, SDI, State) and Employee Net Pay -
       for the months asked and the same months a year before (Intacct's
@@ -26,7 +27,10 @@ Three reads:
       accounting_allocations._people_and_cards, the Allocations engine) -
       regular, overtime / double time, sick and vacation (no Personal: item
       15, "either it is sick or vacation"). The screen labels them as Time
-      Clock's. There is NO second pay computation here.
+      Clock's. There is NO second pay computation here. Intacct's own Hours
+      Worked and Accruals are the payroll file's statistical accounts (P.REG,
+      P.OHR, P.SHR, P.VHR in the STAT journal), which the accounting app
+      leaves out when it builds its ledger - so they cannot be read here yet.
 
 Who may read it: wages for everyone are payroll figures. The gate is the
 strictest one already used for them (Accounting > Allocations): the FULL level
@@ -307,11 +311,15 @@ _COSTS = ("cogs", "expense", "other_expense")
 _INCOME = ("income", "revenue", "other_income")
 
 PAYROLL_LINES = ("bonus", "payroll")
-BENEFIT_LINES = ("k401", "health", "otherBenefits")
+# Intacct's report keeps Other Benefits (every other cost line carrying the
+# employee, item 12) as its own group after Payroll Taxes, outside Total
+# Benefits: Valinda 2026 = 5,770.06 Benefits + 1,087.16 Other Benefits.
+BENEFIT_LINES = ("k401", "health")
+OTHER_LINES = ("otherBenefits",)
 TAX_LINES = ("futa", "medicare", "socsec", "suta", "ett", "otherTaxes")
 DEDUCTION_LINES = ("dedHealth", "ded401k", "dedOther")
 WITHHELD_LINES = ("fedWh", "medicareWh", "socsecWh", "sdi", "stateWh")
-LEDGER_LINES = PAYROLL_LINES + BENEFIT_LINES + TAX_LINES + DEDUCTION_LINES + WITHHELD_LINES
+LEDGER_LINES = PAYROLL_LINES + BENEFIT_LINES + TAX_LINES + OTHER_LINES + DEDUCTION_LINES + WITHHELD_LINES
 
 # The accounts the payroll file posts to (payrollConvert.js DEFAULT_PAYROLL_MAPPING).
 ACCOUNT_LINES = {
@@ -436,7 +444,7 @@ def with_totals(lines: dict, workers_comp: float = 0.0) -> dict:
     v["totalPayroll"] = _r2(sum(v[k] for k in PAYROLL_LINES))
     v["totalBenefits"] = _r2(sum(v[k] for k in BENEFIT_LINES))
     v["totalTaxes"] = _r2(sum(v[k] for k in TAX_LINES))
-    v["totalEmployer"] = _r2(v["totalPayroll"] + v["totalBenefits"] + v["totalTaxes"] + v["workersComp"])
+    v["totalEmployer"] = _r2(v["totalPayroll"] + v["totalBenefits"] + v["totalTaxes"] + v["otherBenefits"] + v["workersComp"])
     v["totalDeductions"] = _r2(sum(v[k] for k in DEDUCTION_LINES))
     v["totalWithheld"] = _r2(sum(v[k] for k in WITHHELD_LINES))
     v["netPay"] = _r2(v["totalPayroll"] + v["totalDeductions"] + v["totalWithheld"])
@@ -565,17 +573,26 @@ MAX_DRILL_PEOPLE = 500
 DRILL_PAGE = 1000
 
 
+# What a drill-down line carries: the ledger search's own fields, so the
+# screen lays it out in Intacct's General Ledger columns (item 17: Posted
+# Date, Doc, Memo, Location, Vendor, Customer, Item, Employee, Department,
+# Debit, Credit) with the other reports' lines.
+_GL_FIELDS = ("line_id", "entry_id", "entry_no", "entry_date", "doc", "journal", "gl_code", "account_name", "memo", "description",
+              "location", "location_name", "department", "department_name", "vendor_id", "vendor_name", "customer_id", "customer_name",
+              "employee_id", "employee_name", "project_id", "project_name", "item_id", "item_name")
+
+
 def drill_line(x: dict, side: str) -> dict:
-    """One ledger line for the drill-down: what the screen shows. The amount is
-    debits less credits, as on the report (only one side for a split account)."""
+    """One ledger line for the drill-down, in the ledger search's shape. Only
+    the side asked for counts on a split account (the health split), so the
+    other side is zero here; `amount` is debits less credits, as on the report."""
     debit, credit = _r2(x.get("debit")), _r2(x.get("credit"))
-    amount = debit if side == "d" else _r2(-credit) if side == "c" else _r2(debit - credit)
-    return {"id": str(x.get("line_id") or ""), "entryId": x.get("entry_id") or "", "entryNo": x.get("entry_no") or "",
-            "date": x.get("entry_date") or "", "account": str(x.get("gl_code") or ""), "accountName": x.get("account_name") or "",
-            "vendor": x.get("vendor_name") or "", "vendorId": x.get("vendor_id") or "",
-            "employee": x.get("employee_name") or "", "employeeId": x.get("employee_id") or "",
-            "entity": x.get("location_name") or x.get("location") or "",
-            "memo": x.get("memo") or "", "description": x.get("description") or "", "amount": amount}
+    if side == "d":
+        credit = 0.0
+    elif side == "c":
+        debit = 0.0
+    out = {k: ("" if x.get(k) is None else str(x.get(k))) for k in _GL_FIELDS}
+    return {**out, "debit": debit, "credit": credit, "amount": _r2(debit - credit)}
 
 
 @router.get("/lines")
@@ -613,5 +630,5 @@ async def compensation_lines(from_: str = Query(alias="from"), to: str = Query(.
         got = data.get("rows") or []
         truncated = truncated or int(data.get("total") or 0) > len(got)
         lines.extend(drill_line(x, side) for x in got)
-    lines.sort(key=lambda r: (r["date"], r["entryNo"], r["account"]))
+    lines.sort(key=lambda r: (r["entry_date"], r["entry_no"], r["gl_code"]))
     return {"from": from_, "to": to, "lines": lines, "total": _r2(sum(r["amount"] for r in lines)), "truncated": truncated}
