@@ -46,6 +46,16 @@ import { DIM_KINDS, bookOptions, bookTitle, glLineParams, lineMatchesDims, numbe
 // scrollbar - so a tall window shows that many more lines; only full screen
 // keeps the inner scroller. A total on a report drills here with no account
 // (every line of the period); the report's Journals filter follows the lines.
+//
+// Call of 10/27 with Charmi, item 17 (14:48, her Intacct General Ledger): the
+// lines read like Intacct's General Ledger report - Doc, Item, Employee and
+// Department show without being turned on, in Intacct's order (Location =
+// Entity, then Vendor, Customer, Item, Employee, Department), and a
+// drill-down adds a running Balance with its closing figure on the totals
+// row. A click anywhere on a line opens the transaction behind it on the
+// right (EntryDetail's panel, with Open Full), the lines still beside it
+// (15:41: the Ramp card charge one click under its ledger line). A person's
+// own saved layout still wins over these defaults.
 
 const PAGE = 100;
 const EXPORT_CAP = 10000;
@@ -68,21 +78,38 @@ const partyText = (p) => (p.kind === 'employee' ? named(p.name, p.code) : number
 export const LINE_COLUMNS = [
   { key: 'date', label: 'Date', width: 96, filter: true, text: (r) => formatDate(r.entry_date) },
   { key: 'entry', label: 'Entry', width: 108, filter: true, text: (r) => r.entry_no || '' },
-  { key: 'doc', label: 'Doc No', width: 120, filter: true, off: true, text: (r) => r.doc || '' },
+  { key: 'doc', label: 'Doc No', width: 120, filter: true, text: (r) => r.doc || '' },
   { key: 'account', label: 'Account', width: 250, filter: true, text: (r) => `${r.gl_code} ${r.account_name}`.trim() },
   { key: 'description', label: 'Description', width: 300, filter: true, text: (r) => r.description || '' },
   { key: 'memo', label: 'Memo', width: 240, off: true, text: (r) => r.memo || '' },
   { key: 'entity', label: 'Entity', width: 190, filter: true, text: (r) => r.location_name || r.location || '' },
-  { key: 'department', label: 'Department', width: 170, filter: true, off: true, text: (r) => named(r.department_name, r.department) },
   { key: 'vendor', label: 'Vendor', width: 180, filter: true, text: (r) => numbered(r.vendor_name, r.vendor_id) },
   { key: 'customer', label: 'Customer', width: 180, filter: true, text: (r) => numbered(r.customer_name, r.customer_id) },
-  { key: 'employee', label: 'Employee', width: 170, filter: true, off: true, text: (r) => named(r.employee_name, r.employee_id) },
+  { key: 'item', label: 'Item', width: 140, text: (r) => named(r.item_name, r.item_id) },
+  { key: 'employee', label: 'Employee', width: 170, filter: true, text: (r) => named(r.employee_name, r.employee_id) },
+  { key: 'department', label: 'Department', width: 150, filter: true, text: (r) => named(r.department_name, r.department) },
   { key: 'project', label: 'Project-Job', width: 180, off: true, text: (r) => named(r.project_name, r.project_id) },
-  { key: 'item', label: 'Item', width: 160, off: true, text: (r) => named(r.item_name, r.item_id) },
   { key: 'journal', label: 'Journal', width: 88, filter: true, text: (r) => r.journal || '' },
   { key: 'debit', label: 'Debit', width: 118, num: true, filter: true, text: (r) => money(r.debit) },
   { key: 'credit', label: 'Credit', width: 118, num: true, filter: true, text: (r) => money(r.credit) },
+  // A drill-down only (item 17): the lines' running total, oldest first.
+  { key: 'balance', label: 'Balance', width: 124, num: true, drillOnly: true, text: (r) => (r.balance == null ? '' : money(r.balance)) },
 ];
+/**
+ * The lines with a running `balance` (debits less credits), added up oldest
+ * first - by date, then entry and line - whatever order they arrive in, as
+ * Intacct's General Ledger carries it down the page (item 17). Each line keeps
+ * its own balance however the grid is then sorted or filtered.
+ */
+export function withBalance(lines) {
+  const order = [...lines].sort((a, b) => String(a.entry_date || '').localeCompare(String(b.entry_date || ''))
+    || String(a.entry_no || '').localeCompare(String(b.entry_no || ''), undefined, { numeric: true })
+    || String(a.line_id || '').localeCompare(String(b.line_id || ''), undefined, { numeric: true }));
+  let run = 0;
+  const at = new Map();
+  order.forEach((l) => { run += (Number(l.debit) || 0) - (Number(l.credit) || 0); at.set(l, Math.round(run * 100) / 100); });
+  return lines.map((l) => ({ ...l, balance: at.get(l) }));
+}
 const MIN_WIDTH = 60;
 // What the standard table view needs to filter and sort a column as a date or
 // an amount (item 01). A zero debit or credit is a blank cell, so it is blank.
@@ -97,7 +124,7 @@ const LINE_TYPES = {
 // go to the server, so the totals and the pages follow; Memo, Project-Job and
 // Item, which it cannot, are checked here - on every line of the search, read
 // in full once one is typed, as the view's own filters are.
-const LINE_FILTERS = LINE_COLUMNS.map((c) => ({
+const LINE_FILTERS = LINE_COLUMNS.filter((c) => !c.drillOnly).map((c) => ({
   key: c.key, label: c.label, text: c.text, server: !!c.filter,
   ...(c.num ? { num: true, value: (r) => Number(r[c.key]) || 0 } : null),
   ...(c.key === 'date' ? { placeholder: 'MM/DD/YYYY' } : null),
@@ -223,6 +250,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const [asked, setAsked] = useState(null);         // the question just sent
   useEffect(() => { if (initialEntry?.id) setOpenEntry({ id: initialEntry.id, no: initialEntry.no || '' }); }, [initialEntry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const closeEntry = () => { setOpenEntry(null); onEntryClosed?.(); };
+  const openLine = (r) => setOpenEntry({ id: r.entry_id, no: r.entry_no, line: r.line_id });
   const seq = useRef(0);
 
   // The person's own layout: which columns show and how wide. Since 10/24 it
@@ -230,11 +258,14 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   // `lines`) is the person's built-in default.
   const [prefs] = useAccountingPrefs();
   const layout = prefs.lines || {};
-  const viewColumns = useMemo(() => LINE_COLUMNS.map((c) => ({
+  // The running Balance is a drill-down's (one account, one period); a typed
+  // search across accounts has no balance to run.
+  const balanceOn = !!drill;
+  const viewColumns = useMemo(() => LINE_COLUMNS.filter((c) => !c.drillOnly || balanceOn).map((c) => ({
     ...c, ...(LINE_TYPES[c.key] || {}),
     off: !(layout.visible?.[c.key] ?? !c.off),
     width: Math.max(MIN_WIDTH, Number(layout.widths?.[c.key]) || c.width),
-  })), [layout.visible, layout.widths]);
+  })), [layout.visible, layout.widths, balanceOn]);
   // The grid uses the whole width it is given (Neil, Sep 25: "it should take up
   // much more screen"): whatever is left over on a wide monitor is shared out
   // over the text columns the reader has not sized by hand (Charmi, 09/29:
@@ -361,7 +392,13 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const allHere = !!all && all.key === readKey && !all.error;
   // The ledger narrows the lines by the report's filters (10/07); one that
   // does not yet hands back lines of other payees - those are left out here.
-  const loaded = allHere ? all.rows : data?.rows || [];
+  // The balance runs over every line of the drill-down, so it waits for all
+  // of them: one page that holds the whole result, or every page read.
+  const linesAll = allHere || (!!data && (data.rows || []).length >= (Number(data.total) || 0));
+  const loaded = useMemo(() => {
+    const got = allHere ? all.rows : data?.rows || [];
+    return balanceOn && linesAll ? withBalance(got) : got;
+  }, [allHere, all, data, balanceOn, linesAll]);
   const dimsMissed = !!effectiveDims && loaded.some((l) => !lineMatchesDims(l, effectiveDims));
   const base = useMemo(() => loaded.filter((l) => (!dimsMissed || lineMatchesDims(l, effectiveDims)) && passesOps(l)), [loaded, dimsMissed, effectiveDims, opKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // The boxes the ledger cannot apply (Memo, Project-Job, Item), checked here.
@@ -369,7 +406,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const view = useTableView('ledger-lines', viewColumns, boxed, { onOpen: () => setWantKey(searchKey) });
   const viewOn = view.count > 0;
   const narrowed = viewOn || localOn;     // the lines on screen are fewer than the search's
-  const engaged = narrowed || !!view.state.sort || wantAll;
+  const engaged = narrowed || !!view.state.sort || wantAll || balanceOn;
   // Everything is on screen already: the search fits on its first page, or all of it was read.
   const complete = allHere || (!!data && (data.rows || []).length >= total);
   const capped = engaged && total > ALL_CAP;
@@ -408,7 +445,9 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const sum = (key) => Math.round(view.rows.reduce((s, r) => s + (Number(r[key]) || 0), 0) * 100) / 100;
   // The figures over the lines: the view's own once it filters (Viral, 07:00:
   // "You can adjust the totals here"), else the ledger's for the whole search.
-  const shownTotals = narrowed && complete ? { lines: view.rows.length, debit: sum('debit'), credit: sum('credit') } : { lines: total, debit: Number(data?.debit) || 0, credit: Number(data?.credit) || 0 };
+  const lineTotals = narrowed && complete ? { lines: view.rows.length, debit: sum('debit'), credit: sum('credit') } : { lines: total, debit: Number(data?.debit) || 0, credit: Number(data?.credit) || 0 };
+  // The Balance column's total is where the balance ends: the lines' net.
+  const shownTotals = { ...lineTotals, balance: balanceOn && linesAll ? Math.round((lineTotals.debit - lineTotals.credit) * 100) / 100 : null };
   const lastPage = complete ? paged.page >= paged.pages : page + 1 >= pages;
 
   const columns = view.columns;
@@ -442,10 +481,11 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
         const d = await api.searchAccountingLedger({ ...params, offset, limit: 1000 });
         got.push(...(d?.rows || []).filter((l) => (!effectiveDims || lineMatchesDims(l, effectiveDims)) && passesOps(l)));
       }
-      const kept = applyView(filterRowsByColumns(got, local, LOCAL_FILTERS), viewColumns, state);
+      const kept = applyView(filterRowsByColumns(balanceOn ? withBalance(got) : got, local, LOCAL_FILTERS), viewColumns, state);
       const firstNum = columns.findIndex((c) => c.num);
       const labelAt = columns.findIndex((c) => !c.num);
-      const sums = Object.fromEntries(columns.filter((c) => c.num).map((c) => [c.key, kept.reduce((n, r) => n + (Number(r[c.key]) || 0), 0)]));
+      const net = (r) => (Number(r.debit) || 0) - (Number(r.credit) || 0);
+      const sums = Object.fromEntries(columns.filter((c) => c.num).map((c) => [c.key, kept.reduce((n, r) => n + (c.key === 'balance' ? net(r) : Number(r[c.key]) || 0), 0)]));
       return {
         title: `Ledger Lines - ${heading}`,
         period: periodText.replace(/\//g, '-'),
@@ -571,7 +611,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
 
           {isPhone ? (
             <div className="acct-lines-wrap" style={{ maxHeight: 'none', opacity: loading ? 0.6 : 1 }}>
-              {rows.map((r) => <LineCard key={r.line_id} r={r} onOpen={() => setOpenEntry({ id: r.entry_id, no: r.entry_no })} />)}
+              {rows.map((r) => <LineCard key={r.line_id} r={r} onOpen={() => openLine(r)} />)}
               {rows.length === 0 && <div style={{ padding: 16, fontSize: '0.84rem', color: 'var(--text-secondary)', textAlign: 'center' }}>No lines on this page.</div>}
             </div>
           ) : (
@@ -590,19 +630,22 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.line_id}>
+                  <tr key={r.line_id} className={r.entry_id ? `acct-line-opens${openEntry?.line === r.line_id ? ' is-open' : ''}` : undefined}
+                    onClick={r.entry_id ? (e) => { if (!e.target.closest('button, a, input, select')) openLine(r); } : undefined}
+                    title={r.entry_id ? 'Open the transaction behind this line' : undefined}>
                     {columns.map((c) => {
                       const text = c.text(r);
                       if (c.key === 'entry' && r.entry_id) {
                         return (
                           <td key={c.key} title={text}>
-                            <button type="button" className="acct-drill" onClick={() => setOpenEntry({ id: r.entry_id, no: r.entry_no })} title="Open this journal entry">{text || 'Open'}</button>
+                            <button type="button" className="acct-drill" onClick={() => openLine(r)} title="Open this journal entry">{text || 'Open'}</button>
                           </td>
                         );
                       }
                       if (c.key === 'account') {
                         return <td key={c.key} title={text}><span className="acct-code">{r.gl_code}</span>{r.account_name}</td>;
                       }
+                      if (c.key === 'balance') return <td key={c.key} className="acct-num">{r.balance == null ? '' : <Amount value={r.balance} />}</td>;
                       return <td key={c.key} className={c.num ? 'acct-num' : undefined} title={c.num ? undefined : text}>{c.num ? <Amount value={r[c.key]} zero="blank" /> : text}</td>;
                     })}
                     <td style={{ textAlign: 'center', padding: 0 }}><AskButton onClick={() => setAsking(lineFromSearch(r))} /></td>
@@ -616,7 +659,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                 {rows.length > 0 && lastPage && (
                   <tr className="acct-grand">
                     {columns.map((c, i) => (c.num
-                      ? <td key={c.key} className="acct-num"><Amount value={shownTotals[c.key]} /></td>
+                      ? <td key={c.key} className="acct-num">{shownTotals[c.key] == null ? '' : <Amount value={shownTotals[c.key]} />}</td>
                       : <td key={c.key} style={i === labelAt ? { overflow: 'visible' } : undefined}>{i === labelAt ? `Totals - ${shownTotals.lines.toLocaleString('en-US')} lines` : ''}</td>))}
                     <td />
                   </tr>
@@ -630,6 +673,11 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
               {opFilters.length > 0 && `${opFilters.map(({ c, f }) => opText(c.label, f)).join(', ')} ${total > PAGE ? `is checked on the ${loaded.length.toLocaleString('en-US')} lines loaded on this page, not the whole search` : 'is checked on the lines loaded here'}: ${rows.length.toLocaleString('en-US')} of ${loaded.length.toLocaleString('en-US')} pass. `}
               {dimsMissed && 'The ledger did not narrow these lines by every report filter, so lines that do not match are left out here. '}
               The line count and totals above are for the whole search{opFilters.length > 0 ? '; the export applies the same filter to every line' : ''}.
+            </div>
+          )}
+          {balanceOn && !linesAll && !readingAll && columns.some((c) => c.key === 'balance') && (
+            <div role="note" style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              The Balance column fills in once every line of this drill-down is read.
             </div>
           )}
           {capped && (
@@ -647,7 +695,8 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           )}
         </>
       ) : null}
-      {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={closeEntry} />}
+      {/* Keyed by entry: another line swaps the panel to its transaction. */}
+      {openEntry && <EntryDetail key={openEntry.id} entryId={openEntry.id} entryNo={openEntry.no} onClose={closeEntry} panel />}
       {asking && <AskAccountantDialog line={asking} onClose={() => setAsking(null)} onAsked={(t) => { setAsking(null); setAsked(t); }} />}
     </div>
   );

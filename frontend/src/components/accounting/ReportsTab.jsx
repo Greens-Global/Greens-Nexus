@@ -950,7 +950,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             </table>
           </div>
           <Pager {...pager} />
-          {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
+          {entry && <EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel />}
           {filterOn && (
             <div role="status" style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <span>Filtered to {matchedCount.toLocaleString('en-US')} {matchedCount === 1 ? 'row' : 'rows'}. Section and grand totals are for the whole report.</span>
