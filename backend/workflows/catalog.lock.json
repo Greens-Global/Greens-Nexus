@@ -41,6 +41,175 @@
     },
     {
       "adminOnly": false,
+      "key": "hr.add_note",
+      "label": "Add A Note To The Record",
+      "module": "hr",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "note",
+          "label": "Note",
+          "max": 1000,
+          "options": null,
+          "required": true,
+          "type": "template"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "hr.create_letter_request",
+      "label": "Request An HR Letter",
+      "module": "hr",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "template",
+          "label": "Letter",
+          "max": null,
+          "options": [
+            {
+              "label": "Employment Verification",
+              "value": "employment_verification"
+            },
+            {
+              "label": "Salary Certificate",
+              "value": "salary_certificate"
+            },
+            {
+              "label": "Experience Letter",
+              "value": "experience_letter"
+            },
+            {
+              "label": "Address Proof",
+              "value": "address_proof"
+            },
+            {
+              "label": "Visa NOC",
+              "value": "visa_noc"
+            }
+          ],
+          "required": true,
+          "type": "entity_ref"
+        },
+        {
+          "default": null,
+          "hint": "What the letter is for - HR reads it.",
+          "key": "note",
+          "label": "Purpose",
+          "max": 500,
+          "options": null,
+          "required": false,
+          "type": "template"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "hr.set_custom_field",
+      "label": "Set A Custom Field",
+      "module": "hr",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "field",
+          "label": "Field",
+          "max": null,
+          "options": [],
+          "required": true,
+          "type": "select"
+        },
+        {
+          "default": null,
+          "hint": "Blank clears it. {{ fields }} are filled in.",
+          "key": "value",
+          "label": "Value",
+          "max": 500,
+          "options": null,
+          "required": false,
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "hr.start_checklist",
+      "label": "Start An HR Checklist",
+      "module": "hr",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "A kind starts the person's company template; a named template starts that one.",
+          "key": "template",
+          "label": "Checklist",
+          "max": null,
+          "options": [
+            {
+              "label": "Onboarding (the company's template)",
+              "value": "onboarding"
+            },
+            {
+              "label": "Promotion (the company's template)",
+              "value": "promotion"
+            },
+            {
+              "label": "Offboarding (the company's template)",
+              "value": "offboarding"
+            },
+            {
+              "label": "Leave or Suspension (the company's template)",
+              "value": "inactive"
+            }
+          ],
+          "required": true,
+          "type": "entity_ref"
+        },
+        {
+          "default": null,
+          "hint": "Offboarding only.",
+          "key": "exit_type",
+          "label": "Exit Type",
+          "max": null,
+          "options": [
+            {
+              "label": "resignation",
+              "value": "resignation"
+            },
+            {
+              "label": "resignation_no_notice",
+              "value": "resignation_no_notice"
+            },
+            {
+              "label": "termination",
+              "value": "termination"
+            },
+            {
+              "label": "end_of_contract",
+              "value": "end_of_contract"
+            },
+            {
+              "label": "retirement",
+              "value": "retirement"
+            },
+            {
+              "label": "death",
+              "value": "death"
+            }
+          ],
+          "required": false,
+          "type": "select"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
       "key": "notify",
       "label": "Send A Notification",
       "module": "core",
@@ -90,6 +259,201 @@
     },
     {
       "adminOnly": false,
+      "key": "task.assign",
+      "label": "Assign Task",
+      "module": "tasks",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "to",
+          "label": "Assign To",
+          "max": null,
+          "options": null,
+          "required": true,
+          "type": "recipients"
+        },
+        {
+          "default": "add",
+          "hint": "",
+          "key": "mode",
+          "label": "Mode",
+          "max": null,
+          "options": [
+            {
+              "label": "Add To The Assignees",
+              "value": "add"
+            },
+            {
+              "label": "Replace The Assignees",
+              "value": "replace"
+            }
+          ],
+          "required": false,
+          "type": "select"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "task.comment",
+      "label": "Add Comment",
+      "module": "tasks",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "text",
+          "label": "Comment",
+          "max": 5000,
+          "options": null,
+          "required": true,
+          "type": "template"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "task.create",
+      "label": "Create Task",
+      "module": "tasks",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "title",
+          "label": "Title",
+          "max": 200,
+          "options": null,
+          "required": true,
+          "type": "template"
+        },
+        {
+          "default": null,
+          "hint": "",
+          "key": "description",
+          "label": "Description",
+          "max": 5000,
+          "options": null,
+          "required": false,
+          "type": "template"
+        },
+        {
+          "default": null,
+          "hint": "Leave blank for a task with no project",
+          "key": "project",
+          "label": "Project",
+          "max": null,
+          "options": "task_projects",
+          "required": false,
+          "type": "entity_ref"
+        },
+        {
+          "default": null,
+          "hint": "The first person resolved",
+          "key": "assignee",
+          "label": "Assign To",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "recipients"
+        },
+        {
+          "default": null,
+          "hint": "",
+          "key": "dueInDays",
+          "label": "Due In Days",
+          "max": 3650,
+          "options": null,
+          "required": false,
+          "type": "number"
+        },
+        {
+          "default": "medium",
+          "hint": "",
+          "key": "priority",
+          "label": "Priority",
+          "max": null,
+          "options": [
+            {
+              "label": "Low",
+              "value": "low"
+            },
+            {
+              "label": "Medium",
+              "value": "medium"
+            },
+            {
+              "label": "High",
+              "value": "high"
+            },
+            {
+              "label": "Urgent",
+              "value": "urgent"
+            }
+          ],
+          "required": false,
+          "type": "select"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "task.set_field",
+      "label": "Set Task Field",
+      "module": "tasks",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "field",
+          "label": "Field",
+          "max": null,
+          "options": [
+            {
+              "label": "Status",
+              "value": "status"
+            },
+            {
+              "label": "Priority",
+              "value": "priority"
+            },
+            {
+              "label": "Custom Field",
+              "value": "custom_field"
+            }
+          ],
+          "required": true,
+          "type": "select"
+        },
+        {
+          "default": null,
+          "hint": "Only for Custom Field",
+          "key": "customFieldId",
+          "label": "Custom Field",
+          "max": null,
+          "options": "task_custom_fields",
+          "required": false,
+          "type": "entity_ref"
+        },
+        {
+          "default": null,
+          "hint": "",
+          "key": "value",
+          "label": "Value",
+          "max": 500,
+          "options": null,
+          "required": true,
+          "type": "template"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
       "key": "teams",
       "label": "Post To Teams",
       "module": "core",
@@ -133,6 +497,262 @@
       ]
     },
     {
+      "adminOnly": false,
+      "key": "ticket.assign",
+      "label": "Assign Ticket",
+      "module": "tickets",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "The first person resolved",
+          "key": "to",
+          "label": "Assign To",
+          "max": null,
+          "options": null,
+          "required": true,
+          "type": "recipients"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "ticket.comment",
+      "label": "Add Ticket Comment",
+      "module": "tickets",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "text",
+          "label": "Comment",
+          "max": 5000,
+          "options": null,
+          "required": true,
+          "type": "template"
+        },
+        {
+          "default": false,
+          "hint": "Seen by the service desk only",
+          "key": "internal",
+          "label": "Internal Note",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "ticket.create",
+      "label": "Create Ticket",
+      "module": "tickets",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "subject",
+          "label": "Subject",
+          "max": 200,
+          "options": null,
+          "required": true,
+          "type": "template"
+        },
+        {
+          "default": null,
+          "hint": "",
+          "key": "description",
+          "label": "Description",
+          "max": 5000,
+          "options": null,
+          "required": false,
+          "type": "template"
+        },
+        {
+          "default": "other",
+          "hint": "",
+          "key": "type",
+          "label": "Type",
+          "max": null,
+          "options": [
+            {
+              "label": "Incident",
+              "value": "incident"
+            },
+            {
+              "label": "Bug",
+              "value": "bug"
+            },
+            {
+              "label": "Feature Request",
+              "value": "feature_request"
+            },
+            {
+              "label": "Access Request",
+              "value": "access_request"
+            },
+            {
+              "label": "Other",
+              "value": "other"
+            }
+          ],
+          "required": false,
+          "type": "select"
+        },
+        {
+          "default": "medium",
+          "hint": "",
+          "key": "priority",
+          "label": "Priority",
+          "max": null,
+          "options": [
+            {
+              "label": "Urgent",
+              "value": "urgent"
+            },
+            {
+              "label": "High",
+              "value": "high"
+            },
+            {
+              "label": "Medium",
+              "value": "medium"
+            },
+            {
+              "label": "Low",
+              "value": "low"
+            }
+          ],
+          "required": false,
+          "type": "select"
+        },
+        {
+          "default": null,
+          "hint": "Who the ticket is for - blank files it for the run-as person",
+          "key": "requester",
+          "label": "For",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "recipients"
+        },
+        {
+          "default": null,
+          "hint": "Service desk only",
+          "key": "assignee",
+          "label": "Assign To",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "recipients"
+        },
+        {
+          "default": null,
+          "hint": "",
+          "key": "department",
+          "label": "Department",
+          "max": null,
+          "options": "ticket_departments",
+          "required": false,
+          "type": "entity_ref"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "ticket.request_approval",
+      "label": "Request Ticket Approval",
+      "module": "tickets",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "The first person resolved",
+          "key": "approver",
+          "label": "Approver",
+          "max": null,
+          "options": null,
+          "required": true,
+          "type": "recipients"
+        },
+        {
+          "default": null,
+          "hint": "",
+          "key": "note",
+          "label": "Note",
+          "max": 1000,
+          "options": null,
+          "required": false,
+          "type": "template"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "ticket.set_status",
+      "label": "Set Ticket Status",
+      "module": "tickets",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "status",
+          "label": "Status",
+          "max": null,
+          "options": [
+            {
+              "label": "Open",
+              "value": "open"
+            },
+            {
+              "label": "In Progress",
+              "value": "in_progress"
+            },
+            {
+              "label": "Waiting For User",
+              "value": "waiting_user"
+            },
+            {
+              "label": "Waiting For Vendor",
+              "value": "waiting_vendor"
+            },
+            {
+              "label": "On Hold",
+              "value": "on_hold"
+            },
+            {
+              "label": "Resolved",
+              "value": "resolved"
+            },
+            {
+              "label": "Closed",
+              "value": "closed"
+            },
+            {
+              "label": "Reopened",
+              "value": "reopened"
+            }
+          ],
+          "required": true,
+          "type": "select"
+        },
+        {
+          "default": null,
+          "hint": "Required by the desk when resolving or closing",
+          "key": "note",
+          "label": "Resolution Note",
+          "max": 2000,
+          "options": null,
+          "required": false,
+          "type": "template"
+        }
+      ]
+    },
+    {
       "adminOnly": true,
       "key": "webhook",
       "label": "Call A Webhook",
@@ -163,6 +783,160 @@
     }
   ],
   "entities": [
+    {
+      "dates": [
+        {
+          "key": "expected_start",
+          "label": "Expected Start",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "first_name",
+          "label": "First Name",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "last_name",
+          "label": "Last Name",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "email",
+          "label": "Personal Email",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "role_title",
+          "label": "Role",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "department",
+          "label": "Department",
+          "options": "departments",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "stage",
+          "label": "Stage",
+          "options": [
+            {
+              "label": "Applied",
+              "value": "applied"
+            },
+            {
+              "label": "Screening",
+              "value": "screening"
+            },
+            {
+              "label": "Interview",
+              "value": "interview"
+            },
+            {
+              "label": "Decision",
+              "value": "decision"
+            },
+            {
+              "label": "Offer",
+              "value": "offer"
+            },
+            {
+              "label": "Hired",
+              "value": "hired"
+            },
+            {
+              "label": "Rejected",
+              "value": "rejected"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "expected_start",
+          "label": "Expected Start",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "source",
+          "label": "Source",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "company",
+          "label": "Company",
+          "options": "companies",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "location",
+          "label": "Location",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "decision",
+          "label": "Decision",
+          "options": [
+            {
+              "label": "None",
+              "value": ""
+            },
+            {
+              "label": "Hire",
+              "value": "hire"
+            },
+            {
+              "label": "Reject",
+              "value": "reject"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "created_by",
+          "label": "Added By",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "applied_at",
+          "label": "Applied On",
+          "type": "datetime",
+          "visibility": "all"
+        }
+      ],
+      "key": "candidate",
+      "label": "Candidate",
+      "module": "hr",
+      "people": [
+        {
+          "key": "creator",
+          "label": "Creator"
+        },
+        {
+          "key": "hr_contact",
+          "label": "HR Contact"
+        }
+      ]
+    },
     {
       "dates": [],
       "fields": [
@@ -215,6 +989,16 @@
           "key": "birthday",
           "label": "Birthday",
           "yearly": true
+        },
+        {
+          "key": "probation.end",
+          "label": "Probation End",
+          "yearly": false
+        },
+        {
+          "key": "contract_end",
+          "label": "Contract End",
+          "yearly": false
         }
       ],
       "fields": [
@@ -322,6 +1106,90 @@
           "label": "Birthday",
           "type": "date",
           "visibility": "hr"
+        },
+        {
+          "key": "probation.status",
+          "label": "Probation Status",
+          "options": [
+            {
+              "label": "Not Tracked",
+              "value": ""
+            },
+            {
+              "label": "In Probation",
+              "value": "in_probation"
+            },
+            {
+              "label": "Extended",
+              "value": "extended"
+            },
+            {
+              "label": "Confirmed",
+              "value": "confirmed"
+            },
+            {
+              "label": "Ended",
+              "value": "ended"
+            },
+            {
+              "label": "Stopped",
+              "value": "stopped"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "probation.start",
+          "label": "Probation Start",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "probation.end",
+          "label": "Probation End",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "contract_end",
+          "label": "Contract End",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "pay.base",
+          "label": "Base Pay",
+          "type": "money",
+          "visibility": "comp"
+        },
+        {
+          "key": "pay.basis",
+          "label": "Pay Basis",
+          "options": [
+            {
+              "label": "Salary",
+              "value": "salary"
+            },
+            {
+              "label": "Hourly",
+              "value": "hourly"
+            }
+          ],
+          "type": "select",
+          "visibility": "comp"
+        },
+        {
+          "key": "pay.frequency",
+          "label": "Pay Frequency",
+          "type": "text",
+          "visibility": "comp"
+        },
+        {
+          "key": "pay.currency",
+          "label": "Pay Currency",
+          "type": "text",
+          "visibility": "comp"
         }
       ],
       "key": "employee",
@@ -341,15 +1209,2250 @@
           "label": "HR Contact"
         }
       ]
+    },
+    {
+      "dates": [
+        {
+          "key": "date",
+          "label": "Day Worked",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "name",
+          "label": "Claim",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "employee",
+          "label": "Person",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "company",
+          "label": "Company",
+          "options": "companies",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "date",
+          "label": "Day Worked",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "period_start",
+          "label": "Month",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "claimed_min",
+          "label": "Minutes Claimed",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "approved_min",
+          "label": "Minutes Approved",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "note",
+          "label": "What Was Done",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Pending",
+              "value": "pending"
+            },
+            {
+              "label": "Approved",
+              "value": "approved"
+            },
+            {
+              "label": "Declined",
+              "value": "declined"
+            },
+            {
+              "label": "Withdrawn",
+              "value": "withdrawn"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "decision_note",
+          "label": "Decision Note",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "decided_by",
+          "label": "Decided By",
+          "type": "person",
+          "visibility": "all"
+        }
+      ],
+      "key": "extra_time_claim",
+      "label": "Extra Time Claim",
+      "module": "hr",
+      "people": [
+        {
+          "key": "self",
+          "label": "The Person"
+        },
+        {
+          "key": "manager",
+          "label": "Manager"
+        },
+        {
+          "key": "hr_contact",
+          "label": "HR Contact"
+        },
+        {
+          "key": "approver",
+          "label": "Approver"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "target_start",
+          "label": "Target Start",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "name",
+          "label": "Request",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "code",
+          "label": "Code",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "company",
+          "label": "Company",
+          "options": "companies",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "department",
+          "label": "Department",
+          "options": "departments",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "role_title",
+          "label": "Role",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "location",
+          "label": "Location",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "employment_type",
+          "label": "Employment Type",
+          "options": [
+            {
+              "label": "Full Time",
+              "value": "full_time"
+            },
+            {
+              "label": "Part Time",
+              "value": "part_time"
+            },
+            {
+              "label": "Contractor",
+              "value": "contractor"
+            },
+            {
+              "label": "Intern",
+              "value": "intern"
+            },
+            {
+              "label": "Temporary",
+              "value": "temporary"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "openings",
+          "label": "Openings",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "target_start",
+          "label": "Target Start",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Draft",
+              "value": "draft"
+            },
+            {
+              "label": "Awaiting Approval",
+              "value": "awaiting_approval"
+            },
+            {
+              "label": "Approved",
+              "value": "approved"
+            },
+            {
+              "label": "Declined",
+              "value": "declined"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "step",
+          "label": "Waiting On",
+          "options": [
+            {
+              "label": "Nobody",
+              "value": ""
+            },
+            {
+              "label": "Department",
+              "value": "department"
+            },
+            {
+              "label": "HR",
+              "value": "hr"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "justification",
+          "label": "Justification",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "requested_by",
+          "label": "Requested By",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "decline_note",
+          "label": "Decline Note",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "salary_min",
+          "label": "Salary Min",
+          "type": "money",
+          "visibility": "comp"
+        },
+        {
+          "key": "salary_max",
+          "label": "Salary Max",
+          "type": "money",
+          "visibility": "comp"
+        }
+      ],
+      "key": "headcount_request",
+      "label": "Headcount Request",
+      "module": "hr",
+      "people": [
+        {
+          "key": "requester",
+          "label": "Requester"
+        },
+        {
+          "key": "hr_contact",
+          "label": "HR Contact"
+        },
+        {
+          "key": "approvers",
+          "label": "Department Approvers"
+        }
+      ]
+    },
+    {
+      "dates": [],
+      "fields": [
+        {
+          "key": "item_name",
+          "label": "Item",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Pending Acceptance",
+              "value": "pending_acceptance"
+            },
+            {
+              "label": "Active",
+              "value": "active"
+            },
+            {
+              "label": "Return Initiated",
+              "value": "return_initiated"
+            },
+            {
+              "label": "Closed",
+              "value": "closed"
+            },
+            {
+              "label": "Declined",
+              "value": "declined"
+            },
+            {
+              "label": "Cancelled",
+              "value": "cancelled"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "assignee_email",
+          "label": "Assignee",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "assignee_name",
+          "label": "Assignee (Name)",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "assigned_by_email",
+          "label": "Assigned By",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "return_reason",
+          "label": "Return Reason",
+          "options": [
+            {
+              "label": "None",
+              "value": ""
+            },
+            {
+              "label": "Normal",
+              "value": "normal"
+            },
+            {
+              "label": "Dead",
+              "value": "dead"
+            },
+            {
+              "label": "Lost",
+              "value": "lost"
+            },
+            {
+              "label": "Reassign",
+              "value": "reassign"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "disposition",
+          "label": "Disposition",
+          "options": [
+            {
+              "label": "None",
+              "value": ""
+            },
+            {
+              "label": "Back to Stock",
+              "value": "stock"
+            },
+            {
+              "label": "Retired",
+              "value": "retired"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "next_assignee_email",
+          "label": "Next Assignee",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "created_at",
+          "label": "Assigned At",
+          "type": "datetime",
+          "visibility": "all"
+        },
+        {
+          "key": "accepted_at",
+          "label": "Accepted At",
+          "type": "datetime",
+          "visibility": "all"
+        },
+        {
+          "key": "return_initiated_at",
+          "label": "Return Started At",
+          "type": "datetime",
+          "visibility": "all"
+        },
+        {
+          "key": "return_accepted_at",
+          "label": "Return Accepted At",
+          "type": "datetime",
+          "visibility": "all"
+        }
+      ],
+      "key": "item_assignment",
+      "label": "Item Assignment",
+      "module": "items",
+      "people": [
+        {
+          "key": "self",
+          "label": "Assignee"
+        },
+        {
+          "key": "manager",
+          "label": "Manager"
+        },
+        {
+          "key": "assigned_by",
+          "label": "Assigned By"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "due_date",
+          "label": "Due Date",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "item_name",
+          "label": "Item",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "item_type",
+          "label": "Item Type",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Pending",
+              "value": "pending"
+            },
+            {
+              "label": "Approved",
+              "value": "approved"
+            },
+            {
+              "label": "Pending Receipt",
+              "value": "pending_receipt"
+            },
+            {
+              "label": "Allocated",
+              "value": "allocated"
+            },
+            {
+              "label": "Returned",
+              "value": "returned"
+            },
+            {
+              "label": "Rejected",
+              "value": "rejected"
+            },
+            {
+              "label": "Cancelled",
+              "value": "cancelled"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "requested_by_email",
+          "label": "Requested By",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "requested_by",
+          "label": "Requested By (Name)",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "department",
+          "label": "Department",
+          "options": "departments",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "days",
+          "label": "Days",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "reason",
+          "label": "Reason",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "due_date",
+          "label": "Due Date",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "created_at",
+          "label": "Requested At",
+          "type": "datetime",
+          "visibility": "all"
+        },
+        {
+          "key": "handed_over_at",
+          "label": "Handed Over At",
+          "type": "datetime",
+          "visibility": "all"
+        },
+        {
+          "key": "returned_at",
+          "label": "Returned At",
+          "type": "datetime",
+          "visibility": "all"
+        },
+        {
+          "key": "approver_email",
+          "label": "Approver",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "assigned_allocator_email",
+          "label": "Allocator",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "extension_days",
+          "label": "Extension Days",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "extension_status",
+          "label": "Extension",
+          "options": [
+            {
+              "label": "None",
+              "value": ""
+            },
+            {
+              "label": "Pending",
+              "value": "pending"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        }
+      ],
+      "key": "item_checkout",
+      "label": "Item Checkout",
+      "module": "items",
+      "people": [
+        {
+          "key": "self",
+          "label": "Requester"
+        },
+        {
+          "key": "manager",
+          "label": "Manager"
+        },
+        {
+          "key": "approver",
+          "label": "Approver"
+        },
+        {
+          "key": "allocator",
+          "label": "Allocator"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "needed_by",
+          "label": "Needed By",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "name",
+          "label": "Request",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "employee",
+          "label": "Person",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "employee_name",
+          "label": "Person Name",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "company",
+          "label": "Company",
+          "options": "companies",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "letter_type",
+          "label": "Letter",
+          "options": [
+            {
+              "label": "Employment Verification",
+              "value": "employment_verification"
+            },
+            {
+              "label": "Salary Certificate",
+              "value": "salary_certificate"
+            },
+            {
+              "label": "Experience Letter",
+              "value": "experience_letter"
+            },
+            {
+              "label": "Address Proof",
+              "value": "address_proof"
+            },
+            {
+              "label": "Visa NOC",
+              "value": "visa_noc"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "purpose",
+          "label": "Purpose",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "addressed_to",
+          "label": "Addressed To",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "needed_by",
+          "label": "Needed By",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Requested",
+              "value": "requested"
+            },
+            {
+              "label": "In Review",
+              "value": "in_review"
+            },
+            {
+              "label": "Awaiting Signature",
+              "value": "awaiting_signature"
+            },
+            {
+              "label": "Issued",
+              "value": "issued"
+            },
+            {
+              "label": "Declined",
+              "value": "declined"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "decline_reason",
+          "label": "Decline Reason",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "reviewed_by",
+          "label": "Reviewed By",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "issued_by",
+          "label": "Issued By",
+          "type": "person",
+          "visibility": "all"
+        }
+      ],
+      "key": "letter_request",
+      "label": "Letter Request",
+      "module": "hr",
+      "people": [
+        {
+          "key": "self",
+          "label": "The Person"
+        },
+        {
+          "key": "manager",
+          "label": "Manager"
+        },
+        {
+          "key": "hr_contact",
+          "label": "HR Contact"
+        },
+        {
+          "key": "approver",
+          "label": "Approver"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "effective_date",
+          "label": "Effective Date",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "name",
+          "label": "Event",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "kind",
+          "label": "Kind",
+          "options": [
+            {
+              "label": "Offer",
+              "value": "offer"
+            },
+            {
+              "label": "Hire",
+              "value": "hire"
+            },
+            {
+              "label": "Promotion",
+              "value": "promotion"
+            },
+            {
+              "label": "Role Change",
+              "value": "role_change"
+            },
+            {
+              "label": "Separation",
+              "value": "separation"
+            },
+            {
+              "label": "Probation",
+              "value": "probation"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Awaiting Sender",
+              "value": "awaiting_sender"
+            },
+            {
+              "label": "Sent",
+              "value": "sent"
+            },
+            {
+              "label": "Completed",
+              "value": "completed"
+            },
+            {
+              "label": "Declined",
+              "value": "declined"
+            },
+            {
+              "label": "Voided",
+              "value": "voided"
+            },
+            {
+              "label": "Expired",
+              "value": "expired"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "subject_name",
+          "label": "Person Name",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "subject_email",
+          "label": "Sent To",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "company",
+          "label": "Company",
+          "options": "companies",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "effective_date",
+          "label": "Effective Date",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "apply_status",
+          "label": "Applied",
+          "options": [
+            {
+              "label": "Not Scheduled",
+              "value": ""
+            },
+            {
+              "label": "Scheduled",
+              "value": "scheduled"
+            },
+            {
+              "label": "Applied",
+              "value": "applied"
+            },
+            {
+              "label": "Canceled",
+              "value": "canceled"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "created_by",
+          "label": "Started By",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "completed_at",
+          "label": "Completed At",
+          "type": "datetime",
+          "visibility": "all"
+        }
+      ],
+      "key": "life_event",
+      "label": "Life Event",
+      "module": "hr",
+      "people": [
+        {
+          "key": "self",
+          "label": "The Person"
+        },
+        {
+          "key": "manager",
+          "label": "Manager"
+        },
+        {
+          "key": "hr_contact",
+          "label": "HR Contact"
+        },
+        {
+          "key": "creator",
+          "label": "Creator"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "local_date",
+          "label": "Day",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "employee",
+          "label": "Person",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "kind",
+          "label": "Kind",
+          "options": [
+            {
+              "label": "In",
+              "value": "in"
+            },
+            {
+              "label": "Out",
+              "value": "out"
+            },
+            {
+              "label": "Break Start",
+              "value": "break_start"
+            },
+            {
+              "label": "Break End",
+              "value": "break_end"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "at",
+          "label": "Time",
+          "type": "datetime",
+          "visibility": "all"
+        },
+        {
+          "key": "local_date",
+          "label": "Day",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "category",
+          "label": "Job Category",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "work_site_name",
+          "label": "Site",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "geo_status",
+          "label": "Location Check",
+          "options": [
+            {
+              "label": "At the Site",
+              "value": "in_fence"
+            },
+            {
+              "label": "Away From the Site",
+              "value": "out_of_fence"
+            },
+            {
+              "label": "No Location",
+              "value": "no_location"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "source",
+          "label": "Source",
+          "options": [
+            {
+              "label": "Clock",
+              "value": "web"
+            },
+            {
+              "label": "Missed Punch Fix",
+              "value": "self_manual"
+            },
+            {
+              "label": "Manager",
+              "value": "manual"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "note",
+          "label": "Note",
+          "type": "text",
+          "visibility": "all"
+        }
+      ],
+      "key": "punch",
+      "label": "Punch",
+      "module": "time",
+      "people": [
+        {
+          "key": "self",
+          "label": "The Person"
+        },
+        {
+          "key": "manager",
+          "label": "Manager"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "paid_on",
+          "label": "Paid On",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "name",
+          "label": "Advance",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "employee",
+          "label": "Person",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "employee_name",
+          "label": "Person Name",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "company",
+          "label": "Company",
+          "options": "companies",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "amount",
+          "label": "Amount",
+          "type": "money",
+          "visibility": "comp"
+        },
+        {
+          "key": "currency",
+          "label": "Currency",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "reason",
+          "label": "Reason",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "installments",
+          "label": "Installments",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Requested",
+              "value": "requested"
+            },
+            {
+              "label": "Approved",
+              "value": "approved"
+            },
+            {
+              "label": "Declined",
+              "value": "declined"
+            },
+            {
+              "label": "Paid Out",
+              "value": "paid_out"
+            },
+            {
+              "label": "Repaying",
+              "value": "repaying"
+            },
+            {
+              "label": "Repaid",
+              "value": "repaid"
+            },
+            {
+              "label": "Canceled",
+              "value": "canceled"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "source",
+          "label": "Source",
+          "options": [
+            {
+              "label": "Requested",
+              "value": "request"
+            },
+            {
+              "label": "Granted By HR",
+              "value": "grant"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "requested_by",
+          "label": "Requested By",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "decided_by",
+          "label": "Decided By",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "decision_note",
+          "label": "Decision Note",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "paid_on",
+          "label": "Paid On",
+          "type": "date",
+          "visibility": "all"
+        }
+      ],
+      "key": "salary_advance",
+      "label": "Salary Advance",
+      "module": "hr",
+      "people": [
+        {
+          "key": "self",
+          "label": "The Person"
+        },
+        {
+          "key": "manager",
+          "label": "Manager"
+        },
+        {
+          "key": "hr_contact",
+          "label": "HR Contact"
+        },
+        {
+          "key": "approver",
+          "label": "Approver"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "work_date",
+          "label": "Day",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "employee",
+          "label": "Person",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "work_date",
+          "label": "Day",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "start",
+          "label": "Start",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "end",
+          "label": "End",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "label",
+          "label": "Label",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "shift_id",
+          "label": "Shift Type",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "group_id",
+          "label": "Team",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Draft",
+              "value": "draft"
+            },
+            {
+              "label": "Shared",
+              "value": "shared"
+            },
+            {
+              "label": "Open",
+              "value": "open"
+            },
+            {
+              "label": "Cancelled",
+              "value": "cancelled"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "open_slots",
+          "label": "Open Slots",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "break_min",
+          "label": "Break Minutes",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "timezone",
+          "label": "Time Zone",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "weather_status",
+          "label": "Weather Outcome",
+          "options": [
+            {
+              "label": "None",
+              "value": ""
+            },
+            {
+              "label": "Cancelled",
+              "value": "cancelled"
+            },
+            {
+              "label": "Delayed",
+              "value": "delayed"
+            },
+            {
+              "label": "Shortened",
+              "value": "shortened"
+            },
+            {
+              "label": "Moved",
+              "value": "moved"
+            },
+            {
+              "label": "Kept",
+              "value": "kept"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "note",
+          "label": "Note",
+          "type": "text",
+          "visibility": "all"
+        }
+      ],
+      "key": "shift",
+      "label": "Shift",
+      "module": "shifts",
+      "people": [
+        {
+          "key": "self",
+          "label": "The Person"
+        },
+        {
+          "key": "manager",
+          "label": "Manager"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "work_date",
+          "label": "Day",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "group_id",
+          "label": "Team",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "work_date",
+          "label": "Day",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "recipient",
+          "label": "Told",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "first_at",
+          "label": "First Noticed",
+          "type": "datetime",
+          "visibility": "all"
+        },
+        {
+          "key": "last_at",
+          "label": "Last Updated",
+          "type": "datetime",
+          "visibility": "all"
+        },
+        {
+          "key": "resolved_at",
+          "label": "Resolved",
+          "type": "datetime",
+          "visibility": "all"
+        }
+      ],
+      "key": "shift_no_show",
+      "label": "No-Show Alert",
+      "module": "shifts",
+      "people": [
+        {
+          "key": "recipient",
+          "label": "Manager Told"
+        },
+        {
+          "key": "missing",
+          "label": "People Not In"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "due_date",
+          "label": "Due Date",
+          "yearly": false
+        },
+        {
+          "key": "start_date",
+          "label": "Start Date",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "code",
+          "label": "Code",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": "task_statuses",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "priority",
+          "label": "Priority",
+          "options": [
+            {
+              "label": "Low",
+              "value": "low"
+            },
+            {
+              "label": "Medium",
+              "value": "medium"
+            },
+            {
+              "label": "High",
+              "value": "high"
+            },
+            {
+              "label": "Urgent",
+              "value": "urgent"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "type",
+          "label": "Type",
+          "options": [
+            {
+              "label": "Task",
+              "value": "task"
+            },
+            {
+              "label": "Subtask",
+              "value": "subtask"
+            },
+            {
+              "label": "Milestone",
+              "value": "milestone"
+            },
+            {
+              "label": "Approval",
+              "value": "approval"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "project",
+          "label": "Project",
+          "options": "task_projects",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "assignees",
+          "label": "Assignees",
+          "type": "people",
+          "visibility": "all"
+        },
+        {
+          "key": "owner",
+          "label": "Owner",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "creator",
+          "label": "Creator",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "due_date",
+          "label": "Due Date",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "start_date",
+          "label": "Start Date",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "tags",
+          "label": "Labels",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "completed",
+          "label": "Completed",
+          "type": "bool",
+          "visibility": "all"
+        }
+      ],
+      "key": "task",
+      "label": "Task",
+      "module": "tasks",
+      "people": [
+        {
+          "key": "self",
+          "label": "The Person (Task Owner)"
+        },
+        {
+          "key": "assignees",
+          "label": "Assignees"
+        },
+        {
+          "key": "owner",
+          "label": "Task Owner"
+        },
+        {
+          "key": "creator",
+          "label": "Creator"
+        },
+        {
+          "key": "followers",
+          "label": "Followers"
+        },
+        {
+          "key": "project_owner",
+          "label": "Project Owner"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "created_at",
+          "label": "Filed At",
+          "yearly": false
+        },
+        {
+          "key": "sla_due",
+          "label": "SLA Due",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "title",
+          "label": "Subject",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "code",
+          "label": "Code",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Open",
+              "value": "open"
+            },
+            {
+              "label": "In Progress",
+              "value": "in_progress"
+            },
+            {
+              "label": "Waiting For User",
+              "value": "waiting_user"
+            },
+            {
+              "label": "Waiting For Vendor",
+              "value": "waiting_vendor"
+            },
+            {
+              "label": "On Hold",
+              "value": "on_hold"
+            },
+            {
+              "label": "Resolved",
+              "value": "resolved"
+            },
+            {
+              "label": "Closed",
+              "value": "closed"
+            },
+            {
+              "label": "Reopened",
+              "value": "reopened"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "priority",
+          "label": "Priority",
+          "options": [
+            {
+              "label": "Urgent",
+              "value": "urgent"
+            },
+            {
+              "label": "High",
+              "value": "high"
+            },
+            {
+              "label": "Medium",
+              "value": "medium"
+            },
+            {
+              "label": "Low",
+              "value": "low"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "type",
+          "label": "Type",
+          "options": "ticket_types",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "department",
+          "label": "Department",
+          "options": "ticket_departments",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "assignee",
+          "label": "Assignee",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "requester",
+          "label": "Requester",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "created_at",
+          "label": "Filed At",
+          "type": "datetime",
+          "visibility": "all"
+        },
+        {
+          "key": "sla_due",
+          "label": "SLA Due",
+          "type": "datetime",
+          "visibility": "all"
+        },
+        {
+          "key": "approval_status",
+          "label": "Approval",
+          "options": [
+            {
+              "label": "Not Needed",
+              "value": "none"
+            },
+            {
+              "label": "Pending",
+              "value": "pending"
+            },
+            {
+              "label": "Approved",
+              "value": "approved"
+            },
+            {
+              "label": "Rejected",
+              "value": "rejected"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "application",
+          "label": "Application",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "confidential_desk",
+          "label": "Confidential Desk",
+          "options": [
+            {
+              "label": "Not Confidential",
+              "value": ""
+            },
+            {
+              "label": "HR",
+              "value": "hr"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        }
+      ],
+      "key": "ticket",
+      "label": "Ticket",
+      "module": "tickets",
+      "people": [
+        {
+          "key": "self",
+          "label": "The Person (Requester)"
+        },
+        {
+          "key": "assignee",
+          "label": "Assignee"
+        },
+        {
+          "key": "requester",
+          "label": "Requester"
+        },
+        {
+          "key": "participants",
+          "label": "Participants"
+        },
+        {
+          "key": "creator",
+          "label": "Filed By"
+        },
+        {
+          "key": "approver",
+          "label": "Approver"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "start",
+          "label": "Start",
+          "yearly": false
+        },
+        {
+          "key": "end",
+          "label": "End",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "name",
+          "label": "Request",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "employee",
+          "label": "Person",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "type",
+          "label": "Type",
+          "options": [
+            {
+              "label": "Vacation",
+              "value": "vacation"
+            },
+            {
+              "label": "Sick",
+              "value": "sick"
+            },
+            {
+              "label": "Personal",
+              "value": "personal"
+            },
+            {
+              "label": "Unpaid",
+              "value": "unpaid"
+            },
+            {
+              "label": "Other",
+              "value": "other"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "start",
+          "label": "Start",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "end",
+          "label": "End",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "days",
+          "label": "Days",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Pending",
+              "value": "pending"
+            },
+            {
+              "label": "Approved",
+              "value": "approved"
+            },
+            {
+              "label": "Rejected",
+              "value": "rejected"
+            },
+            {
+              "label": "Cancelled",
+              "value": "cancelled"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "approval_stage",
+          "label": "Approval Stage",
+          "options": [
+            {
+              "label": "Manager",
+              "value": ""
+            },
+            {
+              "label": "HR",
+              "value": "hr"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "note",
+          "label": "Note",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "approver",
+          "label": "Approver",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "requested_by",
+          "label": "Filed By",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "confidential",
+          "label": "Confidential",
+          "type": "bool",
+          "visibility": "all"
+        },
+        {
+          "key": "decide_note",
+          "label": "Decision Note",
+          "type": "text",
+          "visibility": "all"
+        }
+      ],
+      "key": "time_off_request",
+      "label": "Time Off Request",
+      "module": "hr",
+      "people": [
+        {
+          "key": "self",
+          "label": "The Person"
+        },
+        {
+          "key": "manager",
+          "label": "Manager"
+        },
+        {
+          "key": "hr_contact",
+          "label": "HR Contact"
+        },
+        {
+          "key": "approver",
+          "label": "Approver"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "period_start",
+          "label": "Period Start",
+          "yearly": false
+        },
+        {
+          "key": "period_end",
+          "label": "Period End",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "employee",
+          "label": "Person",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "With Manager",
+              "value": "with_manager"
+            },
+            {
+              "label": "With Employee",
+              "value": "with_employee"
+            },
+            {
+              "label": "Approved",
+              "value": "approved"
+            },
+            {
+              "label": "Out for Signature",
+              "value": "signing"
+            },
+            {
+              "label": "Correcting",
+              "value": "correcting"
+            },
+            {
+              "label": "Completed",
+              "value": "completed"
+            },
+            {
+              "label": "Unlocked",
+              "value": "unlocked"
+            },
+            {
+              "label": "Retired",
+              "value": "retired"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "period_start",
+          "label": "Period Start",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "period_end",
+          "label": "Period End",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "pay_type",
+          "label": "Pay Type",
+          "options": [
+            {
+              "label": "Hourly",
+              "value": "hourly"
+            },
+            {
+              "label": "Fixed",
+              "value": "fixed"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "worked_min",
+          "label": "Worked Minutes",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "reviewer",
+          "label": "Reviewer",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "hr_contact",
+          "label": "HR Contact",
+          "type": "person",
+          "visibility": "all"
+        }
+      ],
+      "key": "timesheet",
+      "label": "Time Sheet",
+      "module": "time",
+      "people": [
+        {
+          "key": "self",
+          "label": "The Person"
+        },
+        {
+          "key": "manager",
+          "label": "Manager"
+        },
+        {
+          "key": "hr_contact",
+          "label": "HR Contact"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "work_date",
+          "label": "Day",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "group_id",
+          "label": "Team",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "work_date",
+          "label": "Day",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "kind",
+          "label": "Call",
+          "options": [
+            {
+              "label": "Cancel",
+              "value": "cancel"
+            },
+            {
+              "label": "Delay",
+              "value": "delay"
+            },
+            {
+              "label": "End Early",
+              "value": "end_early"
+            },
+            {
+              "label": "Move",
+              "value": "move"
+            },
+            {
+              "label": "Proceed",
+              "value": "proceed"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "new_start",
+          "label": "New Start",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "new_end",
+          "label": "New End",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "move_to",
+          "label": "Moved To",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "reason",
+          "label": "Reason",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Active",
+              "value": "active"
+            },
+            {
+              "label": "Superseded",
+              "value": "superseded"
+            },
+            {
+              "label": "Reinstated",
+              "value": "reinstated"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "company",
+          "label": "Company",
+          "options": "companies",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "decided_by",
+          "label": "Decided By",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "decided_at",
+          "label": "Decided At",
+          "type": "datetime",
+          "visibility": "all"
+        }
+      ],
+      "key": "weather_call",
+      "label": "Weather Call",
+      "module": "shifts",
+      "people": [
+        {
+          "key": "decider",
+          "label": "Decider"
+        },
+        {
+          "key": "crew",
+          "label": "Crew"
+        }
+      ]
     }
   ],
   "events": [
+    {
+      "changes": [
+        "stage"
+      ],
+      "entity": "candidate",
+      "group": "Hiring",
+      "key": "candidate.hired",
+      "label": "Candidate Is Hired",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "stage"
+      ],
+      "entity": "candidate",
+      "group": "Hiring",
+      "key": "candidate.stage_changed",
+      "label": "Candidate Moves Stage",
+      "module": "hr",
+      "volume": "normal"
+    },
     {
       "changes": [],
       "entity": "employee",
       "group": "People",
       "key": "employee.created",
       "label": "Person Is Added",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "employee",
+      "group": "People",
+      "key": "employee.custom_field_changed",
+      "label": "Person Custom Field Changes",
       "module": "hr",
       "volume": "normal"
     },
@@ -371,6 +3474,15 @@
       "volume": "normal"
     },
     {
+      "changes": [],
+      "entity": "employee",
+      "group": "People",
+      "key": "employee.hired",
+      "label": "Person Is Hired",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
       "changes": [
         "status"
       ],
@@ -379,6 +3491,461 @@
       "key": "employee.status_changed",
       "label": "Person Status Changes",
       "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "extra_time_claim",
+      "group": "Extra Time",
+      "key": "extra_time.claimed",
+      "label": "Extra Time Is Claimed",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "extra_time_claim",
+      "group": "Extra Time",
+      "key": "extra_time.decided",
+      "label": "Extra Time Is Decided",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "headcount_request",
+      "group": "Hiring",
+      "key": "headcount.decided",
+      "label": "Headcount Is Decided",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "headcount_request",
+      "group": "Hiring",
+      "key": "headcount.requested",
+      "label": "Headcount Is Requested",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "item_assignment",
+      "group": "Assignments",
+      "key": "item_assignment.created",
+      "label": "Item Is Assigned",
+      "module": "items",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "item_assignment",
+      "group": "Assignments",
+      "key": "item_assignment.field_changed",
+      "label": "Assignment Status Changes",
+      "module": "items",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "item_checkout",
+      "group": "Checkouts",
+      "key": "item_checkout.created",
+      "label": "Checkout Is Requested",
+      "module": "items",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "item_checkout",
+      "group": "Checkouts",
+      "key": "item_checkout.field_changed",
+      "label": "Checkout Status Changes",
+      "module": "items",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "letter_request",
+      "group": "HR Letters",
+      "key": "letter.decided",
+      "label": "Letter Is Decided",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "letter_request",
+      "group": "HR Letters",
+      "key": "letter.requested",
+      "label": "Letter Is Requested",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "life_event",
+      "group": "People",
+      "key": "life_event.completed",
+      "label": "Life Event Is Completed",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "employee",
+      "group": "Time Sheets",
+      "key": "period.closed",
+      "label": "Pay Period Closes",
+      "module": "time",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "probation.status",
+        "probation.end"
+      ],
+      "entity": "employee",
+      "group": "Probation",
+      "key": "probation.decided",
+      "label": "Probation Is Decided",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "probation.status"
+      ],
+      "entity": "employee",
+      "group": "Probation",
+      "key": "probation.started",
+      "label": "Probation Starts",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "punch",
+      "group": "Time Clock",
+      "key": "punch.in",
+      "label": "Person Punches In",
+      "module": "time",
+      "volume": "high"
+    },
+    {
+      "changes": [],
+      "entity": "punch",
+      "group": "Time Clock",
+      "key": "punch.out",
+      "label": "Person Punches Out",
+      "module": "time",
+      "volume": "high"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "salary_advance",
+      "group": "Salary Advances",
+      "key": "salary_advance.decided",
+      "label": "Salary Advance Is Decided",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "salary_advance",
+      "group": "Salary Advances",
+      "key": "salary_advance.requested",
+      "label": "Salary Advance Is Requested",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "shift",
+      "group": "Schedule",
+      "key": "shift.changed",
+      "label": "Shift Changes",
+      "module": "shifts",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "shift",
+      "group": "Schedule",
+      "key": "shift.claimed",
+      "label": "Open Shift Is Claimed",
+      "module": "shifts",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "shift_no_show",
+      "group": "Attendance",
+      "key": "shift.no_show",
+      "label": "Person Does Not Show Up",
+      "module": "shifts",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "shift",
+      "group": "Schedule",
+      "key": "shift.removed",
+      "label": "Shift Is Removed",
+      "module": "shifts",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "shift",
+      "group": "Schedule",
+      "key": "shift.shared",
+      "label": "Shift Is Shared",
+      "module": "shifts",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "assignees"
+      ],
+      "entity": "task",
+      "group": "Tasks",
+      "key": "task.assigned",
+      "label": "Task Is Assigned",
+      "module": "tasks",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "task",
+      "group": "Tasks",
+      "key": "task.commented",
+      "label": "Task Gets A Comment",
+      "module": "tasks",
+      "volume": "high"
+    },
+    {
+      "changes": [
+        "completed"
+      ],
+      "entity": "task",
+      "group": "Tasks",
+      "key": "task.completed",
+      "label": "Task Is Completed",
+      "module": "tasks",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "task",
+      "group": "Tasks",
+      "key": "task.created",
+      "label": "Task Is Created",
+      "module": "tasks",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "due_date"
+      ],
+      "entity": "task",
+      "group": "Tasks",
+      "key": "task.due_date_changed",
+      "label": "Task Due Date Changes",
+      "module": "tasks",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "title",
+        "priority",
+        "project",
+        "tags"
+      ],
+      "entity": "task",
+      "group": "Tasks",
+      "key": "task.field_changed",
+      "label": "Task Detail Changes",
+      "module": "tasks",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "task",
+      "group": "Tasks",
+      "key": "task.status_changed",
+      "label": "Task Status Changes",
+      "module": "tasks",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "approval_status"
+      ],
+      "entity": "ticket",
+      "group": "Tickets",
+      "key": "ticket.approval_decided",
+      "label": "Ticket Approval Is Decided",
+      "module": "tickets",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "ticket",
+      "group": "Tickets",
+      "key": "ticket.approval_requested",
+      "label": "Ticket Is Sent For Approval",
+      "module": "tickets",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "assignee"
+      ],
+      "entity": "ticket",
+      "group": "Tickets",
+      "key": "ticket.assigned",
+      "label": "Ticket Is Assigned",
+      "module": "tickets",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "ticket",
+      "group": "Tickets",
+      "key": "ticket.commented",
+      "label": "Ticket Gets A Reply",
+      "module": "tickets",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "ticket",
+      "group": "Tickets",
+      "key": "ticket.escalated",
+      "label": "Ticket Is Escalated",
+      "module": "tickets",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "ticket",
+      "group": "Tickets",
+      "key": "ticket.filed",
+      "label": "Ticket Is Filed",
+      "module": "tickets",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "ticket",
+      "group": "Tickets",
+      "key": "ticket.reopened",
+      "label": "Ticket Is Reopened",
+      "module": "tickets",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "ticket",
+      "group": "Tickets",
+      "key": "ticket.resolved",
+      "label": "Ticket Is Resolved",
+      "module": "tickets",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "ticket",
+      "group": "Tickets",
+      "key": "ticket.status_changed",
+      "label": "Ticket Status Changes",
+      "module": "tickets",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "employee",
+      "group": "Time Clock",
+      "key": "time.add_time_batch",
+      "label": "Time Is Added in a Batch",
+      "module": "time",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "time_off_request",
+      "group": "Time Off",
+      "key": "time_off.cancelled",
+      "label": "Time Off Is Cancelled",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "time_off_request",
+      "group": "Time Off",
+      "key": "time_off.decided",
+      "label": "Time Off Is Decided",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "time_off_request",
+      "group": "Time Off",
+      "key": "time_off.requested",
+      "label": "Time Off Is Requested",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "timesheet",
+      "group": "Time Sheets",
+      "key": "timesheet.review_changed",
+      "label": "Time Sheet Review Changes",
+      "module": "time",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "weather_call",
+      "group": "Weather Call",
+      "key": "weather_call.decided",
+      "label": "Weather Call Is Made",
+      "module": "shifts",
       "volume": "normal"
     }
   ],
@@ -404,7 +3971,162 @@
       "label": "Default when empty"
     }
   ],
-  "listSources": [],
+  "listSources": [
+    {
+      "entity": "item_checkout",
+      "key": "checkouts.overdue",
+      "label": "Overdue Checkouts",
+      "module": "items",
+      "params": []
+    },
+    {
+      "entity": "employee",
+      "key": "employees.contract_ending",
+      "label": "People Whose Contract Ends Within N Days",
+      "module": "hr",
+      "params": [
+        {
+          "default": 30,
+          "hint": "",
+          "key": "days",
+          "label": "Days",
+          "max": 3650,
+          "options": null,
+          "required": true,
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "entity": "employee",
+      "key": "employees.probation_ending",
+      "label": "People Whose Probation Ends Within N Days",
+      "module": "hr",
+      "params": [
+        {
+          "default": 14,
+          "hint": "",
+          "key": "days",
+          "label": "Days",
+          "max": 3650,
+          "options": null,
+          "required": true,
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "entity": "employee",
+      "key": "employees.started_within",
+      "label": "People Who Started In The Last N Days",
+      "module": "hr",
+      "params": [
+        {
+          "default": 30,
+          "hint": "",
+          "key": "days",
+          "label": "Days",
+          "max": 3650,
+          "options": null,
+          "required": true,
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "entity": "shift",
+      "key": "shifts.open_tomorrow",
+      "label": "Open Shifts Tomorrow",
+      "module": "shifts",
+      "params": []
+    },
+    {
+      "entity": "task",
+      "key": "tasks.overdue",
+      "label": "Overdue Tasks",
+      "module": "tasks",
+      "params": [
+        {
+          "default": 0,
+          "hint": "0 = every task past its due date",
+          "key": "days",
+          "label": "Days Overdue",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "entity": "ticket",
+      "key": "tickets.breaching_sla",
+      "label": "Tickets Breaching SLA",
+      "module": "tickets",
+      "params": []
+    },
+    {
+      "entity": "ticket",
+      "key": "tickets.unanswered",
+      "label": "Unanswered Tickets",
+      "module": "tickets",
+      "params": [
+        {
+          "default": 1,
+          "hint": "",
+          "key": "businessDays",
+          "label": "Business Days Waiting",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "entity": "time_off_request",
+      "key": "timeoff.pending_older_than",
+      "label": "Time Off Requests Waiting Longer Than N Days",
+      "module": "hr",
+      "params": [
+        {
+          "default": 3,
+          "hint": "",
+          "key": "days",
+          "label": "Days",
+          "max": 3650,
+          "options": null,
+          "required": true,
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "entity": "timesheet",
+      "key": "timesheets.not_reviewed",
+      "label": "Time Sheets Not Yet Reviewed",
+      "module": "time",
+      "params": []
+    },
+    {
+      "entity": "timesheet",
+      "key": "timesheets.unsigned",
+      "label": "Time Sheets Waiting on a Signature",
+      "module": "time",
+      "params": [
+        {
+          "default": 3,
+          "hint": "Approved cards the employee has not signed in this many days",
+          "key": "days",
+          "label": "Days waiting",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "number"
+        }
+      ]
+    }
+  ],
   "operators": {
     "bool": [
       {
