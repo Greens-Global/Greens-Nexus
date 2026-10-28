@@ -1074,8 +1074,15 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
   const [groupList, setGroupList] = useState([]);   // the same, for drawing the More button
   const groupW = useRef([]);                   // groupW[l]: what level l took on the row
   const flips = useRef(0);                     // fold / unfold turns this frame (a guard, never a loop)
-  const tried = useRef(null);                  // the last unfold: { from, width }
-  const blocked = useRef(new Set());           // `${level}@${width}`: an unfold that did not fit there
+  const tried = useRef(null);                  // the last unfold: { from, width, need }
+  // `${level}@${width}` -> the room the row needed (folded) when bringing that
+  // level back did not fit there. Call of 10/27 with Charmi, item 09: it was
+  // forgotten on every render, so a pick (an entity, a category, a view) made
+  // the row try again and settle the other way - Sync and Export losing their
+  // words while a More control came out. Now it is forgotten only when the row
+  // needs less room than it did: a pick, whose picker keeps its width, changes
+  // nothing on the row.
+  const blocked = useRef(new Map());
   const fit = useCallback(() => {
     const el = ref.current;
     const width = el?.clientWidth || 0;
@@ -1093,10 +1100,12 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
     // The screen dropped the controls of the deepest levels (another tab).
     if (lvl > top) { setLvl(top); return; }
     // 1. Room again for what moved into More? Bring back as many levels as fit.
-    if (lvl > 0 && !blocked.current.has(`${lvl}@${width}`)) {
-      el.dataset.fold = '2';
+    el.dataset.fold = '2';
+    const folded = barNeed(el, true);
+    const failed = blocked.current.get(`${lvl}@${width}`);
+    if (lvl > 0 && !(failed !== undefined && folded >= failed - 1)) {
       const more = moreRef.current ? moreRef.current.getBoundingClientRect().width + gapOf(el) : MORE_W;
-      let need = barNeed(el, true);
+      let need = folded;
       let to = lvl;
       while (to > 0 && groupW.current[to] !== undefined) {
         const add = groupW.current[to] - (to === 1 ? more : 0);
@@ -1104,7 +1113,7 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
         need += add;
         to -= 1;
       }
-      if (to < lvl) { tried.current = { from: lvl, width }; setLvl(to); return; }
+      if (to < lvl) { tried.current = { from: lvl, width, need: folded }; setLvl(to); return; }
     }
     // 2. Fold the words.
     for (const f of FOLDS) {
@@ -1116,7 +1125,7 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
     // 4. Move the next levels into More - as many as the row needs.
     if (lvl < top) {
       // An unfold that has to go straight back: not again at this width.
-      if (tried.current && tried.current.width === width && tried.current.from > lvl) blocked.current.add(`${tried.current.from}@${width}`);
+      if (tried.current && tried.current.width === width && tried.current.from > lvl) blocked.current.set(`${tried.current.from}@${width}`, tried.current.need);
       tried.current = null;
       let need = barNeed(el, true) + (lvl === 0 ? MORE_W : 0);
       let to = lvl;
@@ -1133,8 +1142,6 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
     // row wraps as whole controls.
     barBoxes(el).filter(isSummary).forEach((k) => { k.style.maxWidth = `${SUMMARY_MIN}px`; });
   }, []);
-  // What the screen draws in the bar changed: an unfold that failed may fit now.
-  useLayoutEffect(() => { blocked.current.clear(); }, [children]);
   // After every render (a picker's label or a new button changes the width
   // the row needs) and whenever the row itself is resized.
   useLayoutEffect(fit);
@@ -1145,6 +1152,20 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
     const ro = new ResizeObserver(() => { if (el.clientWidth !== w) { w = el.clientWidth; fit(); } });
     ro.observe(el);
     return () => ro.disconnect();
+  }, [fit]);
+  // The web font arrives after the first measure (item 09, browser check at
+  // 1366, Profitability): words drawn in the fallback font are wider, so the
+  // row settled with a control in More that fits once Inter is in - and moved
+  // the first time anything else redrew, a pick included. Measure again,
+  // afresh, when the fonts are in.
+  useEffect(() => {
+    const fonts = typeof document !== 'undefined' ? document.fonts : null;
+    if (!fonts) return undefined;
+    let alive = true;
+    const again = () => { if (!alive) return; blocked.current.clear(); fit(); };
+    fonts.ready?.then(again).catch(() => {});
+    fonts.addEventListener?.('loadingdone', again);
+    return () => { alive = false; fonts.removeEventListener?.('loadingdone', again); };
   }, [fit]);
   // A control that changes on its own (a menu closing, a label, Syncing...)
   // without the screen drawing the bar again: fit on the next frame.

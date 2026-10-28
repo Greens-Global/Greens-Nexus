@@ -290,6 +290,57 @@ describe('ControlBar', () => {
     expect(panel().hidden).toBe(true);
   });
 
+  // Call of 10/27 with Charmi, item 09 ("Any time we give a filter, the tab
+  // changes"): a control that grew while it sat in More makes bringing it
+  // back fail once; after that a pick (same widths) never moves the bar, and
+  // the bar tries again only when the row needs less room. Row at 600, gaps 8:
+  //   level 1, no fold: 160 + 140 + 120 + 110 + More 30 + 32 = 592 (fits)
+  //   level 0, fold 2 with Saved Reports grown to 300: 642 (does not fit)
+  const PickBar = ({ pick = 'All', report = 160, saved = 200 }) => (
+    <ControlBar>
+      <select data-w={report} aria-label="Report" />
+      <button type="button" data-w="140" title={pick}>{pick} <span className="acct-bar-label-2" data-lw="90">entities</span></button>
+      <BarMore level={2}><button type="button" data-w="120">Columns</button></BarMore>
+      <div className="acct-bar-end">
+        <BarMore level={1}><button type="button" data-w={saved}><span className="acct-bar-label" data-lw="60">Saved Reports</span></button></BarMore>
+        <button type="button" data-w="110"><span className="acct-bar-label" data-lw="70">Export</span></button>
+      </div>
+    </ControlBar>
+  );
+  const state = () => ({ fold: bar().dataset.fold, inMore: [...panel().querySelectorAll('button')].map((b) => b.textContent.trim()) });
+  // Each step on its own frame, as in the browser (the bar's loop guard resets per frame).
+  const step = async (rerender, el) => { rerender(el); await act(async () => { await new Promise((r) => setTimeout(r, 40)); }); };
+
+  it('item 09: after a failed unfold, a pick never moves the bar', async () => {
+    width = 450;
+    const { rerender } = render(<PickBar />);
+    expect(state().inMore).toEqual(['Saved Reports']);
+    await step(rerender, <PickBar saved={300} />);     // it grew while in More (the estimate is stale)
+    width = 600;
+    await step(rerender, <PickBar saved={300} />);     // the row widens: the unfold is tried, does not fit, goes back
+    const settled = state();
+    expect(settled.inMore).toEqual(['Saved Reports']);
+    expect(settled.fold).toBeUndefined();  // Export keeps its word
+    expect(barWraps(bar())).toBe(false);
+    for (const pick of ['(G) Rajesh & Darshana Kadakia', 'Greens Global, Inc.', 'All']) {
+      await step(rerender, <PickBar saved={300} pick={pick} />);
+      expect(state()).toEqual(settled);
+    }
+  });
+
+  it('item 09: tries again once the row needs less room, and brings the control back', async () => {
+    width = 450;
+    const { rerender } = render(<PickBar />);
+    await step(rerender, <PickBar saved={300} />);
+    width = 600;
+    await step(rerender, <PickBar saved={300} />);
+    expect(state().inMore).toEqual(['Saved Reports']);
+    await step(rerender, <PickBar saved={300} report={60} />);   // 100 px less on the row: 542 at level 0, fold 2
+    expect(state().inMore).toEqual([]);
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    expect(barWraps(bar())).toBe(false);
+  });
+
   // UI test 10/27 (MRE / MRI at 1024 and 390): More read "More (1 changed)"
   // with nothing changed - the Completeness gaps were counted. Gaps are what
   // the data is missing, not a change the person made: MRE and MRI give that
