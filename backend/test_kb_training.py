@@ -210,7 +210,9 @@ class KbTrainingCase(unittest.TestCase):
         self.assertEqual([a["email"] for a in asg], [LRN])
         self.assertEqual(asg[0]["source"], "rule")
         from datetime import date, timedelta
-        self.assertEqual(asg[0]["due_date"], (date.today() + timedelta(days=14)).isoformat())   # start date is past, so 14 days from today
+        import kb_core   # the server's day is UTC (kb_core.today), not this machine's local date
+        today = date.fromisoformat(kb_core.today())
+        self.assertEqual(asg[0]["due_date"], (today + timedelta(days=14)).isoformat())   # start date is past, so 14 days from today
         self._as(LRN2)
         self.assertNotIn(cid, [c["id"] for c in self.client.get("/kb/training/me").json()["due"]])   # not in the audience
 
