@@ -55,6 +55,7 @@ import ops_rate_mgmt
 from auth import get_current_user, require_level_or_module
 from database import get_db
 from routers import facility_ops, ops_rates
+import job_switch
 
 router = APIRouter(
     prefix="/facility-ops/cma",
@@ -1020,6 +1021,8 @@ async def cma_push_loop():
     from database import SessionLocal
 
     def _tick():
+        if job_switch.off("cma_push"):   # Workflows > Automations switch
+            return
         db = SessionLocal()
         try:
             n = run_due(db)

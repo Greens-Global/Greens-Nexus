@@ -51,6 +51,7 @@ import graph_mail
 import daily_briefing as daily
 from app_url import app_url
 from routers.task_util import task_assignees
+import job_switch
 
 _SETTINGS_KEY = "weekly_digest_config"
 _DEFAULT_SETTINGS = {
@@ -465,6 +466,8 @@ def acquire_employee_lock(db: Session, email: str) -> None:
 
 
 def _scan_once() -> int:
+    if job_switch.off("weekly_digest"):   # Workflows > Automations switch
+        return 0
     db = SessionLocal()
     sent = 0
     try:

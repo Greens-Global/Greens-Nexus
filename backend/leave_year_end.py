@@ -60,6 +60,7 @@ from sqlalchemy.orm import Session
 import leave_balances as lb
 import models
 import scoped_settings
+import job_switch
 
 SETTING_KEY = "leave.yearEnd"
 MODES = ("reset", "carry_all", "carry_cap")
@@ -372,6 +373,8 @@ _last_run = {"day": ""}
 def run_due() -> dict | None:
     """The daily pass, from hr_life_events.life_events_loop (in a thread).
     Once per UTC day; nothing until a balance start date is set."""
+    if job_switch.off("leave_year_end"):   # Workflows > Automations switch
+        return None
     import database
     day = datetime.now(timezone.utc).date().isoformat()
     if _last_run["day"] == day:

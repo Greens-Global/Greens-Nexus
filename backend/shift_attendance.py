@@ -90,6 +90,7 @@ import shift_expect
 from app_url import app_url
 from database import SessionLocal
 from notify_rollup import resolve_rollup, retitle_resolved, upsert_rollup
+import job_switch
 
 SCAN_SEC = 60
 NOSHOW_WINDOW_HOURS = 6     # a start older than this is no longer watched
@@ -763,6 +764,8 @@ def _zone_of(day_rows: list, em: str, presets: dict, settings, people: dict) -> 
 
 
 def _tick() -> dict:
+    if job_switch.off("noshow"):   # Workflows > Automations switch
+        return {}
     db = SessionLocal()
     try:
         return noshow_scan(db)

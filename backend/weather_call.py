@@ -50,6 +50,7 @@ import shift_log
 import weather_watch
 from app_url import app_url
 from database import SessionLocal
+import job_switch
 
 KINDS = ("cancel", "delay", "end_early", "move", "proceed")
 OUTCOME = {"cancel": "cancelled", "delay": "delayed", "end_early": "shortened", "move": "moved", "proceed": "kept"}
@@ -1011,6 +1012,8 @@ def deliver_reinstatement(decision_id: str, actor: str) -> None:
 
 
 def _tick() -> dict:
+    if job_switch.off("weather_call"):   # Workflows > Automations switch
+        return {}
     db = SessionLocal()
     try:
         return follow_up_once(db)

@@ -57,6 +57,7 @@ from sqlalchemy import text
 
 import models
 from database import SessionLocal
+import job_switch
 
 _STATE_KEY = "changelog_auto_state"
 _LOCK_KEY = 794216          # stable advisory-lock id (task_trash.py holds 794215)
@@ -277,6 +278,8 @@ def unlock(lock) -> None:
 def _sweep() -> dict | None:
     """Generate if the persisted due time has passed. Returns the generation
     result, or None when it was not due / another worker holds the lock."""
+    if job_switch.off("changelog_generate"):   # Workflows > Automations switch
+        return None
     from routers.task_config import generate_changelog_from_commits
 
     db = SessionLocal()

@@ -4,7 +4,10 @@ own on / off switch (saved through the Tasks rule endpoint, so the same
 permission checks run) and the built-in background jobs, read-only, with
 what they do, how often and the setting that controls them where one
 exists. `jobs()` is written by hand from main.py's `_start_background_jobs`;
-a new loop there gets a line here.
+a new loop there gets a line here. Each key is also the job's off switch
+(Oct 28 2026, job_switch.py): the tick behind it starts with
+``if job_switch.off(key)``, and "what" says what "off" leaves waiting when a
+job moves data as well as sends - only the sending stops, never the data.
 """
 from __future__ import annotations
 
@@ -83,25 +86,44 @@ def task_rule_runs(db, user: dict, rule_id: str, limit: int = 50) -> list:
     return list_rule_runs(rule_id=rule_id, limit=limit, user=user, db=db)
 
 
-def _job(key: str, label: str, what: str, every: str, setting: str = "") -> dict:
-    # settingLink is a navigate detail (the Automations screen calls navigate(view, sub)); None = always on
-    return {"key": key, "label": label, "what": what, "every": every,
+def _job(key: str, label: str, what: str, every: str, setting: str = "", switch: bool = True) -> dict:
+    # settingLink is a navigate detail (the Automations screen calls navigate(view, sub)); None = no setting.
+    # switch=False: the job has switches of its own and the off list never applies to it (the Workflows runner).
+    return {"key": key, "label": label, "what": what, "every": every, "switch": switch,
             "settingLink": {"view": "admin", "sub": setting} if setting else None}
 
 
 def jobs() -> list[dict]:
     """The background loops main.py starts, by hand (spec 6.9 item 6)."""
     return [
-        _job("reminders", "Item Reminders", "Due-soon and overdue bells for checked-out items.", "Hourly"),
-        _job("ticket_notify", "Ticket Notifications", "Ticket emails, SLA and escalation notices.", "Every minute",
-             "notifications:tickets"),
-        _job("task_notify", "Task Notifications", "Batched task emails and the task email queue.", "Every minute",
-             "notifications:tasks"),
+        _job("reminders", "Item Reminders", "Due-soon and overdue bells for checked-out items.", "Daily"),
+        _job("equipment_reminders", "Equipment Reminders", "Overdue checkouts and asset date alerts.", "Daily"),
+        _job("hr_checklists", "Checklist Reminders",
+             "The day's onboarding and offboarding checklist reminders; the checklist sync itself keeps running.",
+             "Daily", "hiring"),
+        _job("hr_probation", "Probation Ending", "One bell and email per manager or HR contact, once per end date.",
+             "Daily", "hiring"),
+        _job("hr_record_audit", "Records Audit", "Missing details and expired documents, one bell per company.",
+             "Daily"),
+        _job("maintenance_services", "Maintenance Reminders",
+             "15-day reminders for recurring property maintenance, and a ticket for a service that came due with "
+             "none opened.", "Daily"),
+        _job("credvault_rotation", "Credential Rotation Reminders",
+             "Rotation due, overdue and hard expiry, to the owner and backup owner.", "Daily"),
+        _job("kb_daily", "Training Reminders",
+             "Training due, policies to sign, and the manager and owner digests; assignment rules and renewals "
+             "keep running.", "Daily"),
+        _job("ticket_notify", "Ticket Notifications",
+             "Ticket email retries, overdue and SLA breach notices, and the auto-close of long-resolved tickets.",
+             "Every minute", "notifications:tickets"),
+        _job("task_notify", "Task Notifications",
+             "Task email batches: off means queued task emails wait, as do due-date reminders and retries; "
+             "recurrences and the Tasks clock rules keep running.", "Every minute", "notifications:tasks"),
         _job("long_session", "Long Session Watch", "Flags a clock-in left running too long.", "Every 5 minutes",
              "time-clock"),
-        _job("teams_post", "Teams Posts", "Delivers queued Teams posts.", "Every minute"),
-        _job("ticket_teams_post", "Ticket Teams Messages", "Delivers queued ticket and workflow Teams messages.",
-             "Every minute"),
+        _job("teams_post", "Teams Posts", "Delivers queued Teams posts; off means they wait.", "Every minute"),
+        _job("ticket_teams_post", "Ticket Teams Messages",
+             "Delivers queued ticket and workflow Teams messages; off means they wait.", "Every minute"),
         _job("daily_briefing", "Daily Briefing", "The morning briefing email.", "Daily", "notifications:briefing"),
         _job("weekly_digest", "Weekly Digest", "The Monday digest email.", "Weekly", "notifications:digest"),
         _job("scorecard", "Workforce Scorecard", "Scores punched hours against expected hours; Monday email.",
@@ -110,16 +132,25 @@ def jobs() -> list[dict]:
              "shifts:weather"),
         _job("noshow", "No-Show Scan", "One bell per team and day for anyone not clocked in past start + grace.",
              "Every minute", "shifts:attendance"),
+        _job("meal_watch", "Meal Break Reminder", "The California meal reminder at 4.5 hours.", "Every minute",
+             "time-clock"),
         _job("overtime_watch", "Overtime Alert", "A quiet bell when someone clocked in nears overtime.",
              "Every 5 minutes", "time-clock:overtime"),
-        _job("calendar_sync", "Outlook Calendar Sync", "Shared shifts onto Outlook calendars.", "Every minute",
-             "shifts:calendar"),
+        _job("break_watch", "Break Watch", "A nudge, then an escalation, for a break that never ended.",
+             "Every 5 minutes", "time-clock"),
+        _job("calendar_sync", "Outlook Calendar Sync",
+             "Shared shifts onto Outlook calendars; off means the queue waits.", "Every minute", "shifts:calendar"),
         _job("weather_call", "Weather Call Follow-Up", "A second text to anyone silent after 30 minutes.",
              "Every minute", "shifts:weather"),
         _job("interview_followup", "Interview Follow-Up", "Reminds interviewers to leave their vote.", "Hourly",
              "hiring"),
-        _job("life_events", "HR Life Events", "Advances probation, hiring and separation processes.", "Hourly",
-             "hiring"),
+        _job("life_events", "HR Life Events",
+             "Files signed HR packets and marks separations complete on their date; off means they wait.",
+             "Every minute", "hiring"),
+        _job("timesheet_filing", "Time Sheet Filing",
+             "Retries signed Time Sheets whose Egnyte filing failed; off means they wait.", "Every minute"),
+        _job("hr_letter_filing", "HR Letter Filing", "Files issued HR letters; off means they wait.", "Every minute"),
+        _job("leave_year_end", "Leave Year End", "Settles each person's last closed leave year.", "Daily"),
         _job("accounting_sso_sync", "Accounting Sign-In Sync", "Keeps accounting sign-ins in step.", "Every 15 minutes"),
         _job("leasing_sync", "MRI Leasing Sync", "Leases linked to their Intacct customers.", "Daily"),
         _job("recurring_stale", "Possibly Ended Lines", "Flags active lines with nothing posted for N months.", "Daily"),
@@ -129,15 +160,21 @@ def jobs() -> list[dict]:
              "companies"),
         _job("performance", "Performance Reminders", "1:1 agendas and overdue goal check-ins.", "Every 30 minutes",
              "performance"),
-        _job("workflows", "Workflows Runner", "Runs the workflows on this screen.", "Every 5 seconds", "workflows"),
-        _job("task_inbound", "Task Email Replies", "The task reply mailbox into comments.", "Every minute",
+        _job("workflows", "Workflows Runner", "Runs the workflows on this screen; its switches are in Settings > Workflows.",
+             "Every 5 seconds", "workflows", switch=False),
+        _job("task_inbound", "Task Email Replies",
+             "The task reply mailbox into comments; off means replies wait in the mailbox.", "Every minute",
              "notifications:tasks"),
-        _job("ticket_inbound", "Email To Ticket", "The support mailbox into tickets and replies.", "Every minute",
+        _job("ticket_inbound", "Email To Ticket",
+             "The support mailbox into tickets and replies; off means mail waits in the mailbox.", "Every minute",
              "tickets:intake"),
         _job("screenshot_retention", "Monitoring Retention", "Deletes monitoring frames past the retention window.",
              "Daily", "employee-tracking"),
         _job("purge_media", "Build Mode Media Purge", "Purges the media of pins closed 30+ days ago.", "Daily"),
-        _job("construction_sweep", "Construction Media Sweep", "Moves construction media into storage.", "Hourly"),
+        _job("construction_sweep", "Construction Media Sweep",
+             "Files construction media into Egnyte; off means uploads wait as pending.", "Every minute"),
+        _job("construction_ai", "Construction AI Jobs", "Transcripts, summaries and the weekly report drafts.",
+             "Every minute"),
         _job("m365_pushback", "Microsoft 365 Writeback", "Nexus directory changes back to Microsoft 365, nightly.",
              "Daily", "people-access"),
         _job("m365_contact_sync", "Microsoft 365 Contact Sync", "Contact info both ways.", "Every 15 minutes",
@@ -146,6 +183,11 @@ def jobs() -> list[dict]:
         _job("google_ads_sync", "Google Ads Mirror", "Spend per campaign per day.", "Every 2 hours", "marketing"),
         _job("cubby_snapshot", "Cubby Sync", "Re-reads the facilities; one snapshot per facility per day.",
              "Every 15 minutes", "operations"),
+        _job("stortrack_sync", "StorTrack Rates", "Competitor rates from the StorTrack feed.", "Every few hours",
+             "operations"),
+        _job("cma_push", "CMA Queued Pushes",
+             "Approved rate changes to Cubby on their effective date, only while Push To Cubby is on.", "Hourly",
+             "operations"),
         _job("third_party_fetch", "Third-Party Properties", "Nightly fetch of third-party property data.", "Daily",
              "operations"),
         _job("market_watch", "Market Watch", "Reads each watched competitor's public pricing page.", "Daily",

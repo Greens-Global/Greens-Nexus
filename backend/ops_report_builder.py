@@ -39,6 +39,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import ops_reports
+import job_switch
 
 MAX_DIMS = 3
 MAX_MEASURES = 8
@@ -593,6 +594,8 @@ def send_report(db, row, period: str = "", to: list[str] | None = None) -> dict:
 
 def scan_once(now: datetime | None = None) -> int:
     """Send every saved report whose schedule is due. Blocking. Returns sends."""
+    if job_switch.off("ops_report_schedule"):   # Workflows > Automations switch
+        return 0
     import graph_mail
     import models
     from database import SessionLocal

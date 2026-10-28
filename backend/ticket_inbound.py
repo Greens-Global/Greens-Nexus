@@ -86,6 +86,7 @@ import ticket_inbound_parse as parse
 import ticket_notify
 from database import SessionLocal
 from ticket_code import ticket_no
+import job_switch
 
 _LOOP_SEC = 60
 # main.py staggers its loops' first runs; task_inbound takes 120, this the next
@@ -680,6 +681,8 @@ def _drain_in_thread() -> None:
     live support mailbox."""
     import leader
     if not leader.is_deployed_worker():
+        return
+    if job_switch.off("ticket_inbound"):   # Workflows > Automations switch
         return
     db = SessionLocal()
     try:

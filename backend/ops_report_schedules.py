@@ -25,6 +25,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import ops_report_export as export
+import job_switch
 
 TZ = "America/Los_Angeles"
 FREQUENCIES = {"daily": "Daily", "weekly": "Weekly", "monthly": "Monthly"}
@@ -246,6 +247,8 @@ def _age(stamp: str) -> float:
 
 def scan_once(now: datetime | None = None) -> int:
     """Send every active schedule that is due. Blocking. Returns sends."""
+    if job_switch.off("ops_report_schedule"):   # Workflows > Automations switch
+        return 0
     import graph_mail
     import models
     from database import SessionLocal

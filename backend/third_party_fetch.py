@@ -31,6 +31,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Callable, Dict, List, Optional
+import job_switch
 
 SWITCH = "NEXUS_THIRD_PARTY_FETCH"
 RUN_AT_HOUR = 3                 # 3 AM in the store's time zone: CubeSmart's nightly close is done
@@ -188,6 +189,8 @@ async def third_party_fetch_loop():
                 last_run = now_local.date().isoformat()
 
                 def go():
+                    if job_switch.off("third_party_fetch"):   # Workflows > Automations switch
+                        return {"ran": False, "reason": "off"}
                     from database import SessionLocal
                     db = SessionLocal()
                     try:

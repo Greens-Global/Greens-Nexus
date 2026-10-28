@@ -40,6 +40,7 @@ import workflows
 from currency import is_currency, money_prefix
 from models import (HrCandidate, HrEntity, HrLifeEvent, HrPacketSetting, HrSignParty,
                     HrSignRequest, HrSignTemplate, HrStageEvent, NexusEmployee)
+import job_switch
 
 # The offer comes first (Neil, Oct 14): "there is a document to sign, but it's
 # a single document called an offer letter" - both sides sign it and the
@@ -2781,6 +2782,8 @@ def apply_due_separations(limit: int = 20) -> int:
     the morning AFTER the last day in BUSINESS_TZ - the person works their
     last day with their email and Nexus intact; cutting them off at midnight
     UTC would be mid-afternoon the day before in California."""
+    if job_switch.off("life_events"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     db = SessionLocal()
     n = 0
@@ -2939,6 +2942,8 @@ def run_filing(db: Session, ev: HrLifeEvent) -> None:
 def process_due(limit: int = 10) -> int:
     """The filing pass: every completed event whose filing is due. Runs in a
     worker thread (life_events_loop), never on the event loop."""
+    if job_switch.off("life_events"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     db = SessionLocal()
     done = 0

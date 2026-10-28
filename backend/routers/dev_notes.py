@@ -59,6 +59,7 @@ from database import get_db
 from models import AuditLog, DevNote, DevNoteSession, DevNoteToken, NexusNotification, NexusSetting, QaTestCase
 from routers import files as _files
 import build_mode_chat as _chat
+import job_switch
 
 router = APIRouter(prefix="/dev-notes", tags=["Build Mode"])
 
@@ -1153,6 +1154,8 @@ PURGE_JOB = {"email": "build-mode-purge", "role": "system"}   # audit author, li
 def _purge_pass() -> int:
     """One daily run in a worker thread: its own session, an audit row only
     when something was deleted (a quiet day leaves no trace)."""
+    if job_switch.off("purge_media"):   # Workflows > Automations switch
+        return 0
     db = database.SessionLocal()
     try:
         n = purge_media(db)

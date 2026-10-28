@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 import models
 from database import SessionLocal
 from notify_rollup import resolve_rollup, upsert_rollup
+import job_switch
 
 DEFAULT_NUDGE_MIN = 60
 EMP_PREFIX = "break_open:"
@@ -178,6 +179,8 @@ def break_scan(db: Session, now_utc: datetime = None) -> dict:
 
 
 def tick() -> dict:
+    if job_switch.off("break_watch"):   # Workflows > Automations switch
+        return {}
     db = SessionLocal()
     try:
         return break_scan(db)
