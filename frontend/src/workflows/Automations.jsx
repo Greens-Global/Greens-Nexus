@@ -4,18 +4,24 @@
 //   - Workflows: how many there are and how many run, with a link to the list
 //   - Task Automation Rules: each rule with its own on / off switch, saved
 //     through the Tasks rule endpoint (POST /workflows/automations/task-rules
-//     /{id}/enabled proxies PATCH /task-automation-rules/{id}), and Edit In
-//     Tasks (Tasks > Manage, where the rule itself is built)
+//     /{id}/enabled proxies PATCH /task-automation-rules/{id}), Runs (the
+//     rule's newest 50 firings, GET /task-automation-runs?rule_id=) and Edit
+//     In Tasks (Tasks > Manage, where the rule itself is built)
 //   - Built-In Automations: the background jobs, read-only - what each does,
 //     how often, and the Settings group that controls it when one exists
 // Data: GET /workflows/automations plus GET /workflows for the count.
 import { useCallback, useEffect, useState } from 'react';
-import { ExternalLink, ListChecks, Settings as SettingsIcon, Workflow as WorkflowIcon, Zap } from 'lucide-react';
+import { ExternalLink, History, ListChecks, Settings as SettingsIcon, Workflow as WorkflowIcon, Zap } from 'lucide-react';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
+import { StatusLabel } from '../components/StatusLabel';
 import { Switch } from '../components/settings/SettingsUI';
 import { formatDateTime } from '../lib/datetime';
-import { Card, FONT, LinkButton, Muted, SectionTitle, errorText } from './ui';
+import { Modal } from '../tasks/components';
+import { Card, FONT, LinkButton, Muted, SectionTitle } from './ui';
+import { errorText } from './lib/errors';
+
+const RUNS_LIMIT = 50;
 
 export default function Automations({ go }) {
   const [data, setData] = useState(null);
@@ -23,18 +29,19 @@ export default function Automations({ go }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [notice, setNotice] = useState('');
+  const [runsFor, setRunsFor] = useState(null);   // the task rule whose Runs popup is open
 
-  const load = useCallback(() => {
-    setLoading(true);
-    return Promise.all([
-      api.wfAutomations(),
-      api.wfList({ scope: 'company' }).catch(() => null),
-    ])
-      .then(([a, w]) => { setData(a || {}); setWorkflows(Array.isArray(w) ? w : null); setError(false); })
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  // The fetch sets state only from the responses; Retry shows the skeleton
+  // again through `load`.
+  const fetchAll = useCallback(() => Promise.all([
+    api.wfAutomations(),
+    api.wfList({ scope: 'company' }).catch(() => null),
+  ])
+    .then(([a, w]) => { setData(a || {}); setWorkflows(Array.isArray(w) ? w : null); setError(false); })
+    .catch(() => setError(true))
+    .finally(() => setLoading(false)), []);
+  const load = useCallback(() => { setLoading(true); return fetchAll(); }, [fetchAll]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
   const rules = data?.taskRules || [];
   const jobs = data?.jobs || [];
@@ -93,6 +100,9 @@ export default function Automations({ go }) {
                     {r.lastRunAt ? `, last ${formatDateTime(r.lastRunAt)}` : ''}
                   </Muted>
                 </div>
+                <LinkButton onClick={() => setRunsFor(r)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }} title="What this rule did">
+                  <History size={13} /> Runs
+                </LinkButton>
                 <button type="button" className="secondary-btn" onClick={() => navigate('tasks', 'manage')}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, padding: '5px 10px' }}>
                   <ExternalLink size={13} /> Edit In Tasks
@@ -120,12 +130,68 @@ export default function Automations({ go }) {
                   <LinkButton onClick={() => navigate(j.settingLink.view, j.settingLink.sub)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }}>
                     <SettingsIcon size={13} /> Settings
                   </LinkButton>
-                ) : <Muted style={{ whiteSpace: 'nowrap' }}>Always on</Muted>}
+                ) : <Muted style={{ whiteSpace: 'nowrap' }}>Always On</Muted>}
               </div>
             ))}
           </Card>
         </section>
       </AsyncSection>
+      {runsFor && <RuleRunsModal rule={runsFor} onClose={() => setRunsFor(null)} />}
     </div>
+  );
+}
+
+// A task rule's runs: the newest 50, each with when, the task and what the
+// rule did (the Tasks Runs panel's rows, read-only).
+const RULE_RUN_STATUS = { ok: { label: 'Done', color: '#16a34a' }, done: { label: 'Done', color: '#16a34a' }, error: { label: 'Failed', color: '#dc2626' }, failed: { label: 'Failed', color: '#dc2626' }, skipped: { label: 'Skipped', color: '#64748b' } };
+const ruleRunStatus = (s) => RULE_RUN_STATUS[s] || { label: String(s || 'Done').replace(/\b\w/g, (c) => c.toUpperCase()), color: '#64748b' };
+
+function RuleRunsModal({ rule, onClose }) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState(false);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let on = true;
+    api.getTaskAutomationRuns(rule.id, RUNS_LIMIT)
+      .then((list) => { if (on) { setRows(Array.isArray(list) ? list : []); setError(false); } })
+      .catch(() => { if (on) setError(true); });
+    return () => { on = false; };
+  }, [rule.id, tick]);
+
+  const line = (x) => {
+    const task = [x.taskCode, x.taskTitle].filter(Boolean).join(' ');
+    const acts = Array.isArray(x.actions) ? x.actions.map((a) => (typeof a === 'string' ? a : a?.label || a?.type || '')).filter(Boolean) : [];
+    return [task, x.detail, acts.length ? acts.join(', ') : ''].filter(Boolean).join(' - ');
+  };
+
+  return (
+    <Modal title={`${rule.name} - Runs`} onClose={onClose}
+      footer={<button type="button" className="primary-btn" onClick={onClose}>Close</button>}>
+      <div style={{ fontFamily: FONT, display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
+        <Muted>The newest {RUNS_LIMIT} times this rule fired{rule.triggerText ? ` - ${rule.triggerText.charAt(0).toLowerCase()}${rule.triggerText.slice(1)}` : ''}.</Muted>
+        <div className="nx-fill" style={{ overflowY: 'auto' }}>
+          <AsyncSection loading={rows === null && !error} error={error} isEmpty={!!rows && !rows.length}
+            errorMessage="The runs couldn't be loaded right now - please try again." onRetry={() => { setRows(null); setError(false); setTick((t) => t + 1); }}
+            skeleton={<SkeletonBlocks count={4} height={44} borderRadius={8} />}
+            emptyContent={<div style={{ padding: '18px 4px', fontSize: 13.5, color: 'var(--muted)' }}>This rule has not fired yet.</div>}>
+            <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6 }}>
+              {(rows || []).map((x) => {
+                const m = ruleRunStatus(x.status);
+                return (
+                  <li key={x.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '2px 12px', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 8, fontSize: 13 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <StatusLabel label={m.label} color={m.color} size="sm" />
+                      <span style={{ fontWeight: 600 }}>{x.event || x.trigger || 'Fired'}</span>
+                    </div>
+                    <Muted style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>{x.at ? formatDateTime(x.at) : ''}</Muted>
+                    {line(x) && <div style={{ gridColumn: '1 / -1', overflowWrap: 'anywhere', color: 'var(--ink)' }}>{line(x)}</div>}
+                  </li>
+                );
+              })}
+            </ol>
+          </AsyncSection>
+        </div>
+      </div>
+    </Modal>
   );
 }

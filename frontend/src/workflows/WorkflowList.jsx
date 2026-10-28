@@ -18,7 +18,8 @@ import { wfStatusMeta } from './lib/status';
 import { buildSub } from './lib/sub';
 import { describeTrigger } from './lib/text';
 import { useCatalog } from './lib/useCatalog';
-import { Card, Chip, FONT, Muted, errorText } from './ui';
+import { Card, Chip, FONT, Muted } from './ui';
+import { errorText } from './lib/errors';
 
 const SCOPES = [
   { key: 'mine', label: 'Mine' },
@@ -34,21 +35,27 @@ export default function WorkflowList({ go }) {
   const scopes = useMemo(() => SCOPES.filter((s) => s.key !== 'all' || everyCompany), [everyCompany]);
   const [scope, setScope] = useState('mine');
   const [q, setQ] = useState('');
-  const [rows, setRows] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  // What was loaded, keyed by the scope and a retry tick: a scope switch or a
+  // retry shows the skeleton (the key no longer matches) and never the
+  // previous scope's rows; the state is set only from the response.
+  const [tick, setTick] = useState(0);
+  const loadKey = `${scope}:${tick}`;
+  const [loaded, setLoaded] = useState({ key: '', rows: null, error: false });
+  const rows = loaded.key === loadKey ? loaded.rows : null;
+  const error = loaded.key === loadKey && loaded.error;
+  const loading = loaded.key !== loadKey;
   const [busy, setBusy] = useState(null);     // workflow id with an action in flight
   const [notice, setNotice] = useState('');
 
-  const load = useCallback((s = scope) => {
-    setLoading(true);
-    return api.wfList({ scope: s })
-      .then((list) => { setRows(Array.isArray(list) ? list : []); setError(false); })
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, [scope]);
-
-  useEffect(() => { load(scope); }, [load, scope]);
+  useEffect(() => {
+    let on = true;
+    api.wfList({ scope })
+      .then((list) => { if (on) setLoaded({ key: loadKey, rows: Array.isArray(list) ? list : [], error: false }); })
+      .catch(() => { if (on) setLoaded({ key: loadKey, rows: null, error: true }); });
+    return () => { on = false; };
+  }, [scope, loadKey]);
+  const load = useCallback(() => setTick((t) => t + 1), []);
+  const setRows = (fn) => setLoaded((l) => ({ ...l, rows: fn(l.rows) }));
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -114,57 +121,64 @@ export default function WorkflowList({ go }) {
           </Card>
         }>
         <Card>
-          {!isMobile && (
-            <div role="row" style={{ ...GRID, padding: '8px 16px', fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
-              <span>Name</span><span>Trigger</span><span>Scope</span><span>Owner</span><span>Status</span><span style={{ textAlign: 'right' }}>Runs 7d</span><span>Last Run</span><span />
-            </div>
-          )}
-          {shown.map((w) => {
-            const m = wfStatusMeta(w.status);
-            const actions = (
-              <div style={{ display: 'flex', gap: 6, justifyContent: isMobile ? 'flex-start' : 'flex-end', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
-                {w.status === 'active' && <IconBtn label="Pause" Icon={Pause} onClick={() => pause(w)} disabled={busy === w.id} />}
-                {(w.status === 'paused' || w.status === 'needs_attention') && <IconBtn label="Resume" Icon={Play} onClick={() => resume(w)} disabled={busy === w.id} />}
-                <IconBtn label="Duplicate" Icon={Copy} onClick={() => duplicate(w)} disabled={busy === w.id} />
-                {w.status !== 'archived' && <IconBtn label="Archive" Icon={Archive} onClick={() => archive(w)} disabled={busy === w.id} />}
-              </div>
-            );
-            const open = () => go(buildSub('builder', w.id));
-            if (isMobile) {
-              return (
-                <div key={w.id} role="button" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}
-                  style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'grid', gap: 6, cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <span style={{ flex: 1, fontSize: 14, fontWeight: 700, minWidth: 0, overflowWrap: 'anywhere' }}>{w.name}</span>
-                    <StatusLabel label={m.label} color={m.color} size="sm" />
-                  </div>
-                  <Muted>{triggerText(w)}</Muted>
-                  <Muted>{w.companyName || 'Every Company'} - {w.ownerName || w.ownerEmail || '-'} - {w.runs7d ?? 0} runs in 7 days{w.lastRunAt ? ` - last ${formatDateTime(w.lastRunAt)}` : ''}</Muted>
-                  {w.pausedReason && <Muted style={{ color: '#d97706' }}>Paused: {w.pausedReason}</Muted>}
-                  {actions}
+          {/* Between the phone cards and a wide desktop the table scrolls
+              sideways inside the card instead of clipping its last columns. */}
+          <div style={isMobile ? undefined : { overflowX: 'auto' }}>
+            <div style={isMobile ? undefined : { minWidth: 980 }}>
+              {!isMobile && (
+                <div role="row" style={{ ...GRID, padding: '8px 16px', fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
+                  <span>Name</span><span>Trigger</span><span>Scope</span><span>Owner</span><span>Status</span><span style={{ textAlign: 'right' }}>Runs 7d</span><span>Last Run</span><span />
                 </div>
-              );
-            }
-            return (
-              <div key={w.id} role="row" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}
-                className="wf-list-row"
-                style={{ ...GRID, padding: '10px 16px', borderTop: '1px solid var(--line)', alignItems: 'center', cursor: 'pointer', fontSize: 13.5 }}>
-                <span style={{ fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.description || ''}>{w.name}</span>
-                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--muted)' }} title={triggerText(w)}>{triggerText(w)}</span>
-                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.companyName || 'Every Company'}</span>
-                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.ownerEmail || ''}>{w.ownerName || w.ownerEmail || '-'}</span>
-                <span style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start' }}>
-                  <StatusLabel label={m.label} color={m.color} size="sm" />
-                  {w.pausedReason && <Muted style={{ fontSize: 11.5 }}>{w.pausedReason}</Muted>}
-                </span>
-                <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                  {w.runs7d ?? 0}{w.failCount > 0 && <span style={{ color: '#dc2626', marginLeft: 4 }} title="Failed runs">({w.failCount})</span>}
-                </span>
-                <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: 12.5 }}>{w.lastRunAt ? formatDateTime(w.lastRunAt) : '-'}</span>
-                {actions}
-              </div>
-            );
-          })}
+              )}
+              {shown.map((w) => {
+                const m = wfStatusMeta(w.status);
+                const actions = (
+                  <div style={{ display: 'flex', gap: 6, justifyContent: isMobile ? 'flex-start' : 'flex-end', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+                    {w.status === 'active' && <IconBtn label="Pause" Icon={Pause} onClick={() => pause(w)} disabled={busy === w.id} />}
+                    {(w.status === 'paused' || w.status === 'needs_attention') && <IconBtn label="Resume" Icon={Play} onClick={() => resume(w)} disabled={busy === w.id} />}
+                    <IconBtn label="Duplicate" Icon={Copy} onClick={() => duplicate(w)} disabled={busy === w.id} />
+                    {w.status !== 'archived' && <IconBtn label="Archive" Icon={Archive} onClick={() => archive(w)} disabled={busy === w.id} />}
+                  </div>
+                );
+                const open = () => go(buildSub('builder', w.id));
+                if (isMobile) {
+                  return (
+                    <div key={w.id} role="button" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}
+                      style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'grid', gap: 6, cursor: 'pointer' }}>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <span style={{ flex: 1, fontSize: 14, fontWeight: 700, minWidth: 0, overflowWrap: 'anywhere' }}>{w.name}</span>
+                        <StatusLabel label={m.label} color={m.color} size="sm" />
+                      </div>
+                      <Muted>{triggerText(w)}</Muted>
+                      <Muted>{w.companyName || 'Every Company'} - {w.ownerName || w.ownerEmail || '-'} - {w.runs7d ?? 0} runs in 7 days{w.lastRunAt ? ` - last ${formatDateTime(w.lastRunAt)}` : ''}</Muted>
+                      {w.pausedReason && <Muted style={{ color: 'hsl(var(--color-orange))' }}>Paused: {w.pausedReason}</Muted>}
+                      {w.companyEnabled === false && <Muted style={{ color: 'hsl(var(--color-orange))' }}>{COMPANY_OFF}</Muted>}
+                      {actions}
+                    </div>
+                  );
+                }
+                return (
+                  <div key={w.id} role="row" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}
+                    style={{ ...GRID, padding: '10px 16px', borderTop: '1px solid var(--line)', alignItems: 'center', cursor: 'pointer', fontSize: 13.5 }}>
+                    <span style={{ fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.description || ''}>{w.name}</span>
+                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--muted)' }} title={triggerText(w)}>{triggerText(w)}</span>
+                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.companyName || 'Every Company'}</span>
+                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.ownerEmail || ''}>{w.ownerName || w.ownerEmail || '-'}</span>
+                    <span style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start' }}>
+                      <StatusLabel label={m.label} color={m.color} size="sm" />
+                      {w.pausedReason && <Muted style={{ fontSize: 11.5 }}>{w.pausedReason}</Muted>}
+                      {w.companyEnabled === false && <Muted style={{ fontSize: 11.5 }}>{COMPANY_OFF}</Muted>}
+                    </span>
+                    <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      {w.runs7d ?? 0}{w.failCount > 0 && <span style={{ color: 'hsl(var(--color-red))', marginLeft: 4 }} title="Failed runs">({w.failCount})</span>}
+                    </span>
+                    <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: 12.5 }}>{w.lastRunAt ? formatDateTime(w.lastRunAt) : '-'}</span>
+                    {actions}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </Card>
       </AsyncSection>
     </div>
@@ -172,6 +186,10 @@ export default function WorkflowList({ go }) {
 }
 
 const GRID = { display: 'grid', gridTemplateColumns: 'minmax(160px, 1.4fr) minmax(180px, 2fr) minmax(110px, 1fr) minmax(120px, 1fr) 130px 70px 150px auto', gap: 12 };
+
+// The company has workflows switched off in Settings > Workflows: the server
+// says so with companyEnabled: false (a row without the flag says nothing).
+const COMPANY_OFF = 'Paused: company switch';
 
 function IconBtn({ label, Icon, onClick, disabled }) {
   return (

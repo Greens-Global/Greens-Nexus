@@ -18,7 +18,8 @@ export const RUN_STATUS = {
   skipped:   { label: 'Skipped',   color: '#64748b' },
   cancelled: { label: 'Cancelled', color: '#64748b' },
   test:      { label: 'Test',      color: '#7c3aed' },
-  // Steps use the run words plus these two.
+  // Steps (the Actions view, the run drawer) use the run words plus these.
+  done:      { label: 'Done',      color: '#16a34a' },
   pending:   { label: 'Pending',   color: '#94a3b8' },
   planned:   { label: 'Planned',   color: '#7c3aed' },
 };

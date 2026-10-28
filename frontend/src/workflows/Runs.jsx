@@ -5,9 +5,13 @@
 //            "review the action that results"
 // Filters: workflow, status, a date range (DateField, never a native date
 // box). Keyset paging: GET /workflows/runs?before=<cursor> with the `next`
-// the server returned - Load More appends. The date range narrows what is
-// on screen (the server pages by time; the range is applied to each page).
-// A row opens the run drawer; run:<id> in the address opens it directly.
+// the server returned - Load More appends. The server pages by time, so the
+// To date seeds the first request's `before` (the end of that day) and the
+// From date is applied to each page; once a page runs past From there is
+// nothing older to load. A row opens the run drawer; run:<id> in the
+// address opens it directly.
+// The Actions view lists STEPS, whose statuses are done | failed - its
+// status filter offers only those two.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { History, ListChecks } from 'lucide-react';
 import { api } from '../api';
@@ -17,14 +21,13 @@ import { formatDateTime } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { DateField, EmptyState } from '../tasks/components';
 import RunDrawer from './RunDrawer';
+import { beforeFor, inRange, nextCursor, statusesFor } from './lib/runs';
 import { RUN_STATUS, runStatusMeta } from './lib/status';
 import { buildSub } from './lib/sub';
-import { Card, Chip, FONT, LinkButton, Muted, goTo } from './ui';
+import { Card, Chip, FONT, LinkButton, Muted } from './ui';
+import { goTo } from './lib/navigate';
 
 const PAGE = 50;
-const STATUSES = ['running', 'waiting', 'succeeded', 'failed', 'skipped', 'cancelled', 'test'];
-
-const dayOf = (iso) => (iso ? String(iso).slice(0, 10) : '');
 
 export default function Runs({ go, openRunId = null, initialWorkflow = '' }) {
   const isMobile = useIsMobile('(max-width: 760px)');
@@ -47,29 +50,32 @@ export default function Runs({ go, openRunId = null, initialWorkflow = '' }) {
     return () => { on = false; };
   }, []);
 
-  const load = useCallback((before = null) => {
+  const load = useCallback((cursor = null) => {
     const my = ++gen.current;
-    if (before) setMore(true); else { setLoading(true); setItems(null); setNext(null); }
+    if (cursor) setMore(true); else { setLoading(true); setItems(null); setNext(null); }
+    const before = cursor || beforeFor(to);
     return api.wfRuns({ kind, workflow, status, before, limit: PAGE })
       .then((res) => {
         if (my !== gen.current) return;
         const page = Array.isArray(res?.items) ? res.items : [];
-        setItems((cur) => (before ? [...(cur || []), ...page] : page));
-        setNext(res?.next || null);
+        setItems((cur) => (cursor ? [...(cur || []), ...page] : page));
+        setNext(nextCursor(page, res?.next, from));
         setError(false);
       })
       .catch(() => { if (my === gen.current) setError(true); })
       .finally(() => { if (my === gen.current) { setLoading(false); setMore(false); } });
-  }, [kind, workflow, status]);
+  }, [kind, workflow, status, from, to]);
 
   useEffect(() => { load(); }, [load]);
 
-  const shown = useMemo(() => (items || []).filter((r) => {
-    const d = dayOf(r.startedAt);
-    if (from && d && d < from) return false;
-    if (to && d && d > to) return false;
-    return true;
-  }), [items, from, to]);
+  // The Actions view speaks in step statuses; a run status picked before
+  // the switch would filter everything out.
+  const switchKind = (k) => {
+    setKind(k);
+    if (status && !statusesFor(k).includes(status)) setStatus('');
+  };
+
+  const shown = useMemo(() => inRange(items, from, to), [items, from, to]);
 
   const open = (runId) => go(buildSub('run', runId));
   const close = () => go('runs');
@@ -85,8 +91,8 @@ export default function Runs({ go, openRunId = null, initialWorkflow = '' }) {
     <div style={{ fontFamily: FONT }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
         <div role="tablist" aria-label="View" style={{ display: 'flex', gap: 8 }}>
-          <Chip on={kind === 'runs'} onClick={() => setKind('runs')}>Runs</Chip>
-          <Chip on={kind === 'actions'} onClick={() => setKind('actions')}>Actions</Chip>
+          <Chip on={kind === 'runs'} onClick={() => switchKind('runs')}>Runs</Chip>
+          <Chip on={kind === 'actions'} onClick={() => switchKind('actions')}>Actions</Chip>
         </div>
         {select(workflow, setWorkflow, 'Workflow', (
           <>
@@ -97,7 +103,7 @@ export default function Runs({ go, openRunId = null, initialWorkflow = '' }) {
         {select(status, setStatus, 'Status', (
           <>
             <option value="">Any status</option>
-            {STATUSES.map((s) => <option key={s} value={s}>{RUN_STATUS[s].label}</option>)}
+            {statusesFor(kind).map((s) => <option key={s} value={s}>{RUN_STATUS[s].label}</option>)}
           </>
         ))}
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)' }}>
@@ -110,19 +116,22 @@ export default function Runs({ go, openRunId = null, initialWorkflow = '' }) {
 
       <AsyncSection loading={loading && !items} error={error && !items} onRetry={() => load()}
         errorMessage="The runs couldn't be loaded right now - please try again."
-        isEmpty={!shown.length}
+        isEmpty={!shown.length && !next}
         skeleton={<SkeletonBlocks count={5} height={52} borderRadius={10} />}
         emptyContent={
           <Card>
             <EmptyState icon={kind === 'runs' ? History : ListChecks}
               title={kind === 'runs' ? 'No runs match' : 'No actions match'}
-              hint={items?.length ? 'Widen the date range or the filters.' : 'Runs appear here as published workflows fire.'} />
+              hint={items?.length || from || to || status || workflow ? 'Widen the date range or the filters.' : 'Runs appear here as published workflows fire.'} />
           </Card>
         }>
         <Card>
           {kind === 'runs'
             ? shown.map((r) => <RunRow key={r.id} run={r} onOpen={() => open(r.id)} isMobile={isMobile} />)
             : shown.map((a) => <ActionRow key={a.id} row={a} onOpen={() => open(a.runId)} isMobile={isMobile} />)}
+          {!shown.length && next && (
+            <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--muted)' }}>Nothing in this page matches the date range - load more to look further back.</div>
+          )}
           {next && (
             <div style={{ padding: 12, textAlign: 'center', borderTop: '1px solid var(--line)' }}>
               <button type="button" className="secondary-btn" onClick={() => load(next)} disabled={more} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -133,7 +142,7 @@ export default function Runs({ go, openRunId = null, initialWorkflow = '' }) {
         </Card>
       </AsyncSection>
 
-      {openRunId && <RunDrawer id={openRunId} onClose={close} onChanged={() => load()} />}
+      {openRunId && <RunDrawer key={openRunId} id={openRunId} onClose={close} onChanged={() => load()} />}
     </div>
   );
 }
@@ -151,7 +160,7 @@ function RunRow({ run, onOpen, isMobile }) {
       {isMobile ? <StatusLabel label={m.label} color={m.color} size="sm" /> : null}
       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--muted)' }} title={run.summary || ''}>
         {run.subjectLabel || run.summary || (run.triggerKind ? `${run.triggerKind} trigger` : '')}
-        {run.status === 'failed' && run.error ? <span style={{ color: '#dc2626' }}> - {run.error}</span> : null}
+        {run.status === 'failed' && run.error ? <span style={{ color: 'hsl(var(--color-red))' }}> - {run.error}</span> : null}
       </span>
       {!isMobile ? <StatusLabel label={m.label} color={m.color} size="sm" /> : null}
       <Muted style={{ whiteSpace: 'nowrap', textAlign: isMobile ? 'right' : 'left' }}>{when}</Muted>

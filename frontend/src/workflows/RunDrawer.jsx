@@ -1,8 +1,10 @@
 // One run (Oct 28 2026): the shared Modal (60vw / 60vh) with the step
 // timeline - a status label, the times, each step's input and output as a
-// definition list, its detail, and the error in red - the event payload
-// folded away, Replay for a failed run, Cancel for one still waiting, and
-// "Open <subject>" into the subject's own module. GET /workflows/runs/{id}.
+// definition list (the catalog's labels for an action's inputs), its
+// detail, and the error in red - the event payload folded away, Replay for
+// a failed run, Cancel for one still waiting, and "Open <subject>" into the
+// subject's own module. GET /workflows/runs/{id}. Mounted with key={id}, so
+// a different run starts from the skeleton.
 import { useCallback, useEffect, useState } from 'react';
 import { ExternalLink, RotateCcw, XCircle } from 'lucide-react';
 import { api } from '../api';
@@ -12,23 +14,28 @@ import { formatDateTime } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
 import { Modal } from '../tasks/components';
 import { runStatusMeta } from './lib/status';
-import { FONT, Muted, errorText, goTo } from './ui';
+import { findAction } from './lib/text';
+import { useCatalog } from './lib/useCatalog';
+import { FONT, Muted } from './ui';
+import { errorText } from './lib/errors';
+import { goTo } from './lib/navigate';
 
 export default function RunDrawer({ id, onClose, onChanged }) {
+  const { catalog } = useCatalog();
   const [run, setRun] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
 
-  const load = useCallback(() => {
-    setLoading(true);
-    return api.wfRunGet(id)
-      .then((r) => { setRun(r || null); setError(!r); })
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, [id]);
-  useEffect(() => { load(); }, [load]);
+  // The fetch sets state only from the response; Retry / Replay show the
+  // skeleton again through `load`.
+  const fetchRun = useCallback(() => api.wfRunGet(id)
+    .then((r) => { setRun(r || null); setError(!r); })
+    .catch(() => setError(true))
+    .finally(() => setLoading(false)), [id]);
+  const load = useCallback(() => { setLoading(true); return fetchRun(); }, [fetchRun]);
+  useEffect(() => { fetchRun(); }, [fetchRun]);
 
   const replay = async () => {
     setBusy(true); setNotice('');
@@ -102,7 +109,7 @@ export default function RunDrawer({ id, onClose, onChanged }) {
                   <Muted>No steps ran.</Muted>
                 ) : (
                   <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 8 }}>
-                    {steps.map((s, i) => <Step key={s.id || s.stepId || i} step={s} index={i + 1} />)}
+                    {steps.map((s, i) => <Step key={s.id || s.stepId || i} step={s} index={i + 1} catalog={catalog} />)}
                   </ol>
                 )}
               </div>
@@ -127,9 +134,11 @@ export default function RunDrawer({ id, onClose, onChanged }) {
 
 const capital = (s) => String(s || '').replace(/^\w/, (c) => c.toUpperCase());
 
-function Step({ step, index }) {
+function Step({ step, index, catalog }) {
   const m = runStatusMeta(step.status);
   const failed = step.status === 'failed';
+  // The action's inputs are labeled the way the builder labels them.
+  const labels = paramLabels(findAction(catalog, step.action));
   return (
     <li style={{ border: `1px solid ${failed ? 'hsla(var(--color-red),0.5)' : 'var(--line)'}`, borderRadius: 10, padding: '10px 12px', display: 'grid', gap: 6 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -145,33 +154,60 @@ function Step({ step, index }) {
       {step.detail && (
         <div style={{ fontSize: 13, color: failed ? 'hsl(var(--color-red))' : 'var(--ink)', overflowWrap: 'anywhere' }}>{step.detail}</div>
       )}
-      <Pairs title="Input" obj={step.input} />
+      <Pairs title="Input" obj={step.input} labels={labels} />
       <Pairs title="Output" obj={step.output} />
     </li>
   );
 }
 
-/** An object as a definition list; nested values are shown as JSON. */
-function Pairs({ title, obj }) {
-  if (!obj || typeof obj !== 'object' || !Object.keys(obj).length) return null;
+/** key -> label for a catalog action's params. */
+function paramLabels(actionDef) {
+  const out = {};
+  for (const p of actionDef?.params || []) if (p?.key && p.label) out[p.key] = p.label;
+  return out;
+}
+
+const isPlain = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const scalar = (v) => (v == null ? '-' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+
+/** "sent_to" -> "Sent To" for a key the catalog did not label. */
+const wordsOf = (k) => String(k).replace(/[_.-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** An object as a definition list: keys labeled from the catalog (else
+ *  as words), a list joined with ", ", a nested object as a nested list. */
+function Pairs({ title, obj, labels = {} }) {
+  if (!isPlain(obj) || !Object.keys(obj).length) return null;
   return (
     <div>
-      <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 2 }}>{title}</div>
+      {title && <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 2 }}>{title}</div>}
       <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'minmax(80px, max-content) minmax(0, 1fr)', gap: '2px 12px', fontSize: 12.5 }}>
         {Object.entries(obj).map(([k, v]) => (
-          <Pair key={k} k={k} v={v} />
+          <Pair key={k} k={labels[k] || wordsOf(k)} v={v} />
         ))}
       </dl>
     </div>
   );
 }
 
+function Value({ v }) {
+  if (Array.isArray(v)) {
+    if (!v.length) return '-';
+    if (v.every((x) => !isPlain(x))) return v.map(scalar).join(', ');
+    return (
+      <div style={{ display: 'grid', gap: 4 }}>
+        {v.map((x, i) => (isPlain(x) ? <Pairs key={i} obj={x} /> : <span key={i}>{scalar(x)}</span>))}
+      </div>
+    );
+  }
+  if (isPlain(v)) return Object.keys(v).length ? <Pairs obj={v} /> : '-';
+  return scalar(v);
+}
+
 function Pair({ k, v }) {
-  const text = v == null ? '-' : typeof v === 'object' ? JSON.stringify(v) : String(v);
   return (
     <>
       <dt style={{ color: 'var(--muted)', fontWeight: 600, overflowWrap: 'anywhere' }}>{k}</dt>
-      <dd style={{ margin: 0, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{text}</dd>
+      <dd style={{ margin: 0, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}><Value v={v} /></dd>
     </>
   );
 }
