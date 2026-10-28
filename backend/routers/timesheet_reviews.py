@@ -238,9 +238,12 @@ def approve_bulk(body: ApproveBulkIn, user: dict = Depends(require_approval_writ
 
 @router.get("/print")
 def print_paper(email: str, start: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """HR / Global Admin: the period's time sheet as a PDF to print and sign on
-    paper (Neil, Oct 23 2026). `start` = any date in the period. Changes nothing."""
-    pdf, name = tsr.paper_pdf(db, email, (start or "").strip(), (user.get("email") or "").lower())
+    """The employee's manager side or HR: the period's time sheet as a PDF to
+    print and sign on paper (Neil, Oct 23 2026), once the manager approved it.
+    `start` = any date in the period. Changes nothing."""
+    email = (email or "").strip().lower()
+    me = _reviewer_of(db, user, email, tsr.manager_of(db, email))
+    pdf, name = tsr.paper_pdf(db, email, (start or "").strip(), me, team=True)
     safe = "".join(ch for ch in name if ch.isalnum() or ch in " .-_") or "Time Sheet.pdf"
     return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{safe}"'})
 

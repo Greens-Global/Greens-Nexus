@@ -37,7 +37,7 @@ const TABS = [
   // shown to someone who keeps at least one role.
   ['role-checklists', 'Role Checklists', ListChecks, false],
   ['headcount', 'Headcount', UserPlus, false],
-  ['contact', 'Contact', Contact, false],
+  ['contact', 'Company Directory', Contact, false],
 ];
 const SUBTITLE = {
   contact: 'Find and reach anyone in the company',

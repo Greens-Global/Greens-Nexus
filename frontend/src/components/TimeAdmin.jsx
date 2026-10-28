@@ -4,7 +4,7 @@ import {
   Clock, ChevronDown, ChevronRight, MapPin, AlertTriangle, Download,
   Pencil, Plus, X, CheckCircle, Ban,
   Activity, Inbox, Banknote, CalendarOff,
-  Search, Lock, Receipt, Timer,
+  Search, Lock, Receipt, Timer, ClipboardCheck, Scale, MessageSquare,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -137,6 +137,19 @@ function readTimeoffFilter(key) {
   } catch { return 'pending'; }
 }
 
+// Teams on an Action Log person (Oct 28 2026): a 1:1 chat with what is
+// waiting on them already typed in the compose box - the reviewer reads it
+// and presses Send in Teams; nothing is sent from Nexus.
+const TEAMS_LINES = 10;
+export function actionLogTeamsUrl(g, reqLine) {
+  const lines = [...g.rows.map(({ rep }) => reqLine(rep)), ...g.missing.map(e => `${formatDate(e.date)}: ${e.label}`)];
+  const more = lines.length - TEAMS_LINES;
+  const msg = [`Hi ${(g.name || '').split(' ')[0] || 'there'}, about your time sheet:`,
+    ...lines.slice(0, TEAMS_LINES).map(l => `- ${l}`), ...(more > 0 ? [`- and ${more} more`] : []),
+    'Can we talk it through?'].join('\n');
+  return `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(g.email)}&message=${encodeURIComponent(msg)}`;
+}
+
 function weekRange(offset = 0) {
   const now = new Date();
   const mon = new Date(now);
@@ -169,6 +182,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
   // on lives in Shifts > Schedule, screenshots and location hours in Workforce
   // Analytics.
   const [view, setView] = useState(initialView || 'payroll');
+  // Payroll Readiness / California Review open from buttons in the tab row (Oct 28 2026).
+  const [checksOpen, setChecksOpen] = useState({ ready: false, ca: false });
   // Live map tab removed Aug 4 - superseded by the top-level Locations map.
   // A specific employee + period to open (Sep 29): Timesheets to Review, the
   // "Timesheet to review" bell, and the Daily Briefing / Weekly Digest link.
@@ -608,6 +623,20 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
             </button>
           );
         })}
+        {/* The two payroll checks sit in the tab row, not as two full-width
+            cards above the time sheet (Oct 28 2026: more screen) - a click
+            runs one and opens its results below. */}
+        {view === 'payroll' && (<>
+          <div style={{ flex: 1 }} />
+          {[['ready', 'Run Check', ClipboardCheck, 'Payroll Readiness - check who is not ready for payroll before you export: approvals, signatures, missing punches, open fixes and pay rates, plus big changes and unusual weeks.'],
+            ...(hrTeam ? [] : [['ca', 'Run Review', Scale, 'California Review - check the time sheets of hourly staff who work in California against California rules: meal breaks, 7th-day and double time, split shifts, reporting time, minimum wage and manual time.']])].map(([key, label, Icon, title]) => (
+            <button key={key} type="button" className="secondary-btn" title={title} aria-pressed={checksOpen[key]}
+              onClick={() => setChecksOpen(o => ({ ...o, [key]: true }))}
+              style={{ alignSelf: 'center', marginLeft: 6, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+              <Icon size={13} /> {key === 'ready' ? 'Payroll Readiness' : 'California Review'}
+            </button>
+          ))}
+        </>)}
       </div>
 
       {/* Range picker - shared by Insights and the Action Log's missing punches (both scan a range) */}
@@ -789,9 +818,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
       {/* Shifts moved out to its own module in My Desk (Sep 29) - views/Shifts.jsx. */}
 
       {/* Payroll - per-employee, per-pay-period editable timecard */}
-      {view === 'payroll' && <PayrollReadiness onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
+      {view === 'payroll' && checksOpen.ready && <PayrollReadiness autoRun onClose={() => setChecksOpen(o => ({ ...o, ready: false }))}
+        onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
       {/* California Review (Oct 18): CA-rule flags for HR - never the manager tier. */}
-      {view === 'payroll' && !hrTeam && <CaReview onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
+      {view === 'payroll' && !hrTeam && checksOpen.ca && <CaReview autoRun onClose={() => setChecksOpen(o => ({ ...o, ca: false }))}
+        onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
       {view === 'payroll' && <PayrollTimecard key={payrollTarget.key} toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail}
         initialStart={payrollTarget.start} initialPayType={payrollTarget.payType} />}
       {/* Retro Pay (Oct 17): back-dated rate changes on finalized periods. Pay - never the manager tier. */}
@@ -970,6 +1001,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                     </div>
                     {g.rows.length > 0 && <span style={pill('var(--wk-brand-tint, rgba(43,69,225,0.08))', 'var(--wk-brand, #2b45e1)')}><Inbox size={11} /> {g.rows.length} Request{g.rows.length === 1 ? '' : 's'}</span>}
                     {g.blocking > 0 && actKind !== 'requests' && <span style={pill('rgba(220,38,38,0.08)', 'hsl(var(--color-red))')}><AlertTriangle size={11} /> {g.blocking} Missing</span>}
+                    {g.email && !isMe(g.email) && (
+                      <a className="secondary-btn" href={actionLogTeamsUrl(g, r => `${fmtAt(r.at, r.timeZone) || 'No time'}: ${verb(r)}${r.reason ? ` ("${r.reason}")` : ''}`)}
+                        target="_blank" rel="noreferrer" title={`Message ${g.name} in Teams - a summary of what is listed here is typed in for you to check before you send it`}
+                        style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, textDecoration: 'none' }}>
+                        <MessageSquare size={12} /> Teams
+                      </a>
+                    )}
                     {g.email && g.missing.length > 0 && !isMe(g.email) && (
                       <button className="secondary-btn" onClick={() => setAddTimeFor({ email: g.email, name: g.name, dates: g.missing.filter(e => e.blocking).map(e => e.date) })}
                         title="Add the missing time - one or several days at once"
