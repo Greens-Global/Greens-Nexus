@@ -84,7 +84,7 @@ export const NAV = [
       // Requests = the manager's inbox (Charmi, 09/30); staff ask in Workday >
       // Time Off, and shift types / groups live in Settings > Global Settings.
       { subview: "requests", label: "Requests",         icon: ClipboardList, minRole: 'manager' },
-      { subview: "contact",  label: "Contact",          icon: Contact },
+      { subview: "contact",  label: "Company Directory", icon: Contact },
     ],
   },
   // Approvals (Neil, Oct 27 2026): everything waiting on your decision,

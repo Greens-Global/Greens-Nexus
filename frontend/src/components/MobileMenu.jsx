@@ -27,11 +27,11 @@ export const SUBMENUS = {
       { sub: 'shifts', label: 'Shifts' },
       { sub: 'schedule', label: 'Schedule' },
       { sub: 'requests', label: 'Requests' },
-      { sub: 'contact', label: 'Contact' },
+      { sub: 'contact', label: 'Company Directory' },
     ],
     employee: [
       { sub: 'shifts', label: 'Shifts' },
-      { sub: 'contact', label: 'Contact' },
+      { sub: 'contact', label: 'Company Directory' },
     ],
   },
   inventory: {
