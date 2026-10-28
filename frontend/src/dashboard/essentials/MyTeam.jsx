@@ -212,6 +212,10 @@ export default function MyTeam({ phone }) {
             <div style={noteStyle}>No one reports to you in People yet.</div>
           )}
           {(teamSize > 0 || people.length > 0) && pushSection}
+          {/* Their goals and our 1:1s (Performance, Oct 27 2026) - Workday > Performance > My Team. */}
+          {(teamSize > 0 || people.length > 0) && (
+            <button type="button" style={linkBtn} onClick={() => navigate('myhr', 'performance:team')}>Goals and 1:1s <ArrowRight size={13} /></button>
+          )}
         </>
       )}
     </DashCard>

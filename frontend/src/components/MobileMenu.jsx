@@ -72,8 +72,12 @@ export const SUBMENUS = {
     { sub: 'hr-people', label: 'People' },
     { sub: 'hr-hiring', label: 'Hiring' },
     { sub: 'hr-org',    label: 'Org Chart' },
-    { sub: 'hr-leave',  label: 'Leave' },
+    // People > Leave became Time > Time Off (leave depth, Oct 27 2026).
+    { sub: 'hr-time-off', label: 'Time Off' },
     { sub: 'hr-checklists', label: 'Checklists' },
+    { sub: 'hr-analytics', label: 'Analytics' },
+    { sub: 'hr-exits', label: 'Exits' },
+    { sub: 'hr-performance', label: 'Performance' },
   ],
   marketing: [
     { sub: 'marketing-ads',        label: 'Google Ads Performance' },

@@ -185,6 +185,11 @@ def draft_for(db: Session, email: str, final_row) -> Optional[ContractorInvoice]
         totals = tc._compute_timecard(db, email, final_row.period_start, final_row.period_end).get("totals", {})
         amount = float(totals.get("totalPay") or 0)
         hours, rate = round(int(final_row.worked_min or 0) / 60, 2), float(snap.get("rate") or 0)
+    # A salary advance repaid from this period (salary_advance.on_finalize,
+    # which runs just before this) comes off what is invoiced - its own line.
+    import salary_advance
+    repaid = salary_advance.applied_in(db, email, final_row.period_start, final_row.period_end)
+    amount = round(amount - repaid, 2)
     tc._lock_person(db, email)
     contractor = dict(emp.contractor or {})
     try:
@@ -204,10 +209,50 @@ def draft_for(db: Session, email: str, final_row) -> Optional[ContractorInvoice]
     # Bonuses on the period (Neil, Oct 22) are in `amount`; each prints as its own line.
     snap_out["bonuses"] = [{"description": b.description or "", "amount": round(float(b.amount or 0), 2)}
                            for b in tc._bonus_rows(db, email, final_row.period_start, final_row.period_end)]
+    if repaid:
+        snap_out["deductions"] = [{"description": salary_advance.LINE_LABEL, "amount": repaid}]
+    # India Contractor policy (Oct 27 2026): the monthly amount, less the
+    # days still unpaid after the month-end reconciliation, plus Extra Time
+    # as its own line - from the frozen finalize snapshot only.
+    if snap.get("payType") == "fixed" and isinstance(snap.get("indiaPolicy"), dict):
+        snap_out["lines"] = policy_lines(snap, final_row.period_start, inv.description)
     inv.snapshot = snap_out
     db.add(inv)
     _bell(db, emp, ent, inv)
     return inv
+
+
+def _hm(minutes) -> str:
+    m = max(0, int(minutes or 0))
+    return f"{m // 60}h {m % 60:02d}m"
+
+
+def policy_lines(snap: dict, period_start: str, description: str = "") -> list:
+    """An India Contractor month as invoice lines (Neil, Oct 27 2026): the
+    monthly fee, "Less N unpaid days" (after the reconciliation recovered
+    what it could), and Extra Time. Bonuses keep their own lines. The lines
+    add up to the finalized totalPay less its bonuses."""
+    ip = snap.get("indiaPolicy") or {}
+    rec = ip.get("reconciliation") or {}
+    try:
+        month = date.fromisoformat((period_start or "")[:10]).strftime("%B %Y")
+    except ValueError:
+        month = period_start
+    base = round(float(ip.get("salaryForPeriod") or 0), 2)
+    lines = [{"description": f"Monthly fee for {month}", "detail": (description or "").strip(), "amount": base}]
+    deduction = round(float(snap.get("deduction") or 0), 2)
+    if deduction:
+        days = int(rec.get("unpaidHalves") or 0) / 2
+        n = f"{days:g}"
+        lines.append({"description": f"Less {n} unpaid day{'' if days == 1 or days < 1 else 's'}",
+                      "detail": "Scheduled workdays not credited after the month-end reconciliation",
+                      "amount": -deduction})
+    extra = round(float(rec.get("extraTimePay") or 0), 2)
+    if extra:
+        lines.append({"description": f"Extra Time: {_hm(rec.get('extraTimeMin'))} approved",
+                      "detail": "At 1.35x the hourly equivalent of the daily rate (daily rate / 9)",
+                      "amount": extra})
+    return lines
 
 
 def _bell(db: Session, emp: NexusEmployee, ent: Optional[HrEntity], inv: ContractorInvoice) -> None:
@@ -361,10 +406,21 @@ def render_pdf(snap: dict) -> bytes:
                  f"{esc(_money(snap['rate'], cur, rupee_ok))} per hour</font>")
     total = _money(snap.get("amount", 0), cur, rupee_ok)
     bonuses = snap.get("bonuses") or []
-    services = float(snap.get("amount") or 0) - sum(float(b.get("amount") or 0) for b in bonuses)
+    deductions = snap.get("deductions") or []      # a salary advance repaid from the period
+    services = (float(snap.get("amount") or 0) - sum(float(b.get("amount") or 0) for b in bonuses)
+                + sum(float(x.get("amount") or 0) for x in deductions))
     lines = [[Paragraph(desc, S), Paragraph(esc(_money(services, cur, rupee_ok)), R)]]
+    if snap.get("lines"):
+        # India Contractor policy: the fee, less unpaid days, plus Extra Time (Oct 27 2026).
+        lines = [[Paragraph(esc(ln.get("description") or "")
+                            + (f"<br/><font color='#6b6b75' size='8'>{esc(ln['detail'])}</font>" if ln.get("detail") else ""), S),
+                  Paragraph(esc(("-" if float(ln.get("amount") or 0) < 0 else "")
+                                + _money(abs(float(ln.get("amount") or 0)), cur, rupee_ok)), R)]
+                 for ln in snap["lines"]]
     lines += [[Paragraph(f"Bonus: {esc(b.get('description') or '')}", S),
                Paragraph(esc(_money(b.get("amount", 0), cur, rupee_ok)), R)] for b in bonuses]
+    lines += [[Paragraph(f"Less: {esc(x.get('description') or '')}", S),
+               Paragraph("-" + esc(_money(x.get("amount", 0), cur, rupee_ok)), R)] for x in deductions]
     n = len(lines)
     items = Table([[Paragraph("DESCRIPTION", LBL), Paragraph("AMOUNT", ParagraphStyle("lr", parent=LBL, alignment=2))],
                    *lines,

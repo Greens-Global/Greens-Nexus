@@ -125,8 +125,10 @@ ONBOARDING = [
          hint="Security awareness; California harassment prevention within 6 months."),
     _row("ON-31", P4, "60-Day Check-In", "manager", "S", 60),
     _row("ON-32", P4, "90-Day Check-In", "manager", "S", 90),
-    _row("ON-33", P4, "Probation Confirmation Letter", "hr", "none", applies=EMP,
-         hint="Only when the offer or appointment letter has a probation clause."),
+    # Ticks itself when HR confirms the probation on the profile (Oct 27 2026,
+    # hr_probation.py) - the confirmation letter goes out from there.
+    _row("ON-33", P4, "Probation Confirmation Letter", "hr", "none", applies=EMP, signal="probation_confirmed",
+         hint="Confirm the probation on their profile - the letter goes out and this ticks itself."),
 ]
 
 Q1, Q2, Q3 = "Notice Period", "Last Day", "After The Last Day"

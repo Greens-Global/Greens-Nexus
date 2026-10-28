@@ -18,6 +18,7 @@ import {
   HardDrive, FolderOpen, ClipboardList,
   MonitorDot, Gauge, CalendarClock,
   Map as MapIcon,
+  Inbox,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
 import InsightsChart from "./icons/InsightsChart";
@@ -86,6 +87,10 @@ export const NAV = [
       { subview: "contact",  label: "Contact",          icon: Contact },
     ],
   },
+  // Approvals (Neil, Oct 27 2026): everything waiting on your decision,
+  // across modules (views/Approvals.jsx). Everyone - an employee has swaps
+  // and signatures too; its count is the Approvals registry's total.
+  { view: "approvals", code: "APR", label: "Approvals", icon: Inbox },
   { divider: true },
   // Tasks + Tickets are grant-driven like every other module (Aug 10): they
   // only appear when an Access Group / job role grants them (most job roles
@@ -183,8 +188,12 @@ export const NAV = [
       { subview: "hr-people", label: "People",    icon: Users },
       { subview: "hr-hiring", label: "Hiring",    icon: CheckSquare },
       { subview: "hr-org",    label: "Org Chart", icon: Files },
-      { subview: "hr-leave",  label: "Leave",     icon: PenTool },
+      // People > Leave became Time > Time Off (leave depth, Oct 27 2026).
+      { subview: "hr-time-off", label: "Time Off", icon: PenTool },
       { subview: "hr-checklists", label: "Checklists", icon: CheckSquare },
+      { subview: "hr-analytics", label: "Analytics", icon: BarChart3 },
+      { subview: "hr-exits", label: "Exits", icon: Files },
+      { subview: "hr-performance", label: "Performance", icon: BarChart3 },
     ],
   },
   {

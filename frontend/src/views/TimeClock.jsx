@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { useIsMobile } from '../lib/useIsMobile';
 import {
   LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
@@ -33,6 +33,11 @@ import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import DocumentsToSign from '../components/DocumentsToSign';
 import DelegateApprovalsCard from '../components/DelegateApprovals';
 import { PurchaseRequestsPanel } from '../components/PurchaseRequests';
+import ViewErrorBoundary from '../components/ViewErrorBoundary';
+// Performance (Oct 27 2026): goals and 1:1s - its own chunk, loaded on the tab.
+const PerformanceTab = lazy(() => import('../performance/PerformanceTab'));
+// Team Leave Calendar (Oct 27 2026) - its own chunk, loaded with Time Off.
+const TeamLeaveCalendar = lazy(() => import('../components/TeamLeaveCalendar'));
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -67,6 +72,7 @@ const TAB_META = {
   overview:  { title: 'Workday',    label: 'Overview' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet' },
   timeoff:   { title: 'Time Off',   label: 'Time Off' },
+  performance: { title: 'Performance', label: 'Performance' },
 };
 // The Clock tab folded into Overview (Oct 2), and so did your own shifts
 // (Neil, Oct 13 2026: "the personal shift data should move into your
@@ -80,8 +86,12 @@ const TAB_META = {
 // are the Overview with the Purchase Requests popup open - it is a popup like
 // Reimbursements, not a tab (Sagar, Oct 27); "purchase:new" opens its form too.
 const isPurchaseSub = (sub) => /^purchase(:|$)/.test(sub || '');
-const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || isPurchaseSub(sub) || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
-  : sub === 'timecard' ? 'timesheet' : sub);
+// "salary-advances" (a salary advance bell, Oct 27 2026) is the Overview with its card (HR: Manage open).
+const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || sub === 'salary-advances' || isPurchaseSub(sub) || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
+  : sub === 'timecard' ? 'timesheet' : /^performance(:|$)/.test(sub || '') ? 'performance' : sub);
+// "performance:goal:<id>" / "performance:1on1:<id>" / "performance:team" (bells,
+// Oct 27 2026): the Performance tab with that goal, 1:1 or view open.
+const perfFocusOf = (sub) => (/^performance:/.test(sub || '') ? { sub } : null);
 // "shifts:confirm:<publish id>" (Shifts Phase 3a): a schedule to confirm - My Schedule shows its banner.
 const confirmOf = (sub) => (String(sub || '').match(/^shifts:confirm:(.+)$/) || [])[1] || '';
 // "sign:<party id>" (Oct 18): a Nexus Sign document to sign - Documents to Sign opens it.
@@ -509,10 +519,16 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // to change (Pranshu, Sep 4: switching tabs left the URL on /myhr forever).
   // Held past the address rewrite below (it goes back to plain 'overview').
   const [focusConfirm, setFocusConfirm] = useState(() => confirmOf(activeSub));
+  const [perfFocus, setPerfFocus] = useState(() => perfFocusOf(activeSub));
+  useEffect(() => { const f = perfFocusOf(activeSub); if (f) setPerfFocus(f); }, [activeSub]);
+  const clearPerfFocus = useCallback(() => setPerfFocus(null), []);
   useEffect(() => { const c = confirmOf(activeSub); if (c) setFocusConfirm(c); }, [activeSub]);
   // A reimbursement bell lands on "reimbursements": open that panel (Oct 18 2026).
   const [openReimb, setOpenReimb] = useState(() => activeSub === 'reimbursements');
   useEffect(() => { if (activeSub === 'reimbursements') { setOpenReimb(true); window.dispatchEvent(new CustomEvent('nexus:open-reimbursements')); } }, [activeSub]);
+  // A salary advance bell lands on "salary-advances" (Oct 27 2026): HR gets Manage open.
+  const [openAdv, setOpenAdv] = useState(() => activeSub === 'salary-advances');
+  useEffect(() => { if (activeSub === 'salary-advances') { setOpenAdv(true); window.dispatchEvent(new CustomEvent('nexus:open-salary-advances')); } }, [activeSub]);
   // "purchase:new" opens the New Purchase Request form (each time it arrives).
   const [purchaseNewKey, setPurchaseNewKey] = useState(() => (activeSub === 'purchase:new' ? 1 : 0));
   const [purchaseSeenSub, setPurchaseSeenSub] = useState(activeSub);
@@ -531,7 +547,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     const t = tabFor(activeSub);
     if (TAB_META[t] && t !== tab) setTab(t);
     // An old 'clock' or 'shifts' address already shows Overview - rewrite it to say so.
-    else if ((activeSub === 'clock' || activeSub === 'reimbursements' || /^(shifts|purchase)(:|$)/.test(activeSub || '')) && activeSub !== tab && onSubChange) onSubChange(tab);
+    else if ((activeSub === 'clock' || activeSub === 'reimbursements' || activeSub === 'salary-advances' || /^(shifts|purchase)(:|$)/.test(activeSub || '')) && activeSub !== tab && onSubChange) onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSub]);
   useEffect(() => {
@@ -1353,8 +1369,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
              a reviewing manager) - never for the badge count alone, which
              once surfaced a stale "sent back" row of an exempt person's own
              old time sheet as a "1" over an empty tab (Neil, Oct 21 2026). */
-          ? ['overview', ...(toSignCount > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
-          : ['overview', 'timesheet', 'timeoff']
+          ? ['overview', ...(toSignCount > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff', 'performance']
+          : ['overview', 'timesheet', 'timeoff', 'performance']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title })), counts, 'myhr')}
         active={tab} onChange={setTab} syncTitle />
 
@@ -1371,7 +1387,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Nexus Sign documents waiting on me, signed here (Oct 18) - Documents needs a grant. */}
       {tab === 'overview' && <DocumentsToSign focusParty={signOf(activeSub)} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
       {tab === 'overview' && (
-        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setPurchaseOpen({ newForm: false })} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
+        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} openSalaryAdvances={openAdv} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setPurchaseOpen({ newForm: false })} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
 
       {/* Time sheets waiting on my signature - above my own timesheet. Renders
@@ -1465,6 +1481,15 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {purchaseOpen && (
         <PurchaseRequestsPanel onClose={() => setPurchaseOpen(null)} openNewKey={purchaseOpen.newForm ? purchaseNewKey : 0}
           toast={(text, kind) => toast(kind !== 'error', text)} />
+      )}
+
+      {/* Performance (Oct 27 2026): my goals and 1:1s, my team's when I manage people. */}
+      {tab === 'performance' && (
+        <ViewErrorBoundary resetKey="performance">
+          <Suspense fallback={<SkeletonBlocks count={2} height={180} />}>
+            <PerformanceTab focus={perfFocus} onFocusUsed={clearPerfFocus} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />
+          </Suspense>
+        </ViewErrorBoundary>
       )}
 
       {/* Time off */}
@@ -1638,14 +1663,21 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                   {toCancelling === r.id ? <Spinner size={11} /> : <X size={11} />} Cancel
                 </button>
               )}
+              {/* Second Approval By HR (Oct 27 2026): approved by the manager,
+                  still pending until HR approves. */}
               <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 999, minWidth: 74, textAlign: 'center',
-                background: TO_TINT[r.status] || 'var(--mist)', color: TO_STATUS[r.status] || 'var(--muted)' }}>
-                {TO_STATUS_LABEL[r.status] || r.status}
+                background: TO_TINT[r.status] || 'var(--mist)', color: TO_STATUS[r.status] || 'var(--muted)' }}
+                title={r.awaitingHr ? 'Your manager approved it - HR approves next' : undefined}>
+                {r.awaitingHr ? 'Awaiting HR Approval' : (TO_STATUS_LABEL[r.status] || r.status)}
               </span>
             </div>
           );
         })}
       </div>
+      {/* Team Leave Calendar (Oct 27 2026): who on my team is out this month. */}
+      <Suspense fallback={<SkeletonBlocks count={1} height={220} />}>
+        <TeamLeaveCalendar />
+      </Suspense>
       {/* Delegate My Approvals (Neil, Oct 20): here on Time Off, collapsed -
           it opens up for the days you are off. Renders nothing for someone
           with nothing to approve. */}

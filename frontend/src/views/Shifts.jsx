@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarClock, CalendarDays, Contact, Inbox, Handshake, ListChecks } from 'lucide-react';
+import { CalendarClock, CalendarDays, Contact, Inbox, Handshake, ListChecks, UserPlus } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import MyShifts from '../components/MyShifts';
@@ -23,6 +23,10 @@ import { useManagerInbox } from '../components/shifts/useManagerInbox';
 // Lazy: the directory is a big screen, and only its tab needs it.
 const Directory = lazy(() => import('./Directory'));
 const RoleChecklists = lazy(() => import('../components/HrChecklists').then(m => ({ default: m.RoleChecklists })));
+// Headcount requests (Neil, Oct 27 2026): a manager asks to hire here, and the
+// department line and HR decide here - shown to anyone the server says may
+// raise one or has one to see (GET /hiring/headcount/meta showTab).
+const HeadcountRequests = lazy(() => import('../components/hiring/HeadcountRequests'));
 
 // Contact last (Pranshu, Oct 15 2026); Team opens on Shifts.
 const TABS = [
@@ -32,6 +36,7 @@ const TABS = [
   // A role's own checklist steps, for department heads (Neil, Oct 19) - only
   // shown to someone who keeps at least one role.
   ['role-checklists', 'Role Checklists', ListChecks, false],
+  ['headcount', 'Headcount', UserPlus, false],
   ['contact', 'Contact', Contact, false],
 ];
 const SUBTITLE = {
@@ -40,6 +45,7 @@ const SUBTITLE = {
   schedule: "Build, share and adjust the team's schedule",
   requests: "Decide your team's time off, swaps, offers and open-shift requests",
   'role-checklists': "The extra onboarding, promotion, offboarding and leave steps your department's roles need",
+  headcount: 'Ask to hire, and approve the requests waiting on you',
 };
 
 export default function Shifts({ activeSub, onSubChange }) {
@@ -50,7 +56,13 @@ export default function Shifts({ activeSub, onSubChange }) {
     Promise.resolve().then(() => api.getRoleChecklistRoles())
       .then(r => setKeepsRoles((r?.roles || []).length > 0)).catch(() => {});
   }, []);
-  const tabs = TABS.filter(([key, , , managerOnly]) => (canManage || !managerOnly) && (key !== 'role-checklists' || keepsRoles));
+  const [headcount, setHeadcount] = useState({ show: false, waiting: 0 });
+  useEffect(() => {
+    Promise.resolve().then(() => api.headcountMeta())
+      .then(m => setHeadcount({ show: !!m?.showTab, waiting: m?.waiting || 0 })).catch(() => {});
+  }, []);
+  const tabs = TABS.filter(([key, , , managerOnly]) => (canManage || !managerOnly) && (key !== 'role-checklists' || keepsRoles)
+    && (key !== 'headcount' || headcount.show));
   // A weather advisory's bell deep-links to one day of one group:
   // sub = "schedule:YYYY-MM-DD:<group id>" (Weather Call, Oct 2026). The tab
   // is the part before the first colon; the rest is where to land.
@@ -98,7 +110,7 @@ export default function Shifts({ activeSub, onSubChange }) {
       <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, minWidth: 0 }}>
         {tabs.map(([key, label, Icon]) => {
           const on = tab === key;
-          const badge = key === 'requests' ? requests.pendingCount : 0;
+          const badge = key === 'requests' ? requests.pendingCount : key === 'headcount' ? headcount.waiting : 0;
           return (
             <button key={key} type="button" role="tab" aria-selected={on} onClick={() => onSubChange?.(key)}
               aria-label={badge ? `${label}, ${badge} waiting` : undefined}
@@ -119,6 +131,7 @@ export default function Shifts({ activeSub, onSubChange }) {
         : tab === 'shifts' ? <MyShifts part="team" />
         : tab === 'schedule' ? <ShiftSchedule toastOk={toastOk} toastErr={toastErr} onOpenRequests={openRequests} focus={focus} />
         : tab === 'role-checklists' ? <Suspense fallback={<SkeletonBlocks count={3} height={56} />}><RoleChecklists toastOk={toastOk} toastErr={toastErr} /></Suspense>
+        : tab === 'headcount' ? <Suspense fallback={<SkeletonBlocks count={3} height={56} />}><HeadcountRequests toastOk={toastOk} toastErr={toastErr} /></Suspense>
           : <ShiftRequestsPage inbox={requests.inbox} timeoff={requests.timeoff} loading={requests.loading} error={requests.error}
             onRetry={requests.reload} onChanged={requests.reload} toastOk={toastOk} toastErr={toastErr} />}
 

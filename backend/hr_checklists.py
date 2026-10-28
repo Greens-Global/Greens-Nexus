@@ -953,6 +953,8 @@ SIGNALS = {
     "work_auth_verified": _sig_work_auth,
     "consent_background": _consent("bgCheck"),
     "consent_handbook": _consent("handbook"),
+    # HR confirmed the probation on the profile (hr_probation.py, Oct 27 2026).
+    "probation_confirmed": lambda db, emp, arg: (emp.probation or {}).get("status") == "confirmed",
 }
 
 SIGNAL_LABELS = {
@@ -972,6 +974,7 @@ SIGNAL_LABELS = {
     "work_auth_verified": "Work authorization is Verified on the Compliance tab (not expired)",
     "consent_background": "Background check consent is ticked on the Compliance tab",
     "consent_handbook": "Handbook acknowledgment is ticked on the Compliance tab",
+    "probation_confirmed": "Probation is Confirmed on the profile",
 }
 
 # The envelope conditions the editor offers by name.

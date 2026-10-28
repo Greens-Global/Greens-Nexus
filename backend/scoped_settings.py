@@ -14,9 +14,29 @@ already worked this way with helpers of their own; the pay rules
 import json
 from datetime import datetime, timezone
 
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 import models
+
+# Per-session memo (Oct 27 2026): a report that builds a card per person
+# (payroll readiness, exports) read the same setting rows and the same
+# person's company again for every card - `db.get` caches a row it found but
+# never one that is not there, so a company with no override cost a query
+# per read: ~11 queries a person. The memo lives in `db.info` and is dropped
+# on every flush, commit and rollback, so it never outlives what the session
+# could see anyway (sessions run autoflush=False).
+_MISSING = "_scoped_settings_missing"     # setting keys known to have no row
+_COMPANY = "_scoped_settings_company"     # email -> company id
+
+
+def _forget(session, *_a) -> None:
+    session.info.pop(_MISSING, None)
+    session.info.pop(_COMPANY, None)
+
+
+for _ev in ("after_flush", "after_commit", "after_rollback"):
+    event.listen(Session, _ev, _forget)
 
 
 def key_for(base: str, company_id: str = "") -> str:
@@ -27,7 +47,13 @@ def saved(db: Session, base: str, company_id: str = "", keys=None) -> dict:
     """What is stored for the tenant ('' company) or a company's override;
     {} when nothing is. `keys` limits the result to the keys a setting knows
     (unknown keys in an old row are dropped, never surfaced)."""
-    row = db.get(models.NexusSetting, key_for(base, company_id))
+    key = key_for(base, company_id)
+    missing = db.info.setdefault(_MISSING, set())
+    if key in missing:
+        return {}
+    row = db.get(models.NexusSetting, key)
+    if row is None:
+        missing.add(key)
     if not row or not row.value:
         return {}
     try:
@@ -57,6 +83,7 @@ def save(db: Session, base: str, company_id: str, cfg: dict, actor: str) -> None
     """Store `cfg` whole as the tenant row (company '') or a company's
     override. The caller commits."""
     key = key_for(base, company_id)
+    db.info.get(_MISSING, set()).discard(key)
     row = db.get(models.NexusSetting, key)
     if row is None:
         row = models.NexusSetting(key=key)
@@ -82,4 +109,8 @@ def company_of_email(db: Session, email: str) -> str:
     """The company a person's settings come from (nexus_employees.company),
     '' for an untagged person - who then reads the tenant row."""
     from auth import company_of
-    return company_of(email or "", db)
+    em = (email or "").strip().lower()
+    memo = db.info.setdefault(_COMPANY, {})
+    if em not in memo:
+        memo[em] = company_of(em, db)
+    return memo[em]

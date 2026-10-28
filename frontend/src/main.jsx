@@ -136,7 +136,8 @@ function renderLanding() {
 // /intake is the new hire's details form (Oct 14) - "they don't need a Nexus
 // account to fill it out" (Neil); without it here a candidate with no session
 // lands on the sign-in screen instead of their form.
-const PUBLIC_PATH = /^\/(sign|verify|privacy|terms|activate|intake)(\/|$)/;
+// /careers is the public careers page and apply form (Oct 27 2026).
+const PUBLIC_PATH = /^\/(sign|verify|privacy|terms|activate|intake|careers)(\/|$)/;
 const isPublicPath = PUBLIC_PATH.test(window.location.pathname);
 
 // BFF cookie mode: resolve the server session BEFORE the first render. If signed

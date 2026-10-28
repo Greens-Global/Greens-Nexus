@@ -980,6 +980,16 @@ class NexusEmployee(Base):
     # out, with the manager's rights over them. '' = the default - the
     # manager's manager, else the company's HR contact (backup_manager.py).
     backup_manager_email     = Column(String, default="")
+    # Custom fields (Neil, Oct 27 2026): {field_key: value} for the fields HR
+    # defines in Settings > People & Access (EmployeeCustomField). Never in
+    # hr._serialize - hr_custom_fields.py filters HR Only values per caller.
+    custom_fields            = Column(JSON, default=dict)
+    # Probation (Neil, Oct 27 2026, hr_probation.py): status, start / end
+    # dates, a per-person length, the manager's recommendation, the decision,
+    # the letter and the history. {} = Not Tracked. New hires get it
+    # automatically; existing people still inside their window were started
+    # once at release (hr_probation.backfill_existing).
+    probation                = Column(JSON, default=dict)
 
 
 class HrRemovedIdentity(Base):
@@ -1036,6 +1046,14 @@ class HrCandidate(Base):
     decision_note  = Column(String, default="")
     # Skip Interview (Neil, Oct 22): who moved them to Decision without one.
     interview_skipped_by = Column(String, default="")
+    # Careers page (Oct 27 2026, hiring_openings.py): the job opening they
+    # applied for (HrJobOpening.id, '' = none), what the public apply form
+    # asks, when they consented, and their last careers-page application.
+    opening_id     = Column(String, default="")
+    location       = Column(String, default="")
+    linkedin_url   = Column(String, default="")
+    consent_at     = Column(String, default="")
+    applied_at     = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")
@@ -2289,6 +2307,14 @@ class TimePunch(Base):
     # Add Time (Oct 14 2026): every punch a manager's batch wrote together
     # shares an id, so the batch can be undone as one.
     batch_id         = Column(String, default="", index=True)
+    # Duplicate Day (Oct 27 2026): a punch HR's "Replace existing" voided -
+    # the batch that replaced it, so undoing that batch brings it back.
+    replaced_by_batch = Column(String, default="", index=True)
+    # Add Time From Record (Oct 27 2026): where a punch came from when it was
+    # not the clock - 'hr_record' = HR keyed it in from a paper time sheet or
+    # another record (its batch is batch_id -> time_entry_batches). '' = as
+    # `source` says.
+    entry_source      = Column(String, default="")
 
 
 class TimeScreenshot(Base):
@@ -2729,6 +2755,15 @@ class TimeOffRequest(Base):
     # to the requester and the people who decide it (timeclock._TimeoffPrivacy);
     # everyone else sees plain "Time off" with the dates.
     confidential   = Column(Integer, default=0)
+    # Second Approval By HR (Neil, Oct 27 2026; per company, Settings > Time &
+    # Pay > Time-Off Approval). The status stays 'pending' until the request
+    # is fully approved, so every "pending" reader keeps treating it as not
+    # approved; approval_stage says whose turn it is: '' = the manager, 'hr' =
+    # the manager approved and it waits for HR (timesheet_review.is_hr).
+    approval_stage   = Column(String, default="")
+    first_approver   = Column(String, default="")     # the manager who approved the first level
+    first_decided_at = Column(String, default="")
+    first_note       = Column(String, default="")
 
 
 class DashboardView(Base):
@@ -2899,6 +2934,10 @@ class HrSelfRequest(Base):
     resolved_by    = Column(String, default="")
     resolved_at    = Column(String, default="")
     created_at     = Column(String, default="")
+    # Ask HR runs through Tickets (Oct 27 2026, hr_tickets.py): the ticket an
+    # open request was moved into. Set once; a row that has one is never moved
+    # again. Resolved rows stay here, read-only, as Earlier Requests.
+    ticket_id      = Column(String, default="", index=True)
 
 
 # ── Field-worker location tracking (native app, clocked-in only) ──────────────
@@ -3698,6 +3737,11 @@ class TaskTicket(Base):
     # new email to the support mailbox (ticket_inbound.py). Set server-side
     # only; the drawer and list show "Via Email".
     source                = Column(String, default="")
+    # Confidential desk (Oct 27 2026, ticket_confidential.py): "" = an
+    # ordinary ticket, "hr" = an Ask HR request - readable only by its own
+    # people and HR for its company, hidden from the desk, reports and every
+    # other reader by the hook in database.py. Set server-side only.
+    confidential_desk     = Column(String, default="", index=True)
 
 
 class TicketEmailLog(Base):
@@ -7282,7 +7326,7 @@ class LeaveLedgerEntry(Base):
     employee_email = Column(String, nullable=False, index=True)
     bucket         = Column(String, default="vacation")   # vacation | sick
     hours          = Column(Float, default=0)             # signed
-    kind           = Column(String, default="adjust")     # opening | accrual | used | adjust
+    kind           = Column(String, default="adjust")     # opening | accrual | used | adjust | expire | carryover (leave_year_end.py)
     effective_date = Column(String, default="")           # YYYY-MM-DD
     ref_id         = Column(String, default="", index=True)  # the finalize row (TimeApproval.id) for accrual / used
     note           = Column(String, default="")
@@ -8403,3 +8447,495 @@ class AccountingLiabilityReconLog(Base):
     by_name   = Column(String, default="")
     at        = Column(String, default="")
     detail    = Column(JSON, default=dict)
+
+
+class EmployeeCustomField(Base):
+    """An HR-defined extra field on employee records (Neil, Oct 27 2026,
+    hr_custom_fields.py). The value for each person lives in
+    NexusEmployee.custom_fields keyed by `field_key`, which never changes once
+    the field exists (it is also the {{custom.<field_key>}} merge variable).
+    company_id '' = every company. Archiving hides the field; values are never
+    deleted. New table - create_all builds it; RLS on dev and prod at release."""
+    __tablename__ = "employee_custom_fields"
+    id          = Column(String, primary_key=True)                 # uuid
+    field_key   = Column(String, nullable=False, index=True)       # stable key in NexusEmployee.custom_fields
+    label       = Column(String, nullable=False)
+    field_type  = Column(String, default="text")                   # text | number | date | dropdown | checkbox
+    options     = Column(JSON, default=list)                       # dropdown choices
+    company_id  = Column(String, default="", index=True)           # '' = every company, else an HrEntity id
+    required    = Column(Integer, default=0)
+    sort_order  = Column(Integer, default=0)
+    visibility  = Column(String, default="hr_only")                # hr_only | employee_view | employee_edit
+    archived    = Column(Integer, default=0)
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    updated_by  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class HrLetterRequest(Base):
+    """A standard HR letter an employee asked for from My HR (Neil, Oct 27
+    2026, hr_letters.py): Employment Verification, Salary Certificate,
+    Experience Letter, Address Proof, Visa NOC. HR for the person's company
+    reviews the letter generated from the type's Documents template, edits
+    its values, then Issues it (a Nexus Sign envelope to the company
+    signatory, the only signer) or Declines it with a reason. Sealed, the
+    letter is in the employee's My HR documents and filed to their Egnyte
+    folder. Pay is never stored in `values`: a Salary Certificate's pay is
+    read from Pay & Benefits at render time, or from `pay_values` (what an
+    hr_comp holder typed), which only hr_comp holders ever see.
+    New table - create_all builds it; RLS on dev and prod at release."""
+    __tablename__ = "hr_letter_requests"
+    id               = Column(String, primary_key=True)                # uuid
+    employee_id      = Column(String, nullable=False, index=True)      # NexusEmployee.id
+    employee_email   = Column(String, default="", index=True)
+    employee_name    = Column(String, default="")
+    company_id       = Column(String, default="", index=True)          # HrEntity.id at request time
+    letter_type      = Column(String, nullable=False)                  # hr_letters.LETTER_TYPES key
+    purpose          = Column(Text, default="")
+    addressed_to     = Column(String, default="")
+    needed_by        = Column(String, default="")                      # ISO date
+    notes            = Column(Text, default="")
+    # requested | in_review | awaiting_signature | issued | declined
+    status           = Column(String, default="requested", index=True)
+    values           = Column(JSON, default=dict)                      # HR's edits to the letter's non-pay values
+    pay_values       = Column(JSON, default=dict)                      # RESTRICTED (hr_comp): HR's typed pay values
+    template_id      = Column(String, default="")                      # the Documents template it was issued from
+    template_version = Column(Integer, default=0)
+    signer_email     = Column(String, default="")
+    signer_name      = Column(String, default="")
+    sign_request_id  = Column(String, default="")                      # HrSignRequest.id once issued
+    decline_reason   = Column(Text, default="")
+    reviewed_by      = Column(String, default="")
+    reviewed_at      = Column(String, default="")
+    issued_by        = Column(String, default="")
+    issued_at        = Column(String, default="")                      # sent for the signature
+    completed_at     = Column(String, default="")                      # sealed
+    declined_by      = Column(String, default="")
+    declined_at      = Column(String, default="")
+    note             = Column(Text, default="")                        # the last thing that happened, for both sides
+    filing_status    = Column(String, default="")                      # '' | pending | filed | failed
+    filing_path      = Column(String, default="")
+    filing_error     = Column(Text, default="")
+    filing_attempts  = Column(Integer, default=0)
+    filing_next_at   = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class HrHeadcountRequest(Base):
+    """A headcount requisition (Neil, Oct 27 2026, routers/hiring.py) - a
+    manager or HR asks to hire before there is any candidate. NOT a purchase
+    requisition (routers/requisitions.py). Approved by the department head's
+    line, then HR (the company's HR contact, an administrator or owner, or a
+    Full People grant). Approval makes a job opening (HrJobOpening).
+    The salary range is restricted: only Pay & Benefits (hr_comp) holders and
+    owners see it. `history` is append-only. New table - RLS at release."""
+    __tablename__ = "hr_headcount_requests"
+    id              = Column(String, primary_key=True)                # uuid
+    code            = Column(String, default="")                      # HC-0001
+    company         = Column(String, default="", index=True)          # HrEntity.id
+    department      = Column(String, default="")
+    role_id         = Column(String, default="")                      # NexusGroup.id (job role), '' = typed title
+    role_title      = Column(String, default="")
+    work_site_id    = Column(String, default="")                      # HrWorkSite.id, '' = typed location
+    location        = Column(String, default="")
+    employment_type = Column(String, default="full_time")             # full_time | part_time | contractor | intern | temporary
+    openings        = Column(Integer, default=1)
+    target_start    = Column(String, default="")                      # ISO date
+    salary_min      = Column(Float, nullable=True)                    # restricted (hr_comp / owner)
+    salary_max      = Column(Float, nullable=True)
+    salary_currency = Column(String, default="USD")
+    salary_period   = Column(String, default="year")                  # year | month | hour
+    justification   = Column(Text, default="")
+    status          = Column(String, default="draft", index=True)     # draft | awaiting_approval | approved | declined
+    step            = Column(String, default="")                      # '' | department | hr - who it waits on
+    dept_approvers  = Column(JSON, default=list)                      # the department line at submit (snapshot)
+    dept_decided_by = Column(String, default="")
+    dept_decided_at = Column(String, default="")
+    hr_decided_by   = Column(String, default="")
+    hr_decided_at   = Column(String, default="")
+    decline_note    = Column(Text, default="")
+    opening_id      = Column(String, default="")                      # HrJobOpening.id once approved
+    requested_by    = Column(String, default="", index=True)
+    submitted_at    = Column(String, default="")
+    history         = Column(JSON, default=list)                      # [{at, by, action, note}] - append-only
+    created_at      = Column(String, default="")
+    updated_at      = Column(String, default="")
+
+
+class HrJobOpening(Base):
+    """A job opening (Oct 27 2026): what an approved headcount request becomes,
+    and what the public careers page lists (routers/careers.py) while Open.
+    The pay range shows publicly only when show_pay is on (pay transparency,
+    off by default); otherwise only hr_comp holders and owners see it.
+    Filling the last seat marks it Filled. New table - RLS at release."""
+    __tablename__ = "hr_job_openings"
+    id               = Column(String, primary_key=True)               # uuid - also the public URL id
+    headcount_id     = Column(String, default="", index=True)         # HrHeadcountRequest.id
+    company          = Column(String, default="", index=True)         # HrEntity.id
+    department       = Column(String, default="")
+    role_id          = Column(String, default="")
+    title            = Column(String, default="")
+    description      = Column(Text, default="")                       # plain text: blank lines = paragraphs, "- " = bullets
+    employment_type  = Column(String, default="full_time")
+    seats            = Column(Integer, default=1)
+    work_site_id     = Column(String, default="")
+    location         = Column(String, default="")                     # display line, e.g. "Austin, TX"
+    street           = Column(String, default="")
+    city             = Column(String, default="")
+    region           = Column(String, default="")                     # state / province
+    postal_code      = Column(String, default="")
+    country          = Column(String, default="")                     # ISO alpha-2
+    remote           = Column(Boolean, default=False)
+    status           = Column(String, default="draft", index=True)    # draft | open | paused | filled | closed
+    show_pay         = Column(Boolean, default=False)                 # public pay range (pay transparency)
+    pay_min          = Column(Float, nullable=True)
+    pay_max          = Column(Float, nullable=True)
+    pay_currency     = Column(String, default="USD")
+    pay_period       = Column(String, default="year")                 # year | month | hour
+    hiring_owner_email = Column(String, default="")                   # gets the grouped new-applicant bell
+    valid_through    = Column(String, default="")                     # ISO date - off the careers page after it
+    opened_at        = Column(String, default="")
+    filled_at        = Column(String, default="")
+    closed_at        = Column(String, default="")
+    history          = Column(JSON, default=list)                     # [{at, by, action, note}] - append-only
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class SalaryAdvance(Base):
+    """A salary advance (Neil, Oct 27 2026): pay given ahead of payday and
+    taken back out of later pay periods (salary_advance.py).
+
+    Who asks: a person whose role tier is manager or above, for themself.
+    Who decides: ONLY HR as on time sheets (timesheet_review.is_hr - the
+    company's HR contact, an administrator, a Full HR grant; never on their
+    own), who can also grant one to anyone directly.
+    status: requested -> approved -> paid_out; declined, canceled. Repaying /
+    Repaid are read off the installments, never stored. Every step is on
+    `history`; nothing is deleted. New table - RLS on dev and prod at release."""
+    __tablename__ = "salary_advances"
+    id              = Column(String, primary_key=True)                # uuid
+    employee_email  = Column(String, index=True, nullable=False)
+    employee_name   = Column(String, default="")
+    company         = Column(String, default="", index=True)          # HrEntity id
+    amount          = Column(Float, default=0.0)
+    currency        = Column(String, default="USD")
+    reason          = Column(Text, default="")
+    installments    = Column(Integer, default=1)                      # how many pay periods repay it
+    status          = Column(String, default="requested", index=True)
+    source          = Column(String, default="request")               # request | grant
+    requested_by    = Column(String, default="")
+    requested_at    = Column(String, default="")
+    decided_by      = Column(String, default="")
+    decided_at      = Column(String, default="")
+    decision_note   = Column(Text, default="")
+    paid_on         = Column(String, default="")                      # YYYY-MM-DD
+    paid_by         = Column(String, default="")
+    payment_method  = Column(String, default="")
+    payment_ref     = Column(String, default="")
+    history         = Column(JSON, default=list)                      # [{at, by, action, note, detail}]
+    created_at      = Column(String, default="")
+    updated_at      = Column(String, default="")
+
+
+class SalaryAdvanceInstallment(Base):
+    """One pay period's repayment of a salary advance. `date` is the first
+    day of the pay period it comes out of, so it lands on a bi-weekly or a
+    monthly card alike. scheduled -> deducted when that period is finalized
+    (deducted_amount = what the card took, final_approval_id = the
+    finalization); a period that paid less than the installment carries the
+    rest forward as a new row (`carried_from`). canceled rows stay as the
+    record. New table - RLS on dev and prod at release."""
+    __tablename__ = "salary_advance_installments"
+    id                = Column(String, primary_key=True)              # uuid
+    advance_id        = Column(String, index=True, nullable=False)
+    employee_email    = Column(String, index=True, nullable=False)
+    seq               = Column(Integer, default=1)
+    amount            = Column(Float, default=0.0)
+    currency          = Column(String, default="USD")
+    date              = Column(String, index=True, nullable=False)    # YYYY-MM-DD, the period's first day
+    status            = Column(String, default="scheduled", index=True)   # scheduled | deducted | canceled
+    deducted_amount   = Column(Float, default=0.0)
+    final_approval_id = Column(String, default="", index=True)        # TimeApproval(kind="final").id
+    carried_from      = Column(String, default="")
+    created_at        = Column(String, default="")
+    updated_at        = Column(String, default="")
+
+
+class ExitStatement(Base):
+    """A leaver's final settlement statement (Neil, Oct 27 2026,
+    exit_statement.py): the figures payroll needs for the final pay, read
+    live from the time sheet, leave, reimbursements, salary advances, items
+    and the offboarding checklist. Information for payroll - Nexus does not
+    run the final pay. HR marks it Reviewed (the figures are frozen in
+    `snapshot` with their `fingerprint`), then generates the PDF (kept in
+    their HR documents as kind 'settlement', filed to Egnyte best-effort),
+    then closes the exit. `snapshot` holds pay - hr_comp / owner only.
+    New table - RLS on dev and prod at release."""
+    __tablename__ = "exit_statements"
+    id              = Column(String, primary_key=True)                # uuid
+    employee_id     = Column(String, index=True, nullable=False)      # NexusEmployee.id
+    employee_email  = Column(String, default="", index=True)
+    company         = Column(String, default="", index=True)
+    event_id        = Column(String, default="")                      # HrLifeEvent.id of the separation ('' = none)
+    last_day        = Column(String, default="")                      # YYYY-MM-DD
+    status          = Column(String, default="open", index=True)      # open | reviewed | filed | closed
+    fingerprint     = Column(String, default="")                      # of the figures when reviewed
+    snapshot        = Column(JSON, default=dict)                      # RESTRICTED: the reviewed statement
+    reviewed_by     = Column(String, default="")
+    reviewed_at     = Column(String, default="")
+    document_id     = Column(String, default="")                      # HrDocument.id of the PDF
+    pdf_path        = Column(String, default="")
+    egnyte_path     = Column(String, default="")
+    generated_by    = Column(String, default="")
+    generated_at    = Column(String, default="")
+    closed_by       = Column(String, default="")
+    closed_at       = Column(String, default="")
+    history         = Column(JSON, default=list)                      # [{at, by, action, note}]
+    created_at      = Column(String, default="")
+    updated_at      = Column(String, default="")
+
+
+# ── Performance: goals and 1:1s (Neil, Oct 27 2026) ──────────────────────────
+# performance.py is the engine, routers/performance.py the API. Every table is
+# new - RLS on dev and prod at release (_enable_rls_everywhere covers it at
+# startup; check get_advisors after the deploy).
+
+class PerfGoal(Base):
+    """A goal: the company's, a department's or one person's. Visible to its
+    owner, the owner's manager chain and HR for the company; a company goal
+    to everyone in the company, a department goal to everyone in it. Never
+    deleted - archived."""
+    __tablename__ = "hr_perf_goals"
+    id               = Column(String, primary_key=True)                # uuid
+    level            = Column(String, default="personal", index=True)  # company | department | personal
+    company_id       = Column(String, default="", index=True)          # HrEntity.id
+    department       = Column(String, default="")                      # department goals (and the owner's, for the rest)
+    owner_email      = Column(String, default="", index=True)          # who is accountable
+    title            = Column(String, nullable=False)
+    description      = Column(Text, default="")
+    measure          = Column(String, default="percent")               # percent | number | done
+    start_value      = Column(Float, default=0)                        # number goals: where it started
+    target_value     = Column(Float, default=100)                      # number goals: the target; percent = 100; done = 1
+    current_value    = Column(Float, default=0)
+    unit             = Column(String, default="")                      # number goals: "units", "$", "calls"
+    status           = Column(String, default="on_track")              # on_track | at_risk | off_track | done
+    start_on         = Column(String, default="")                      # YYYY-MM-DD
+    due_on           = Column(String, default="")                      # YYYY-MM-DD
+    parent_id        = Column(String, default="", index=True)          # the goal this one supports (alignment)
+    last_checkin_at  = Column(String, default="")
+    checkin_nudged_at = Column(String, default="")                     # the last "check-in due" reminder
+    archived_at      = Column(String, default="")
+    archived_by      = Column(String, default="")
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class PerfGoalCheckin(Base):
+    """One progress check-in on a goal - the value, the status and a note.
+    Append-only: the goal's history."""
+    __tablename__ = "hr_perf_goal_checkins"
+    id          = Column(String, primary_key=True)                     # uuid
+    goal_id     = Column(String, nullable=False, index=True)
+    by_email    = Column(String, default="")
+    at          = Column(String, default="")
+    value       = Column(Float, nullable=True)                         # the measure after this check-in
+    status      = Column(String, default="")                           # the status after this check-in
+    note        = Column(Text, default="")
+
+
+class PerfOneOnOne(Base):
+    """A 1:1 between a manager and a direct report - one-off or recurring.
+    Seen by the two of them only. The Teams meeting (a series when it
+    recurs) is created on the manager's calendar by Microsoft Graph."""
+    __tablename__ = "hr_perf_one_on_ones"
+    id             = Column(String, primary_key=True)                  # uuid
+    company_id     = Column(String, default="", index=True)
+    manager_email  = Column(String, nullable=False, index=True)
+    report_email   = Column(String, nullable=False, index=True)
+    title          = Column(String, default="")
+    cadence        = Column(String, default="once")                    # once | weekly | biweekly | monthly
+    first_local    = Column(String, default="")                        # YYYY-MM-DDTHH:MM on the series' own clock
+    time_zone      = Column(String, default="America/Los_Angeles")     # IANA zone the series keeps its wall time in
+    duration_min   = Column(Integer, default=30)
+    event_id       = Column(String, default="")                        # Graph event (series master when recurring)
+    join_url       = Column(String, default="")
+    graph_error    = Column(String, default="")                        # why no Teams meeting, when there is none
+    status         = Column(String, default="active")                  # active | ended
+    ended_at       = Column(String, default="")
+    ended_by       = Column(String, default="")
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    updated_at     = Column(String, default="")
+
+
+class PerfMeeting(Base):
+    """One meeting of a 1:1. The next one is made when the last one passes;
+    past ones stay as history. Private notes are the manager's alone."""
+    __tablename__ = "hr_perf_meetings"
+    id               = Column(String, primary_key=True)                # uuid
+    series_id        = Column(String, nullable=False, index=True)      # hr_perf_one_on_ones.id
+    at               = Column(String, nullable=False, index=True)      # UTC, YYYY-MM-DDTHH:MM:SSZ
+    status           = Column(String, default="scheduled")             # scheduled | done | canceled
+    shared_notes     = Column(Text, default="")
+    private_notes    = Column(Text, default="")                        # the manager's only - never sent to the report
+    notes_by         = Column(String, default="")
+    notes_at         = Column(String, default="")
+    done_at          = Column(String, default="")
+    agenda_nudged_at = Column(String, default="")                      # "your 1:1 tomorrow has no agenda" sent
+    created_at       = Column(String, default="")
+
+
+class PerfAgendaItem(Base):
+    """A talking point on a 1:1's shared agenda, added by either side."""
+    __tablename__ = "hr_perf_agenda_items"
+    id          = Column(String, primary_key=True)                     # uuid
+    meeting_id  = Column(String, nullable=False, index=True)
+    text        = Column(Text, default="")
+    by_email    = Column(String, default="")
+    done        = Column(Boolean, default=False)
+    position    = Column(Float, default=0)
+    created_at  = Column(String, default="")
+
+
+class PerfActionItem(Base):
+    """An action item from a 1:1 - usually a Task made through the task
+    module's own create (task_id), so it lives where the work lives."""
+    __tablename__ = "hr_perf_action_items"
+    id           = Column(String, primary_key=True)                    # uuid
+    meeting_id   = Column(String, nullable=False, index=True)
+    series_id    = Column(String, default="", index=True)
+    text         = Column(Text, default="")
+    owner_email  = Column(String, default="")
+    due_on       = Column(String, default="")                          # YYYY-MM-DD
+    task_id      = Column(String, default="")                          # tasks.id when one was made
+    done         = Column(Boolean, default=False)
+    by_email     = Column(String, default="")
+    created_at   = Column(String, default="")
+
+
+# ── Performance: review cycles (Neil, Oct 27 2026) ───────────────────────────
+# perf_reviews.py is the engine, routers/perf_reviews.py the API. New tables -
+# RLS on dev and prod at release (explicit lines in main.py too).
+
+class PerfReviewCycle(Base):
+    """A review cycle HR runs for one company: who is in it, the deadlines,
+    the questions, and the rating scale and company values it was launched
+    with (copied from Settings > Performance, so a later settings change
+    never rewrites a running cycle). No calibration, no 9-box (Neil)."""
+    __tablename__ = "hr_perf_review_cycles"
+    id            = Column(String, primary_key=True)                   # uuid
+    company_id    = Column(String, default="", index=True)             # HrEntity.id
+    name          = Column(String, nullable=False)
+    period_start  = Column(String, default="")                         # YYYY-MM-DD
+    period_end    = Column(String, default="")                         # YYYY-MM-DD
+    self_due      = Column(String, default="")                         # YYYY-MM-DD - self reviews due
+    manager_due   = Column(String, default="")                         # YYYY-MM-DD - manager reviews due
+    filters       = Column(JSON, default=dict)                         # {departments: [], types: [], startedBy: "YYYY-MM-DD"}
+    questions     = Column(JSON, default=list)                         # [{id, kind: rating|text, text}]
+    rating_scale  = Column(JSON, default=list)                         # [{value, label}]
+    values        = Column(JSON, default=list)                         # [{id, name, description}]
+    include_goals = Column(Boolean, default=True)                      # managers may attach goal progress
+    status        = Column(String, default="draft")                    # draft | active | closed
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+    launched_at   = Column(String, default="")
+    launched_by   = Column(String, default="")
+    closed_at     = Column(String, default="")
+    closed_by     = Column(String, default="")
+
+
+class PerfReview(Base):
+    """One person's review in a cycle: Self Review -> Manager Review -> HR
+    Finalize -> Shared With Employee (Nexus Sign, the employee the only
+    signer) -> Complete. Seen by the person once shared, their manager chain
+    and HR for the company - never by a peer."""
+    __tablename__ = "hr_perf_reviews"
+    __table_args__ = (UniqueConstraint("cycle_id", "employee_email", name="uq_hr_perf_review_person"),)
+    id                   = Column(String, primary_key=True)            # uuid
+    cycle_id             = Column(String, nullable=False, index=True)
+    company_id           = Column(String, default="", index=True)
+    employee_email       = Column(String, nullable=False, index=True)
+    manager_email        = Column(String, default="", index=True)      # who writes the manager review ('' = HR)
+    stage                = Column(String, default="self_review", index=True)  # self_review | manager_review | hr_review | shared | complete
+    self_answers         = Column(JSON, default=dict)                  # {question id: {rating, text}}
+    self_values          = Column(JSON, default=dict)                  # {value id: rating}
+    self_submitted_at    = Column(String, default="")
+    manager_answers      = Column(JSON, default=dict)
+    manager_values       = Column(JSON, default=dict)
+    overall_rating       = Column(Integer, nullable=True)
+    manager_summary      = Column(Text, default="")
+    manager_private_note = Column(Text, default="")                    # for HR and the manager chain - never the employee, never the PDF
+    goals_snapshot       = Column(JSON, default=list)                  # goal progress the manager attached
+    manager_submitted_at = Column(String, default="")
+    manager_submitted_by = Column(String, default="")
+    hr_note              = Column(Text, default="")                    # HR's comments printed on the shared review
+    finalized_by         = Column(String, default="")
+    finalized_at         = Column(String, default="")
+    sign_request_id      = Column(String, default="")                  # hr_sign_requests.id while shared
+    shared_at            = Column(String, default="")
+    completed_at         = Column(String, default="")
+    history              = Column(JSON, default=list)                  # [{at, by, action, note}]
+    nudged_at            = Column(String, default="")
+    created_at           = Column(String, default="")
+    updated_at           = Column(String, default="")
+
+
+class ExtraTimeClaim(Base):
+    """India Contractor Extra Time (Neil, Oct 27 2026, docs/India-Contractor-Pay.md):
+    hours a contractor identifies on their Time Sheet, with a note describing
+    the work, paid at 1.35 x the hourly equivalent of the daily rate once
+    approved. One live claim per person per day (pending / approved /
+    declined); a withdrawn one stays as history. Hours an approved claim pays
+    are never also counted in the month-end reconciliation pool.
+    RELEASE: new table - `ALTER TABLE extra_time_claims ENABLE ROW LEVEL
+    SECURITY` on dev AND prod (main.py's Postgres list carries the line)."""
+    __tablename__ = "extra_time_claims"
+    id             = Column(String, primary_key=True)                # uuid
+    employee_email = Column(String, default="", index=True)
+    company_id     = Column(String, default="", index=True)          # HrEntity.id at filing
+    local_date     = Column(String, default="", index=True)          # YYYY-MM-DD, the day worked
+    period_start   = Column(String, default="", index=True)          # the month (YYYY-MM-01)
+    period_end     = Column(String, default="")
+    claimed_min    = Column(Integer, default=0)
+    approved_min   = Column(Integer, default=0)                      # set on approval (may be fewer)
+    note           = Column(Text, default="")                        # what the work was - required
+    status         = Column(String, default="pending", index=True)   # pending | approved | declined | withdrawn
+    decision_note  = Column(Text, default="")                        # the decline reason / approval note
+    decided_by     = Column(String, default="")
+    decided_at     = Column(String, default="")
+    history        = Column(JSON, default=list)                      # [{at, by, action, minutes, note}]
+    created_at     = Column(String, default="")
+    updated_at     = Column(String, default="")
+
+
+class TimeEntryBatch(Base):
+    """Add Time From Record (Neil, Oct 27 2026): one HR batch of time keyed in
+    from a record kept outside Nexus (a paper time sheet). The punches carry
+    its id (time_punches.batch_id) and entry_source = 'hr_record'; this row
+    holds what belongs to the batch as a whole - the reason the employee
+    reads, the source document HR attached (private hr-docs bucket, a path,
+    opened through a signed link for HR only), the range and who did it.
+    Kept after an undo (undone_at / undone_by) - the audit record.
+    RELEASE: new table - `ALTER TABLE time_entry_batches ENABLE ROW LEVEL
+    SECURITY` on dev AND prod (main.py's Postgres list carries the line)."""
+    __tablename__ = "time_entry_batches"
+    id             = Column(String, primary_key=True)                # the punches' batch_id ('dup-...')
+    employee_email = Column(String, default="", index=True)
+    kind           = Column(String, default="hr_record")
+    reason         = Column(Text, default="")
+    range_start    = Column(String, default="")                      # YYYY-MM-DD
+    range_end      = Column(String, default="")
+    days           = Column(JSON, default=list)                      # the dates written / replaced
+    minutes        = Column(Integer, default=0)
+    doc_path       = Column(String, default="")                      # hr-docs object path, '' = none
+    doc_name       = Column(String, default="")
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    undone_by      = Column(String, default="")
+    undone_at      = Column(String, default="")

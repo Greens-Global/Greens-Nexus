@@ -155,6 +155,19 @@ KNOWN_PUBLIC = {
     # rate-limited as a SENSITIVE_PREFIX.
     "/marketing/gbp/oauth/callback",
     "/marketing/ads/oauth/callback",       # Google Ads, the same sealed-state model (routers/marketing_ads.py)
+    # The public careers page (Oct 27 2026, routers/careers.py): public by
+    # design - job seekers and crawlers. The reads return only the careers
+    # copy of an Open opening (hiring_openings.public_opening: no owner,
+    # requester, applicants, counts or private pay). The apply POST is a
+    # SENSITIVE_PREFIX plus a per-IP hourly cap, a per-opening daily cap, a
+    # honeypot, required consent and a magic-byte-checked resume stored in
+    # the private hr-docs bucket by the backend.
+    "/careers/public/{slug}",
+    "/careers/public/{slug}/{opening_id}",
+    "/careers/page/{slug}",
+    "/careers/page/{slug}/{opening_id}",
+    "/careers/sitemap.xml",
+    "/careers/apply/{opening_id}",
 }
 
 _AUTH_DEP_NAMES = ("get_current_user", "_check", "get_agent_device", "get_addin_user")

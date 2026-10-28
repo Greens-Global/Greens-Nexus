@@ -84,7 +84,10 @@ _INTERNAL_NOTES = {"payroll edit"}
 _STATUS = {"working": "Working", "present": "Present", "late": "Late", "half": "Half Day",
            "absent": "Absent", "sick": "Sick", "vacation": "Vacation", "personal": "Personal",
            "holiday": "Holiday", "holiday_half": "Half-Day Holiday", "holiday_half_worked": "Half-Day Holiday",
-           "weekend": "Weekend", "weekend_worked": "Weekend OT", "upcoming": "Upcoming"}
+           "weekend": "Weekend", "weekend_worked": "Weekend OT", "upcoming": "Upcoming",
+           "holiday_worked": "Holiday Worked"}
+# India Contractor policy (Oct 27 2026): a day's credit, as the card words it.
+_CREDIT = {"full": "Full Credit", "half": "Half Credit", "none": "No Credit", "pending": "Not Over Yet"}
 
 
 def hm(minutes) -> str:
@@ -197,11 +200,33 @@ def _note_line(g: _Grid, ds: str, segs: list, ctx: dict, band: bool = False, ind
         parts.append(f"<b>Note by {escape(who)}:</b> {escape(day['note'].strip())}")
     reasons = [r for s in segs for r in _reasons(s)]
     reasons = [r for i, r in enumerate(reasons) if r not in reasons[:i]]
+    # Add Time From Record (Oct 27 2026): a day HR keyed in from a record
+    # (a paper time sheet) says so, with the reason - its footnote. The
+    # reason is not repeated under "On the punches".
+    recorded = record_reasons(segs, ctx.get("punch_meta") or {})
+    if recorded:
+        parts.append(f"<b>Entered By HR From Record:</b> <i>{escape(ctx['names_in']('  ·  '.join(recorded)))}</i>")
+        reasons = [r for r in reasons if r not in recorded]
     if reasons:
         parts.append(f"<b>On the punches:</b> <i>{escape(ctx['names_in']('  ·  '.join(reasons)))}</i>")
     if parts:
         style = _sz(ParagraphStyle("note", parent=_LEFT, leftIndent=14 if indent else 0))
         g.line(Paragraph("<br/>".join(parts), style), BAND if band else None)
+
+
+def record_reasons(segs: list, punch_meta: dict) -> list:
+    """The reasons of the HR record batches behind a day's punches, each once."""
+    out = []
+    for seg in segs:
+        ids = [seg.get("inId"), seg.get("outId")]
+        ids += [x for b in seg.get("breaks") or [] for x in (b.get("startId"), b.get("endId"))]
+        for pid in ids:
+            m = punch_meta.get(pid or "") or {}
+            if m.get("entrySource") == "hr_record":
+                r = (m.get("recordReason") or "").strip() or "-"
+                if r not in out:
+                    out.append(r)
+    return out
 
 
 def _auto_line(g: _Grid, segs: list, band: bool = False) -> None:
@@ -376,6 +401,9 @@ def hourly_summary(card: dict, full: bool = False) -> list:
     if worked is None:
         worked = int(t.get("regMin") or 0) + int(t.get("otMin") or 0) + int(t.get("dtMin") or 0)
     rows.append(("TOTALS", hd(worked), money(t.get("totalPay"), cur)))
+    if "advanceRepayment" in t:      # salary_advance.py: comes off what is paid out
+        rows += _advance_lines(card, cur, "-")
+        rows.append(("NET PAY", "", money(t.get("netPay"), cur)))
     rows.append(("TOTAL EDITED PUNCHES", str(int(t.get("editedPunches") or 0)), ""))
     rows.append(("MISSING PUNCHES", str(int(t.get("missingPunches") or 0)), ""))
     if full:     # HR's paper copy: the break lines the screen shows beside the totals
@@ -390,6 +418,13 @@ def _bonus_lines(card: dict, cur: str, hours: str = "-") -> list:
     """One summary line per bonus, with why (Neil, Oct 22) - already in totalPay."""
     return [(f"Bonus: {b.get('description') or ''}", hours, f"+{money(b.get('amount'), cur)}")
             for b in card.get("bonuses") or []]
+
+
+def _advance_lines(card: dict, cur: str, hours: str = "-") -> list:
+    """One line per salary advance installment taken this period
+    (salary_advance.py, Oct 27 2026)."""
+    return [("Salary Advance Repayment", hours, f"-{money(x.get('applied'), cur)}")
+            for x in card.get("advanceRepayments") or [] if float(x.get("applied") or 0) > 0]
 
 
 def fixed_rows(card: dict, ctx: dict) -> Table:
@@ -412,6 +447,26 @@ def fixed_rows(card: dict, ctx: dict) -> Table:
                   else _p("no change", color=DIM))
         date_cell = _p(day_label(ds), _LEFT, color=RED if leave else None, bold=True, italic=True)
         day_cell = _p(status, color=RED if leave or fd.get("status") == "absent" else None, bold=True)
+        if card.get("indiaPolicy"):
+            # India Contractor policy (Oct 27 2026): the day's credit, its pool
+            # hours, and Extra Time instead of weekend pay.
+            if fd.get("status") == "weekend_worked":
+                status = "Weekend Worked"
+            if fd.get("leaveCovered"):
+                status = f"{status} (Paid Leave)"
+            bits = [_CREDIT.get(fd.get("credit") or "", "")] if fd.get("dayKind") in ("scheduled", "half_holiday") else []
+            if fd.get("poolMin"):
+                bits.append(f"Pool {hm(fd['poolMin'])}")
+            if fd.get("recoveredHalves"):
+                bits.append("Recovered" if fd["recoveredHalves"] == fd.get("missingHalves") else "Half Recovered")
+            sub = " · ".join(b for b in bits if b)
+            color = RED if leave or fd.get("status") == "absent" else INK
+            day_cell = Paragraph(f'<font color="#{color.hexval()[2:]}"><b>{escape(status)}</b></font>'
+                                 + (f'<br/><font color="#{DIM.hexval()[2:]}" size="6.5">{escape(sub)}</font>' if sub else ""),
+                                 _sz(_CELL))
+            effect = (_p(f"-{money(fd['deduct'], cur)}", color=RED, bold=True) if fd.get("deduct")
+                      else _p(f"+{money(fd['extraPay'], cur)} Extra Time", color=BLUE, bold=True) if fd.get("extraPay")
+                      else _p("no change", color=DIM))
         if not segs:
             g.add([date_cell, day_cell, _p("-"), _p("-"), _p("-"), _p("-"), effect], band)
         top = len(g.rows)
@@ -447,15 +502,84 @@ def fixed_summary(card: dict) -> list:
               + (f", {t['missedHalfDays']} half" if t.get("missedHalfDays") else "") + ")"
               + (f": {reasons}" if reasons else ""))
     wk = int(t.get("weekendDaysWorked") or 0)
+    if card.get("indiaPolicy"):
+        # India Contractor policy (Oct 27 2026): what is deducted is what the
+        # month-end reconciliation left unpaid; Extra Time replaces weekend pay.
+        unpaid = (f"Unpaid days after reconciliation ({t.get('missedFullDays', 0)} full"
+                  + (f", {t['missedHalfDays']} half" if t.get("missedHalfDays") else "") + ")"
+                  + (f": {reasons}" if reasons else ""))
+        et = (card["indiaPolicy"].get("extraTime") or {})
+        return [("Fee this month (pro-rated by day)" if split else "Monthly fee", "",
+                 money(t.get("salaryForPeriod", t.get("monthlySalary")), cur)),
+                (unpaid, "", f"-{money(t['deduction'], cur)}" if t.get("deduction") else money(0, cur)),
+                (f"Extra Time ({et.get('multiplier', 1.35)} x daily / {et.get('hoursPerDay', 9)} per approved hour)",
+                 hm(t.get("extraTimeMin")) if t.get("extraTimeMin") else "",
+                 f"+{money(t['extraTimePay'], cur)}" if t.get("extraTimePay") else money(0, cur)),
+                *_bonus_lines(card, cur, ""),
+                ("INVOICE AMOUNT THIS MONTH", "", money(t.get("totalPay"), cur)),
+                ("TOTAL HOURS WORKED", hd(t.get("workedMin")), ""),
+                ("MISSING PUNCHES", str(int(t.get("missingPunches") or 0)), "")]
     return [("Salary this month (pro-rated by day)" if split else "Monthly salary", "",
              money(t.get("salaryForPeriod", t.get("monthlySalary")), cur)),
             (missed, "", f"-{money(t['deduction'], cur)}" if t.get("deduction") else money(0, cur)),
             (f"Weekend pay ({wk} day{'' if wk == 1 else 's'}, {card.get('weekendMultiplier') or 1.35} x daily by hours)",
              "", f"+{money(t['weekendBonus'], cur)}" if t.get("weekendBonus") else money(0, cur)),
             *_bonus_lines(card, cur, ""),
-            ("NET PAY THIS MONTH", "", money(t.get("totalPay"), cur)),
+            *_advance_lines(card, cur, ""),
+            ("NET PAY THIS MONTH", "", money(t.get("netPay", t.get("totalPay")), cur)),
             ("TOTAL HOURS WORKED", hd(t.get("workedMin")), ""),
             ("MISSING PUNCHES", str(int(t.get("missingPunches") or 0)), "")]
+
+
+def _days_words(halves) -> str:
+    d = int(halves or 0) / 2
+    return f"{d:g} day{'' if d == 1 else 's'}"
+
+
+def india_reconciliation(card: dict) -> list:
+    """The Month-End Reconciliation and the Extra Time lines with their notes
+    (India Contractor policy, Oct 27 2026) - the same figures the card shows,
+    printed above the employee's signature."""
+    ip = card.get("indiaPolicy") or {}
+    r = ip.get("reconciliation") or {}
+    t = card.get("totals") or {}
+    cur = card.get("currency") or "INR"
+    et = ip.get("extraTime") or {}
+    recovered = int(r.get("recoveredHalves") or 0)
+    rec_note = (f"rounded up from a {hm(r.get('remainderMin'))} remainder" if r.get("roundedUp")
+                else f"{hm(r.get('poolUsedMin'))} of the pool used" if recovered else "")
+    rows = [("Scheduled workdays", f"{int(r.get('scheduledDays') or 0)}"),
+            ("Credits earned (hours worked and paid leave)", _days_words(r.get("earnedHalves"))),
+            ("Missing", _days_words(r.get("missingHalves"))),
+            ("Pool hours (excess and incomplete-day hours)", hm(r.get("poolMin"))),
+            ("Half days recovered", f"{recovered}" + (f" ({rec_note})" if rec_note else "")),
+            ("Unpaid days", _days_words(r.get("unpaidHalves"))),
+            ("Extra Time", f"{hm(r.get('extraTimeMin'))} x {money(et.get('rate'), cur)} = "
+                           f"{money(r.get('extraTimePay'), cur)}"),
+            ("Total", money(t.get("totalPay"), cur))]
+    if int(r.get("upcomingDays") or 0):
+        rows.insert(3, ("Days not over yet (never deducted)", f"{int(r['upcomingDays'])}"))
+    tbl = Table([[_p(a, _LEFT, bold=(a == "Total")), _p(b, _LEFT, bold=(a == "Total"))] for a, b in rows],
+                colWidths=[WIDTH * 0.45, WIDTH * 0.55])
+    tbl.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, LINE), ("BACKGROUND", (0, len(rows) - 1), (-1, -1), BAND),
+                             ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))
+    out = [Paragraph("Month-End Reconciliation", _H2), Spacer(1, 4), tbl]
+    claims = [fd for fd in card.get("fixedDays") or [] if fd.get("claim")]
+    if claims:
+        data = [[_p(h, bold=True) for h in ("Date", "Status", "Claimed", "Approved", "Amount", "Work Done")]]
+        for fd in claims:
+            c = fd["claim"]
+            note = c.get("note") or ""
+            if c.get("status") == "declined" and c.get("decisionNote"):
+                note += f" (Declined: {c['decisionNote']})"
+            data.append([_p(day_label(fd["date"])), _p((c.get("status") or "").title()), _p(hm(c.get("claimedMin"))),
+                         _p(hm(c.get("approvedMin")) if c.get("status") == "approved" else "-"),
+                         _p(money(fd.get("extraPay"), cur) if fd.get("extraPay") else "-"), _p(note, _LEFT)])
+        ct = Table(data, colWidths=[60, 60, 55, 55, 80, WIDTH - 310])
+        ct.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, LINE), ("BACKGROUND", (0, 0), (-1, 0), HEAD),
+                                ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        out += [Spacer(1, 8), Paragraph("Extra Time Claims", _H2), Spacer(1, 4), ct]
+    return out + [Spacer(1, 12)]
 
 
 def _summary_table(rows: list, fixed: bool) -> Table:
@@ -636,7 +760,11 @@ def render(card: dict, ctx: dict) -> tuple[bytes, dict]:
              *([Spacer(1, 4), Paragraph(escape(ctx["paper_note"]),
                                         ParagraphStyle("paper", parent=_TEXT, alignment=1, fontSize=8.5, textColor=DIM))]
                if ctx.get("paper_note") else []),
-             Spacer(1, 14), *_signature_page(ctx, spot), Spacer(1, 12),
+             Spacer(1, 14),
+             # India Contractor policy (Oct 27 2026): the reconciliation the
+             # signature vouches for, above it.
+             *(india_reconciliation(card) if fixed and card.get("indiaPolicy") else []),
+             *_signature_page(ctx, spot), Spacer(1, 12),
              Paragraph(f"Generated by Nexus on {escape(ctx['generated'])}",
                        ParagraphStyle("gen", parent=_TEXT, fontSize=7.5, textColor=DIM))]
 

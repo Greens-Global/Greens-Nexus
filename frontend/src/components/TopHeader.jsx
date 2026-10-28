@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Scale } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
-import { TabGroupButton, useHeaderTabs } from "./ModuleTabs";
+import { HeaderOverflowTabs, TabGroupButton, useHeaderTabs } from "./ModuleTabs";
 import TabInk from "./TabInk";
 import MyProfileModal from "./MyProfileModal";
 
@@ -330,7 +330,24 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
       </div>
 
       <div className={`header-center${headerTabs ? ' has-tabs' : ''}`}>
-        {headerTabs && (
+        {/* A module that opts into overflow (People, Oct 27 2026) folds the
+            tabs that do not fit into More instead of scrolling them away. */}
+        {headerTabs?.overflow && (
+          <HeaderOverflowTabs entry={headerTabs}
+            ink={<TabInk key={headerTabs.tabs.map((t) => t.key).join('|')} active={headerTabs.active} />}
+            onPick={(k) => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(k); }}
+            renderTab={({ key, label, Icon, badge }, probe) => (
+              <button key={key} type="button" tabIndex={probe ? -1 : undefined}
+                className={`hdr-tab${!probe && headerTabs.active === key ? ' active' : ''}`}
+                aria-current={!probe && headerTabs.active === key ? 'page' : undefined}
+                onClick={probe ? undefined : () => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(key); }}>
+                {Icon && <Icon size={16} strokeWidth={2} />}
+                <span>{label}</span>
+                {badge > 0 && <span className="hdr-tab-badge">{badge}</span>}
+              </button>
+            )} />
+        )}
+        {headerTabs && !headerTabs.overflow && (
           <nav className={`hdr-tabs${headerTabs.compactGroups ? ' hdr-tabs--compact' : ''}`} aria-label="Module sections" data-tour="module-tabs">
             <TabInk key={headerTabs.tabs.map((t) => t.key).join('|')} active={headerTabs.active} />
             {headerTabs.tabs.map(({ key, label, Icon, badge, items, landing }) => (items ? (

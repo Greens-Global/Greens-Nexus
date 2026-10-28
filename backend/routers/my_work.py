@@ -219,7 +219,9 @@ def _my_open_tickets(db: Session, user: dict, me: str, tz_offset_min: int = 0) -
     import auth
     from routers.tickets import _has_desk_grant, dept_name
     T = models.TaskTicket
-    q = (db.query(T)
+    # My own Ask HR tickets come too (ticket_confidential) - the query is
+    # only ever mine: raised by, filed by or assigned to me.
+    q = (db.query(T).execution_options(include_confidential=True)
          .filter(or_(T.status.is_(None), T.status.notin_(TICKET_CLOSED)),
                  or_(func.lower(T.requester_email) == me,
                      func.lower(T.created_by_email) == me,

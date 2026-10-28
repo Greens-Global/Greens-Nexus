@@ -123,6 +123,18 @@ keep the diff minimal.
   and a new credential-taking route in `SENSITIVE_PREFIXES` (30/min, always
   per IP whatever headers it carries) - or in `SHARED_SOURCE_PREFIXES` when
   its real callers share an address (Outlook's action servers, GitHub).
+- **Confidential HR tickets are invisible by default** (Oct 2026): a
+  `task_tickets` row with `confidential_desk` set is hidden from EVERY ORM
+  query by the `do_orm_execute` hook in `database.py`. A query sees it only
+  when it opts in with `.execution_options(include_confidential=True)`, and
+  only after `ticket_confidential.may_read` says the caller may (HR-audience
+  routing: the company's HR contact, administrators and Full HR inside their
+  reach). A new ticket reader, count, export or code generator must know
+  this - a missing opt-in silently drops the row, a blanket opt-in leaks it.
+- **Approval badge counts come from one place**: `approvals_inbox.collect`,
+  read by `routers/action_counts.py`. A new approval kind registers an
+  `@source` in `approvals_inbox.py` - never a separate count query, or the
+  badge and the inbox disagree.
 
 ## Frontend conventions
 
@@ -240,6 +252,27 @@ keep the diff minimal.
   on only when its turn comes after the person, never at send).
   `hr_packet_docs.signing_flow` applies this to every packet, old saved
   configs included - never add an order around it.
+  HR letters (`hr_letters.py`) are signed by the company signatory only and
+  the employee never signs (Neil, Oct 27 2026) - a letter is the company's
+  statement, not a pre-signed document sent for the employee's signature.
+- Probation (Neil, Oct 27 2026, `hr_probation.py`): JSON on the person
+  (`nexus_employees.probation`); `{}` = Not Tracked. Only new employees, by
+  start date: new hires (a hired candidate, or added in People with a start
+  date whose end is not already past) start by themselves, and a ONE-TIME
+  startup pass (`backfill_existing`, nexus_settings mark) started every
+  existing employee still inside their window (start + their length not
+  passed); past the window or no start date stays Not Tracked. Contractors,
+  externals and guests are never tracked. The backfill sends nothing - one
+  normal reminder each comes from the daily pass (`remindedFor`).
+  Length = company setting (Settings > Hiring & Onboarding > Probation,
+  layered through `scoped_settings`) or the person's own; end = start +
+  calendar months. A manager's Confirm / Extend / End is a RECOMMENDATION;
+  only HR++ (company HR contact, administrator, Full People grant) finalizes.
+  Confirm / Extend send a Documents letter through Nexus Sign as a
+  `probation` life event, the employee its ONLY signer (company signatory
+  printed, never signed); End opens the existing Offboard flow - never a
+  second separation path. Confirm ticks ON-33 via the `probation_confirmed`
+  signal. The reminder (once per end date) runs in `reminders_loop`.
 - Accounting dashboard (Sep 22): the Accounting view's Overview / Cash /
   Performance / Close / Data tabs are the Nexus face of the finance dashboard
   in Nexus Accounting. Figures come ONLY through `backend/routers/
@@ -375,6 +408,26 @@ keep the diff minimal.
   email logo chain (`email_theme.logo_for`): the recipient's company logo,
   else the module's own logo setting, else Email Appearance, else the
   wordmark - a mail with no recipient at hand keeps the theme's.
+
+- **India Contractor pay (Neil, Oct 27 2026, docs/India-Contractor-Pay.md -
+  never change these numbers without Neil).** Contractors on fixed monthly
+  pay who work in India, at a company with Settings > Time & Pay > India
+  Contractor Policy on (default on for an India company), for months from its Policy
+  Starts (default 11/01/2026): credit by hours (8 h full, 4 h half), the
+  month-end pool (reading B) buys back missing half days at 4.5 h each with
+  a 1.5 h round-up, and approved Extra Time pays 1.35 x daily / 9 - the
+  automatic weekend pay and its Rs 500 floor are gone for them. ONE
+  calculation: `india_contractor_pay.reconcile`, called from `_fixed_card`;
+  claims in `routers/extra_time.py` (approver = the HR contact, else the
+  Global Admins; HR - administrator / owner / Full HR grant - only within
+  the contractor's company scope, `extra_time.hr_for`; never your own;
+  Review & Approve waits for every claim). For them only, an APPROVED
+  Vacation / Sick time off request is paid leave with no punch (Oct 27
+  2026, `india_contractor_pay.requested_leave`); Sick and Vacation each
+  draw only from their own balance bucket, never borrowing; a leave punch
+  on the same day wins, never both.
+  A finalized month carries `indiaPolicy` in its snapshot and never
+  re-prices; everyone else keeps the old fixed-pay rules exactly.
 
 ## Asana — removed (Sep 2026)
 

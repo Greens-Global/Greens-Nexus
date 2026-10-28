@@ -309,6 +309,17 @@ def _tick() -> dict:
         db.rollback()
         print(f"[period-close] correction acceptance failed: {e}")
     try:
+        # India Contractor Extra Time (Oct 27 2026): on the month's last day,
+        # one reminder to each contractor with weekend / holiday hours unclaimed.
+        from routers import extra_time
+        reminded = extra_time.remind_unclaimed(db)
+        db.commit()
+        if reminded:
+            print(f"[period-close] reminded {reminded} contractor(s) to claim Extra Time")
+    except Exception as e:   # noqa: BLE001 - the notices below still run
+        db.rollback()
+        print(f"[period-close] Extra Time reminder failed: {e}")
+    try:
         return scan(db)
     except Exception as e:   # noqa: BLE001 - a bad row must not kill the loop
         db.rollback()

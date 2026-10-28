@@ -203,7 +203,7 @@ class ExportCodesTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual([c["key"] for c in r.json()["classes"]],
                          ["regular", "overtime", "doubleTime", "holiday", "sick", "vacation", "personal",
-                          "shiftDifferential", "callBack", "mealPremium", "restPremium"])
+                          "shiftDifferential", "callBack", "mealPremium", "restPremium", "advanceRepayment"])
         self.assertIn(self._put({"regular": "REG"}, who=MGR).status_code, (401, 403))
         _as(PAT)
         self.assertIn(self.client.get(f"/timeclock/payroll/export-codes?company={CO_A}").status_code, (401, 403))

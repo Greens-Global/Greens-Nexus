@@ -251,7 +251,12 @@ def resolve_sender(db, from_email: str) -> tuple[str, str]:
 
 # ── Which ticket ─────────────────────────────────────────────────────────────
 def _live_ticket(db, ticket_id: str):
-    return db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first() if ticket_id else None
+    # A confidential (Ask HR) ticket is found too: a reply to its email lands
+    # on it - comment_refusal (the API's own reader rule, may_read included)
+    # decides every comment before it is posted.
+    import ticket_confidential
+    return (ticket_confidential.include(db.query(models.TaskTicket))
+            .filter(models.TaskTicket.id == ticket_id).first()) if ticket_id else None
 
 
 def resolve_ticket(db, cfg: dict, msg: dict, headers: dict, user: dict | None = None):
@@ -303,7 +308,8 @@ def resolve_ticket(db, cfg: dict, msg: dict, headers: dict, user: dict | None = 
 
     code = parse.subject_ticket_code(msg.get("subject") or "")
     if code and user is not None:
-        for t in (db.query(models.TaskTicket).filter(models.TaskTicket.code == code)
+        import ticket_confidential
+        for t in (ticket_confidential.include(db.query(models.TaskTicket)).filter(models.TaskTicket.code == code)
                   .order_by(models.TaskTicket.created_at.desc(), models.TaskTicket.id).all()):
             if not comment_refusal(db, user, t):
                 return t, "subject"
@@ -315,7 +321,7 @@ def comment_refusal(db, user: dict, t) -> str:
     (_conversation_ticket_or_404 + _require_ticket_participant), else why not."""
     from routers import tickets as T
     try:
-        T._conversation_ticket_or_404(db, t.id)
+        T._conversation_ticket_or_404(db, t.id, confidential=True)
         T._require_ticket_participant(db, user, t)
     except HTTPException:
         return f"{user['email']} cannot comment on {ticket_no(t.code) or 'that ticket'}"
@@ -545,7 +551,7 @@ def ingest_message(db, cfg: dict, msg: dict) -> str:
         kept_html = body_parse.strip_quoted_html(content) if ctype != "text" else ""
         files = _list_files(cfg, msg)          # Graph, before the row lock below
         # Locked like the route: an @mention adds watchers (a JSON read-modify-write).
-        t = T._conversation_ticket_or_404(db, t.id, lock=True)
+        t = T._conversation_ticket_or_404(db, t.id, lock=True, confidential=True)
         if not text and not files:
             return finish("refused", "reply had no new text (only quoted history or a signature)",
                           status="ignored")

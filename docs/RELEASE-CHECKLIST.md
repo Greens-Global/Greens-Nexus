@@ -32,6 +32,17 @@ should be able to ship by following this top to bottom. Written 2026-08-01.
    be set before real secrets enter the vault), `NEXUS_APP_URL`
    (https://nexus.greensglobal.com - e-sign links in emails point here),
    `NEXUS_STEPUP_ENFORCE` (off until Entra auth-context is configured).
+   `NEXUS_EDGE_SECRET` (Oct 27 2026, `backend/client_ip.py`): one long random
+   value (e.g. `openssl rand -hex 32`), set to the SAME value in TWO places
+   per environment - the Azure App Service app setting AND the Cloudflare
+   Pages project's environment variable (Settings > Environment variables,
+   Production and Preview; encrypt it), then redeploy Pages so the Functions
+   read it. `functions/api` and `functions/careers` send it as
+   `X-Nexus-Edge`; with it set, the API believes X-Forwarded-For /
+   CF-Connecting-IP only on requests carrying it (anything else is keyed on
+   the direct peer). Set Pages FIRST, then Azure - the other order keys every
+   visitor on a Cloudflare address for the minutes in between. Unset on the
+   API = the old rule (one log line at boot).
 
 ## After the deploy
 

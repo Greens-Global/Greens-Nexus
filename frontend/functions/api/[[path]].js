@@ -40,9 +40,16 @@ export async function onRequest(context) {
   // function (cf-connecting-ip - the browser cannot set it). The browser can
   // send its own X-Forwarded-For, and the API keys its rate limits and audit
   // IPs on this header (backend/client_ip.py), so it must not survive the hop.
+  //
+  // X-Nexus-Edge carries the NEXUS_EDGE_SECRET Pages env var (the same value as
+  // the API's app setting): it is what tells the API this hop is ours, so it
+  // believes the forwarded address (backend/client_ip.py). Whatever the
+  // browser sent under that name is dropped first.
   const headers = new Headers(request.headers);
   const visitor = request.headers.get('cf-connecting-ip');
   if (visitor) headers.set('X-Forwarded-For', visitor);
+  headers.delete('X-Nexus-Edge');
+  if (env && env.NEXUS_EDGE_SECRET) headers.set('X-Nexus-Edge', env.NEXUS_EDGE_SECRET);
   const proxied = new Request(target, {
     method: request.method,
     headers,

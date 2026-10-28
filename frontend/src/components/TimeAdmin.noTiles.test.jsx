@@ -9,6 +9,8 @@ vi.mock('../api', () => ({
   api: {
     timeTeam: () => Promise.resolve({ rows: [{ email: 'amy@x.com', name: 'Amy', workedMin: 600, days: {} }] }),
     timeOffList: () => Promise.resolve([]),
+    timeOffAwaitingHr: () => Promise.resolve([]),
+    timeOffCalendar: () => Promise.resolve({ entries: [], holidays: [] }),
     timeMonitoringAlerts: () => Promise.resolve({ alerts: [] }),
     timesheetReviewWaiting: () => Promise.resolve({
       reviews: [{ id: 'r1', name: 'Nayeli Sanchez', employeeEmail: 'n@x.com', periodStart: '2026-10-04', periodEnd: '2026-10-17',
