@@ -81,6 +81,7 @@ import {
   Warehouse,
   Target,
   Workflow,
+  CalendarDays,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -180,6 +181,8 @@ const ReviewScaleSettings = lazy(() => import('../performance/ReviewSettings').t
 const CompanyValuesSettings = lazy(() => import('../performance/ReviewSettings').then(m => ({ default: m.CompanyValuesSettings })));
 // Workflows (Oct 28 2026): the switches, ceilings, digest and pause - layered per company.
 const WorkflowsSettingsPanel = lazy(() => import('../workflows/WorkflowsSettings').then(m => ({ default: m.WorkflowsSettings })));
+// Holiday Policies (Oct 29 2026): the org face of the company holiday calendars.
+const HolidayPoliciesPanel = lazy(() => import('../holidays/HolidayPoliciesPanel'));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone. Since Oct 20 the
 // tab is the unified Audit Log (components/audit/AuditLog.jsx): every module,
@@ -284,6 +287,12 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Profile and logo, managers and HR contact, contractor invoice recipients, email domains, departments and their heads, and the holiday calendar.',
     keywords: 'company profile legal name country tax id ein gstin signatory manager hr contact invoice recipients address phone logo social links email domains notes departments department head holiday calendar holidays' },
+  // Holiday policies (Neil, Oct 29 2026): named holiday sets applied to one or
+  // more companies; each company's Holiday Calendar can skip or change one.
+  { id: 'holiday-policies', subject: 'companies', face: 'org', scope: 'org', icon: CalendarDays, title: 'Holiday Policies',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'Named sets of holidays and how weekend holidays are observed, applied to one or more companies. A company can skip or change any holiday for itself.',
+    keywords: 'holidays holiday policy calendar federal presidents day independence day weekend observed india gazetted restricted diwali apply companies' },
   // Locations
   { id: 'work-sites', subject: 'locations', face: 'org', scope: 'org', icon: MapPinned, title: 'Location Library',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
@@ -1722,6 +1731,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'performance-rating-scale': return <LazyPanelSection key={key} id={id} Panel={ReviewScaleSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'performance-values':   return <LazyPanelSection key={key} id={id} Panel={CompanyValuesSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'workflows-config':     return <LazyPanelSection key={key} id={id} Panel={WorkflowsSettingsPanel} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'holiday-policies':     return <LazyPanelSection key={key} id={id} Panel={HolidayPoliciesPanel} chrome={chrome} entities={entities} toastOk={toastOk} toastErr={toastErr} />;
       default:                     return null;
     }
   }

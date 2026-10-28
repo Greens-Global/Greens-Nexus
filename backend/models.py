@@ -1702,6 +1702,16 @@ class HrCompanyHoliday(Base):
     created_by    = Column(String, default="")
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
+    # Holiday policies (Neil, Oct 29 2026, holiday_policies.py): a row a policy
+    # put here. policy_id '' = the company's own holiday (every row before Oct
+    # 29). policy_key = the holiday's key inside that policy. actual_date = the
+    # real calendar date when `date` is an observed day off ('' otherwise).
+    # overridden = 1 once the company changed this policy holiday's date, type
+    # or name for itself - sync then leaves it alone.
+    policy_id     = Column(String, default="", index=True)
+    policy_key    = Column(String, default="")
+    actual_date   = Column(String, default="")
+    overridden    = Column(Integer, default=0)
 
 
 class HrHolidayPolicy(Base):
@@ -1732,6 +1742,14 @@ class HrHolidayPolicy(Base):
     created_by    = Column(String, default="")
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
+    # Holiday policies (Neil, Oct 29 2026): a policy is now a LIVE link -
+    # assigned companies (HrHolidayPolicyAssignment) get its holidays through
+    # holiday_policies.sync. weekend_rule = what a holiday on a Saturday or
+    # Sunday becomes when it is added from a source (holiday_policies.
+    # WEEKEND_RULES; 'keep' = the real date, Neil: do not assume).
+    # holidays rows gain key, actualDate, countries, scope, tentative.
+    description   = Column(String, default="")
+    weekend_rule  = Column(String, default="keep")
 
 
 class HrMailboxExport(Base):
@@ -9149,3 +9167,26 @@ class WorkflowSubjectMark(Base):
     entity      = Column(String, primary_key=True)
     subject_id  = Column(String, primary_key=True)
     last_run_at = Column(String, default="")
+
+
+class HrHolidayPolicyAssignment(Base):
+    """A holiday policy applies to a company (Neil, Oct 29 2026 - "apply to
+    one or more companies"). holiday_policies.sync materializes the policy's
+    holidays into that company's hr_company_holidays rows (policy_id set),
+    minus the keys in `skipped` (holidays this company does not take).
+    RELEASE: new table - `ALTER TABLE hr_holiday_policy_assignments ENABLE ROW
+    LEVEL SECURITY` on dev AND prod (in main.py's Postgres list).
+    One row per (policy, company): the unique index is also in both of
+    main.py's migration lists (a double click used to make two)."""
+    __tablename__ = "hr_holiday_policy_assignments"
+    __table_args__ = (
+        Index("ux_hr_holiday_policy_assignments_policy_company", "policy_id", "company_id", unique=True),
+    )
+    id          = Column(String, primary_key=True)   # uuid
+    policy_id   = Column(String, nullable=False, index=True)
+    company_id  = Column(String, nullable=False, index=True)
+    # [policy holiday key | {key, date, actualDate, type, name, countryCode}]
+    # - the dict keeps a change the company made before skipping it.
+    skipped     = Column(JSON, default=list)
+    assigned_by = Column(String, default="")
+    assigned_at = Column(String, default="")
