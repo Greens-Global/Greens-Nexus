@@ -93,6 +93,7 @@ vi.mock('./SettingsPanels', () => ({
   UnitRulesPanel: () => <div>Unit rules panel</div>,
   AppRatingsPanel: () => <div>App ratings panel</div>,
 }));
+vi.mock('../holidays/HolidayPoliciesPanel', () => ({ default: () => <div>Holiday policies panel</div> }));
 vi.mock('../components/EmployeeCustomFieldsSettings', () => ({ default: ({ company }) => <div>More details panel{company ? ` ${company}` : ''}</div> }));
 
 const AdminConsole = (await import('./AdminConsole')).default;
@@ -114,10 +115,16 @@ describe('AdminConsole', () => {
 
   it('opens on Companies at Every company, with every subject in the rail', async () => {
     render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
-    expect(screen.getByRole('heading', { name: 'Companies' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Companies', level: 3 })).toBeInTheDocument();
     expect(await find('Company list')).toBeInTheDocument();
+    // Holiday Policies (Oct 29 2026) sit beside the list at Every company.
+    expect(screen.getByRole('region', { name: 'Holiday Policies' })).toBeInTheDocument();
+    expect(await find('Holiday policies panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Applies To')).toHaveValue('');
-    const names = within(rail()).getAllByRole('button').map(b => b.textContent);
+    const names = within(rail()).getAllByRole('button').filter(b => b.classList.contains('nx-set-rail-item')).map(b => b.textContent);
+    // Companies has two groups at Every company, so the rail lists them as jump links.
+    expect(within(within(rail()).getByRole('group', { name: 'Companies settings' })).getAllByRole('button').map(b => b.textContent))
+      .toEqual(['Companies', 'Holiday Policies']);
     expect(names).toEqual(['Companies', 'Locations', 'People & Access', 'Security', 'Branding & Email', 'Emails & Reminders',
       'Tickets', 'Time & Pay', 'Workforce Analytics', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Performance', 'Items & Equipment', 'Operations', 'Workflows']);
     expect(screen.queryByText('For every company')).not.toBeInTheDocument();
@@ -131,7 +138,7 @@ describe('AdminConsole', () => {
     ['nonsense', 'Companies'],
   ])('lands the old "%s" link on %s', (sub, heading) => {
     render(<AdminConsole activeSub={sub} onSubChange={() => {}} />);
-    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: heading, level: 3 })).toBeInTheDocument();
   });
 
   it('opens Tools from an old actas link', async () => {
@@ -359,6 +366,8 @@ describe('AdminConsole', () => {
     const onSubChange = vi.fn();
     const { rerender } = render(<AdminConsole activeSub="companies@c1" onSubChange={onSubChange} />);
     expect(await find('Company page c1: overview departments holidays')).toBeInTheDocument();
+    // The policies are the Every company face; the company's calendar is its own.
+    expect(screen.queryByRole('region', { name: 'Holiday Policies' })).not.toBeInTheDocument();
     rerender(<AdminConsole activeSub="locations@c1" onSubChange={onSubChange} />);
     expect(await find('Company page c1: sites')).toBeInTheDocument();
     rerender(<AdminConsole activeSub="access@c1" onSubChange={onSubChange} />);
@@ -456,7 +465,7 @@ describe('AdminConsole', () => {
     fireEvent.change(box, { target: { value: 'nothing like this' } });
     expect(screen.getByText(/No settings match/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Clear Filter' }));
-    expect(screen.getByRole('heading', { name: 'Companies' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Companies', level: 3 })).toBeInTheDocument();
   });
 
   it('opens on a list of the subjects on phones, and a subject has a way back', () => {
