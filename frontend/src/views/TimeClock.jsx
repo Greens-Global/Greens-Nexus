@@ -86,9 +86,11 @@ const TAB_META = {
 // are the Overview with the Purchase Requests popup open - it is a popup like
 // Reimbursements, not a tab (Sagar, Oct 27); "purchase:new" opens its form too.
 const isPurchaseSub = (sub) => /^purchase(:|$)/.test(sub || '');
-// "salary-advances" (a salary advance bell, Oct 27 2026) is the Overview with its card (HR: Manage open).
-const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || sub === 'salary-advances' || isPurchaseSub(sub) || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
-  : sub === 'timecard' ? 'timesheet' : /^performance(:|$)/.test(sub || '') ? 'performance' : sub);
+// "salary-advances" (a salary advance bell or inbox row stored before Oct 29
+// 2026, when the Workday card went) is the Time Sheet, where advances live
+// now - HR with advances waiting goes on to the Approvals inbox.
+const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || isPurchaseSub(sub) || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
+  : sub === 'timecard' || sub === 'salary-advances' ? 'timesheet' : /^performance(:|$)/.test(sub || '') ? 'performance' : sub);
 // "performance:goal:<id>" / "performance:1on1:<id>" / "performance:team" (bells,
 // Oct 27 2026): the Performance tab with that goal, 1:1 or view open.
 const perfFocusOf = (sub) => (/^performance:/.test(sub || '') ? { sub } : null);
@@ -526,9 +528,18 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // A reimbursement bell lands on "reimbursements": open that panel (Oct 18 2026).
   const [openReimb, setOpenReimb] = useState(() => activeSub === 'reimbursements');
   useEffect(() => { if (activeSub === 'reimbursements') { setOpenReimb(true); window.dispatchEvent(new CustomEvent('nexus:open-reimbursements')); } }, [activeSub]);
-  // A salary advance bell lands on "salary-advances" (Oct 27 2026): HR gets Manage open.
-  const [openAdv, setOpenAdv] = useState(() => activeSub === 'salary-advances');
-  useEffect(() => { if (activeSub === 'salary-advances') { setOpenAdv(true); window.dispatchEvent(new CustomEvent('nexus:open-salary-advances')); } }, [activeSub]);
+  // An old salary advance bell (Oct 27 2026, before the Workday card went on
+  // Oct 29) lands on "salary-advances": the own Time Sheet (tabFor), and HR
+  // with advances waiting on them goes on to Approvals > Money, where each
+  // row opens that person's Time Sheet.
+  useEffect(() => {
+    if (activeSub !== 'salary-advances') return undefined;
+    let alive = true;
+    api.salaryAdvancesPending()
+      .then((rows) => { if (alive && (rows || []).length) window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'approvals', sub: 'money' } })); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [activeSub]);
   // "purchase:new" opens the New Purchase Request form (each time it arrives).
   const [purchaseNewKey, setPurchaseNewKey] = useState(() => (activeSub === 'purchase:new' ? 1 : 0));
   const [purchaseSeenSub, setPurchaseSeenSub] = useState(activeSub);
@@ -1387,7 +1398,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Nexus Sign documents waiting on me, signed here (Oct 18) - Documents needs a grant. */}
       {tab === 'overview' && <DocumentsToSign focusParty={signOf(activeSub)} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
       {tab === 'overview' && (
-        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} openSalaryAdvances={openAdv} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setPurchaseOpen({ newForm: false })} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
+        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setPurchaseOpen({ newForm: false })} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
 
       {/* Time sheets waiting on my signature - above my own timesheet. Renders

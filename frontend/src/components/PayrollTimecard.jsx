@@ -21,6 +21,7 @@ import { CreditCell, ExtraTimeCell, ExtraTimeClaimModal, ExtraTimeDecideModal, R
 import { hm } from '../lib/extraTime';
 import BreakPremiums from './BreakPremiums';
 import TimecardBonuses from './TimecardBonuses';
+import TimeSheetAdvances, { AskAdvanceButton, useTimeSheetAdvances } from './TimeSheetAdvances';
 import GeofencePunchModal from './GeofencePunchModal';
 import AddTimeModal from './AddTimeModal';
 import AddTimeFromRecordModal from './AddTimeFromRecordModal';
@@ -611,6 +612,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   useEffect(() => (self ? undefined : registerTour('timecard', 'Time Sheet', () => setTour(true))), [self]);
   const { can, myEmail } = useRole();
   const isAdmin = can('administrator');
+  // Salary advances live on the Time Sheet (Neil, Oct 29 2026): asked for
+  // someone from theirs, read-only on your own (TimeSheetAdvances).
+  const adv = useTimeSheetAdvances(self ? (myEmail || '') : (email || ''));
   const [workLogDay, setWorkLogDay] = useState(null);   // date string - opens the Work Log drawer for this day
   // Location dot on a punch links to the Locations map, for viewers who can reach it.
   const hourlyLocate = (!self || isAdmin) ? (data?.email || email || '') : '';
@@ -1446,7 +1450,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         periodNav={employeeSidebar ? null : periodNav(false)}
         onFinalize={finalize} onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
-        setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} ownCard={ownCard} />
+        setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} ownCard={ownCard}
+        adv={adv} me={myEmail} />
     );
     return (
       <>
@@ -1516,6 +1521,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         {!self && email && !noEdit && data?.review?.isHr && (
         <AddTimeFromRecordButton onClick={() => setDupDay(true)} />
         )}
+        {!self && email && <AskAdvanceButton adv={adv} toastOk={toastOk} toastErr={toastErr} />}
         {!fin && (self || email) && (
         <button onClick={() => setNoteModal(true)} title={self ? 'Leave a note on a day for your manager' : 'Leave a note on a day - seen by managers and HR, not the employee'}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
@@ -1911,6 +1917,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
 
       {T && <TimecardBonuses card={data} periodStart={perStart} self={self} locked={ownCard || (!!fin && !data.review?.isHr)} fmtM={fmtM} showPay={showPay}
         onChanged={load} toastOk={toastOk} toastErr={toastErr} />}
+      {T && <TimeSheetAdvances adv={adv} self={self} me={myEmail} toastOk={toastOk} toastErr={toastErr} />}
 
       {/* Review + Nexus Sign (Sep 2026): the employee submits, the manager sends
           back or agrees, then employee -> manager -> HR sign in Nexus Sign. */}
@@ -1994,7 +2001,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, periodNav, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false }) {
+function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, periodNav, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false, adv = null, me = '' }) {
   const showPay = !data.payHidden;   // the manager tier never sees pay
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
@@ -2095,6 +2102,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         </button>
         )}
         {!self && email && !noEdit && data.review?.isHr && <AddTimeFromRecordButton onClick={() => setDupDay(true)} />}
+        {!self && email && <AskAdvanceButton adv={adv} toastOk={toastOk} toastErr={toastErr} />}
         {mayPrint(self, ownCard, fin, data.review) && <PrintTimeSheetButton email={email} start={data.periodStart} toastErr={toastErr} />}
         <div style={{ flex: 1 }} />
         {/* No rounding toggle - salary pay is day-based, so times show exactly as punched. */}
@@ -2424,6 +2432,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 
       <TimecardBonuses card={data} periodStart={data.periodStart} self={self} locked={ownCard || (!!fin && !data.review?.isHr)} fmtM={fmtM} showPay={showPay}
         onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+      <TimeSheetAdvances adv={adv} self={self} me={me} toastOk={toastOk} toastErr={toastErr} />
 
       {/* Review + Nexus Sign (same as hourly) - at the top on the employee's own sheet */}
       {!self && <TimesheetReviewPanel review={data.review} self={self} anchor={data.periodStart} periodLabel={monthLabel}
