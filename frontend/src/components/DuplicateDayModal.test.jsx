@@ -92,6 +92,21 @@ describe('DuplicateDayModal', () => {
     expect(body.in_at < body.out_at).toBe(true);
   });
 
+  it('reads times on the 12-hour clock on every laptop - no native time box', async () => {
+    open();
+    await screen.findByText('Duplicate Day for Dean Test');
+    fireEvent.click(screen.getByRole('radio', { name: 'Fill In A Day' }));
+    expect(document.querySelector('input[type="time"]')).toBeNull();
+    const clockIn = screen.getByRole('combobox', { name: 'Clock In' });
+    expect(clockIn.value).toBe('08:30');
+    expect(clockIn.selectedOptions[0].textContent).toMatch(/8:30 AM/);
+    fireEvent.change(clockIn, { target: { value: '09:15' } });
+    fireEvent.change(screen.getByPlaceholderText(/Why this day is being copied/), { target: { value: 'Paper time sheet' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'All Working Days' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(apiMock.timeDuplicateDay).toHaveBeenCalled());
+  });
+
   it('asks for a reason before previewing', async () => {
     open();
     await screen.findByText('Duplicate Day for Dean Test');

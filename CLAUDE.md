@@ -123,6 +123,18 @@ keep the diff minimal.
   and a new credential-taking route in `SENSITIVE_PREFIXES` (30/min, always
   per IP whatever headers it carries) - or in `SHARED_SOURCE_PREFIXES` when
   its real callers share an address (Outlook's action servers, GitHub).
+- **Confidential HR tickets are invisible by default** (Oct 2026): a
+  `task_tickets` row with `confidential_desk` set is hidden from EVERY ORM
+  query by the `do_orm_execute` hook in `database.py`. A query sees it only
+  when it opts in with `.execution_options(include_confidential=True)`, and
+  only after `ticket_confidential.may_read` says the caller may (HR-audience
+  routing: the company's HR contact, administrators and Full HR inside their
+  reach). A new ticket reader, count, export or code generator must know
+  this - a missing opt-in silently drops the row, a blanket opt-in leaks it.
+- **Approval badge counts come from one place**: `approvals_inbox.collect`,
+  read by `routers/action_counts.py`. A new approval kind registers an
+  `@source` in `approvals_inbox.py` - never a separate count query, or the
+  badge and the inbox disagree.
 
 ## Frontend conventions
 
@@ -240,6 +252,9 @@ keep the diff minimal.
   on only when its turn comes after the person, never at send).
   `hr_packet_docs.signing_flow` applies this to every packet, old saved
   configs included - never add an order around it.
+  HR letters (`hr_letters.py`) are signed by the company signatory only and
+  the employee never signs (Neil, Oct 27 2026) - a letter is the company's
+  statement, not a pre-signed document sent for the employee's signature.
 - Probation (Neil, Oct 27 2026, `hr_probation.py`): JSON on the person
   (`nexus_employees.probation`); `{}` = Not Tracked. Only new employees, by
   start date: new hires (a hired candidate, or added in People with a start
@@ -396,8 +411,8 @@ keep the diff minimal.
 
 - **India Contractor pay (Neil, Oct 27 2026, docs/India-Contractor-Pay.md -
   never change these numbers without Neil).** Contractors on fixed monthly
-  pay who work in India, at a company with Settings > Pay > India Contractor
-  Policy on (default on for an India company), for months from its Policy
+  pay who work in India, at a company with Settings > Time & Pay > India
+  Contractor Policy on (default on for an India company), for months from its Policy
   Starts (default 11/01/2026): credit by hours (8 h full, 4 h half), the
   month-end pool (reading B) buys back missing half days at 4.5 h each with
   a 1.5 h round-up, and approved Extra Time pays 1.35 x daily / 9 - the

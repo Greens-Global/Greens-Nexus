@@ -6,7 +6,7 @@ import { SwitchRow, SettingRow } from './settings/SettingsUI';
 import { DateField } from '../tasks/components';
 import { formatDate } from '../lib/datetime';
 
-// Settings > Pay > India Contractor Policy (Neil, Oct 27 2026,
+// Settings > Time & Pay > India Contractor Policy (Neil, Oct 27 2026,
 // docs/India-Contractor-Pay.md). Per company: the switch (on by default for
 // an India company, off for a company in any other country) and Policy
 // Starts (11/01/2026 by default - a month that starts before it keeps the old

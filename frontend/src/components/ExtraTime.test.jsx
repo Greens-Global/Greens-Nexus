@@ -128,7 +128,7 @@ describe('the Extra Time queue', () => {
   });
 });
 
-describe('Settings > Pay > India Contractor Policy', () => {
+describe('Settings > Time & Pay > India Contractor Policy', () => {
   it('turns the switch off for a company and keeps its Policy Starts', async () => {
     const d = { mode: '', startDate: '2026-11-01', defaultStart: '2026-11-01', enabled: true, companyCountry: 'IN', hasOverride: false };
     apiMock.timeIndiaPolicyGet.mockResolvedValue(d);

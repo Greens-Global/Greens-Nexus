@@ -16,6 +16,7 @@ import { dupPlanText, dupTemplateText, periodDays } from '../lib/duplicateDay';
 import { inputToUtcTz, tzOffsetForInput, useDisplayTz, currentTzOption } from '../lib/displayTz';
 import { Spinner } from './AsyncState';
 import ChoicePills from './ChoicePills';
+import { TimeField } from '../tasks/components';
 
 const field = { border: '1px solid var(--line)', borderRadius: 8, padding: '7px 9px', fontSize: 13, fontFamily: 'inherit', background: 'var(--card)', color: 'var(--ink)' };
 const lab = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', display: 'block', marginBottom: 4 };
@@ -180,8 +181,8 @@ export default function DuplicateDayModal({ email, name = '', start, end, initia
                     ) : (
                       <>
                         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                          <label style={{ display: 'block' }}><span style={lab}>Clock In</span><input type="time" value={inT} onChange={(e) => { setInT(e.target.value); touch(); }} style={field} /></label>
-                          <label style={{ display: 'block' }}><span style={lab}>Clock Out</span><input type="time" value={outT} onChange={(e) => { setOutT(e.target.value); touch(); }} style={field} /></label>
+                          <label style={{ display: 'block' }}><span style={lab}>Clock In</span><TimeField ariaLabel="Clock In" value={inT} onChange={(v) => { setInT(v); touch(); }} style={field} step={5} /></label>
+                          <label style={{ display: 'block' }}><span style={lab}>Clock Out</span><TimeField ariaLabel="Clock Out" value={outT} onChange={(v) => { setOutT(v); touch(); }} style={field} step={5} /></label>
                           <div><span style={lab}>Type</span>
                             <ChoicePills label="Type" value={type} options={TYPES} onChange={(t) => { setType(t); touch(); }} /></div>
                         </div>
@@ -189,9 +190,9 @@ export default function DuplicateDayModal({ email, name = '', start, end, initia
                           <span style={{ ...lab, marginBottom: 0 }}>Unpaid Breaks</span>
                           {breaks.map((b, i) => (
                             <div key={i} data-break-row style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
-                              <input type="time" aria-label={`Break ${i + 1} start`} value={b.start} onChange={(e) => { setBreaks((l) => l.map((x, j) => (j === i ? { ...x, start: e.target.value } : x))); touch(); }} style={{ ...field, padding: '4px 6px' }} />
+                              <TimeField ariaLabel={`Break ${i + 1} start`} value={b.start} onChange={(v) => { setBreaks((l) => l.map((x, j) => (j === i ? { ...x, start: v } : x))); touch(); }} style={{ ...field, padding: '4px 6px' }} step={5} />
                               <span style={{ color: 'var(--muted)' }}>to</span>
-                              <input type="time" aria-label={`Break ${i + 1} end`} value={b.end} onChange={(e) => { setBreaks((l) => l.map((x, j) => (j === i ? { ...x, end: e.target.value } : x))); touch(); }} style={{ ...field, padding: '4px 6px' }} />
+                              <TimeField ariaLabel={`Break ${i + 1} end`} value={b.end} onChange={(v) => { setBreaks((l) => l.map((x, j) => (j === i ? { ...x, end: v } : x))); touch(); }} style={{ ...field, padding: '4px 6px' }} step={5} />
                               <button type="button" className="icon-btn" aria-label={`Remove break ${i + 1}`} onClick={() => { setBreaks((l) => l.filter((_x, j) => j !== i)); touch(); }} style={{ padding: 4 }}><Trash2 size={13} /></button>
                             </div>
                           ))}
