@@ -646,6 +646,7 @@ class PastWindowTests(ProbationCase):
             self.db.commit()
             job_switch.invalidate()
         self._track(end="2030-03-20")
+        before = len(self._events("e-jane"))
         switch(True)
         try:
             self.assertEqual(hp.run_daily(), 0)                   # no reminder 10 days out
@@ -653,7 +654,7 @@ class PastWindowTests(ProbationCase):
             hp._today = lambda: date(2030, 3, 25)                 # past the end, nothing decided
             hp.run_daily()
             self.assertEqual(hp.record(self._emp())["status"], "in_probation")
-            self.assertEqual(self._events("e-jane"), [])
+            self.assertEqual(len(self._events("e-jane")), before)   # no automatic pass event
         finally:
             switch(False)
         hp.run_daily()                                            # back on: passed
