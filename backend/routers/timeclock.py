@@ -9142,8 +9142,11 @@ def _company_holidays_for_employee(db: Session, em: str, start: str, end: str) -
             .filter(HrCompanyHoliday.company_id == emp.company,
                     HrCompanyHoliday.date >= start, HrCompanyHoliday.date <= end)
             .all())
-    return {r.date: {"name": r.name, "type": r.type or "mandatory"} for r in rows
-            if not r.country_code or emp.country in r.country_code.split(",")}
+    # Two holidays on one date (Christmas 2027 observed 12/24 = Christmas
+    # Eve): ONE answer - the stronger type, both names - whichever row was
+    # saved last (holiday_policies.merge_day, Oct 29 2026 review).
+    import holiday_policies
+    return holiday_policies.holidays_by_date(rows, emp.country)
 
 
 def _company_holidays_for_many(db: Session, people: dict, start: str, end: str) -> dict:
@@ -9159,13 +9162,13 @@ def _company_holidays_for_many(db: Session, people: dict, start: str, end: str) 
               .filter(HrCompanyHoliday.company_id.in_(list(companies)),
                       HrCompanyHoliday.date >= start, HrCompanyHoliday.date <= end).all()):
         by_company.setdefault(r.company_id, []).append(r)
+    import holiday_policies
     out = {}
     for em, e in people.items():
         rows = by_company.get(e.company) if e is not None and e.company else None
         if not rows:
             continue
-        h = {r.date: {"name": r.name, "type": r.type or "mandatory"} for r in rows
-             if not r.country_code or e.country in r.country_code.split(",")}
+        h = holiday_policies.holidays_by_date(rows, e.country)   # one answer per date (merge_day)
         if h:
             out[em] = h
     return out
