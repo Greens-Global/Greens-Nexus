@@ -196,15 +196,12 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(rows[1][1:3], ["PYRJ", "09-26-2026"])
         self.assertEqual(rows[1][4], "Payroll 09/13/2026 to 09/26/2026")
         self.assertEqual(rows[2][1:6], ["", "", "", "", ""])
-        # The salaried person is on the file too: one Salary line and the
-        # clearing line. With no punches all month the engine docks every
-        # weekday (3,000 - 22 x 137.93 = -34.48), and a negative figure flips
-        # sides instead of printing a minus Intacct would refuse.
+        # The salaried person with no punches all month: absences never take
+        # more than the month's pay (Oct 23, _fixed_card), so the month pays
+        # 0 and puts no line on the file (it used to dock 22 x 137.93 and
+        # post -34.48).
         sal = [x for x in rows[1:] if x[11].startswith("Sal Test")]
-        self.assertEqual([x[11][:17] for x in sal], ["Sal Test - Salary", "Sal Test - Payrol"])
-        self.assertEqual(sal[0][9], "Office")
-        self.assertEqual(sal[0][12:14], ["", "34.48"])
-        self.assertEqual(sal[1][12:14], ["34.48", ""])
+        self.assertEqual(sal, [])
         debits = sum(float(x[12] or 0) for x in rows[1:])
         credits = sum(float(x[13] or 0) for x in rows[1:])
         self.assertAlmostEqual(debits, credits, places=2)
