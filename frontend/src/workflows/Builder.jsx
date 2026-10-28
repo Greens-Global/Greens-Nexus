@@ -3,13 +3,16 @@
 // open, so the workflow reads top to bottom as prose. Right, a rail with
 // Settings, Test and Versions. Top: the name, the status, Save Draft, Test,
 // Publish (disabled with the reason until the draft is clean and tested),
-// Pause / Resume, Duplicate, Archive, and Run for a manual trigger.
+// Pause / Resume, Duplicate, Archive, Run for a manual trigger, and Save As
+// Template (full level, once published). A workflow just made from a
+// template opens with its blanks named above the recipe and the steps they
+// sit in outlined (lib/blanks.js).
 //
 // Edits land in `draft`; the active version keeps running until Publish.
 // The builder renders only what the catalog serves - nothing about a
 // trigger, field or action is hard-coded here.
-import { useEffect, useMemo, useState } from 'react';
-import { Archive, ArrowLeft, Copy, FlaskConical, History, Pause, Play, Save, Settings, Upload } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Archive, ArrowLeft, Copy, FlaskConical, History, LayoutTemplate, Pause, Play, Save, Settings, Upload } from 'lucide-react';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
@@ -29,6 +32,9 @@ import RailTest from './builder/RailTest';
 import RailVersions from './builder/RailVersions';
 import DescribeIt from './builder/DescribeIt';
 import RunDialog from './builder/RunDialog';
+import SaveTemplateDialog from './builder/SaveTemplateDialog';
+import { blankLabel } from './lib/modules';
+import { takeBlanks } from './lib/blanks';
 import { Muted } from './ui';
 import { errorProblems, errorText } from './lib/errors';
 
@@ -57,6 +63,7 @@ export default function Builder({ id, go }) {
   const role = useRole() || {};
   const isMobile = useIsMobile();
   const isGlobalAdmin = role.myRole === 'owner';
+  const canSaveTemplate = typeof role.canAccessModule === 'function' && role.canAccessModule('workflows', 'administrator', 'full');
 
   const [workflow, setWorkflow] = useState(null);
   const [loadError, setLoadError] = useState(null);
@@ -69,6 +76,9 @@ export default function Builder({ id, go }) {
   const [rail, setRail] = useState('settings');
   const [openCard, setOpenCard] = useState('');          // 'when' | 'onlyIf' | ''
   const [runOpen, setRunOpen] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [blanks, setBlanks] = useState([]);           // template blanks, this open only
+  const blanksTaken = useRef('');
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [serverProblems, setServerProblems] = useState([]);
@@ -89,6 +99,9 @@ export default function Builder({ id, go }) {
     let alive = true;
     api.wfGet(id).then((w) => {
       if (!alive) return;
+      // the template blanks are taken once per workflow, with its first
+      // load; a reload (Publish, Pause) keeps the outline up
+      if (blanksTaken.current !== id) { blanksTaken.current = id; setBlanks(takeBlanks(id)); }
       const def = normalizeDefinition(w.draft || w.definition);
       setLoadError(null);
       setWorkflow(w);
@@ -115,7 +128,7 @@ export default function Builder({ id, go }) {
   const eventDef = trigger?.kind === 'event' ? findEvent(catalog, trigger.event) : null;
   const entityDef = findEntity(catalog, triggerEntityKey(trigger, catalog));
   const companies = Array.isArray(role.companies) && role.companies.length ? role.companies : companiesFromCatalog(catalog);
-  const ctx = useMemo(() => ({ catalog, isNew, entityDef, eventDef, people, companies, loopNames: [] }), [catalog, isNew, entityDef, eventDef, people, companies]);
+  const ctx = useMemo(() => ({ catalog, isNew, entityDef, eventDef, people, companies, loopNames: [], blanks }), [catalog, isNew, entityDef, eventDef, people, companies, blanks]);
 
   const status = workflow?.status || 'draft';
   const statusMeta = WORKFLOW_STATUS[status] || { label: status, color: '#64748b' };
@@ -220,6 +233,8 @@ export default function Builder({ id, go }) {
     }
   };
 
+  const onTemplateSaved = () => { setTemplateOpen(false); flash('Saved as a template'); };
+
   const onTested = (run) => { setTested(true); setLastTest(run); };
   const onDraft = (def, list) => {
     setDefinition(normalizeDefinition(def));
@@ -233,6 +248,8 @@ export default function Builder({ id, go }) {
 
   const loading = !workflow || !definition || catalogLoading;
   const canEdit = status !== 'archived';
+  const published = (workflow?.version || 0) > 0 && status !== 'draft';
+  const blankLabels = blanks.map(blankLabel).filter((l, i, a) => l && a.indexOf(l) === i);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: isMobile ? '12px 16px 40px' : '16px 20px 40px', fontFamily: 'inherit' }}>
@@ -255,6 +272,9 @@ export default function Builder({ id, go }) {
           {status === 'active' && <button type="button" onClick={() => setStatus('paused')} disabled={!!busy} style={btn('outline')}><Pause size={14} /> Pause</button>}
           {(status === 'paused' || status === 'needs_attention') && <button type="button" onClick={() => setStatus('active')} disabled={!!busy} style={btn('outline')}><Play size={14} /> Resume</button>}
           <button type="button" onClick={duplicate} disabled={!!busy || !workflow} style={btn('outline')}><Copy size={14} /> Duplicate</button>
+          {canSaveTemplate && published && (
+            <button type="button" onClick={() => setTemplateOpen(true)} disabled={!!busy} style={btn('outline')}><LayoutTemplate size={14} /> Save As Template</button>
+          )}
           {canEdit && <button type="button" onClick={archive} disabled={!!busy || !workflow} style={btn('outline')}><Archive size={14} /> Archive</button>}
           <button type="button" onClick={saveDraft} disabled={!!busy || !definition || !canEdit} style={btn('outline')}><Save size={14} /> {busy === 'save' ? 'Saving...' : 'Save Draft'}</button>
           <button type="button" onClick={() => setRail('test')} disabled={!definition || !canEdit} style={btn('outline')}><FlaskConical size={14} /> Test</button>
@@ -284,6 +304,11 @@ export default function Builder({ id, go }) {
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) 380px', gap: 16, alignItems: 'start' }}>
             {/* The recipe */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+              {blankLabels.length > 0 && (
+                <div role="note" aria-label="Template blanks" style={{ ...hint, padding: '8px 12px', border: '1px dashed var(--nx-primary)', borderRadius: 10, color: 'var(--nx-ink)' }}>
+                  <strong>Fill in:</strong> {blankLabels.join(', ')}. The outlined steps are the ones the template left for you.
+                </div>
+              )}
               {stepCount === 0 && canEdit && <DescribeIt onDraft={onDraft} companyId={meta.companyId || ''} />}
               <TriggerCard definition={definition} onChange={setDefinition} catalog={catalog} isNew={isNew} people={people}
                 open={openCard === 'when'} onToggle={() => setOpenCard(openCard === 'when' ? '' : 'when')} />
@@ -322,6 +347,7 @@ export default function Builder({ id, go }) {
       </AsyncSection>
 
       {runOpen && workflow && <RunDialog workflow={workflow} entityDef={entityDef} people={people} onClose={() => setRunOpen(false)} go={go} />}
+      {templateOpen && workflow && <SaveTemplateDialog workflow={workflow} onClose={() => setTemplateOpen(false)} onSaved={onTemplateSaved} />}
     </div>
   );
 }

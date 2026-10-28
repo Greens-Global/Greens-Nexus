@@ -9,6 +9,7 @@ import { insertAt, moveAt, patchAt, removeAt, toggleAt } from '../lib/definition
 import AddStepMenu from './AddStepMenu';
 import StepCard from './StepCard';
 import { hint } from '../lib/text.builder-helpers';
+import { isBlankStep } from '../lib/blanks';
 
 export default function StepList({ steps, onChange, ctx, depth = 0, emptyText = 'No steps yet.', addLabel = 'Add Step' }) {
   const list = Array.isArray(steps) ? steps : [];
@@ -21,6 +22,7 @@ export default function StepList({ steps, onChange, ctx, depth = 0, emptyText = 
         renderItem={(step, handle, i) => (
           <StepCard step={step} index={i} count={list.length} handle={handle} ctx={ctx} depth={depth}
             initiallyOpen={step.id === justAdded}
+            blank={depth === 0 && isBlankStep(ctx.blanks, i, step.id)}
             onChange={(patch) => onChange(patchAt(list, i, patch))}
             onRemove={() => onChange(removeAt(list, i))}
             onMove={(dir) => onChange(moveAt(list, i, i + dir))}

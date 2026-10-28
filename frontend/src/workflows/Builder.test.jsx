@@ -1,9 +1,11 @@
 // The workflow builder (Oct 2026): a definition reads as sentences, Add Step
 // adds a step through the menu, Publish stays off with its reason until the
 // draft is clean and tested, Test shows the trace and the planned lines,
-// Describe It lands a draft in the builder.
+// Describe It lands a draft in the builder, Save As Template is a full-level
+// action on a published workflow, and a workflow made from a template opens
+// with its blanks named and outlined once.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 const catalog = {
   entities: [{
@@ -40,6 +42,7 @@ const api = {
   wfStatus: vi.fn(() => Promise.resolve({})),
   wfReown: vi.fn(() => Promise.resolve({})),
   wfDuplicate: vi.fn(() => Promise.resolve({ id: 'w2' })),
+  wfSaveAsTemplate: vi.fn(() => Promise.resolve({ key: 't1', name: 'Welcome Note' })),
   wfVersions: vi.fn(() => Promise.resolve([])),
   wfVersion: vi.fn(() => Promise.resolve({})),
   wfRestore: vi.fn(() => Promise.resolve({})),
@@ -83,7 +86,10 @@ vi.mock('./lib/text', () => ({
   describeStep: (s) => (s.kind === 'action' ? `Do ${s.action}: ${s.params?.title || '(no title)'}` : `Step ${s.kind}`),
   describeWorkflow: () => ['When something happens', 'Do notify'],
 }));
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myRole: 'owner', myEmail: 'neil@greensglobal.com', companies: [] }) }));
+const roleState = { myRole: 'owner', myEmail: 'neil@greensglobal.com', companies: [], full: true };
+vi.mock('../contexts/RoleContext', () => ({
+  useRole: () => ({ ...roleState, canAccessModule: (mod, minRole, level) => (mod === 'workflows' && level === 'full' ? roleState.full : true) }),
+}));
 vi.mock('../components/PersonHoverCard', () => ({ default: ({ children }) => children }));
 const dialog = { confirm: vi.fn(() => Promise.resolve(true)), alert: vi.fn(() => Promise.resolve()), prompt: vi.fn() };
 vi.mock('../ui/dialog', () => ({ dialog }));
@@ -108,6 +114,8 @@ function workflow(over = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  roleState.full = true;
+  window.sessionStorage.clear();
   api.wfGet.mockImplementation(() => Promise.resolve(workflow()));
   dialog.confirm.mockResolvedValue(true);
   dialog.alert.mockResolvedValue(undefined);
@@ -321,6 +329,71 @@ describe('Builder', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Who Would It Run On' }));
     await waitFor(() => expect(api.wfPreviewSchedule).toHaveBeenCalledWith('w1'));
     expect(await screen.findByText('Nobody right now.')).toBeInTheDocument();
+  });
+
+  it('saves a published workflow as a template through the popup', async () => {
+    api.wfGet.mockImplementation(() => Promise.resolve(workflow({ status: 'active', version: 2, testedCurrent: true, description: 'Says hello.' })));
+    open();
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
+    fireEvent.click(screen.getByRole('button', { name: /Save As Template/ }));
+    const name = await screen.findByLabelText('Name');
+    expect(name.value).toBe('Welcome Note');                         // the workflow's name by default
+    fireEvent.change(name, { target: { value: 'Welcome Note Template' } });
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'For every new hire.' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Template/ }));
+    await waitFor(() => expect(api.wfSaveAsTemplate).toHaveBeenCalledWith('w1', { name: 'Welcome Note Template', description: 'For every new hire.' }));
+    expect(await screen.findByText('Saved as a template')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Description')).toBeNull();        // the popup closed
+  });
+
+  it('words a refused Save As Template with the server\'s sentence', async () => {
+    api.wfGet.mockImplementation(() => Promise.resolve(workflow({ status: 'active', version: 1 })));
+    api.wfSaveAsTemplate.mockImplementation(() => Promise.reject(Object.assign(new Error('API error 403'), { status: 403, detail: 'Only a Global Admin saves a template for every company' })));
+    open();
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
+    fireEvent.click(screen.getByRole('button', { name: /Save As Template/ }));
+    await screen.findByLabelText('Name');
+    fireEvent.click(screen.getByRole('button', { name: /Save Template/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only a Global Admin saves a template for every company');
+    expect(document.body.textContent).not.toMatch(/API error/);
+    expect(screen.queryByText('Saved as a template')).toBeNull();
+  });
+
+  it('offers Save As Template only to full level and only once published', async () => {
+    open();                                                           // a draft (version 0)
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
+    expect(screen.queryByRole('button', { name: /Save As Template/ })).toBeNull();
+    cleanup();
+    roleState.full = false;                                           // editor level, published: still no button
+    api.wfGet.mockImplementation(() => Promise.resolve(workflow({ status: 'active', version: 1 })));
+    open();
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
+    expect(screen.queryByRole('button', { name: /Save As Template/ })).toBeNull();
+  });
+
+  it('names a template\'s blanks once and outlines the steps they sit in', async () => {
+    api.wfGet.mockImplementation(() => Promise.resolve(workflow({
+      definition: { ...definition, steps: [definition.steps[0], { id: 's2', kind: 'action', action: 'notify', params: { to: [{ kind: 'self' }], title: '' }, enabled: true }] },
+    })));
+    // the shape the backend's templates.py uses, stashed by Templates before it navigates
+    window.sessionStorage.setItem('wf:blanks:w1', JSON.stringify(['steps[1].params.title', 'steps[1].params.to']));
+    open();
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
+    const note = screen.getByRole('note', { name: 'Template blanks' });
+    expect(note).toHaveTextContent('Fill in: Title, To');
+    const cards = document.querySelectorAll('[data-blank="true"]');
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toHaveTextContent('Do notify: (no title)');
+    expect(cards[0].style.border).toMatch(/dashed/);
+    // read once: the key is gone, a reload shows a plain builder
+    expect(window.sessionStorage.getItem('wf:blanks:w1')).toBeNull();
+  });
+
+  it('shows no blanks notice when nothing was stashed', async () => {
+    open();
+    await screen.findByText('Do notify: Welcome {{ subject.name }}');
+    expect(screen.queryByRole('note', { name: 'Template blanks' })).toBeNull();
+    expect(document.querySelectorAll('[data-blank="true"]')).toHaveLength(0);
   });
 
   it('never renders blank while loading or on an error', async () => {

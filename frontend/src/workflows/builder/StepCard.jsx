@@ -2,6 +2,8 @@
 // whole workflow reads top to bottom as prose; expanded it shows the
 // controls the catalog says the step takes. If / Else, Ask For Approval and
 // For Each show their branches as indented lanes (each one a StepList).
+// A step a template left blank (`blank`) wears a dashed outline until the
+// builder is next opened.
 import { useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Eye, EyeOff, Trash2 } from 'lucide-react';
 import { StatusLabel } from '../../components/StatusLabel';
@@ -19,7 +21,7 @@ const MODES = [
   { key: 'sequence', label: 'One After Another' },
 ];
 
-export default function StepCard({ step, index, count, handle, onChange, onRemove, onMove, onToggle, ctx, depth = 0, initiallyOpen = false }) {
+export default function StepCard({ step, index, count, handle, onChange, onRemove, onMove, onToggle, ctx, depth = 0, initiallyOpen = false, blank = false }) {
   const [open, setOpen] = useState(initiallyOpen);
   const skipped = step.enabled === false;
   const Icon = STEP_ICONS[step.kind] || STEP_ICONS.action;
@@ -27,8 +29,8 @@ export default function StepCard({ step, index, count, handle, onChange, onRemov
   const idBase = `step-${step.id}`;
 
   return (
-    <div style={{
-      border: '1px solid var(--nx-border)', borderRadius: 12, background: 'var(--nx-surface)',
+    <div data-blank={blank ? 'true' : undefined} style={{
+      border: blank ? '1.5px dashed var(--nx-primary)' : '1px solid var(--nx-border)', borderRadius: 12, background: 'var(--nx-surface)',
       opacity: skipped ? 0.6 : 1, display: 'flex', flexDirection: 'column',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px 8px 6px' }}>

@@ -12,6 +12,7 @@ import { useCatalog } from './lib/useCatalog';
 import { describeTrigger } from './lib/text';
 import { moduleLabel, sortModules, blankLabel } from './lib/modules';
 import { errorText } from './lib/errors';
+import { stashBlanks } from './lib/blanks';
 
 function Chip({ children, tone = 'muted' }) {
   return <span className={`status-badge pill-${tone}`} style={{ fontWeight: 600 }}>{children}</span>;
@@ -155,7 +156,7 @@ export default function Templates({ go }) {
       ))}
       {using && (
         <UseTemplateModal template={using} onClose={() => setUsing(null)}
-          onCreated={(wf) => { setUsing(null); if (wf?.id) go?.(`wf:${wf.id}`); }} />
+          onCreated={(wf) => { setUsing(null); if (wf?.id) { stashBlanks(wf.id, wf.blanks); go?.(`wf:${wf.id}`); } }} />
       )}
     </div>
   );

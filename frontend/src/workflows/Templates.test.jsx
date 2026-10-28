@@ -4,8 +4,8 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 // Render-smoke for Workflows > Templates: the gallery groups by module with
 // the trigger sentence and the blanks, Use Template asks for a name and a
 // company (Every Company for a Global Admin, Your Company - the owner's own
-// scope - for anyone else) and then opens the new draft, and an empty list
-// says so.
+// scope - for anyone else) and then opens the new draft with its blanks
+// stashed for the builder, and an empty list says so.
 
 const wfTemplates = vi.fn();
 const wfUseTemplate = vi.fn();
@@ -34,6 +34,7 @@ const TEMPLATES = [
 beforeEach(() => {
   [wfTemplates, wfUseTemplate, getEntities].forEach((f) => f.mockReset());
   roleState.myRole = 'owner';
+  window.sessionStorage.clear();
   getEntities.mockResolvedValue([{ id: 'c1', name: 'Greens Global' }, { id: 'c2', name: 'Greens India' }]);
 });
 
@@ -57,8 +58,9 @@ describe('Workflows Templates', () => {
 
   it('uses a template through the name-and-company popup and opens the draft', async () => {
     wfTemplates.mockResolvedValue(TEMPLATES);
-    wfUseTemplate.mockResolvedValue({ id: 'w9', name: 'My Probation Reminder' });
-    const go = vi.fn();
+    wfUseTemplate.mockResolvedValue({ id: 'w9', name: 'My Probation Reminder', blanks: ['steps[0].params.to', 'steps[1].params.letter_template'], templateKey: 'probation' });
+    // the blanks are stashed BEFORE the navigation, so the builder finds them on mount
+    const go = vi.fn(() => { expect(window.sessionStorage.getItem('wf:blanks:w9')).toBe(JSON.stringify(['steps[0].params.to', 'steps[1].params.letter_template'])); });
     render(<Templates go={go} />);
     await screen.findByText('Probation Ending Reminder');
     fireEvent.click(screen.getAllByRole('button', { name: 'Use Template' })[0]);
@@ -72,6 +74,19 @@ describe('Workflows Templates', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create Draft' }));
     await vi.waitFor(() => expect(wfUseTemplate).toHaveBeenCalledWith('probation', { name: 'My Probation Reminder', companyId: 'c2' }));
     await vi.waitFor(() => expect(go).toHaveBeenCalledWith('wf:w9'));
+    expect(window.sessionStorage.getItem('wf:blanks:w9')).toBe(JSON.stringify(['steps[0].params.to', 'steps[1].params.letter_template']));
+  });
+
+  it('stashes nothing when the template has no blanks', async () => {
+    wfTemplates.mockResolvedValue(TEMPLATES);
+    wfUseTemplate.mockResolvedValue({ id: 'w10', blanks: [] });
+    const go = vi.fn();
+    render(<Templates go={go} />);
+    await screen.findByText('Overdue Task Escalation');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Use Template' })[1]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Create Draft' }));
+    await vi.waitFor(() => expect(go).toHaveBeenCalledWith('wf:w10'));
+    expect(window.sessionStorage.getItem('wf:blanks:w10')).toBeNull();
   });
 
   it('starts someone who is not a Global Admin on Your Company, never the first company listed', async () => {
