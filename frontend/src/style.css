@@ -2834,11 +2834,21 @@ html { overflow-x: hidden; }
 /* MRE (Charmi, call of 10/27, items 04 and 05): Vendor and Entity read the
    name, its code underneath in small muted text; the month columns pad less
    and their filter boxes give way, so a month can be dragged down to ~60 px
-   and nine fit at 1440 with the side menu open. */
+   and nine fit at 1440 with the side menu open. A long vendor name wraps
+   onto a second line instead of being cut (Charmi: "1st Choice Backf...");
+   the month figures are a step smaller so 23,080.30 fits a 74 px month;
+   Expected (mre-x) pads like a month. */
 .acct-report.mre-grid .mre-main { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-report.mre-grid .mre-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
 .acct-report.mre-grid .mre-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.68rem; font-weight: 500; line-height: 1.3; color: var(--text-muted); }
 .acct-report.mre-grid th.mre-m, .acct-report.mre-grid td.mre-m { padding-left: 5px; padding-right: 5px; }
-.acct-report.mre-grid .acct-filter-row td.mre-m { padding-left: 3px; padding-right: 3px; }
+.acct-report.mre-grid tbody td.mre-m, .acct-report.mre-grid tfoot td.mre-m { padding-left: 3px; padding-right: 3px; font-size: 12px; }
+.acct-report.mre-grid th.mre-x, .acct-report.mre-grid td.mre-x { padding-left: 5px; padding-right: 5px; }
+.acct-report.mre-grid tbody td.mre-x { font-size: 12px; }
+.acct-report.mre-grid tbody td.acct-label { padding-right: 6px; }
+.acct-report.mre-grid .acct-filter-row td.mre-m, .acct-report.mre-grid .acct-filter-row td.mre-x { padding-left: 3px; padding-right: 3px; }
+.acct-report.mre-grid .acct-filter-row td.mre-x .acct-op-filter select { max-width: 30px; padding: 0 1px; }
+.acct-report.mre-grid .acct-filter-row td.mre-x .acct-op-filter input { min-width: 22px; padding: 0 4px; }
 .acct-report.mre-grid .acct-filter-row td.mre-m .acct-op-filter select { max-width: 30px; padding: 0 1px; }
 .acct-report.mre-grid .acct-filter-row td.mre-m .acct-op-filter input { min-width: 22px; padding: 0 4px; }
 /* The same on every statement (UI test 10/23): the pinned first column keeps

@@ -563,7 +563,8 @@ class PossiblyEndedRule1028(unittest.TestCase):
 
     def test_windows(self):
         import recurring_stale
-        w = lambda freq, n=0: recurring_stale.mre_window(self.TODAY, 3, accounting_mre.step_months({"frequency": freq, "frequencyMonths": n}))
+        def w(freq, n=0):
+            return recurring_stale.mre_window(self.TODAY, 3, accounting_mre.step_months({"frequency": freq, "frequencyMonths": n}))
         self.assertEqual(w("monthly"), ["2026-07", "2026-08", "2026-09"])
         self.assertEqual((len(w("quarterly")), len(w("semi_annual")), len(w("annual")), len(w("custom", 2))), (4, 7, 13, 3))
         self.assertEqual(w("annual")[0], "2025-09")
@@ -635,6 +636,30 @@ class PossiblyEndedRule1028(unittest.TestCase):
             db.commit()
         finally:
             db.close()
+
+
+class SpotCheck1028(unittest.TestCase):
+    """Charmi, 10/27 call, item 06 spot-check (mre-spotcheck.md in the call
+    folder): California Fair Plan V05293 / 10003 is set up Monthly 1,035.00 but
+    Intacct has one annual premium, 1,035.00 on 07/30/2026 ("2026-2027") - so
+    Jan - Jun and Aug - Sep read Missed. Set up Annual from 07/2026 (the edit
+    proposed to Charmi) the same posting reads Paid and nothing is Missed."""
+    TODAY = date(2026, 10, 28)
+
+    def _line(self, **kw):
+        return {"id": "fair-plan", "entityCode": "10003", "entityName": "(G) 26382 Palisades Drive, DP", "vendorId": "V05293",
+                "vendorName": "California Fair Plan", "expenseAccounts": ["62507"], "category": "insurance", "frequencyMonths": 0,
+                "variancePct": 25, "expectedAmount": 1035.0, "endDate": "", "status": "active", **kw}
+
+    def test_fair_plan_monthly_against_one_annual_charge(self):
+        posted = {("10003", "V05293"): {"2026-07": {"62507": 1035.0}}}
+        as_is = accounting_mre.grid([self._line(frequency="monthly", startDate="2026-01-01")], posted, 2026, self.TODAY)["rows"][0]
+        self.assertEqual(as_is["monthsMissed"], 8)
+        self.assertEqual(as_is["months"][6]["status"], "paid")
+        fixed = accounting_mre.grid([self._line(frequency="annual", startDate="2026-07-01")], posted, 2026, self.TODAY)["rows"][0]
+        self.assertEqual(fixed["monthsMissed"], 0)
+        self.assertEqual([c["status"] for c in fixed["months"]][6], "paid")
+        self.assertEqual(fixed["balance"], 0)
 
 
 if __name__ == "__main__":

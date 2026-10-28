@@ -502,9 +502,20 @@ describe('MreTab call of 10/27', () => {
     const entityCell = name.closest('tr').cells[1];
     expect(entityCell.querySelector('.mre-main').textContent).toBe('Greens Escondido, LLC.');
     expect(within(entityCell).getByTestId('entity-code').textContent).toBe('15000');
-    // Narrower by default: 200 and 170 px, clipped with "...".
-    expect(vendorCell.style.width).toBe('200px');
-    expect(entityCell.style.width).toBe('170px');
+    // Narrower by default: 176 and 128 px (with Category 84, Expected 76 and
+    // nine 74 px months: 1,130 px, inside the 1,136 px grid at 1440 with the
+    // side menu open). A long vendor name wraps onto a second line instead of
+    // "..."; the entity stays on one line with its full name on hover.
+    expect(vendorCell.style.width).toBe('176px');
+    expect(vendorCell.style.whiteSpace).toBe('normal');
+    expect(name.closest('.mre-name')).toBeTruthy();
+    expect(css).toMatch(/\.acct-report\.mre-grid \.mre-name \{[^}]*-webkit-line-clamp: 2/);
+    expect(entityCell.style.width).toBe('128px');
+    expect(entityCell.style.whiteSpace).toBe('nowrap');
+    expect(entityCell.title).toBe('Greens Escondido, LLC. (15000)');
+    expect(name.closest('tr').cells[2].style.width).toBe('84px');
+    expect(name.closest('tr').cells[3].style.width).toBe('76px');
+    expect(name.closest('tr').cells[3].classList.contains('mre-x')).toBe(true);
     // The filter boxes still find a line by its code or its name.
     fireEvent.change(screen.getByRole('textbox', { name: 'Filter Vendor' }), { target: { value: 'V-MSFT' } });
     expect(screen.queryByText('San Diego Gas & Electric')).toBeNull();
@@ -530,8 +541,10 @@ describe('MreTab call of 10/27', () => {
     const row = screen.getByText('San Diego Gas & Electric').closest('tr');
     expect(within(row).getByLabelText(/Jan 2026 - Paid/).style.width).toBe('40px');
     expect(screen.getByRole('columnheader', { name: /^Feb/ }).style.width).toBe('74px');
-    // The stylesheet lets a month's filter box give way.
+    // The stylesheet lets a month's filter box give way, and its figures are a
+    // step smaller so 23,080.30 fits the 74 px default.
     expect(css).toMatch(/\.acct-report\.mre-grid \.acct-filter-row td\.mre-m \.acct-op-filter input \{ min-width: 22px/);
+    expect(css).toMatch(/\.acct-report\.mre-grid tbody td\.mre-m, \.acct-report\.mre-grid tfoot td\.mre-m \{[^}]*font-size: 12px/);
   });
 
   it('07: the legend chips filter the lines, several at once, the figures follow, Clear resets', async () => {

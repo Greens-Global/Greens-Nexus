@@ -220,9 +220,15 @@ export function rowInStates(row, picked = [], [from, to] = [0, 11]) {
 
 // Default widths (10/27 call, items 04 and 05): Vendor and Entity narrower now
 // their codes sit underneath, and month columns narrow enough for nine months
-// at 1440 with the side menu open. A width the person drags wins.
-export const MRE_WIDTHS = { vendor: 200, entity: 170, category: 116, expected: 84 };
+// at 1440 with the side menu open (measured: the grid box is 1,136 px there,
+// 176 + 128 + 84 + 76 + 9 x 74 = 1,130). A long vendor name wraps onto a
+// second line instead of being cut to "..." (nameWrap); the Vendor column
+// fits the code and the Possibly Ended chip under it (156 px). Entity and
+// Category stay on one line with the full text on hover, so rows keep their
+// height. A width the person drags wins.
+export const MRE_WIDTHS = { vendor: 176, entity: 128, category: 84, expected: 76 };
 export const MONTH_WIDTH = 74;
+const nameWrap = { whiteSpace: 'normal', overflowWrap: 'anywhere' };
 export const defaultWidth = (key) => MRE_WIDTHS[key] || (/^m\d+$/.test(key) ? MONTH_WIDTH : undefined);
 
 /** One row's paid and balance over the months shown. The full year is the
@@ -704,7 +710,7 @@ function Grid({ view, filterColumns = [], typed = {}, onTyped = null, onClearTyp
     if (c.key === 'total') return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className="acct-num" title="Paid in the months shown" style={headStyle(w(c.key), { fontWeight: 800 })} />;
     if (c.key === 'balance') return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className="acct-num" title="Expected less paid, in the months shown that are over" style={headStyle(w(c.key))} />;
     if (c.key === 'notes') return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} style={headStyle(w(c.key), { minWidth: w(c.key) || 180 })} />;
-    return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={[num ? 'acct-num' : '', month(c.key) ? 'mre-m' : ''].filter(Boolean).join(' ') || undefined} style={headStyle(w(c.key))} />;
+    return <ViewHead key={c.key} view={view} col={c} aria-label={c.label} className={[num ? 'acct-num' : '', month(c.key) ? 'mre-m' : c.key === 'expected' ? 'mre-x' : ''].filter(Boolean).join(' ') || undefined} style={headStyle(w(c.key))} />;
   };
   return (
     // 10/23 meeting, item 05: the grid scrolls inside a box that ends in the window.
@@ -716,7 +722,7 @@ function Grid({ view, filterColumns = [], typed = {}, onTyped = null, onClearTyp
           <tr>{view.columns.map(head)}</tr>
           {onTyped && (
             <ColumnFilterRow columns={view.columns} filterColumns={filterColumns} typed={typed} onChange={onTyped}
-              cellProps={(col) => ({ className: col.key === 'vendor' ? 'acct-head' : month(col.key) ? 'mre-m' : undefined })} />
+              cellProps={(col) => ({ className: col.key === 'vendor' ? 'acct-head' : month(col.key) ? 'mre-m' : col.key === 'expected' ? 'mre-x' : undefined })} />
           )}
         </thead>
         <tbody>
@@ -736,7 +742,7 @@ function Grid({ view, filterColumns = [], typed = {}, onTyped = null, onClearTyp
                 {viewCells(view, {
                   // The name on the first line, the code and the chips underneath (10/27 call, item 04).
                   vendor: (
-                    <td className="acct-label" style={cellStyle(w('vendor'))}>
+                    <td className="acct-label" style={cellStyle(w('vendor'), nameWrap)}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                         <VendorName id={r.line.vendorId} name={r.line.vendorName} />
                         {r.line.egnyteUrl && <a href={r.line.egnyteUrl} target="_blank" rel="noreferrer" aria-label={`Documents of ${r.line.vendorName} in Egnyte`} title={`Documents: ${r.line.egnyteFolder}`} style={{ display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }}><FolderOpen size={13} /></a>}
@@ -759,7 +765,7 @@ function Grid({ view, filterColumns = [], typed = {}, onTyped = null, onClearTyp
                   category: <td style={cellStyle(w('category'))} title={CATEGORY[r.line.category] || 'Other'}>{CATEGORY[r.line.category] || 'Other'}</td>,
                   ...optional,
                   expected: (
-                    <td className="acct-num" style={cellStyle(w('expected'))} title={`${frequencyLabel(r.line)} from ${formatDate(r.line.startDate) || 'the start'}${r.line.endDate ? ` to ${formatDate(r.line.endDate)}` : ''}${r.line.variancePct ? `; paid within ${r.line.variancePct}% counts as Paid` : ''}`}>
+                    <td className="acct-num mre-x" style={cellStyle(w('expected'))} title={`${frequencyLabel(r.line)} from ${formatDate(r.line.startDate) || 'the start'}${r.line.endDate ? ` to ${formatDate(r.line.endDate)}` : ''}${r.line.variancePct ? `; paid within ${r.line.variancePct}% counts as Paid` : ''}`}>
                       <Amount value={r.line.expectedAmount} />
                       <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>{frequencyLabel(r.line)}</span>
                     </td>
@@ -958,7 +964,8 @@ function VendorName({ id, name }) {
   const addr = v ? [v.address?.line1, v.address?.line2, [v.address?.city, v.address?.state].filter(Boolean).join(', '), v.address?.zip].filter(Boolean).join(' ') : '';
   return (
     <span ref={ref} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide} tabIndex={0}
-      style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, cursor: 'default', textDecoration: 'underline dotted var(--border-color)', textUnderlineOffset: 3 }}>
+      className="mre-name"
+      style={{ minWidth: 0, fontWeight: 600, cursor: 'default', textDecoration: 'underline dotted var(--border-color)', textUnderlineOffset: 3 }}>
       {name || id}
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} role="tooltip" aria-label={`${name} contact`} onMouseEnter={keep} onMouseLeave={hide}
         style={{ width: 280, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 12, display: 'grid', gap: 6, fontSize: '0.8rem', fontWeight: 400, whiteSpace: 'normal' }}>
