@@ -436,7 +436,10 @@ class RebuildTests(unittest.TestCase):
         self._as(BOSS)
         morning = self._placed(B, start_hhmm="06:00", end_hhmm="12:00")
         afternoon = self._placed(B, start_hhmm="13:00", end_hhmm="21:00")
-        self._publish()
+        # The split day trips the rest rule (1 h between the two shifts) and
+        # the afternoon overlaps the requested time off: since the Shifts
+        # rules (Oct 14) sharing over a warning takes a reason.
+        self._publish(reason="Split shift around the requested time off")
         r = self.client.patch(f"/timeclock/timeoff/{tid2}", json={"status": "approved", "remove_shifts": True}).json()
         self.assertEqual([c["id"] for c in r["conflicts"]], [afternoon["id"]])
         self.assertEqual(r["shiftsRemoved"], 1)
