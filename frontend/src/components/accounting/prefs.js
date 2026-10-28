@@ -14,6 +14,12 @@ import { api } from '../../api';
 const LS = 'nexus-accounting-prefs';
 const read = () => { try { return JSON.parse(localStorage.getItem(LS) || '{}') || {}; } catch { return {}; } };
 const write = (v) => { try { localStorage.setItem(LS, JSON.stringify(v)); } catch { /* private mode */ } };
+// A change kept here that has not reached the server yet (UI test 10/28: an
+// MRE month dragged wider at 1440 went back after a reload - the reload came
+// before the delayed save, and the server's older copy then overwrote it).
+const UNSENT = 'nexus-accounting-prefs-unsent';
+const markUnsent = (on) => { try { if (on) localStorage.setItem(UNSENT, '1'); else localStorage.removeItem(UNSENT); } catch { /* private mode */ } };
+const isUnsent = () => { try { return localStorage.getItem(UNSENT) === '1'; } catch { return false; } };
 
 let current = null;          // the shared copy
 let loaded = false;          // the server has answered once
@@ -31,9 +37,12 @@ function ensureLoaded() {
   loading = Promise.resolve().then(() => api.getAccountingPrefs())
     .then((d) => {
       const server = d?.prefs && typeof d.prefs === 'object' ? d.prefs : {};
-      // The server wins where it has something; a layout made before this
-      // existed (local only) is kept and goes up on the next change.
-      if (Object.keys(server).length) { current = { ...current, ...server }; write(current); emit(); }
+      // A change made here that the server never got (a reload inside the
+      // save delay, or a change while this read was on its way) wins, and
+      // goes up now. Otherwise the server wins where it has something; a
+      // layout made before this existed (local only) goes up on the next change.
+      if (isUnsent()) { current = { ...server, ...current }; write(current); emit(); setPrefs({}); }
+      else if (Object.keys(server).length) { current = { ...current, ...server }; write(current); emit(); }
     })
     .catch(() => { /* the local copy stands */ })
     .finally(() => { loaded = true; loading = null; });
@@ -46,19 +55,32 @@ function setPrefs(patch) {
   current = { ...base, ...(typeof patch === 'function' ? patch(base) : patch) };
   if (current.tableViews !== base.tableViews) viewsWaiting = true;
   write(current);
+  markUnsent(true);
   emit();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    const sent = current;
-    const views = viewsWaiting;
-    // Over the server's limit it would only be refused: say so without sending it.
-    const tooLarge = (() => { try { return JSON.stringify(sent).length > PREFS_MAX; } catch { return false; } })();
-    (tooLarge ? Promise.reject(Object.assign(new Error('too large'), { tooLarge: true })) : Promise.resolve().then(() => api.saveAccountingPrefs(sent)))
-      .then(() => { if (current === sent) viewsWaiting = false; setSaveFailure(null); })
-      // Kept locally and retried on the next change; a saved view that did
-      // not reach the account says so (round 3: it used to fail silently).
-      .catch((e) => { if (views) setSaveFailure(failureOf(e)); });
-  }, 800);
+  if (leaving) sendNow(); else saveTimer = setTimeout(sendNow, 800);
+}
+
+function sendNow() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  const sent = current;
+  const views = viewsWaiting;
+  // Over the server's limit it would only be refused: say so without sending it.
+  const tooLarge = (() => { try { return JSON.stringify(sent).length > PREFS_MAX; } catch { return false; } })();
+  (tooLarge ? Promise.reject(Object.assign(new Error('too large'), { tooLarge: true })) : Promise.resolve().then(() => api.saveAccountingPrefs(sent)))
+    .then(() => { if (current === sent) { viewsWaiting = false; markUnsent(false); } setSaveFailure(null); })
+    // Kept locally and retried on the next change; a saved view that did
+    // not reach the account says so (round 3: it used to fail silently).
+    .catch((e) => { if (views) setSaveFailure(failureOf(e)); });
+}
+
+// Leaving or reloading the page sends a save still waiting on its delay, and
+// any change made on the way out (a table's own pending write) goes at once.
+let leaving = false;
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => { leaving = true; if (saveTimer) sendNow(); });
+  window.addEventListener('pageshow', () => { leaving = false; });
 }
 
 // ── A saved view that did not reach the person's account (round 3, fix 6) ──
@@ -127,6 +149,9 @@ export function resetAccountingPrefs() {
   loaded = false;
   loading = null;
   clearTimeout(saveTimer);
+  saveTimer = null;
+  leaving = false;
   viewsWaiting = false;
   saveFailure = null;
+  markUnsent(false);
 }
