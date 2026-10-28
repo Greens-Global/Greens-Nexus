@@ -646,7 +646,8 @@ def _salary_advances(db: Session, user: dict, ctx: dict) -> list:
     .pending_for_hr - GET /salary-advances/pending): a request to decide
     (Approve / Decline inline, POST /salary-advances/{id}/decide), or an
     approved advance to pay out (Mark Paid Out asks for the method and the
-    reference, so it opens the Salary Advances card)."""
+    reference, so it opens the person's Time Sheet, whose Salary Advances
+    panel has it - Oct 29 2026)."""
     import salary_advance as sa
     if not _hr_anywhere(db, user):
         return []
@@ -656,7 +657,7 @@ def _salary_advances(db: Session, user: dict, ctx: dict) -> list:
         # keeps only what the caller can decide, which needs the pay grant.
         money = sa.money(adv.amount, adv.currency or "USD") if sa.sees_pay(db, user, adv.employee_email) else ""
         n = int(adv.installments or 1)
-        link = {"view": "myhr", "sub": "salary-advances"}
+        link = sa.timesheet_link(adv.employee_email)
         who = adv.employee_name or _name(db, ctx, adv.employee_email)
         if adv.status == "requested":
             out.append(row("salary_advance", adv.id, person_email=adv.employee_email, person_name=who,

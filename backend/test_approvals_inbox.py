@@ -369,7 +369,13 @@ class InboxCase(unittest.TestCase):
                          [("approve", "none"), ("decline", "required")])
         self.assertEqual([a["key"] for a in rows["salary_advance_payout:a2"]["actions"]], ["open"])
         self.assertEqual(out["groups"], {"money": 2})
-        self.assertEqual(self._counts(HRC)["myhr"]["overview"], 2)
+        # Each row opens the person's Time Sheet in People > Time, and the
+        # count is on People > Time - not Workday (Oct 29 2026).
+        self.assertEqual(rows["salary_advance:a1"]["link"], {"view": "hr", "sub": "hr-time", "timecard": MGR})
+        self.assertEqual(rows["salary_advance_payout:a2"]["link"], {"view": "hr", "sub": "hr-time", "timecard": MGR})
+        counts = self._counts(HRC)
+        self.assertEqual(counts["hr"]["hr-time"], 2)
+        self.assertNotIn("overview", counts.get("myhr", {}))
         # Not HR, and never their own.
         self.assertEqual(self._inbox(MGR)["rows"], [])
         self.assertEqual(self._inbox(EMP)["rows"], [])

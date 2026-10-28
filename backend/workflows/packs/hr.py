@@ -324,7 +324,8 @@ ADVANCE_STATUSES = [("requested", "Requested"), ("approved", "Approved"), ("decl
 
 entity("salary_advance", label="Salary Advance", model=models.SalaryAdvance, module=MODULE,
        company=lambda row: row.company or "",
-       link=lambda row: {"view": "myhr", "sub": "salary-advances"},
+       # The person's Time Sheet in People > Time (Oct 29 2026) - salary_advance.timesheet_link.
+       link=lambda row: {"view": "hr", "sub": "hr-time", "timecard": (row.employee_email or "").lower()},
        people={"self": _self_of("employee_email"), "manager": _manager_of("employee_email"),
                "hr_contact": _hr_contact_of_company("company"), "approver": _self_of("decided_by")},
        fields=[F("name", "Advance", "text", path="__label__"), F("employee", "Person", "person", path="employee_email"),
