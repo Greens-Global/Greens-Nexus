@@ -17,7 +17,7 @@ const api = {
   wfAutomations: vi.fn(), wfTaskRuleEnabled: vi.fn(), wfRuns: vi.fn(), wfRunGet: vi.fn(),
   wfRunReplay: vi.fn(), wfRunCancel: vi.fn(), wfPauseAll: vi.fn(), wfCatalog: vi.fn(),
   wfTemplates: vi.fn(), wfCatalogSeen: vi.fn(), wfGet: vi.fn(), getEntities: vi.fn(),
-  getTaskAutomationRuns: vi.fn(),
+  getTaskAutomationRuns: vi.fn(), wfJobOff: vi.fn(),
 };
 vi.mock('../api', () => ({ api: Object.fromEntries(Object.keys(api).map((k) => [k, (...a) => api[k](...a)])) }));
 
@@ -52,8 +52,9 @@ const LIST = [
 const AUTOMATIONS = {
   taskRules: [{ id: 'tr1', name: 'Escalate Overdue', enabled: true, triggerText: 'When a task is overdue', companyId: 'c1', runCount: 7, lastRunAt: T }],
   jobs: [
-    { key: 'reminders', label: 'Task Reminders', what: 'Emails the day a task is due', every: 'Every minute', settingLink: { view: 'admin-console', sub: 'emails:task-notifications' } },
-    { key: 'noshow', label: 'No-Show Scan', what: 'Bells the manager when a shift has no punch', every: 'Every minute', settingLink: null },
+    { key: 'reminders', label: 'Task Reminders', what: 'Emails the day a task is due', every: 'Every minute', settingLink: { view: 'admin-console', sub: 'emails:task-notifications' }, off: false },
+    { key: 'noshow', label: 'No-Show Scan', what: 'Bells the manager when a shift has no punch', every: 'Every minute', settingLink: null, off: true },
+    { key: 'workflows', label: 'Workflows Runner', what: 'Runs the workflows on this screen', every: 'Every 5 seconds', settingLink: { view: 'admin', sub: 'workflows' }, switch: false, off: false },
   ],
 };
 const RUNS = { items: [
@@ -183,8 +184,7 @@ describe('Workflows', () => {
     render(<Workflows activeSub="automations" onSubChange={vi.fn()} />);
     expect(await screen.findByText('Escalate Overdue')).toBeTruthy();
     expect(screen.getByText('Task Reminders')).toBeTruthy();
-    expect(screen.getByText('Always On')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Settings/ })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /Settings/ })).toHaveLength(2);   // the reminders job and the runner
     expect(screen.getByRole('button', { name: 'Open Workflows' }).parentElement.textContent).toMatch(/3 workflows in your company, 2 active/);
     const sw = screen.getByRole('switch', { name: 'Escalate Overdue on' });
     expect(sw.checked).toBe(true);
@@ -203,6 +203,40 @@ describe('Workflows', () => {
     expect(nav).toHaveBeenCalled();
     expect(nav.mock.calls[0][0].detail).toEqual({ view: 'tasks', sub: 'manage' });
     window.removeEventListener('nexus:navigate', nav);
+  });
+
+  // The built-in off switch (Oct 28 2026): a Global Admin flips a job through
+  // POST /workflows/automations/jobs/{key}/off, optimistic, back on a refusal.
+  it('lets a Global Admin switch a built-in automation off and reverts a refusal', async () => {
+    api.wfOverview.mockResolvedValue(EMPTY_OVERVIEW);
+    render(<Workflows activeSub="automations" onSubChange={vi.fn()} />);
+    expect(await screen.findByText('Task Reminders')).toBeTruthy();
+    const sw = screen.getByRole('switch', { name: 'Task Reminders on' });
+    expect(sw.checked).toBe(true);
+    expect(screen.getByRole('switch', { name: 'No-Show Scan on' }).checked).toBe(false);
+    expect(screen.queryByRole('switch', { name: 'Workflows Runner on' })).toBeNull();
+    expect(screen.queryByText('Off')).toBeNull();
+    api.wfJobOff.mockResolvedValue({ key: 'reminders', off: true });
+    fireEvent.click(sw);
+    expect(sw.checked).toBe(false);
+    await waitFor(() => expect(api.wfJobOff).toHaveBeenCalledWith('reminders', true));
+    api.wfJobOff.mockRejectedValue(Object.assign(new Error('Only a Global Admin may switch an automation'), { status: 403, detail: 'Only a Global Admin may switch an automation' }));
+    fireEvent.click(sw);
+    expect(sw.checked).toBe(true);
+    await waitFor(() => expect(sw.checked).toBe(false));
+    expect(api.wfJobOff).toHaveBeenLastCalledWith('reminders', false);
+    expect(screen.getByRole('alert').textContent).toContain('Only a Global Admin may switch an automation');
+  });
+
+  it('shows everyone else an Off chip instead of the built-in switch', async () => {
+    role.can.mockImplementation((p) => p !== 'owner');
+    api.wfOverview.mockResolvedValue(EMPTY_OVERVIEW);
+    render(<Workflows activeSub="automations" onSubChange={vi.fn()} />);
+    expect(await screen.findByText('No-Show Scan')).toBeTruthy();
+    expect(screen.queryByRole('switch', { name: 'Task Reminders on' })).toBeNull();
+    expect(screen.queryByRole('switch', { name: 'No-Show Scan on' })).toBeNull();
+    expect(screen.getByText('Off')).toBeTruthy();
+    expect(screen.getByRole('switch', { name: 'Escalate Overdue on' })).toBeTruthy();
   });
 
   it('lists runs, pages with Load More, and opens the drawer for run:<id>', async () => {

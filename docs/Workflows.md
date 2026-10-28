@@ -98,9 +98,24 @@ Each one stops everything below it and says so on every affected screen.
    their own switch (saved through the Tasks rule itself) and a link to
    Tasks > Manage to edit them.
 6. **Built-in automations** - the background jobs (reminders, the no-show
-   scan, the overtime watch, the weekly scorecard...) are listed read-only
-   under Automations with what they do, how often, and a link to the
-   setting that controls them where one exists.
+   scan, the overtime watch, the weekly scorecard...) are listed under
+   Automations with what they do, how often, and a link to the setting
+   that controls them where one exists. Each one has its own off switch
+   (Oct 28 2026, `backend/job_switch.py`): Global Admins only, one
+   organization-wide list in the `automations.off` setting, read by every
+   loop's tick through a 30-second process cache, so a flip takes effect
+   within a minute and needs no restart. Off never loses anything: a job
+   that sends (bells, emails, Teams posts, Outlook events) sends nothing;
+   a job that delivers a queue (task email batches, Teams posts, calendar
+   events, the reply mailboxes) leaves the queue waiting; a job that files
+   or moves data (HR packets, Time Sheets, construction media) leaves it
+   pending; a job that cleans up (trash, retention, media purges) deletes
+   nothing; a sync (Cubby, Google, Microsoft 365, Intacct) skips its run.
+   Where a tick both keeps data and sends, only the sending stops and the
+   register's sentence says so (task recurrences and clock rules, the
+   checklist sync, training assignment rules and renewals keep running).
+   The Workflows runner itself is not on the list - it has the switches
+   above - and neither are the one-shot migrations.
 
 A run already waiting on an approval still finishes when the decision
 arrives - the person already clicked.
@@ -339,7 +354,9 @@ nexusRunAs, webhookHosts, webhookSecretsSet, override, companies}`; `PUT`
 takes the same keys plus `webhookSecrets: {host: secret}` for secrets typed
 this time (write-only; stored in `secret_box`) and `override: false` to drop
 a company's override. `POST /workflows/settings/pause-all` is Global Admins
-only. The frontend panel is `frontend/src/workflows/WorkflowsSettings.jsx`,
+only, as is `POST /workflows/automations/jobs/{key}/off` (`{off: bool}`,
+an `automation.off` / `automation.on` AuditLog row; `GET
+/workflows/automations` carries `off` on every job). The frontend panel is `frontend/src/workflows/WorkflowsSettings.jsx`,
 mounted by Settings as the `workflows-config` group (scope layered, faces
 both).
 

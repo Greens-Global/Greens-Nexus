@@ -7,8 +7,10 @@
 //     /{id}/enabled proxies PATCH /task-automation-rules/{id}), Runs (the
 //     rule's newest 50 firings, GET /task-automation-runs?rule_id=) and Edit
 //     In Tasks (Tasks > Manage, where the rule itself is built)
-//   - Built-In Automations: the background jobs, read-only - what each does,
-//     how often, and the Settings group that controls it when one exists
+//   - Built-In Automations: the background jobs - what each does, how often,
+//     the Settings group that controls it when one exists, and (Oct 28 2026)
+//     an off switch per job for Global Admins (POST /workflows/automations
+//     /jobs/{key}/off, one org-wide list); everyone else sees an Off chip
 // Data: GET /workflows/automations plus GET /workflows for the count.
 import { useCallback, useEffect, useState } from 'react';
 import { ExternalLink, History, ListChecks, Settings as SettingsIcon, Workflow as WorkflowIcon, Zap } from 'lucide-react';
@@ -16,6 +18,7 @@ import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
 import { Switch } from '../components/settings/SettingsUI';
+import { useRole } from '../contexts/RoleContext';
 import { formatDateTime } from '../lib/datetime';
 import { Modal } from '../tasks/components';
 import { Card, FONT, LinkButton, Muted, SectionTitle } from './ui';
@@ -24,6 +27,8 @@ import { errorText } from './lib/errors';
 const RUNS_LIMIT = 50;
 
 export default function Automations({ go }) {
+  const { can } = useRole();
+  const isGlobalAdmin = can('owner');
   const [data, setData] = useState(null);
   const [workflows, setWorkflows] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -55,6 +60,18 @@ export default function Automations({ go }) {
     } catch (e) {
       setData((d) => ({ ...d, taskRules: (d?.taskRules || []).map((r) => (r.id === rule.id ? { ...r, enabled: !enabled } : r)) }));
       setNotice(errorText(e, `"${rule.name}" could not be ${enabled ? 'turned on' : 'turned off'} - please try again.`));
+    }
+  };
+
+  // The built-in switch: the same optimistic shape, one org-wide list.
+  const toggleJob = async (job, off) => {
+    setNotice('');
+    setData((d) => ({ ...d, jobs: (d?.jobs || []).map((j) => (j.key === job.key ? { ...j, off } : j)) }));
+    try {
+      await api.wfJobOff(job.key, off);
+    } catch (e) {
+      setData((d) => ({ ...d, jobs: (d?.jobs || []).map((j) => (j.key === job.key ? { ...j, off: !off } : j)) }));
+      setNotice(errorText(e, `"${job.label}" could not be ${off ? 'turned off' : 'turned on'} - please try again.`));
     }
   };
 
@@ -126,11 +143,14 @@ export default function Automations({ go }) {
                   <Muted>{j.what}</Muted>
                 </div>
                 <Muted style={{ whiteSpace: 'nowrap' }}>{j.every}</Muted>
-                {j.settingLink?.view ? (
+                {j.settingLink?.view && (
                   <LinkButton onClick={() => navigate(j.settingLink.view, j.settingLink.sub)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }}>
                     <SettingsIcon size={13} /> Settings
                   </LinkButton>
-                ) : <Muted style={{ whiteSpace: 'nowrap' }}>Always On</Muted>}
+                )}
+                {j.switch === false ? null : isGlobalAdmin ? (
+                  <Switch checked={!j.off} onChange={(on) => toggleJob(j, !on)} label={`${j.label} on`} />
+                ) : j.off ? <StatusLabel label="Off" color="#64748b" size="sm" /> : null}
               </div>
             ))}
           </Card>
