@@ -302,14 +302,14 @@ def _task_text(kind: str, r: dict, months: int) -> tuple[str, str]:
     if kind == "mri":
         title = f"Possibly Ended: {r['label']} - No Income in {len(r['window'])} Months"
         body = (f"MRI: nothing has posted for {r['who']} at {r['label']} (entity {r['entity'] or 'not set'}) in the last {quiet}. "
-                f"{f'The last payment posted in {last}.' if last else 'Nothing posted in the last twelve months.'} "
+                f"{f'The last payment posted in {last}.' if last else 'Nothing posted in that time.'} "
                 "If the lease or income source has ended, open Accounting > MRI > Payers and set its Status to Ended (or Vacant). "
                 "If it is still going, check the customer code and income accounts on it. "
                 "This task closes itself when a payment posts again or the source is marked ended.")
     else:
         title = f"Possibly Ended: {r['label']} - No Expense in {len(r['window'])} Months"
         body = (f"MRE: nothing has posted for {r['label']} on {r['who']} in the last {quiet}. "
-                f"{f'The last expense posted in {last}.' if last else 'Nothing posted in the last twelve months.'} "
+                f"{f'The last expense posted in {last}.' if last else 'Nothing posted in that time.'} "
                 "If the bill has stopped, open Accounting > MRE, edit the line and press End Today. "
                 "If it is still going, check the vendor and expense accounts on it. "
                 "This task closes itself when an expense posts again or the line is ended.")

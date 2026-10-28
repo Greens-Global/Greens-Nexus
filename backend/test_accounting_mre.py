@@ -586,6 +586,26 @@ class PossiblyEndedRule1028(unittest.TestCase):
         self.assertTrue(self._stale(line, {"2025-08": 8257.0}))      # 13 months with nothing: Possibly Ended
         self.assertFalse(self._stale(line, {"2026-04": 688.08}))
 
+    def test_task_text_names_the_real_window(self):
+        """The follow-up task never says "twelve months" for a 13-month annual
+        window (or a 3-month monthly one) - it names the window it checked."""
+        import recurring_stale
+        def text(kind, freq, last=""):
+            win = recurring_stale.mre_window(self.TODAY, 3, accounting_mre.step_months({"frequency": freq, "frequencyMonths": 0}))
+            return recurring_stale._task_text(kind, {"label": "AAA Insurance", "who": "Stale Test", "entity": self.ENTITY,
+                                                     "window": win, "lastPaid": last}, 3)
+        for kind in ("mre", "mri"):
+            title, body = text(kind, "annual")
+            self.assertIn("in 13 Months", title)
+            self.assertIn("in the last 13 months (September 2025 to September 2026). Nothing posted in that time.", body)
+            self.assertNotIn("twelve", body)
+            title, body = text(kind, "monthly")
+            self.assertIn("in 3 Months", title)
+            self.assertIn("in the last 3 months (July 2026 to September 2026). Nothing posted in that time.", body)
+            _t, body = text(kind, "monthly", "2026-05")
+            self.assertIn("posted in May 2026.", body)
+            self.assertNotIn("Nothing posted", body)
+
     def test_quarterly_and_semi_annual_one_cycle_and_a_month(self):
         self.assertFalse(self._stale(self._line("quarterly"), {"2026-06": 300.0}))
         self.assertTrue(self._stale(self._line("quarterly"), {"2026-05": 300.0}))
