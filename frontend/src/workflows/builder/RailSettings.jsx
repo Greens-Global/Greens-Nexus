@@ -27,7 +27,7 @@ export default function RailSettings({ workflow, meta, onMeta, definition, onDef
             </select>
           )} />
         {isGlobalAdmin && (
-          <SettingRow title="Run As" desc="Nexus runs without a person's token: no Teams posts, every record it may touch."
+          <SettingRow title="Run As" desc="Nexus can only send notifications and emails, and reads only the fields everyone can see."
             control={(
               <select value={meta.runAs || 'owner'} onChange={(e) => onMeta({ runAs: e.target.value })} aria-label="Run As" style={select}>
                 <option value="owner">The Owner</option>

@@ -119,16 +119,23 @@ def pause_all(db, paused: bool, actor: str) -> dict:
     return new
 
 
+class SecretUnreadable(RuntimeError):
+    pass
+
+
 def webhook_secret(db, host: str) -> str:
-    """The decrypted secret for `host`, '' when none is kept."""
+    """The decrypted secret for `host`, '' when none is kept. A kept secret
+    that cannot be decrypted (the encryption key changed) raises - the
+    step fails rather than signing with an empty key."""
     raw = (get(db).get("webhookSecrets") or {}).get((host or "").lower(), "")
     if not raw:
         return ""
     import secret_box
     try:
         return secret_box.decrypt(raw)
-    except Exception:   # noqa: BLE001 - a secret under another key reads as none
-        return ""
+    except Exception as e:   # noqa: BLE001 - whatever secret_box raises, the step must not sign blind
+        raise SecretUnreadable(f"The webhook secret for {host} cannot be read (re-enter it in Settings > Workflows): "
+                               f"{type(e).__name__}") from None
 
 
 def public(db, company_id: str = "") -> dict:

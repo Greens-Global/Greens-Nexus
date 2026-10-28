@@ -121,11 +121,20 @@ def resolve(ctx: RunContext, spec, *, cap: int) -> tuple[list[str], int]:
         for e in expand(ctx, it):
             if e not in raw:
                 raw.append(e)
+    import auth
+    # the company wall, whatever the entity's own rule says: a message
+    # about a record never crosses to someone whose scope excludes its
+    # company (a record with no company is shared)
+    company = (ctx.entity.company_of(ctx.subject) if ctx.entity is not None and ctx.subject is not None
+               else ctx.company())
     kept: list[str] = []
     dropped = 0
     for e in raw:
         user = _directory_user(ctx.db, e)
-        if user is None:
+        if user is None or user.get("external"):
+            dropped += 1     # not a current directory person, or an external identity: never a recipient
+            continue
+        if company and not auth.company_ok(company, auth.company_scope(user, ctx.db), shared_when_blank=True):
             dropped += 1
             continue
         if ctx.entity is not None and ctx.subject is not None and not ctx.entity.can_see(ctx.db, user, ctx.subject):

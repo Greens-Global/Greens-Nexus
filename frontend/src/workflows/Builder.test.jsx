@@ -123,6 +123,9 @@ describe('Builder', () => {
     expect(screen.getByText('Do notify: Welcome {{ subject.name }}')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Welcome Note')).toBeInTheDocument();
     expect(screen.getByText('Draft')).toBeInTheDocument();
+    // the Run As row (a Global Admin sees it) says what Nexus can and cannot do (permissions review L5)
+    expect(screen.getByText('Nexus can only send notifications and emails, and reads only the fields everyone can see.')).toBeInTheDocument();
+    expect(screen.queryByText(/every record it may touch/)).toBeNull();
   });
 
   it('adds a step through the Add Step menu', async () => {

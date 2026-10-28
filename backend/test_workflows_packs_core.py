@@ -19,6 +19,7 @@ import hmac
 import json
 import os
 import tempfile
+import time
 from datetime import date
 
 import pytest
@@ -208,14 +209,41 @@ def test_webhook_signs_body(db, monkeypatch):
     body = json.loads(seen["content"])
     assert body["payload"] == {"person": "Priya Shah"} and body["subject"]["id"] == "e-priya"
     assert body["workflow"]["name"] == "Probation Reminder"
-    expect = "sha256=" + hmac.new(b"s3cret", seen["content"], hashlib.sha256).hexdigest()
+    # L2: the signature covers "<timestamp>.<body>" and the timestamp travels
+    # with the call, so a captured call cannot be replayed later
+    stamp = seen["headers"]["X-Nexus-Timestamp"]
+    assert stamp.isdigit() and abs(int(stamp) - int(time.time())) < 60
+    expect = "sha256=" + hmac.new(b"s3cret", f"{stamp}.".encode() + seen["content"], hashlib.sha256).hexdigest()
     assert seen["headers"]["X-Nexus-Signature"] == expect
+    assert expect != "sha256=" + hmac.new(b"s3cret", seen["content"], hashlib.sha256).hexdigest()
 
     class _Down(_Resp):
         status_code = 503
     monkeypatch.setattr(httpx, "post", lambda *a, **k: _Down())
     with pytest.raises(TransientError):
         catalog.ACTIONS["webhook"].run(ctx, {"url": "https://hooks.example.com/x"})
+
+
+def test_webhook_fails_when_the_kept_secret_cannot_be_read(db, monkeypatch):
+    """L2: a secret that is set but cannot be decrypted (the key changed)
+    fails the step - never a call signed with an empty key."""
+    import httpx
+    import secret_box
+    wf_settings.save(db, "", {"webhookHosts": ["hooks.example.com"]}, GAIL, secrets={"hooks.example.com": "s3cret"})
+    db.commit()
+
+    def _broken(_raw):
+        raise ValueError("bad key")
+    monkeypatch.setattr(secret_box, "decrypt", _broken)
+    with pytest.raises(wf_settings.SecretUnreadable):
+        wf_settings.webhook_secret(db, "hooks.example.com")
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: pytest.fail("the call must not go out"))
+    ctx = _ctx(db, run_as=GAIL, level=5)
+    with pytest.raises(wf_settings.SecretUnreadable):
+        catalog.ACTIONS["webhook"].run(ctx, {"url": "https://hooks.example.com/x"})
+    wf_settings.save(db, "", {"webhookHosts": []}, GAIL)
+    db.commit()
+    assert wf_settings.webhook_secret(db, "hooks.example.com") == ""      # none kept: no secret, no failure
 
 
 # ── teams ────────────────────────────────────────────────────────────────────
