@@ -7,6 +7,7 @@ import httpx
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -3885,8 +3886,9 @@ class CompanyHolidayPatchIn(BaseModel):
 
 def _serialize_holiday(h: HrCompanyHoliday) -> dict:
     return {
-        "id": h.id, "date": h.date, "name": h.name, "source": h.source,
-        "countryCode": h.country_code, "type": h.type or "mandatory", "createdAt": h.created_at,
+        # "Washington's Birthday" (old Nager rows) shows as Presidents' Day.
+        "id": h.id, "date": h.date, "name": holiday_policies.display_name(h.name, h.country_code or ""),
+        "source": h.source, "countryCode": h.country_code, "type": h.type or "mandatory", "createdAt": h.created_at,
         "policyId": h.policy_id or "", "policyKey": h.policy_key or "",
         "actualDate": h.actual_date or "", "overridden": bool(h.overridden),
     }
@@ -4015,9 +4017,12 @@ def update_company_holiday(entity_id: str, holiday_id: str, body: CompanyHoliday
             changes["name"] = n
     if changes:
         before = {k: getattr(row, k) for k in changes}
+        # A holiday moved off its real date remembers it: a policy holiday,
+        # and (Oct 29 2026 review) a company's own one picked from a public
+        # list - Observe On moves those through here too.
+        if "date" in changes and not row.actual_date and (row.policy_id or (row.source or "") == "public"):
+            row.actual_date = row.date
         if row.policy_id:
-            if "date" in changes and not row.actual_date:
-                row.actual_date = row.date
             row.overridden = 1
         for k, v in changes.items():
             setattr(row, k, v)
@@ -4066,18 +4071,14 @@ def delete_company_holiday(entity_id: str, holiday_id: str, country_code: Option
                                              HrCompanyHoliday.company_id == entity_id).first()
     if row:
         if row.policy_id:
-            from models import HrHolidayPolicyAssignment
             policy = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == row.policy_id).first()
-            a = (db.query(HrHolidayPolicyAssignment)
-                 .filter(HrHolidayPolicyAssignment.policy_id == row.policy_id,
-                         HrHolidayPolicyAssignment.company_id == entity_id).first())
+            a = holiday_policies.assignment(db, row.policy_id, entity_id) if policy else None
             if policy and a:
-                if row.policy_key not in (a.skipped or []):
-                    a.skipped = list(a.skipped or []) + [row.policy_key]
-                result = holiday_policies.sync(db, policy, [entity_id], actor=user["email"])
+                key, date_, name_, changed = row.policy_key, row.date, row.name, bool(row.overridden)
+                result = holiday_policies.skip_holiday(db, policy, a, key, actor=user["email"])
                 _holiday_audit(db, user, "Skipped a policy holiday for a company", "holiday_policy", policy.id,
-                               {"company": entity_id, "key": row.policy_key, "date": row.date,
-                                "name": row.name, "sync": result})
+                               {"company": entity_id, "key": key, "date": date_,
+                                "name": name_, "keptChange": changed, "sync": result})
                 db.commit()
                 return {"ok": True, "skipped": True}
         # Dropping just ONE country off a merged multi-country row ("IN,US" ->
@@ -4142,7 +4143,10 @@ class HolidaySkipIn(BaseModel):
     skip: bool = True
 
 
-def _policy_holidays_from_body(body: HolidayPolicyIn) -> list:
+def _policy_holidays_from_body(body: HolidayPolicyIn, existing: list = None) -> list:
+    """The body's holidays, validated and normalized. `existing` = the
+    policy's holidays before this save: a holiday sent without its key keeps
+    the key it has (a rename never re-keys it - Oct 29 2026 review)."""
     if not (body.name or "").strip():
         raise HTTPException(400, "Give the policy a name")
     if body.weekendRule is not None and body.weekendRule not in holiday_policies.WEEKEND_RULES:
@@ -4164,13 +4168,20 @@ def _policy_holidays_from_body(body: HolidayPolicyIn) -> list:
         d["actualDate"] = (d.get("actualDate") or "").strip()
         d["name"] = d["name"].strip()
         rows.append(d)
-    return holiday_policies.normalize_holidays(rows)
+    return holiday_policies.normalize_holidays(rows, existing)
 
 
 def _assignments_by_policy(db: Session) -> dict:
+    """{policy_id: [assignment]} - one per company (the oldest, should a
+    duplicate ever exist)."""
     from models import HrHolidayPolicyAssignment
     out: dict = {}
-    for a in db.query(HrHolidayPolicyAssignment).all():
+    seen = set()
+    for a in (db.query(HrHolidayPolicyAssignment)
+              .order_by(HrHolidayPolicyAssignment.assigned_at, HrHolidayPolicyAssignment.id).all()):
+        if (a.policy_id, a.company_id) in seen:
+            continue
+        seen.add((a.policy_id, a.company_id))
         out.setdefault(a.policy_id, []).append(a)
     return out
 
@@ -4191,9 +4202,13 @@ def _serialize_policy(p: HrHolidayPolicy, db: Session = None, user: dict = None,
         if user is not None and scope is None:
             scope = hr_scope(user, db)
         out["companies"] = sorted(
-            ({"id": a.company_id, "name": names.get(a.company_id, a.company_id), "skipped": len(a.skipped or [])}
+            ({"id": a.company_id, "name": names.get(a.company_id, a.company_id),
+              "skipped": len(holiday_policies.skipped_keys(a))}
              for a in assigns if scope is None or a.company_id in scope),
             key=lambda c: (c["name"] or "").lower())
+        # Companies outside the caller's scope that the policy still applies
+        # to - counted, never named, so "Delete" and "Save" can say so.
+        out["otherCompanies"] = sum(1 for a in assigns if scope is not None and a.company_id not in scope)
         out["canEdit"] = scope is None or (p.company_id or "") in scope
     return out
 
@@ -4223,19 +4238,29 @@ def _replace_assignments(db: Session, user: dict, policy_id: str, requested: lis
         known = {r.id for r in db.query(HrEntity.id).filter(HrEntity.id.in_(list(req))).all()}
         if req - known:
             raise HTTPException(404, "Company not found")
-    current = {a.company_id: a for a in db.query(HrHolidayPolicyAssignment)
-               .filter(HrHolidayPolicyAssignment.policy_id == policy_id).all()}
+    current: dict = {}
+    for a in (db.query(HrHolidayPolicyAssignment).filter(HrHolidayPolicyAssignment.policy_id == policy_id)
+              .order_by(HrHolidayPolicyAssignment.assigned_at, HrHolidayPolicyAssignment.id).all()):
+        current.setdefault(a.company_id, []).append(a)
     now = datetime.now(timezone.utc).isoformat()
     added, removed = [], []
     for cid in sorted(req - set(current)):
         db.add(HrHolidayPolicyAssignment(id=str(uuid.uuid4()), policy_id=policy_id, company_id=cid, skipped=[],
                                          assigned_by=user["email"], assigned_at=now))
         added.append(cid)
-    for cid, a in current.items():
+    for cid, rows_ in current.items():
         if cid not in req and (scope is None or cid in scope):
-            db.delete(a)
+            for a in rows_:
+                db.delete(a)
             removed.append(cid)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        # The same company was assigned by another request a moment ago
+        # (ux_hr_holiday_policy_assignments_policy_company) - nothing of this
+        # save is kept; the editor reloads and tries again.
+        db.rollback()
+        raise HTTPException(409, "This policy was just assigned somewhere else - reload it and save again")
     return {"added": added, "removed": removed}
 
 
@@ -4297,7 +4322,7 @@ def update_holiday_policy(policy_id: str, body: HolidayPolicyIn,
     if not row:
         raise HTTPException(404, "Policy not found")
     _require_policy_owner(user, db, row)
-    holidays = _policy_holidays_from_body(body)
+    holidays = _policy_holidays_from_body(body, holiday_policies.policy_holidays(row))
     before = {"name": row.name, "holidays": len(row.holidays or []), "weekendRule": row.weekend_rule}
     assigned = _replace_assignments(db, user, row.id, body.companies) if body.companies is not None else None
     row.name = body.name.strip()
@@ -4328,7 +4353,7 @@ def preview_holiday_policy(policy_id: str, body: HolidayPolicyIn,
         if not policy:
             raise HTTPException(404, "Policy not found")
         _require_policy_owner(user, db, policy)
-    holidays = _policy_holidays_from_body(body)
+    holidays = _policy_holidays_from_body(body, holiday_policies.policy_holidays(policy) if policy else None)
     scope = hr_scope(user, db)
     target = None
     if body.companies is not None:
@@ -4383,23 +4408,55 @@ def _persist_keys(policy: HrHolidayPolicy) -> None:
         policy.holidays = holiday_policies.policy_holidays(policy)
 
 
-def _assign_policy(db: Session, user: dict, entity_id: str, policy_id: str) -> tuple:
+def _assign_policy(db: Session, user: dict, entity_id: str, policy_id: str, *,
+                   confirm: bool = False, replace: Optional[list] = None) -> tuple:
+    """Assign a policy to a company. A NEW assignment that would land beside
+    holidays already on the calendar (holiday_policies.assign_clashes: the
+    same day for an overlapping country, or the same holiday within 3 days -
+    "Washington's Birthday" is "Presidents' Day") answers 409 with them
+    (Oct 29 2026 review), until the admin chooses: `confirm` = Keep Both, or
+    `replace` = the ids they ticked - ONLY the company's own rows among those
+    clashes are removed, never another policy's row and never a row that
+    does not clash. Assigning again what is already assigned just re-syncs."""
     from models import HrHolidayPolicyAssignment
     _require_company_in_scope(user, db, entity_id, must_exist=True)
     policy = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == policy_id).first()
     if not policy:
         raise HTTPException(404, "Policy not found")
     _persist_keys(policy)
-    a = (db.query(HrHolidayPolicyAssignment)
-         .filter(HrHolidayPolicyAssignment.policy_id == policy_id,
-                 HrHolidayPolicyAssignment.company_id == entity_id).first())
-    if not a:
-        db.add(HrHolidayPolicyAssignment(id=str(uuid.uuid4()), policy_id=policy_id, company_id=entity_id,
-                                         skipped=[], assigned_by=user["email"],
-                                         assigned_at=datetime.now(timezone.utc).isoformat()))
+    a = holiday_policies.assignment(db, policy_id, entity_id)
+    replaced = []
+    if a is None:
+        clashes = holiday_policies.assign_clashes(db, policy, entity_id)
+        wanted = [i.strip() for i in (replace or []) if i and i.strip()]
+        if wanted:
+            own = {c["id"] for c in clashes if c["replaceable"]}
+            if any(i not in own for i in wanted):
+                raise HTTPException(400, "Only this company's own holidays that clash with the policy can be replaced")
+            for row in (db.query(HrCompanyHoliday)
+                        .filter(HrCompanyHoliday.company_id == entity_id, HrCompanyHoliday.id.in_(wanted)).all()):
+                if row.policy_id:
+                    continue      # belt and braces: another policy's row is never removed here
+                replaced.append({"id": row.id, "date": row.date, "name": row.name, "countries": row.country_code})
+                db.delete(row)
+            db.flush()
+        elif clashes and not confirm:
+            n = len(clashes)
+            raise HTTPException(409, {
+                "message": (f"{n} {'holiday is' if n == 1 else 'holidays are'} already on this calendar - "
+                            f"replace {'it' if n == 1 else 'them'} with the policy's or keep both"),
+                "policy": {"id": policy.id, "name": policy.name}, "clashes": clashes})
+        try:
+            with db.begin_nested():
+                db.add(HrHolidayPolicyAssignment(id=str(uuid.uuid4()), policy_id=policy_id, company_id=entity_id,
+                                                 skipped=[], assigned_by=user["email"],
+                                                 assigned_at=datetime.now(timezone.utc).isoformat()))
+        except IntegrityError:
+            pass    # assigned by another request a moment ago (a double click) - the same as already assigned
     result = holiday_policies.sync(db, policy, [entity_id], actor=user["email"])
     _holiday_audit(db, user, "Assigned a holiday policy to a company", "holiday_policy", policy.id,
-                   {"company": entity_id, "name": policy.name, "sync": result})
+                   {"company": entity_id, "name": policy.name, "sync": result, "replaced": replaced,
+                    "keptBoth": bool(confirm and not replaced)})
     return policy, result
 
 
@@ -4414,9 +4471,15 @@ def company_holiday_calendar(entity_id: str, year: Optional[int] = None,
 
 
 @router.post("/entities/{entity_id}/holiday-policies/{policy_id}")
-def assign_holiday_policy(entity_id: str, policy_id: str, year: Optional[int] = None,
+def assign_holiday_policy(entity_id: str, policy_id: str, year: Optional[int] = None, confirm: bool = False,
+                          replace: Optional[str] = None,
                           user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    _assign_policy(db, user, entity_id, policy_id)
+    """Assign A Policy. 409 {message, policy, clashes} when its holidays would
+    land beside ones already on the calendar; then `confirm=true` keeps both
+    and `replace=<id>,<id>` removes the company's own rows the admin ticked
+    (see _assign_policy)."""
+    _assign_policy(db, user, entity_id, policy_id, confirm=confirm,
+                   replace=(replace or "").split(",") if replace else None)
     db.commit()
     return holiday_policies.company_calendar(db, entity_id, year)
 
@@ -4445,25 +4508,23 @@ def unassign_holiday_policy(entity_id: str, policy_id: str, year: Optional[int] 
 @router.post("/entities/{entity_id}/holiday-policies/{policy_id}/skip")
 def skip_policy_holiday(entity_id: str, policy_id: str, body: HolidaySkipIn, year: Optional[int] = None,
                         user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """Skip For This Company (skip=true) / Restore (skip=false) one policy holiday."""
-    from models import HrHolidayPolicyAssignment
+    """Skip For This Company (skip=true) / Restore (skip=false) one policy
+    holiday. A holiday the company had changed keeps its change while
+    skipped, and Restore brings it back changed (Oct 29 2026 review)."""
     _require_company_in_scope(user, db, entity_id)
     policy = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == policy_id).first()
     if not policy:
         raise HTTPException(404, "Policy not found")
-    a = (db.query(HrHolidayPolicyAssignment)
-         .filter(HrHolidayPolicyAssignment.policy_id == policy_id,
-                 HrHolidayPolicyAssignment.company_id == entity_id).first())
+    a = holiday_policies.assignment(db, policy_id, entity_id)
     if not a:
         raise HTTPException(404, "This policy is not assigned to this company")
     key = (body.key or "").strip()
     if body.skip and key not in {h["key"] for h in holiday_policies.policy_holidays(policy)}:
         raise HTTPException(404, "Holiday not found in this policy")
-    keys = [k for k in (a.skipped or []) if k != key]
     if body.skip:
-        keys.append(key)
-    a.skipped = keys
-    result = holiday_policies.sync(db, policy, [entity_id], actor=user["email"])
+        result = holiday_policies.skip_holiday(db, policy, a, key, actor=user["email"])
+    else:
+        result = holiday_policies.restore_holiday(db, policy, a, key, actor=user["email"])
     _holiday_audit(db, user, "Skipped a policy holiday for a company" if body.skip
                    else "Restored a policy holiday for a company", "holiday_policy", policy.id,
                    {"company": entity_id, "key": key, "sync": result})
@@ -4472,12 +4533,14 @@ def skip_policy_holiday(entity_id: str, policy_id: str, body: HolidaySkipIn, yea
 
 
 @router.post("/entities/{entity_id}/holidays/apply-policy/{policy_id}")
-def apply_holiday_policy(entity_id: str, policy_id: str,
+def apply_holiday_policy(entity_id: str, policy_id: str, confirm: bool = False,
                          user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """The Sep 22 "Apply" - now an alias for ASSIGN (Oct 29 2026): the policy
     applies LIVE to the company (later policy edits follow) instead of being
-    copied once. Answers the old shape: {applied, holidays}."""
-    _assign_policy(db, user, entity_id, policy_id)
+    copied once. Answers the old shape: {applied, holidays}. The same 409 as
+    Assign when it would land beside holidays already there (confirm=true
+    keeps both)."""
+    _assign_policy(db, user, entity_id, policy_id, confirm=confirm)
     db.commit()
     rows = (db.query(HrCompanyHoliday).filter(HrCompanyHoliday.company_id == entity_id)
             .order_by(HrCompanyHoliday.date).all())

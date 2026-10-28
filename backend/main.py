@@ -1357,6 +1357,8 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS ix_hr_company_holidays_policy_id ON hr_company_holidays (policy_id)",
             "ALTER TABLE hr_holiday_policies ADD COLUMN description VARCHAR DEFAULT ''",
             "ALTER TABLE hr_holiday_policies ADD COLUMN weekend_rule VARCHAR DEFAULT 'keep'",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_holiday_policy_assignments_policy_company "
+            "ON hr_holiday_policy_assignments (policy_id, company_id)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3208,6 +3210,11 @@ def _run_migrations():
         "ALTER TABLE hr_holiday_policies ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
         "ALTER TABLE hr_holiday_policies ADD COLUMN IF NOT EXISTS weekend_rule VARCHAR DEFAULT 'keep'",
         "ALTER TABLE hr_holiday_policy_assignments ENABLE ROW LEVEL SECURITY",
+        # One assignment per (policy, company) - a double click on Assign made
+        # two (Oct 29 2026 review). The table is new in this release, so no
+        # duplicate can stand in the way. models.HrHolidayPolicyAssignment.
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_holiday_policy_assignments_policy_company "
+        "ON hr_holiday_policy_assignments (policy_id, company_id)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3868,6 +3875,25 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] probation seeds skipped: {e}")
+    # Presidents' Day (Neil, Oct 29 2026: "it's not showing Presidents' Day").
+    # Calendars filled from the old Nager list say "Washington's Birthday" -
+    # in hr_company_holidays.name and inside hr_holiday_policies.holidays.
+    # One-time, idempotent RENAME only (nothing deleted, policy keys kept);
+    # a no-op once no old name is left. holiday_policies.rename_presidents_day.
+    try:
+        import holiday_policies
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            rows_, pols_ = holiday_policies.rename_presidents_day(db)
+            if rows_ or pols_:
+                db.commit()
+                print(f"[startup] renamed Washington's Birthday to Presidents' Day on {rows_} company holiday "
+                      f"row(s) and {pols_} holiday {'policy' if pols_ == 1 else 'policies'}")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] Presidents' Day rename skipped: {e}")
 
 
 @asynccontextmanager

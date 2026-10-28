@@ -9175,11 +9175,18 @@ class HrHolidayPolicyAssignment(Base):
     holidays into that company's hr_company_holidays rows (policy_id set),
     minus the keys in `skipped` (holidays this company does not take).
     RELEASE: new table - `ALTER TABLE hr_holiday_policy_assignments ENABLE ROW
-    LEVEL SECURITY` on dev AND prod (in main.py's Postgres list)."""
+    LEVEL SECURITY` on dev AND prod (in main.py's Postgres list).
+    One row per (policy, company): the unique index is also in both of
+    main.py's migration lists (a double click used to make two)."""
     __tablename__ = "hr_holiday_policy_assignments"
+    __table_args__ = (
+        Index("ux_hr_holiday_policy_assignments_policy_company", "policy_id", "company_id", unique=True),
+    )
     id          = Column(String, primary_key=True)   # uuid
     policy_id   = Column(String, nullable=False, index=True)
     company_id  = Column(String, nullable=False, index=True)
-    skipped     = Column(JSON, default=list)         # [policy holiday key]
+    # [policy holiday key | {key, date, actualDate, type, name, countryCode}]
+    # - the dict keeps a change the company made before skipping it.
+    skipped     = Column(JSON, default=list)
     assigned_by = Column(String, default="")
     assigned_at = Column(String, default="")

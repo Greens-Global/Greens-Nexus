@@ -184,6 +184,32 @@ def name_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", s).strip()
 
 
+# Names the sources (and older calendars) give the same holiday, by name_key.
+# Nager calls Presidents' Day "Washington's Birthday" (the Oct 29 2026 review
+# found both on one calendar, 02/15/2027).
+_NAME_ALIASES = {
+    "washington s birthday": "presidents day",
+    "washingtons birthday": "presidents day",
+    "president s day": "presidents day",
+    "christmas": "christmas day",
+    "thanksgiving": "thanksgiving day",
+    "juneteenth national independence day": "juneteenth",
+    "birthday of martin luther king jr": "martin luther king jr day",
+    "mahatma gandhi jayanti": "gandhi jayanti",
+}
+
+
+def canonical_name(name: str) -> str:
+    """name_key with the known aliases folded together: "Washington's
+    Birthday" and "Presidents' Day" are one holiday."""
+    k = name_key(name)
+    return _NAME_ALIASES.get(k, k)
+
+
+def same_holiday_name(a: str, b: str) -> bool:
+    return bool(name_key(a)) and canonical_name(a) == canonical_name(b)
+
+
 # --- Network sources ---------------------------------------------------------
 
 def _nager_raw(country: str, year: int) -> Optional[list]:

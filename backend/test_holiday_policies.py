@@ -394,8 +394,9 @@ class PolicyCase(unittest.TestCase):
         self.assertEqual([h["name"] for h in by[CO_A]["changed"]], ["Independence Day"])
         self.assertEqual(by[CO_B]["changedSkipped"], 1)
         self.assertEqual(len(by[CO_C]["added"]), 3)
-        self.assertEqual(by[CO_C]["conflicts"], [{"date": "2026-12-25", "name": "Christmas Day",
-                                                  "with": "Company's Own Holidays"}])
+        self.assertEqual([{k: c[k] for k in ("date", "name", "with", "reason")} for c in by[CO_C]["conflicts"]],
+                         [{"date": "2026-12-25", "name": "Christmas Day", "with": "Company's Own Holidays",
+                           "reason": "same_day"}])
         out = hr.preview_holiday_policy(pol["id"], self._body(self.US_SET, [CO_B]), user=ADMIN, db=self.db)
         by = {c["id"]: c for c in out["companies"]}
         self.assertEqual(len(by[CO_A]["removed"]), 2)
@@ -462,10 +463,6 @@ class PolicyCase(unittest.TestCase):
             self._create([_hol("2026-07-04", "Independence Day", type_="paid")])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class OwnHolidayRealDateCase(unittest.TestCase):
     """A company's own weekend holiday taken on another day keeps its real date
     (Oct 29 2026), so the calendar can say what was moved."""
@@ -490,3 +487,316 @@ class OwnHolidayRealDateCase(unittest.TestCase):
             self.assertEqual(same.actual_date, "")
         finally:
             db.close()
+
+
+class ReviewFixesCase(unittest.TestCase):
+    """The Oct 29 2026 review of the holiday policies branch - one test (or
+    more) per finding, each failing on the code before the fix."""
+
+    setUp = PolicyCase.setUp
+    tearDown = PolicyCase.tearDown
+    _body = PolicyCase._body
+    _create = PolicyCase._create
+    _rows = PolicyCase._rows
+    _pay = PolicyCase._pay
+    US_SET = PolicyCase.US_SET
+
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    # -- helpers --
+    def _own(self, company, date, name, type_="mandatory", countries="US", source="public", actual=""):
+        r = models.HrCompanyHoliday(id=f"own-{company}-{date}-{hp.slug(name)}", company_id=company, date=date,
+                                    name=name, source=source, country_code=countries, type=type_,
+                                    actual_date=actual, policy_id="", policy_key="", overridden=0,
+                                    created_at="2026-01-01T00:00:00+00:00")
+        self.db.add(r)
+        self.db.commit()
+        return r
+
+    def _assign(self, company, pid, user=ADMIN, **kw):
+        return hr.assign_holiday_policy(company, pid, user=user, db=self.db, **kw)
+
+    def _emp(self, em):
+        self.db.expire_all()
+        return self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == em).first()
+
+    def _each_order(self, rows, read):
+        """`read()` with `rows` saved in the given order and in the reverse one
+        (SQLite hands rows back in the order they were saved, so a reader
+        that keeps "the last row" answers differently)."""
+        out = []
+        for order in (rows, list(reversed(rows))):
+            self.db.query(models.HrCompanyHoliday).delete()
+            self.db.commit()
+            for i, (date, name, type_, cc) in enumerate(order):
+                self.db.add(models.HrCompanyHoliday(id=f"two-{i}", company_id=CO_A, date=date, name=name,
+                                                    source="public", country_code=cc, type=type_,
+                                                    created_at=f"2026-01-0{i + 1}"))
+            self.db.commit()
+            self.db.expire_all()
+            out.append(read())
+        return out
+
+    XMAS_2027 = [("2027-12-24", "Christmas Day", "mandatory", "US"), ("2027-12-24", "Christmas Eve", "half_day", "US")]
+    XMAS_DAY = {"2027-12-24": {"name": "Christmas Day / Christmas Eve", "type": "mandatory"}}
+
+    # -- 1. two holidays on one date: one deterministic answer, mandatory wins --
+    def test_1_merge_day_rule(self):
+        rows = [{"date": "2027-12-24", "name": "Christmas Eve", "type": "half_day", "countries": ["US"]},
+                {"date": "2027-12-24", "name": "Christmas Day", "type": "mandatory", "countries": ["US"]}]
+        self.assertEqual(hp.merge_day(rows, "US"), {"name": "Christmas Day / Christmas Eve", "type": "mandatory"})
+        self.assertEqual(hp.merge_day(list(reversed(rows)), "US"), hp.merge_day(rows, "US"))
+        self.assertIsNone(hp.merge_day(rows, "IN"))
+        opt = [{"date": "d", "name": "Holika Dahana", "type": "optional", "countries": ["IN"]},
+               {"date": "d", "name": "Holi", "type": "half_day", "countries": ["IN"]}]
+        self.assertEqual(hp.merge_day(opt, "IN")["type"], "half_day")
+
+    def test_1_reader_timeclock_single(self):
+        for got in self._each_order(self.XMAS_2027, lambda: self._pay(A_US, "2027-12-01", "2027-12-31")):
+            self.assertEqual(got, self.XMAS_DAY)
+
+    def test_1_reader_timeclock_many(self):
+        def read():
+            return timeclock._company_holidays_for_many(self.db, {A_US: self._emp(A_US)}, "2027-12-01", "2027-12-31")
+        for got in self._each_order(self.XMAS_2027, read):
+            self.assertEqual(got, {A_US: self.XMAS_DAY})
+
+    def test_1_reader_scorecard(self):
+        import workforce_scorecard as ws
+
+        def read():
+            return ws._holidays(self.db, [self._emp(A_US)], {"company_country": {}}, "2027-12-01", "2027-12-31")
+        for got in self._each_order(self.XMAS_2027, read):
+            self.assertEqual(got, {A_US: self.XMAS_DAY})
+
+    def test_1_reader_india_gazetted_beats_restricted(self):
+        import shift_attendance
+        rows = [("2027-08-15", "Independence Day", "mandatory", "IN"), ("2027-08-15", "Parsi New Year", "optional", "IN"),
+                ("2027-08-15", "Milad un-Nabi", "optional", "IN"), ("2027-08-15", "Founders Day", "optional", "US")]
+        for got in self._each_order(rows, lambda: self._pay(A_IN, "2027-08-01", "2027-08-31")):
+            self.assertEqual(got, {"2027-08-15": {"name": "Independence Day / Milad un-Nabi / Parsi New Year",
+                                                  "type": "mandatory"}})
+        # the no-show scan reads the many-reader: the day is a holiday, not "optional"
+        self.assertEqual(shift_attendance._holiday_dates(self.db, {A_IN: self._emp(A_IN)}, "2027-08-15", "2027-08-15"),
+                         {(A_IN, "2027-08-15"): "Independence Day / Milad un-Nabi / Parsi New Year"})
+
+    def test_1_preview_flags_same_day(self):
+        hr.create_company_holiday(CO_A, hr.CompanyHolidayIn(date="2027-12-31", name="Office Closed", source="manual"),
+                                  user=ADMIN, db=self.db)
+        body = self._body([_hol("2027-12-24", "Christmas Day", actualDate="2027-12-25"),
+                           _hol("2027-12-24", "Christmas Eve", type_="half_day"),
+                           _hol("2027-12-31", "New Year's Day", actualDate="2028-01-01")], [CO_A],
+                          weekendRule="nearest_weekday")
+        out = hr.preview_holiday_policy("new", body, user=ADMIN, db=self.db)
+        notes = {s["name"]: s["note"] for s in out["sameDay"]}
+        self.assertEqual(notes, {"Christmas Day": "Same day as Christmas Eve - Christmas Day wins",
+                                 "Christmas Eve": "Same day as Christmas Day - Christmas Day wins"})
+        conflicts = out["companies"][0]["conflicts"]
+        self.assertEqual([(c["name"], c["withName"], c["reason"]) for c in conflicts],
+                         [("New Year's Day", "Office Closed", "same_day")])
+        self.assertEqual(conflicts[0]["note"], "Same day as Office Closed - one Mandatory day, the names shown together")
+
+    # -- 2. assigning from the company calendar previews the clashes --
+    def test_2_assign_409_then_replace_own_rows(self):
+        washington = self._own(CO_B, "2027-02-15", "Washington's Birthday")
+        july = self._own(CO_B, "2027-07-05", "Independence Day")
+        keep = self._own(CO_B, "2027-03-17", "Founders Day", countries="")
+        pol, _ = self._create([_hol("2027-02-15", "Presidents' Day"),
+                               _hol("2027-07-05", "Independence Day", actualDate="2027-07-04")], companies=())
+        with self.assertRaises(HTTPException) as cm:
+            self._assign(CO_B, pol["id"])
+        self.assertEqual(cm.exception.status_code, 409)
+        clashes = cm.exception.detail["clashes"]
+        self.assertEqual({c["id"] for c in clashes}, {washington.id, july.id})
+        self.assertTrue(all(c["replaceable"] for c in clashes))
+        self.assertEqual(self.db.query(models.HrHolidayPolicyAssignment).count(), 0)   # nothing written
+        # a row that does not clash cannot be passed in
+        with self.assertRaises(HTTPException) as cm:
+            self._assign(CO_B, pol["id"], replace=f"{washington.id},{keep.id}")
+        self.assertEqual(cm.exception.status_code, 400)
+        # replace only the ticked one; the other clash stays (kept both)
+        self._assign(CO_B, pol["id"], replace=washington.id)
+        rows = self._rows(CO_B)
+        self.assertNotIn("Washington's Birthday", rows)
+        self.assertEqual(rows["Presidents' Day"].policy_id, pol["id"])
+        self.assertEqual(sorted(r.policy_id or "own" for r in self.db.query(models.HrCompanyHoliday)
+                                .filter_by(company_id=CO_B, name="Independence Day")), sorted(["own", pol["id"]]))
+        self.assertIn("Founders Day", rows)
+
+    def test_2_keep_both_and_never_another_policys_row(self):
+        self._create([_hol("2027-12-24", "Christmas Eve", type_="half_day")], companies=(CO_B,), name="Other Policy")
+        pol, _ = self._create([_hol("2027-12-24", "Christmas Day", actualDate="2027-12-25")], companies=())
+        with self.assertRaises(HTTPException) as cm:
+            self._assign(CO_B, pol["id"])
+        c = cm.exception.detail["clashes"][0]
+        self.assertEqual((c["with"], c["replaceable"], c["reason"]), ("Other Policy", False, "same_day"))
+        with self.assertRaises(HTTPException) as cm:
+            self._assign(CO_B, pol["id"], replace=c["id"])
+        self.assertEqual(cm.exception.status_code, 400)
+        self.assertEqual(self.db.query(models.HrCompanyHoliday).filter_by(id=c["id"]).count(), 1)
+        self._assign(CO_B, pol["id"], confirm=True)
+        self.assertEqual(set(self._rows(CO_B)), {"Christmas Eve", "Christmas Day"})
+
+    def test_2_reassign_after_unassign_sees_the_moved_christmas(self):
+        pol, _ = self._create([_hol("2027-12-24", "Christmas Day", actualDate="2027-12-25")], companies=(CO_A,))
+        rid = self._rows(CO_A)["Christmas Day"].id
+        hr.update_company_holiday(CO_A, rid, hr.CompanyHolidayPatchIn(date="2027-12-27"), user=ADMIN, db=self.db)
+        hr.unassign_holiday_policy(CO_A, pol["id"], user=ADMIN, db=self.db)
+        with self.assertRaises(HTTPException) as cm:
+            self._assign(CO_A, pol["id"])
+        c = cm.exception.detail["clashes"][0]
+        self.assertEqual((c["id"], c["date"], c["reason"]), (rid, "2027-12-27", "same_name"))
+        self.assertEqual(c["note"], "Christmas Day is already on this calendar on 12/27/2027")
+
+    def test_2_already_assigned_resyncs_without_asking(self):
+        pol, _ = self._create(self.US_SET, companies=(CO_A,))
+        self._own(CO_A, "2026-07-04", "Fourth Of July", countries="")
+        self._assign(CO_A, pol["id"])        # already assigned: no 409
+        self.assertEqual(self.db.query(models.HrHolidayPolicyAssignment).count(), 1)
+
+    # -- 3. skipping a changed holiday keeps the change; Restore brings it back --
+    def test_3_skip_keeps_override_and_restore_brings_it_back(self):
+        pol, _ = self._create([_hol("2027-12-24", "Christmas Day", actualDate="2027-12-25")], companies=(CO_A,))
+        key = "US:christmas-day:2027"
+        rid = self._rows(CO_A)["Christmas Day"].id
+        hr.update_company_holiday(CO_A, rid, hr.CompanyHolidayPatchIn(date="2027-12-27", type="half_day"),
+                                  user=ADMIN, db=self.db)
+        cal = hr.skip_policy_holiday(CO_A, pol["id"], hr.HolidaySkipIn(key=key, skip=True), user=ADMIN, db=self.db)
+        self.assertNotIn("Christmas Day", self._rows(CO_A))
+        self.assertEqual([(s["date"], s["changed"]) for s in cal["skipped"]], [("2027-12-27", True)])
+        self.assertEqual(cal["policies"][0]["skipped"], [key])
+        hr.skip_policy_holiday(CO_A, pol["id"], hr.HolidaySkipIn(key=key, skip=False), user=ADMIN, db=self.db)
+        r = self._rows(CO_A)["Christmas Day"]
+        self.assertEqual((r.date, r.type, r.overridden, r.actual_date, r.policy_id),
+                         ("2027-12-27", "half_day", 1, "2027-12-25", pol["id"]))
+        # a policy save leaves the restored change alone
+        hr.update_holiday_policy(pol["id"], self._body([_hol("2027-12-24", "Christmas Day", actualDate="2027-12-25",
+                                                             key=key)]), user=ADMIN, db=self.db)
+        self.assertEqual(self._rows(CO_A)["Christmas Day"].date, "2027-12-27")
+
+    def test_3_remove_button_on_a_changed_policy_row_keeps_the_change(self):
+        pol, _ = self._create(self.US_SET, companies=(CO_A,))
+        rid = self._rows(CO_A)["Christmas Day"].id
+        hr.update_company_holiday(CO_A, rid, hr.CompanyHolidayPatchIn(type="optional"), user=ADMIN, db=self.db)
+        hr.delete_company_holiday(CO_A, rid, user=ADMIN, db=self.db)
+        hr.skip_policy_holiday(CO_A, pol["id"], hr.HolidaySkipIn(key="US:christmas-day:2026", skip=False),
+                               user=ADMIN, db=self.db)
+        r = self._rows(CO_A)["Christmas Day"]
+        self.assertEqual((r.type, r.overridden), ("optional", 1))
+
+    # -- 4. the owner is told about companies outside their scope --
+    def test_4_other_companies_counted(self):
+        pol, _ = self._create(self.US_SET, companies=(CO_A, CO_B, CO_C))
+        listed = hr.list_holiday_policies(user=SCOPED, db=self.db)[0]
+        self.assertEqual(([c["id"] for c in listed["companies"]], listed["otherCompanies"]), ([CO_A], 2))
+        self.assertEqual(hr.list_holiday_policies(user=ADMIN, db=self.db)[0]["otherCompanies"], 0)
+        out = hr.preview_holiday_policy(pol["id"], self._body(self.US_SET[:1], [CO_A]), user=SCOPED, db=self.db)
+        self.assertEqual(([c["id"] for c in out["companies"]], out["otherCompanies"]), ([CO_A], 2))
+        out = hr.preview_holiday_policy(pol["id"], self._body(self.US_SET[:1]), user=SCOPED, db=self.db)
+        self.assertEqual(out["otherCompanies"], 2)
+
+    # -- 5. a holiday taken in the year before its real date shows in both years --
+    def test_5_cross_year_holiday_in_both_years(self):
+        pol, _ = self._create([_hol("2027-12-31", "New Year's Day", actualDate="2028-01-01")], companies=(CO_A,))
+        for yr in (2027, 2028):
+            cal = hr.company_holiday_calendar(CO_A, year=yr, user=ADMIN, db=self.db)
+            self.assertEqual([(h["name"], h["yearNote"]) for h in cal["holidays"]],
+                             [("New Year's Day", "New Year's Day 2028, taken 12/31/2027")])
+        self.assertEqual(hr.company_holiday_calendar(CO_A, year=2026, user=ADMIN, db=self.db)["holidays"], [])
+        hr.skip_policy_holiday(CO_A, pol["id"], hr.HolidaySkipIn(key="US:new-year-s-day:2028", skip=True),
+                               user=ADMIN, db=self.db)
+        cal = hr.company_holiday_calendar(CO_A, year=2028, user=ADMIN, db=self.db)
+        self.assertEqual([s["name"] for s in cal["skipped"]], ["New Year's Day"])
+
+    # -- 6. one assignment per (policy, company) --
+    def test_6_unique_assignment(self):
+        from sqlalchemy.exc import IntegrityError
+        pol, _ = self._create(self.US_SET, companies=())
+        self._assign(CO_A, pol["id"])
+        self._assign(CO_A, pol["id"])
+        self.assertEqual(self.db.query(models.HrHolidayPolicyAssignment).filter_by(company_id=CO_A).count(), 1)
+        # a second request that read "not assigned" a moment before the first one wrote it
+        real = hp.assignment
+        hp.assignment = lambda *a, **k: None
+        try:
+            self._assign(CO_A, pol["id"], confirm=True)
+        finally:
+            hp.assignment = real
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.HrHolidayPolicyAssignment).filter_by(company_id=CO_A).count(), 1)
+        self.assertEqual(len(self._rows(CO_A)), 2)
+        self.db.add(models.HrHolidayPolicyAssignment(id="dup", policy_id=pol["id"], company_id=CO_A, skipped=[]))
+        with self.assertRaises(IntegrityError):
+            self.db.commit()
+        self.db.rollback()
+
+    def test_6_migration_lines(self):
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.py"), encoding="utf-8").read()
+        line = ('"CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_holiday_policy_assignments_policy_company "\n'
+                '            "ON hr_holiday_policy_assignments (policy_id, company_id)"')
+        self.assertEqual(src.count("ux_hr_holiday_policy_assignments_policy_company"), 2)   # SQLite AND Postgres
+        self.assertIn(line, src)
+
+    # -- 8. "Washington's Birthday" becomes Presidents' Day - a rename only --
+    def test_8_presidents_day_rename(self):
+        self._own(CO_A, "2027-02-15", "Washington's Birthday")
+        self.db.add(models.HrHolidayPolicy(id="old-wb", name="Old", company_id=CO_A, created_at="2026-09-22",
+                                           holidays=[{"key": "US:washington-s-birthday:2027", "date": "2027-02-15",
+                                                      "name": "Washington's Birthday", "countries": ["US"]},
+                                                     {"date": "2027-07-05", "name": "Independence Day",
+                                                      "country_code": "US"}]))
+        self.db.commit()
+        # shown as Presidents' Day even before the data fix runs
+        cal = hr.company_holiday_calendar(CO_A, year=2027, user=ADMIN, db=self.db)
+        self.assertEqual([h["name"] for h in cal["holidays"]], ["Presidents' Day"])
+        before = self.db.query(models.HrCompanyHoliday).count()
+        self.assertEqual(hp.rename_presidents_day(self.db), (1, 1))
+        self.db.commit()
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.HrCompanyHoliday).count(), before)          # nothing deleted
+        self.assertEqual(self._rows(CO_A)["Presidents' Day"].date, "2027-02-15")
+        pol = self.db.query(models.HrHolidayPolicy).filter_by(id="old-wb").first()
+        self.assertEqual([h["name"] for h in pol.holidays], ["Presidents' Day", "Independence Day"])
+        self.assertEqual(pol.holidays[0]["key"], "US:washington-s-birthday:2027")          # key kept
+        self.assertEqual(hp.rename_presidents_day(self.db), (0, 0))                         # idempotent
+
+    def test_8_startup_runs_the_rename(self):
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.py"), encoding="utf-8").read()
+        self.assertIn("holiday_policies.rename_presidents_day(db)", src)
+
+    # -- 9. a company's own public holiday moved off its date remembers it --
+    def test_9_own_public_holiday_keeps_real_date(self):
+        row = self._own(CO_A, "2027-07-04", "Independence Day")
+        out = hr.update_company_holiday(CO_A, row.id, hr.CompanyHolidayPatchIn(date="2027-07-05"),
+                                        user=ADMIN, db=self.db)
+        self.assertEqual((out["date"], out["actualDate"], out["overridden"]), ("2027-07-05", "2027-07-04", False))
+        typed = self._own(CO_A, "2027-03-17", "Founders Day", countries="", source="manual")
+        out = hr.update_company_holiday(CO_A, typed.id, hr.CompanyHolidayPatchIn(date="2027-03-18"),
+                                        user=ADMIN, db=self.db)
+        self.assertEqual(out["actualDate"], "")          # a typed holiday has no "real date" to keep
+
+    # -- 13. no dead weekend-rule words --
+    def test_13_no_unused_rule_words(self):
+        self.assertFalse(hasattr(hp, "WEEKEND_RULE_WORDS"))
+
+    # -- 14. a rename sent without keys keeps the key and the company's change --
+    def test_14_rename_without_key_keeps_key(self):
+        pol, _ = self._create([_hol("2027-11-25", "Thanksgiving")], companies=(CO_A,))
+        rid = self._rows(CO_A)["Thanksgiving"].id
+        hr.update_company_holiday(CO_A, rid, hr.CompanyHolidayPatchIn(type="half_day"), user=ADMIN, db=self.db)
+        out = hr.update_holiday_policy(pol["id"], self._body([_hol("2027-11-25", "Thanksgiving Day")]),
+                                       user=ADMIN, db=self.db)
+        self.assertEqual(out["policy"]["holidays"][0]["key"], "US:thanksgiving:2027")
+        self.assertEqual(out["sync"]["removed"] + out["sync"]["detached"], 0)
+        r = self.db.query(models.HrCompanyHoliday).filter_by(id=rid).first()
+        self.assertEqual((r.policy_id, r.overridden, r.type), (pol["id"], 1, "half_day"))
+        # two keyless rows: each existing key is given out once, a new holiday gets its own
+        n = hp.normalize_holidays([_hol("2027-11-25", "Turkey Day"), _hol("2027-11-26", "Day After")],
+                                  existing=[_hol("2027-11-25", "Thanksgiving")])
+        self.assertEqual([h["key"] for h in n], ["US:thanksgiving:2027", "US:day-after:2027"])
+
+
+if __name__ == "__main__":
+    unittest.main()
