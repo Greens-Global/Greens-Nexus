@@ -84,7 +84,9 @@ def task_rule_runs(db, user: dict, rule_id: str, limit: int = 50) -> list:
 
 
 def _job(key: str, label: str, what: str, every: str, setting: str = "") -> dict:
-    return {"key": key, "label": label, "what": what, "every": every, "settingLink": setting}
+    # settingLink is a navigate detail (the Automations screen calls navigate(view, sub)); None = always on
+    return {"key": key, "label": label, "what": what, "every": every,
+            "settingLink": {"view": "admin", "sub": setting} if setting else None}
 
 
 def jobs() -> list[dict]:

@@ -262,23 +262,31 @@ export function DateOffsetControl({ id, value, onChange, ctx, label, withTime = 
 
 // ── A record of another kind (a project, a department, a template) ─────────
 
+// The catalog serves most sources as a ready array of {value, label}
+// (departments, checklist and letter templates, custom fields); only
+// "task_projects" is loaded here (the list is per caller). A string source
+// nobody knows keeps the paste-an-id box.
 function EntityRefControl({ id, param, value, onChange }) {
   const source = typeof param.options === 'string' ? param.options : '';
-  const [rows, setRows] = useState(Array.isArray(param.options) ? optionList(param.options) : null);
+  const served = Array.isArray(param.options) ? optionList(param.options) : null;
+  const [loaded, setLoaded] = useState(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     if (source !== 'task_projects') return undefined;
     let alive = true;
     api.getTaskProjects().then((list) => {
       if (!alive) return;
-      setRows((list || []).map((p) => ({ value: p.id, label: p.name })));
+      setLoaded((list || []).map((p) => ({ value: p.id, label: p.name })));
     }).catch(() => { if (alive) setFailed(true); });
     return () => { alive = false; };
   }, [source]);
+  const rows = served || loaded;
   if (rows) {
+    const known = rows.some((o) => String(o.value) === String(value ?? ''));
     return (
       <select id={id} value={value ?? ''} onChange={(e) => onChange(e.target.value)} aria-label={param.label} style={select}>
         <option value="">{param.hint || `Choose ${param.label.toLowerCase()}`}</option>
+        {value && !known ? <option value={value}>{value} (not in the list)</option> : null}
         {rows.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     );

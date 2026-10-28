@@ -15,6 +15,7 @@
 """
 import os
 import tempfile
+from urllib.parse import quote
 
 import pytest
 
@@ -275,13 +276,33 @@ def test_runs_actions_view_lists_affected_rows(client, db):
     assert page["next"] and len(page["items"]) == 1
     page2 = client.get(f"/workflows/runs?limit=1&before={page['next']}").json()
     assert page2["items"][0]["id"] != page["items"][0]["id"]
+    # the cursor is (started_at, id): runs that started on the same instant are never dropped or repeated
+    engine.handle_event(db, _event(db, "e-nob"))
+    from datetime import datetime, timedelta, timezone
+    same = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    for r_ in db.query(models.WorkflowRun).all():
+        r_.started_at = same
+    for s_ in db.query(models.WorkflowRunStep).all():
+        s_.started_at = same
+    db.commit()
+    for kind_ in ("runs", "actions"):
+        seen, cursor = [], ""
+        for _ in range(10):
+            pg = client.get(f"/workflows/runs?kind={kind_}&limit=1" + (f"&before={quote(cursor)}" if cursor else "")).json()
+            seen += [x["id"] for x in pg["items"]]
+            cursor = pg["next"]
+            if not cursor:
+                break
+        whole = [x["id"] for x in client.get(f"/workflows/runs?kind={kind_}&limit=100").json()["items"]]
+        assert len(whole) >= 3 and len(seen) == len(set(seen)) == len(whole) and set(seen) == set(whole), (kind_, seen)
+    assert "|" in page["next"]
     # a viewer may not replay or cancel; the owner may
     assert client.post(f"/workflows/runs/{run['id']}/replay").status_code == 403
     as_user(EDDIE)
     assert client.post(f"/workflows/runs/{run['id']}/replay").status_code == 409     # not failed
     assert client.post(f"/workflows/runs/{run['id']}/cancel").status_code == 409     # not waiting
     ov = client.get("/workflows/overview").json()
-    assert ov["last24h"] == {"runs": 2, "succeeded": 2, "failed": 0, "waiting": 0} and len(ov["recent"]) == 2
+    assert ov["last24h"] == {"runs": 3, "succeeded": 3, "failed": 0, "waiting": 0} and len(ov["recent"]) == 3
     assert ov["needsAttention"] == [] and ov["counts"]["active"] == 1
 
 
@@ -365,10 +386,18 @@ def test_settings_roundtrip_and_override_reset(client, db):
     assert s["webhookSecretsSet"] == ["hooks.example.com"] and s["nexusRunAs"] is True
     r = client.put(f"/workflows/settings?company={ENTITY}", json={"enabled": False, "maxRecipientsCap": 20})
     assert r.json()["enabled"] is False and r.json()["override"] is True and r.json()["maxRecipientsCap"] == 20
+    # the company switch travels with every workflow of that company (the list shows "Paused: company switch")
+    wf = _published(db, owner=GAIL, name="Switched Off")
+    every = _published(db, owner=GAIL, company="", name="Everywhere")
+    assert client.get(f"/workflows/{wf.id}").json()["companyEnabled"] is False
+    assert client.get(f"/workflows/{every.id}").json()["companyEnabled"] is True
+    rows = {w["id"]: w for w in client.get("/workflows?scope=all").json()}
+    assert rows[wf.id]["companyEnabled"] is False and rows[every.id]["companyEnabled"] is True
     assert r.json()["nexusRunAs"] is True                                                  # org-only, still read
     assert client.get("/workflows/settings").json()["enabled"] is True
     r = client.put(f"/workflows/settings?company={ENTITY}", json={"override": False})
     assert r.json()["override"] is False and r.json()["enabled"] is True
+    assert client.get(f"/workflows/{wf.id}").json()["companyEnabled"] is True
     assert client.get(f"/workflows/settings?company={OTHER}").status_code == 200
     assert client.get("/workflows/settings?company=nope").status_code == 404
 

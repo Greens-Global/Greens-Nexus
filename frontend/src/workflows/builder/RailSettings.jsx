@@ -46,9 +46,9 @@ export default function RailSettings({ workflow, meta, onMeta, definition, onDef
           <SwitchRow id="wf-logskips" title="Log Skipped Runs" desc="Keep a run for events the conditions turned away, so Runs shows why nothing happened." checked={!!s.logSkips} onChange={(v) => setS({ logSkips: v })} />
           <SwitchRow id="wf-downstream" title="Allow Other Workflows To Follow" desc="What this workflow changes may start other workflows (off keeps chains from looping)." checked={!!s.allowDownstream} onChange={(v) => setS({ allowDownstream: v })} />
           <SettingRow title="Runs Per Hour" desc="Over this the workflow pauses itself and tells the owner."
-            control={<NumberBox value={s.maxRunsPerHour ?? 100} onChange={(v) => setS({ maxRunsPerHour: Number(v) || 0 })} min={1} max={10000} label="Runs per hour" />} />
+            control={<NumberBox value={s.maxRunsPerHour ?? 100} onChange={(v) => setS({ maxRunsPerHour: Number(v) || 0 })} min={1} max={500} label="Runs per hour" />} />
           <SettingRow title="Recipients Per Run" desc="A step that would reach more people than this fails instead of sending."
-            control={<NumberBox value={s.maxRecipients ?? 50} onChange={(v) => setS({ maxRecipients: Number(v) || 0 })} min={1} max={5000} label="Recipients per run" />} />
+            control={<NumberBox value={s.maxRecipients ?? 50} onChange={(v) => setS({ maxRecipients: Number(v) || 0 })} min={1} max={200} label="Recipients per run" />} />
           <SettingRow title="Never For These People" desc="Records about these people are skipped.">
             <PersonMultiSelect value={suppress.people || []} onChange={(v) => setS({ suppress: { ...suppress, people: v } })} people={people} placeholder="Choose people" />
           </SettingRow>

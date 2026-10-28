@@ -15,6 +15,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 import models
@@ -250,7 +251,7 @@ def _action_row(db, s: models.WorkflowRunStep, run: models.WorkflowRun) -> dict:
         if ent is not None and a.get("id"):
             try:
                 row = ent.load_row(db, str(a["id"]))
-                link = ent.link_for(row) if row is not None else {}
+                link = ent.link_for(row, db) if row is not None else {}
             except Exception:   # noqa: BLE001
                 link = {}
         affected.append({"entity": a.get("entity", ""), "id": a.get("id", ""), "label": a.get("label", ""),
@@ -262,6 +263,26 @@ def _action_row(db, s: models.WorkflowRunStep, run: models.WorkflowRun) -> dict:
             "line": s.detail or str(out.get("line") or ""), "affected": affected,
             "sent": list(out.get("sent") or []), "subjectLabel": run.subject_label or "",
             "subjectId": run.subject_id or "", "entity": run.entity or ""}
+
+
+def _cursor(before: str) -> tuple[str, str]:
+    """`before` is "<started_at>|<id>" (an older plain started_at still
+    works: ties on that instant are then skipped)."""
+    ts, _sep, rid = (before or "").partition("|")
+    return ts, rid
+
+
+def _before(q, started_col, id_col, before: str):
+    ts, rid = _cursor(before)
+    if not ts:
+        return q
+    if not rid:
+        return q.filter(started_col < ts)
+    return q.filter(or_(started_col < ts, and_(started_col == ts, id_col < rid)))
+
+
+def _next(started_at: str, rid: str) -> str:
+    return f"{started_at}|{rid}"
 
 
 @router.get("/runs")
@@ -281,14 +302,14 @@ def list_runs(kind: str = "runs", workflow: str = "", status: str = "", before: 
         if ids is not None:
             q = q.filter(S.workflow_id.in_(sorted(ids)))
         if status:
-            q = q.filter(S.status == status)
-        if before:
-            q = q.filter(S.started_at < before)
+            # the screen offers the run words for both views; a done step is a succeeded one
+            q = q.filter(S.status == ("done" if status == "succeeded" else status))
+        q = _before(q, S.started_at, S.id, before)
         rows = q.order_by(S.started_at.desc(), S.id.desc()).limit(limit + 1).all()
         more = len(rows) > limit
         rows = rows[:limit]
         items = [_action_row(db, s, run) for s, run in rows]
-        return {"items": items, "next": (rows[-1][0].started_at if more and rows else None)}
+        return {"items": items, "next": (_next(rows[-1][0].started_at, rows[-1][0].id) if more and rows else None)}
     q = db.query(R_)
     if ids is not None:
         q = q.filter(R_.workflow_id.in_(sorted(ids)))
@@ -296,12 +317,12 @@ def list_runs(kind: str = "runs", workflow: str = "", status: str = "", before: 
         q = q.filter(R_.status == status)
     else:
         q = q.filter(R_.status != "test")
-    if before:
-        q = q.filter(R_.started_at < before)
+    q = _before(q, R_.started_at, R_.id, before)
     rows = q.order_by(R_.started_at.desc(), R_.id.desc()).limit(limit + 1).all()
     more = len(rows) > limit
     rows = rows[:limit]
-    return {"items": [store.serialize_run(db, r) for r in rows], "next": (rows[-1].started_at if more and rows else None)}
+    return {"items": [store.serialize_run(db, r) for r in rows],
+            "next": (_next(rows[-1].started_at, rows[-1].id) if more and rows else None)}
 
 
 def _run_or_404(db, user: dict, rid: str) -> models.WorkflowRun:
@@ -739,7 +760,7 @@ def preview_schedule(wid: str, user: dict = Depends(R), db: Session = Depends(ge
     if ent is not None and ent.model is not None:
         for row in db.query(ent.model).limit(500).all():
             if ent.company_of(row) in companies:
-                items.append({"label": ent.label_for(row), "link": ent.link_for(row)})
+                items.append({"label": ent.label_for(row), "link": ent.link_for(row, db)})
     else:
         loop = next((s for s in definition.get("steps") or [] if isinstance(s, dict) and s.get("kind") == "for_each"), None)
         if loop is not None:
@@ -759,7 +780,7 @@ def preview_schedule(wid: str, user: dict = Depends(R), db: Session = Depends(ge
                         if isinstance(row, dict):
                             items.append({"label": str(row.get("label") or row.get("name") or row.get("title") or row.get("id") or ""), "link": row.get("link") or {}})
                         elif inner is not None:
-                            items.append({"label": inner.label_for(row), "link": inner.link_for(row)})
+                            items.append({"label": inner.label_for(row), "link": inner.link_for(row, db)})
         if not items and loop is None:
             for cid in companies:
                 company = db.get(models.HrEntity, cid)
