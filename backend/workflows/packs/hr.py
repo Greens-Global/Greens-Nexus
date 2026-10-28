@@ -165,7 +165,10 @@ if not hasattr(models.TimeOffRequest, "days"):
 
 # ── the person: probation, contract end, pay, custom fields ──────────────────
 PROBATION_STATUSES = [("", "Not Tracked"), ("in_probation", "In Probation"), ("extended", "Extended"),
-                      ("confirmed", "Confirmed"), ("ended", "Ended"), ("stopped", "Stopped")]
+                      ("confirmed", "Confirmed"), ("ended", "Ended"), ("stopped", "Stopped"),
+                      # Oct 29 2026: passed by itself at the end with no decision, or
+                      # Removed From Probation by HR (hr_probation.py).
+                      ("passed", "Passed Probation"), ("removed", "Removed From Probation")]
 PAY_BASES = [("salary", "Salary"), ("hourly", "Hourly")]
 
 _employee = catalog.ENTITIES["employee"]

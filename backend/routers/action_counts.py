@@ -201,7 +201,7 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
             "hr-time": time_off + a("punch_fix", 0) + a("timesheet_review", 0)
                        + a("extra_time", 0),   # People > Time > Extra Time (Oct 27 2026)
             "hr-people": s(lambda: _ask_hr(db, user)) + s(lambda: _role_changes(db, user))
-                         + a("probation", 0),   # recommendations and overdue decisions (Oct 27 2026)
+                         + a("probation", 0),   # recommendations (Oct 27 2026; past the end with none = passed, Oct 29)
         },
         "accounting": {
             "partners": s(lambda: _partner_changes(db, user)),

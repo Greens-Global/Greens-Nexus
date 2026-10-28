@@ -44,7 +44,7 @@ It returns rows built with `row(...)`. The rules for a source:
 
 HR's sources (Oct 27 2026): time off awaiting HR's second approval
 (time_off_hr), salary advances to decide or pay out, probation
-recommendations and overdue decisions, HR letter requests, headcount
+recommendations (past the end with none: passed by itself), HR letter requests, headcount
 requests and India Contractor Extra Time claims - each the module's own
 rule, decided through its own endpoint.
 
@@ -678,40 +678,33 @@ def _probation(db: Session, user: dict, ctx: dict) -> list:
     contact, an administrator / owner, a Full HR grant, in People scope): a
     manager's recommendation to finalize (Confirm / Extend: Approve inline,
     POST .../probation/approve, which also sends the letter; Decline with a
-    note; End Employment opens the profile, where the Offboard flow starts),
-    and a probation past its end date with no decision (opens the profile)."""
+    note; End Employment opens the profile, where the Offboard flow starts).
+    A probation past its end with nothing pending is no decision for HR any
+    more: the daily pass makes it Passed Probation (Neil, Oct 29 2026), so
+    only a recommendation - before or past the end - is a row here."""
     import hr_probation as hp
     if not _hr_anywhere(db, user):
         return []
     E = models.NexusEmployee
-    today = hp._today()
     out = []
     for emp in db.query(E).filter(E.status.in_(("active", "onboarding")), E.probation.isnot(None)).all():
         rec = hp.record(emp)
         if rec.get("status") not in hp.OPEN:
             continue
         pending = rec.get("pending") or {}
-        end = hp._parse(rec.get("endDate", ""))
-        overdue = end is not None and end < today
-        if not (pending or overdue) or not hp.is_hr_plus(db, user, emp):
+        if not pending or not hp.is_hr_plus(db, user, emp):
             continue
         name = hp.full_name(emp)
         link = {"view": "hr", "sub": f"hr-probation-{emp.id}"}
-        if pending:
-            what = hp.DECISION_LABELS.get(pending.get("decision"), "")
-            to = f" To {_us_day(pending['newEndDate'])}" if pending.get("newEndDate") else ""
-            reason = _short(pending.get("reason") or "")
-            simple = pending.get("decision") in ("confirm", "extend")
-            out.append(row("probation", emp.id, person_email=emp.work_email or "", person_name=name,
-                           title=f"Probation - {what}{to}",
-                           detail=f"Recommended by {_name(db, ctx, pending.get('by', ''))}" + (f": {reason}" if reason else "."),
-                           created_at=pending.get("at"),
-                           actions=(A_APPROVE, A_DECLINE_WHY) if simple else (a_open("Review"),), link=link))
-        else:
-            out.append(row("probation_due", emp.id, person_email=emp.work_email or "", person_name=name,
-                           title=f"Probation Ended {_us_day(end.isoformat())} - Decide",
-                           detail="Confirm, extend or end their employment on their profile.",
-                           created_at=f"{end.isoformat()}T00:00:00", actions=(a_open("Decide"),), link=link))
+        what = hp.DECISION_LABELS.get(pending.get("decision"), "")
+        to = f" To {_us_day(pending['newEndDate'])}" if pending.get("newEndDate") else ""
+        reason = _short(pending.get("reason") or "")
+        simple = pending.get("decision") in ("confirm", "extend")
+        out.append(row("probation", emp.id, person_email=emp.work_email or "", person_name=name,
+                       title=f"Probation - {what}{to}",
+                       detail=f"Recommended by {_name(db, ctx, pending.get('by', ''))}" + (f": {reason}" if reason else "."),
+                       created_at=pending.get("at"),
+                       actions=(A_APPROVE, A_DECLINE_WHY) if simple else (a_open("Review"),), link=link))
     return out
 
 
