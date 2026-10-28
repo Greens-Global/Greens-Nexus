@@ -248,7 +248,7 @@ def _can_write(user: dict, db: Session) -> bool:
 @router.get("/employees/{eid}/custom-fields")
 def get_employee_fields(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     emp = _employee_in_scope(db, eid, user)
-    return cf.record_view(db, emp, cf.audience_for(user, emp), can_write=_can_write(user, db))
+    return cf.record_view(db, emp, cf.audience_for(user, emp, db), can_write=_can_write(user, db))
 
 
 @router.put("/employees/{eid}/custom-fields")
@@ -257,7 +257,7 @@ def save_employee_fields(eid: str, body: ValuesIn, user: dict = Depends(require_
     emp = _employee_in_scope(db, eid, user, lock=True)
     if emp.deleted_at:
         raise HTTPException(409, "This person was removed from Nexus - restore them to edit their record")
-    audience = cf.audience_for(user, emp)
+    audience = cf.audience_for(user, emp, db)
     try:
         cf.apply_changes(db, emp, body.values, audience, user)
     except cf.FieldError as e:

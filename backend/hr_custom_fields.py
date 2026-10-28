@@ -34,7 +34,7 @@ from models import AuditLog, EmployeeCustomField, NexusEmployee
 FIELD_TYPES = ("text", "number", "date", "dropdown", "checkbox")
 VISIBILITIES = ("hr_only", "employee_view", "employee_edit")
 EMPLOYEE_SEES = ("employee_view", "employee_edit")
-AUDIENCES = ("hr", "team", "self")
+AUDIENCES = ("hr", "people", "team", "self")
 
 MAX_FIELDS = 200
 MAX_OPTIONS = 100
@@ -111,7 +111,7 @@ def visible_to(f: EmployeeCustomField, audience: str) -> bool:
     vis = f.visibility or "hr_only"
     if audience == "hr":
         return True
-    if audience == "team":
+    if audience in ("people", "team"):
         return vis != "hr_only"
     return vis in EMPLOYEE_SEES
 
@@ -121,6 +121,8 @@ def editable_by(f: EmployeeCustomField, audience: str) -> bool:
     manager tier reads only."""
     if audience == "hr":
         return True
+    if audience == "people":
+        return (f.visibility or "hr_only") != "hr_only"
     if audience == "self":
         return (f.visibility or "hr_only") == "employee_edit"
     return False
@@ -147,7 +149,7 @@ def values_for(emp: NexusEmployee, fields: list) -> dict:
     return out
 
 
-def audience_for(user: dict, emp: NexusEmployee) -> str:
+def audience_for(user: dict, emp: NexusEmployee, db: Session | None = None) -> str:
     """hr / team / self for a People (/hr) caller looking at `emp`. Callers of
     the /hr routes already passed the HR grant and the company scope check.
     An HR person on their OWN record is the employee there (as on a time
@@ -159,6 +161,14 @@ def audience_for(user: dict, emp: NexusEmployee) -> str:
     me = (user.get("email") or "").strip().lower()
     if me and me == (emp.work_email or "").strip().lower() and user.get("level", 0) < _LEVELS["administrator"]:
         return "self"
+    # HR Only fields are for HR (the one scoped rule, hr_access): the company's
+    # HR contact, an administrator or a Full People grant. A Viewer / Editor
+    # People grant works the other fields ("people") but never sees HR Only.
+    if db is not None:
+        import hr_access
+        if not (hr_access.wide_hr(db, user)
+                or me in hr_access.hr_contacts(db, emp.company or "")):
+            return "people"
     return "hr"
 
 
@@ -283,7 +293,7 @@ def attach_list_values(db: Session, user: dict, rows: list, out: list) -> None:
     see of them. `rows` and `out` are the same people in the same order."""
     fields = all_fields(db)
     for e, o in zip(rows, out):
-        o["customFields"] = (values_for(e, fields_for(fields, e.company or "", audience_for(user, e)))
+        o["customFields"] = (values_for(e, fields_for(fields, e.company or "", audience_for(user, e, db)))
                              if fields else {})
 
 

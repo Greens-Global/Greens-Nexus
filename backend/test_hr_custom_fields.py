@@ -32,12 +32,13 @@ from services.merge_fields import resolve_merge_data  # noqa: E402
 models.Base.metadata.create_all(bind=database.engine)
 
 D = "@greensglobal.com"
-HR = "hana.hr" + D            # employee tier + People editor grant: HR for everyone
-SCOPED = "sam.scoped" + D     # People editor limited to company B
+HR = "hana.hr" + D            # employee tier + Full People grant: HR for everyone
+SCOPED = "sam.scoped" + D     # Full People grant limited to company B
 MGR = "max.mgr" + D           # manager tier + People grant: own team only
 EMP = "erin.emp" + D          # reports to Max, company A
 OTHER = "omar.other" + D      # company B
-VIEWER = "vic.viewer" + D     # People viewer grant: HR who reads, never writes
+VIEWER = "vic.viewer" + D     # People viewer grant: reads, never writes, never HR Only
+EDITOR = "ed.editor" + D      # People editor grant: works the other fields, never HR Only
 CO_A, CO_B = "co-a", "co-b"
 
 
@@ -66,12 +67,14 @@ class CustomFieldTests(unittest.TestCase):
                                         work_email=em, manager_email=mgr, company=co, status="active",
                                         deleted_at=""))
         db.add(models.NexusRole(email=MGR, role="manager", display_name="Max"))
-        db.add(models.NexusGroup(id="g-hr", name="People Editors", allowed_modules="hr:editor"))
+        db.add(models.NexusGroup(id="g-hr", name="People HR", allowed_modules="hr:full"))
         for em in (HR, SCOPED, MGR):
             db.add(models.NexusGroupMember(group_id="g-hr", email=em))
         db.add(models.NexusAccessScope(id="s1", email=SCOPED, module_id="hr", scope_type="entity", scope_id=CO_B))
         db.add(models.NexusGroup(id="g-view", name="People Viewers", allowed_modules="hr:viewer"))
         db.add(models.NexusGroupMember(group_id="g-view", email=VIEWER))
+        db.add(models.NexusGroup(id="g-ed", name="People Editors", allowed_modules="hr:editor"))
+        db.add(models.NexusGroupMember(group_id="g-ed", email=EDITOR))
         db.commit()
         db.close()
         cache.module_grants.invalidate()
@@ -153,14 +156,28 @@ class CustomFieldTests(unittest.TestCase):
         # An employee without the People grant cannot reach the HR routes at all.
         self.assertEqual(self._as(EMP).get(f"/hr/employees/{self.ids[EMP]}/custom-fields").status_code, 403)
 
-    def test_an_hr_viewer_reads_every_value_and_changes_none(self):
-        secret, _badge, _shirt = self._standard()
+    def test_a_people_viewer_never_receives_hr_only_and_changes_none(self):
+        secret, badge, _shirt = self._standard()
         r = self._as(VIEWER).get(f"/hr/employees/{self.ids[EMP]}/custom-fields")
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["values"][secret["fieldKey"]], "Late twice")
-        self.assertFalse(r.json()["canEdit"])
+        self.assertNotIn(secret["fieldKey"], r.json()["values"])
+        self.assertNotIn("Late twice", r.text)
+        self.assertEqual(r.json()["values"][badge["fieldKey"]], "B-77")
+        row = next(x for x in self._as(VIEWER).get("/hr/employees").json() if x["workEmail"] == EMP)
+        self.assertNotIn(secret["fieldKey"], row["customFields"])
         self.assertEqual(self._set(self.ids[EMP], {secret["fieldKey"]: "X"}, who=VIEWER).status_code, 403)
         self.assertEqual(self._as(VIEWER).post("/hr/custom-fields", json={"label": "Nope"}).status_code, 403)
+
+    def test_a_people_editor_works_other_fields_never_hr_only(self):
+        secret, badge, _shirt = self._standard()
+        r = self._as(EDITOR).get(f"/hr/employees/{self.ids[EMP]}/custom-fields")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn(secret["fieldKey"], r.json()["values"])
+        self.assertNotIn("Late twice", r.text)
+        editable = {f["fieldKey"]: f["editable"] for f in r.json()["fields"]}
+        self.assertNotIn(secret["fieldKey"], editable)
+        self.assertTrue(editable[badge["fieldKey"]])
+        self.assertNotEqual(self._set(self.ids[EMP], {secret["fieldKey"]: "X"}, who=EDITOR).status_code, 200)
 
     def test_hr_on_their_own_record_is_the_employee(self):
         secret = self._field("Disciplinary Note", visibility="hr_only")
@@ -331,12 +348,13 @@ class CustomFieldTests(unittest.TestCase):
             cache.module_grants.invalidate()
             erin = db.query(models.NexusEmployee).filter_by(work_email=EMP).first()
             who = {em: hr_custom_fields.caller_is_hr_for({"email": em, "level": auth.level_for(em, db)}, db, erin)
-                   for em in (full, contact, HR, VIEWER, MGR, EMP, SCOPED)}
+                   for em in (full, contact, EDITOR, VIEWER, MGR, EMP, SCOPED)}
         finally:
             db.close()
-        self.assertEqual(who, {full: True, contact: True, HR: False, VIEWER: False, MGR: False,
+        self.assertEqual(who, {full: True, contact: True, EDITOR: False, VIEWER: False, MGR: False,
                                EMP: False, SCOPED: False})
 
 
 if __name__ == "__main__":
     unittest.main()
+
