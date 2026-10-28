@@ -73,6 +73,7 @@ import ca_breaks
 import payroll_codes
 import pay_premiums
 import india_contractor_pay
+import workflows
 from shift_day import shift_day as _shift_day, shift_bounds_by_day as _shift_bounds_by_day
 import shift_log
 
@@ -12110,6 +12111,7 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
                          note=(body.note or "").strip()[:400], created_at=now,
                          confidential=1 if body.confidential else 0)
     db.add(row)
+    workflows.emit(db, "time_off.requested", subject=row, actor=user["email"])
     who = _display_name(db, user["email"])
     # A bell's text reaches every recipient alike (manager, HR contact, Global
     # Admins), so a confidential request never names its type there.
@@ -12197,6 +12199,7 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
                          note=(body.note or "").strip()[:400], created_at=now,
                          requested_by=user["email"], confidential=1 if body.confidential else 0)
     db.add(row)
+    workflows.emit(db, "time_off.requested", subject=row, actor=user["email"], extra={"onBehalf": True})
     filer = _display_name(db, user["email"])
     if target != user["email"]:
         # The employee's own copy may name the type - it is theirs.
@@ -12370,6 +12373,9 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     _close_approver_notices(db, [row.id], row.employee_email)
     # A stand-in's decision says who it was decided for (approver delegation).
     row.decide_note = _decided_note(db, user, row.employee_email, (body.note or "").strip()[:400])
+    workflows.emit(db, "time_off.decided", subject=row, actor=user["email"],
+                   changes={"status": ("pending", body.status)},
+                   extra={"decision": body.status, "note": row.decide_note, "level": "manager"})
     _audit_delegated(db, user, row.employee_email, f"{body.status.title()} time off request", "time_off_requests", row.id)
     # The shifts this leave lands on, so the approver sees them - and, when
     # asked, marks them for removal in the same transaction (published, so
@@ -12410,6 +12416,9 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
     was_approved = row.status == "approved"
     row.status = "cancelled"
     row.decided_at = _now_iso()
+    workflows.emit(db, "time_off.cancelled", subject=row, actor=user["email"],
+                   changes={"status": ("approved" if was_approved else "pending", "cancelled")},
+                   extra={"wasApproved": was_approved})
     if not was_approved:
         _close_approver_notices(db, [row.id], row.employee_email)   # nothing left to decide
         # Their own "Awaiting HR Approval" notice has nothing left to wait for.
@@ -12566,6 +12575,8 @@ def _decide_hr_level(db: Session, user: dict, row, body) -> dict:
     row.approver = me
     row.decided_at = _now_iso()
     row.decide_note = (body.note or "").strip()[:400]
+    workflows.emit(db, "time_off.decided", subject=row, actor=me, changes={"status": ("pending", body.status)},
+                   extra={"decision": body.status, "note": row.decide_note, "level": "hr"})
     _close_approver_notices(db, [row.id], row.employee_email)
     conflicts = _timeoff_shift_conflicts(db, row)
     if body.status == "approved" and body.remove_shifts:

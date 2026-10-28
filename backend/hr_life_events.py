@@ -36,6 +36,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 import hr_checklist_seed
+import workflows
 from currency import is_currency, money_prefix
 from models import (HrCandidate, HrEntity, HrLifeEvent, HrPacketSetting, HrSignParty,
                     HrSignRequest, HrSignTemplate, HrStageEvent, NexusEmployee)
@@ -2053,6 +2054,7 @@ def on_completed(db: Session, req: HrSignRequest) -> None:
     if not ev or ev.status == "completed":
         return
     now = _now()
+    prev_status = ev.status
     apply = _APPLY.get(ev.kind)
     if apply:
         apply(db, ev, req)
@@ -2073,6 +2075,8 @@ def on_completed(db: Session, req: HrSignRequest) -> None:
         eid = cand.employee_id if cand else ""
     import hr_checklists
     hr_checklists.refresh_person(db, eid)
+    workflows.emit(db, "life_event.completed", subject=ev, actor=ev.created_by or "",
+                   changes={"status": (prev_status, "completed")}, extra={"kind": ev.kind, "employeeId": eid})
 
 
 def retry_apply(db: Session, ev: HrLifeEvent) -> None:

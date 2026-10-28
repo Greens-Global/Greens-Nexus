@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
+import workflows
 from notify_company import notification_company
 from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
 from routers.stepup import require_stepup
@@ -385,6 +386,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
     # added without one, it starts when the start date is filled in.
     import hr_probation
     hr_probation.start_for_new_hire(db, row, user["email"], "Added in People")
+    workflows.emit(db, "employee.hired", subject=row, actor=user["email"], extra={"how": "people"})
     # If this person was previously removed from Nexus, clear the tombstone so a
     # deliberate re-add is honored and future M365 syncs treat them normally.
     _wemail = (body.work_email or "").strip().lower()
@@ -1089,6 +1091,12 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
         attach_interview_files(db, cand)
     except Exception as e:   # noqa: BLE001 - never block the hire
         print(f"[hr] interview files not attached for {emp.id}: {type(e).__name__}: {e}")
+    workflows.emit(db, "employee.hired", subject=emp, actor=actor,
+                   extra={"how": "candidate", "candidateId": cand.id})
+    # The pipeline sets the stage before coming here; a signed packet leaves it on Offer.
+    workflows.emit(db, "candidate.hired", subject=cand, actor=actor,
+                   changes={"stage": ("offer" if cand.stage == "hired" else cand.stage, "hired")},
+                   extra={"employeeId": emp.id})
     return emp
 
 
@@ -1106,6 +1114,7 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
     created_employee = None
     decision_task = None
 
+    old_stage = row.stage
     if body.stage is not None and body.stage != row.stage:
         if body.stage not in _STAGES:
             raise HTTPException(400, f"stage must be one of {_STAGES}")
@@ -1160,6 +1169,8 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
         # Hired -> the candidate becomes an employee master record (onboarding)
         if body.stage == "hired" and not row.employee_id:
             created_employee = create_employee_from_candidate(db, row, user["email"])
+        workflows.emit(db, "candidate.stage_changed", subject=row, actor=user["email"],
+                       changes={"stage": (old_stage, row.stage)}, extra={"note": (body.stage_note or "").strip()})
 
         # One notification per stage move, to the candidate's owner (unless
         # they made the move themselves) - mirrors the items.py convention
@@ -4891,6 +4902,10 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
     row.status = body.status
     row.status_log = log
     row.updated_at = now
+    if entry is not None:
+        workflows.emit(db, "employee.status_changed", subject=row, actor=actor,
+                       changes={"status": (entry["from"], entry["to"])},
+                       extra={"reason": entry["reason"], "effectiveDate": entry["effectiveDate"]})
     db.commit()
     db.refresh(row)
 

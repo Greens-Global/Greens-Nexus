@@ -57,6 +57,7 @@ from sqlalchemy.orm import Session
 
 import hr_packet_docs as hpd
 import scoped_settings as sc
+import workflows
 from models import (DocLetterhead, DocTemplate, DocTemplateVersion, HrEntity, HrLetterRequest,
                     HrSignRequest, NexusEmployee, NexusNotification)
 
@@ -698,6 +699,7 @@ def create(db: Session, emp: NexusEmployee, body: dict) -> HrLetterRequest:
                           created_at=now, updated_at=now)
     db.add(req)
     db.flush()
+    workflows.emit(db, "letter.requested", subject=req, actor=email)
     when = f" by {us_date(needed)}" if needed else ""
     for to in _hr_audience(db, req):
         _bell(db, to, f"New Letter Request - {name}",
@@ -797,9 +799,12 @@ def issue(db: Session, req: HrLetterRequest, user: dict, *, values: Optional[dic
         raise LetterError("Could not store the letter - try again in a minute.", 502)
     me = (user["email"] or "").lower()
     now = _now()
+    prev_status = req.status
     # Set before the envelope's own commit: a crash after it never leaves a
     # sent envelope on a request that still says In Review.
     req.status, req.issued_by, req.issued_at, req.updated_at = "awaiting_signature", me, now, now
+    workflows.emit(db, "letter.decided", subject=req, actor=me,
+                   changes={"status": (prev_status, "awaiting_signature")}, extra={"decision": "issued", "reason": ""})
     req.template_id, req.template_version = snap.tpl.id, snap.version
     req.signer_email, req.signer_name = signer["email"], signer["name"]
     req.decline_reason, req.note, req.sign_request_id = "", "", ""
@@ -834,8 +839,11 @@ def decline(db: Session, req: HrLetterRequest, user: dict, reason: str) -> None:
     if not reason:
         raise LetterError("Say why - the employee reads it.")
     now = _now()
+    prev_status = req.status
     req.status, req.decline_reason = "declined", reason
     req.declined_by, req.declined_at, req.updated_at = user["email"].lower(), now, now
+    workflows.emit(db, "letter.decided", subject=req, actor=user["email"],
+                   changes={"status": (prev_status, "declined")}, extra={"decision": "declined", "reason": reason})
     _settle_hr_bells(db, req)
     _tell_employee(db, req, f"{letter_noun(req.letter_type)} - Declined", f"HR declined your request: {reason}")
 
