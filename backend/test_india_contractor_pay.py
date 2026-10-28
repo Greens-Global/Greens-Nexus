@@ -191,6 +191,15 @@ class ReconcileTests(unittest.TestCase):
                          [("full", 2, 0), ("full", 1, 0), ("half", 1, 1)])
 
 
+    def test_pool_reads_the_final_credit(self):
+        # 3 h + 2 leave halves: full, pool 0; 300 min + 1 leave half: full,
+        # pool 0; 180 min + 1 half: half, pool 0; 300 min, no leave: half, 60.
+        rows = [("2026-09-01", "scheduled", "past", 180, 0, 2), ("2026-09-02", "scheduled", "past", 300, 0, 1),
+                ("2026-09-03", "scheduled", "past", 180, 0, 1), ("2026-09-04", "scheduled", "past", 300)]
+        d = icp.reconcile(_days(rows))["days"]
+        self.assertEqual([(x["credit"], x["poolMin"]) for x in d],
+                         [("full", 0), ("full", 0), ("half", 0), ("half", 60)])
+
 # ── The card ──────────────────────────────────────────────────────────────────
 
 class Base(unittest.TestCase):
@@ -318,6 +327,20 @@ class CardTests(Base):
         for words in ("Less 1 unpaid day", "Extra Time", "Salary Advance Repayment"):
             self.assertIn(words, text)
 
+    def test_allow_exceptions_never_finalizes_over_a_pending_claim(self):
+        # Release review, Oct 27 2026: Allow Exceptions overrides punch
+        # exceptions only - a pending Extra Time claim still blocks finalize.
+        _worked_example(self.db, CON)
+        _claim(self.db, CON, SAT, 300, status="pending", approved=0)
+        self.db.commit()
+        for allow in (False, True):
+            with self.assertRaises(HTTPException) as e:
+                tc.finalize_timecard(tc.FinalizeIn(email=CON, start=MS, end=ME, allow_exceptions=allow),
+                                     user=HR_USER, db=self.db)
+            self.assertEqual(e.exception.status_code, 409)
+            self.assertIn("Extra Time claim", e.exception.detail)
+        self.assertIsNone(self.db.query(models.TimeApproval).filter_by(employee_email=CON, kind="final").first())
+
     def test_declined_or_unclaimed_hours_go_to_the_pool(self):
         _worked_example(self.db, CON)
         _claim(self.db, CON, SAT, 300, status="declined", approved=0)
@@ -443,6 +466,46 @@ class CardTests(Base):
         used = sorted((e.bucket, round(e.hours, 2)) for e in self.db.query(models.LeaveLedgerEntry)
                       .filter(models.LeaveLedgerEntry.employee_email == CON, models.LeaveLedgerEntry.kind == "used").all())
         self.assertEqual(used, [("sick", -8.0), ("vacation", -16.0)])
+
+    def test_a_day_paid_by_leave_never_also_feeds_the_pool(self):
+        # Release review, Oct 27 2026: the pool reads the day's FINAL credit
+        # (hours + paid leave), so hours the leave covered are not pooled too.
+        self.db.query(models.TimeOffRequest).delete()
+        special = ("2026-09-09", "2026-09-10", "2026-09-11")
+        for d in WEEKDAYS:
+            if d not in special:
+                _punch(self.db, CON, d, 9)
+        _punch(self.db, CON, "2026-09-09", 3)                          # 3 h + a full-day vacation
+        self._request("r-full", "vacation", "2026-09-09")
+        _punch(self.db, CON, "2026-09-10", 7)                          # 7 h + a 2 h part-day request
+        self._request("r-part", "vacation", "2026-09-10", start_time="15:00", end_time="17:00")
+        _punch(self.db, CON, "2026-09-11", 7)                          # 7 h + a 1 h Sick punch
+        _punch(self.db, CON, "2026-09-11", 1, start_h=12, i=1, category="Sick")
+        leave_balances.set_cutover(self.db, "2026-08-01", "test", CO)
+        self.db.commit()
+        leave_balances.set_opening(self.db, CON, 40.0, 40.0, "test")
+        self.db.commit()
+        c = self.card()
+        for ds in special:
+            d = self.day(c, ds)
+            self.assertEqual((ds, d["credit"], d["poolMin"], d["deduct"]), (ds, "full", 0, 0.0))
+        self.assertEqual(c["indiaPolicy"]["reconciliation"]["poolMin"], 0)
+
+    def test_request_types_map_to_their_balance_bucket(self):
+        self.assertEqual([icp.request_class(t) for t in ("PTO", "Annual Leave", "Vacation", "Sick Day", "sick",
+                                                          "Medical", "Personal", "unpaid", "other")],
+                         ["vacation", "vacation", "vacation", "sick", "sick", "sick", "", "", ""])
+        self.db.query(models.TimeOffRequest).delete()
+        for d in WEEKDAYS:
+            if d != "2026-09-09":
+                _punch(self.db, CON, d, 9)
+        self._request("r-pto", "PTO", "2026-09-09")
+        leave_balances.set_cutover(self.db, "2026-08-01", "test", CO)
+        self.db.commit()
+        leave_balances.set_opening(self.db, CON, 8.0, 0.0, "test")
+        self.db.commit()
+        d = self.day(self.card(), "2026-09-09")
+        self.assertEqual((d["credit"], d["deduct"], d["leaveBucket"]), ("full", 0.0, "vacation"))
 
     def test_requests_change_nothing_outside_the_policy(self):
         # Out of scope (a full-time India employee): requests are not paid leave here.

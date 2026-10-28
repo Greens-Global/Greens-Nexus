@@ -32,7 +32,10 @@ from routers import contractor_invoices, salary_advances as api, timeclock  # no
 EMPLOYEE = {"email": EMP, "level": 1}
 EMP_AS_MANAGER = {"email": EMP, "level": 3}
 MANAGER = {"email": MGR, "level": 3}           # Erin's manager - not HR
-HR_USER = {"email": HR, "level": 3}            # the company's HR contact
+# The company's HR contact, an administrator with the pay grant (hr_comp
+# Editor, setUp): an advance is pay, and the manager tier never sees pay.
+HR_USER = {"email": HR, "level": 4}
+HR_AS_MANAGER = {"email": HR, "level": 3}      # the HR contact at the manager tier
 
 
 def _day_before(iso: str) -> str:
@@ -50,6 +53,11 @@ class AdvanceCase(ReviewCase):
             self.db.query(m).delete()
         self.db.add(models.PayrollRate(employee_email=EMP, hourly_rate=20.0, overtime_rule="ca", pay_type="hourly",
                                        currency="USD"))
+        # An advance is pay (release review, Oct 27 2026): the HR contact
+        # decides with the pay grant (hr_comp Editor).
+        self.db.add(models.NexusGroup(id="g-sa-pay", name="Payroll", allowed_modules="hr_comp:editor"))
+        self.db.add(models.NexusGroupMember(group_id="g-sa-pay", email=HR))
+        self.db.add(models.NexusRole(email=HR, role="administrator", assigned_by="test"))
         self.db.commit()
         self.db.info.pop("_advance_emails", None)
         auth.invalidate_role_cache()
@@ -127,6 +135,83 @@ class WhoTests(AdvanceCase):
         self.assertNotIn("advanceRepayments", stripped)
         self.assertNotIn("netPay", stripped["totals"])
 
+    def test_amounts_are_pay_and_deciding_needs_the_pay_grant(self):
+        # Release review, Oct 27 2026: HR without the pay grant sees a request
+        # exists - no amount - and cannot decide; the bell goes to who can.
+        for m in self.db.query(models.NexusGroupMember).filter_by(group_id="g-sa-pay").all():
+            self.db.delete(m)
+        self.db.add(models.NexusRole(email="owner.sa@greensglobal.com", role="owner", assigned_by="test"))
+        self.db.commit()
+        import cache
+        cache.module_grants.invalidate()
+        auth.invalidate_role_cache()
+        aid = self._request()["id"]
+        self.assertEqual({b.recipient for b in self.db.query(models.NexusNotification).all()},
+                         {"owner.sa@greensglobal.com"})
+        row = api.overview(user=HR_USER, db=self.db)["hr"][0]
+        self.assertEqual((row["id"], row["payVisible"], row["canDecide"]), (aid, False, False))
+        for k in ("amount", "balance", "repaid", "scheduled"):
+            self.assertNotIn(k, row)
+        self.assertTrue(all("note" not in h and "detail" not in h for h in row["history"]))
+        self.assertFalse(api.overview(user=HR_USER, db=self.db)["canGrant"])
+        self.assertIn("pay grant", self._status(403, api.decide, aid, api.DecideIn(action="approve"),
+                                                user=HR_USER, db=self.db))
+        self.assertIn("pay grant", self._status(403, self._grant))
+        self.assertIn("pay grant", self._status(403, api.cancel, aid, api.CancelIn(note="No"), user=HR_USER,
+                                                db=self.db))
+        self.assertEqual(sa.pending_for_hr(self.db, HR_USER), [])
+        # The person always sees their own amount.
+        mine = api.for_person(EMP, user=EMP_AS_MANAGER, db=self.db)["advances"][0]
+        self.assertEqual((mine["amount"], mine["payVisible"]), (50.0, True))
+        # The pay grant at Viewer shows the amount; deciding needs Editor.
+        self.db.add(models.NexusGroup(id="g-sa-view", name="Pay View", allowed_modules="hr_comp:viewer"))
+        self.db.add(models.NexusGroupMember(group_id="g-sa-view", email=HR))
+        self.db.commit()
+        cache.module_grants.invalidate()
+        auth.invalidate_role_cache()
+        row = api.overview(user=HR_USER, db=self.db)["hr"][0]
+        self.assertEqual((row["amount"], row["payVisible"], row["canDecide"]), (50.0, True, False))
+        self._status(403, api.decide, aid, api.DecideIn(action="approve"), user=HR_USER, db=self.db)
+        # The manager tier never sees pay (Oct 6), whatever its grant.
+        self.db.add(models.NexusGroupMember(group_id="g-sa-pay", email=HR))
+        self.db.commit()
+        cache.module_grants.invalidate()
+        row = api.overview(user=HR_AS_MANAGER, db=self.db)["hr"][0]
+        self.assertEqual((row["payVisible"], row["canDecide"]), (False, False))
+        self.assertTrue(api.overview(user=HR_USER, db=self.db)["hr"][0]["canDecide"])
+
+    def test_hr_outside_the_persons_company_is_not_hr(self):
+        # The ONE scoped HR rule: a Full People grant scoped to another company.
+        other = "hr.other@greensglobal.com"
+        self.db.add(models.HrEntity(id="ent-sa-other", name="Other Co"))
+        self.db.add(models.NexusEmployee(id="id-sa-other", work_email=other, first_name="Ola", last_name="Test",
+                                         company="ent-sa-other", status="active"))
+        self.db.add(models.NexusGroup(id="g-sa-full", name="HR", allowed_modules="hr:full,hr_comp:editor"))
+        self.db.add(models.NexusGroupMember(group_id="g-sa-full", email=other))
+        self.db.add(models.NexusAccessScope(id="s-sa-other", email=other, module_id="hr", scope_type="entity",
+                                            scope_id="ent-sa-other"))
+        self.db.commit()
+        auth.invalidate_role_cache()
+        aid = self._request()["id"]
+        who = {"email": other, "level": 3}
+        self.assertFalse(sa.is_hr_for(self.db, who, EMP))
+        self._status(404, api.decide, aid, api.DecideIn(action="approve"), user=who, db=self.db)
+        self.assertEqual(api.overview(user=who, db=self.db)["hr"], [])
+
+    def test_paid_on_is_judged_by_the_local_today(self):
+        # An India company is on IST: its "today" may already be tomorrow in UTC.
+        from datetime import datetime, timezone
+        ent = self.db.query(models.HrEntity).filter_by(id=ENTITY).one()
+        ent.country = "IN"
+        self.db.commit()
+        adv = self.db.query(models.SalaryAdvance).get(self._grant()["id"])
+        ist = (datetime.now(timezone.utc) + timedelta(minutes=330)).date().isoformat()
+        self.assertEqual(sa.local_today(self.db, HR, adv), max(ist, datetime.now(timezone.utc).date().isoformat()))
+        out = self._paid(adv.id, paid_on=ist)
+        self.assertEqual((out["status"], out["paidOn"]), ("paid_out", ist))
+        later = (date.fromisoformat(ist) + timedelta(days=2)).isoformat()
+        self.assertIn("future", self._status(400, self._paid, self._grant()["id"], paid_on=later))
+
     def test_currency_is_the_pay_currency(self):
         self.assertEqual(self._grant()["currency"], "USD")
         self.assertIn("Paid in USD", self._status(400, self._grant, currency="INR"))
@@ -199,6 +284,50 @@ class ScheduleTests(AdvanceCase):
         # The replaced row stays as the record, canceled.
         self.assertEqual(self.db.query(models.SalaryAdvanceInstallment).filter_by(advance_id=out["id"],
                                                                                   status="canceled").count(), 1)
+
+
+class FinalizeRaceTests(AdvanceCase):
+    def test_a_reschedule_committed_before_finalize_is_never_deducted(self):
+        # Release review, Oct 27 2026: finalize read the installments, a
+        # reschedule committed meanwhile (canceled the row, made a new one
+        # later), then finalize recorded the stale row as repaid.
+        import database
+        out = self._paid(self._grant(amount=50.0)["id"])
+        iid = out["schedule"][0]["id"]
+        self.assertEqual(out["schedule"][0]["date"], self.start)
+        fin = database.SessionLocal()
+        try:
+            stale = sa.installments(fin, out["id"])          # held: finalize's session keeps this copy
+            self.assertEqual([r.status for r in stale], ["scheduled"])
+            api.set_schedule(out["id"], api.ScheduleIn(installments=[api.ScheduleItem(date=self.next_start,
+                                                                                      amount=50.0)],
+                                                       reason="Next month"), user=HR_USER, db=self.db)
+            took = sa.on_finalize(fin, EMP, self.start, self.end, "fin-race", HR)
+            fin.commit()
+        finally:
+            fin.close()
+        self.assertEqual(took, 0)
+        self.db.expire_all()
+        rows = {r.id: r for r in self.db.query(models.SalaryAdvanceInstallment).all()}
+        self.assertEqual((rows[iid].status, rows[iid].final_approval_id), ("canceled", ""))
+        self.assertEqual([(r.status, r.date) for r in rows.values() if r.id != iid], [("scheduled", self.next_start)])
+
+    def test_a_move_committed_before_finalize_is_never_deducted(self):
+        import database
+        out = self._paid(self._grant(amount=50.0)["id"])
+        iid = out["schedule"][0]["id"]
+        fin = database.SessionLocal()
+        try:
+            stale = sa.installments(fin, out["id"])          # held: finalize's session keeps this copy
+            self.assertEqual(len(stale), 1)
+            api.move(out["id"], iid, api.MoveIn(date=self.next_start, reason="Short month"), user=HR_USER, db=self.db)
+            self.assertEqual(sa.on_finalize(fin, EMP, self.start, self.end, "fin-race2", HR), 0)
+            fin.commit()
+        finally:
+            fin.close()
+        self.db.expire_all()
+        r = self.db.query(models.SalaryAdvanceInstallment).filter_by(id=iid).one()
+        self.assertEqual((r.status, r.date, r.deducted_amount), ("scheduled", self.next_start, 0.0))
 
 
 class CardTests(AdvanceCase):

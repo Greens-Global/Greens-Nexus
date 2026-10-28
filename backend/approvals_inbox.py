@@ -652,18 +652,21 @@ def _salary_advances(db: Session, user: dict, ctx: dict) -> list:
         return []
     out = []
     for adv in sa.pending_for_hr(db, user):
-        money = sa.money(adv.amount, adv.currency or "USD")
+        # An advance's amount is pay (sa.sees_pay); pending_for_hr already
+        # keeps only what the caller can decide, which needs the pay grant.
+        money = sa.money(adv.amount, adv.currency or "USD") if sa.sees_pay(db, user, adv.employee_email) else ""
         n = int(adv.installments or 1)
         link = {"view": "myhr", "sub": "salary-advances"}
         who = adv.employee_name or _name(db, ctx, adv.employee_email)
         if adv.status == "requested":
             out.append(row("salary_advance", adv.id, person_email=adv.employee_email, person_name=who,
-                           title=f"Salary Advance - {money} ({_plural(n, 'pay period')})",
+                           title=(f"Salary Advance - {money} ({_plural(n, 'pay period')})" if money
+                                  else f"Salary Advance ({_plural(n, 'pay period')})"),
                            detail=_short(adv.reason or ""), created_at=adv.requested_at or adv.created_at,
                            actions=(A_APPROVE, A_DECLINE_WHY), link=link))
         else:
             out.append(row("salary_advance_payout", adv.id, person_email=adv.employee_email, person_name=who,
-                           title=f"Pay Out Salary Advance - {money}",
+                           title=f"Pay Out Salary Advance - {money}" if money else "Pay Out Salary Advance",
                            detail=f"Approved by {_name(db, ctx, adv.decided_by)}. Mark it Paid Out once it is paid.",
                            created_at=adv.decided_at or adv.updated_at, actions=(a_open("Pay Out"),), link=link))
     return out

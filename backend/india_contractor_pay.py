@@ -5,7 +5,7 @@ docs/India-Contractor-Pay.md. NEVER change these numbers without Neil.
 
 Who: a contractor (NexusEmployee.employment_type == 'contractor') on FIXED
 monthly pay who works in India (their People country, else their company's;
-an INR pay rate when neither is known), at a company whose Settings > Pay >
+an INR pay rate when neither is known), at a company whose Settings > Time & Pay >
 India Contractor Policy switch is on (on by default for an India company),
 for a month that starts on or after the company's Policy Starts date
 (default 11/01/2026 - October and earlier keep the old rules). Everyone
@@ -32,8 +32,9 @@ The month (routers/timeclock._fixed_card calls price_month):
     day), both from that kind's bucket, in date order. A day with a leave
     punch is priced by the punch alone - never both. Finalize records the
     balance each day actually used (leave_balances.period_entries).
-  * THE POOL (reading B): per scheduled day, full -> h - 9 (never below 0),
-    half -> h - 4, none -> h; a half-day holiday -> h - 4.5; a non-scheduled
+  * THE POOL (reading B): per scheduled day, by the day's FINAL credit
+    (hours worked + paid leave): full -> h - 9, half -> h - 4 (never below
+    0), none -> h; a half-day holiday -> h - 4.5; a non-scheduled
     day (weekend, full holiday) -> h. Hours paid as approved Extra Time are
     taken out (never counted twice); pending, declined and unclaimed hours
     stay in.
@@ -206,10 +207,17 @@ def reconcile(days: list) -> dict:
                 # Today or later and not yet a full day: never deducted before it is over.
                 credit = "pending"
                 upcoming += 1
-            # Reading B: what the hours did not earn goes to the pool.
-            contrib = max(0, w - SCHEDULED_MIN) if c == 2 else (w - HALF_CREDIT_MIN) if c == 1 else w
-            if state != "past" and credit == "pending":
+            # Reading B: what the day's FINAL credit (hours + paid leave) did
+            # not pay for goes to the pool - a day paid by leave never also
+            # feeds the pool with the hours that leave covered.
+            if credit == "pending":
                 contrib = max(0, w - SCHEDULED_MIN)
+            elif halves == 2:
+                contrib = max(0, w - SCHEDULED_MIN)
+            elif halves == 1:
+                contrib = max(0, w - HALF_CREDIT_MIN)
+            else:
+                contrib = w
         elif kind == "half_holiday":
             scheduled += 1
             if w > 0 or d.get("open"):
@@ -290,6 +298,19 @@ def _hhmm_min(v: str):
         return None
 
 
+def request_class(type_name: str) -> str:
+    """'vacation' / 'sick' / '' for a time off request's type, by the leave
+    balance it draws from (leave_balances.bucket_of: "PTO", "Annual Leave",
+    "Sick Day", "Medical"...). Personal leave is unpaid under this policy even
+    though the balances file it with sick."""
+    import leave_balances
+    n = (type_name or "").strip().lower()
+    bucket = leave_balances.bucket_of(n)
+    if bucket == "sick" and "sick" not in n and "medical" not in n:
+        return ""
+    return bucket
+
+
 def requested_leave(db: Session, em: str, start: str, end: str) -> dict:
     """{date: {"class": "vacation" | "sick", "min": minutes | None}} - the
     person's APPROVED Vacation / Sick time off requests in [start, end]; min
@@ -302,7 +323,7 @@ def requested_leave(db: Session, em: str, start: str, end: str) -> dict:
                     models.TimeOffRequest.start_date <= end, models.TimeOffRequest.end_date >= start)
             .order_by(models.TimeOffRequest.start_date, models.TimeOffRequest.id).all())
     for r in rows:
-        cls = (r.type or "").strip().lower()
+        cls = request_class(r.type)
         if cls not in PAID_LEAVE:
             continue
         a, b = _hhmm_min(r.start_time or ""), _hhmm_min(r.end_time or "")

@@ -174,6 +174,10 @@ function AdvanceRow({ a, as, onChanged, flash }) {
   const [busy, setBusy] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const hr = as === 'hr';
+  // An advance is pay (Oct 27 2026): HR without the pay grant sees that it
+  // exists - no amounts (the server leaves them out) - and cannot act on it.
+  const act = hr && a.canDecide !== false;
+  const shown = a.amount !== undefined;
   const reset = () => { setMode(''); setNote(''); setMoveTo(''); };
   const run = async (fn, okMsg) => {
     setBusy(true);
@@ -187,7 +191,7 @@ function AdvanceRow({ a, as, onChanged, flash }) {
     <div style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         {hr && <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{a.name}</span>}
-        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{money(a.amount, a.currency)}</span>
+        {shown && <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{money(a.amount, a.currency)}</span>}
         <span style={{ flex: 1 }} />
         <StatusLabel label={a.statusLabel} color={STATUS_COLOR[a.status]} size="sm" />
       </div>
@@ -195,7 +199,7 @@ function AdvanceRow({ a, as, onChanged, flash }) {
         <span>{a.source === 'grant' ? `Granted by ${a.requestedByName}` : `Requested ${day(a.requestedAt)}`}</span>
         <span>{a.installments} pay period{a.installments === 1 ? '' : 's'}</span>
         {a.paidOn && <span>Paid out {day(a.paidOn)}</span>}
-        {(owed || a.status === 'repaid') && <span>Repaid {money(a.repaid, a.currency)} · Balance {money(a.balance, a.currency)}</span>}
+        {shown && (owed || a.status === 'repaid') && <span>Repaid {money(a.repaid, a.currency)} · Balance {money(a.balance, a.currency)}</span>}
       </div>
       {a.reason && <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 4 }}>{a.reason}</div>}
       {a.decisionNote && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>HR: {a.decisionNote}</div>}
@@ -207,9 +211,9 @@ function AdvanceRow({ a, as, onChanged, flash }) {
               <div key={s.id} style={{ borderTop: i ? '1px solid var(--line)' : 'none', padding: '7px 10px', fontSize: 12.5 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <span style={{ color: 'var(--ink)', minWidth: 0, flex: 1 }}>Pay period {day(s.periodStart)} - {day(s.periodEnd)}{s.carriedFrom ? ' (carried forward)' : ''}</span>
-                  <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{money(s.status === 'deducted' ? s.deductedAmount : s.amount, s.currency)}</span>
+                  {s.amount !== undefined && <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{money(s.status === 'deducted' ? s.deductedAmount : s.amount, s.currency)}</span>}
                   <StatusLabel label={word} color={color} size="sm" />
-                  {hr && s.status === 'scheduled' && owed && !moving && (
+                  {act && s.status === 'scheduled' && owed && !moving && (
                     <button type="button" className="secondary-btn" style={small} disabled={busy} onClick={() => { setMode(`move:${s.id}`); setMoveTo(''); }}>Move Later</button>
                   )}
                 </div>
@@ -239,17 +243,17 @@ function AdvanceRow({ a, as, onChanged, flash }) {
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-        {hr && a.status === 'requested' && mode === '' && (<>
+        {act && a.status === 'requested' && mode === '' && (<>
           <button type="button" className="primary-btn" style={small} disabled={busy} onClick={() => run(() => api.decideSalaryAdvance(a.id, { action: 'approve' }), 'Approved')}>Approve</button>
           <button type="button" className="secondary-btn" style={small} disabled={busy} onClick={() => setMode('decline')}>Decline</button>
         </>)}
-        {hr && a.status === 'approved' && mode === '' && (
+        {act && a.status === 'approved' && mode === '' && (
           <button type="button" className="primary-btn" style={small} disabled={busy} onClick={() => setMode('pay')}>Mark Paid Out</button>
         )}
-        {hr && owed && mode === '' && (
+        {act && owed && mode === '' && (
           <button type="button" className="secondary-btn" style={small} disabled={busy} onClick={() => setMode('schedule')}>Change Schedule</button>
         )}
-        {mode === '' && ((as === 'mine' && a.status === 'requested') || (hr && ['requested', 'approved'].includes(a.status))) && (
+        {mode === '' && ((as === 'mine' && a.status === 'requested') || (act && ['requested', 'approved'].includes(a.status))) && (
           <button type="button" className="secondary-btn" style={small} disabled={busy}
             onClick={() => (hr ? setMode('cancel') : run(() => api.cancelSalaryAdvance(a.id, {}), 'Canceled'))}>Cancel Request</button>
         )}
@@ -306,6 +310,7 @@ function AdvanceRow({ a, as, onChanged, flash }) {
           </div>
         </div>
       )}
+      {hr && !shown && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>Amounts and decisions need the pay grant (Pay & Benefits).</div>}
       {mode === 'schedule' && <ScheduleEditor adv={a} onClose={reset} onSaved={(u) => { onChanged(u); reset(); }} flash={flash} />}
     </div>
   );
@@ -327,7 +332,7 @@ export default function SalaryAdvancesCard({ autoOpen = false, flash = () => {} 
       setData(v);
       if (landRef.current) {
         landRef.current = false;
-        const waiting = (v.hr || []).find((a) => ['requested', 'approved'].includes(a.status));
+        const waiting = (v.hr || []).find((a) => a.canDecide !== false && ['requested', 'approved'].includes(a.status));
         if (v.canHr && waiting) { setManage(true); setHrTab(waiting.status); }
       }
     })
@@ -345,7 +350,7 @@ export default function SalaryAdvancesCard({ autoOpen = false, flash = () => {} 
   });
   // A card that may not exist for this person: nothing until the answer is in.
   if (!data || !data.show) return null;
-  const waiting = (data.hr || []).filter((a) => ['requested', 'approved'].includes(a.status)).length;
+  const waiting = (data.hr || []).filter((a) => a.canDecide !== false && ['requested', 'approved'].includes(a.status)).length;
   const mine = data.mine || [];
   const list = (data.hr || []).filter((a) => inTab(a, hrTab));
   return (
@@ -398,8 +403,10 @@ export default function SalaryAdvancesCard({ autoOpen = false, flash = () => {} 
               })}
             </div>
             <span style={{ flex: 1 }} />
-            <button type="button" className="primary-btn" onClick={() => setForm('grant')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, ...small }}><Plus size={13} /> Grant Advance</button>
+            {data.canGrant !== false && (
+              <button type="button" className="primary-btn" onClick={() => setForm('grant')}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, ...small }}><Plus size={13} /> Grant Advance</button>
+            )}
           </div>
           <div className="nx-fill">
             {list.length === 0

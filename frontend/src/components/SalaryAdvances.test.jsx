@@ -85,4 +85,19 @@ describe('SalaryAdvancesCard', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(decide).toHaveBeenCalledWith('a1', { action: 'approve' }));
   });
+
+  it('HR without the pay grant sees the request, no amount, and cannot act', async () => {
+    // Release review, Oct 27 2026: the server leaves the amounts out and says canDecide false.
+    const bare = adv({ payVisible: false, canDecide: false, history: [] });
+    for (const k of ['amount', 'repaid', 'balance', 'scheduled']) delete bare[k];
+    overview.mockResolvedValue({ ...base, show: true, canHr: true, canGrant: false, hr: [bare] });
+    render(<SalaryAdvancesCard />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage' }));
+    expect(await screen.findByText('Amy Test')).toBeTruthy();
+    expect(screen.getByText(/need the pay grant/)).toBeTruthy();
+    expect(screen.queryByText(/\$/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Cancel Request/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Grant Advance/ })).toBeNull();
+  });
 });

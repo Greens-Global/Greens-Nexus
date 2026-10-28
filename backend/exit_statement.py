@@ -213,9 +213,26 @@ def _timesheet(db: Session, email: str, last_day: str) -> dict:
     return out
 
 
-def _pay_of_final(db: Session, email: str, ts: dict) -> dict:
+def _final_card(db: Session, email: str, ts: dict) -> dict:
     import timesheet_review as tsr
-    card = tsr.card_for(db, email, ts["periodStart"], ts["periodEnd"], ts["payType"])
+    return tsr.card_for(db, email, ts["periodStart"], ts["periodEnd"], ts["payType"])
+
+
+def _open_card_repayments(card: dict | None, ts: dict) -> dict:
+    """{advance id: what the final period's OPEN card takes} - a finalized
+    period already recorded its installments as repaid (deducted), so only
+    an open card's lines are still to be taken off the balance."""
+    if not card or ts.get("finalized"):
+        return {}
+    out = {}
+    for ln in card.get("advanceRepayments") or []:
+        if ln.get("status") == "scheduled" and float(ln.get("applied") or 0) > 0:
+            out[ln["advanceId"]] = r2(out.get(ln["advanceId"], 0) + float(ln["applied"]))
+    return out
+
+
+def _pay_of_final(db: Session, email: str, ts: dict, card: dict | None = None) -> dict:
+    card = card if card is not None else _final_card(db, email, ts)
     t = card.get("totals") or {}
     out = {"grossPay": r2(t.get("totalPay")), "currency": card.get("currency") or ""}
     if "advanceRepayment" in t:
@@ -269,10 +286,19 @@ def _reimbursements(db: Session, email: str, show_money: bool) -> dict:
     return {"owed": owed, "openCount": sum(1 for r in rows if r.status in REIMB_OPEN)}
 
 
-def _advances(db: Session, email: str, show_money: bool) -> dict:
+def _advances(db: Session, email: str, show_money: bool, in_final_pay: dict | None = None) -> dict:
+    """What is still to recover. `in_final_pay` ({advance id: amount}) is what
+    the final period's open card already takes - the final pay's netPay
+    counts it, so the balance here must not count it again."""
     import salary_advance as sa
     from models import SalaryAdvance
     out = [dict(x) for x in sa.outstanding(db, email)] if email else []
+    for x in out:
+        took = r2(min(float(x["balance"]), float((in_final_pay or {}).get(x["id"], 0))))
+        if took > 0:
+            x["inFinalPay"] = took
+            x["repaid"] = r2(x["repaid"] + took)
+            x["balance"] = r2(max(0.0, x["balance"] - took))
     if not show_money:
         out = [{"id": x["id"], "paidOn": x["paidOn"]} for x in out]
     unpaid = (db.query(SalaryAdvance.id).filter(SalaryAdvance.employee_email == email,
@@ -321,7 +347,7 @@ def _summary(st: dict) -> dict:
         if "amount" in r:
             owed[r["currency"]] = r2(owed.get(r["currency"], 0) + r["amount"])
     for a in st["advances"]["toRecover"]:
-        if "balance" in a:
+        if "balance" in a and a["balance"] > 0:
             recover[a["currency"]] = r2(recover.get(a["currency"], 0) + a["balance"])
     return {"owedToEmployee": owed, "toRecover": recover}
 
@@ -346,6 +372,7 @@ def build(db: Session, user: dict, emp: NexusEmployee, show_money: bool) -> dict
     email = (emp.work_email or "").strip().lower()
     ent = db.query(HrEntity).filter(HrEntity.id == (emp.company or "")).first() if emp.company else None
     ts = _timesheet(db, email, ex["lastDay"])
+    card = _final_card(db, email, ts) if (show_money and ts.get("periodStart")) else None
     st = {"employeeId": emp.id, "email": email, "name": full_name(emp), "jobTitle": emp.job_title or "",
           "employeeCode": emp.employee_code or "", "employmentType": emp.employment_type or "",
           "startDate": emp.start_date or "", "company": emp.company or "",
@@ -357,10 +384,10 @@ def build(db: Session, user: dict, emp: NexusEmployee, show_money: bool) -> dict
           "timesheet": ts,
           "leave": _leave(db, emp, email, ex["lastDay"], show_money),
           "reimbursements": _reimbursements(db, email, show_money),
-          "advances": _advances(db, email, show_money),
+          "advances": _advances(db, email, show_money, _open_card_repayments(card, ts)),
           "items": _items(db, user, emp),
           "checklist": _checklist(db, emp)}
-    st["finalPay"] = _pay_of_final(db, email, ts) if (show_money and ts.get("periodStart")) else None
+    st["finalPay"] = _pay_of_final(db, email, ts, card) if card is not None else None
     st["summary"] = _summary(st)
     return st
 

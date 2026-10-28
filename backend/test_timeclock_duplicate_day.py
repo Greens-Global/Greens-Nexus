@@ -181,6 +181,41 @@ class DuplicateDayTests(unittest.TestCase):
         self.assertEqual({p.id for p in self._live(WEEK[2])}, old_ids)
         self.assertTrue(all(p.replaced_by_batch == "" for p in self._live(WEEK[2])))
 
+    def test_undo_refuses_a_day_a_later_copy_replaced(self):
+        # Release review, Oct 27 2026: A, then B over the same day (Replace
+        # Existing), then undo A - must not restore A's replaced punches
+        # under B's (a doubled day). Refused; B's day stays as it is.
+        self._shift(WEEK[2], "16:00", "20:00")
+        orig = {p.id for p in self._live(WEEK[2])}
+        a = self._dup(source_date=WEEK[0], targets=[WEEK[2]], replace=True)
+        b = self._dup(fill_date=WEEK[1], in_at=f"{WEEK[1]}T16:00:00", out_at=f"{WEEK[1]}T20:00:00",
+                      targets=[WEEK[2]], replace=True)
+        self.assertEqual(b["added"], 1, b["days"])
+        b_ids = {p.id for p in self._live(WEEK[2])}
+        self.assertTrue(b_ids and not (b_ids & orig))
+        with self.assertRaises(HTTPException) as e:
+            T.duplicate_day_undo(a["batchId"], user=HR_USER, db=self.db)
+        self.assertEqual(e.exception.status_code, 409)
+        self.assertIn("changed after it", e.exception.detail)
+        self.db.expire_all()
+        self.assertEqual({p.id for p in self._live(WEEK[2])}, b_ids)
+        # Undo B first (brings A's punches back), then A undoes cleanly.
+        T.duplicate_day_undo(b["batchId"], user=HR_USER, db=self.db)
+        T.duplicate_day_undo(a["batchId"], user=HR_USER, db=self.db)
+        self.db.expire_all()
+        self.assertEqual({p.id for p in self._live(WEEK[2])}, orig)
+
+    def test_undo_refuses_a_day_with_punches_added_after_it(self):
+        a = self._dup(source_date=WEEK[0], targets=[WEEK[1]])
+        for kind, at in (("in", f"{WEEK[2]}T02:00:00"), ("out", f"{WEEK[2]}T03:00:00")):
+            self.db.add(models.TimePunch(id=str(uuid.uuid4()), employee_email=EMP, kind=kind, at=at,
+                                         local_date=WEEK[1], tz_offset_min=420, voided=0, created_at=T._now_iso()))
+        self.db.commit()
+        with self.assertRaises(HTTPException) as e:
+            T.duplicate_day_undo(a["batchId"], user=HR_USER, db=self.db)
+        self.assertEqual(e.exception.status_code, 409)
+        self.assertEqual(len(self._live(WEEK[1])), 6)
+
     def test_undo_is_hr_only_and_add_time_undo_refuses_it(self):
         res = self._dup(source_date=WEEK[0], targets=[WEEK[1]])
         with self.assertRaises(HTTPException) as e:

@@ -2223,12 +2223,13 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
         exc = _blocking_exceptions(db, email, body.start, body.end)
         if exc:
             _exceptions_409(exc)
-        # India Contractor Extra Time (Oct 27 2026): pay is not final while a
-        # claim of the month waits on a decision.
-        from routers import extra_time
-        if extra_time.pending_count(db, email, body.start, body.end):
-            raise HTTPException(409, "An Extra Time claim for this month is still pending - approve or "
-                                     "decline it first.")
+    # India Contractor Extra Time (Oct 27 2026): pay is not final while a
+    # claim of the month waits on a decision - Allow Exceptions overrides
+    # punch exceptions only, never a pending claim (release review).
+    from routers import extra_time
+    if extra_time.pending_count(db, email, body.start, body.end):
+        raise HTTPException(409, "An Extra Time claim for this month is still pending - approve or "
+                                 "decline it first.")
     _end_nx = (date.fromisoformat(body.end) + timedelta(days=1)).isoformat()
     # Freeze the pay rate + OT rule as of finalize, so a later change can't
     # re-price this locked, paid period (see _compute_timecard).
@@ -11904,13 +11905,15 @@ class _TimeoffPrivacy:
         return out
 
     def is_hr_for(self, employee_email: str) -> bool:
-        """HR for this person (timesheet_review.is_hr: the company's HR
-        contact, an administrator or a Full HR grant) - the second level of
-        Second Approval By HR. Never for their own request."""
+        """HR for this person - the ONE scoped HR rule (hr_access.is_hr_for:
+        the company's HR contact, or an administrator / Full HR grant whose
+        People scope covers the person's company; never the manager tier's
+        own-team view) - the second level of Second Approval By HR. Never for
+        their own request."""
         em = (employee_email or "").strip().lower()
         if em not in self._hr:
-            import timesheet_review
-            self._hr[em] = bool(self.viewer) and timesheet_review.is_hr(self.db, self.viewer, em)
+            import hr_access
+            self._hr[em] = bool(self.viewer) and hr_access.is_hr_for(self.db, self.viewer, em)
         return self._hr[em]
 
     def can_see(self, r) -> bool:
@@ -12346,9 +12349,9 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     # Second Approval By HR (Oct 27 2026): the company wants HR to approve
     # too - the manager's approval moves it to HR, unless the manager IS HR
     # for this person (their one approval is HR's).
-    import timesheet_review
+    import hr_access
     if (body.status == "approved" and _second_hr_on(db, row.employee_email)
-            and not timesheet_review.is_hr(db, user["email"], row.employee_email)):
+            and not hr_access.is_hr_for(db, user["email"], row.employee_email)):
         return _approve_first_level(db, user, row, body, priv)
     row.status = body.status
     row.approver = user["email"]
@@ -13088,8 +13091,8 @@ class DuplicateDayIn(BaseModel):
 
 
 def _require_hr_for(db: Session, user: dict, em: str) -> None:
-    import timesheet_review
-    if not timesheet_review.is_hr(db, user.get("email") or "", em):
+    import hr_access   # the ONE scoped HR rule - inside the caller's HR scope
+    if not hr_access.is_hr_for(db, user.get("email") or "", em):
         raise HTTPException(403, "Duplicate Day is for HR - the company's HR contact, an administrator "
                                  "or a Full HR grant. Use Add Time instead.")
 
@@ -13421,6 +13424,22 @@ def duplicate_day_undo(batch_id: str, user: dict = Depends(require_team_write), 
     _require_hr_for(db, user, em)
     _lock_person(db, em)
     days = sorted({r.local_date for r in rows} | {r.local_date for r in gone})
+    # Release review, Oct 27 2026: a day changed after this batch (another
+    # Duplicate Day replaced its punches, or new punches were added there)
+    # is never undone underneath that change - restoring the punches this
+    # batch replaced would double the day. Refused as a whole.
+    own = db.query(TimePunch).filter(TimePunch.batch_id == batch_id).all()
+    written_at = min((p.created_at or "" for p in own), default="")
+    changed = {p.local_date for p in own if p.voided and (p.replaced_by_batch or "")}
+    if written_at:
+        later = (db.query(TimePunch.local_date)
+                 .filter(TimePunch.employee_email == em, TimePunch.local_date.in_(days), TimePunch.voided == 0,
+                         TimePunch.batch_id != batch_id, TimePunch.created_at >= written_at).all())
+        changed |= {d for (d,) in later}
+    if changed:
+        raise HTTPException(409, "This copy can't be undone: "
+                                 f"{', '.join(_us_day(d) for d in sorted(changed))} changed after it (another "
+                                 "Duplicate Day or new punches). Undo that change first, or fix the day by hand.")
     import timesheet_review
     for ds in days:
         _guard_not_finalized(db, em, ds)

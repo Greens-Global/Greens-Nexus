@@ -28,7 +28,7 @@ Tests: `backend/test_india_contractor_pay.py` (exact rupee amounts).
 - `NexusEmployee.employment_type == 'contractor'`, on FIXED monthly pay, who works in India:
   their People country, else their company's (`ca_breaks.country_of`); when neither is
   known, an INR pay rate.
-- Settings > Pay > India Contractor Policy, per company: on by default for an India company
+- Settings > Time & Pay > India Contractor Policy, per company: on by default for an India company
   (and for a company with no country, where each contractor's own country decides), off for
   a company in any other country. HR can turn it on or off per company.
 - Policy Starts (per company, default 11/01/2026): a month that starts before it keeps the
@@ -69,10 +69,16 @@ Tests: `backend/test_india_contractor_pay.py` (exact rupee amounts).
      day's missing halves; a part-day request's hours count toward the day's halves as if
      worked (4 h worked + a 4 h request = a full day). A day with a leave punch is priced by
      the punch alone - the request adds nothing, so no day is counted twice. Personal,
-     unpaid and other requests stay missing days. Finalize records the balance each day
+     unpaid and other requests stay missing days. A request's type is matched to its bucket
+   the way the balances match it (`leave_balances.bucket_of`: "PTO", "Annual Leave" ->
+   vacation; "Sick Day", "Medical" -> sick), Personal excepted. Finalize records the balance each day
      actually used, per bucket. In-scope contractors only; nobody else's card changes.
-4. **The pool (reading B).** Per scheduled day: full credit `max(0, h - 9)`; half credit
-   `h - 4`; no credit `h`. A half-day holiday: `max(0, h - 4.5)`. Every hour on a
+4. **The pool (reading B).** Per scheduled day, by the day's FINAL credit - the hours
+   credit plus the halves paid leave (a punch or an approved request) filled: final full
+   `max(0, h - 9)`; final half `max(0, h - 4)`; final none `h`. A day paid by leave never
+   also feeds the pool with the hours that leave covered (3 h worked + an approved full-day
+   vacation = a full day, pool 0; 7 h + a 2 h part-day request = a full day, pool 0). A
+   half-day holiday: `max(0, h - 4.5)`. Every hour on a
    non-scheduled day (weekend, full holiday). Approved Extra Time hours are taken out (never
    counted twice); pending, declined, withdrawn and unclaimed hours stay in.
 5. **Recovery.** `M` = missing half days. `R = min(M, floor(pool / 4.5 h))`;

@@ -341,6 +341,26 @@ class InboxCase(unittest.TestCase):
                 decided_at="2026-10-22T08:00:00+00:00" if status != "requested" else "",
                 created_at="2026-10-21T08:00:00+00:00"))
         self.db.commit()
+        # An advance is pay (release review, Oct 27 2026): the HR contact
+        # without the pay grant has nothing to decide - no row, no amount.
+        import cache
+        cache.module_grants.invalidate()
+        self.assertEqual([r["key"] for r in self._inbox(HRC)["rows"] if r["key"].startswith("salary")], [])
+        self.db.query(models.NexusGroupMember).filter_by(group_id="g-ai-pay").delete()
+        self.db.query(models.NexusGroup).filter_by(id="g-ai-pay").delete()
+        self.db.add(models.NexusGroup(id="g-ai-pay", name="Payroll", allowed_modules="hr_comp:editor"))
+        self.db.add(models.NexusGroupMember(group_id="g-ai-pay", email=HRC))
+        self.db.commit()
+        cache.module_grants.invalidate()
+
+        def _drop_grant():
+            db = database.SessionLocal()
+            db.query(models.NexusGroupMember).filter_by(group_id="g-ai-pay").delete()
+            db.query(models.NexusGroup).filter_by(id="g-ai-pay").delete()
+            db.commit()
+            db.close()
+            cache.module_grants.invalidate()
+        self.addCleanup(_drop_grant)
         out = self._inbox(HRC)
         rows = {r["key"]: r for r in out["rows"]}
         self.assertEqual(set(rows), {"salary_advance:a1", "salary_advance_payout:a2"})

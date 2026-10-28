@@ -133,6 +133,32 @@ class StatementTests(ExitCase):
         self.assertEqual((cl["done"], cl["total"], cl["overdue"]), (1, 2, 1))
         self.assertEqual(st["summary"], {"owedToEmployee": {"USD": 395.0}, "toRecover": {"USD": 100.0}})
 
+    def test_an_advance_taken_by_the_open_final_card_is_not_recovered_twice(self):
+        # Release review, Oct 27 2026: a Rs 10,000 single-installment advance
+        # due in the final (not finalized) period comes out of the final pay -
+        # the statement must not also list it to recover.
+        rate = self.db.query(models.PayrollRate).filter_by(employee_email=EMP).one()
+        rate.currency, rate.hourly_rate = "INR", 2000.0
+        adv = self.db.query(models.SalaryAdvance).filter_by(id="adv-1").one()
+        adv.amount, adv.currency = 10000.0, "INR"
+        inst = self.db.query(models.SalaryAdvanceInstallment).filter_by(id="inst-1").one()
+        inst.amount, inst.currency, inst.date = 10000.0, "INR", self.start
+        self.db.commit()
+        st = self._st()["statement"]
+        self.assertFalse(st["timesheet"]["finalized"])
+        self.assertEqual((st["finalPay"]["grossPay"], st["finalPay"]["advanceRepayment"], st["finalPay"]["netPay"]),
+                         (14000.0, 10000.0, 4000.0))
+        a = st["advances"]["toRecover"][0]
+        self.assertEqual((a["balance"], a["inFinalPay"], a["repaid"]), (0.0, 10000.0, 10000.0))
+        self.assertEqual(st["summary"]["toRecover"], {})
+        # Pay covers only part of it: the rest is still to recover, once.
+        rate.hourly_rate = 1000.0                                   # 7 h = Rs 7,000
+        self.db.commit()
+        st = self._st()["statement"]
+        self.assertEqual(st["finalPay"]["netPay"], 0.0)
+        self.assertEqual(st["advances"]["toRecover"][0]["balance"], 3000.0)
+        self.assertEqual(st["summary"]["toRecover"], {"INR": 3000.0})
+
     def test_california_vacation_is_paid_out_sick_is_not(self):
         lv = self._st()["statement"]["leave"]
         self.assertEqual(lv["state"], "CA")

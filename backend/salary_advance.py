@@ -4,11 +4,13 @@ pay card line. The routes are routers/salary_advances.py.
 Who asks: a person whose role tier is manager or above (auth._LEVELS:
 manager 3, administrator 4, owner 5), for themself. Everyone else does not
 see the option.
-Who decides: ONLY HR as on time sheets - timesheet_review.is_hr (the
-person's company HR contact, an administrator or owner, a Full HR grant),
-inside the company walls. HR approves or declines a request and can grant an
-advance to anyone directly. Nobody decides their own (is_hr is never true on
-your own record - the own-pay rule).
+Who decides: HR for the person by the ONE scoped HR rule (hr_access.is_hr_for:
+the company's HR contact, an administrator or owner, a Full HR grant, inside
+their People scope / company walls) who ALSO holds the pay grant (an owner,
+or hr_comp Editor) - an advance is pay (release review, Oct 27 2026). HR
+without the pay grant sees that a request exists, never the amount, and
+cannot decide. HR approves or declines a request and can grant an advance to
+anyone directly. Nobody decides their own (the own-pay rule).
 
 Repayment: when HR marks an advance Paid Out (with the date), it is split
 into its installments (default 1) and the first comes out of the NEXT pay
@@ -102,6 +104,25 @@ def name_of(db: Session, email: str) -> str:
     return n or email
 
 
+_IST_MIN = 330   # India Standard Time, UTC+5:30
+
+
+def local_today(db: Session, hr_email: str, adv: SalaryAdvance) -> str:
+    """The latest "today" among the HR user's own local day, the person's
+    and their company's (an India company is on IST), and UTC - so a payout
+    entered on its real local date is never "in the future" because the
+    server runs on UTC (release review, Oct 27 2026)."""
+    tc = _tc()
+    days = [datetime.now(timezone.utc).date().isoformat(), tc._employee_today(db, norm(hr_email)),
+            tc._employee_today(db, norm(adv.employee_email))]
+    company = adv.company or ""
+    if company:
+        ent = db.query(HrEntity.country).filter(HrEntity.id == company).first()
+        if ent and (ent[0] or "").strip().upper() in ("IN", "INDIA"):
+            days.append((datetime.now(timezone.utc) + timedelta(minutes=_IST_MIN)).date().isoformat())
+    return max(days)
+
+
 def can_request(user: dict) -> bool:
     """Manager tier and up ask for their own advance (Neil, Oct 27)."""
     from auth import _LEVELS
@@ -123,34 +144,60 @@ def has_pay_rate(db: Session, email: str) -> bool:
     return db.query(PayrollRate.employee_email).filter(PayrollRate.employee_email == norm(email)).first() is not None
 
 
-def is_hr_for(db: Session, user: dict, email: str) -> bool:
-    """HR++ for this person: timesheet_review.is_hr (never on your own
-    record), inside the caller's company wall. Remembered for the session's
-    request, so a list of many advances asks once per person."""
-    from auth import company_ok, company_scope
-    key = (norm(user.get("email")), norm(email))
-    memo = db.info.setdefault("_advance_hr_for", {})
-    if key in memo:
-        return memo[key]
-    ok = False
-    if _tsr().is_hr(db, user.get("email") or "", email):
-        p = person(db, email)
-        if "_advance_scope" not in db.info or db.info["_advance_scope"][0] != key[0]:
-            db.info["_advance_scope"] = (key[0], company_scope(user, db))
-        ok = company_ok((p.company if p else "") or "", db.info["_advance_scope"][1])
-    memo[key] = ok
-    return ok
+def is_hr_for(db: Session, user, email: str) -> bool:
+    """HR for this person - the ONE scoped HR rule (hr_access.is_hr_for: the
+    company's HR contact, or an administrator / owner / Full HR grant whose
+    People scope covers the person). Never on your own record. HR alone
+    sees that an advance exists; the amounts are pay (sees_pay)."""
+    import hr_access
+    return hr_access.is_hr_for(db, user, email)
 
 
 def hr_anywhere(db: Session, email: str) -> bool:
     """Could this person be HR for anyone - so the HR side is worth showing."""
-    from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, level_for
-    me = norm(email)
-    if level_for(me, db) >= _LEVELS["administrator"]:
+    import hr_access
+    return hr_access.hr_anywhere(db, email)
+
+
+def _who(db: Session, user_or_email) -> dict:
+    from auth import level_for
+    if isinstance(user_or_email, dict):
+        return user_or_email
+    em = norm(user_or_email)
+    return {"email": em, "level": level_for(em, db)}
+
+
+def has_comp(db: Session, user_or_email, write: bool = False) -> bool:
+    """The pay grant (routers/hr.py require_hr_comp_read / _write): an owner,
+    or an hr_comp grant (Editor and up to change pay). The manager tier's
+    own-team view of People never sees pay."""
+    from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, hr_team_limited
+    user = _who(db, user_or_email)
+    if user.get("external"):
+        return False
+    if int(user.get("level") or 0) >= _LEVELS["owner"]:
         return True
-    if _module_level(me, "hr", db) >= _MODULE_LEVEL_RANK["full"]:
+    if hr_team_limited(user):
+        return False
+    need = _MODULE_LEVEL_RANK["editor"] if write else _MODULE_LEVEL_RANK["viewer"]
+    return _module_level(norm(user.get("email")), "hr_comp", db) >= need
+
+
+def sees_pay(db: Session, user_or_email, email: str) -> bool:
+    """Advance amounts are pay (release review, Oct 27 2026): the person
+    themself for their own, else HR for them who also holds the pay grant."""
+    user = _who(db, user_or_email)
+    if norm(user.get("email")) == norm(email):
         return True
-    return db.query(HrEntity).filter(func.lower(HrEntity.hr_contact_email) == me).first() is not None
+    return has_comp(db, user) and is_hr_for(db, user, email)
+
+
+def can_decide(db: Session, user_or_email, email: str) -> bool:
+    """Approve / decline / grant / pay out / change the schedule: HR for the
+    person AND the pay grant to change pay (an owner, or hr_comp Editor).
+    Never on your own advance."""
+    user = _who(db, user_or_email)
+    return has_comp(db, user, write=True) and is_hr_for(db, user, email)
 
 
 def log(adv: SalaryAdvance, by: str, action: str, note: str = "", detail: dict | None = None) -> None:
@@ -250,16 +297,23 @@ def outstanding(db: Session, email: str) -> list[dict]:
 def pending_for_hr(db: Session, user: dict) -> list[SalaryAdvance]:
     """What waits on this HR person: requests to decide and approved
     advances to pay out - for the Approvals Inbox (one query, filtered by
-    is_hr_for)."""
+    can_decide: HR for the person with the pay grant)."""
     rows = (db.query(SalaryAdvance).filter(SalaryAdvance.status.in_(("requested", "approved")),
                                            SalaryAdvance.employee_email != norm(user.get("email")))
             .order_by(SalaryAdvance.created_at).limit(500).all())
-    return [a for a in rows if is_hr_for(db, user, a.employee_email)]
+    return [a for a in rows if can_decide(db, user, a.employee_email)]
 
 
-def serialize(db: Session, adv: SalaryAdvance, rows: list | None = None, names: dict | None = None) -> dict:
+def serialize(db: Session, adv: SalaryAdvance, rows: list | None = None, names: dict | None = None,
+              viewer: dict | None = None) -> dict:
+    """The advance as `viewer` may see it (None = everything - internal
+    callers). Without sees_pay the amounts, balances, schedule amounts and
+    the history's notes (they quote amounts) are left out: HR without the pay
+    grant sees that a request exists, no more, and cannot decide."""
     rows = installments(db, adv.id) if rows is None else rows
     names = {} if names is None else names
+    pay = True if viewer is None else sees_pay(db, viewer, adv.employee_email)
+    decide = False if viewer is None else can_decide(db, viewer, adv.employee_email)
 
     def nm(e: str) -> str:
         e = norm(e)
@@ -277,7 +331,7 @@ def serialize(db: Session, adv: SalaryAdvance, rows: list | None = None, names: 
         schedule.append({"id": r.id, "seq": r.seq, "date": r.date, "periodStart": ps, "periodEnd": pe,
                          "amount": r2(r.amount), "deductedAmount": r2(r.deducted_amount), "status": r.status,
                          "carriedFrom": r.carried_from or "", "currency": r.currency or adv.currency})
-    return {"id": adv.id, "email": adv.employee_email, "name": adv.employee_name or nm(adv.employee_email),
+    out = {"id": adv.id, "email": adv.employee_email, "name": adv.employee_name or nm(adv.employee_email),
             "company": adv.company or "", "amount": r2(adv.amount), "currency": adv.currency or "USD",
             "reason": adv.reason or "", "installments": int(adv.installments or 1),
             "status": f["status"], "statusLabel": STATUS_LABEL.get(f["status"], f["status"].title()),
@@ -291,7 +345,17 @@ def serialize(db: Session, adv: SalaryAdvance, rows: list | None = None, names: 
             "repaid": f["repaid"], "balance": f["balance"], "scheduled": f["scheduled"], "schedule": schedule,
             "history": [{**h, "byName": nm(h.get("by", "")), "label": ACTION_WORD.get(h.get("action"), h.get("action"))}
                         for h in (adv.history or [])],
-            "createdAt": adv.created_at or "", "updatedAt": adv.updated_at or ""}
+            "createdAt": adv.created_at or "", "updatedAt": adv.updated_at or "",
+            "payVisible": pay, "canDecide": decide}
+    if not pay:
+        for k in ("amount", "repaid", "balance", "scheduled", "paymentRef"):
+            out.pop(k, None)
+        for row in out["schedule"]:
+            row.pop("amount", None)
+            row.pop("deductedAmount", None)
+        out["history"] = [{k: h.get(k) for k in ("at", "by", "byName", "action", "label") if k in h}
+                          for h in out["history"]]
+    return out
 
 
 # ── Notices: one per advance for HR, one per advance for the person ──────────
@@ -308,9 +372,15 @@ def hr_people(db: Session, adv: SalaryAdvance) -> list[str]:
     """Who hears HR is up - as on time sheets and reimbursements: the
     company's HR contact, and when there is none the owners. Never the
     person themself."""
-    hr = _tsr().hr_of(db, adv.employee_email)
-    out = [hr] if hr else [norm(x.email) for x in db.query(NexusRole).filter(NexusRole.role == "owner").all()]
-    return [e for e in out if e and e != norm(adv.employee_email)]
+    import hr_access
+    em = norm(adv.employee_email)
+    p = person(db, em)
+    company = adv.company or ((p.company if p else "") or "")
+    out = [h for h in hr_access.hr_contacts(db, company) if h != em and can_decide(db, h, em)]
+    if not out:
+        # No HR contact who can decide (none set, or no pay grant): the owners.
+        out = [norm(x.email) for x in db.query(NexusRole).filter(NexusRole.role == "owner").all()]
+    return [e for e in dict.fromkeys(out) if e and e != em]
 
 
 def tell_hr(db: Session, adv: SalaryAdvance, title: str, line: str, actor: str = "") -> None:
@@ -548,19 +618,31 @@ def on_finalize(db: Session, em: str, start: str, end: str, final_id: str, actor
     Inside the finalize transaction (the final row is not flushed yet, so the
     card is still the live one - the same figures the snapshot froze)."""
     em = norm(em)
+    tc = _tc()
+    # One person's schedule writes are serialized (the move / reschedule
+    # routes take the same lock first, then the advance row).
+    tc._lock_person(db, em)
     rows = [r for r in _rows_in(db, em, start, end) if r.status == "scheduled"]
     if not rows:
         return 0
-    tc = _tc()
     pay_type = tc._pay_type(db, em)
     card = _tsr().card_for(db, em, start, end, pay_type)
     applied = {ln["id"]: ln["applied"] for ln in card.get("advanceRepayments") or []}
     cur = card.get("currency") or pay_currency(db, em)
     span = f"{us_date(start)} - {us_date(end)}"
+    done = 0
     for r in rows:
         adv = db.query(SalaryAdvance).filter(SalaryAdvance.id == r.advance_id).with_for_update().first()
         if adv is None:
             continue
+        # Re-read the installment now the advance is locked: a move or a
+        # reschedule committed meanwhile may have canceled or moved it - act
+        # only on a row still scheduled inside this period.
+        r = (db.query(SalaryAdvanceInstallment).populate_existing()
+             .filter(SalaryAdvanceInstallment.id == r.id).first())
+        if r is None or r.status != "scheduled" or not ((start or "0") <= (r.date or "") <= (end or "9")):
+            continue
+        done += 1
         took = r2(applied.get(r.id, 0.0))
         rcur = r.currency or cur
         if took <= _EPS:
@@ -592,7 +674,7 @@ def on_finalize(db: Session, em: str, start: str, end: str, final_id: str, actor
             line += f" The other {money(short, rcur)} comes out of the pay period from {us_date(nxt)}."
         tell_person(db, adv, "Salary Advance Repayment", line, actor)
     _forget(db)
-    return len(rows)
+    return done
 
 
 def on_unfinalize(db: Session, final_id: str, actor: str) -> int:

@@ -13,7 +13,8 @@ the pay card line live in salary_advance.py; this is the routes.
     PUT    /salary-advances/{id}/schedule         HR: replace what is left to repay, with why
 
 Pay is restricted: the person and their HR (salary_advance.is_hr_for) only -
-a manager never sees anyone else's advance. Bells are server-side, one notice
+a manager never sees anyone else's advance; the amounts only with the pay
+grant (salary_advance.sees_pay), and deciding needs it too (can_decide). Bells are server-side, one notice
 per advance for HR and one for the person, updated in place.
 """
 import uuid
@@ -33,25 +34,40 @@ from models import SalaryAdvance, SalaryAdvanceInstallment
 router = APIRouter(prefix="/salary-advances", tags=["Salary Advances"], dependencies=[Depends(get_current_user)])
 
 
-def _get(db: Session, aid: str) -> SalaryAdvance:
+def _get(db: Session, aid: str, lock_person: bool = False) -> SalaryAdvance:
+    """The advance, row-locked. lock_person: a schedule write - take the
+    person's lock FIRST (the order salary_advance.on_finalize takes them in),
+    so a move / reschedule and a finalize never interleave."""
+    if lock_person:
+        who = db.query(SalaryAdvance.employee_email).filter(SalaryAdvance.id == aid).first()
+        if who is not None:
+            from routers.timeclock import _lock_person
+            _lock_person(db, who[0])
     adv = db.query(SalaryAdvance).filter(SalaryAdvance.id == aid).with_for_update().first()
     if adv is None:
         raise HTTPException(404, "Salary advance not found")
     return adv
 
 
+_NEEDS_PAY_GRANT = ("Deciding a salary advance needs the pay grant (Pay & Benefits Editor, or an owner) - an "
+                    "advance is pay.")
+
+
 def _hr_or_404(db: Session, user: dict, adv: SalaryAdvance) -> None:
-    """HR for this person, else 404 (existence must not leak) - except to the
-    person themself, who is told plainly that HR decides."""
-    if sa.is_hr_for(db, user, adv.employee_email):
+    """HR for this person with the pay grant (sa.can_decide), else 404
+    (existence must not leak) - except to the person themself, told plainly
+    that HR decides, and to HR without the pay grant, told what it needs."""
+    if sa.can_decide(db, user, adv.employee_email):
         return
     if sa.norm(user["email"]) == sa.norm(adv.employee_email):
         raise HTTPException(403, "HR decides on your salary advance - not you.")
+    if sa.is_hr_for(db, user, adv.employee_email):
+        raise HTTPException(403, _NEEDS_PAY_GRANT)
     raise HTTPException(404, "Salary advance not found")
 
 
-def _out(db: Session, adv: SalaryAdvance) -> dict:
-    return sa.serialize(db, adv)
+def _out(db: Session, adv: SalaryAdvance, user: dict) -> dict:
+    return sa.serialize(db, adv, viewer=user)
 
 
 def _amount(v) -> float:
@@ -117,9 +133,11 @@ def overview(user: dict = Depends(get_current_user), db: Session = Depends(get_d
         hr_rows = [a for a in rows if sa.is_hr_for(db, user, a.employee_email)]
     names: dict = {}
     can_request = sa.can_request(user)
-    return {"mine": [sa.serialize(db, a, names=names) for a in mine],
-            "hr": [sa.serialize(db, a, names=names) for a in hr_rows],
+    return {"mine": [sa.serialize(db, a, names=names, viewer=user) for a in mine],
+            "hr": [sa.serialize(db, a, names=names, viewer=user) for a in hr_rows],
             "canRequest": can_request, "canHr": can_hr,
+            # Grant / decide need the pay grant too (sa.can_decide).
+            "canGrant": bool(can_hr and sa.has_comp(db, user, write=True)),
             # Nothing to show: no option, no advance, not HR - the card hides.
             "show": bool(can_request or can_hr or mine),
             "payCurrency": sa.pay_currency(db, me), "payMethods": list(sa.PAY_METHODS),
@@ -131,7 +149,7 @@ def pending(user: dict = Depends(get_current_user), db: Session = Depends(get_db
     """What waits on me as HR - salary_advance.pending_for_hr (the Approvals
     Inbox reads the same function)."""
     names: dict = {}
-    return [sa.serialize(db, a, names=names) for a in sa.pending_for_hr(db, user)]
+    return [sa.serialize(db, a, names=names, viewer=user) for a in sa.pending_for_hr(db, user)]
 
 
 @router.get("/person/{email}")
@@ -145,7 +163,7 @@ def for_person(email: str, user: dict = Depends(get_current_user), db: Session =
             .order_by(SalaryAdvance.created_at.desc()).limit(200).all())
     names: dict = {}
     return {"email": em, "payCurrency": sa.pay_currency(db, em),
-            "advances": [sa.serialize(db, a, names=names) for a in rows]}
+            "advances": [sa.serialize(db, a, names=names, viewer=user) for a in rows]}
 
 
 # ── Ask / grant ──────────────────────────────────────────────────────────────
@@ -187,7 +205,7 @@ def request_advance(body: RequestIn, user: dict = Depends(get_current_user), db:
                f"{adv.employee_name} asked for a salary advance of {sa.money(amount, cur)}, repaid over "
                f"{n} pay period{'' if n == 1 else 's'}: {reason}", actor=me)
     db.commit()
-    return _out(db, adv)
+    return _out(db, adv, user)
 
 
 class GrantIn(RequestIn):
@@ -206,6 +224,8 @@ def grant(body: GrantIn, user: dict = Depends(get_current_user), db: Session = D
         raise HTTPException(403, "An advance for yourself is granted by another HR person.")
     if not sa.is_hr_for(db, user, em):
         raise HTTPException(404, "Pick someone in Nexus People")
+    if not sa.can_decide(db, user, em):
+        raise HTTPException(403, _NEEDS_PAY_GRANT)
     if (emp.status or "active").lower() in ("inactive", "offboarded", "terminated"):
         raise HTTPException(400, "This person has left - an advance can't be repaid from their pay.")
     amount, n = _amount(body.amount), _installments(body.installments)
@@ -222,7 +242,7 @@ def grant(body: GrantIn, user: dict = Depends(get_current_user), db: Session = D
     sa.tell_hr(db, adv, f"Salary Advance to Pay Out - {adv.employee_name}",
                f"{who} granted {adv.employee_name} {sa.money(amount, cur)}. Mark it Paid Out once it is paid.", actor=me)
     db.commit()
-    return _out(db, adv)
+    return _out(db, adv, user)
 
 
 # ── HR decides ───────────────────────────────────────────────────────────────
@@ -265,7 +285,7 @@ def decide(aid: str, body: DecideIn, user: dict = Depends(get_current_user), db:
         sa.tell_hr(db, adv, f"Salary Advance to Pay Out - {adv.employee_name}",
                    f"{who} approved {sa.money(adv.amount, adv.currency)}. Mark it Paid Out once it is paid.", actor=me)
     db.commit()
-    return _out(db, adv)
+    return _out(db, adv, user)
 
 
 class CancelIn(BaseModel):
@@ -280,8 +300,10 @@ def cancel(aid: str, body: CancelIn, user: dict = Depends(get_current_user), db:
     me = sa.norm(user["email"])
     adv = _get(db, aid)
     mine = me == sa.norm(adv.employee_email)
-    hr = sa.is_hr_for(db, user, adv.employee_email)
+    hr = sa.can_decide(db, user, adv.employee_email)
     if not mine and not hr:
+        if sa.is_hr_for(db, user, adv.employee_email):
+            raise HTTPException(403, _NEEDS_PAY_GRANT)
         raise HTTPException(404, "Salary advance not found")
     if adv.status == "requested" and mine:
         pass
@@ -304,7 +326,7 @@ def cancel(aid: str, body: CancelIn, user: dict = Depends(get_current_user), db:
         sa.tell_person(db, adv, "Salary Advance Canceled",
                        f"{who} canceled your salary advance of {sa.money(adv.amount, adv.currency)}: {note}", actor=me)
     db.commit()
-    return _out(db, adv)
+    return _out(db, adv, user)
 
 
 class PaidIn(BaseModel):
@@ -317,12 +339,12 @@ class PaidIn(BaseModel):
 def mark_paid(aid: str, body: PaidIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """HR paid it out: the repayment schedule starts the next pay period."""
     me = sa.norm(user["email"])
-    adv = _get(db, aid)
+    adv = _get(db, aid, lock_person=True)
     _hr_or_404(db, user, adv)
     if adv.status != "approved":
         raise HTTPException(409, "Only an approved advance can be paid out")
     paid_on = _day(body.paid_on, "Paid on")
-    if paid_on > date.today().isoformat():
+    if paid_on > sa.local_today(db, me, adv):
         raise HTTPException(400, "Paid on can't be in the future")
     if body.payment_method not in sa.PAY_METHODS:
         raise HTTPException(400, f"Method must be one of: {', '.join(sa.PAY_METHODS)}")
@@ -341,7 +363,7 @@ def mark_paid(aid: str, body: PaidIn, user: dict = Depends(get_current_user), db
     sa.settle_hr(db, adv, f"Salary Advance Paid Out - {adv.employee_name}",
                  f"{sa.name_of(db, me)} paid it out on {sa.us_date(paid_on)}.")
     db.commit()
-    return _out(db, adv)
+    return _out(db, adv, user)
 
 
 # ── HR changes the repayment ─────────────────────────────────────────────────
@@ -354,7 +376,7 @@ class MoveIn(BaseModel):
 @router.post("/{aid}/installments/{iid}/move")
 def move(aid: str, iid: str, body: MoveIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = sa.norm(user["email"])
-    adv = _get(db, aid)
+    adv = _get(db, aid, lock_person=True)
     _hr_or_404(db, user, adv)
     if adv.status != "paid_out":
         raise HTTPException(409, "Only a paid-out advance has installments to move")
@@ -376,7 +398,7 @@ def move(aid: str, iid: str, body: MoveIn, user: dict = Depends(get_current_user
                    f"{sa.name_of(db, me)} moved the {sa.money(row.amount, adv.currency)} repayment from the pay period "
                    f"starting {sa.us_date(old)} to the one starting {sa.us_date(start)}: {reason}", actor=me)
     db.commit()
-    out = _out(db, adv)
+    out = _out(db, adv, user)
     out["skippedFinalized"] = skipped
     return out
 
@@ -394,7 +416,7 @@ class ScheduleIn(BaseModel):
 @router.put("/{aid}/schedule")
 def set_schedule(aid: str, body: ScheduleIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = sa.norm(user["email"])
-    adv = _get(db, aid)
+    adv = _get(db, aid, lock_person=True)
     _hr_or_404(db, user, adv)
     if adv.status != "paid_out":
         raise HTTPException(409, "Only a paid-out advance has a repayment schedule")
@@ -407,6 +429,6 @@ def set_schedule(aid: str, body: ScheduleIn, user: dict = Depends(get_current_us
     sa.tell_person(db, adv, "Salary Advance Schedule Changed",
                    f"{sa.name_of(db, me)} changed how your salary advance is repaid: {plan}. Why: {reason}", actor=me)
     db.commit()
-    out = _out(db, adv)
+    out = _out(db, adv, user)
     out["skippedFinalized"] = skipped
     return out
