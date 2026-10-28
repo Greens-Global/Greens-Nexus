@@ -60,6 +60,7 @@ import scoped_settings as sc
 import workflows
 from models import (DocLetterhead, DocTemplate, DocTemplateVersion, HrEntity, HrLetterRequest,
                     HrSignRequest, NexusEmployee, NexusNotification)
+import job_switch
 
 SETTINGS_BASE = "hr_letters"
 LINK_KIND = "hr_letter"
@@ -971,6 +972,8 @@ def run_filing(db: Session, req: HrLetterRequest) -> None:
 def process_filing(limit: int = 10) -> int:
     """The filing pass. Runs in a worker thread (life_events_loop), never on
     the event loop."""
+    if job_switch.off("hr_letter_filing"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     db = SessionLocal()
     done = 0

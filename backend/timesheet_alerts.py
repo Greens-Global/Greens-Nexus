@@ -51,6 +51,7 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import NexusEmployee, NexusNotification, NexusRole, TimePunch, TimesheetReview
 from notify_rollup import resolve_rollup, upsert_rollup
+import job_switch
 
 CHECK_EVERY_SEC = 30 * 60
 DEFAULT_ESCALATE_DAYS = 2
@@ -316,6 +317,8 @@ def scan(db: Session, now_utc: datetime | None = None) -> dict:
 
 
 def _tick() -> dict:
+    if job_switch.off("period_close"):   # Workflows > Automations switch
+        return {}
     db = SessionLocal()
     try:
         # HR's corrected cards nobody signed in time are accepted as sent (Oct 22).

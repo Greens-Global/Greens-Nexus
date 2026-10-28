@@ -88,6 +88,7 @@ from sqlalchemy.orm.attributes import flag_modified
 import scoped_settings
 import workflows
 from models import HrEntity, HrLifeEvent, NexusEmployee, NexusNotification
+import job_switch
 
 SETTING_KEY = "hr_probation"
 CONFIRM_TEMPLATE_ID = "probation-confirmation-letter"
@@ -1063,6 +1064,8 @@ def run_daily() -> int:
     """From reminders_loop, already in a worker thread (asyncio.to_thread) -
     never on the event loop. Own session and commit; the emails go after the
     commit. Returns how many people were reminded."""
+    if job_switch.off("hr_probation"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     db = SessionLocal()
     sent, batch = 0, []

@@ -27,6 +27,7 @@ import kb_core
 import models
 from app_url import public_base
 from database import SessionLocal
+import job_switch
 
 REMIND_BEFORE_DAYS = 7
 RENEW_BEFORE_DAYS = 30
@@ -301,8 +302,10 @@ def run_owner_digests(db) -> int:
 def run_daily() -> dict:
     db = SessionLocal()
     try:
-        out = {"rules": run_rules(db), "renewals": run_renewals(db), "learners": run_learner_reminders(db),
-               "managers": run_manager_digests(db), "owners": run_owner_digests(db)}
+        out = {"rules": run_rules(db), "renewals": run_renewals(db)}
+        if not job_switch.off("kb_daily"):   # Workflows > Automations switch: the reminders and digests only
+            out.update({"learners": run_learner_reminders(db), "managers": run_manager_digests(db),
+                        "owners": run_owner_digests(db)})
         print(f"[kb] daily scan: {out}")
         return out
     finally:

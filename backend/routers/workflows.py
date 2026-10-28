@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
+import job_switch
 import models
 from auth import get_current_user, require_module_grant
 from database import get_db
@@ -166,6 +167,10 @@ class EnabledBody(BaseModel):
 
 class PauseBody(BaseModel):
     paused: bool
+
+
+class OffBody(BaseModel):
+    off: bool
 
 
 class DescribeBody(BaseModel):
@@ -444,7 +449,30 @@ def use_template(key: str, body: UseTemplateBody, user: dict = Depends(E), db: S
 # ── automations ──────────────────────────────────────────────────────────────
 @router.get("/automations")
 def list_automations(user: dict = Depends(R), db: Session = Depends(get_db)):
-    return automations.register(db, user)
+    out = automations.register(db, user)
+    off = set(job_switch.off_keys(db))
+    for j in out.get("jobs") or []:
+        j["off"] = j["key"] in off
+    return out
+
+
+# The per-job off switch (Oct 28 2026, job_switch.py): one org-wide list,
+# Global Admins only, an AuditLog row per flip so Settings > Logs shows who.
+@router.post("/automations/jobs/{key}/off")
+def job_off(key: str, body: OffBody, user: dict = Depends(GA), db: Session = Depends(get_db)):
+    job = next((j for j in automations.jobs() if j["key"] == key), None)
+    if job is None:
+        raise HTTPException(404, "No such automation")
+    if not job.get("switch", True):
+        raise HTTPException(409, "The Workflows runner has its own switches in Settings > Workflows")
+    job_switch.set_off(db, key, body.off, _me(user))
+    db.add(models.AuditLog(timestamp=_now(), user_email=_me(user),
+                           action="automation.off" if body.off else "automation.on",
+                           resource_type="automation", resource_id=key,
+                           details=json.dumps({"label": job["label"]}), module="workflows", kind="update"))
+    db.commit()
+    job["off"] = bool(body.off)
+    return job
 
 
 @router.post("/automations/task-rules/{rule_id}/enabled")

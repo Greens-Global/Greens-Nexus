@@ -78,6 +78,7 @@ from sqlalchemy.orm import Session
 
 import models
 import ticket_sla
+import job_switch
 
 PRIORITIES = ("urgent", "high", "medium", "low")
 PRIORITY_LABEL = {"urgent": "Urgent", "high": "High", "medium": "Medium", "low": "Low"}
@@ -1067,6 +1068,8 @@ def send_weekly(db: Session, email: str, ws: date, now: datetime | None = None) 
 def scan_once(now: datetime | None = None) -> int:
     """One pass of the weekly email. Blocking DB + Graph work - only ever
     run in a worker thread (weekly_loop)."""
+    if job_switch.off("ticket_report"):   # Workflows > Automations switch
+        return 0
     import ticket_notify
     from database import SessionLocal
     db = SessionLocal()

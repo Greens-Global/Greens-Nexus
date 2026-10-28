@@ -36,6 +36,7 @@ from database import SessionLocal
 from services import egnyte as egnyte_svc
 from services import construction_storage as storage
 from routers.files import fetchable_url
+import job_switch
 
 # Distinct from asana_sync's 728100177 - see note 1 above.
 _CONSTRUCTION_SWEEP_LOCK_KEY = 815224906
@@ -214,6 +215,8 @@ def _derive_thumbnail(db, media) -> None:
 
 def sweep_once() -> dict:
     """One tick. Synchronous by design - the caller runs it in a thread."""
+    if job_switch.off("construction_sweep"):   # Workflows > Automations switch
+        return {"filed": 0, "failed": 0, "dead": 0, "skipped": 0}
     counts = {"filed": 0, "failed": 0, "dead": 0, "skipped": 0}
     if not storage.egnyte_ready():
         # Unconfigured is a first-class state, not an error: rows stay pending
@@ -359,6 +362,8 @@ def run_ai_jobs_once() -> dict:
     `depends_on` is a hard gate, not a hint: a voice note's transcript is an
     INPUT to its log's summary, so summarizing before transcription finishes
     would produce a summary that silently ignores what the worker said."""
+    if job_switch.off("construction_ai"):   # Workflows > Automations switch
+        return {"done": 0, "failed": 0, "dead": 0, "skipped": 0, "blocked": 0}
     counts = {"done": 0, "failed": 0, "dead": 0, "skipped": 0, "blocked": 0}
     # Two independent integrations, so two independent gates. Running thumbnails
     # only when the Anthropic key happens to be set would make the grid's
@@ -454,6 +459,8 @@ def cut_due_drafts(today: date = None) -> dict:
     report row for this week_start is skipped. That is what makes a restart, a
     second tick in the same minute, or a manager who drafted it early all safe,
     with no extra state to keep correct."""
+    if job_switch.off("construction_ai"):   # Workflows > Automations switch
+        return {"cut": 0, "skipped": 0, "failed": 0}
     counts = {"cut": 0, "skipped": 0, "failed": 0}
     today = today or datetime.now(timezone.utc).date()
     db = SessionLocal()

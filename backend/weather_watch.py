@@ -53,6 +53,7 @@ from sqlalchemy.orm import Session
 import models
 from app_url import app_url
 from database import SessionLocal
+import job_switch
 
 SETTINGS_KEY = "weather_watch_config"
 WEATHER_SCAN_SEC = 30 * 60
@@ -795,6 +796,8 @@ def outlook_rows(db: Session, start: str, end: str, group_ids: list = None) -> l
 
 
 def _tick() -> dict:
+    if job_switch.off("weather_watch"):   # Workflows > Automations switch
+        return {}
     db = SessionLocal()
     try:
         return scan_once(db)

@@ -32,6 +32,7 @@ import ticket_inbound_parse
 from routers.task_util import log_activity
 
 from app_url import app_url
+import job_switch
 _SETTINGS_KEY = "ticket_notify_config"
 
 _DEFAULT_SETTINGS = {
@@ -906,6 +907,8 @@ def _ticket_scan_once() -> None:
     Graph send here would otherwise freeze every request on this worker, CORS
     preflights included, until it returned. Mirrors reminders_loop /
     long_session_loop, which already offload their scans this way."""
+    if job_switch.off("ticket_notify"):   # Workflows > Automations switch
+        return
     db = SessionLocal()
     try:
         _retry_failed_once(db)

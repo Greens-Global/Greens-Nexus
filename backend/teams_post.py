@@ -24,6 +24,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 
 import httpx
+import job_switch
 
 GRAPH = "https://graph.microsoft.com/v1.0"
 RETRY_EVERY_SEC = 180
@@ -156,6 +157,8 @@ def deliver_row(db, row) -> bool:
 
 
 def _sweep_once() -> int:
+    if job_switch.off("teams_post"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     from models import TimeBod
     db = SessionLocal()
@@ -262,6 +265,8 @@ def deliver_ticket_row(db, row) -> bool:
 
 
 def _sweep_ticket_once() -> int:
+    if job_switch.off("ticket_teams_post"):   # Workflows > Automations switch
+        return 0
     from database import SessionLocal
     from models import TicketTeamsMessage
     db = SessionLocal()

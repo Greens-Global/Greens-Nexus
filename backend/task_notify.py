@@ -38,6 +38,7 @@ import task_project_follow as project_follow
 from app_url import app_url
 from task_inbound_parse import reply_address, reply_mailbox
 from routers.task_util import log_activity, task_assignees
+import job_switch
 
 _SETTINGS_KEY = "task_notify_config"
 
@@ -836,15 +837,17 @@ def _task_scan_once(do_due: bool, do_retry: bool = True) -> None:
     used to freeze every request the worker was serving, CORS preflights
     included, for as long as the send took. Matches reminders_loop /
     long_session_loop, which already offload their scans the same way."""
+    mail_off = job_switch.off("task_notify")   # Workflows > Automations switch: the emails only
     db = SessionLocal()
     try:
         # Every tick: a person whose hour is up should not wait for the slower
         # retry/due cadences below.
         try:
-            flush_batches(db)
+            if not mail_off:
+                flush_batches(db)
         except Exception:
             db.rollback()
-        if do_retry:
+        if do_retry and not mail_off:
             _retry_failed_once(db)
         if do_due:
             # Recurrences first, so an occurrence created today is already on
@@ -860,7 +863,8 @@ def _task_scan_once(do_due: bool, do_retry: bool = True) -> None:
                 task_automation.run_scheduled(db, _business_today())
             except Exception:
                 db.rollback()
-            _due_reminders_once(db)
+            if not mail_off:
+                _due_reminders_once(db)
     finally:
         db.close()
 

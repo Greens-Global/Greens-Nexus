@@ -26,6 +26,7 @@ from sqlalchemy import text
 
 from routers.hr import _DOC_BUCKET
 from screenshot_migrate import _delete, _readable
+import job_switch
 
 _LOCK_KEY = 794214     # stable advisory-lock id (migrate loop uses 794213)
 _BATCH = 40
@@ -41,6 +42,8 @@ def _retention_days() -> int:
 def _sweep_batch(days: int) -> int:
     """Delete up to _BATCH frames older than `days`. Returns count deleted,
     or -1 when nothing is expired."""
+    if job_switch.off("screenshot_retention"):   # Workflows > Automations switch
+        return -1
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
     db = SessionLocal()
     is_pg = db.bind.dialect.name == "postgresql"
@@ -77,6 +80,8 @@ def _purge_activity(days: int) -> int:
     """Bulk-delete agent_activity rows older than `days` (DB rows only, no storage).
     These accumulate fast at scale (~1 row per app-segment per minute per person),
     so without this the table grows unbounded."""
+    if job_switch.off("screenshot_retention"):   # Workflows > Automations switch
+        return 0
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
     db = SessionLocal()
     is_pg = db.bind.dialect.name == "postgresql"
