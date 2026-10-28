@@ -4006,6 +4006,16 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(performance_loop()))
         except Exception as e:
             print(f"[startup] performance reminders loop skipped: {e}")
+        try:
+            # Workflows (Oct 28 2026): the runner - every 5 s, in a thread -
+            # drains the workflow_events outbox, runs the workflows each
+            # event starts, resumes due waits, fires schedules and date
+            # triggers. Sends inside are gated by is_deployed_worker (the
+            # email action). See workflows/runner.py.
+            from workflows.runner import workflows_loop
+            _tasks.append(_a.create_task(workflows_loop()))
+        except Exception as e:
+            print(f"[startup] workflows runner skipped: {e}")
         # The jobs below keep their own is_deployed_worker() gate INSIDE the
         # leader's job set, and the two gates answer different questions. Leader
         # election stops several DEPLOYED instances doing the same work twice;
@@ -4309,6 +4319,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[startup] leader election unavailable, running jobs directly: {e}")
         _start_background_jobs()
+    try:
+        # Workflows (Oct 28 2026): load the catalog packs in every worker at
+        # boot, so the first emit() of a request never pays the import and
+        # a pack that fails to import is seen here, not on a user's save.
+        import workflows as _workflows
+        _workflows.load_packs()
+    except Exception as e:
+        print(f"[startup] workflow packs not loaded: {e}")
     try:
         yield
     finally:
@@ -4848,3 +4866,5 @@ from routers import perf_reviews as perf_reviews_router  # noqa: E402 - new tabl
 app.include_router(perf_reviews_router.router)  # Performance: review cycles - People > Performance, Workday > Performance (Neil, Oct 27 2026)
 from routers import extra_time as extra_time_router  # noqa: E402
 app.include_router(extra_time_router.router)  # India Contractor Extra Time claims: file, approve, decline (Neil, Oct 27 2026, docs/India-Contractor-Pay.md)
+from routers import workflows as workflows_router  # noqa: E402 - eight new tables: create_all + explicit RLS lines above
+app.include_router(workflows_router.router)  # Workflows: when X happens, do Y across modules - catalog, builder, runs, approvals, settings (Neil, Oct 28 2026)

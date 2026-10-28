@@ -218,6 +218,19 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
         "approvals": {
             "inbox": int(inbox.get("total") or 0),
         },
+        # Workflows (Oct 28 2026): workflows the system paused (needs
+        # attention) in the caller's scope, plus workflow approvals waiting
+        # on them (the `workflow` source above).
+        "workflows": {
+            "overview": s(lambda: _workflows_attention(db, user)) + a("workflow", 0),
+        },
     }
     return {"counts": {v: {t: n for t, n in tabs.items() if n} for v, tabs in counts.items()
                        if any(tabs.values())}}
+
+
+def _workflows_attention(db: Session, user: dict) -> int:
+    from workflows import store as wf_store
+    if wf_store.grant_rank(db, user) < 1:
+        return 0
+    return wf_store.visible_workflows(db, user).filter(models.Workflow.status == "needs_attention").count()

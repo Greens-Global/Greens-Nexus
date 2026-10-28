@@ -782,3 +782,10 @@ def _extra_time(db: Session, user: dict, ctx: dict) -> list:
                        actions=(A_APPROVE, A_DECLINE_WHY, a_open("Review")),
                        link={"view": "hr", "sub": "hr-time-extra"}))
     return out
+
+
+# Workflows (Oct 28 2026): an Ask For Approval step's question, with the
+# step's own options as buttons. The source lives with the engine
+# (workflows/approvals.py) and registers itself on import.
+GROUPS.append(("workflows", "Workflows"))
+import workflows.approvals  # noqa: E402,F401 - registers the "workflow" source

@@ -1,0 +1,636 @@
+{
+  "actions": [
+    {
+      "adminOnly": false,
+      "key": "email",
+      "label": "Send An Email",
+      "module": "core",
+      "needsPerson": false,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "to",
+          "label": "To",
+          "max": null,
+          "options": null,
+          "required": true,
+          "type": "recipients"
+        },
+        {
+          "default": null,
+          "hint": "",
+          "key": "subject",
+          "label": "Subject",
+          "max": 200,
+          "options": null,
+          "required": true,
+          "type": "template"
+        },
+        {
+          "default": null,
+          "hint": "",
+          "key": "body",
+          "label": "Message",
+          "max": 5000,
+          "options": null,
+          "required": true,
+          "type": "template"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "notify",
+      "label": "Send A Notification",
+      "module": "core",
+      "needsPerson": false,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "to",
+          "label": "To",
+          "max": null,
+          "options": null,
+          "required": true,
+          "type": "recipients"
+        },
+        {
+          "default": null,
+          "hint": "",
+          "key": "title",
+          "label": "Title",
+          "max": 120,
+          "options": null,
+          "required": true,
+          "type": "template"
+        },
+        {
+          "default": null,
+          "hint": "",
+          "key": "body",
+          "label": "Message",
+          "max": 1000,
+          "options": null,
+          "required": false,
+          "type": "template"
+        },
+        {
+          "default": false,
+          "hint": "Shows the yellow priority bar",
+          "key": "priority",
+          "label": "Priority",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "teams",
+      "label": "Post To Teams",
+      "module": "core",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "to",
+          "label": "To",
+          "max": null,
+          "options": null,
+          "required": true,
+          "type": "recipients"
+        },
+        {
+          "default": null,
+          "hint": "",
+          "key": "message",
+          "label": "Message",
+          "max": 2000,
+          "options": null,
+          "required": true,
+          "type": "template"
+        },
+        {
+          "default": "direct",
+          "hint": "A 1:1 chat with each person, posted as the owner",
+          "key": "chat",
+          "label": "Chat",
+          "max": null,
+          "options": [
+            {
+              "label": "Direct Message",
+              "value": "direct"
+            }
+          ],
+          "required": false,
+          "type": "select"
+        }
+      ]
+    },
+    {
+      "adminOnly": true,
+      "key": "webhook",
+      "label": "Call A Webhook",
+      "module": "core",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "https:// only, host on the allow-list",
+          "key": "url",
+          "label": "URL",
+          "max": 500,
+          "options": null,
+          "required": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "hint": "Sent as the JSON body's payload; fields are filled in",
+          "key": "payload",
+          "label": "Payload",
+          "max": 5000,
+          "options": null,
+          "required": false,
+          "type": "template"
+        }
+      ]
+    }
+  ],
+  "entities": [
+    {
+      "dates": [],
+      "fields": [
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "country",
+          "label": "Country",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "region",
+          "label": "Region",
+          "type": "text",
+          "visibility": "all"
+        }
+      ],
+      "key": "company",
+      "label": "Company",
+      "module": "core",
+      "people": [
+        {
+          "key": "hr_contact",
+          "label": "HR Contact"
+        },
+        {
+          "key": "global_admins",
+          "label": "Global Admins"
+        }
+      ]
+    },
+    {
+      "dates": [
+        {
+          "key": "start_date",
+          "label": "Start Date",
+          "yearly": false
+        },
+        {
+          "key": "start_date",
+          "label": "Work Anniversary",
+          "yearly": true
+        },
+        {
+          "key": "birthday",
+          "label": "Birthday",
+          "yearly": true
+        }
+      ],
+      "fields": [
+        {
+          "key": "name",
+          "label": "Name",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "work_email",
+          "label": "Work Email",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "department",
+          "label": "Department",
+          "options": "departments",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "job_title",
+          "label": "Job Title",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "manager_email",
+          "label": "Manager",
+          "type": "person",
+          "visibility": "all"
+        },
+        {
+          "key": "company",
+          "label": "Company",
+          "options": "companies",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "employment_type",
+          "label": "Employment Type",
+          "options": [
+            {
+              "label": "Full Time",
+              "value": "full_time"
+            },
+            {
+              "label": "Part Time",
+              "value": "part_time"
+            },
+            {
+              "label": "Contractor",
+              "value": "contractor"
+            },
+            {
+              "label": "Intern",
+              "value": "intern"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "location",
+          "label": "Location",
+          "options": "locations",
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Onboarding",
+              "value": "onboarding"
+            },
+            {
+              "label": "Active",
+              "value": "active"
+            },
+            {
+              "label": "Inactive",
+              "value": "inactive"
+            },
+            {
+              "label": "Offboarded",
+              "value": "offboarded"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "start_date",
+          "label": "Start Date",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "birthday",
+          "label": "Birthday",
+          "type": "date",
+          "visibility": "hr"
+        }
+      ],
+      "key": "employee",
+      "label": "Person",
+      "module": "hr",
+      "people": [
+        {
+          "key": "self",
+          "label": "The Person"
+        },
+        {
+          "key": "manager",
+          "label": "Manager"
+        },
+        {
+          "key": "hr_contact",
+          "label": "HR Contact"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "changes": [],
+      "entity": "employee",
+      "group": "People",
+      "key": "employee.created",
+      "label": "Person Is Added",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "department",
+        "manager_email",
+        "job_title",
+        "company",
+        "employment_type",
+        "location",
+        "status"
+      ],
+      "entity": "employee",
+      "group": "People",
+      "key": "employee.field_changed",
+      "label": "Person Detail Changes",
+      "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [
+        "status"
+      ],
+      "entity": "employee",
+      "group": "People",
+      "key": "employee.status_changed",
+      "label": "Person Status Changes",
+      "module": "hr",
+      "volume": "normal"
+    }
+  ],
+  "filters": [
+    {
+      "key": "us_date",
+      "label": "US date (MM/DD/YYYY)"
+    },
+    {
+      "key": "us_datetime",
+      "label": "US date and time"
+    },
+    {
+      "key": "upper",
+      "label": "UPPER CASE"
+    },
+    {
+      "key": "lower",
+      "label": "lower case"
+    },
+    {
+      "key": "default",
+      "label": "Default when empty"
+    }
+  ],
+  "listSources": [],
+  "operators": {
+    "bool": [
+      {
+        "key": "is",
+        "label": "is"
+      },
+      {
+        "key": "changed",
+        "label": "changed"
+      }
+    ],
+    "date": [
+      {
+        "key": "is",
+        "label": "is"
+      },
+      {
+        "key": "before",
+        "label": "is before"
+      },
+      {
+        "key": "after",
+        "label": "is after"
+      },
+      {
+        "key": "within_next_days",
+        "label": "within the next N days"
+      },
+      {
+        "key": "within_last_days",
+        "label": "within the last N days"
+      },
+      {
+        "key": "is_empty",
+        "label": "is empty"
+      },
+      {
+        "key": "changed",
+        "label": "changed"
+      }
+    ],
+    "datetime": [
+      {
+        "key": "is",
+        "label": "is"
+      },
+      {
+        "key": "before",
+        "label": "is before"
+      },
+      {
+        "key": "after",
+        "label": "is after"
+      },
+      {
+        "key": "within_next_days",
+        "label": "within the next N days"
+      },
+      {
+        "key": "within_last_days",
+        "label": "within the last N days"
+      },
+      {
+        "key": "is_empty",
+        "label": "is empty"
+      },
+      {
+        "key": "changed",
+        "label": "changed"
+      }
+    ],
+    "money": [
+      {
+        "key": "is",
+        "label": "is"
+      },
+      {
+        "key": "is_not",
+        "label": "is not"
+      },
+      {
+        "key": "gt",
+        "label": "is greater than"
+      },
+      {
+        "key": "lt",
+        "label": "is less than"
+      },
+      {
+        "key": "is_empty",
+        "label": "is empty"
+      },
+      {
+        "key": "changed",
+        "label": "changed"
+      }
+    ],
+    "number": [
+      {
+        "key": "is",
+        "label": "is"
+      },
+      {
+        "key": "is_not",
+        "label": "is not"
+      },
+      {
+        "key": "gt",
+        "label": "is greater than"
+      },
+      {
+        "key": "lt",
+        "label": "is less than"
+      },
+      {
+        "key": "is_empty",
+        "label": "is empty"
+      },
+      {
+        "key": "changed",
+        "label": "changed"
+      }
+    ],
+    "people": [
+      {
+        "key": "is",
+        "label": "is"
+      },
+      {
+        "key": "is_not",
+        "label": "is not"
+      },
+      {
+        "key": "includes",
+        "label": "includes"
+      },
+      {
+        "key": "is_empty",
+        "label": "is empty"
+      },
+      {
+        "key": "changed",
+        "label": "changed"
+      }
+    ],
+    "person": [
+      {
+        "key": "is",
+        "label": "is"
+      },
+      {
+        "key": "is_not",
+        "label": "is not"
+      },
+      {
+        "key": "includes",
+        "label": "includes"
+      },
+      {
+        "key": "is_empty",
+        "label": "is empty"
+      },
+      {
+        "key": "changed",
+        "label": "changed"
+      }
+    ],
+    "select": [
+      {
+        "key": "is",
+        "label": "is"
+      },
+      {
+        "key": "is_not",
+        "label": "is not"
+      },
+      {
+        "key": "is_any_of",
+        "label": "is any of"
+      },
+      {
+        "key": "changed",
+        "label": "changed"
+      },
+      {
+        "key": "changed_to",
+        "label": "changed to"
+      },
+      {
+        "key": "changed_from",
+        "label": "changed from"
+      }
+    ],
+    "text": [
+      {
+        "key": "is",
+        "label": "is"
+      },
+      {
+        "key": "is_not",
+        "label": "is not"
+      },
+      {
+        "key": "contains",
+        "label": "contains"
+      },
+      {
+        "key": "is_empty",
+        "label": "is empty"
+      },
+      {
+        "key": "is_not_empty",
+        "label": "is not empty"
+      },
+      {
+        "key": "changed",
+        "label": "changed"
+      },
+      {
+        "key": "changed_to",
+        "label": "changed to"
+      },
+      {
+        "key": "changed_from",
+        "label": "changed from"
+      }
+    ]
+  }
+}

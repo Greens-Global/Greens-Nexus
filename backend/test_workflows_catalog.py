@@ -59,6 +59,15 @@ def db():
         pass
 
 
+@pytest.fixture(autouse=True)
+def _forget_test_registrations():
+    """A throwaway `test.*` registration never reaches the lock test."""
+    yield
+    for reg in (catalog.ACTIONS, catalog.EVENTS, catalog.LIST_SOURCES, catalog.ENTITIES):
+        for k in [k for k in reg if k.startswith("test.")]:
+            reg.pop(k, None)
+
+
 @pytest.fixture
 def employee_user():
     return {"email": EMP, "role": "employee", "level": 1}
@@ -122,7 +131,12 @@ def test_serialize_shape_is_the_builder_contract(db, hr_user):
     assert set(emp) == {"key", "label", "module", "fields", "dates", "people"}
     assert all({"key", "label", "type", "visibility"} <= set(f) for f in emp["fields"])
     dept = next(f for f in emp["fields"] if f["key"] == "department")
-    assert dept["type"] == "select" and dept["options"] == "departments"
+    # a string options name is served as the registered source's list
+    # (Task 6, option sources); the snapshot keeps the name
+    assert dept["type"] == "select" and isinstance(dept["options"], list)
+    snap_dept = next(f for e in catalog.snapshot()["entities"] if e["key"] == "employee"
+                     for f in e["fields"] if f["key"] == "department")
+    assert snap_dept["options"] == "departments"
     assert all(set(d) == {"key", "label", "yearly"} for d in emp["dates"])
     assert any(d["key"] == "start_date" and d["yearly"] and d["label"] == "Work Anniversary" for d in emp["dates"])
     assert all(set(p) == {"key", "label"} for p in emp["people"])
@@ -171,7 +185,6 @@ def test_snapshot_is_deterministic(db):
     assert "generatedAt" not in a
 
 
-@pytest.mark.xfail(strict=False, reason="packs land in Task 8")
 def test_lock_matches_committed_snapshot(db):
     assert catalog.lock_matches("workflows/catalog.lock.json"), (
         "run: python -c 'import workflows.catalog as c; c.load_packs(); c.write_lock(\"workflows/catalog.lock.json\")'")
