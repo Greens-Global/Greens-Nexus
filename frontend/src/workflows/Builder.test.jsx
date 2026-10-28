@@ -192,6 +192,31 @@ describe('Builder', () => {
     expect(screen.getByText('Unsaved')).toBeInTheDocument();
   });
 
+  it('shows an If / Else step with its branches as lanes and edits inside one', async () => {
+    api.wfGet.mockImplementation(() => Promise.resolve(workflow({
+      definition: {
+        ...definition,
+        steps: [{
+          id: 'if1', kind: 'if', conditions: [[{ field: 'status', op: 'is', value: 'left' }]], enabled: true,
+          then: [{ id: 'n1', kind: 'action', action: 'notify', params: { to: [{ kind: 'manager' }], title: 'Inside then' }, enabled: true }],
+          else: [],
+        }],
+      },
+    })));
+    open();
+    const sentence = await screen.findByText('Step if');
+    expect(screen.queryByText('Do notify: Inside then')).toBeNull();     // collapsed: only the If's sentence
+    fireEvent.click(sentence);
+    expect(screen.getByText('Then')).toBeInTheDocument();
+    expect(screen.getByText('Otherwise')).toBeInTheDocument();
+    expect(screen.getByText('Do notify: Inside then')).toBeInTheDocument();
+    // Delete the nested step: the Then lane empties, the If stays.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete step' })[1]);
+    expect(screen.queryByText('Do notify: Inside then')).toBeNull();
+    expect(screen.getByText('Step if')).toBeInTheDocument();
+    expect(screen.getByText('Unsaved')).toBeInTheDocument();
+  });
+
   it('saves the draft with the definition', async () => {
     open();
     await screen.findByText('Do notify: Welcome {{ subject.name }}');
