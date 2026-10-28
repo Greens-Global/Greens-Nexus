@@ -1349,6 +1349,14 @@ def _run_migrations():
             "ALTER TABLE time_punches ADD COLUMN entry_source VARCHAR DEFAULT ''",
             # Workflows run cap (Oct 28) - see the Postgres list. models.WorkflowRun.
             "ALTER TABLE workflow_runs ADD COLUMN active_seconds FLOAT DEFAULT 0",
+            # Holiday policies (Oct 29) - see the Postgres list. models.HrCompanyHoliday / HrHolidayPolicy.
+            "ALTER TABLE hr_company_holidays ADD COLUMN policy_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_company_holidays ADD COLUMN policy_key VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_company_holidays ADD COLUMN actual_date VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_company_holidays ADD COLUMN overridden INTEGER DEFAULT 0",
+            "CREATE INDEX IF NOT EXISTS ix_hr_company_holidays_policy_id ON hr_company_holidays (policy_id)",
+            "ALTER TABLE hr_holiday_policies ADD COLUMN description VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_holiday_policies ADD COLUMN weekend_rule VARCHAR DEFAULT 'keep'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3184,6 +3192,22 @@ def _run_migrations():
         # far - the engine fails the run at 10 minutes of active work (spec
         # 6.5). models.WorkflowRun.active_seconds.
         "ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS active_seconds FLOAT DEFAULT 0",
+        # Holiday policies (Neil, Oct 29 2026, docs/superpowers/specs/
+        # 2026-10-29-holiday-policies-design.md): a policy is a live link to
+        # the companies it applies to - company rows a policy put there carry
+        # policy_id / policy_key, the real date when observed on another day
+        # (actual_date) and whether the company changed it (overridden); the
+        # policy gains a description and a weekend rule; the assignments are a
+        # new table - explicit RLS. models.HrCompanyHoliday / HrHolidayPolicy /
+        # HrHolidayPolicyAssignment.
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS policy_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS policy_key VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS actual_date VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS overridden INTEGER DEFAULT 0",
+        "CREATE INDEX IF NOT EXISTS ix_hr_company_holidays_policy_id ON hr_company_holidays (policy_id)",
+        "ALTER TABLE hr_holiday_policies ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_holiday_policies ADD COLUMN IF NOT EXISTS weekend_rule VARCHAR DEFAULT 'keep'",
+        "ALTER TABLE hr_holiday_policy_assignments ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
