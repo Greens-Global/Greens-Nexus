@@ -6,7 +6,9 @@
 // person's advances the viewer may see (salary_advance.view_of), with HR's
 // actions: Approve / Decline, Mark Paid Out, Move an installment, Change
 // Schedule, Cancel. The employee's own Time Sheet shows "Your Salary
-// Advances", read-only. Each repayment is a "Salary Advance Repayment" line
+// Advances", read-only - but whoever asked for an advance (requestedBy) may
+// Cancel Request while it waits, on their own sheet too (an advance asked
+// for oneself before Oct 29 2026). Each repayment is a "Salary Advance Repayment" line
 // on the card. Server side: routers/salary_advances.py + salary_advance.py.
 import { useCallback, useEffect, useState } from 'react';
 import { Banknote, ChevronDown, Plus, Trash2 } from 'lucide-react';
@@ -26,6 +28,9 @@ const lbl = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: '
 const small = { fontSize: 12, padding: '5px 10px' };
 const pill = { display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' };
 const todayIso = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; };
+// A plain YYYY-MM-DD day (paid out on, a pay period) - never a timestamp:
+// slicing a timestamp takes its UTC day, a day late for a US evening. A
+// timestamp (requestedAt) goes through formatDate, on the viewer's clock.
 const day = (iso) => (iso ? formatDate(`${iso.slice(0, 10)}T12:00:00`) : '');
 
 const money = (n, cur) => {
@@ -191,7 +196,8 @@ function ScheduleEditor({ adv, onClose, onSaved, toastOk, toastErr }) {
 
 /** One advance and whatever this viewer can do to it. `mine`: the
  *  employee's own sheet (read-only). `asker`: the viewer asked for it
- *  (may cancel while it waits). HR's actions follow `a.canDecide`. */
+ *  (may cancel while it waits - on their own sheet too, the server allows
+ *  it: routers/salary_advances.cancel). HR's actions follow `a.canDecide`. */
 function AdvanceRow({ a, mine, asker, onChanged, toastOk, toastErr }) {
   const [mode, setMode] = useState('');          // '' | decline | cancel | pay | move:<id> | schedule
   const [note, setNote] = useState('');
@@ -219,7 +225,7 @@ function AdvanceRow({ a, mine, asker, onChanged, toastOk, toastErr }) {
         <StatusLabel label={a.statusLabel} color={STATUS_COLOR[a.status]} size="sm" />
       </div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <span>{a.source === 'grant' ? `Granted by ${a.requestedByName}` : `Requested ${day(a.requestedAt)}${a.requestedByName ? ` by ${a.requestedByName}` : ''}`}</span>
+        <span>{a.source === 'grant' ? `Granted by ${a.requestedByName}` : `Requested ${formatDate(a.requestedAt)}${a.requestedByName ? ` by ${a.requestedByName}` : ''}`}</span>
         <span>{a.installments} pay period{a.installments === 1 ? '' : 's'}</span>
         {a.paidOn && <span>Paid out {day(a.paidOn)}</span>}
         {balance && <span>Repaid {money(a.repaid, a.currency)} · Balance {money(a.balance, a.currency)}</span>}
@@ -276,7 +282,7 @@ function AdvanceRow({ a, mine, asker, onChanged, toastOk, toastErr }) {
         {act && owed && mode === '' && (
           <button type="button" className="secondary-btn" style={small} disabled={busy} onClick={() => setMode('schedule')}>Change Schedule</button>
         )}
-        {mode === '' && !mine && ((asker && a.status === 'requested') || (act && ['requested', 'approved'].includes(a.status))) && (
+        {mode === '' && ((asker && a.status === 'requested') || (act && ['requested', 'approved'].includes(a.status))) && (
           <button type="button" className="secondary-btn" style={small} disabled={busy}
             onClick={() => (act ? setMode('cancel') : run(() => api.cancelSalaryAdvance(a.id, {}), 'Canceled'))}>Cancel Request</button>
         )}
