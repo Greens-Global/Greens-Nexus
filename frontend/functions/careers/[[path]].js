@@ -29,12 +29,14 @@ function backend(url, env) {
   return ((env && env.API_ORIGIN) || (url.hostname.startsWith('dev.') ? DEV_ORIGIN : PROD_ORIGIN)).replace(/\/+$/, '');
 }
 
-async function fromApi(request, target) {
+async function fromApi(request, target, env) {
   // The visitor's address, as functions/api does, so the API's per-IP rate
-  // limit sees the visitor and not Cloudflare.
+  // limit sees the visitor and not Cloudflare - believed by the API only with
+  // the edge secret beside it (NEXUS_EDGE_SECRET, backend/client_ip.py).
   const headers = new Headers({ accept: 'application/json' });
   const visitor = request.headers.get('cf-connecting-ip');
   if (visitor) headers.set('X-Forwarded-For', visitor);
+  if (env && env.NEXUS_EDGE_SECRET) headers.set('X-Nexus-Edge', env.NEXUS_EDGE_SECRET);
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
   try {
@@ -52,7 +54,7 @@ export async function onRequest(context) {
 
   if (url.pathname === '/careers/sitemap.xml') {
     try {
-      const r = await fromApi(request, `${origin}/careers/sitemap.xml`);
+      const r = await fromApi(request, `${origin}/careers/sitemap.xml`, env);
       if (r.ok) {
         return new Response(r.body, { status: 200, headers: { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=900' } });
       }
@@ -67,7 +69,7 @@ export async function onRequest(context) {
 
   let seo = null;
   try {
-    const r = await fromApi(request, `${origin}/careers/page/${segs.slice(1).map(encodeURIComponent).join('/')}`);
+    const r = await fromApi(request, `${origin}/careers/page/${segs.slice(1).map(encodeURIComponent).join('/')}`, env);
     if (r.ok) seo = await r.json();
   } catch { seo = null; }
   if (!seo || typeof seo.headHtml !== 'string' || typeof seo.bodyHtml !== 'string') return shell;

@@ -10,8 +10,10 @@
 // adds the same JSON-LD itself - only when the page has none yet.
 //
 // The form sends the resume to the API, which checks it is really a PDF or
-// Word file and keeps it in a private bucket. The hidden "website" field is
-// a honeypot: people never see it, bots fill it in.
+// Word file and keeps it in a private bucket. The hidden "nx_f2" field is a
+// honeypot: people never see it, bots fill it in. Its name means nothing on
+// purpose and it is marked new-password, so no browser or password manager
+// autofills it for a real applicant (release review, Oct 27 2026).
 import { useEffect, useRef, useState } from 'react';
 import { MapPin, Briefcase, CalendarDays, CheckCircle, Upload, ArrowLeft, DollarSign } from 'lucide-react';
 import { fetchCareersCompany, fetchCareersOpening, submitCareersApplication } from '../api';
@@ -133,7 +135,7 @@ export default function PublicCareers({ slug, openingId }) {
 }
 
 export function ApplyForm({ opening, company, consentText }) {
-  const [v, setV] = useState({ first_name: '', last_name: '', email: '', phone: '', location: '', linkedin_url: '', website: '' });
+  const [v, setV] = useState({ first_name: '', last_name: '', email: '', phone: '', location: '', linkedin_url: '', nx_f2: '' });
   const [file, setFile] = useState(null);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -192,8 +194,8 @@ export function ApplyForm({ opening, company, consentText }) {
       </div>
       {/* The honeypot: hidden from people and screen readers; a bot fills it. */}
       <div aria-hidden="true" style={{ position: 'absolute', left: '-10000px', width: 1, height: 1, overflow: 'hidden' }}>
-        <label htmlFor="ap-website">Website</label>
-        <input id="ap-website" name="website" tabIndex={-1} autoComplete="off" value={v.website} onChange={set('website')} />
+        <label htmlFor="ap-nx_f2">Leave Blank</label>
+        <input id="ap-nx_f2" name="nx_f2" tabIndex={-1} autoComplete="new-password" value={v.nx_f2} onChange={set('nx_f2')} />
       </div>
       <label style={lbl}>Resume *</label>
       <div role="button" tabIndex={0} onClick={() => fileRef.current?.click()} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileRef.current?.click(); } }}

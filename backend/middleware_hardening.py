@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from client_ip import client_ip as _shared_client_ip
+from client_ip import client_ip as _shared_client_ip, rate_key as _rate_key
 
 
 def security_log(action: str, detail: str, ip: str = "", email: str = "") -> None:
@@ -131,7 +131,7 @@ class AuthFailureThrottle(BaseHTTPMiddleware):
         self._blocked: dict = {}       # ip -> unblock_at
 
     async def dispatch(self, request, call_next):
-        ip = _client_ip(request)
+        ip = _rate_key(_client_ip(request))      # an IPv6 line counts as its /64
         now = time.time()
         with self._lock:
             unblock = self._blocked.get(ip, 0)
@@ -220,6 +220,10 @@ class RequestRateLimit(BaseHTTPMiddleware):
     SHARED_SOURCE_PER_MIN = int(os.getenv("NEXUS_RL_SHARED", "120"))
     SHARED_SOURCE_PREFIXES = ("/mail-actions/", "/briefing-actions/", "/webhooks/github")
     EXEMPT_PREFIXES = ("/health", "/version")
+    # Public uploads refused by Content-Length before the body is read: the
+    # careers resume is capped at 10 MB, the multipart form around it is small.
+    BODY_CAPS_BYTES = (("/careers/apply/", 11 * 1024 * 1024),)
+    BODY_CAPS = tuple(p for p, _ in BODY_CAPS_BYTES)
     ENABLED = os.getenv("NEXUS_RATE_LIMIT", "on").strip().lower() not in ("off", "0", "false", "no")
     MAX_KEYS = 20000                 # bound memory under spoofed floods
     MAX_LOGGED = 5000
@@ -264,12 +268,23 @@ class RequestRateLimit(BaseHTTPMiddleware):
         return False
 
     async def dispatch(self, request, call_next):
+        path = request.url.path
+        if path.startswith(self.BODY_CAPS) and request.method == "POST":
+            # Refused on the header, before a byte of the body is read
+            # (release review, Oct 27 2026): the apply form takes one resume.
+            cap = next(n for pre, n in self.BODY_CAPS_BYTES if path.startswith(pre))
+            try:
+                size = int(request.headers.get("content-length") or 0)
+            except ValueError:
+                size = 0
+            if size > cap:
+                return Response(content=json.dumps({"detail": "That upload is too large."}),
+                                status_code=413, media_type="application/json")
         if not self.ENABLED or request.method == "OPTIONS":
             return await call_next(request)
-        path = request.url.path
         if path.startswith(self.EXEMPT_PREFIXES):
             return await call_next(request)
-        ip = _client_ip(request) or "?"
+        ip = _rate_key(_client_ip(request)) or "?"   # an IPv6 line counts as its /64
         # Credential-taking routes are keyed on the IP whatever headers came
         # with the request - see the class docstring.
         if path.startswith(self.SENSITIVE_PREFIXES):

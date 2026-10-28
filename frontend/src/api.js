@@ -3298,5 +3298,5 @@ async function _publicCareers(path, init = {}) {
 export const fetchCareersCompany = (slug) => _publicCareers(`public/${encodeURIComponent(slug)}`);
 export const fetchCareersOpening = (slug, id) => _publicCareers(`public/${encodeURIComponent(slug)}/${encodeURIComponent(id)}`);
 // `form` is a FormData: first_name, last_name, email, phone, location,
-// linkedin_url, consent, website (the honeypot - always empty) and resume.
+// linkedin_url, consent, nx_f2 (the honeypot - always empty) and resume.
 export const submitCareersApplication = (openingId, form) => _publicCareers(`apply/${encodeURIComponent(openingId)}`, { method: 'POST', body: form });

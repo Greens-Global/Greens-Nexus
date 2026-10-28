@@ -160,13 +160,15 @@ def _email(heading: str, intro: str, rows: list, button: str, url: str, footer: 
 
 def send_emails(batch: list) -> None:
     """Runs after the response (BackgroundTasks). One failure never stops the
-    rest; the bell is already there either way."""
+    rest; the bell is already there either way. The failure line names no
+    address and no error text (which can echo one): careers confirmations
+    go through here, and an applicant's email does not belong in the log."""
     import graph_mail
-    for to, subject, html in batch:
+    for i, (to, subject, html) in enumerate(batch):
         try:
             graph_mail.send_mail(from_email=graph_mail.DEFAULT_FROM_EMAIL, to=[to], cc=None, subject=subject, html=html)
         except Exception as e:   # noqa: BLE001 - never fail the batch for one address
-            print(f"[role-change] email to {to} failed: {e}")
+            print(f"[role-change] email {i + 1} of {len(batch)} failed: {type(e).__name__}")
 
 
 # ── ask / decide / cancel ────────────────────────────────────────────────────

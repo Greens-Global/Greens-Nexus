@@ -53,6 +53,9 @@ describe('PublicCareers', () => {
     expect(await screen.findByRole('alert', {}, { timeout: 5000 })).toHaveTextContent('Resume');
     expect(submit).not.toHaveBeenCalled();
 
+    const trap = screen.getByLabelText('Leave Blank');
+    expect(trap.getAttribute('autocomplete')).toBe('new-password');
+    expect(trap.getAttribute('name')).toBe('nx_f2');
     const input = screen.getByLabelText('Resume');
     fireEvent.change(input, { target: { files: [new File(['x'], 'cv.exe', { type: 'application/octet-stream' })] } });
     expect(screen.getByRole('alert')).toHaveTextContent('PDF or Word');
@@ -64,7 +67,8 @@ describe('PublicCareers', () => {
     expect(id).toBe('op-1');
     expect(form.get('first_name')).toBe('Jane');
     expect(form.get('consent')).toBe('true');
-    expect(form.get('website')).toBe('');            // the honeypot stays empty for people
+    expect(form.get('nx_f2')).toBe('');              // the honeypot stays empty for people
+    expect(form.get('website')).toBeNull();          // renamed: no semantic name for autofill to match
     expect(form.get('resume').name).toBe('cv.pdf');
   });
 

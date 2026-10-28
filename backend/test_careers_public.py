@@ -5,8 +5,9 @@ asked for one, who applied, or a private pay range leaves; the JobPosting
 JSON-LD carries baseSalary only when the public pay toggle is on; the
 apply form checks its fields, the honeypot, consent and the resume's real
 type and size, is on the sensitive rate-limit list, creates a candidate at
-Applied linked to the opening (source Careers Page) and updates - never
-duplicates - one who applies again.
+Applied linked to the opening (source Careers Page) and never duplicates -
+nor changes - one who applies again (release review, Oct 27 2026: a re-apply
+is a timeline note, plus an additional resume while still at Applied).
 
 Run with: python -m unittest test_careers_public -v
 """
@@ -79,6 +80,7 @@ class CareersCase(unittest.TestCase):
         self.db.add(self._op("op-old", status="open", title="Expired Job", valid_through="2020-01-01"))
         self.db.commit()
         careers._ip_hits.clear()
+        careers._mail_hits.clear()
         self.stored, self.mails = {}, []
         self._put, self._send, self._notify = esign._storage_put, careers._send_confirmation, task_notify.notify_task_event
 
@@ -106,7 +108,7 @@ class CareersCase(unittest.TestCase):
     def _apply(self, opening="op-open", files=None, **kw):
         data = {"first_name": "Jane", "last_name": "Doe", "email": "Jane@Example.com", "phone": "(512) 555-0100",
                 "location": "Austin, TX", "linkedin_url": "https://www.linkedin.com/in/janedoe", "consent": "true",
-                "website": ""}
+                "nx_f2": ""}
         data.update(kw)
         if files is None:
             files = {"resume": ("Jane Doe.pdf", PDF, "application/pdf")}
@@ -134,6 +136,15 @@ class PublicReadTests(CareersCase):
         for hidden in ("op-draft", "op-paused", "op-old", "nope"):
             self.assertEqual(self.client.get(f"/careers/public/greens-test-co/{hidden}").status_code, 404)
         self.assertEqual(self.client.get("/careers/public/no-such-company").status_code, 404)
+
+    def test_a_company_with_nothing_listed_has_no_public_page(self):
+        self.db.add(models.HrEntity(id="ent-quiet", name="Quiet Holdings", created_at="2026-02-01"))
+        self.db.add(self._op("op-q-draft", company="ent-quiet", status="draft", title="Not Yet"))
+        self.db.commit()
+        for url in ("/careers/public/quiet-holdings", "/careers/page/quiet-holdings"):
+            r = self.client.get(url)
+            self.assertEqual(r.status_code, 404, url)
+            self.assertEqual(r.json(), self.client.get("/careers/public/no-such-company").json())
 
     def test_job_posting_structured_data(self):
         ld = self.client.get("/careers/public/greens-test-co/op-open").json()["jsonLd"]
@@ -227,16 +238,49 @@ class ApplyTests(CareersCase):
             self.db.query(models.HrDepartment).filter_by(id="d-acct-c").delete()
             self.db.commit()
 
-    def test_the_same_person_again_updates_not_duplicates(self):
+    def _with_screener(self):
+        head = "hal.head@greensglobal.com"
+        self.db.add(models.NexusEmployee(id="e-head", work_email=head, first_name="Hal", last_name="H",
+                                         company=ENT, status="active"))
+        self.db.add(models.HrDepartment(id="d-acct-c", company_id=ENT, name="Accounting", lead_email=head))
+        self.db.commit()
+        self.addCleanup(lambda: (self.db.query(models.HrDepartment).filter_by(id="d-acct-c").delete(),
+                                 self.db.commit()))
+
+    def _resume_attachments(self, cand):
+        return sorted(a.name for a in self.db.query(models.TaskAttachment).filter_by(task_id=cand.screen_task_id))
+
+    def test_the_same_person_again_never_changes_the_candidate(self):
+        import task_files
+        self._with_screener()
+        stored = []
+        orig = task_files.store_bytes
+        task_files.store_bytes = lambda name, raw, ctype: (stored.append(name) or f"https://x.supabase.co/storage/v1/object/public/task-files/{len(stored)}")
+        self.addCleanup(setattr, task_files, "store_bytes", orig)
         self.assertEqual(self._apply().status_code, 200)
-        r = self._apply(phone="512-555-0199", files={"resume": ("cv.docx", _docx(), "application/octet-stream")})
+        before = self._cands()[0]
+        snap = (before.first_name, before.last_name, before.email, before.phone, before.location,
+                before.linkedin_url, before.resume_url, before.applied_at)
+        self.assertEqual(self._resume_attachments(before), ["Resume - Jane_Doe.pdf"])
+        r = self._apply(first_name="Mallory", last_name="X", phone="512-555-0199", location="Elsewhere",
+                        linkedin_url="https://www.linkedin.com/in/mallory",
+                        files={"resume": ("cv.docx", _docx(), "application/octet-stream")})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json(), careers._OK)                 # the answer never says which it was
         cands = self._cands()
         self.assertEqual(len(cands), 1)
-        self.assertEqual(cands[0].phone, "512-555-0199")
-        self.assertTrue(cands[0].resume_url.endswith("cv.docx"))
-        self.assertEqual(len(self.db.query(models.NexusNotification).filter_by(recipient=OWNER_EMAIL).all()), 1)
+        c = cands[0]
+        self.assertEqual((c.first_name, c.last_name, c.email, c.phone, c.location, c.linkedin_url,
+                          c.resume_url, c.applied_at), snap)
+        # Still Applied from the careers page: the new resume is ADDED, the first one stays.
+        names = self._resume_attachments(c)
+        self.assertEqual(len(names), 2)
+        self.assertIn("Resume - Jane_Doe.pdf", names)
+        self.assertTrue(any(n.startswith("Additional Resume (") and n.endswith("cv.docx") for n in names), names)
+        self.assertEqual(len(self.stored), 1)                  # no second hr-docs upload, resume_url untouched
+        notes = [e.note for e in self.db.query(models.HrStageEvent).filter_by(candidate_id=c.id, kind="note")]
+        self.assertEqual(len(notes), 1)
+        self.assertRegex(notes[0], r"^Applied again on \d{2}/\d{2}/\d{4}")
         self.assertEqual(len(self.mails), 1)                   # no second email the same day
         # Another person is a second applicant in the same grouped bell.
         self._apply(email="sam@example.com", first_name="Sam")
@@ -244,13 +288,52 @@ class ApplyTests(CareersCase):
         self.assertEqual(len(bells), 1)
         self.assertIn("2 applicants", bells[0].body)
 
+    def test_a_re_apply_past_applied_or_from_elsewhere_is_a_note_only(self):
+        import task_files
+        self._with_screener()
+        orig = task_files.store_bytes
+        task_files.store_bytes = lambda name, raw, ctype: "https://x.supabase.co/storage/v1/object/public/task-files/r"
+        self.addCleanup(setattr, task_files, "store_bytes", orig)
+        self.assertEqual(self._apply().status_code, 200)
+        c = self._cands()[0]
+        for change in ({"stage": "interview"}, {"stage": "applied", "source": "Referral"}):
+            self.db.query(models.HrCandidate).filter_by(id=c.id).update(change)
+            self.db.commit()
+            self.assertEqual(self._apply(first_name="Mallory").json(), careers._OK)
+            c = self._cands()[0]
+            self.assertEqual(c.first_name, "Jane")
+            self.assertEqual(self._resume_attachments(c), ["Resume - Jane_Doe.pdf"])
+        notes = [e.note for e in self.db.query(models.HrStageEvent).filter_by(candidate_id=c.id, kind="note")]
+        self.assertEqual(len(notes), 2)
+        self.assertTrue(all(n.startswith("Applied again on ") and "additional" not in n for n in notes), notes)
+
+    def test_the_daily_cap_answers_an_earlier_applicant_like_anybody(self):
+        self.assertEqual(self._apply().status_code, 200)
+        old, careers.APPLY_PER_OPENING_DAY = careers.APPLY_PER_OPENING_DAY, 1
+        try:
+            again = self._apply()                               # Jane, already on file
+            fresh = self._apply(email="new@example.com")
+        finally:
+            careers.APPLY_PER_OPENING_DAY = old
+        self.assertEqual((again.status_code, fresh.status_code), (429, 429))
+        self.assertEqual(again.json(), fresh.json())
+
     def test_honeypot_looks_like_success_and_keeps_nothing(self):
-        r = self._apply(website="http://spam.example")
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json(), careers._OK)
+        before = careers._honeypot["dropped"]
+        for kw in ({"nx_f2": "http://spam.example"}, {"website": "http://spam.example"}):   # new name and old
+            r = self._apply(**kw)
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.json(), careers._OK)
         self.assertEqual(self._cands(), [])
         self.assertEqual(self.stored, {})
         self.assertEqual(self.mails, [])
+        self.assertEqual(careers._honeypot["dropped"], before + 2)   # counted and logged, not silent
+
+    def test_the_confirmation_names_the_job_never_the_typed_name(self):
+        self.assertEqual(self._apply(first_name="<b>Click here</b>").status_code, 200)
+        to, subject, html = self.mails[0]
+        self.assertIn("Thank you for applying", html)
+        self.assertNotIn("Click here", html + subject)
 
     def test_field_checks(self):
         for kw, word in (({"consent": ""}, "agree"), ({"email": "not-an-email"}, "email"),
@@ -293,6 +376,57 @@ class ApplyTests(CareersCase):
         for i in range(careers.EMAILS_PER_ADDRESS_DAY + 1):
             self.assertEqual(self._apply(opening=f"op-x{i}").status_code, 200)
         self.assertEqual(len(self.mails), careers.EMAILS_PER_ADDRESS_DAY)
+
+    def test_the_email_cap_counts_one_inbox_once(self):
+        self.assertEqual(careers.normalize_address("Jane.Doe+jobs@GoogleMail.com"), "janedoe@gmail.com")
+        self.assertEqual(careers.normalize_address("j.doe+x@example.com"), "j.doe@example.com")
+        for i in range(careers.EMAILS_PER_ADDRESS_DAY + 2):
+            self.db.add(self._op(f"op-n{i}", title=f"Job {i}"))
+        self.db.commit()
+        spellings = ["jane.doe@gmail.com", "janedoe+a@gmail.com", "J.a.n.e.d.o.e@googlemail.com",
+                     "jane.doe+b@gmail.com", "janedoe@gmail.com"]
+        for i, addr in enumerate(spellings):
+            self.assertEqual(self._apply(opening=f"op-n{i}", email=addr).status_code, 200)
+        self.assertEqual(len(self.mails), careers.EMAILS_PER_ADDRESS_DAY)
+
+    def test_the_email_cap_per_domain_and_in_all(self):
+        now = 1_000_000.0
+        for i in range(careers.EMAILS_PER_DOMAIN_HOUR):
+            self.assertTrue(careers._mail_allowed(f"p{i}@victim.example", now))
+        self.assertFalse(careers._mail_allowed("another@victim.example", now))
+        self.assertTrue(careers._mail_allowed("someone@else.example", now))
+        self.assertTrue(careers._mail_allowed("another@victim.example", now + 3601))   # an hour on
+        careers._mail_hits.clear()
+        for i in range(careers.EMAILS_PER_HOUR):
+            self.assertTrue(careers._mail_allowed(f"x@d{i}.example", now))
+        self.assertFalse(careers._mail_allowed("x@fresh.example", now))
+
+    def test_an_ipv6_line_shares_one_hourly_budget(self):
+        hdr = lambda i: {"X-Forwarded-For": f"2001:db8:9:9::{i + 1:x}"}   # noqa: E731
+        codes = []
+        for i in range(careers.APPLY_PER_IP_HOUR + 1):
+            r = self.client.post("/careers/apply/op-nope", data={"first_name": "x"}, headers=hdr(i))
+            codes.append(r.status_code)
+        self.assertEqual(codes[-1], 429)
+        self.assertNotIn(429, codes[:-1])
+
+    def test_mail_failures_log_no_address(self):
+        import contextlib
+        import graph_mail
+        import role_change
+        orig = graph_mail.send_mail
+
+        def boom(**kw):
+            raise RuntimeError(f"bad recipient {kw['to'][0]}")
+        graph_mail.send_mail = boom
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                role_change.send_emails([("secret.person@example.com", "s", "<p>h</p>")])
+        finally:
+            graph_mail.send_mail = orig
+        self.assertIn("failed", out.getvalue())
+        self.assertNotIn("secret.person", out.getvalue())
 
     def test_public_json_never_names_an_applicant(self):
         self._apply()

@@ -17,16 +17,27 @@ or a pay range the opening's public pay toggle keeps private.
 
 The apply form is a credential-free write, so it is guarded several ways:
 `/careers/apply/` is a SENSITIVE_PREFIX (30 a minute per IP,
-middleware_hardening.RequestRateLimit), plus APPLY_PER_IP_HOUR here, a daily
-cap per opening, a honeypot field (filled = a bot: answered like a success,
-nothing kept), required consent, and a resume that must BE a PDF / DOC /
-DOCX by its first bytes (not its name or the browser's word), under
-MAX_RESUME_BYTES. The resume goes to the private hr-docs bucket through the
-backend, never a browser upload. The same email applying again to the same
-opening updates their application - and the answer never says which it was.
-The confirmation email goes at most once a day per application and
-EMAILS_PER_ADDRESS_DAY a day per address, so the form cannot be used to
-flood someone's inbox.
+middleware_hardening.RequestRateLimit; a body over 11 MB is refused there on
+its Content-Length), plus APPLY_PER_IP_HOUR here (an IPv6 caller counted by
+its /64 - client_ip.rate_key), a daily cap per opening (checked before the
+form looks for an earlier application, so a full opening answers everyone
+alike), a honeypot field (`nx_f2`, a name that means nothing; filled = a bot:
+answered like a success, nothing kept, a log line and a running count),
+required consent, and a resume that must BE a PDF / DOC / DOCX by its first
+bytes (not its name or the browser's word), under MAX_RESUME_BYTES. The resume
+goes to the private hr-docs bucket through the backend, never a browser upload.
+
+The same email applying again to the same opening never changes the candidate
+(release review, Oct 27 2026: a form with no login must not let anybody
+rewrite somebody else's name, phone or resume). Still at Applied from this
+page: the new resume is added to the screening task as an additional document
+and the timeline notes "Applied again on MM/DD/YYYY"; anywhere else in the
+pipeline, the note only. The answer is the same as a new application's.
+
+The confirmation email goes at most once a day per application, and is capped
+per address (normalized: +tags dropped, Gmail's dots ignored) a day, per
+domain an hour and in all an hour, so the form cannot be used to flood
+somebody's inbox. It names the job and the company, never the name typed in.
 """
 import collections
 import io
@@ -54,6 +65,8 @@ MAX_RESUME_BYTES = 10 * 1024 * 1024
 APPLY_PER_IP_HOUR = 8
 APPLY_PER_OPENING_DAY = 200
 EMAILS_PER_ADDRESS_DAY = 3
+EMAILS_PER_DOMAIN_HOUR = 40
+EMAILS_PER_HOUR = 300
 _EMAIL_RE = re.compile(r"^[^@\s<>\"']+@[^@\s<>\"']+\.[^@\s<>\"']{2,}$")
 _LINKEDIN_RE = re.compile(r"^https?://([a-z]{2,3}\.)?linkedin\.com/[A-Za-z0-9\-_/%.?=&#]*$", re.I)
 _CTRL = re.compile(r"[\x00-\x1f\x7f]")
@@ -61,6 +74,8 @@ _OK = {"ok": True, "message": "Thank you - your application is in. We will be in
 
 _lock = threading.Lock()
 _ip_hits: "collections.OrderedDict[str, collections.deque]" = collections.OrderedDict()
+_mail_hits: "collections.OrderedDict[str, collections.deque]" = collections.OrderedDict()
+_honeypot = {"dropped": 0}
 
 
 def _ip_allowed(ip: str, now: Optional[float] = None) -> bool:
@@ -79,6 +94,50 @@ def _ip_allowed(ip: str, now: Optional[float] = None) -> bool:
         dq.append(now)
         while len(_ip_hits) > 20000:
             _ip_hits.popitem(last=False)
+        return True
+
+
+_GMAIL = ("gmail.com", "googlemail.com")
+
+
+def normalize_address(addr: str) -> str:
+    """One inbox, one key: lower case, the +tag dropped, and for Gmail the
+    dots (which Gmail ignores) dropped and googlemail.com read as gmail.com."""
+    addr = (addr or "").strip().lower()
+    if "@" not in addr:
+        return addr
+    local, domain = addr.rsplit("@", 1)
+    local = local.split("+", 1)[0]
+    if domain in _GMAIL:
+        local, domain = local.replace(".", ""), "gmail.com"
+    return f"{local}@{domain}"
+
+
+def _mail_allowed(addr: str, now: Optional[float] = None) -> bool:
+    """The confirmation-email budget (in-process, per worker): per normalized
+    address a day, per domain an hour, in all an hour. A send is counted only
+    when every bucket has room."""
+    now = now or time.time()
+    norm = normalize_address(addr)
+    buckets = (("a:" + norm, 86400, EMAILS_PER_ADDRESS_DAY),
+               ("d:" + norm.rsplit("@", 1)[-1], 3600, EMAILS_PER_DOMAIN_HOUR),
+               ("all", 3600, EMAILS_PER_HOUR))
+    with _lock:
+        dqs = []
+        for key, window, limit in buckets:
+            dq = _mail_hits.get(key)
+            if dq is None:
+                dq = _mail_hits[key] = collections.deque()
+            _mail_hits.move_to_end(key)
+            while dq and now - dq[0] >= window:
+                dq.popleft()
+            if len(dq) >= limit:
+                return False
+            dqs.append(dq)
+        for dq in dqs:
+            dq.append(now)
+        while len(_mail_hits) > 20000:
+            _mail_hits.popitem(last=False)
         return True
 
 
@@ -139,9 +198,14 @@ def _opening(db: Session, ent: models.HrEntity, opening_id: str) -> models.HrJob
 
 @router.get("/public/{slug}")
 def public_company(slug: str, db: Session = Depends(get_db)):
+    """404 unless the company has a listed opening: the page is not a way to
+    find out which companies exist (release review, Oct 27 2026)."""
     ent = _company(db, slug)
+    rows = _listed(db, ent)
+    if not rows:
+        raise HTTPException(404, "We couldn't find that careers page.")
     slug = ho.slug_for(db, ent.id)
-    return {"company": ho.public_company(db, ent, slug), "openings": [ho.public_opening(o) for o in _listed(db, ent)]}
+    return {"company": ho.public_company(db, ent, slug), "openings": [ho.public_opening(o) for o in rows]}
 
 
 @router.get("/public/{slug}/{opening_id}")
@@ -180,9 +244,11 @@ def page_company(slug: str, db: Session = Depends(get_db)):
     """The careers list as server-made HTML, for crawlers (see the docstring)."""
     from app_url import app_url
     ent = _company(db, slug)
+    rows = _listed(db, ent)
+    if not rows:                     # as /public/{slug}: nothing listed, no page
+        raise HTTPException(404, "We couldn't find that careers page.")
     slug = ho.slug_for(db, ent.id)
     base = f"{app_url()}/careers/{slug}"
-    rows = _listed(db, ent)
     title = f"Careers at {ent.name}"
     items = "".join(f'<li><a href="/careers/{escape(slug)}/{escape(o.id)}">{escape(o.title or "")}</a>'
                     f' - {escape(ho.location_line(o))}</li>' for o in rows)
@@ -229,9 +295,11 @@ def sitemap(db: Session = Depends(get_db)):
 
 # ── apply ────────────────────────────────────────────────────────────────────
 
-def _confirmation(ent: models.HrEntity, op: models.HrJobOpening, first: str) -> tuple:
+def _confirmation(ent: models.HrEntity, op: models.HrJobOpening) -> tuple:
     """(subject, html): the applicant's receipt, in the HR email style with
-    the company's logo. Nothing in it the applicant did not already know."""
+    the company's logo. Nothing in it the applicant did not already know - and
+    not the name typed into the form, so the mail cannot carry somebody
+    else's words to the address (release review, Oct 27 2026)."""
     import hr_life_email as he
     accent = "#15803d"
     company = ent.legal_name or ent.name or "the company"
@@ -241,7 +309,7 @@ def _confirmation(ent: models.HrEntity, op: models.HrJobOpening, first: str) -> 
              f'<span style="font-family:{he.FONT};font-size:17px;font-weight:800;color:{he.INK}">{escape(ent.name or "")}</span>')
     top = he._band(brand, pad="22px 40px", extra=f"border-bottom:4px solid {accent}")
     body = "".join([
-        he._heading(f"Thank you, {escape(first or 'there')}", accent),
+        he._heading("Thank you for applying", accent),
         he._p(f"We received your application for <b>{escape(op.title or 'the role')}</b> at {escape(company)}."),
         he._p("Our team reads every application. If your background is a match, someone from "
               f"{escape(ent.name or 'our team')} will contact you about next steps."),
@@ -263,16 +331,21 @@ def _send_confirmation(to: str, subject: str, html: str) -> None:
 def apply(opening_id: str, request: Request, background: BackgroundTasks,
           first_name: str = Form(""), last_name: str = Form(""), email: str = Form(""), phone: str = Form(""),
           location: str = Form(""), linkedin_url: str = Form(""), consent: str = Form(""),
-          website: str = Form(""), resume: Optional[UploadFile] = File(None), db: Session = Depends(get_db)):
+          nx_f2: str = Form(""), website: str = Form(""), resume: Optional[UploadFile] = File(None),
+          db: Session = Depends(get_db)):
     """A plain `def`: FastAPI runs it in its threadpool, so the queries and the
     storage upload never sit on the event loop."""
-    from client_ip import client_ip
-    if (website or "").strip():
-        # The honeypot - a field people never see. A bot filled it in: look
-        # like a success, keep nothing.
-        print("[careers] honeypot application dropped")
+    from client_ip import client_ip, rate_key
+    if (nx_f2 or "").strip() or (website or "").strip():
+        # The honeypot - a field people never see (`website` is its old name,
+        # still sent by a page loaded before the rename). A bot filled it in:
+        # look like a success, keep nothing, leave a line and a count.
+        with _lock:
+            _honeypot["dropped"] += 1
+            n = _honeypot["dropped"]
+        print(f"[careers] honeypot application dropped (opening {_text(opening_id, 60)}; {n} since start)")
         return _OK
-    if not _ip_allowed(client_ip(request) or "?"):
+    if not _ip_allowed(rate_key(client_ip(request) or "?") or "?"):
         raise HTTPException(429, "Too many applications from this connection - please try again later.")
     op = db.query(models.HrJobOpening).filter(models.HrJobOpening.id == (opening_id or "").strip()).first()
     if op is None or not ho.is_listed(op):
@@ -309,56 +382,65 @@ def apply(opening_id: str, request: Request, background: BackgroundTasks,
 
     now_dt = datetime.now(timezone.utc)
     now, day_ago = now_dt.isoformat(), (now_dt - timedelta(days=1)).isoformat()
+    # The opening's daily cap first, for everyone: checked after the lookup
+    # below, a full opening would answer an earlier applicant differently.
+    if (db.query(models.HrCandidate)
+            .filter(models.HrCandidate.opening_id == op.id, models.HrCandidate.source == ho.CAREERS_SOURCE,
+                    models.HrCandidate.created_at >= day_ago).count()) >= APPLY_PER_OPENING_DAY:
+        raise HTTPException(429, "This job has had a lot of applications today - please try again tomorrow.")
     cand = (db.query(models.HrCandidate)
             .filter(models.HrCandidate.opening_id == op.id, func.lower(models.HrCandidate.email) == addr)
             .order_by(models.HrCandidate.created_at).with_for_update().first())
-    if cand is None and (db.query(models.HrCandidate)
-                         .filter(models.HrCandidate.opening_id == op.id, models.HrCandidate.source == ho.CAREERS_SOURCE,
-                                 models.HrCandidate.created_at >= day_ago).count()) >= APPLY_PER_OPENING_DAY:
-        raise HTTPException(429, "This job has had a lot of applications today - please try again tomorrow.")
     recent = (db.query(models.HrCandidate)
               .filter(func.lower(models.HrCandidate.email) == addr, models.HrCandidate.applied_at >= day_ago).count())
     first_today = cand is None or not (cand.applied_at or "") or cand.applied_at < day_ago
     mail_ok = first_today and recent < EMAILS_PER_ADDRESS_DAY
 
+    import hiring_screening
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", resume.filename or f"resume.{kind}")[-80:]
+    if cand is not None:
+        _apply_again(db, cand, safe, data, RESUME_TYPES[kind], now)
+        try:
+            sp = db.begin_nested()
+            ho.notify_new_applicant(db, op)
+            sp.commit()
+        except Exception as e:   # noqa: BLE001
+            sp.rollback()
+            print(f"[careers] applicant bell skipped for {op.id}: {type(e).__name__}")
+        db.commit()
+        if mail_ok and _mail_allowed(addr):
+            subject, html = _confirmation(ent, op)
+            background.add_task(_send_confirmation, addr, subject, html)
+        return _OK
+
     from routers import esign
     from routers.hr import _DOC_BUCKET
-    is_new = cand is None
-    if is_new:
-        cand = models.HrCandidate(
-            id=str(uuid.uuid4()), first_name=first, last_name=last, email=addr, phone=tel,
-            role_id=op.role_id or "", role_title=op.title or "", department=op.department or "",
-            stage="applied", source=ho.CAREERS_SOURCE, company=op.company, opening_id=op.id,
-            notes="", created_by="", created_at=now, updated_at=now)
-        db.add(cand)
-        db.add(models.HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage="", to_stage="applied",
-                                   note=f"Applied on the careers page for {op.title}", by_email="candidate",
-                                   created_at=now))
-    else:
-        # The same person again: their newest details win, one candidate stays.
-        cand.first_name, cand.last_name, cand.phone = first, last, tel
-        db.add(models.HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage,
-                                   to_stage=cand.stage, note="Applied again on the careers page - details and resume updated",
-                                   by_email="candidate", created_at=now, kind="note"))
+    cand = models.HrCandidate(
+        id=str(uuid.uuid4()), first_name=first, last_name=last, email=addr, phone=tel,
+        role_id=op.role_id or "", role_title=op.title or "", department=op.department or "",
+        stage="applied", source=ho.CAREERS_SOURCE, company=op.company, opening_id=op.id,
+        notes="", created_by="", created_at=now, updated_at=now)
+    db.add(cand)
+    db.add(models.HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage="", to_stage="applied",
+                               note=f"Applied on the careers page for {op.title}", by_email="candidate",
+                               created_at=now))
     cand.location, cand.linkedin_url = where, link
     cand.consent_at, cand.applied_at, cand.updated_at = now, now, now
 
-    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", resume.filename or f"resume.{kind}")[-80:]
     path = f"candidates/{cand.id}/{uuid.uuid4()}-{safe}"
     up = esign._storage_put(_DOC_BUCKET, path, data, RESUME_TYPES[kind])
     if not up.is_success:
         db.rollback()
         raise HTTPException(503, "We couldn't save your resume just now - please try again in a minute.")
 
-    import hiring_screening
     task = None
     try:
         sp = db.begin_nested()
-        if is_new:
-            # Screening as for every candidate - the task only; the owner gets one
-            # grouped bell. Started before resume_url is set, so start() does not
-            # fetch the file back from storage: it is attached from memory below.
-            task = hiring_screening.start(db, cand, "", bells=False)
+        # Screening as for every candidate - the task only; the owner gets one
+        # grouped bell. Started before resume_url is set, so start() does not
+        # fetch the file back from storage: it is attached from memory below.
+        task = hiring_screening.start(db, cand, "", bells=False)
+        db.flush()            # autoflush is off: attach_resume looks the task up
         if (cand.screen_task_id or "").strip():
             hiring_screening.attach_resume(db, cand, safe, data, RESUME_TYPES[kind], "")
         sp.commit()
@@ -375,10 +457,35 @@ def apply(opening_id: str, request: Request, background: BackgroundTasks,
         sp.rollback()
         print(f"[careers] applicant bell skipped for {op.id}: {type(e).__name__}")
     db.commit()
-    if mail_ok:
-        subject, html = _confirmation(ent, op, first)
+    if mail_ok and _mail_allowed(addr):
+        subject, html = _confirmation(ent, op)
         background.add_task(_send_confirmation, addr, subject, html)
     if task is not None:
         from task_notify import notify_task_event
         background.add_task(notify_task_event, task.id, "assigned", "")
     return _OK
+
+
+def _apply_again(db: Session, cand: models.HrCandidate, name: str, data: bytes, ctype: str, now: str) -> None:
+    """The same email applying again to the same opening. Nothing on the
+    candidate changes - no name, phone, email, location, link or resume_url,
+    and the screening task's resume stays (anybody can type an address into a
+    form with no login). Still at Applied from the careers page: the new
+    resume goes on the screening task as an ADDITIONAL document. Always: a
+    timeline note "Applied again on MM/DD/YYYY". The caller commits."""
+    import hiring_screening
+    from task_due import us_date
+    note = f"Applied again on {us_date(now[:10])}"
+    if cand.source == ho.CAREERS_SOURCE and (cand.stage or "") == "applied" and (cand.screen_task_id or "").strip():
+        try:
+            sp = db.begin_nested()
+            if hiring_screening.attach_resume(db, cand, name, data, ctype, "", replace=False):
+                note += " - the resume sent with it is on the screening task as an additional document"
+            sp.commit()
+        except Exception as e:   # noqa: BLE001 - the note is kept either way
+            sp.rollback()
+            print(f"[careers] additional resume not attached for {cand.id}: {type(e).__name__}")
+    db.add(models.HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage or "",
+                               to_stage=cand.stage or "", note=note, by_email="candidate", created_at=now,
+                               kind="note"))
+    cand.updated_at = now

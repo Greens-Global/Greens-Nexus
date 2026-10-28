@@ -172,10 +172,13 @@ def start(db: Session, cand: models.HrCandidate, by: str, bells: bool = True) ->
     return task
 
 
-def attach_resume(db: Session, cand: models.HrCandidate, name: str, raw: bytes, content_type: str, by: str) -> bool:
+def attach_resume(db: Session, cand: models.HrCandidate, name: str, raw: bytes, content_type: str, by: str,
+                  replace: bool = True) -> bool:
     """The resume on the screening task, so the screeners read it from the task
     itself. A copy in the task-files bucket (private; task viewers open it
-    through /files/view). The caller commits."""
+    through /files/view). replace=False (a careers re-apply, Oct 27 2026)
+    adds it as an "Additional Resume" and leaves the one on file alone. The
+    caller commits."""
     t = _task(db, cand)
     if t is None or not raw:
         return False
@@ -184,6 +187,14 @@ def attach_resume(db: Session, cand: models.HrCandidate, name: str, raw: bytes, 
     if not url:
         return False                      # no storage here (a local backend) - the task still says to read it
     now = _now()
+    if not replace:
+        a = models.TaskAttachment(id=str(uuid.uuid4()), task_id=t.id,
+                                  name=f"Additional Resume ({_us_today(now)}) - {name or 'resume.pdf'}",
+                                  size=str(len(raw)), kind="doc", url=url, added_at=now, added_by=(by or "").lower())
+        db.add(a)
+        t.attachment_ids = list(t.attachment_ids or []) + [a.id]
+        t.modified_at = now
+        return True
     for old in db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == t.id,
                                                        models.TaskAttachment.name.like("Resume - %")).all():
         db.delete(old)                    # a replaced resume replaces the attachment
@@ -196,6 +207,11 @@ def attach_resume(db: Session, cand: models.HrCandidate, name: str, raw: bytes, 
                          .filter(models.TaskAttachment.id != a.id, models.TaskAttachment.name.like("Resume - %"))}] + [a.id]
     t.modified_at = now
     return True
+
+
+def _us_today(iso: str) -> str:
+    from task_due import us_date
+    return us_date((iso or "")[:10])
 
 
 def note_from_comment(db: Session, task_id: str, author: str, body: str) -> bool:
