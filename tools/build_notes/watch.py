@@ -87,8 +87,12 @@ def describe_batch(notes, sessions):
 
 def claude_command(ids, claude_args="", exe="claude"):
     cmd = [exe]
-    if claude_args:
-        cmd.extend(shlex.split(claude_args))
+    args = shlex.split(claude_args) if claude_args else []
+    if "--permission-mode" not in args:
+        # Edits inside the repo go through without a prompt per file; shell
+        # commands outside the skill's allowed-tools still ask.
+        cmd.extend(["--permission-mode", "acceptEdits"])
+    cmd.extend(args)
     cmd.append("/build-notes " + " ".join(ids))
     return cmd
 

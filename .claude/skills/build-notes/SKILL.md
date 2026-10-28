@@ -16,6 +16,20 @@ allowed-tools:
   - Bash(npx vitest*)
   - Bash(playwright-cli:*)
   - Bash(npx playwright:*)
+  # Windows has `python`, not `python3`, and may run commands in PowerShell.
+  - Bash(python tools/build_notes/*)
+  - Bash(python repro_pin_*)
+  - Bash(cd backend && python -m pytest *)
+  - PowerShell(python tools/build_notes/*)
+  - PowerShell(git *)
+  - PowerShell(gh pr create*)
+  - PowerShell(gh pr view*)
+  - PowerShell(npm run *)
+  - PowerShell(npx vitest*)
+  - PowerShell(npx playwright*)
+  # The claimed pin's brief, screenshots and evidence live outside the repo.
+  - Read(~/.cache/nexus-build-notes/**)
+  - Write(~/.cache/nexus-build-notes/**)
 ---
 
 # Build Notes
@@ -24,7 +38,7 @@ You are Claude Code working a batch of Build Mode pins. A **Pin** is one capture
 
 The arguments are pin ids: `/build-notes <id> <id> ...`. With no ids, work every pin in `dispatched`.
 
-Everything here runs from the repository root. Use `python3 tools/build_notes/cli.py` (standard library only, no virtualenv needed). The token comes from `~/.config/nexus/build-notes.token` or `NEXUS_BUILD_TOKEN`; `--api http://localhost:8000` points the CLI at a local backend. If any CLI call says "Your Build Token was revoked or expired" or "Build Mode is not enabled for you", stop and tell the user what it said.
+Everything here runs from the repository root. Use `python3 tools/build_notes/cli.py` (standard library only, no virtualenv needed). On Windows the command is `python`, not `python3` (`python3` there opens the Microsoft Store) - read every `python3` below as `python`. The token comes from `~/.config/nexus/build-notes.token` or `NEXUS_BUILD_TOKEN`; `--api http://localhost:8000` points the CLI at a local backend. If any CLI call says "Your Build Token was revoked or expired" or "Build Mode is not enabled for you", stop and tell the user what it said.
 
 ## The procedure
 

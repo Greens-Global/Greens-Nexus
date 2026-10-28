@@ -11,7 +11,6 @@ import { formatDate, formatDateLong } from '../lib/datetime';
 import { approvedLeaveDays, fmtDays, tenureLabel, openShiftMinutes } from '../lib/workdayStats';
 import EgnytePreview from '../egnyte/EgnytePreview';
 import { canPreview } from '../egnyte/lib';
-import { MyChecklistSteps } from '../components/HrChecklists';
 import MyShifts from '../components/MyShifts';
 import ReimbursementsTile from '../components/Reimbursements';
 import { usePopupNudge } from '../lib/usePopupNudge';
@@ -530,9 +529,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
         </>
       ) : !profErr && <SkeletonBlocks count={1} height={74} />}
       {clockParts ? clockParts.card : clock}
-      {/* Onboarding / offboarding steps this person owns - a manager, IT or the
-          new hire ticks them here. Renders nothing when there are none. */}
-      <MyChecklistSteps />
+      {/* No checklist steps on Workday (Oct 28 2026): an owner's steps are
+          subtasks on their My Tasks. */}
       {/* Salary Advance (Neil, Oct 27 2026): the manager tier and up ask, HR
           decides and pays out. Renders nothing for anyone with no option,
           no advance and no HR role. */}
