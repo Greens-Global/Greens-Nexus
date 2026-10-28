@@ -364,7 +364,13 @@ keep the diff minimal.
   has it off. Never rename the key back to `outlookCalendar` (every settings
   save stored that one as true), `routers/shift_ical.py` is the signed personal feed,
   `shift_confirm.py` the confirm-my-schedule ask and nudge,
-  `shift_offboard.py` clears a leaver's future shifts. New shift tables rely
+  `shift_offboard.py` clears a leaver's future shifts. Weather (the
+  `weather_watch.py` advisory, the `weather_call.py` call and its notices)
+  applies ONLY to people in departments with Weather Calls on
+  (`hr_departments.weather`, Settings > Companies > Departments; on for
+  Construction by default, off for every other department - Neil, 10/29/2026):
+  `weather_scope.py` is the one rule every weather path reads - never add a
+  second one. New shift tables rely
   on `_enable_rls_everywhere`; run `get_advisors` after each release.
 
 - **Settings is one tab (Neil, Oct 23 2026, plan

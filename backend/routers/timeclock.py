@@ -7353,6 +7353,14 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     if user.get("_group_scheduler"):
         groups = [g for g in groups if g["members"]]   # only the groups they schedule
     group_ids = [g["id"] for g in groups]
+    # Weather by department (10/29/2026): on the schedule, weatherAlerts says
+    # whether the weather applies to the group at all - its own switch AND a
+    # member in a department with Weather Calls on - so an office team gets
+    # no "set a work site" note. The groups editor keeps the raw switch.
+    import weather_scope
+    _wsc = weather_scope.scope(db)
+    for g in groups:
+        g["weatherAlerts"] = bool(g.get("weatherAlerts")) and _wsc.has_weather_people(g["id"])
 
     q = (db.query(ScheduledShift)
          .filter(ScheduledShift.work_date >= start, ScheduledShift.work_date <= end))

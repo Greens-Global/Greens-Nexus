@@ -51,11 +51,14 @@ class WeatherSiteTests(unittest.TestCase):
         db = database.SessionLocal()
         try:
             for m in (models.NexusRole, models.NexusEmployee, models.ShiftGroup, models.ShiftGroupMember,
-                      models.HrWorkSite, models.ScheduledShift):
+                      models.HrWorkSite, models.ScheduledShift, models.HrDepartment):
                 db.query(m).delete()
             for em, first in ((BOSS, "Boss"), (MGR, "Mia"), (EMP, "Eve")):
+                # Eve is on a Construction crew - weather applies to her group (10/29/2026).
                 db.add(models.NexusEmployee(id=f"emp-{em}", first_name=first, last_name="X", work_email=em,
-                                            status="active", deleted_at=""))
+                                            status="active", deleted_at="", company="ent-site" if em == EMP else "",
+                                            department="Construction" if em == EMP else ""))
+            db.add(models.HrDepartment(id="d-site-con", company_id="ent-site", name="Construction"))
             db.add(models.NexusRole(email=BOSS, role="administrator", assigned_by="test"))
             db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
             db.add(models.HrWorkSite(id=SITE, name="Harbor View", latitude="33.12", longitude="-117.32"))

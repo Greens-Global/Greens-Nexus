@@ -1592,6 +1592,22 @@ class HrDepartment(Base):
     backup_email = Column(String, default="")
     created_by = Column(String, default="")
     created_at = Column(String, default="")
+    # Weather by department (Neil, 10/29/2026): 1 = rain advisories and
+    # weather calls apply to this department's people (weather_scope.py).
+    # A new department named like "Construction" starts on, every other one
+    # off (the before_insert hook below); main.py seeds existing rows once.
+    weather    = Column(Integer, default=0)
+
+
+def _new_department_weather(_mapper, _connection, target) -> None:
+    """A department nobody set Weather Calls on starts on only when its name
+    says construction (Neil, 10/29/2026) - whichever path created it."""
+    if target.weather is None:
+        target.weather = 1 if "construction" in (target.name or "").lower() else 0
+
+
+from sqlalchemy import event as _sa_event   # noqa: E402 - kept beside the model it serves
+_sa_event.listen(HrDepartment, "before_insert", _new_department_weather)
 
 
 class TicketDepartment(Base):

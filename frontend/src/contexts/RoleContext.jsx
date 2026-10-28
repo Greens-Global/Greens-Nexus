@@ -8,6 +8,7 @@ import { queryClient, qk } from '../lib/queryClient';
 import { BFF_MODE } from '../bffAuth';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { setDateFormat } from '../lib/datetime';
+import { setOpenTargetViewer } from '../lib/openTarget';
 
 const RoleCtx = createContext(null);
 
@@ -147,6 +148,8 @@ export function RoleProvider({ children }) {
   // than Pranshu really has). The server already overlays the same way via
   // X-Act-As-Session; realEmail stays available for identity-anchored UI.
   const myEmail = (actingAs?.targetEmail || realEmail).toLowerCase();
+  // A notice's link to my own card opens my own Time Sheet (lib/openTarget).
+  useEffect(() => { setOpenTargetViewer(myEmail); }, [myEmail]);
 
   // Fetch current user's role and group memberships on mount / account change.
   // Groups must be loaded here (not just in Admin) so that myGrantedModules is

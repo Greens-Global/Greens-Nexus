@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock, Printer, ClipboardList } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, Info, SlidersHorizontal, Lock, Printer, ClipboardList } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { useDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
@@ -21,6 +21,7 @@ import { CreditCell, ExtraTimeCell, ExtraTimeClaimModal, ExtraTimeDecideModal, R
 import { hm } from '../lib/extraTime';
 import BreakPremiums from './BreakPremiums';
 import TimecardBonuses from './TimecardBonuses';
+import TimeSheetAdvances, { AskAdvanceButton, useTimeSheetAdvances } from './TimeSheetAdvances';
 import GeofencePunchModal from './GeofencePunchModal';
 import AddTimeModal from './AddTimeModal';
 import AddTimeFromRecordModal from './AddTimeFromRecordModal';
@@ -408,14 +409,29 @@ export function LocCell({ seg, onOpen }) {
 
 // Profile picture in the employee list (Neil, Oct 12) - the curated Nexus
 // People photo, initials when there is none. Same source as every avatar.
-function SideAvatar({ name, email, photos }) {
+function SideAvatar({ name, email, photos, size = 24 }) {
   const photo = email ? photos[email.toLowerCase()] : '';
   const initials = (name || email || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
-  if (photo) return <img src={photo} alt="" style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />;
+  if (photo) return <img src={photo} alt="" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />;
   return (
-    <span aria-hidden="true" style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700 }}>
+    <span aria-hidden="true" style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.round(size * 0.4), fontWeight: 700 }}>
       {initials}
     </span>
+  );
+}
+
+// Whose Time Sheet this is (Neil, Oct 29 2026): "a larger name, a larger
+// profile picture and a clear pay period below it" at the top of the card,
+// not a dropdown - picking someone else happens in the list on the left.
+function PersonHeader({ name, email, photos, period }) {
+  return (
+    <div data-testid="timesheet-person" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+      <SideAvatar name={name} email={email} photos={photos} size={48} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 3 }}>Pay Period: <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{period}</strong></div>
+      </div>
+    </div>
   );
 }
 
@@ -611,6 +627,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   useEffect(() => (self ? undefined : registerTour('timecard', 'Time Sheet', () => setTour(true))), [self]);
   const { can, myEmail } = useRole();
   const isAdmin = can('administrator');
+  // Salary advances live on the Time Sheet (Neil, Oct 29 2026): asked for
+  // someone from theirs, read-only on your own (TimeSheetAdvances).
+  const adv = useTimeSheetAdvances(self ? (myEmail || '') : (email || ''));
   const [workLogDay, setWorkLogDay] = useState(null);   // date string - opens the Work Log drawer for this day
   // Location dot on a punch links to the Locations map, for viewers who can reach it.
   const hourlyLocate = (!self || isAdmin) ? (data?.email || email || '') : '';
@@ -1400,6 +1419,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     <div data-tour="pr-sidebar" style={{ width: 240, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
         <div style={{ padding: '8px 10px 6px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 5, borderBottom: '1px solid var(--line)' }}>
           {periodNav(true)}
+          {/* The person picker lives here, with the period and the list (Neil, Oct 29 2026). */}
+          <EmployeeCombobox people={pickable} value={email} onChange={setEmail} placeholder="Find someone..."
+            labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`}
+            style={{ minWidth: 0, border: '1px solid var(--wk-line2)', borderRadius: 8, padding: '6px 9px', background: 'var(--card)' }} />
           {filterSel(company, (v) => { setCompany(v); setDept(''); }, 'Company', companies)}
           {filterSel(dept, setDept, 'Department', depts)}
           {showPay && companies.length > 0 && (
@@ -1440,13 +1463,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // inside the SAME master-detail layout as the hourly view.
   if (isFixed && data) {
     const fixedCard = (
-      <FixedTimecard data={data} self={self} email={email} people={people} setEmail={setEmail}
+      <FixedTimecard data={data} self={self} email={email} people={people} setEmail={setEmail} photos={photos}
         nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
         isAdmin={isAdmin} busy={busy} setBusy={setBusy}
         periodNav={employeeSidebar ? null : periodNav(false)}
         onFinalize={finalize} onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
-        setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} ownCard={ownCard} />
+        setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} ownCard={ownCard}
+        adv={adv} me={myEmail} />
     );
     return (
       <>
@@ -1498,15 +1522,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         {self
           ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Time Sheet</span>
-          : <EmployeeCombobox people={pickable} value={email} onChange={setEmail} title="Also selectable from the sidebar"
-              labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`} />}
+          : employeeSidebar
+            ? (email && <PersonHeader name={nameFor(email)} email={email} photos={photos} period={label} />)
+            : <EmployeeCombobox people={pickable} value={email} onChange={setEmail}
+                labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`} />}
         {!employeeSidebar && periodNav(false)}
-        {!self && (
-        <button onClick={() => setTour(true)} title="A guided walkthrough of this screen - nothing is changed while it runs."
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>
-          <PlayCircle size={14} /> Simulate
-        </button>
-        )}
         {!self && email && !noEdit && (
         <button data-tour="pr-add-time" onClick={() => setAddTime(true)} title="Add a shift, or several days of them, for someone who did not clock in right"
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
@@ -1516,6 +1536,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         {!self && email && !noEdit && data?.review?.isHr && (
         <AddTimeFromRecordButton onClick={() => setDupDay(true)} />
         )}
+        {!self && email && <AskAdvanceButton adv={adv} toastOk={toastOk} toastErr={toastErr} />}
         {!fin && (self || email) && (
         <button onClick={() => setNoteModal(true)} title={self ? 'Leave a note on a day for your manager' : 'Leave a note on a day - seen by managers and HR, not the employee'}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
@@ -1911,6 +1932,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
 
       {T && <TimecardBonuses card={data} periodStart={perStart} self={self} locked={ownCard || (!!fin && !data.review?.isHr)} fmtM={fmtM} showPay={showPay}
         onChanged={load} toastOk={toastOk} toastErr={toastErr} />}
+      {T && <TimeSheetAdvances adv={adv} self={self} me={myEmail} toastOk={toastOk} toastErr={toastErr} />}
 
       {/* Review + Nexus Sign (Sep 2026): the employee submits, the manager sends
           back or agrees, then employee -> manager -> HR sign in Nexus Sign. */}
@@ -1994,7 +2016,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, periodNav, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false }) {
+function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, periodNav, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false, adv = null, me = '' }) {
   const showPay = !data.payHidden;   // the manager tier never sees pay
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
@@ -2085,8 +2107,11 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         {self
           ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 160 }}>My Time Sheet</span>
-          : <EmployeeCombobox people={people} value={email} onChange={setEmail}
-              labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : ''}`} />}
+          : !periodNav   // the list on the left has the picker and the period (Oct 29 2026)
+            ? (email && <PersonHeader name={nameFor(email)} email={email} photos={photos}
+                period={`${monthName(new Date(data.periodStart + 'T00:00'))} (${formatDate(data.periodStart)} – ${formatDate(data.periodEnd)})`} />)
+            : <EmployeeCombobox people={people} value={email} onChange={setEmail}
+                labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : ''}`} />}
         {periodNav}
         {!fin && (
         <button onClick={() => setNoteModal(true)} title={self ? 'Leave a note on a day for your manager' : 'Leave a note on a day - seen by managers and HR, not the employee'}
@@ -2095,6 +2120,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         </button>
         )}
         {!self && email && !noEdit && data.review?.isHr && <AddTimeFromRecordButton onClick={() => setDupDay(true)} />}
+        {!self && email && <AskAdvanceButton adv={adv} toastOk={toastOk} toastErr={toastErr} />}
         {mayPrint(self, ownCard, fin, data.review) && <PrintTimeSheetButton email={email} start={data.periodStart} toastErr={toastErr} />}
         <div style={{ flex: 1 }} />
         {/* No rounding toggle - salary pay is day-based, so times show exactly as punched. */}
@@ -2424,6 +2450,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 
       <TimecardBonuses card={data} periodStart={data.periodStart} self={self} locked={ownCard || (!!fin && !data.review?.isHr)} fmtM={fmtM} showPay={showPay}
         onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+      <TimeSheetAdvances adv={adv} self={self} me={me} toastOk={toastOk} toastErr={toastErr} />
 
       {/* Review + Nexus Sign (same as hourly) - at the top on the employee's own sheet */}
       {!self && <TimesheetReviewPanel review={data.review} self={self} anchor={data.periodStart} periodLabel={monthLabel}

@@ -1359,6 +1359,8 @@ def _run_migrations():
             "ALTER TABLE hr_holiday_policies ADD COLUMN weekend_rule VARCHAR DEFAULT 'keep'",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_holiday_policy_assignments_policy_company "
             "ON hr_holiday_policy_assignments (policy_id, company_id)",
+            # Weather by department (Oct 29) - see the Postgres list. models.HrDepartment.
+            "ALTER TABLE hr_departments ADD COLUMN weather INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3215,6 +3217,11 @@ def _run_migrations():
         # duplicate can stand in the way. models.HrHolidayPolicyAssignment.
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_holiday_policy_assignments_policy_company "
         "ON hr_holiday_policy_assignments (policy_id, company_id)",
+        # Weather by department (Neil, 10/29/2026): Weather Calls on or off per
+        # department; existing rows start off and the startup seed turns on the
+        # Construction ones once (weather_scope.seed_weather_departments).
+        # models.HrDepartment.
+        "ALTER TABLE hr_departments ADD COLUMN IF NOT EXISTS weather INTEGER DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3871,6 +3878,12 @@ def _startup_seeds():
             b = hr_probation.backfill_existing(db)
             if b:
                 print(f"[startup] probation: {b} existing employee(s) still inside their window now tracked")
+            # Past the window = passed (Neil, Oct 29 2026): once, every open
+            # probation past its end with no recommendation waiting.
+            pw = hr_probation.pass_past_window_once(db)
+            if pw is not None:
+                print(f"[startup] probation: {pw[0]} past their end date passed automatically, "
+                      f"{pw[1]} with a recommendation left open for HR")
         finally:
             db.close()
     except Exception as e:
@@ -3894,6 +3907,21 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] Presidents' Day rename skipped: {e}")
+    # Weather by department (Neil, 10/29/2026): Weather Calls start on for
+    # the Construction departments only, ONCE (a nexus_settings marker), so
+    # a department an administrator later turns off is never turned back on.
+    try:
+        import weather_scope
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            n = weather_scope.seed_weather_departments(db)
+            if n is not None:
+                print(f"[startup] Weather Calls turned on for {n} Construction department(s); every other department is off")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] weather department seed skipped: {e}")
 
 
 @asynccontextmanager

@@ -3139,13 +3139,12 @@ export const api = {
   probationLetterPreview: (eid, data) => reqBlob(`/hr/employees/${encodeURIComponent(eid)}/probation/letter-preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), timeoutMs: 60000 }),
   probationSettings: (company = '') => req(`/hr/probation/settings?company=${encodeURIComponent(company || '')}`),
   probationSaveSettings: (data) => req('/hr/probation/settings', { method: 'PUT', body: JSON.stringify(data) }),
-  // Workday > Salary Advance (Neil, Oct 27 2026): the manager tier and up ask,
-  // HR decides, pays out and changes the repayment schedule.
-  getSalaryAdvances:        ()          => req('/salary-advances'),
+  // Remove From Probation (Oct 29 2026) - HR only, a reason required; nothing restarts it by itself.
+  probationRemove: (eid, reason) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/remove`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  // Salary advances (Neil, Oct 27 2026; on the Time Sheet since Oct 29): HR
+  // decides, pays out and changes the repayment schedule.
   salaryAdvancesPending:    ()          => req('/salary-advances/pending'),
   personSalaryAdvances:     (email)     => req(`/salary-advances/person/${encodeURIComponent(email)}`),
-  requestSalaryAdvance:     (body)      => req('/salary-advances', { method: 'POST', body: JSON.stringify(body) }),
-  grantSalaryAdvance:       (body)      => req('/salary-advances/grant', { method: 'POST', body: JSON.stringify(body) }),
   decideSalaryAdvance:      (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify(body) }),
   cancelSalaryAdvance:      (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify(body || {}) }),
   paySalaryAdvance:         (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/paid`, { method: 'POST', body: JSON.stringify(body) }),
@@ -3254,6 +3253,9 @@ export const api = {
   wfApprovalDecide: (id, data) => req(`/workflows/approvals/${encodeURIComponent(id)}/decide`, { method: "POST", body: JSON.stringify(data) }),
   // Built-in automation off switch (Oct 28 2026): Global Admins only, one org-wide list.
   wfJobOff: (key, off) => req(`/workflows/automations/jobs/${encodeURIComponent(key)}/off`, { method: "POST", body: JSON.stringify({ off: !!off }) }),
+  // Salary advance from the person's Time Sheet (Neil, Oct 29 2026): their
+  // direct manager or HR asks - the server grants or requests by who asks.
+  askSalaryAdvanceFor: (email, body) => req(`/salary-advances/for/${encodeURIComponent(email)}`, { method: "POST", body: JSON.stringify(body) }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with
