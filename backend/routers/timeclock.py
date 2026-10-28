@@ -13399,7 +13399,7 @@ def _record_row_shift(row: RecordRow, ds: str, tz: int) -> tuple:
     return shift, ""
 
 
-def _shift_minutes(shift: list) -> int:
+def _record_shift_minutes(shift: list) -> int:
     """Paid minutes of one planned shift: in to out, less its breaks."""
     ts = [_parse_iso(at) for _k, at, _c in shift]
     total = (ts[-1] - ts[0]).total_seconds()
@@ -13513,7 +13513,7 @@ def _dup_judge(db: Session, em: str, items: list, actor: str, *, replace_hint: s
                      .get(ds, {}).get("workedMin") or 0)
         classes = {_leave_class(s[0][2]) for s in shifts} or {""}
         row.update(action=("clear" if it.get("off") else "replace") if replaced else "add", replaces=len(replaced),
-                   minutes=sum(_shift_minutes(s) for s in shifts), workedMin=worked)
+                   minutes=sum(_record_shift_minutes(s) for s in shifts), workedMin=worked)
         if writes:
             row.update(inAt=writes[0][1], outAt=writes[-1][1])
         if ds in india:
