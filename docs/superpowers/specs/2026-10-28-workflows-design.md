@@ -341,8 +341,9 @@ that run; a Tasks rule reacting to a PERSON's edit emits ordinary events.
 So: person edits -> Tasks rule -> ordinary event -> workflow runs -> its
 task change -> Tasks rule -> event tagged with the run -> ignored. No
 ping-pong is possible without `allowDownstream`, and even then depth 2
-ends it. Tasks rules appear in the Workflows list read-only, with a link to
-Tasks > Manage; their runs are not counted in the Workflows overview.
+ends it. Tasks rules appear in the Workflows list under Automations with an
+enable / disable switch (through their own endpoint) and a link to Tasks >
+Manage for editing; their runs are not counted in the Workflows overview.
 
 Events a run causes carry `caused_by_run`. A workflow with
 `allowDownstream=false` (default) ignores them; one with it on runs at depth
@@ -436,6 +437,50 @@ version; a replay uses the current version and says so.
 - **Preview A Schedule**: "If this ran now: 4 people" with the list.
 - A workflow cannot be published until it has been tested once since its last
   edit **[my call]**; the Publish dialog shows the last test's summary.
+
+## 6.9 Managing every automation, and reviewing what it did **[Neil, Oct 28 2026]**
+
+Neil: "automations should be managed, and workflows should be managed, all
+of this requires a good ability to turn these off as well as review the
+action that results."
+
+**Off switches, top to bottom.** Each one stops everything below it and
+says so on every affected screen:
+
+1. **Everything off** (Settings > Workflows, Global Admin): the runner
+   stops starting runs; events still queue for 7 days so switching back on
+   loses nothing recent. The module header shows "All workflows are
+   paused by <name> since <time>".
+2. **A company off** (Settings > Workflows with a company picked): no run
+   starts for that company's records; its workflows show "Paused: company
+   switch".
+3. **One workflow off** (Pause on its row or page; full-level users may
+   pause anyone's in their scope).
+4. **One step off**: a step can be disabled in the builder without
+   deleting it (a "Skip" toggle on the card); the run log shows it as
+   skipped.
+5. **Tasks automation rules** appear in the Workflows list under
+   "Automations" with their own enable / disable switch, saved through the
+   Tasks rule endpoint (`PATCH /task-automation-rules/{id}`), so one screen
+   turns off every rule in the company. Their runs open from the same row
+   (the Tasks Runs panel data, `GET /task-automation-runs`).
+6. **Built-in automations** (the background jobs: reminders, no-show scan,
+   overtime watch, weekly scorecard, ...) are listed read-only in the same
+   place with what they do, how often, and a link to the setting that
+   controls them where one exists. A per-job kill switch is a follow-up
+   **[my call: not in this release; it touches 30 loop files]**.
+
+**Reviewing what happened.** The Runs screen gets an **Actions** view:
+every step that changed something or sent something, newest first, across
+workflows, with filters (workflow, action kind, person affected, date) and
+each row saying what, to whom, and which record (a link). A run drawer
+shows the step timeline with inputs and outputs. Every record a workflow
+touched shows "Workflow: <name>" in its own history with a link to the run.
+A failed run always bells the owner, fault steps or not. Publish, pause,
+resume, re-own and restore write an AuditLog row (module `workflows`), so
+Settings > Logs shows who changed what. The weekly owner digest (Monday,
+opt-in in Settings) lists each owned workflow's runs, failures and what it
+did most.
 
 ## 7. Who can do what
 
