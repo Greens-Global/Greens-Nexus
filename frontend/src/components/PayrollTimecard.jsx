@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock, Printer, ClipboardList } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
-import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
+import { useDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
 import { dialog } from '../ui/dialog';
 import { useWorkSites } from '../lib/queries';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
@@ -84,28 +84,9 @@ const typeOfCategory = (c) => /\bsick\b/i.test(c || '') ? 'Sick'
   : /\b(vacation|pto|paid time off|annual leave)\b/i.test(c || '') ? 'Vacation'
   : /\bpersonal\b/i.test(c || '') ? 'Personal' : 'Regular';
 
-// California / India toggle for punch-time display. A card opens in the
-// employee's zone - California for US staff (1:1 with SwipeClock, whose site
-// clock is Pacific), India for India-based staff (Oct 20) - and the viewer's
-// own flip is remembered (lib/displayTz.js useEmployeeZone).
-function TzSwitch() {
-  const cur = useDisplayTz();
-  return (
-    <div title="Timezone for punch times on this time sheet. California matches SwipeClock; India shows local time for India-based staff."
-      style={{ display: 'inline-flex', border: '1px solid var(--wk-line2)', borderRadius: 999, overflow: 'hidden' }}>
-      {TZ_OPTIONS.map((o) => {
-        const on = o.key === cur.key;
-        return (
-          <button key={o.key} onClick={() => setDisplayTz(o.key)} title={`Show times in ${o.label} time (${o.abbr})`}
-            style={{ border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 11.5, fontWeight: 700, padding: '5px 11px',
-              background: on ? 'var(--wk-brand)' : 'transparent', color: on ? '#fff' : 'var(--muted)' }}>
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+// No California / India toggle (removed Oct 28 2026 - a card flipped to the
+// wrong zone kept reading wrong times): a card always shows the EMPLOYEE's
+// zone (lib/displayTz.js useEmployeeZone / useOwnZone).
 
 // One switch inside the Options panel: the label, what it does, and the tick.
 function OptionSwitch({ checked, label, hint, onChange }) {
@@ -122,7 +103,7 @@ function OptionSwitch({ checked, label, hint, onChange }) {
 
 // Display choices and pay rules behind one button. `children` are the
 // company-wide pay rules (admins only); the display choices are everyone's.
-function TimecardOptions({ self, showRaw, setShowRaw, children }) {
+function TimecardOptions({ showRaw, setShowRaw, children }) {
   const [open, setOpen] = useState(false);
   // Portaled panel (AnchoredMenu): closes on an outside tap or Escape, and no
   // scrolling toolbar or card can clip it on a phone.
@@ -131,19 +112,13 @@ function TimecardOptions({ self, showRaw, setShowRaw, children }) {
   return (
     <div>
       <button ref={btn} type="button" data-tour="pr-rounding" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}
-        title="Timezone and unrounded times"
+        title="Unrounded times"
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>
         <SlidersHorizontal size={14} /> Options
       </button>
       <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} align="end" role="dialog" aria-label="Time Sheet options"
         style={{ width: 320, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '12px 14px' }}>
         <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>Display</div>
-        {!self && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '5px 0' }}>
-            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>Times Shown In</span>
-            <TzSwitch />
-          </div>
-        )}
         <OptionSwitch checked={showRaw} onChange={setShowRaw} label="Show unrounded times"
           hint="See the raw punch times. Totals stay computed from the rounded times." />
         {rules.length > 0 && (
@@ -1547,13 +1522,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           <Pencil size={13} /> Add Note
         </button>
         )}
+        {mayPrint(self, ownCard, fin, data?.review) && <PrintTimeSheetButton email={email} start={perStart} toastErr={toastErr} />}
         <div style={{ flex: 1 }} />
-        {/* Options holds only display choices now: the timezone and unrounded
+        {/* Options holds only display choices now: unrounded
             times. The pay rules that used to sit here (rounding, auto-lunch,
             CA paid breaks) are company settings under Settings > Global
             Settings > Time Clock, and the OT rule + rate are set on the
             person's Pay & Benefits tab - never on the timecard (Charmi, Sep 30). */}
-        <TimecardOptions self={self} showRaw={showRaw} setShowRaw={setShowRaw} />
+        <TimecardOptions showRaw={showRaw} setShowRaw={setShowRaw} />
       </div>
 
       {/* The employee's own sheet leads with what they have to do (Neil, Oct
@@ -1889,7 +1865,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <span>Paid breaks</span><span style={{ fontWeight: 700, color: 'hsl(var(--color-green))' }}>+{T.paidBreakMin}m</span>
               </div>
             )}
-            {!self && data?.review?.isHr && <PrintTimeSheetButton email={email} start={perStart} toastErr={toastErr} />}
             {!self && showPay && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <button className="secondary-btn" disabled={exporting} onClick={() => exportFile(() => api.timeExportCsv(start, end, 'punches'), 'CSV', [start, end])} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
@@ -1985,7 +1960,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         { target: 'pr-table', title: 'The time sheet - same columns as SwipeClock',
           body: 'Date, Edit, In, Out, Deducted Time, Category, Total Hours, OT (1.5× and, past 12 hours in California, 2×), Location, Pay Rate and Wage. A shift with a break reads as punch pairs, like SwipeClock - one row from the clock-in to the break, the next from the break end to the clock-out, each with its own hours - and a thin line between them gives the length and times of the break. Hrs/Day shows the total for the day on its last row. Hover a time for its punch history - where it came from, the exact time, who entered or changed it. Add Note in the toolbar leaves a note on a day; it reads on the line under that day. Weekly total rows appear after each week.' },
         { target: 'pr-rounding', title: 'Options: rounded vs raw times',
-          body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Open Options to peek at raw times, switch the timezone, or change a pay rule. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' },
+          body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Open Options to peek at raw times. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' },
         { target: 'pr-edit', title: 'Fix punches here',
           body: 'Edit on a row opens that shift - set the real in/out, location and Type, or delete a punch; on a row that starts where a break ended (or on the break line itself) it fixes or deletes the break. Add on any row adds Regular, Break, Sick, Vacation or Personal time for someone. Originals stay on record with who changed what, like SwipeClock\'s audit log.' },
         { target: 'pr-summary', title: 'Totals, in both formats',
@@ -2120,10 +2095,8 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         </button>
         )}
         {!self && email && !noEdit && data.review?.isHr && <AddTimeFromRecordButton onClick={() => setDupDay(true)} />}
+        {mayPrint(self, ownCard, fin, data.review) && <PrintTimeSheetButton email={email} start={data.periodStart} toastErr={toastErr} />}
         <div style={{ flex: 1 }} />
-        {/* The California / India toggle is a payroll reviewer's tool; an
-            employee's own timesheet shows one timezone (Neil, Sep 23). */}
-        {!self && <TzSwitch />}
         {/* No rounding toggle - salary pay is day-based, so times show exactly as punched. */}
       </div>
 
@@ -2437,7 +2410,6 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               <span>Pending edits</span><span>{T.pendingEdits}</span>
             </div>
           )}
-          {!self && data.review?.isHr && <PrintTimeSheetButton email={email} start={data.periodStart} toastErr={toastErr} />}
           {!self && ((fin && data.review?.canUnlock) || (isAdmin && LEGACY_FINALIZE)) && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               {fin && data.review?.canUnlock && (
@@ -2494,10 +2466,6 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 
 // The key to the In / Out color banding (Pranshu, Oct 19), above the grid on
 // the manager / HR card. Classes live in style.css so dark mode has its own shades.
-// Print Time Sheet (Neil, Oct 23 2026): HR / Global Admin print the period to
-// be signed on paper, not through Nexus Sign - any period, in review, finalized
-// or locked, hourly or salaried. The tab opens before the fetch so the browser
-// does not treat it as a pop-up.
 // Add Time From Record (Oct 27 2026; was Duplicate Day): HR keys in a time
 // sheet kept outside Nexus - one day laid over a range, every day reviewed.
 // Shown to HR only (review.isHr); the server refuses anyone else either way.
@@ -2510,6 +2478,13 @@ function AddTimeFromRecordButton({ onClick }) {
   );
 }
 
+// Print Time Sheet (Neil, Oct 23 2026): print the period to be signed on
+// paper, not through Nexus Sign, hourly or salaried. Manager and HR, once the
+// manager has approved it (Oct 28 2026) - the server refuses anyone else and
+// any earlier stage either way. The tab opens before the fetch so the browser
+// does not treat it as a pop-up.
+const PRINT_STATUSES = new Set(['approved', 'signing', 'completed', 'correcting']);
+const mayPrint = (self, ownCard, fin, review) => !self && !ownCard && (!!fin || PRINT_STATUSES.has(review?.status));
 function PrintTimeSheetButton({ email, start, toastErr }) {
   const [printing, setPrinting] = useState(false);
   async function printSheet() {
@@ -2527,9 +2502,9 @@ function PrintTimeSheetButton({ email, start, toastErr }) {
     } finally { setPrinting(false); }
   }
   return (
-    <button className="secondary-btn" disabled={printing} onClick={printSheet}
-      title="A PDF of this period to print and sign on paper, not through Nexus Sign. HR and Global Admins only."
-      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 10 }}>
+    <button type="button" disabled={printing} onClick={printSheet}
+      title="A PDF of this period to print and sign on paper, not through Nexus Sign. Managers and HR, once the manager has approved it."
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: printing ? 'default' : 'pointer' }}>
       {printing ? <Spinner size={13} /> : <Printer size={13} />} Print Time Sheet
     </button>
   );

@@ -450,8 +450,8 @@ class SigningTests(ReviewCase):
 
 
 class PaperPrintTests(ReviewCase):
-    """Neil, Oct 23 2026: HR / Global Admin print a time sheet to sign on
-    paper, not Nexus Sign - any period, finalized or not; it changes nothing."""
+    """Neil, Oct 23 2026: print a time sheet to sign on paper, not Nexus Sign;
+    it changes nothing. Manager side and HR, once the manager approved it (Oct 28)."""
 
     def setUp(self):
         super().setUp()
@@ -462,22 +462,29 @@ class PaperPrintTests(ReviewCase):
         from pypdf import PdfReader
         return " ".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
 
-    def test_hr_prints_any_period_with_every_note_and_nobody_else_can(self):
+    def test_prints_once_the_manager_approved_for_manager_and_hr_only(self):
         self.db.add(models.TimecardNote(id="n-1", employee_email=EMP, date=self.start, note="Lunch fixed by hand",
                                         updated_by=MGR, employee_note="Doctor visit"))
         self.db.commit()
         self.addCleanup(lambda: (self.db.query(models.TimecardNote).filter_by(id="n-1").delete(), self.db.commit()))
+        with self.assertRaises(HTTPException) as e:          # not approved yet
+            tsr.paper_pdf(self.db, EMP, ANCHOR, HR)
+        self.assertEqual(e.exception.status_code, 409)
+        self.assertIsNone(self._r())                          # asking starts no review
+        tsr.approve(self.db, tsr.submit(self.db, EMP, ANCHOR), MGR)
+        before = self._r().status
         pdf, name = tsr.paper_pdf(self.db, EMP, ANCHOR, HR)
         text = self._text(pdf)
         self.assertTrue(pdf.startswith(b"%PDF"))
         self.assertIn("to be signed on paper", text)
         self.assertIn("Doctor visit", text)
-        self.assertIn("Lunch fixed by hand", text)            # HR's copy carries the manager's note too
+        self.assertIn("Lunch fixed by hand", text)            # the reviewer's copy carries the manager's note too
         self.assertTrue(name.endswith(".pdf"))
-        self.assertIsNone(self._r())                          # printing starts no review
-        for who in (MGR, EMP):
+        self.assertEqual(self._r().status, before)            # printing changes nothing
+        self.assertTrue(tsr.paper_pdf(self.db, EMP, ANCHOR, MGR, team=True)[0].startswith(b"%PDF"))
+        for who, team in ((MGR, False), (EMP, False), (EMP, True)):
             with self.assertRaises(HTTPException) as e:
-                tsr.paper_pdf(self.db, EMP, ANCHOR, who)
+                tsr.paper_pdf(self.db, EMP, ANCHOR, who, team=team)
             self.assertEqual(e.exception.status_code, 403)
 
     def test_the_paper_copy_shows_every_break_and_who_finalized_it(self):

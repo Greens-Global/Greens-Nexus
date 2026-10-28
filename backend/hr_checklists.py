@@ -1554,9 +1554,9 @@ def remind(db, cl: HrChecklist, emp: NexusEmployee, hr_team: list) -> int:
             by_owner.setdefault(r, []).append(it)
     who = full_name(emp)
     label = KIND_LABELS.get(cl.kind, cl.kind)
-    # My HR lists every step a person owns - the one place an owner without
-    # People access (a manager, IT, the new hire) can open.
-    action = {"view": "myhr", "sub": "overview"}
+    # Each step is a subtask on its owner's My Tasks (sync_tasks) - the place an
+    # owner without People access opens. Workday shows no checklist (Oct 28 2026).
+    action = {"view": "tasks", "sub": "mine"}
     sent = 0
     for recipient, rows in by_owner.items():
         rows.sort(key=lambda x: x.due_date)

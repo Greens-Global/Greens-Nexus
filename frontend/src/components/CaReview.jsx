@@ -14,7 +14,7 @@
 //     listed under Work State Unknown - set it, and they are checked.
 // Employees never see any of this (the routes are HR only).
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, RefreshCw, Scale, SlidersHorizontal, MapPinOff, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, RefreshCw, Scale, SlidersHorizontal, MapPinOff, Check, X } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
@@ -41,7 +41,9 @@ const kindOf = (f) => f.kind || f.rule;
 const kindLabel = (f) => KIND_LABEL[kindOf(f)] || f.ruleLabel || 'Flag';
 const PREMIUM_LABEL = { meal: 'Pay Meal Premium', rest: 'Pay Rest Premium' };
 
-export default function CaReview({ onOpenTimecard, toastOk, toastErr }) {
+// `autoRun` / `onClose`: opened from the Run Review button in the Time tab
+// row (Oct 28 2026) - it runs on open and closes back to that button.
+export default function CaReview({ onOpenTimecard, toastOk, toastErr, autoRun = false, onClose }) {
   const [anchor, setAnchor] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -64,6 +66,8 @@ export default function CaReview({ onOpenTimecard, toastOk, toastErr }) {
       else setError(e?.message || 'The California Review could not run.');
     } finally { setLoading(false); }
   }, [anchor]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (autoRun) run(); }, []);
 
   async function act(f, fn, ok, fail) {
     setBusyKey(f.email + f.key);
@@ -142,6 +146,10 @@ export default function CaReview({ onOpenTimecard, toastOk, toastErr }) {
           {loading ? <Spinner size={13} /> : (data ? <RefreshCw size={13} /> : <Scale size={13} />)}
           {data ? 'Refresh' : 'Run Review'}
         </button>
+        {onClose && (
+          <button type="button" className="secondary-btn" aria-label="Close" title="Close" onClick={onClose}
+            style={{ padding: '4px 6px', display: 'inline-flex' }}><X size={13} /></button>
+        )}
       </div>
 
       {!data && !loading && !error && !stepLocked && (
