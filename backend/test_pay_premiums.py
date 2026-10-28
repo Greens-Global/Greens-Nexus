@@ -212,8 +212,10 @@ class OffIsIdenticalTests(Base):
 
     def _golden(self):
         if os.environ.get("PAY_PREMIUMS_WRITE_GOLDEN"):
+            # Written in the shape _assert_same compares (meal / color flags
+            # stripped) - an unstripped file never matches.
             with open(GOLDEN, "w") as fh:
-                json.dump(_outputs(self.db), fh, indent=1, sort_keys=True)
+                json.dump(_without_color_flags(_without_meal_flags(_outputs(self.db))), fh, indent=1, sort_keys=True)
             self.skipTest("golden file written")
         with open(GOLDEN) as fh:
             return json.load(fh)
