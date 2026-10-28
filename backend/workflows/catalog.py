@@ -404,12 +404,16 @@ def options_for(db, name: str) -> Any:
 # ── packs ────────────────────────────────────────────────────────────────────
 _packs_lock = threading.Lock()
 _packs_loaded = False
+# pack name -> why it did not import; the rest of the catalog still serves
+load_errors: dict[str, str] = {}
 
 
 def load_packs() -> None:
     """Import every workflows/packs/*.py once (sorted, so registration order
-    is stable). Idempotent; a pack that fails to import raises - a broken
-    catalog must not boot quietly."""
+    is stable). Idempotent. A pack that fails to import is remembered in
+    `load_errors` with ONE loud line - the other packs register, emit keeps
+    writing their events and the runner keeps running them; a broken pack
+    never silences the whole module (and never re-imports on every call)."""
     global _packs_loaded
     if _packs_loaded:
         return
@@ -420,7 +424,11 @@ def load_packs() -> None:
         names = sorted(n[:-3] for n in os.listdir(folder)
                        if n.endswith(".py") and not n.startswith("_"))
         for name in names:
-            importlib.import_module(f"workflows.packs.{name}")
+            try:
+                importlib.import_module(f"workflows.packs.{name}")
+            except Exception as e:   # noqa: BLE001 - one pack, one line; the others still load
+                load_errors[name] = f"{type(e).__name__}: {str(e)[:300]}"
+                print(f"[workflows] pack {name} failed to load: {load_errors[name]}")
         _packs_loaded = True
 
 

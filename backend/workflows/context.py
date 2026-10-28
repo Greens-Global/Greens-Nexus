@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Optional
 
 from workflows import catalog
@@ -224,7 +224,13 @@ class RunContext:
         if root == "today" and not rest:
             return self.today.isoformat()
         if root == "now" and not rest:
-            return datetime.now().astimezone().isoformat()
+            # the subject's company clock, never the server's
+            from zoneinfo import ZoneInfo
+            now = datetime.now(timezone.utc)
+            try:
+                return now.astimezone(ZoneInfo(self.zone or "America/Los_Angeles")).isoformat()
+            except Exception:   # noqa: BLE001 - an unknown zone reads as UTC
+                return now.isoformat()
         if root == "item":
             if not isinstance(self.item, dict):
                 return MISSING

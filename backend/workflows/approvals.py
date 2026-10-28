@@ -150,19 +150,35 @@ def decide(db, ap: models.WorkflowApproval, user: dict, option: str, note: str =
     ap.responses = responses
     outcome = _outcome(ap, option)
     result = {"id": ap.id, "outcome": outcome, "responses": responses, "decided": bool(outcome)}
+    A = models.WorkflowApproval
     if not outcome:
+        # still open: the answer lands only while nobody else closed the ask
+        n = (db.query(A).filter(A.id == ap.id, A.outcome == "")
+             .update({A.responses: responses}, synchronize_session=False))
+        if n != 1:
+            db.rollback()
+            raise ValueError("This approval was already decided")
         db.commit()
         if ap.mode == "sequence":
             _bell(db, current_approvers(ap), ap)
             db.commit()
         return result
-    ap.outcome, ap.decided_at = outcome, _iso()
+    # one decision closes the ask: the conditional UPDATE is the race guard
+    # (two approvers at once, a decision against the expiry sweep, two API
+    # workers) - whoever loses gets "already decided" and resumes nothing
+    n = (db.query(A).filter(A.id == ap.id, A.outcome == "")
+         .update({A.responses: responses, A.outcome: outcome, A.decided_at: _iso()}, synchronize_session=False))
+    if n != 1:
+        db.rollback()
+        raise ValueError("This approval was already decided")
     db.commit()
+    db.refresh(ap)
     wait = (db.query(models.WorkflowWait)
             .filter(models.WorkflowWait.run_id == ap.run_id, models.WorkflowWait.kind == "approval",
                     models.WorkflowWait.step_id.like(f"%{ap.step_id}")).first())
-    if wait is not None:
-        run = engine.resume(db, wait, outcome=outcome)
+    if wait is not None and engine.claim_wait(db, wait.id):
+        wait = db.get(models.WorkflowWait, wait.id)
+        run = engine.resume(db, wait, outcome=outcome) if wait is not None else None
         result["runStatus"] = run.status if run is not None else ""
     return result
 
@@ -179,12 +195,18 @@ def sweep(db, now: Optional[datetime] = None) -> dict:
         except ValueError:
             continue
         if ap.expire_days and now >= asked + timedelta(days=int(ap.expire_days)):
-            ap.outcome, ap.decided_at = "expired", _iso(now)
+            A = models.WorkflowApproval
+            n = (db.query(A).filter(A.id == ap.id, A.outcome == "")
+                 .update({A.outcome: "expired", A.decided_at: _iso(now)}, synchronize_session=False))
             db.commit()
+            if n != 1:
+                continue                    # a decision landed first
             wait = (db.query(models.WorkflowWait)
                     .filter(models.WorkflowWait.run_id == ap.run_id, models.WorkflowWait.kind == "approval").first())
-            if wait is not None:
-                engine.resume(db, wait, outcome="expired")
+            if wait is not None and engine.claim_wait(db, wait.id, now=now):
+                wait = db.get(models.WorkflowWait, wait.id)
+                if wait is not None:
+                    engine.resume(db, wait, outcome="expired")
             expired += 1
             continue
         if ap.remind_days and not ap.reminded_at and now >= asked + timedelta(days=int(ap.remind_days)):

@@ -297,6 +297,10 @@ def _notify_run(ctx, params) -> dict:
         notify_rollup.upsert_rollup(ctx.db, recipient=who, key=key, title=title, line=body, action=link,
                                     company=ctx.company(), requested_by=_run_as_email(ctx), replace=True,
                                     priority=1 if params.get("priority") else None)
+        # the bell is durable BEFORE the person counts as sent: a failure on
+        # the next recipient rolls nothing back that `sent` (and so Replay)
+        # believes went out
+        ctx.db.commit()
         sent.append(who)
     return {"line": f"Notified {_names(ctx, to)}: {title}{_dropped_note(dropped)}", "sent": list(sent),
             "affected": []}
@@ -406,6 +410,7 @@ def _teams_run(ctx, params) -> dict:
             continue
         ctx.db.add(models.TicketTeamsMessage(id=str(uuid.uuid4()), ticket_id="", agent_email=me, requester_email=who,
                                              html=html, created_at=now, kind="workflow"))
+        ctx.db.commit()          # queued for good before the person counts as sent
         sent.append(who)
     others = [w for w in to if w != me]
     return {"line": f"Queued a Teams message to {_names(ctx, others)}{_dropped_note(dropped)}",
