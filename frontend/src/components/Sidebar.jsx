@@ -19,6 +19,7 @@ import {
   MonitorDot, Gauge, CalendarClock,
   Map as MapIcon,
   Inbox,
+  Workflow,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
 import InsightsChart from "./icons/InsightsChart";
@@ -204,6 +205,9 @@ export const NAV = [
   // BI board (Neil, Sep 14): cross-module KPIs, sortable/filterable, reusing
   // the same widget-grid engine as Dashboard - see dashboard/useDashboards.js.
   { view: "bi", code: "INS", label: "Insights", icon: InsightsChart, minRole: 'supervisor' },
+  // Workflows (Oct 28 2026): cross-module automations - build, pause, review
+  // what ran. Granted like the other modules; the group sorts itself by name.
+  { view: "workflows", code: "WFL", label: "Workflows", icon: Workflow, minRole: 'supervisor' },
   { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
   { divider: true },
   // Help Center (Neil, Oct 13 2026; was Support): Submit a Ticket,

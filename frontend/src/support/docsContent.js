@@ -1983,4 +1983,67 @@ export const DOCS = [
       'Payroll Export Codes (Time Clock > Pay Rules): the payroll item name each pay class carries in the QuickBooks IIF and the Intacct memo, per company. Leave a box blank for the default; names must match the QuickBooks payroll items, and two classes cannot share one name.',
     ],
   },
+  // Workflows (Oct 28 2026).
+  {
+    id: 'workflows', name: 'Workflows', group: 'Modules', icon: 'Workflow', view: 'workflows',
+    tagline: 'When something happens in Nexus, do something about it - without a developer.',
+    where: 'Left menu > Workflows',
+    access: 'Anyone with the Workflows grant. Viewer sees workflows and their runs; Editor builds and publishes their own; Full manages every workflow in their scope.',
+    purpose: 'Workflows are automations that cross modules: a trigger (an event such as "time off is approved", a schedule, a date such as "14 days before probation ends", or a button), optional "only if" conditions, and ordered steps - send an email or a notification, create a task or a ticket, assign a checklist, ask someone for approval, wait, or run a step for each person in a list. Every run is recorded step by step, and everything automatic - workflows, Tasks automation rules and the built-in background jobs - is listed and switched off from one place.',
+    gains: [
+      'Reminders, hand-offs and follow-ups happen the same way every time, with nobody remembering to do them.',
+      'Every workflow reads as plain English, so anyone can check what it does before it goes live.',
+      'What ran, for whom and what it changed is on the Runs tab with a link to the record.',
+    ],
+    walkthroughs: [
+      {
+        title: 'Build a Workflow',
+        steps: [
+          'Open Workflows and click New Workflow, or pick a template on the Templates tab (Use Template copies it as a draft with the blanks to fill marked).',
+          'In the When card pick the trigger: an event (grouped by module, searchable), a schedule, a date on a record, or Manual.',
+          'Add Only If conditions when the workflow should run for some records only, then add steps from the Add Step menu. Each card shows a sentence of what it does.',
+          'Click Test to run it against a recent event without sending anything; the trace shows which conditions passed and what each step would do.',
+          'Click Publish. Every publish is a new version; Versions in the right rail compares and restores them.',
+        ],
+      },
+      {
+        title: 'Turn Things Off',
+        steps: [
+          'One workflow: Pause on its row or page; Resume brings it back.',
+          'Every Tasks automation rule and every workflow in the company: the Automations tab, one switch per rule.',
+          'Everything at once: Settings > Workflows > Pause All (Global Admins). Every screen in the module shows who paused it and when; events still queue for 7 days so nothing recent is lost.',
+        ],
+      },
+      {
+        title: 'See What a Workflow Did',
+        steps: [
+          'Open the Runs tab. Runs lists one row per run; Actions lists every step that changed or sent something, newest first, with the record it touched.',
+          'Filter by workflow, status or date, and click a row for the step timeline with each step\'s input and output.',
+          'A failed run can be replayed from the drawer; a run waiting on an approval can be cancelled.',
+        ],
+      },
+    ],
+    features: [
+      { name: 'Overview', desc: 'What needs attention (paused by the system, failing, owner gone), the last 24 hours, recent runs, and the quick starts.' },
+      { name: 'Workflows', desc: 'Mine, My Company or Every Company; name, trigger, scope, owner, status, runs in 7 days, last run; Pause, Resume, Duplicate and Archive on each row.' },
+      { name: 'Builder', desc: 'When, Only If and Do cards that read as sentences; Settings, Test and Versions in the right rail; Describe It drafts a workflow from a sentence when AI is set up.' },
+      { name: 'Automations', desc: 'Every workflow, every Tasks automation rule with its own switch, and the built-in background jobs with what they do and the setting that controls them.' },
+      { name: 'Runs', desc: 'Runs and Actions views, filters, and a drawer with the step timeline, the event, Replay and Cancel.' },
+      { name: 'Approvals', desc: 'An Ask For Approval step lands in the Approvals screen and the bell with its options as buttons.' },
+      { name: 'Catalog', desc: 'Every trigger, field and action the app offers today, by module, with New markers.' },
+    ],
+    manager: {
+      title: 'Owners and Global Admins',
+      points: [
+        'A workflow runs as its owner: it can only do what the owner could do by hand, and a failed run always notifies the owner.',
+        'Scope is one company or every company; Full-level users and Global Admins may pause or re-own any workflow in their scope.',
+        'Settings > Workflows holds the per-company switch, the run and recipient ceilings, the weekly owner digest and the webhook allow-list.',
+      ],
+    },
+    tips: [
+      'Test before Publish is required the first time a definition changes - the trace is the fastest way to see why a condition did not match.',
+      'A step can be skipped without deleting it (the Skip toggle on its card); the run shows it as Skipped.',
+      'Hours and dates in templates come out US style (MM/DD/YYYY, 12-hour) by themselves.',
+    ],
+  },
 ];

@@ -88,6 +88,15 @@ export const SUBMENUS = {
     { sub: 'training', label: 'Training' },
     { sub: 'health',   label: 'Manage' },
   ],
+  // Workflows (Oct 28 2026): the module's six tabs.
+  workflows: [
+    { sub: 'overview',    label: 'Overview' },
+    { sub: 'list',        label: 'Workflows' },
+    { sub: 'automations', label: 'Automations' },
+    { sub: 'runs',        label: 'Runs' },
+    { sub: 'templates',   label: 'Templates' },
+    { sub: 'catalog',     label: 'Catalog' },
+  ],
 };
 
 // Full-screen phone menu. Mirrors the desktop sidebar EXACTLY - same NAV
