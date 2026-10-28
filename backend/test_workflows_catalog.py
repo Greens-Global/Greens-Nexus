@@ -122,7 +122,12 @@ def test_serialize_shape_is_the_builder_contract(db, hr_user):
     assert set(emp) == {"key", "label", "module", "fields", "dates", "people"}
     assert all({"key", "label", "type", "visibility"} <= set(f) for f in emp["fields"])
     dept = next(f for f in emp["fields"] if f["key"] == "department")
-    assert dept["type"] == "select" and dept["options"] == "departments"
+    # a string options name is served as the registered source's list
+    # (Task 6, option sources); the snapshot keeps the name
+    assert dept["type"] == "select" and isinstance(dept["options"], list)
+    snap_dept = next(f for e in catalog.snapshot()["entities"] if e["key"] == "employee"
+                     for f in e["fields"] if f["key"] == "department")
+    assert snap_dept["options"] == "departments"
     assert all(set(d) == {"key", "label", "yearly"} for d in emp["dates"])
     assert any(d["key"] == "start_date" and d["yearly"] and d["label"] == "Work Anniversary" for d in emp["dates"])
     assert all(set(p) == {"key", "label"} for p in emp["people"])

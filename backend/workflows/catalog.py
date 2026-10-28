@@ -242,6 +242,11 @@ ENTITIES: dict[str, EntityDef] = {}
 EVENTS: dict[str, EventDef] = {}
 ACTIONS: dict[str, ActionDef] = {}
 LIST_SOURCES: dict[str, ListSourceDef] = {}
+# Option sources (Task 6): a field or param whose `options` is a string names
+# one of these; `serialize` serves the list it returns (`fn(db) -> [{value,
+# label}]`), `snapshot` keeps the name. A name nobody registered ("task_projects")
+# is passed through for the builder to load itself.
+OPTION_SOURCES: dict[str, Callable] = {}
 
 
 def _identity(obj):
@@ -349,6 +354,28 @@ def list_source(key: str, *, label: str, entity: str, module: str, params=(), fn
     return _identity
 
 
+def option_source(key: str, fn: Callable) -> None:
+    """Register `fn(db) -> [{"value", "label"}]` as the list behind
+    `options="<key>"` on a field or param (served by `serialize`)."""
+    _fresh(OPTION_SOURCES, key, "option source")
+    if not callable(fn):
+        raise ValueError(f"option source {key}: fn must be a callable")
+    OPTION_SOURCES[key] = fn
+
+
+def options_for(db, name: str) -> Any:
+    """The served form of a string options name: the registered source's
+    list (an empty list when it fails), else the name itself."""
+    fn = OPTION_SOURCES.get(name)
+    if fn is None or db is None:
+        return name
+    try:
+        return _options_out(fn(db))
+    except Exception as e:   # noqa: BLE001 - one broken list never hides the catalog
+        print(f"[workflows] option source {name} failed: {type(e).__name__}: {str(e)[:120]}")
+        return []
+
+
 # ── packs ────────────────────────────────────────────────────────────────────
 _packs_lock = threading.Lock()
 _packs_loaded = False
@@ -429,22 +456,23 @@ def _options_out(options):
     return out
 
 
-def _field_out(f: Field) -> dict:
+def _field_out(f: Field, db=None) -> dict:
     out = {"key": f.key, "label": f.label, "type": f.type, "visibility": f.visibility}
     if f.options is not None:
-        out["options"] = _options_out(f.options)
+        out["options"] = options_for(db, f.options) if isinstance(f.options, str) else _options_out(f.options)
     return out
 
 
-def _param_out(p: Param) -> dict:
+def _param_out(p: Param, db=None) -> dict:
+    options = options_for(db, p.options) if isinstance(p.options, str) else _options_out(p.options)
     return {"key": p.key, "label": p.label, "type": p.type, "required": bool(p.required), "max": p.max,
-            "options": _options_out(p.options), "default": p.default, "hint": p.hint or ""}
+            "options": options, "default": p.default, "hint": p.hint or ""}
 
 
-def _entity_out(ent: EntityDef, fields: list) -> dict:
+def _entity_out(ent: EntityDef, fields: list, db=None) -> dict:
     return {
         "key": ent.key, "label": ent.label, "module": ent.module,
-        "fields": [_field_out(f) for f in fields],
+        "fields": [_field_out(f, db) for f in fields],
         "dates": [{"key": d.key, "label": d.label, "yearly": bool(d.yearly)} for d in ent.dates],
         "people": [{"key": r, "label": ent.people_label(r)} for r in ent.people],
     }
@@ -455,14 +483,14 @@ def _event_out(ev: EventDef) -> dict:
             "changes": list(ev.changes), "volume": ev.volume}
 
 
-def _action_out(a: ActionDef) -> dict:
-    return {"key": a.key, "label": a.label, "module": a.module, "params": [_param_out(p) for p in a.params],
+def _action_out(a: ActionDef, db=None) -> dict:
+    return {"key": a.key, "label": a.label, "module": a.module, "params": [_param_out(p, db) for p in a.params],
             "needsPerson": bool(a.needs_person), "adminOnly": bool(a.admin_only)}
 
 
-def _list_source_out(s: ListSourceDef) -> dict:
+def _list_source_out(s: ListSourceDef, db=None) -> dict:
     return {"key": s.key, "label": s.label, "entity": s.entity, "module": s.module,
-            "params": [_param_out(p) for p in s.params]}
+            "params": [_param_out(p, db) for p in s.params]}
 
 
 def _operators_out() -> dict:
@@ -485,11 +513,11 @@ def serialize(db, user: dict) -> dict:
     for key in sorted(ENTITIES):
         ent = ENTITIES[key]
         fields = [f for f in ent.fields if can_see_field(db, user, f.visibility)]
-        entities.append(_entity_out(ent, fields))
+        entities.append(_entity_out(ent, fields, db))
     events = [_event_out(EVENTS[k]) for k in sorted(EVENTS) if may_use_event(db, user, EVENTS[k])]
-    actions = [_action_out(ACTIONS[k]) for k in sorted(ACTIONS)
+    actions = [_action_out(ACTIONS[k], db) for k in sorted(ACTIONS)
                if not ACTIONS[k].admin_only or level >= auth._LEVELS["owner"]]
-    sources = [_list_source_out(LIST_SOURCES[k]) for k in sorted(LIST_SOURCES)]
+    sources = [_list_source_out(LIST_SOURCES[k], db) for k in sorted(LIST_SOURCES)]
     return {
         "entities": entities, "events": events, "actions": actions, "listSources": sources,
         "operators": _operators_out(), "filters": _filters_out(),

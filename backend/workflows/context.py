@@ -133,6 +133,12 @@ class RunContext:
     item: Optional[dict] = None               # the current For Each item (its fields)
     vars: dict = field(default_factory=dict)
     company_id: str = ""
+    # The running step's output so far (Task 7): an action that sends to
+    # several people appends each email to `step_output["sent"]` as it goes;
+    # the engine keeps the dict on the step row, so a retry after a failure
+    # half-way finds what already went out and never sends it twice.
+    step_output: dict = field(default_factory=dict)
+    plan_only: bool = False                   # a Test run: plan lines, no side effects
 
     # ── derived ──
     def company(self) -> str:
