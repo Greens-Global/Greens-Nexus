@@ -80,6 +80,7 @@ import {
   Sparkles,
   Warehouse,
   Target,
+  Workflow,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -177,6 +178,8 @@ const OpsSettingsPanel = lazy(() => import('../operations/OpsSettings'));
 const PerformanceReminderSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceReminderSettings })));
 const ReviewScaleSettings = lazy(() => import('../performance/ReviewSettings').then(m => ({ default: m.ReviewScaleSettings })));
 const CompanyValuesSettings = lazy(() => import('../performance/ReviewSettings').then(m => ({ default: m.CompanyValuesSettings })));
+// Workflows (Oct 28 2026): the switches, ceilings, digest and pause - layered per company.
+const WorkflowsSettingsPanel = lazy(() => import('../workflows/WorkflowsSettings').then(m => ({ default: m.WorkflowsSettings })));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone. Since Oct 20 the
 // tab is the unified Audit Log (components/audit/AuditLog.jsx): every module,
@@ -239,6 +242,9 @@ const SUBJECTS = [
   // Performance (Oct 27 2026): goals and 1:1s - Workday > Performance.
   { key: 'performance', section: 'work', label: 'Performance',         Icon: Target, faces: 'both',
     desc: 'Goal and 1:1 reminders, the review rating scale and the company values.' },
+  // Workflows (Oct 28 2026): the one cross-module automation engine.
+  { key: 'workflows', section: 'ops', label: 'Workflows',           Icon: Workflow, faces: 'both',
+    desc: 'Automations across every module: the switches, the ceilings and the owner digest.' },
 ];
 const SUBJECT_KEYS = new Set(SUBJECTS.map(s => s.key));
 // The rail's four sections (Oct 25). `wide` subjects (whole screens: the
@@ -518,6 +524,11 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'The values people and their managers rate in each review. A new review cycle copies them.',
     keywords: 'performance review company values culture competencies appraisal' },
+  // Workflows
+  { id: 'workflows-config', subject: 'workflows', face: 'both', scope: 'layered', icon: Workflow, title: 'Workflow Settings', flush: true,
+    needs: { role: 'administrator', grant: ['workflows', 'full'] },
+    sub: 'Whether workflows run for a company, the per-hour and recipient ceilings, the weekly owner digest, and the organization-wide pause.',
+    keywords: 'workflows automation pause switch ceilings digest webhooks' },
 ];
 const GROUP_META = Object.fromEntries(GROUPS.map(g => [g.id, g]));
 
@@ -676,6 +687,7 @@ const COMPANY_STATE = {
   'performance-rating-scale': (cid) => api.perfReviewSettings(cid).then(m => ownState((m?.overrides || []).includes('ratingScale'))),
   'performance-values': (cid) => api.perfReviewSettings(cid).then(m => ownState((m?.overrides || []).includes('values'))),
   'india-contractor-policy': (cid) => api.timeIndiaPolicyGet(cid).then(r => ownState(!!r?.hasOverride)),
+  'workflows-config': (cid) => api.wfSettings(cid).then(m => ownState(!!m?.override)),
 };
 // What the layered footer says before the names.
 const OWN_LINE = { 'shift-settings': 'Companies with shift settings of their own:' };
@@ -1709,6 +1721,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'performance-reminders': return <LazyPanelSection key={key} id={id} Panel={PerformanceReminderSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'performance-rating-scale': return <LazyPanelSection key={key} id={id} Panel={ReviewScaleSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'performance-values':   return <LazyPanelSection key={key} id={id} Panel={CompanyValuesSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'workflows-config':     return <LazyPanelSection key={key} id={id} Panel={WorkflowsSettingsPanel} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       default:                     return null;
     }
   }
