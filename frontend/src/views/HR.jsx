@@ -5613,6 +5613,21 @@ export default function HR({ activeSub, onSubChange }) {
     // Roles & Access moved to the Admin module in full (Pranshu, Sep 9) - no
     // longer a People tab.
   ].filter(t => SUBS.includes(t.key));
+  // The heading names the open tab (Neil, Oct 29 2026: "when we click on
+  // Hiring it doesn't change the heading at the top to Hiring, it still says
+  // People") - the page title, its icon and line, and the header breadcrumb.
+  const TAB_LINES = {
+    'hr-people': 'Every person\'s profile, role and status',
+    'hr-hiring': 'Openings, candidates, offers and onboarding',
+    'hr-org': 'Who reports to whom, across every company',
+    'hr-time': 'Time sheets, time off and punch fixes to review',
+    'hr-checklists': 'Onboarding and offboarding steps for each person',
+    'hr-analytics': 'Headcount, attrition, tenure, absence and leave',
+    'hr-exits': 'People leaving and their final settlement',
+    'hr-performance': 'Review cycles and goals',
+  };
+  const headTab = TABS.find(t => t.key === sub) || TABS[0] || { label: 'People', Icon: Users };
+  const HeadIcon = headTab.Icon || Users;
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -5622,11 +5637,11 @@ export default function HR({ activeSub, onSubChange }) {
         {/* Icon-chip page title (Work OS grammar - the module's meaning color) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
           <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Users size={19} />
+            <HeadIcon size={19} />
           </span>
           <div className="view-title-group">
-            <h2 style={{ fontFamily: 'var(--wk-font)' }}>People</h2>
-            <p>People, hiring, org structure and leave - one source of truth</p>
+            <h2 style={{ fontFamily: 'var(--wk-font)' }}>{headTab.label}</h2>
+            <p>{TAB_LINES[headTab.key] || 'People, hiring, org structure and leave - one source of truth'}</p>
           </div>
         </div>
         {sub === 'hr-people' && (
@@ -5681,7 +5696,7 @@ export default function HR({ activeSub, onSubChange }) {
 
       {/* Tabs - desktop renders them centered in the top header; phones keep
           the in-page strip (ModuleTabs handles both) */}
-      <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} overflow />
+      <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} overflow syncTitle />
 
       {codesOpen && (
         <Suspense fallback={<ModalLoading />}>
