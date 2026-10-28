@@ -13022,6 +13022,12 @@ def add_time(body: AddTimeIn, user: dict = Depends(require_team_write), db: Sess
         body=f"{_display_name(db, user['email'])} added {hrs} over {n} day{'' if n == 1 else 's'} ({dates}) "
              f"to {_display_name(db, em)}'s time sheet: {reason[:200]}",
         ref_id=batch_id)
+    # Workflows (Oct 28 2026): one event per batch, the person as subject.
+    import workflows
+    from workflows.packs._people import employee_row as _wf_person
+    workflows.emit(db, "time.add_time_batch", subject=_wf_person(db, em), actor=user["email"],
+                   extra={"batchId": batch_id, "source": "manager", "dates": [r["date"] for r in doing],
+                          "minutes": total, "replaced": 0, "reason": reason[:300]})
     db.commit()
     return {"batchId": batch_id, "days": public, "added": n, "totalMin": total}
 
@@ -13775,6 +13781,12 @@ def duplicate_day(body: DuplicateDayIn, user: dict = Depends(require_team_write)
         body=f"{_display_name(db, user['email'])} (HR) added time from a record for {rng} to "
              f"{_display_name(db, em)}'s time sheet ({hrs}): {reason[:200]}",
         ref_id=batch_id)
+    # Workflows (Oct 28 2026): one event per batch, the person as subject.
+    import workflows
+    from workflows.packs._people import employee_row as _wf_person
+    workflows.emit(db, "time.add_time_batch", subject=_wf_person(db, em), actor=user["email"],
+                   extra={"batchId": batch_id, "source": "record", "dates": days, "minutes": total,
+                          "replaced": out["replaced"], "reason": reason[:300]})
     db.commit()
     return {"batchId": batch_id, **out}
 
