@@ -18,7 +18,7 @@ export function buildSupportTourSteps() {
     {
       target: 'support-options',
       title: 'Four Shortcuts, One Page',
-      body: 'Everything you might need help with or want to learn starts from one of these cards. The one you will use most is Submit a Ticket - the rest open the Assistant (search and ask), the Documentation guide and the Knowledge Base & Training.',
+      body: 'Everything you might need help with or want to learn starts from one of these cards. The one you will use most is Submit a Ticket - Ask Nexus answers a question from the guides, and the others open the Documentation guide and the Knowledge Base & Training.',
     },
     {
       target: 'support-submit-ticket',
