@@ -50,6 +50,11 @@ Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
 the build-notes skill refuses commits by it) - change both together.
 
 **Do not modify the other developer's files** — ask them instead.
+**Neil has the final say** (Oct 28 2026): he is head of the company and
+Visesh's lead. A change Neil made or a decision he gave (the "(Neil, <date>)"
+notes in this file and in code comments) is never changed or undone without
+discussing it with him first - the same guardrail as another developer's
+files. Neil may green-light work on anyone's files himself.
 Shared files (`backend/models.py`, `backend/main.py` migrations list,
 `frontend/src/api.js`, `App.jsx`/`Sidebar`): **append only, never reorder**,
 keep the diff minimal.

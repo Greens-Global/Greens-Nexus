@@ -3,7 +3,7 @@ import { render, screen, cleanup } from '@testing-library/react';
 import { StatusLabel, PrioritySignal } from './StatusLabel';
 
 // Soft labels replaced the solid cell fills (Neil, Oct 14 2026). Priority is a
-// signal: only Urgent and High carry color.
+// chevron mark: only Urgent and High color the word.
 
 afterEach(cleanup);
 
@@ -18,17 +18,31 @@ describe('StatusLabel', () => {
 });
 
 describe('PrioritySignal', () => {
-  it('colors Urgent and High only, with one bar per step', () => {
+  // Chevrons since Oct 28 2026: every level its own shape (Urgent two paths,
+  // the rest one), no bars left anywhere.
+  const paths = (c) => c.querySelectorAll('svg.nx-prio-mark path').length;
+  it('colors the word for Urgent and High only, and gives each level its own chevron', () => {
     const { container, rerender } = render(<PrioritySignal priority="urgent" />);
     expect(container.querySelector('.nx-prio-loud')).toBeTruthy();
-    expect(container.querySelectorAll('.nx-prio-bars i.on')).toHaveLength(3);
+    expect(paths(container)).toBe(2);
+    const urgent = container.querySelector('svg').innerHTML;
     rerender(<PrioritySignal priority="high" />);
     expect(container.querySelector('.nx-prio-loud')).toBeTruthy();
+    expect(paths(container)).toBe(1);
+    const high = container.querySelector('svg').innerHTML;
     rerender(<PrioritySignal priority="medium" />);
     expect(container.querySelector('.nx-prio-loud')).toBeNull();
-    expect(container.querySelectorAll('.nx-prio-bars i.on')).toHaveLength(2);
     expect(screen.getByText('Medium')).toBeTruthy();
+    const medium = container.querySelector('svg').innerHTML;
     rerender(<PrioritySignal priority="low" />);
-    expect(container.querySelectorAll('.nx-prio-bars i.on')).toHaveLength(1);
+    const low = container.querySelector('svg').innerHTML;
+    expect(new Set([urgent, high, medium, low]).size).toBe(4);
+    expect(container.querySelector('.nx-prio-bars')).toBeNull();
+  });
+
+  it('draws no mark for an unknown priority, just the word', () => {
+    const { container } = render(<PrioritySignal priority="someday" />);
+    expect(container.querySelector('svg')).toBeNull();
+    expect(screen.getByText('someday')).toBeTruthy();
   });
 });

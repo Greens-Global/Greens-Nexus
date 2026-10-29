@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 
-const apiMock = vi.hoisted(() => ({ mySignatures: vi.fn(async () => []), dashKpis: vi.fn(async () => ({ kpis: {} })) }));
+const apiMock = vi.hoisted(() => ({ mySignatures: vi.fn(async () => []), dashKpis: vi.fn(async () => ({ kpis: {} })), getLinkLayout: vi.fn(async () => ({ favorites: [] })), getExternalLinks: vi.fn(async () => []), getPersonalLinks: vi.fn(async () => []) }));
 vi.mock('../api', () => ({ api: apiMock }));
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Charmi Patel', username: 'charmi@greensglobal.com' }] }) }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => false, actingAs: null, myEmail: 'charmi@greensglobal.com' }) }));

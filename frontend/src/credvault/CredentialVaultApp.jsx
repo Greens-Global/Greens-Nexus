@@ -270,7 +270,7 @@ export default function CredentialVaultApp({ activeSub }) {
         <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
           <span className="cv-module-chip"><KeyRound size={19} /></span>
           <div className="view-title-group">
-            <h2>Credential Vault</h2>
+            <h2>Credentials</h2>
             <p>Company logins, kept by their owners and opened by the people who need them</p>
           </div>
         </div>

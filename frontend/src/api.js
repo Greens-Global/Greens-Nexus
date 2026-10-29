@@ -3227,6 +3227,8 @@ export const api = {
   wfStatus: (id, data) => req(`/workflows/${encodeURIComponent(id)}/status`, { method: "POST", body: JSON.stringify(data) }),
   wfReown: (id, data) => req(`/workflows/${encodeURIComponent(id)}/reown`, { method: "POST", body: JSON.stringify(data) }),
   wfDuplicate: (id, data = {}) => req(`/workflows/${encodeURIComponent(id)}/duplicate`, { method: "POST", body: JSON.stringify(data) }),
+  // Delete for good (Oct 28 2026) - past runs stay in Runs; waiting ones are cancelled.
+  wfDelete: (id) => req(`/workflows/${encodeURIComponent(id)}`, { method: "DELETE" }),
   wfVersions: (id) => req(`/workflows/${encodeURIComponent(id)}/versions`),
   wfVersion: (id, v) => req(`/workflows/${encodeURIComponent(id)}/versions/${encodeURIComponent(v)}`),
   wfRestore: (id, v) => req(`/workflows/${encodeURIComponent(id)}/versions/${encodeURIComponent(v)}/restore`, { method: "POST" }),

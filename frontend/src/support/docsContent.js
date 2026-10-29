@@ -106,7 +106,7 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Left Menu', desc: 'Grouped into My Desk (Dashboard, Workday, Team, Approvals...), Work (Tasks, Tickets, Files, Documents, Credential Vault, Workflows), Modules and System (Help Center, Settings). You only see what your role or Access Groups allow.' },
+      { name: 'Left Menu', desc: 'Grouped into My Desk (Dashboard, Workday, Team, Approvals...), Work (Tasks, Tickets, Files, Documents, Credentials, Workflows), Modules and System (Help Center, Settings). You only see what your role or Access Groups allow.' },
       { name: 'Approvals', desc: 'Left menu > Approvals: everything waiting on your decision, from every module, in one list. See the Approvals page of this guide.' },
       { name: 'Top Tabs', desc: 'Each module shows its own tabs in the header (in the page itself on a phone).' },
       { name: 'Search (Ctrl+K)', desc: 'One Search Nexus bar in the same place on every screen: tasks, projects, people, portfolios, teams, items, checkouts, purchase requests and pages. Press / to jump to it (on the Company Directory and the Knowledge Base, / goes to that page\'s own search), and Esc clears it.' },
@@ -780,7 +780,8 @@ export const DOCS = [
       { name: 'Default Assignee', desc: 'A new ticket nobody assigned can go straight to a set person, chosen first by its help topic, then by its department. The ticket history says "Assigned to ... automatically". If that person can no longer take tickets, it waits unassigned and the history flags it in amber.' },
       { name: 'Saved Replies', desc: 'Answers the desk gives again and again. Insert one into your reply, filled in with the requester\'s name, the ticket number and your name, then edit it before you click Done. Personal replies are yours; shared ones are for the whole desk.' },
       { name: 'Collaborators', desc: 'Other people pulled in to help, on the create form and in the ticket. They can open it, reply and get its updates, and each one added gets a bell. Pick a Team to add a whole group at once, or save the people you picked as a team.' },
-      { name: 'Screen Recordings', desc: "Raising a ticket, the Show Us the Problem card under the description records your screen (with your voice if you like) or attaches a file. If the problem happens again later, open the ticket's Conversation and use Record Screen or Upload Attachment under the reply: the file is saved to the ticket's Attachments and a link to it goes in your reply when you click Done. Feature, service, access and change requests take files only." },
+      { name: 'Screen Recordings', desc: "Raising a ticket, Record Screen and Attach File sit right under the description: record your screen (with your voice if you like), attach a file or press Ctrl+V to paste a screenshot. If the problem happens again later, open the ticket's Conversation and use Record Screen or Upload Attachment under the reply: the file is saved to the ticket's Attachments and a link to it goes in your reply when you click Done. Feature, service, access and change requests take files only." },
+      { name: 'After You Submit', desc: 'The form turns into a confirmation: the ticket number, which team has it, when to expect a first reply and what happens next. Open Ticket goes straight to it, Copy Link copies a link you can share, and Create Another starts a fresh form.' },
       { name: 'List, Board, Reports', desc: 'A sortable table, drag-between-columns board, or charts of volume, SLA and time spent.' },
       { name: 'Ticket Types', desc: 'Incident, Bug Report, Feature Request, Access Request and Other, each with a one-line definition in the dropdown. Each asks only its own questions.' },
       { name: 'Help With', desc: 'What the ticket is about. The choices depend on the department: IT topics for IT, maintenance topics for Construction. Some topics have a Which One? list (Microsoft - Outlook, Teams, OneDrive; Nexus - its modules) to narrow it down. Other takes a short typed answer.' },
@@ -959,11 +960,11 @@ export const DOCS = [
     tips: ['Signers outside the company do not need a Nexus account. The emailed link is enough.'],
   },
   {
-    id: 'credential-vault', name: 'Credential Vault', group: 'Work', icon: 'KeyRound', view: 'credvault',
+    id: 'credential-vault', name: 'Credentials', group: 'Work', icon: 'KeyRound', view: 'credvault',
     tagline: 'Shared company passwords, kept by their owners, opened by the people who need them.',
-    where: 'Left menu > Credential Vault',
-    access: 'Anyone with the Credential Vault grant. The grant is given on purpose per role; it is never part of a default bundle.',
-    purpose: 'Credential Vault stores company logins so they are never shared in chat or spreadsheets. Every credential has an owner and a department. People in that department can open it; everyone else can see that it exists and ask the owner for timed access. Critical credentials are opened only by their owners and admins. Your Personal Vault is private, locked with your own password, and nobody else - admins included - can read it.',
+    where: 'Left menu > Credentials',
+    access: 'Anyone with the Credentials grant. The grant is given on purpose per role; it is never part of a default bundle.',
+    purpose: 'Credentials stores company logins so they are never shared in chat or spreadsheets. Every credential has an owner and a department. People in that department can open it; everyone else can see that it exists and ask the owner for timed access. Critical credentials are opened only by their owners and admins. Your Personal Vault is private, locked with your own password, and nobody else - admins included - can read it.',
     gains: [
       'No more passwords in email, chat or sticky notes.',
       'Every reveal, copy, share and change is logged, with who and when.',
@@ -973,7 +974,7 @@ export const DOCS = [
       {
         title: 'Open a Shared Password',
         steps: [
-          'Open Credential Vault and find the credential - search, pick a collection tab above the list (Owned by Me, Shared With Me, Favorites), or choose a department in the Department filter.',
+          'Open Credentials and find the credential - search, pick a collection tab above the list (Owned by Me, Shared With Me, Favorites), or choose a department in the Department filter.',
           'Click the row. The drawer shows the username, the masked password, the link and the notes.',
           'Click Reveal. The first time in a while you confirm it is you with a code by text or email; after that the header says "Verified until" and reveals are instant.',
           'Click Copy. Copies are logged, like reveals.',
@@ -991,7 +992,7 @@ export const DOCS = [
         title: 'Share a Password You Own',
         steps: [
           'Open the credential and click Share in the Access section.',
-          'Pick the person and a duration. They see it in their own Credential Vault for that long.',
+          'Pick the person and a duration. They see it in their own Credentials screen for that long.',
           'The Access section lists who has it and until when; End Access cuts it short.',
         ],
       },

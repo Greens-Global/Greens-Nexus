@@ -53,7 +53,7 @@ describe('Support documentation', () => {
     for (const n of ['Getting Started', 'Dashboard', 'Workday', 'Team', 'Knowledge Base', 'Item Management', 'Construction', 'Help Center']) {
       expect(names).toContain(n);
     }
-    for (const n of ['Tasks', 'Tickets', 'People', 'Accounting', 'Investor Relations', 'Credential Vault', 'Settings', 'Workforce Analytics']) {
+    for (const n of ['Tasks', 'Tickets', 'People', 'Accounting', 'Investor Relations', 'Credentials', 'Settings', 'Workforce Analytics']) {
       expect(names).not.toContain(n);
     }
     // Search cannot reach a hidden module either.

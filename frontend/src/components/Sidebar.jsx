@@ -99,8 +99,8 @@ export const NAV = [
   // Oct 13 2026: "anything to do with support or learning is right here") -
   // still baseline, the 'sop' view and its address are unchanged.
   //
-  // The Work group reads Tasks, Tickets, Files, Documents, Credential Vault,
-  // Workflows (Neil, 10/28/2026) - Credential Vault and Workflows moved up
+  // The Work group reads Tasks, Tickets, Files, Documents, Credentials,
+  // Workflows (Neil, 10/28/2026) - Credentials and Workflows moved up
   // from Modules. Sidebar.orderNav.test.jsx pins this order.
   { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
   { view: "tickets", code: "TKT",           label: "Tickets",             icon: TicketToken,  minRole: 'supervisor' },
@@ -122,7 +122,7 @@ export const NAV = [
       { subview: "documents-esign", label: "Nexus Sign", icon: PenTool },
     ],
   },
-  { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
+  { view: "credvault", code: "VLT", label: "Credentials", icon: KeyRound, minRole: 'supervisor' },
   // Workflows (Oct 28 2026): cross-module automations - build, pause, review
   // what ran. Granted like the other modules.
   { view: "workflows", code: "WFL", label: "Workflows", icon: Workflow, minRole: 'supervisor' },
