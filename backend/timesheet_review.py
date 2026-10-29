@@ -1077,6 +1077,14 @@ def finalize_unsigned(db: Session, email: str, start: str, actor: str, reason: s
     if blocker:
         raise HTTPException(403 if blocker.startswith("Only HR") else 409, blocker)
     s, e, pay_type = period_for(db, email, start)
+    return _finalize_without_signature(db, email, s, e, pay_type, actor, reason)
+
+
+def _finalize_without_signature(db: Session, email: str, s: str, e: str, pay_type: str, actor: str, reason: str,
+                                *, notify_manager: bool = True) -> TimesheetReview:
+    """The steps of HR's Finalize Without Employee Signature once it may go
+    through - shared by finalize_unsigned and close_out_outside_nexus so both
+    leave exactly the same record (Oct 28)."""
     r = active_review(db, email, s)
     if r is None:
         r = TimesheetReview(id=str(uuid.uuid4()), employee_email=email, period_start=s, period_end=e,
@@ -1100,7 +1108,7 @@ def finalize_unsigned(db: Session, email: str, start: str, actor: str, reason: s
                              f"{reason[:400]}"))
     r.status = "completed"
     _round(db, r, by=actor, action="finalized_unsigned", note=reason)
-    if r.manager_email and r.manager_email not in (actor, email):
+    if notify_manager and r.manager_email and r.manager_email not in (actor, email):
         _notify(db, r.manager_email, "Time Sheet Finalized by HR",
                 f"{display_name(db, actor)} (HR) finalized {display_name(db, email)}'s time sheet for "
                 f"{_label(r)} without their signature: \"{reason[:200]}\"", r)
@@ -1108,6 +1116,85 @@ def finalize_unsigned(db: Session, email: str, start: str, actor: str, reason: s
     tc.finalize_timecard(tc.FinalizeIn(email=email, start=s, end=e, allow_exceptions=True),
                          user={"email": actor, "level": 4}, db=db)
     return r
+
+
+# ── Pay periods paid outside Nexus (Charmi, 10/27 call item 10) ──────────────
+#
+# "That payroll was done in SwipeClock before the team used Nexus ... why is
+# this notification still popping up?" Periods that ENDED before 10/04/2026
+# (the first period Nexus ran) were paid from SwipeClock, yet their Nexus
+# review, its old company-signed envelope and the not-reviewed list kept
+# asking people every morning. HR closes them out through the finalize-with-
+# reason path above - the same envelope void, approval row, review history
+# and lock - with the reason below; the signature step itself is untouched
+# for every period from 10/04/2026 on. The manager gets no "Finalized by HR"
+# notice for these (a bulk close-out would put dozens on the bar), and the
+# priority notices that pointed at the period are marked done so the bar
+# clears too. Run by closeout_swipeclock_periods.py, never on its own.
+
+OUTSIDE_NEXUS_BEFORE = "2026-10-04"
+OUTSIDE_NEXUS_REASON = "Processed in SwipeClock before Nexus"
+
+
+def close_out_outside_nexus(db: Session, email: str, start: str, actor: str,
+                            reason: str = OUTSIDE_NEXUS_REASON) -> TimesheetReview | None:
+    """HR: close out one person's pay period that was paid outside Nexus.
+    None when it is already finalized. Refuses a period ending on or after
+    OUTSIDE_NEXUS_BEFORE, and anyone but HR, in plain words."""
+    email, actor, reason = (email or "").lower(), (actor or "").lower(), (reason or "").strip()
+    if not is_hr(db, actor, email):
+        raise HTTPException(403, "Only HR can close out a time sheet without the employee's signature.")
+    if len(reason) < 5:
+        raise HTTPException(422, "Say why it is being closed out.")
+    s, e, pay_type = period_for(db, email, start)
+    if e >= OUTSIDE_NEXUS_BEFORE:
+        raise HTTPException(409, f"Only pay periods that ended before {us_date(OUTSIDE_NEXUS_BEFORE)} were paid outside "
+                                 f"Nexus - {us_date(s)} - {us_date(e)} goes through review and signature as usual.")
+    if _tc()._finalized_row(db, email, s, e):
+        return None
+    r = active_review(db, email, s)
+    sign_id = (r.sign_request_id if r is not None else "") or ""
+    # Housekeeping, not news: no Workflows event for the old periods (Charmi
+    # 10/28 review - "time sheet changed" would fire once per period). The
+    # review's rounds, the approval note and the voided envelope's log stay.
+    # Notices FIRST (Backend Tester, 10/29): Time Clock's finalize commits at
+    # its end, so the cleanup goes out in that same commit. A failure in
+    # either step leaves the period unfinalized with its notices open, and it
+    # stays on the close-out list for a retry - never finalized with its old
+    # notices still asking (a retry skipped it as already finalized). The
+    # finalize itself adds no notice the cleanup would catch.
+    import workflows
+    with workflows.quiet():
+        _settle_period_notices(db, email, s, sign_id)
+        r = _finalize_without_signature(db, email, s, e, pay_type, actor, reason, notify_manager=False)
+        db.flush()
+    return r
+
+
+def _settle_period_notices(db: Session, email: str, start: str, sign_request_id: str) -> int:
+    """Mark done the priority notices about one person's period: the old
+    envelope's "Signature Required" (ref_id) and the review / sign notices
+    whose action opens that card. Kept in the bell like any handled notice."""
+    from sqlalchemy import or_
+    from models import NexusNotification
+    n = 0
+    near = [NexusNotification.action.ilike(f"%{email}%")] + ([NexusNotification.ref_id == sign_request_id] if sign_request_id else [])
+    for row in db.query(NexusNotification).filter(NexusNotification.priority == 1,
+                                                  NexusNotification.actioned == False,  # noqa: E712
+                                                  or_(*near)).all():
+        hit = bool(sign_request_id) and row.ref_id == sign_request_id
+        if not hit and row.action:
+            try:
+                a = json.loads(row.action)
+            except (TypeError, ValueError):
+                a = {}
+            if isinstance(a, dict):
+                who = (a.get("timecard") or a.get("email") or "").lower()
+                hit = who == email and a.get("start") == start
+        if hit:
+            row.actioned = True
+            n += 1
+    return n
 
 
 # ── HR corrects a finalized period (Neil, Oct 22 2026) ───────────────────────

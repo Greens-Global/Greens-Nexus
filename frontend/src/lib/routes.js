@@ -10,9 +10,13 @@
 //                                   the id stays - it is the stored access grant)
 //   team           <-> shifts      (Team since Neil, Oct 13 2026)
 //   help-center    <-> support     (Help Center since Neil, Oct 13 2026)
+//   credentials    <-> credvault   (Credential Vault renamed Credentials, Neil Oct 28
+//                                   2026; the id stays - it is the stored access grant)
+//   people          -> hr          (the module is called People; /people/... opens it,
+//                                   the address it writes stays /hr - Oct 29 2026)
 export const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops', workday: 'myhr', myhr: 'myhr', insights: 'bi', bi: 'bi',
-  team: 'shifts', shifts: 'shifts', 'help-center': 'support', support: 'support' };
-export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday', bi: 'insights', shifts: 'team', support: 'help-center' };
+  team: 'shifts', shifts: 'shifts', 'help-center': 'support', support: 'support', credentials: 'credvault', credvault: 'credvault', people: 'hr' };
+export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday', bi: 'insights', shifts: 'team', support: 'help-center', credvault: 'credentials' };
 
 // Purchase Requisition moved to Workday > Purchase Requests (Neil, Oct 22
 // 2026). Where an old address goes: the retired 'purchase' view (sub 'new' =
@@ -23,4 +27,14 @@ export function purchaseRedirect(view, sub) {
   if (view === 'purchase') return { view: 'myhr', sub: sub === 'new' ? 'purchase:new' : 'purchase' };
   if (view === 'inventory' && sub === 'purchasereqs') return { view: 'myhr', sub: 'purchase' };
   return null;
+}
+
+// The address the app writes for its state. On the FIRST write - the app
+// rewriting the address it was opened at (/support -> /help-center, a default
+// tab added) - the query and hash ride along: an email's /support?ticket=<id>
+// or a doc link's ?doc=&section= is read by the screen after it loads, and
+// dropping it there left the person on the list with nothing open (Oct 28
+// 2026). Every later move is a real navigation and starts clean.
+export function addressFor(path, { first = false, search = '', hash = '' } = {}) {
+  return first ? `${path}${search || ''}${hash || ''}` : path;
 }

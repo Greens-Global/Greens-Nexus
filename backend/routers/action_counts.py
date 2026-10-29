@@ -15,7 +15,8 @@ disagrees with the screen and a caller without access simply gets nothing.
 One count failing never blanks the others.
 
 The approval counts (time off, punch fixes, Time Sheets to review and to
-sign, Nexus Sign, shift requests and swaps) are read from the Approvals
+sign, Nexus Sign, shift requests and swaps, role changes, vendor and
+customer changes) are read from the Approvals
 registry (approvals_inbox.collect, Oct 27 2026) - ONE pass over every
 source - so a module's count and the Approvals screen always agree; the
 `approvals` view's own count is that registry's total.
@@ -105,20 +106,6 @@ def _ask_hr(db: Session, user: dict) -> int:
     return hr_tickets.waiting_on(db, user)
 
 
-def _role_changes(db: Session, user: dict) -> int:
-    from routers.hr_life_events import list_role_change_requests
-    return sum(1 for r in list_role_change_requests(employee_id="", email="", user=user, db=db) if r.get("canDecide"))
-
-
-# ── Accounting ───────────────────────────────────────────────────────────────
-
-def _partner_changes(db: Session, user: dict) -> int:
-    from routers.accounting_partners import _decide
-    _decide(user=user, db=db)
-    return (db.query(func.count(models.AccountingPartnerChange.id))
-            .filter(models.AccountingPartnerChange.status == "pending").scalar())
-
-
 # ── Help Center / Dashboard ──────────────────────────────────────────────────
 
 def _kb_signoffs(db: Session, me: str) -> int:
@@ -143,7 +130,7 @@ def _training(db: Session, me: str) -> int:
         c = db.query(models.KbCourse).filter(models.KbCourse.id == a.course_id).first()
         if not c or c.status != "published":
             continue
-        st = kb_core.training_status(db, c, kb_core.progress_of(db, c, me), a.due_date)
+        st = kb_core.training_status(db, c, kb_core.progress_of(db, c, me), a.due_date, me)
         if st["status"] != "Completed":
             n += 1
     return n
@@ -189,9 +176,11 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
             "timesheet": s(lambda: _timesheet(db, me, a("timesheet_sign", 0))),
             "overview": s(lambda: _schedule_confirm(db, me)) + s(lambda: _weather(db, user))
                         + s(lambda: _checklist_steps(db, me)) + a("nexus_sign", 0)
-                        # HR (Oct 27 2026): the Salary Advances and HR Letters cards live here.
-                        + a("salary_advance", 0) + a("salary_advance_payout", 0) + a("hr_letter", 0),
+                        # HR (Oct 27 2026): the HR Letters card lives here.
+                        + a("hr_letter", 0),
             "timeoff": a("shift_peer", 0),
+            # Performance (Oct 29 2026): reviews waiting on you and goals to approve.
+            "performance": a("perf_review", 0) + a("perf_goal", 0),
         },
         "shifts": {
             "requests": a("shift_request", 0) + time_off,
@@ -199,12 +188,17 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
         },
         "hr": {
             "hr-time": time_off + a("punch_fix", 0) + a("timesheet_review", 0)
-                       + a("extra_time", 0),   # People > Time > Extra Time (Oct 27 2026)
-            "hr-people": s(lambda: _ask_hr(db, user)) + s(lambda: _role_changes(db, user))
-                         + a("probation", 0),   # recommendations and overdue decisions (Oct 27 2026)
+                       + a("extra_time", 0)    # People > Time > Extra Time (Oct 27 2026)
+                       # Salary advances live on the person's Time Sheet (Oct 29 2026).
+                       + a("salary_advance", 0) + a("salary_advance_payout", 0),
+            "hr-people": s(lambda: _ask_hr(db, user))
+                         # Role changes are an Approvals source (Oct 28 2026), counted once there.
+                         + a("role_change", 0)
+                         + a("probation", 0),   # recommendations (Oct 27 2026; past the end with none = passed, Oct 29)
         },
         "accounting": {
-            "partners": s(lambda: _partner_changes(db, user)),
+            # Vendor and customer changes: the Approvals source (Oct 28 2026).
+            "partners": a("accounting_partner_change", 0),
         },
         "support": {
             "kb": s(lambda: _kb_signoffs(db, me)) + s(lambda: _training(db, me)),

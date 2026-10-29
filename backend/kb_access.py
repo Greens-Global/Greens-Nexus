@@ -83,6 +83,23 @@ def wall_rows(rows: Iterable, user: dict, db: Session, owner_attr: str = "owner_
     return [r for r in rows if auth.company_ok(emp.get((getattr(r, owner_attr, "") or "").lower(), ""), sc, shared_when_blank=True)]
 
 
+def scope_of_email(db: Session, email: str):
+    """The company scope of someone who is not the caller: the person who made
+    an assignment rule or a training plan, so the daily job only reaches people
+    that person could reach themselves. Blank = no limit (nothing to scope by)."""
+    email = (email or "").lower()
+    if not email or email == "rule":
+        return None
+    return auth.company_scope({"email": email, "level": auth.level_for(email, db)}, db)
+
+
+def in_scope(db: Session, email: str, sc) -> bool:
+    """May a person with company scope `sc` assign training to `email`?"""
+    if sc is None:
+        return True
+    return auth.company_ok(auth.company_of(email, db), sc, shared_when_blank=True)
+
+
 def assert_wall(row, user: dict, db: Session, owner_attr: str = "owner_email") -> None:
     sc = scope(user, db)
     if sc is None:

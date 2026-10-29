@@ -253,13 +253,14 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, sho
   const [open, setOpen, ref] = usePopover();
   const options = useMemo(() => entityOptions(entities, { showHistorical, keep: value }), [entities, showHistorical, value]);
   const one = value.length === 1 ? entities.find((e) => e.code === value[0]) : null;
-  const all = limited ? 'All my entities' : 'All entities';
+  const all = limited ? 'All My Entities' : 'All Entities';
   const label = !value.length ? all : value.length === 1 ? `${one?.name || 'Unnamed'} (${value[0]})` : `${value.length} entities`;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label="Entities" title={label}>
         <Building2 size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span className={value.length ? undefined : 'acct-bar-label-2'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        {/* As wide as "All Entities" whatever is picked (10/27 call, item 09). */}
+        <PickText text={label} base={all} />
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       {/* Chat 10/26, item 12 (Charmi: "Move the Done button on TOP"; Neil: "So
@@ -314,12 +315,15 @@ export function EntityPicker({ entities, value = '', onChange, extra = [], group
   const e = !x && value ? (entities || []).find((o) => o.code === value) : null;
   const label = x ? x.name : value ? `${e?.name || 'Unnamed'} (${value})` : (noneLabel || placeholder);
   const lit = active ?? (!!value && value !== extra[0]?.code);
+  // In a control bar: as wide as its default words whatever is picked (10/27 call, item 09).
+  const inBar = !!useContext(BarContext);
   return (
     <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
       <button type="button" style={{ ...button(lit), ...(disabled ? { opacity: 0.6, cursor: 'default' } : {}), ...(style || {}) }} disabled={disabled}
         onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} title={label}>
         <Building2 size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, textAlign: 'left' }}>{label}</span>
+        {inBar ? <PickText text={label} base={extra[0]?.name || noneLabel || placeholder} />
+          : <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, textAlign: 'left' }}>{label}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} style={fillPanel(500)}>
@@ -488,9 +492,9 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
 
 // Which accounts the statement shows: every account it could show, by
 // section, with a tick per account. Nothing ticked = all of them.
-// Oct 23 (Report Builder): `allLabel` names an empty pick ("No accounts yet"
+// Oct 23 (Report Builder): `allLabel` names an empty pick ("Choose Accounts"
 // on a row group) and `ariaLabel` tells several pickers on one screen apart.
-export function AccountsPicker({ accounts, value, onChange, showHistorical = false, align = 'left', allLabel = 'All accounts', ariaLabel = 'Accounts' }) {
+export function AccountsPicker({ accounts, value, onChange, showHistorical = false, align = 'left', allLabel = 'All Accounts', ariaLabel = 'Accounts' }) {
   const [open, setOpen, ref] = usePopover();
   const options = useMemo(() => {
     const known = new Set(accounts.map((a) => a.code));
@@ -507,7 +511,7 @@ export function AccountsPicker({ accounts, value, onChange, showHistorical = fal
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} title={label}>
         <ListFilter size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span className={value.length ? undefined : 'acct-bar-label-2'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        <PickText text={label} base={allLabel} />
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} aria-multiselectable="true" style={panel(480)}>
@@ -557,7 +561,8 @@ export function PeriodStepper({ config, period, onChange }) {
     <div role="group" aria-label="Report period" style={custom ? group : { ...group, flexWrap: 'nowrap', minWidth: 0, maxWidth: '100%' }}>
       <button type="button" style={{ ...arrow, flexShrink: 0 }} onClick={() => step(-1)} aria-label="Previous period" title="Previous period"><ChevronLeft size={14} /></button>
       {/* Item 02 (10/23): as wide as the period picked - "Custom Dates" no longer holds the width of its longest option. */}
-      <select value={config.preset} onChange={(e) => onChange({ preset: e.target.value })} aria-label="Period" style={{ ...control, ...fitSelect(periodLabel(config.preset), { max: 300 }) }}>
+      {/* 10/27 call, item 09: as wide as Year-to-Date's whatever is picked, so a period never moves the bar's buttons. */}
+      <select value={config.preset} onChange={(e) => onChange({ preset: e.target.value })} aria-label="Period" title={periodLabel(config.preset)} style={{ ...control, ...fitSelect(periodLabel(config.preset), { max: 300, base: periodLabel('ytd') }) }}>
         {PRESETS.map((p) => <option key={p.key} value={p.key}>{periodLabel(p.key)}</option>)}
       </select>
       {config.preset === 'custom' && (
@@ -956,7 +961,7 @@ export function ClearButton({ onClick, label }) {
 // rest sit in ONE ControlBar. It keeps them on one line by folding words
 // away before anything wraps: first the action words (Saved Reports,
 // Memorize, Customize, Export, Sync - `acct-bar-label`), then the words of
-// pickers still at their default (All entities, Filters, All accounts -
+// pickers still at their default (All Entities, Filters, All Accounts -
 // `acct-bar-label-2`). The icon, the count and the tooltip stay, so no
 // control is lost. Only on a window too narrow for even that does the row
 // wrap - cleanly, as whole controls, never on top of each other. The fold is
@@ -1069,8 +1074,15 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
   const [groupList, setGroupList] = useState([]);   // the same, for drawing the More button
   const groupW = useRef([]);                   // groupW[l]: what level l took on the row
   const flips = useRef(0);                     // fold / unfold turns this frame (a guard, never a loop)
-  const tried = useRef(null);                  // the last unfold: { from, width }
-  const blocked = useRef(new Set());           // `${level}@${width}`: an unfold that did not fit there
+  const tried = useRef(null);                  // the last unfold: { from, width, need }
+  // `${level}@${width}` -> the room the row needed (folded) when bringing that
+  // level back did not fit there. Call of 10/27 with Charmi, item 09: it was
+  // forgotten on every render, so a pick (an entity, a category, a view) made
+  // the row try again and settle the other way - Sync and Export losing their
+  // words while a More control came out. Now it is forgotten only when the row
+  // needs less room than it did: a pick, whose picker keeps its width, changes
+  // nothing on the row.
+  const blocked = useRef(new Map());
   const fit = useCallback(() => {
     const el = ref.current;
     const width = el?.clientWidth || 0;
@@ -1087,11 +1099,17 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
     const top = Math.max(0, ...[...groups.current.values()].map((g) => g.level));
     // The screen dropped the controls of the deepest levels (another tab).
     if (lvl > top) { setLvl(top); return; }
-    // 1. Room again for what moved into More? Bring back as many levels as fit.
-    if (lvl > 0 && !blocked.current.has(`${lvl}@${width}`)) {
-      el.dataset.fold = '2';
+    // 1. Room again for what moved into More? Bring back as many levels as fit
+    // AS THE ROW IS SHOWN NOW (item 09, UI test 10/28, Profitability at 1366:
+    // measured with every word folded, a pick brought Compare On out of More
+    // and took the words of Sync, Export and the entities - a pick must never
+    // trade a control's words for a More control). A narrower row folds its
+    // words first (2.), so this never makes it wrap.
+    const folded = barNeed(el, true);
+    const failed = blocked.current.get(`${lvl}@${width}`);
+    if (lvl > 0 && !(failed !== undefined && folded >= failed - 1)) {
       const more = moreRef.current ? moreRef.current.getBoundingClientRect().width + gapOf(el) : MORE_W;
-      let need = barNeed(el, true);
+      let need = folded;
       let to = lvl;
       while (to > 0 && groupW.current[to] !== undefined) {
         const add = groupW.current[to] - (to === 1 ? more : 0);
@@ -1099,7 +1117,7 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
         need += add;
         to -= 1;
       }
-      if (to < lvl) { tried.current = { from: lvl, width }; setLvl(to); return; }
+      if (to < lvl) { tried.current = { from: lvl, width, need: folded }; setLvl(to); return; }
     }
     // 2. Fold the words.
     for (const f of FOLDS) {
@@ -1111,7 +1129,7 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
     // 4. Move the next levels into More - as many as the row needs.
     if (lvl < top) {
       // An unfold that has to go straight back: not again at this width.
-      if (tried.current && tried.current.width === width && tried.current.from > lvl) blocked.current.add(`${tried.current.from}@${width}`);
+      if (tried.current && tried.current.width === width && tried.current.from > lvl) blocked.current.set(`${tried.current.from}@${width}`, tried.current.need);
       tried.current = null;
       let need = barNeed(el, true) + (lvl === 0 ? MORE_W : 0);
       let to = lvl;
@@ -1128,8 +1146,6 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
     // row wraps as whole controls.
     barBoxes(el).filter(isSummary).forEach((k) => { k.style.maxWidth = `${SUMMARY_MIN}px`; });
   }, []);
-  // What the screen draws in the bar changed: an unfold that failed may fit now.
-  useLayoutEffect(() => { blocked.current.clear(); }, [children]);
   // After every render (a picker's label or a new button changes the width
   // the row needs) and whenever the row itself is resized.
   useLayoutEffect(fit);
@@ -1140,6 +1156,20 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
     const ro = new ResizeObserver(() => { if (el.clientWidth !== w) { w = el.clientWidth; fit(); } });
     ro.observe(el);
     return () => ro.disconnect();
+  }, [fit]);
+  // The web font arrives after the first measure (item 09, browser check at
+  // 1366, Profitability): words drawn in the fallback font are wider, so the
+  // row settled with a control in More that fits once Inter is in - and moved
+  // the first time anything else redrew, a pick included. Measure again,
+  // afresh, when the fonts are in.
+  useEffect(() => {
+    const fonts = typeof document !== 'undefined' ? document.fonts : null;
+    if (!fonts) return undefined;
+    let alive = true;
+    const again = () => { if (!alive) return; blocked.current.clear(); fit(); };
+    fonts.ready?.then(again).catch(() => {});
+    fonts.addEventListener?.('loadingdone', again);
+    return () => { alive = false; fonts.removeEventListener?.('loadingdone', again); };
   }, [fit]);
   // A control that changes on its own (a menu closing, a label, Syncing...)
   // without the screen drawing the bar again: fit on the next frame.
@@ -1276,10 +1306,45 @@ export function BarSearch({ value, onChange, label, placeholder = '', width = 24
  * the period list's "This Quarter · 10/01/2026 - 12/31/2026" no longer holds
  * 280px of the row while it reads "Custom Dates". The list still opens with
  * every option in full. `label` is the picked option's text.
+ *
+ * `base` (call of 10/27 with Charmi, item 09: "Anytime I select a filter, it
+ * should say stagnant"): as wide as `base` WHATEVER is picked - the default
+ * words of an open list ("All Categories"), or the widest of a short one
+ * (widest(...)) - so a pick never widens the select and the bar never folds
+ * its buttons' words over it. A longer pick is cut with "..." (give the
+ * select a `title` with it in full).
  */
-export function fitSelect(label, { min = 64, max = 320 } = {}) {
-  const chars = String(label || '').length;
-  return { width: `clamp(${min}px, calc(${chars}ch + 34px), ${max}px)`, minWidth: 0 };
+export function fitSelect(label, { min = 64, max = 320, base = null } = {}) {
+  const chars = String(base ?? label ?? '').length;
+  return { width: `clamp(${min}px, calc(${chars}ch + 34px), ${max}px)`, minWidth: 0, ...(base != null ? { textOverflow: 'ellipsis' } : {}) };
+}
+
+/** The longest of some option labels - a short list's `base` for fitSelect. */
+export const widest = (labels) => (labels || []).reduce((a, b) => (String(b || '').length > a.length ? String(b) : a), '');
+
+/**
+ * A picker's words in the control bar (call of 10/27 with Charmi, item 09:
+ * "Any time we give a filter, the tab changes. It should not be changing").
+ * As wide as `base` - what the picker reads at its default ("All Entities",
+ * "Built-in Default") - whatever is picked: a longer pick is cut with "..."
+ * and the button's tooltip has it in full. So picking a long entity, a
+ * category or a saved view never widens the picker, and the bar never folds
+ * Sync, Customize, Export, Settings or Columns down to icons over it. The
+ * width comes from `base` through CSS (.acct-pick::before reads data-base),
+ * so the picked text is still the only text on the button.
+ *
+ * `fold` (default on): on a row short enough to fold the pickers' default
+ * words (data-fold 2), a pick folds with them - the picker stays an icon,
+ * lit, the pick in its tooltip - so a pick never brings words back that
+ * push the bar's buttons into More (browser check at 1440 with the side
+ * menu open, MRE: picking an entity moved Columns and Settings into More).
+ */
+export function PickText({ text, base, fold = true }) {
+  return (
+    <span className={`acct-pick${fold ? ' acct-bar-label-2' : ''}`} data-base={base || text}>
+      <span className="acct-pick-text">{text}</span>
+    </span>
+  );
 }
 
 /**

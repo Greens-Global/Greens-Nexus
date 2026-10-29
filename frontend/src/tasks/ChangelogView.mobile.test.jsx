@@ -55,16 +55,61 @@ describe("What's New on a phone", () => {
     expect(view.style.width).toBe('100%');
   });
 
-  it('Timeline is one list; a tapped row opens a full-screen sheet with a Close button', async () => {
+  // The Timeline's phone pass (Neil, Oct 28 2026: "the mobile UI and UX on
+  // that sucks").
+  it('Timeline is one list behind a search box and one Filter button; a tapped row opens its own screen with Back', async () => {
     render(<Changelog />);
     fireEvent.click(await screen.findByRole('tab', { name: 'Timeline' }));
     expect(screen.queryByText('Select an update to see details.')).toBeNull();   // no side pane
-    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Filter' })).toBeTruthy();
+    expect(screen.queryByLabelText('Module')).toBeNull();                        // no inline filter bar
+    expect(screen.queryByText('Copy Link to This View')).toBeNull();
+    expect(screen.getByLabelText('Search updates').style.fontSize).toBe('16px'); // no iOS zoom-in
+    // Each day's header stays pinned while you scroll through it.
+    expect(document.querySelector('[data-day-header]').style.position).toBe('sticky');
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Second fix/ }));
-    const close = await screen.findByRole('button', { name: 'Close' });
+    const screenOf = await screen.findByRole('dialog', { name: 'Second fix' });
+    const back = within(screenOf).getByRole('button', { name: 'Back' });
     expect(screen.queryByTitle('Expand to full page')).toBeNull();               // already full screen
-    fireEvent.click(close);
-    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    fireEvent.click(back);
+    expect(screen.queryByRole('dialog', { name: 'Second fix' })).toBeNull();
+  });
+
+  it('Filter opens a sheet; a picked filter shows as a chip you can take off', async () => {
+    render(<Changelog />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Timeline' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Filter Updates' });
+    fireEvent.change(within(sheet).getByLabelText('Category'), { target: { value: 'New Feature' } });
+    expect(within(sheet).getByRole('button', { name: 'No Matching Updates' })).toBeTruthy();
+    fireEvent.change(within(sheet).getByLabelText('Category'), { target: { value: 'Bug Fix' } });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Show 2 Updates' }));
+    expect(screen.queryByRole('dialog', { name: 'Filter Updates' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Filter (1 on)' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove filter: Bug Fix' }));
+    expect(screen.getByRole('button', { name: 'Filter' })).toBeTruthy();
+  });
+
+  it("an admin's actions sit behind More, not in a row that runs off the screen", async () => {
+    render(<Changelog />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Timeline' }));
+    fireEvent.click(screen.getByRole('button', { name: /First fix/ }));
+    const screenOf = await screen.findByRole('dialog', { name: 'First fix' });
+    expect(within(screenOf).queryByRole('button', { name: /Report Issue/ })).toBeNull();
+    fireEvent.click(within(screenOf).getByRole('button', { name: 'More Actions' }));
+    const actions = await screen.findByRole('dialog', { name: 'Update Actions' });
+    expect(within(actions).getByRole('button', { name: 'Edit' })).toBeTruthy();
+    expect(within(actions).getByRole('button', { name: 'Report Issue' })).toBeTruthy();
+    expect(within(actions).getByRole('button', { name: 'Released' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('Feature Request and Follow sit in the tab strip, not a row of their own', async () => {
+    render(<Changelog />);
+    await screen.findByText('First fix');
+    const strip = screen.getByRole('tablist').parentElement;
+    expect(within(strip).getByRole('button', { name: 'Feature Request' })).toBeTruthy();
+    expect(within(strip).getByRole('button', { name: 'Follow' })).toBeTruthy();
   });
 
   it('Manage rows keep labelled 40px edit and delete targets', async () => {

@@ -81,6 +81,7 @@ import {
   Warehouse,
   Target,
   Workflow,
+  CalendarDays,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -138,6 +139,7 @@ const RolesAccess = lazy(() => import('./RolesAccess'));
 const SettingsTools = lazy(() => import('./SettingsTools'));
 const HrReminderSettings = lazy(() => import('../components/HrReminderSettings'));
 const EquipmentReminderSettings = lazy(() => import('../components/EquipmentReminderSettings'));
+const KbReminderSettings = lazy(() => import('../components/KbReminderSettings'));
 // Security > Sign-In & Sessions (Sep 26) - lazy like the other admin panels.
 const SecuritySettings = lazy(() => import('./SecuritySettings'));
 // Branding & Policies (Sep 26) - brand color, email appearance, sign-in policy.
@@ -176,10 +178,10 @@ const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSett
 const OpsSettingsPanel = lazy(() => import('../operations/OpsSettings'));
 // Performance (Oct 27 2026): the goal and 1:1 reminders, layered per company.
 const PerformanceReminderSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceReminderSettings })));
-const ReviewScaleSettings = lazy(() => import('../performance/ReviewSettings').then(m => ({ default: m.ReviewScaleSettings })));
-const CompanyValuesSettings = lazy(() => import('../performance/ReviewSettings').then(m => ({ default: m.CompanyValuesSettings })));
 // Workflows (Oct 28 2026): the switches, ceilings, digest and pause - layered per company.
 const WorkflowsSettingsPanel = lazy(() => import('../workflows/WorkflowsSettings').then(m => ({ default: m.WorkflowsSettings })));
+// Holiday Policies (Oct 29 2026): the org face of the company holiday calendars.
+const HolidayPoliciesPanel = lazy(() => import('../holidays/HolidayPoliciesPanel'));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone. Since Oct 20 the
 // tab is the unified Audit Log (components/audit/AuditLog.jsx): every module,
@@ -283,7 +285,13 @@ const GROUPS = [
   { id: 'company-profile', subject: 'companies', face: 'company', scope: 'company', icon: Building2, title: 'Company',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Profile and logo, managers and HR contact, contractor invoice recipients, email domains, departments and their heads, and the holiday calendar.',
-    keywords: 'company profile legal name country tax id ein gstin signatory manager hr contact invoice recipients address phone logo social links email domains notes departments department head holiday calendar holidays' },
+    keywords: 'company profile legal name country tax id ein gstin signatory manager hr contact invoice recipients address phone logo social links email domains notes departments department head holiday calendar holidays weather calls rain' },
+  // Holiday policies (Neil, Oct 29 2026): named holiday sets applied to one or
+  // more companies; each company's Holiday Calendar can skip or change one.
+  { id: 'holiday-policies', subject: 'companies', face: 'org', scope: 'org', icon: CalendarDays, title: 'Holiday Policies',
+    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
+    sub: 'Named sets of holidays and how weekend holidays are observed, applied to one or more companies. A company can skip or change any holiday for itself.',
+    keywords: 'holidays holiday policy calendar federal presidents day independence day weekend observed india gazetted restricted diwali apply companies' },
   // Locations
   { id: 'work-sites', subject: 'locations', face: 'org', scope: 'org', icon: MapPinned, title: 'Location Library',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
@@ -312,7 +320,7 @@ const GROUPS = [
   // Security
   { id: 'sign-in-sessions', subject: 'security', face: 'org', scope: 'org', icon: ShieldCheck, title: 'Sign-In & Sessions',
     needs: { role: 'administrator' },
-    sub: 'How long web, Act As and Credential Vault sessions last, and guest sign-in codes.',
+    sub: 'How long web, Act As and Credentials sessions last, and guest sign-in codes.',
     keywords: 'session timeout idle act as vault unlock guest partner code lockout invite security' },
   { id: 'signin-policy', subject: 'security', face: 'org', scope: 'org', icon: FileCheck, title: 'Sign-In Policy',
     needs: { role: 'administrator' },
@@ -360,6 +368,10 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['inventory', 'full'] },
     sub: 'Chase items that are checked out past their due date, and choose how early asset managers are warned about warranties, inspections, registration, insurance and service.',
     keywords: 'items inventory checkout overdue return late borrower asset property vehicle equipment warranty inspection registration insurance service manager reminder days before alerts timing bell' },
+  { id: 'kb-reminders', subject: 'emails', face: 'org', scope: 'org', icon: CalendarClock, title: 'Training Reminders',
+    needs: { role: 'administrator', grant: ['sop', 'full'] },
+    sub: 'Turn the Knowledge Base training reminders, policy-signing reminders and Monday digests on or off, or keep them in the notification bell without an email.',
+    keywords: 'knowledge base kb sop training course policy sign acknowledge overdue due reminder digest manager owner email bell off' },
   // Tickets - one group, seven tabs (Pranshu, Sep 26: routing, ticket email
   // and SLAs are one subject to an admin).
   { id: 'service-desk', subject: 'tickets', face: 'both', scope: 'org', icon: Headset, title: 'Ticket Manager',
@@ -512,18 +524,13 @@ const GROUPS = [
     sub: 'Which Cubby unit types are mailboxes, and which records are not units at all, by the words in the unit type name.',
     keywords: 'unit types mailbox excluded words cubby facility operations units' },
   // Performance
-  { id: 'performance-reminders', subject: 'performance', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Goal and 1:1 Reminders', flush: true,
-    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
-    sub: 'The reminder the day before a 1:1 with an empty agenda, and how long a goal may go without a check-in - a default, and each company\'s own.',
-    keywords: 'performance goals check-in reminder one on one 1:1 agenda okr objectives' },
-  { id: 'performance-rating-scale', subject: 'performance', face: 'both', scope: 'layered', icon: Target, title: 'Review Rating Scale', flush: true,
-    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
-    sub: 'The points and their labels every review question and value is rated on - 1 to 5 by default. A new review cycle copies it.',
-    keywords: 'performance review rating scale points labels meets exceeds expectations appraisal' },
-  { id: 'performance-values', subject: 'performance', face: 'both', scope: 'layered', icon: Target, title: 'Company Values',
-    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
-    sub: 'The values people and their managers rate in each review. A new review cycle copies them.',
-    keywords: 'performance review company values culture competencies appraisal' },
+  // Performance (made simple, Oct 29 2026): one group. Reviews have one
+  // 4-word rating and no values, so the scale and values groups are gone.
+  // The save route needs HR for the company - a FULL hr grant, not Editor.
+  { id: 'performance-reminders', subject: 'performance', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Performance Reminders', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
+    sub: 'How long a goal kept by hand may go without an update before its owner is reminded, and the reminder the day before a 1:1 with an empty agenda. Review reminders go out by themselves.',
+    keywords: 'performance goals check-in reminder one on one 1:1 agenda review rating okr objectives' },
   // Workflows
   { id: 'workflows-config', subject: 'workflows', face: 'both', scope: 'layered', icon: Workflow, title: 'Workflow Settings', flush: true,
     needs: { role: 'administrator', grant: ['workflows', 'full'] },
@@ -684,8 +691,6 @@ const COMPANY_STATE = {
   'shift-settings': (cid) => api.shiftRequestSettingsGetFor(cid).then(r => ownState(!!r?.hasOverride)),
   'hr-letters': (cid) => api.hrLetterSettings(cid).then(r => ownState(!!r?.hasOverride)),
   'performance-reminders': (cid) => api.perfSettings(cid).then(m => ownState(!!m?.override)),
-  'performance-rating-scale': (cid) => api.perfReviewSettings(cid).then(m => ownState((m?.overrides || []).includes('ratingScale'))),
-  'performance-values': (cid) => api.perfReviewSettings(cid).then(m => ownState((m?.overrides || []).includes('values'))),
   'india-contractor-policy': (cid) => api.timeIndiaPolicyGet(cid).then(r => ownState(!!r?.hasOverride)),
   'workflows-config': (cid) => api.wfSettings(cid).then(m => ownState(!!m?.override)),
 };
@@ -1678,6 +1683,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'workforce-scorecard':  return <WorkforceScorecardSection key={key} chrome={chrome} />;
       case 'hr-reminders':         return <HrRemindersSection key={key} chrome={chrome} />;
       case 'equipment-reminders':  return <LazyPanelSection key={key} id={id} Panel={EquipmentReminderSettings} chrome={chrome} />;
+      case 'kb-reminders':         return <LazyPanelSection key={key} id={id} Panel={KbReminderSettings} chrome={chrome} />;
       case 'item-types':           return <ItemSettingsSection key={key} chrome={chrome} toast={toast} />;
       case 'sign-in-sessions':     return <LazyPanelSection key={key} id={id} Panel={SecuritySettings} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'brand-color':          return <LazyPanelSection key={key} id={id} Panel={BrandColorPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
@@ -1719,9 +1725,8 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'app-ratings':          return <LazyPanelSection key={key} id={id} Panel={AppRatingsPanel} chrome={chrome} />;
       case 'employee-custom-fields': return <LazyPanelSection key={key} id={id} Panel={EmployeeCustomFieldsSettings} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'performance-reminders': return <LazyPanelSection key={key} id={id} Panel={PerformanceReminderSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
-      case 'performance-rating-scale': return <LazyPanelSection key={key} id={id} Panel={ReviewScaleSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
-      case 'performance-values':   return <LazyPanelSection key={key} id={id} Panel={CompanyValuesSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'workflows-config':     return <LazyPanelSection key={key} id={id} Panel={WorkflowsSettingsPanel} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'holiday-policies':     return <LazyPanelSection key={key} id={id} Panel={HolidayPoliciesPanel} chrome={chrome} entities={entities} toastOk={toastOk} toastErr={toastErr} />;
       default:                     return null;
     }
   }

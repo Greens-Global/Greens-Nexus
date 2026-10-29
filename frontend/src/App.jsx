@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect } from './lib/routes';
+import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, addressFor } from './lib/routes';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
 import { loginRequest } from "./authConfig";
@@ -35,7 +35,7 @@ import { BFF_MODE } from "./bffAuth";
 import LoginPage from "./views/LoginPage";
 import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
-import { hasUnsavedWork, confirmDiscard } from "./lib/dialogGuard";
+import { hasUnsavedWork, askToLeave } from "./lib/dialogGuard";
 
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
@@ -707,7 +707,7 @@ function MainApp() {
     // leaving (Neil, Sep 22 - see lib/dialogGuard.js). The move goes ahead
     // only on Discard.
     if (hasUnsavedWork()) {
-      confirmDiscard().then(ok => { if (ok) applyNavigate(view, sub); });
+      askToLeave().then(ok => { if (ok) applyNavigate(view, sub); });
       return;
     }
     applyNavigate(view, sub);
@@ -777,8 +777,12 @@ function MainApp() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  // State → address bar
+  // State → address bar. The first write keeps the opened address's query
+  // (an email's /support?ticket=<id> - see addressFor in lib/routes.js).
+  const firstAddress = useRef(true);
   useEffect(() => {
+    const first = firstAddress.current;
+    firstAddress.current = false;
     if (fromPopstate.current) { fromPopstate.current = false; prevLocRef.current = { view: activeView, sub: activeSub }; return; }
     const seg = VIEW_TO_PATH[activeView] || activeView;
     // The Links tab gets the short /links address (Sep 22) - see parsePath.
@@ -790,7 +794,7 @@ function MainApp() {
     if (window.location.pathname !== path) {
       const depth = (window.history.state?.depth || 0) + 1;
       const fromLabel = viewLabel(prevLocRef.current.view);
-      window.history.pushState({ depth, fromLabel }, '', path);
+      window.history.pushState({ depth, fromLabel }, '', addressFor(path, { first, search: window.location.search, hash: window.location.hash }));
       setCanGoBack(true);
       setPrevLabel(fromLabel);
     }

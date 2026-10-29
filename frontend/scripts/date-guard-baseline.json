@@ -44,9 +44,6 @@
   "components/accounting/PfsTab.jsx": {
     "type=\"date\"": 2
   },
-  "components/accounting/ProfitabilityReport.jsx": {
-    "type=\"date\"": 2
-  },
   "components/accounting/reportControls.jsx": {
     "type=\"date\"": 3
   },
@@ -216,7 +213,7 @@
     "type=\"date\"": 1
   },
   "views/HR.jsx": {
-    "type=\"date\"": 9
+    "type=\"date\"": 7
   },
   "views/InventoryManagement.jsx": {
     "type=\"date\"": 5,

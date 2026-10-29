@@ -17,7 +17,7 @@ import { useMsal } from '@azure/msal-react';
 import {
   X, Search, ChevronRight, ChevronLeft, ArrowUpRight, Home as HomeIcon, MessageSquare, CircleHelp,
   BookOpen, ListChecks, Layers, Lightbulb, ShieldCheck, FileText, GraduationCap, Send, Ticket as TicketIcon,
-  Compass, PlayCircle,
+  Compass, PlayCircle, Sparkles,
 } from 'lucide-react';
 import { api } from '../api';
 import { DOCS, DOC_GROUPS } from './docsContent';
@@ -31,6 +31,14 @@ import { TOURS, useLiveTours, startTour, setPendingAutoTour, AUTO_TOUR_EVENT } f
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
 import { TICKET_STATUS_META, ticketNoShort } from '../tickets/ticketMeta';
+// Help Center (Oct 2026): Ask Nexus, Was This Helpful?, Known Issues, the
+// failed-search record and "Expect a reply by".
+import AskNexus from './AskNexus';
+import HelpFeedback from './HelpFeedback';
+import { KnownIssuesNotice } from './KnownIssues';
+import { useSearchMissLogger } from './helpLog';
+import { ticketSeedFor } from './ticketSeed';
+import ExpectReply from './ExpectReply';
 
 const HELP_TABS = [
   { key: 'home', label: 'Home', Icon: HomeIcon },
@@ -73,20 +81,23 @@ function HomeTab({ firstName, pageDoc, liveTour, otherTours, onSearch, onAsk, on
           <div className="dk-mark hw-mark" aria-hidden="true">N</div>
           <button type="button" className="hw-close hw-close-light" onClick={onClose} aria-label="Close help"><X size={18} /></button>
         </div>
-        <div className="hw-hello">Hi {firstName || 'there'}</div>
+        <div className="hw-hello">Hi {firstName || 'there'}!</div>
         <h2 className="hw-title">How can we help?</h2>
       </div>
       <div className="hw-cards">
+        <KnownIssuesNotice style={{ margin: 0 }} />
         <button type="button" className="hw-card" onClick={onSearch}>
           <span className="hw-card-text"><span className="hw-card-title">Search for Help</span></span>
           <Search size={18} style={{ color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }} />
         </button>
+        {/* Ask Nexus first (Oct 2026): a written answer from the guides, with
+            File a Ticket one click away under it. */}
         <button type="button" className="hw-card" onClick={onAsk}>
           <span className="hw-card-text">
             <span className="hw-card-title">Ask a Question</span>
-            <span className="hw-card-sub">Our support team can help</span>
+            <span className="hw-card-sub">Nexus answers from the guides, or our team can help</span>
           </span>
-          <ChevronRight size={18} style={{ color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }} />
+          <Sparkles size={18} style={{ color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }} />
         </button>
         {onWhatsNew && (
           <button type="button" className="hw-card" onClick={onWhatsNew}>
@@ -148,10 +159,13 @@ function MessagesTab({ onAsk, onOpenTicket }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let alive = true;
-    api.getMyTickets()
-      .then((rows) => { if (alive) setTickets(Array.isArray(rows) ? rows : []); })
-      .catch(() => { if (alive) { setTickets([]); setFailed(true); } });
-    return () => { alive = false; };
+    const load = () => api.getMyTickets()
+      .then((rows) => { if (alive) { setTickets(Array.isArray(rows) ? rows : []); setFailed(false); } })
+      .catch(() => { if (alive) { setTickets((t) => t || []); setFailed(true); } });
+    load();
+    // A ticket filed while the panel is open (CreateTicketModal says so).
+    window.addEventListener('nexus:tickets-changed', load);
+    return () => { alive = false; window.removeEventListener('nexus:tickets-changed', load); };
   }, []);
   const sorted = useMemo(() => [...(tickets || [])].sort((a, b) =>
     String(b.modifiedAt || b.createdAt || '').localeCompare(String(a.modifiedAt || a.createdAt || ''))), [tickets]);
@@ -180,10 +194,11 @@ function MessagesTab({ onAsk, onOpenTicket }) {
                   <button type="button" className="hw-row" onClick={() => onOpenTicket(t.id)}>
                     <span className="hw-row-icon"><TicketIcon size={15} /></span>
                     <span style={{ flex: 1, minWidth: 0 }}>
-                      <span className="hw-row-title">{t.subject || 'Untitled ticket'}</span>
+                      <span className="hw-row-title">{t.subject || 'Untitled Ticket'}</span>
                       <span className="hw-row-sub">
                         {[ticketNoShort(t.code), `Updated ${formatDate(t.modifiedAt || t.createdAt, '-')}`].filter(Boolean).join(' · ')}
                       </span>
+                      <ExpectReply t={t} />
                     </span>
                     <span className="hw-status" style={{ color: meta.color, background: meta.tint }}>{meta.label}</span>
                   </button>
@@ -222,7 +237,7 @@ function ResultRow({ r, onPick }) {
   );
 }
 
-function HelpTab({ autoFocus, allowed, allow, query, setQuery, onPick, onOpenArticle }) {
+function HelpTab({ autoFocus, allowed, allow, query, setQuery, onPick, onOpenArticle, onOpenDocs, asked, setAsked, askMode, onFileTicket, onClose }) {
   const inputRef = useRef(null);
   const kb = useKbCorpus(true);
   useEffect(() => { if (autoFocus) inputRef.current?.focus(); }, [autoFocus]);
@@ -232,69 +247,101 @@ function HelpTab({ autoFocus, allowed, allow, query, setQuery, onPick, onOpenArt
     () => (q ? searchDocs(query, { limit: 12, perDoc: 3, allow, kb: kb.corpus }) : []),
     [q, query, allow, kb.corpus],
   );
+  useSearchMissLogger(q, results.length, kb.status !== 'loading');
+  // Ask Nexus (Oct 2026): Enter, or the row at the top of the results.
+  const showAnswer = !!asked && asked === q;
+  const askRow = q && !showAnswer && (
+    <button type="button" className="hw-card hw-card-quiet" style={{ marginBottom: 10, width: '100%' }} onClick={() => setAsked(q)}>
+      <Sparkles size={16} style={{ color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }} />
+      <span className="hw-card-text">
+        <span className="hw-card-title" style={{ fontSize: 13 }}>Ask Nexus: "{q}"</span>
+        <span className="hw-card-sub">A written answer from the guides and the Knowledge Base</span>
+      </span>
+      <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+    </button>
+  );
 
   const gettingStarted = allowed.find((d) => d.id === 'getting-started');
   return (
-    <div className="hw-scroll hw-pad">
-      <div className="hw-search">
-        <Search size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-        <input ref={inputRef} type="search" value={query} onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search guides, documents and courses" aria-label="Search for help"
-          autoComplete="off" spellCheck={false} />
-        {query && (
-          <button type="button" className="hw-close" style={{ width: 24, height: 24 }} aria-label="Clear search"
-            onClick={() => { setQuery(''); inputRef.current?.focus(); }}><X size={14} /></button>
+    <>
+      <div className="hw-scroll hw-pad">
+        <div className="hw-search">
+          <Search size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+          <input ref={inputRef} type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && q) { e.preventDefault(); setAsked(q); } }}
+            placeholder={askMode ? 'Ask a question, e.g. How do I fix a missed punch?' : 'Search guides, documents and courses'}
+            aria-label="Search for help" autoComplete="off" spellCheck={false} />
+          {query && (
+            <button type="button" className="hw-close" style={{ width: 24, height: 24 }} aria-label="Clear search"
+              onClick={() => { setQuery(''); inputRef.current?.focus(); }}><X size={14} /></button>
+          )}
+        </div>
+
+        {q && kb.status === 'error' && (
+          <div className="hw-note" role="status">Knowledge Base results are unavailable right now. Guide results still work.</div>
+        )}
+        {q && kb.status === 'loading' && <div className="hw-note">Also searching the Knowledge Base...</div>}
+
+        {showAnswer && (
+          <AskNexus question={q} allow={allow} onFileTicket={onFileTicket} onOpened={onClose} style={{ marginBottom: 12 }} />
+        )}
+        {q ? (
+          results.length ? (
+            <>
+              {askRow}
+              <ul className="hw-list" aria-label="Help results">
+                {results.map((r) => <ResultRow key={r.id} r={r} onPick={onPick} />)}
+              </ul>
+            </>
+          ) : (
+            <>
+              {askRow}
+              {!showAnswer && <div className="hw-empty">No guide or Knowledge Base page matches "{q}". Ask Nexus above, or file a ticket from the Home tab.</div>}
+            </>
+          )
+        ) : (
+          <>
+            {gettingStarted && (
+              <button type="button" className="hw-card hw-card-quiet" style={{ marginBottom: 14 }}
+                onClick={() => onOpenArticle(moduleArticle(gettingStarted))}>
+                <Compass size={16} style={{ color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }} />
+                <span className="hw-card-text">
+                  <span className="hw-card-title" style={{ fontSize: 13.5 }}>Getting Started</span>
+                  <span className="hw-card-sub">{gettingStarted.tagline}</span>
+                </span>
+                <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+              </button>
+            )}
+            {DOC_GROUPS.map((g) => {
+              const items = allowed.filter((d) => d.group === g && d.id !== 'getting-started');
+              if (!items.length) return null;
+              return (
+                <div key={g} style={{ marginBottom: 12 }}>
+                  <div className="hw-group">{g}</div>
+                  <ul className="hw-list">
+                    {items.map((d) => (
+                      <li key={d.id}>
+                        <button type="button" className="hw-row hw-row-tight" onClick={() => onOpenArticle(moduleArticle(d))}>
+                          <span style={{ flex: 1, minWidth: 0 }}><span className="hw-row-title">{d.name}</span></span>
+                          <ChevronRight size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </>
         )}
       </div>
-
-      {q && kb.status === 'error' && (
-        <div className="hw-note" role="status">Knowledge Base results are unavailable right now. Guide results still work.</div>
-      )}
-      {q && kb.status === 'loading' && <div className="hw-note">Also searching the Knowledge Base...</div>}
-
-      {q ? (
-        results.length ? (
-          <ul className="hw-list" aria-label="Help results">
-            {results.map((r) => <ResultRow key={r.id} r={r} onPick={onPick} />)}
-          </ul>
-        ) : (
-          <div className="hw-empty">No results for "{q}". Try other words, or ask us from the Home tab.</div>
-        )
-      ) : (
-        <>
-          {gettingStarted && (
-            <button type="button" className="hw-card hw-card-quiet" style={{ marginBottom: 14 }}
-              onClick={() => onOpenArticle(moduleArticle(gettingStarted))}>
-              <Compass size={16} style={{ color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }} />
-              <span className="hw-card-text">
-                <span className="hw-card-title" style={{ fontSize: 13.5 }}>Getting Started</span>
-                <span className="hw-card-sub">{gettingStarted.tagline}</span>
-              </span>
-              <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-            </button>
-          )}
-          {DOC_GROUPS.map((g) => {
-            const items = allowed.filter((d) => d.group === g && d.id !== 'getting-started');
-            if (!items.length) return null;
-            return (
-              <div key={g} style={{ marginBottom: 12 }}>
-                <div className="hw-group">{g}</div>
-                <ul className="hw-list">
-                  {items.map((d) => (
-                    <li key={d.id}>
-                      <button type="button" className="hw-row hw-row-tight" onClick={() => onOpenArticle(moduleArticle(d))}>
-                        <span style={{ flex: 1, minWidth: 0 }}><span className="hw-row-title">{d.name}</span></span>
-                        <ChevronRight size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            );
-          })}
-        </>
-      )}
-    </div>
+      {/* The full guide (Support > Documentation) has every page, section and
+          walkthrough this panel only lists (Neil, 10/28/2026). */}
+      <div className="hw-foot">
+        <button type="button" className="secondary-btn hw-send" onClick={onOpenDocs}>
+          <BookOpen size={15} /> Open Full Documentation <ArrowUpRight size={14} />
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -363,6 +410,7 @@ function Article({ a, onBack, onOpenArticle, onOpenFull }) {
       <div className="hw-crumb">{a.kind === 'module' ? doc.group : doc.name}</div>
       <h3 className="hw-article-title">{heading}</h3>
       {content}
+      <HelpFeedback kind="guide" targetId={fullAnchor ? `${doc.id}#${fullAnchor}` : doc.id} title={a.kind === 'module' ? doc.name : `${doc.name} > ${heading}`} />
       <button type="button" className="secondary-btn hw-full" onClick={() => onOpenFull(doc.id, fullAnchor)}>
         Open in Documentation <ArrowUpRight size={14} />
       </button>
@@ -379,14 +427,19 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
   const [focusSearch, setFocusSearch] = useState(initialTab === 'help');
   const [query, setQuery] = useState('');
   const [trail, setTrail] = useState([]);     // guide articles opened inline, newest last
+  const [asked, setAsked] = useState('');     // the question Ask Nexus is answering
+  const [askMode, setAskMode] = useState(false);
   const panelRef = useRef(null);
 
-  const setTab = (key, { search = false } = {}) => {
+  const setTab = (key, { search = false, ask = false } = {}) => {
     setTabState(key);
     setTrail([]);
     setFocusSearch(search);
+    setAskMode(ask);
     onTabChange?.(key);
   };
+  // Ask Nexus could not settle it: the ticket form, with the question in it.
+  const fileTicket = (q) => onAsk?.(ticketSeedFor(q));
 
   // Focus lands inside the panel on open, so the keyboard is where the eye is.
   useEffect(() => {
@@ -410,8 +463,15 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
     const reach = (t) => (t.need === 'administrator' ? !!can?.('administrator') : !t.need || allow(t.need));
     const hands = TOURS.filter(reach);
     const byView = new Map(hands.filter((t) => !t.sub).map((t) => [t.view, t]));
-    const mods = DOCS.filter((d) => d.view && d.view !== activeView && d.view !== 'dashboard' && allow(d.id))
-      .map((d) => ({ key: d.view, label: d.name, view: d.view, hand: byView.get(d.view) || null }));
+    // One tour per screen: a screen's tour is built from its FIRST guide page
+    // (docForView), so a second page on the same screen (Reimbursements, on
+    // Workday) has no tour of its own - listing it started Workday's.
+    const seen = new Set();
+    const mods = DOCS.filter((d) => {
+      if (!d.view || seen.has(d.view)) return false;
+      seen.add(d.view);
+      return d.view !== activeView && d.view !== 'dashboard' && allow(d.id);
+    }).map((d) => ({ key: d.id, label: d.name, view: d.view, hand: byView.get(d.view) || null }));
     const inner = hands.filter((t) => t.sub && t.key !== liveTour?.key).map((t) => ({ key: t.key, label: t.label, view: t.view, hand: t }));
     return [...mods, ...inner].sort((x, y) => x.label.localeCompare(y.label));
   }, [can, allow, activeView, liveTour]);
@@ -456,7 +516,7 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
       {tab === 'home' && (
         <HomeTab firstName={firstName} pageDoc={pageDoc} liveTour={liveTour} otherTours={otherTours}
           onSearch={() => setTab('help', { search: true })}
-          onAsk={() => onAsk?.()}
+          onAsk={() => setTab('help', { search: true, ask: true })}
           onWhatsNew={onWhatsNew ? () => { onClose(false); onWhatsNew(); } : null}
           onOpenArticle={openArticle}
           onClose={() => onClose(true)} />
@@ -468,7 +528,9 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
           onOpenArticle={openArticle} onOpenFull={openFull} />
       ) : (
         <HelpTab autoFocus={focusSearch} allowed={allowed} allow={allow}
-          query={query} setQuery={setQuery} onPick={pick} onOpenArticle={openArticle} />
+          query={query} setQuery={setQuery} onPick={pick} onOpenArticle={openArticle}
+          asked={asked} setAsked={setAsked} askMode={askMode} onFileTicket={fileTicket} onClose={() => onClose(false)}
+          onOpenDocs={() => { onClose(false); nav('support', 'documentation'); }} />
       ))}
 
       <nav className="hw-tabs" role="tablist" aria-label="Help sections">

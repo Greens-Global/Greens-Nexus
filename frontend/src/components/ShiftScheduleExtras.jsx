@@ -3,8 +3,9 @@
 // ShiftSchedule.jsx, which is the container; the grid itself is
 // components/shifts/WeekGrid.jsx (Oct 2026 rebuild, redesigned 10/02).
 import { useEffect, useState } from 'react';
-import { X, Upload, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Search, Clock, CalendarDays, History } from 'lucide-react';
+import { X, Upload, Download, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Search, Clock, CalendarDays, History } from 'lucide-react';
 import { parseScheduleSheet } from './shiftScheduleLib';
+import { exportExcel } from '../tasks/exporting';
 import { formatDate, formatWeekday } from '../lib/datetime';
 import { Spinner } from './AsyncState';
 import { ShiftBlock } from './shifts/ShiftBlock';
@@ -71,6 +72,22 @@ export function ShiftTypeWeek({ days, shifts, presets, names, teamZone, onOpen }
 }
 
 // ── Excel import ─────────────────────────────────────────────────────────
+// The Import template (Neil, Oct 28 2026: "an import option and that should
+// utilize an import template on Excel"): the columns parseScheduleSheet reads,
+// with two example rows for real people so the format is plain to see.
+export const IMPORT_COLUMNS = ['Date', 'Employee', 'Email', 'Start', 'End', 'Shift Type', 'Group', 'Unpaid Break (min)', 'Label', 'Note', 'Open Spots'];
+export function importTemplateRows(employees = [], today = new Date()) {
+  const next = new Date(today.getFullYear(), today.getMonth(), today.getDate() + ((8 - today.getDay()) % 7 || 7));   // next Monday
+  const day = (d) => `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
+  const tue = new Date(next.getFullYear(), next.getMonth(), next.getDate() + 1);
+  const people = employees.filter((e) => e?.email).slice(0, 2);
+  const who = (i) => people[i] || { name: 'Jane Doe', email: 'jane.doe@example.com' };
+  return [
+    [day(next), who(0).name || '', who(0).email, '9:00 AM', '5:30 PM', '', '', 30, '', '', ''],
+    [day(tue), who(people.length > 1 ? 1 : 0).name || '', who(people.length > 1 ? 1 : 0).email, '6:30 AM', '2:30 PM', '', '', 30, '', 'Example - delete these rows', ''],
+  ];
+}
+
 export function ImportModal({ employees, busy, onImport, onClose }) {
   const [parsed, setParsed] = useState(null);
   const [reading, setReading] = useState(false);
@@ -90,6 +107,13 @@ export function ImportModal({ employees, busy, onImport, onClose }) {
     }
     setReading(false);
   }
+  async function template() {
+    const rows = importTemplateRows(employees);
+    try {
+      await exportExcel({ title: 'Schedule Import', filename: 'schedule-import-template.xlsx', rows,
+        columns: IMPORT_COLUMNS.map((header, i) => ({ header, get: (r) => r[i], width: [12, 22, 30, 10, 10, 16, 18, 18, 14, 26, 11][i] })) });
+    } catch { /* the browser blocked the download - nothing to undo */ }
+  }
   async function go() {
     const r = await onImport(parsed.rows);
     if (r) setResult(r);
@@ -104,10 +128,12 @@ export function ImportModal({ employees, busy, onImport, onClose }) {
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-          Add shifts from an Excel or CSV file. Use the columns Export writes (Date, Email or Employee, Start, End, and optionally
-          Shift Type, Group, Unpaid Break (min), Label, Note, Open Spots) - exporting a week is the easiest way to get a template.
-          Every shift comes in as a draft.
+          Add shifts from an Excel or CSV file: download the template, fill one row per shift (Date, Employee or Email, Start, End;
+          the other columns are optional) and choose it here. Every shift comes in as a draft until you Save &amp; Share.
         </div>
+        <button type="button" className="secondary-btn" onClick={template} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+          <Download size={13} /> Download Template
+        </button>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px dashed var(--line)', borderRadius: 10, padding: '12px 14px', cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }}>
           <Upload size={15} /> Choose a File
           <input type="file" aria-label="Schedule file" accept=".xlsx,.xls,.csv" onChange={(e) => pick(e.target.files?.[0])} style={{ display: 'none' }} />
@@ -172,7 +198,7 @@ export function ShiftMenu({ menu, presets = [], canTimeOff, hasCopied, onAction,
         <>
           <MenuHead>Place Shift Type</MenuHead>
           {presets.slice(0, 8).map((p) => (
-            <MenuItem key={p.id} label={`${p.code || p.name} · ${shiftTimeText(p)}`} onClick={() => onAction('place', p)}
+            <MenuItem key={p.id} label={`${p.name || p.code} · ${shiftTimeText(p)}`} onClick={() => onAction('place', p)}
               Icon={() => <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color || DEFAULT_SHIFT_COLOR, display: 'inline-block' }} />} />
           ))}
           <MenuSep />

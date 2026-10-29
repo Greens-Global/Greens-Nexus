@@ -109,3 +109,47 @@ def set_off(db, key: str, off_now: bool, actor: str = "") -> list[str]:
     row.updated_at = datetime.now(timezone.utc).isoformat()
     invalidate()
     return keys
+
+
+# ── The last run of a job (Oct 29 2026, Knowledge Base WP 4.1) ────────────────
+# A job that wants Workflows > Automations to say when it last ran and what
+# it did calls record_run() at the end of its pass. One NexusSetting row per
+# job ("job_run.<key>"), overwritten each run - a summary, not a history.
+
+RUN_PREFIX = "job_run."
+
+
+def record_run(key: str, items: list[dict], errors: list[str] | None = None) -> None:
+    """Store {at, items: [{label, count}], errors} for the job. Never raises -
+    a job is never stopped by its own report."""
+    try:
+        import database
+        import models
+        db = database.SessionLocal()
+        try:
+            row = db.get(models.NexusSetting, RUN_PREFIX + key)
+            if row is None:
+                row = models.NexusSetting(key=RUN_PREFIX + key)
+                db.add(row)
+            row.value = json.dumps({"at": datetime.now(timezone.utc).isoformat(),
+                                    "items": [{"label": str(i.get("label") or ""), "count": int(i.get("count") or 0)} for i in items],
+                                    "errors": [str(e)[:300] for e in (errors or [])][:10]})
+            row.updated_by = "nexus"
+            row.updated_at = datetime.now(timezone.utc).isoformat()
+            db.commit()
+        finally:
+            db.close()
+    except Exception as e:  # noqa: BLE001
+        print(f"[job-switch] could not record the {key} run: {type(e).__name__}: {e}")
+
+
+def last_runs(db) -> dict:
+    """{key: {at, items, errors}} for every job that has reported a run."""
+    import models
+    out = {}
+    for row in db.query(models.NexusSetting).filter(models.NexusSetting.key.like(RUN_PREFIX + "%")).all():
+        try:
+            out[row.key[len(RUN_PREFIX):]] = json.loads(row.value or "{}")
+        except (TypeError, ValueError):
+            continue
+    return out

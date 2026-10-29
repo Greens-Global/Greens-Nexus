@@ -37,11 +37,11 @@ export function Avatar({ email, name, size = 26, card = true }) {
   const label = name || email || '';
   const photo = email ? photos[email.toLowerCase()] : '';
   const img = photo ? (
-    <img src={photo} alt={label} title={card ? undefined : label} style={{
+    <img src={photo} alt={label} title={card ? undefined : label} data-avatar="" style={{
       width: size, height: size, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', display: 'inline-block',
     }} />
   ) : (
-    <div title={card ? undefined : label} style={{
+    <div title={card ? undefined : label} data-avatar="" style={{
       width: size, height: size, borderRadius: '50%', flexShrink: 0,
       background: colorForKey(email || label), color: '#fff',
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -51,6 +51,19 @@ export function Avatar({ email, name, size = 26, card = true }) {
   // The card carries the name itself, so the native title tooltip is dropped
   // when it is on - two overlapping tooltips otherwise.
   return <PersonHover email={email} name={label} disabled={!card}>{img}</PersonHover>;
+}
+
+// A person named inside a line of text ("Approved by <face> Sahil Shah on
+// ..."): the standard Avatar, then the name, kept on the text's baseline.
+// `children` replaces the name when the caller styles it (bold, a link).
+export function AvatarName({ email, name, size = 18, card = true, children, style }) {
+  const label = name || email || '';
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, verticalAlign: 'middle', maxWidth: '100%', ...style }}>
+      <Avatar email={email} name={label} size={size} card={card} />
+      {children ?? label}
+    </span>
+  );
 }
 
 // Soft labels (Oct 14 2026) - see components/StatusLabel.jsx.

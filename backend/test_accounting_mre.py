@@ -543,5 +543,144 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(row["line"]["variancePct"], 15)
 
 
+class PossiblyEndedRule1028(unittest.TestCase):
+    """Charmi, 10/27 call, item 06: monthly - 3 missed months in a row; annual -
+    nothing by the 13th month after the last payment; quarterly / semi-annual -
+    one cycle and a month. A flag that can no longer be judged clears."""
+    TODAY = date(2026, 10, 28)
+    ENTITY = "STALE-1028"
+
+    def _line(self, frequency="monthly", start="2025-01-01", **kw):
+        return {"id": kw.pop("id", str(uuid.uuid4())), "entityCode": self.ENTITY, "entityName": "Stale Test", "vendorId": kw.pop("vendorId", "V00037"),
+                "vendorName": "AAA Insurance", "expenseAccounts": ["62501"], "frequency": frequency, "frequencyMonths": kw.pop("frequencyMonths", 0),
+                "startDate": start, "endDate": "", "status": "active", **kw}
+
+    def _stale(self, line, posted, months=3):
+        import recurring_stale
+        win = recurring_stale.mre_window(self.TODAY, months, accounting_mre.step_months(line))
+        back = recurring_stale.lookback(self.TODAY, win)
+        return recurring_stale.judge(posted, win, back)[0]
+
+    def test_windows(self):
+        import recurring_stale
+        def w(freq, n=0):
+            return recurring_stale.mre_window(self.TODAY, 3, accounting_mre.step_months({"frequency": freq, "frequencyMonths": n}))
+        self.assertEqual(w("monthly"), ["2026-07", "2026-08", "2026-09"])
+        self.assertEqual((len(w("quarterly")), len(w("semi_annual")), len(w("annual")), len(w("custom", 2))), (4, 7, 13, 3))
+        self.assertEqual(w("annual")[0], "2025-09")
+        # The setting still sets a monthly line's months (Urmi set 5 on 10/27).
+        self.assertEqual(len(recurring_stale.mre_window(self.TODAY, 5, 1)), 5)
+
+    def test_monthly_paid_in_any_of_the_last_three_months_is_never_flagged(self):
+        line = self._line()
+        for m in ("2026-07", "2026-08", "2026-09"):
+            self.assertFalse(self._stale(line, {m: 120.0}), m)
+        # Three missed in a row: Possibly Ended.
+        self.assertTrue(self._stale(line, {"2026-06": 120.0}))
+        # This month's payment does not count yet - only complete months - but nothing else changes.
+        self.assertTrue(self._stale(line, {"2026-06": 120.0, "2026-10": 120.0}))
+
+    def test_annual_flags_only_after_the_13th_month(self):
+        line = self._line("annual")
+        self.assertFalse(self._stale(line, {"2025-09": 8257.0}))     # 12 months since: due, not late yet
+        self.assertTrue(self._stale(line, {"2025-08": 8257.0}))      # 13 months with nothing: Possibly Ended
+        self.assertFalse(self._stale(line, {"2026-04": 688.08}))
+
+    def test_task_text_names_the_real_window(self):
+        """The follow-up task never says "twelve months" for a 13-month annual
+        window (or a 3-month monthly one) - it names the window it checked."""
+        import recurring_stale
+        def text(kind, freq, last=""):
+            win = recurring_stale.mre_window(self.TODAY, 3, accounting_mre.step_months({"frequency": freq, "frequencyMonths": 0}))
+            return recurring_stale._task_text(kind, {"label": "AAA Insurance", "who": "Stale Test", "entity": self.ENTITY,
+                                                     "window": win, "lastPaid": last}, 3)
+        for kind in ("mre", "mri"):
+            title, body = text(kind, "annual")
+            self.assertIn("in 13 Months", title)
+            self.assertIn("in the last 13 months (September 2025 to September 2026). Nothing posted in that time.", body)
+            self.assertNotIn("twelve", body)
+            title, body = text(kind, "monthly")
+            self.assertIn("in 3 Months", title)
+            self.assertIn("in the last 3 months (July 2026 to September 2026). Nothing posted in that time.", body)
+            _t, body = text(kind, "monthly", "2026-05")
+            self.assertIn("posted in May 2026.", body)
+            self.assertNotIn("Nothing posted", body)
+
+    def test_quarterly_and_semi_annual_one_cycle_and_a_month(self):
+        self.assertFalse(self._stale(self._line("quarterly"), {"2026-06": 300.0}))
+        self.assertTrue(self._stale(self._line("quarterly"), {"2026-05": 300.0}))
+        self.assertFalse(self._stale(self._line("semi_annual"), {"2026-03": 300.0}))
+        self.assertTrue(self._stale(self._line("semi_annual"), {"2026-02": 300.0}))
+
+    def test_aaa_insurance_is_not_a_candidate_and_its_old_flag_clears(self):
+        """AAA Insurance V00037 / 14001 as it is on prod: Annual from 04/01/2026,
+        paid every month Jan - Jul, flagged 10/21 with last paid 12/2025."""
+        import recurring_stale
+        aaa = self._line("annual", start="2026-04-01", id="aaa-1028")
+        monthly = self._line(id="monthly-1028", vendorId="V00004")
+        cands = recurring_stale.mre_candidates([aaa, monthly], self.TODAY, 3)
+        self.assertEqual([l["id"] for l, _w in cands], ["monthly-1028"])
+        self.assertEqual([(r["id"], r["stale"]) for r in recurring_stale.mre_unjudged([aaa, monthly], cands, self.TODAY)], [("aaa-1028", False)])
+        # An ended line is the "marked ended" path, not this one.
+        self.assertEqual(recurring_stale.mre_unjudged([{**aaa, "status": "ended"}], [], self.TODAY), [])
+
+    def test_the_check_clears_a_flag_left_from_before_an_edit(self):
+        import recurring_stale
+        db = database.SessionLocal()
+        try:
+            db.query(models.RecurringExpense).filter(models.RecurringExpense.entity_code == self.ENTITY).delete()
+            rid = str(uuid.uuid4())
+            db.add(models.RecurringExpense(id=rid, entity_code=self.ENTITY, entity_name="Stale Test", vendor_id="V00037", vendor_name="AAA Insurance",
+                                           expense_accounts=["62501"], frequency="annual", expected_amount=8257.0, start_date="2026-04-01", status="active",
+                                           stale_since="2026-10-21", stale_last_paid="2025-12", stale_task_id="", created_by=EDITOR))
+            db.commit()
+        finally:
+            db.close()
+
+        async def grouped(scope, pairs, year, accounts):
+            return {p: {} for p in pairs}, []
+        orig = accounting_mre._grid_payments
+        accounting_mre._grid_payments = grouped
+        try:
+            results = asyncio.run(recurring_stale._mre_results(self.TODAY, 3))
+        finally:
+            accounting_mre._grid_payments = orig
+        mine = [r for r in results if r["id"] == rid]
+        self.assertEqual([r["stale"] for r in mine], [False])
+        recurring_stale.apply("mre", mine, self.TODAY, 3)
+        db = database.SessionLocal()
+        try:
+            row = db.query(models.RecurringExpense).filter(models.RecurringExpense.id == rid).first()
+            self.assertEqual((row.stale_since, row.stale_last_paid, row.status, row.frequency), ("", "", "active", "annual"))
+            db.query(models.RecurringExpense).filter(models.RecurringExpense.entity_code == self.ENTITY).delete()
+            db.commit()
+        finally:
+            db.close()
+
+
+class SpotCheck1028(unittest.TestCase):
+    """Charmi, 10/27 call, item 06 spot-check (mre-spotcheck.md in the call
+    folder): California Fair Plan V05293 / 10003 is set up Monthly 1,035.00 but
+    Intacct has one annual premium, 1,035.00 on 07/30/2026 ("2026-2027") - so
+    Jan - Jun and Aug - Sep read Missed. Set up Annual from 07/2026 (the edit
+    proposed to Charmi) the same posting reads Paid and nothing is Missed."""
+    TODAY = date(2026, 10, 28)
+
+    def _line(self, **kw):
+        return {"id": "fair-plan", "entityCode": "10003", "entityName": "(G) 26382 Palisades Drive, DP", "vendorId": "V05293",
+                "vendorName": "California Fair Plan", "expenseAccounts": ["62507"], "category": "insurance", "frequencyMonths": 0,
+                "variancePct": 25, "expectedAmount": 1035.0, "endDate": "", "status": "active", **kw}
+
+    def test_fair_plan_monthly_against_one_annual_charge(self):
+        posted = {("10003", "V05293"): {"2026-07": {"62507": 1035.0}}}
+        as_is = accounting_mre.grid([self._line(frequency="monthly", startDate="2026-01-01")], posted, 2026, self.TODAY)["rows"][0]
+        self.assertEqual(as_is["monthsMissed"], 8)
+        self.assertEqual(as_is["months"][6]["status"], "paid")
+        fixed = accounting_mre.grid([self._line(frequency="annual", startDate="2026-07-01")], posted, 2026, self.TODAY)["rows"][0]
+        self.assertEqual(fixed["monthsMissed"], 0)
+        self.assertEqual([c["status"] for c in fixed["months"]][6], "paid")
+        self.assertEqual(fixed["balance"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

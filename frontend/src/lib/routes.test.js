@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect } from './routes';
+import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, addressFor } from './routes';
 
 // The address-bar aliases. Insights (Neil, Oct 14 2026): the module reads
 // /insights; old /bi links (bookmarks, emails) still open it; the view id
@@ -34,5 +34,30 @@ describe('purchase requisition redirects', () => {
     expect(purchaseRedirect('inventory', 'catalog')).toBeNull();
     expect(purchaseRedirect('myhr', 'purchase')).toBeNull();
     expect(purchaseRedirect('dashboard', null)).toBeNull();
+  });
+});
+
+// An email's /support?ticket=<id> is rewritten to /help-center on load; the
+// ticket id must survive that first rewrite (Oct 28 2026), and only that one.
+describe('addressFor', () => {
+  it('keeps the query and hash on the first rewrite of the opened address', () => {
+    expect(addressFor(`/${VIEW_TO_PATH.support}`, { first: true, search: '?ticket=abc', hash: '' })).toBe('/help-center?ticket=abc');
+    expect(addressFor('/help-center/documentation', { first: true, search: '?doc=workday&section=w-1', hash: '#x' }))
+      .toBe('/help-center/documentation?doc=workday&section=w-1#x');
+  });
+
+  it('starts clean on every later navigation', () => {
+    expect(addressFor('/tasks', { first: false, search: '?ticket=abc' })).toBe('/tasks');
+    expect(addressFor('/tasks')).toBe('/tasks');
+  });
+});
+
+// Credential Vault is Credentials (Neil, Oct 28 2026): the address reads
+// /credentials, old /credvault links still land, the stored id stays.
+describe('credentials address', () => {
+  it('writes /credentials and reads both addresses as the credvault view', () => {
+    expect(VIEW_TO_PATH.credvault).toBe('credentials');
+    expect(PATH_TO_VIEW.credentials).toBe('credvault');
+    expect(PATH_TO_VIEW.credvault).toBe('credvault');
   });
 });

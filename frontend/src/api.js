@@ -109,6 +109,35 @@ function _emitHealth(down) {
   _backendDown = down;
   _downCount   = down ? _downCount + 1 : 0;
   _healthListeners.forEach(fn => fn(down));
+  if (down) _startHealthProbe();
+  else {
+    _stopHealthProbe();
+    // Reads that failed while it was down are asked again (TanStack screens);
+    // App.jsx remounts the views opened during the outage.
+    _queryClient?.refetchQueries({ predicate: (q) => q.state.status === 'error' });
+  }
+}
+// Oct 28 (Charmi, 10/27 call item 21): the red bar said "Retrying
+// automatically" but cleared only when the screen happened to make another
+// request, so an idle page kept it up until someone refreshed. While it is
+// up, /health (no sign-in, exempt from the rate limit) is asked every 5s; the
+// first answer clears it. Not a keep-warm ping: it runs only while the bar
+// is showing, and stops the moment Nexus answers.
+const HEALTH_PROBE_MS = 5000;
+let _healthProbe = null;
+function _startHealthProbe() {
+  if (_healthProbe || typeof fetch !== 'function') return;
+  _healthProbe = setInterval(async () => {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), HEALTH_PROBE_MS - 500);
+    try {
+      const res = await fetch(`${BASE}/health`, { signal: controller.signal, cache: 'no-store' });
+      if (res.ok) _setBackendDown(false);
+    } catch { /* still down - try again on the next tick */ } finally { clearTimeout(tid); }
+  }, HEALTH_PROBE_MS);
+}
+function _stopHealthProbe() {
+  if (_healthProbe) { clearInterval(_healthProbe); _healthProbe = null; }
 }
 function _setBackendDown(down) {
   if (down) {
@@ -449,6 +478,9 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
   else if (plain) filename = plain[1];
   return { blob: await res.blob(), filename };
 }
+
+// '?year=2027' for the holiday calendar routes that answer one year of it.
+const yearQs = (year) => (year ? `?year=${encodeURIComponent(year)}` : '');
 
 export const api = {
   // Dashboard
@@ -889,7 +921,6 @@ export const api = {
   unarchiveKbDoc:(id)       => req(`/knowledge-base/documents/${id}/unarchive`, { method: "POST" }),
   aiFormatKbDoc: (data)     => req("/knowledge-base/ai-format", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   askKb:         (data)     => req("/knowledge-base/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
-  getPageHelp:        (key, label = '') => req(`/help/page?key=${encodeURIComponent(key)}&label=${encodeURIComponent(label)}`, { timeoutMs: AI_TIMEOUT_MS }),
   getKbAcks:        (id)        => req(`/knowledge-base/documents/${id}/acknowledgements`),
   acknowledgeKbDoc: (id)        => req(`/knowledge-base/documents/${id}/acknowledge`, { method: "POST" }),
   setKbAckRequired: (id, value) => req(`/knowledge-base/documents/${id}/ack-required`, { method: "POST", body: JSON.stringify({ value }) }),
@@ -1258,7 +1289,7 @@ export const api = {
   markAccountingOpened: () => req("/accounting/opened", { method: "POST" }),
   // My own layout of the accounting screens: columns shown, widths, density.
   getAccountingPrefs: () => req("/accounting/prefs"),
-  saveAccountingPrefs: (prefs) => req("/accounting/prefs", { method: "PUT", body: JSON.stringify({ prefs }) }),
+  saveAccountingPrefs: (prefs, opts = {}) => req("/accounting/prefs", { method: "PUT", body: JSON.stringify({ prefs }), ...(opts.keepalive ? { keepalive: true } : {}) }),
   // Memorized reports (a Reports view saved under a name) and reporting
   // packages (an ordered set of them, sent out as one PDF).
   // Send the statement on (Charmi, 09/29): by email from my own mailbox, or shared with a teammate.
@@ -1441,24 +1472,56 @@ export const api = {
   addCompanyWorkSites:   (entityId, siteIds) => req(`/hr/entities/${entityId}/work-sites`, { method: 'POST', body: JSON.stringify({ site_ids: siteIds }) }),
   removeCompanyWorkSite: (entityId, siteId)  => req(`/hr/entities/${entityId}/work-sites/${siteId}`, { method: 'DELETE' }),
   // per-company holiday calendar
-  getCompanyHolidays:    (entityId)         => req(`/hr/entities/${entityId}/holidays`),
   createCompanyHoliday:  (entityId, data)   => req(`/hr/entities/${entityId}/holidays`, { method: 'POST', body: JSON.stringify(data) }),
   // countryCode: drop just that ONE country off a multi-country merged row
   // (e.g. "IN,US" -> "US") instead of deleting the whole date+company entry.
   deleteCompanyHoliday:  (entityId, id, countryCode) => req(`/hr/entities/${entityId}/holidays/${id}${countryCode ? `?country_code=${encodeURIComponent(countryCode)}` : ''}`, { method: 'DELETE' }),
-  updateCompanyHolidayType: (entityId, id, type) => req(`/hr/entities/${entityId}/holidays/${id}`, { method: 'PATCH', body: JSON.stringify({ type }) }),
+  // { type?, date?, name? } - on a policy holiday this changes it for this company only.
+  // Answers the row with `calendar` (the company's calendar for `year`) beside it.
+  updateCompanyHoliday:  (entityId, id, data, year) => req(`/hr/entities/${entityId}/holidays/${id}${yearQs(year)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  updateCompanyHolidayType: (entityId, id, type) => api.updateCompanyHoliday(entityId, id, { type }),
+  // A policy holiday this company changed, back to the policy's date and type.
+  resetCompanyHoliday:   (entityId, id, year) => req(`/hr/entities/${entityId}/holidays/${id}/reset${yearQs(year)}`, { method: 'POST' }),
+  // { country, year, source, partial, note, holidays: [{ date (the REAL date), weekday, name, scope,
+  // suggestedType, tentative, observed }] } - 404 when there is no list for the country.
   getPublicHolidays:     (country, year)    => req(`/hr/public-holidays?country=${encodeURIComponent(country)}${year ? `&year=${year}` : ''}`),
-  // Holiday Policy library - a global, reusable, named holiday set (Sep 22,
-  // Neil: "pull that policy into any other company").
+  // Holiday policies (Oct 29 2026): named holiday sets with a weekend rule,
+  // applied live to one or more companies. A save body is
+  // { name, description, weekendRule, holidays, companies } and answers { policy, sync }.
   getHolidayPolicies:    ()                 => req('/hr/holiday-policies'),
   createHolidayPolicy:   (data)             => req('/hr/holiday-policies', { method: 'POST', body: JSON.stringify(data) }),
   updateHolidayPolicy:   (id, data)         => req(`/hr/holiday-policies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteHolidayPolicy:   (id)               => req(`/hr/holiday-policies/${id}`, { method: 'DELETE' }),
-  applyHolidayPolicy:    (entityId, policyId) => req(`/hr/entities/${entityId}/holidays/apply-policy/${policyId}`, { method: 'POST' }),
+  // What a save would add / remove in each assigned company - nothing is saved.
+  // No id = a policy not saved yet ('new').
+  previewHolidayPolicy:  (id, data)         => req(`/hr/holiday-policies/${id || 'new'}/preview`, { method: 'POST', body: JSON.stringify(data) }),
+  // The policy's holidays rebuilt for another year from the sources (not saved):
+  // { holidays, unmatched: [names], notObserved: [names] }.
+  copyHolidayPolicyYear: (id, fromYear, toYear) => req(`/hr/holiday-policies/${id}/copy-year`, { method: 'POST', body: JSON.stringify({ fromYear, toYear }) }),
+  // A company's effective calendar for a year: its policies, their holidays
+  // and its own, what it skipped, and the policies it could assign. Assign,
+  // unassign and skip answer the calendar for `year`.
+  getHolidayCalendar:    (entityId, year)   => req(`/hr/entities/${entityId}/holiday-calendar?year=${encodeURIComponent(year)}`),
+  // 409 (err.body = { message, policy, clashes }) when its holidays would land
+  // beside ones already there; then { confirm: true } keeps both and
+  // { replace: [ids] } removes the company's own rows the admin ticked.
+  assignHolidayPolicy:   (entityId, policyId, year, { confirm = false, replace = [] } = {}) => {
+    const qs = new URLSearchParams();
+    if (year) qs.set('year', year);
+    if (confirm) qs.set('confirm', 'true');
+    if (replace.length) qs.set('replace', replace.join(','));
+    const s = qs.toString();
+    return req(`/hr/entities/${entityId}/holiday-policies/${policyId}${s ? `?${s}` : ''}`, { method: 'POST' });
+  },
+  unassignHolidayPolicy: (entityId, policyId, year) => req(`/hr/entities/${entityId}/holiday-policies/${policyId}${yearQs(year)}`, { method: 'DELETE' }),
+  skipPolicyHoliday:     (entityId, policyId, key, skip, year) => req(`/hr/entities/${entityId}/holiday-policies/${policyId}/skip${yearQs(year)}`, { method: 'POST', body: JSON.stringify({ key, skip }) }),
 
   // HR - compensation + bank (restricted: hr_comp grant / owner)
   getCompensation:  (id)       => req(`/hr/employees/${id}/compensation`),
   saveCompensation: (id, data) => req(`/hr/employees/${id}/compensation`, { method: 'PUT', body: JSON.stringify(data) }),
+  // Workers' comp rate per year (Charmi, 10/27 item 14): { rates, history }; adding one keeps the earlier ones.
+  getWorkersCompRates: (id)       => req(`/hr/employees/${id}/workers-comp`),
+  addWorkersCompRate:  (id, data) => req(`/hr/employees/${id}/workers-comp`, { method: 'POST', body: JSON.stringify(data) }),
 
   // HR - live assets (permanent assignments + active checkouts from Item Management)
   getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
@@ -2237,8 +2300,15 @@ export const api = {
   // finalized time sheets only unless finalizedOnly is false (a -DRAFT file, Oct 19).
   timeExportHours:      (start, end, { company = '', approvedOnly = false, finalizedOnly = false } = {}) =>
     req(`/timeclock/export-hours?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
-  timeExportIifFor:     (start, end, { company = '', approvedOnly = false, finalizedOnly = true } = {}) =>
-    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
+  // createTime (10/27 call item 02): the COMPANYCREATETIME from her QuickBooks Timer Lists export; '' keeps 0.
+  timeExportIifFor:     (start, end, { company = '', approvedOnly = false, finalizedOnly = true, createTime = '' } = {}) =>
+    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}${createTime ? `&create_time=${encodeURIComponent(createTime)}` : ''}`, { timeoutMs: 120_000 }),
+  // Import Hub > Bank Statement to Intacct (Charmi, 10/27 call item 01): the
+  // team's statement rules - matched in the browser, kept here.
+  getStatementRules:    () => req('/accounting/import-hub/rules'),
+  createStatementRule:  (body) => req('/accounting/import-hub/rules', { method: 'POST', body: JSON.stringify(body) }),
+  updateStatementRule:  (id, body) => req(`/accounting/import-hub/rules/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteStatementRule:  (id) => req(`/accounting/import-hub/rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Accounting > Loans & Financing (Oct 2): loans proposed from the ledger's
   // liability accounts, the ledger-driven review (balances, principal and
   // interest paid, NOI, DSCR) for a month, and the typed fields (rate,
@@ -2604,7 +2674,10 @@ export const api = {
   getProfitability:      (from, to, { locations = [], book = 'accrual', expand = false, compare = true } = {}) => req(`/accounting/profitability?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${book && book !== 'accrual' ? `&book=${encodeURIComponent(book)}` : ''}${expand ? '&expand=true' : ''}${compare ? '' : '&compare=false'}`, { timeoutMs: 120_000 }),
   // One attempt (noRetry): the server bounds the run and says why it stopped.
   getCompensationPeople: (from, to, { timeoutMs = 180_000 } = {}) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs, noRetry: true }),
-  getCompensationLedger: (from, to, by = 'department') => req(`/accounting/compensation/ledger?from=${from}&to=${to}&by=${by}`, { timeoutMs: 120_000 }),
+  // 10/27 call (items 11-17): the report from the Intacct ledger, and the ledger lines behind one figure
+  // (`accounts` = account numbers, "61903:d" / ":c" for one side only).
+  getCompensationReport: (from, to) => req(`/accounting/compensation/report?from=${from}&to=${to}`, { timeoutMs: 120_000 }),
+  getCompensationLines: ({ from, to, employees = [], accounts = [] }) => req(`/accounting/compensation/lines?from=${from}&to=${to}&employees=${encodeURIComponent(employees.join(','))}&accounts=${encodeURIComponent(accounts.join(','))}`, { timeoutMs: 120_000 }),
   // Flux Analysis review (Charmi, Oct 15): close (sign off) or reopen one
   // account's review - { entity, period, accountNo, closed }.
   saveAccountingFluxReview: (body) => req('/accounting/flux-notes/review', { method: 'PUT', body: JSON.stringify(body) }),
@@ -2890,8 +2963,9 @@ export const api = {
   // /knowledge-base functions above are retired with the old screens.
   kbMe: () => req("/kb/me"),
   kbHome: () => req("/kb/home"),
-  kbSearch: (q, { type = "", collection = "", limit = 30 } = {}) =>
-    req(`/kb/search?q=${encodeURIComponent(q || "")}&type=${encodeURIComponent(type)}&collection=${encodeURIComponent(collection)}&limit=${limit}`),
+  // log: false = do not record a missed search (the header bar's type-ahead).
+  kbSearch: (q, { type = "", collection = "", limit = 30, log = true } = {}) =>
+    req(`/kb/search?q=${encodeURIComponent(q || "")}&type=${encodeURIComponent(type)}&collection=${encodeURIComponent(collection)}&limit=${limit}${log ? "" : "&log=false"}`),
   kbAsk: (question) => req("/kb/ask", { method: "POST", body: JSON.stringify({ question }), timeoutMs: AI_TIMEOUT_MS }),
   kbCollections: () => req("/kb/collections"),
   kbCollection: (id) => req(`/kb/collections/${id}`),
@@ -2939,6 +3013,8 @@ export const api = {
   kbActivity: (limit = 60, docId = "") => req(`/kb/activity?limit=${limit}&doc_id=${encodeURIComponent(docId)}`),
   kbResolveFlag: (id, resolution = "") => req(`/kb/flags/${id}/resolve`, { method: "POST", body: JSON.stringify({ resolution }) }),
   kbCloseRequest: (id, resolution = "") => req(`/kb/requests/${id}/close`, { method: "POST", body: JSON.stringify({ resolution }) }),
+  kbAssignRequest: (id, email) => req(`/kb/requests/${id}/assign`, { method: "POST", body: JSON.stringify({ email }) }),
+  kbSaveSynonyms: (groups) => req("/kb/synonyms", { method: "PUT", body: JSON.stringify({ groups }) }),
   kbMigrationReport: () => req("/kb/migrate", { timeoutMs: 180_000 }),
   kbMigrationApply: () => req("/kb/migrate", { method: "POST", timeoutMs: 600_000 }),
   kbAudienceOptions: () => req("/kb/audience/options"),
@@ -3107,13 +3183,12 @@ export const api = {
   probationLetterPreview: (eid, data) => reqBlob(`/hr/employees/${encodeURIComponent(eid)}/probation/letter-preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), timeoutMs: 60000 }),
   probationSettings: (company = '') => req(`/hr/probation/settings?company=${encodeURIComponent(company || '')}`),
   probationSaveSettings: (data) => req('/hr/probation/settings', { method: 'PUT', body: JSON.stringify(data) }),
-  // Workday > Salary Advance (Neil, Oct 27 2026): the manager tier and up ask,
-  // HR decides, pays out and changes the repayment schedule.
-  getSalaryAdvances:        ()          => req('/salary-advances'),
+  // Remove From Probation (Oct 29 2026) - HR only, a reason required; nothing restarts it by itself.
+  probationRemove: (eid, reason) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/remove`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  // Salary advances (Neil, Oct 27 2026; on the Time Sheet since Oct 29): HR
+  // decides, pays out and changes the repayment schedule.
   salaryAdvancesPending:    ()          => req('/salary-advances/pending'),
   personSalaryAdvances:     (email)     => req(`/salary-advances/person/${encodeURIComponent(email)}`),
-  requestSalaryAdvance:     (body)      => req('/salary-advances', { method: 'POST', body: JSON.stringify(body) }),
-  grantSalaryAdvance:       (body)      => req('/salary-advances/grant', { method: 'POST', body: JSON.stringify(body) }),
   decideSalaryAdvance:      (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify(body) }),
   cancelSalaryAdvance:      (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify(body || {}) }),
   paySalaryAdvance:         (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/paid`, { method: 'POST', body: JSON.stringify(body) }),
@@ -3153,24 +3228,26 @@ export const api = {
   // Performance review cycles (Neil, Oct 27 2026) - routers/perf_reviews.py.
   perfCycles: (company = "") => req(`/performance/cycles?company=${encodeURIComponent(company || "")}`),
   perfCycle: (id) => req(`/performance/cycles/${encodeURIComponent(id)}`),
-  perfCycleCreate: (data) => req("/performance/cycles", { method: "POST", body: JSON.stringify(data) }),
+  perfCycleCreate: (data) => req("/performance/cycles", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
   perfCycleUpdate: (id, data) => req(`/performance/cycles/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
-  perfReviewDepartments: (company) => req(`/performance/review-departments?company=${encodeURIComponent(company || "")}`),
-  perfCycleParticipants: (id) => req(`/performance/cycles/${encodeURIComponent(id)}/participants`),
   perfCycleLaunch: (id) => req(`/performance/cycles/${encodeURIComponent(id)}/launch`, { method: "POST", timeoutMs: 60000 }),
-  perfCycleClose: (id) => req(`/performance/cycles/${encodeURIComponent(id)}/close`, { method: "POST" }),
-  perfCycleNudge: (id, data = {}) => req(`/performance/cycles/${encodeURIComponent(id)}/nudge`, { method: "POST", body: JSON.stringify(data) }),
-  perfReviews: () => req("/performance/reviews"),
+  perfCycleClose: (id, force = false) => req(`/performance/cycles/${encodeURIComponent(id)}/close`, { method: "POST", body: JSON.stringify({ force }) }),
+  perfReviews: (person = "") => req(`/performance/reviews${person ? `?person=${encodeURIComponent(person)}` : ""}`),
   perfReview: (id) => req(`/performance/reviews/${encodeURIComponent(id)}`),
   perfReviewSelf: (id, data) => req(`/performance/reviews/${encodeURIComponent(id)}/self`, { method: "PUT", body: JSON.stringify(data) }),
   perfReviewManager: (id, data) => req(`/performance/reviews/${encodeURIComponent(id)}/manager`, { method: "PUT", body: JSON.stringify(data) }),
-  perfReviewHrNote: (id, note) => req(`/performance/reviews/${encodeURIComponent(id)}/hr-note`, { method: "PUT", body: JSON.stringify({ note }) }),
-  perfReviewReturn: (id, data) => req(`/performance/reviews/${encodeURIComponent(id)}/return`, { method: "POST", body: JSON.stringify(data) }),
+  perfReviewReturn: (id, note) => req(`/performance/reviews/${encodeURIComponent(id)}/return`, { method: "POST", body: JSON.stringify({ note }) }),
   perfReviewReviewer: (id, email) => req(`/performance/reviews/${encodeURIComponent(id)}/reviewer`, { method: "POST", body: JSON.stringify({ email }) }),
-  perfReviewShare: (id) => req(`/performance/reviews/${encodeURIComponent(id)}/share`, { method: "POST", timeoutMs: 60000 }),
+  perfReviewShare: (id) => req(`/performance/reviews/${encodeURIComponent(id)}/share`, { method: "POST" }),
   perfReviewRecall: (id, note = "") => req(`/performance/reviews/${encodeURIComponent(id)}/recall`, { method: "POST", body: JSON.stringify({ note }) }),
-  perfReviewSettings: (company = "") => req(`/performance/review-settings?company=${encodeURIComponent(company || "")}`),
-  perfReviewSettingsSave: (data) => req("/performance/review-settings", { method: "PUT", body: JSON.stringify(data) }),
+  // Performance, made simple (Oct 29 2026) - My Numbers, goal approval,
+  // Share All Ready, Remove From Cycle, the employee's Acknowledge.
+  perfScorecard: ({ email = "", period = "quarter", start = "", end = "" } = {}) =>
+    req(`/performance/scorecard?${new URLSearchParams({ email, period, start, end }).toString()}`),
+  perfGoalApprove: (id) => req(`/performance/goals/${encodeURIComponent(id)}/approve`, { method: "POST" }),
+  perfCycleShareAll: (id) => req(`/performance/cycles/${encodeURIComponent(id)}/share-all`, { method: "POST" }),
+  perfReviewRemove: (id) => req(`/performance/reviews/${encodeURIComponent(id)}/remove`, { method: "POST" }),
+  perfReviewAcknowledge: (id, comment = "") => req(`/performance/reviews/${encodeURIComponent(id)}/acknowledge`, { method: "POST", body: JSON.stringify({ comment }), timeoutMs: 60000 }),
   // India Contractor Policy (Neil, Oct 27 2026, docs/India-Contractor-Pay.md):
   // the per-company switch and Policy Starts - { mode: '' | 'on' | 'off',
   // startDate, enabled, companyCountry, hasOverride, companies }.
@@ -3197,6 +3274,8 @@ export const api = {
   wfStatus: (id, data) => req(`/workflows/${encodeURIComponent(id)}/status`, { method: "POST", body: JSON.stringify(data) }),
   wfReown: (id, data) => req(`/workflows/${encodeURIComponent(id)}/reown`, { method: "POST", body: JSON.stringify(data) }),
   wfDuplicate: (id, data = {}) => req(`/workflows/${encodeURIComponent(id)}/duplicate`, { method: "POST", body: JSON.stringify(data) }),
+  // Delete for good (Oct 28 2026) - past runs stay in Runs; waiting ones are cancelled.
+  wfDelete: (id) => req(`/workflows/${encodeURIComponent(id)}`, { method: "DELETE" }),
   wfVersions: (id) => req(`/workflows/${encodeURIComponent(id)}/versions`),
   wfVersion: (id, v) => req(`/workflows/${encodeURIComponent(id)}/versions/${encodeURIComponent(v)}`),
   wfRestore: (id, v) => req(`/workflows/${encodeURIComponent(id)}/versions/${encodeURIComponent(v)}/restore`, { method: "POST" }),
@@ -3222,6 +3301,23 @@ export const api = {
   wfApprovalDecide: (id, data) => req(`/workflows/approvals/${encodeURIComponent(id)}/decide`, { method: "POST", body: JSON.stringify(data) }),
   // Built-in automation off switch (Oct 28 2026): Global Admins only, one org-wide list.
   wfJobOff: (key, off) => req(`/workflows/automations/jobs/${encodeURIComponent(key)}/off`, { method: "POST", body: JSON.stringify({ off: !!off }) }),
+  // Salary advance from the person's Time Sheet (Neil, Oct 29 2026): their
+  // direct manager or HR asks - the server grants or requests by who asks.
+  askSalaryAdvanceFor: (email, body) => req(`/salary-advances/for/${encodeURIComponent(email)}`, { method: "POST", body: JSON.stringify(body) }),
+  // Help Center (Oct 2026) - backend/routers/help_center.py. Ask Nexus answers
+  // from the guide sections sent here and the Knowledge Base, docs only.
+  helpAsk: (question, guide) => req("/help-center/ask", { method: "POST", body: JSON.stringify({ question, guide }), timeoutMs: AI_TIMEOUT_MS }),
+  helpSearchLog: (q, results, source) => req("/help-center/search-log", { method: "POST", body: JSON.stringify({ q, results, source }) }),
+  helpFeedback: (data) => req("/help-center/feedback", { method: "POST", body: JSON.stringify(data) }),
+  helpSignals: () => req("/help-center/signals"),
+  helpKnownIssues: () => req("/help-center/known-issues"),
+  helpSaveKnownIssues: (issues) => req("/help-center/known-issues", { method: "PUT", body: JSON.stringify({ issues }) }),
+  // Training Reminders switches - see backend/kb_reminder_config.py
+  getKbReminderSettings:    ()     => req("/kb-reminder-settings"),
+  updateKbReminderSettings: (data) => req("/kb-reminder-settings", { method: "PUT", body: JSON.stringify(data) }),
+  // The person's own training-email switch (Profile > Email Settings, WP 2.4)
+  getKbMyEmailPref:    ()     => req("/kb-reminder-settings/mine"),
+  updateKbMyEmailPref: (data) => req("/kb-reminder-settings/mine", { method: "PUT", body: JSON.stringify(data) }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with

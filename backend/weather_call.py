@@ -29,6 +29,13 @@ seen it, with phone numbers on the screen. Reinstate undoes the call and
 tells the same people. Pay follows punches, so a cancelled shift simply has
 no punch; the Workforce Scorecard treats cancelled hours as excused.
 
+Weather by department (Neil, 10/29/2026): the call is only for people in
+a department with Weather Calls on (weather_scope.py - Construction by
+default). Everyone else on the group's day is not on the roster, is not
+told, and keeps their shift and pay; a group with nobody in such a
+department gets no call at all (routers/weather_call.py answers 403).
+Calls made before keep what they did - history is never rewritten.
+
 Everything here is synchronous DB and HTTP work: the routes are plain
 `def`, the follow-up loop runs its tick in a thread.
 """
@@ -47,6 +54,7 @@ from sqlalchemy.orm import Session
 
 import models
 import shift_log
+import weather_scope
 import weather_watch
 from app_url import app_url
 from database import SessionLocal
@@ -140,7 +148,9 @@ def _members(db: Session, group_id: str) -> list:
 
 def day_shifts(db: Session, g, day: str, member_emails: list, lock: bool = False) -> list:
     """The group's published shifts that day: rows on the group, plus older
-    rows with no group on its members. Open slots (no person) included."""
+    rows with no group on its members. Open slots (no person) included.
+    Only people in a weather department (weather_scope): anyone else's
+    shift is never on the roster and never changed by a call."""
     S = models.ScheduledShift
     # A row a delay moved past midnight lives on the next day now but still
     # belongs to this day's call (original_work_date).
@@ -151,7 +161,8 @@ def day_shifts(db: Session, g, day: str, member_emails: list, lock: bool = False
                           func.lower(S.employee_email).in_(list(member_emails) or ["-"])))))
     if lock:
         q = q.with_for_update()   # these rows only - never the whole day's schedule
-    return q.all()
+    sc = weather_scope.scope(db)
+    return [r for r in q.all() if not r.employee_email or sc.person_on(r.employee_email)]
 
 
 def _prefs(db: Session, emails: list) -> dict:
@@ -264,10 +275,13 @@ def screen(db: Session, user: dict, g, day: str) -> dict:
             .filter(models.ScheduleDayNote.work_date == day, models.ScheduleDayNote.group_id == g.id).first())
     site = db.query(models.HrWorkSite).filter(models.HrWorkSite.id == (getattr(g, "work_site_id", "") or "")).first()
     cfg = weather_watch.get_config(db)
+    # A group the weather does not cover (10/29/2026) can still show a call
+    # made on it before - to read or reinstate - but takes no new one.
+    off = weather_scope.why_not_watched(db, g)
     can = may_decide(db, user, g, cid)
     head = {"group": {"id": g.id, "name": g.name, "workSiteName": site.name if site else "",
                       "deciders": [{"email": e, "name": _name(people.get(e)) or e} for e in deciders]},
-            "date": day, "outlook": _outlook(db, g.id, day), "canDecide": can,
+            "date": day, "outlook": _outlook(db, g.id, day), "canDecide": can, "weatherOff": off,
             "smsDefault": bool(cfg.get("smsDefault", True)), "dayNote": note.note if note else "", "companyId": cid}
     if not can:
         # A shift manager with no say over this group sees the forecast and
@@ -614,6 +628,19 @@ def _bell_person(db: Session, d, g, p: dict, decider_name: str) -> str:
     return title
 
 
+def _crew(db: Session, ppl: list) -> list:
+    """The people on a call who may be told about it: those in a weather
+    department (weather_scope, 10/29/2026). A call made today only ever
+    names them; this also keeps an older call's follow-ups to them."""
+    sc = weather_scope.scope(db)
+    return [p for p in ppl if sc.person_on(p.get("email"))]
+
+
+def _silent(db: Session, ppl: list) -> list:
+    """Picked, told, and not acknowledged yet."""
+    return [p for p in _crew(db, ppl) if p["selected"] and not p.get("ackAt")]
+
+
 def _texts(d, p: dict) -> bool:
     return bool(d.sms and p.get("phone") and p.get("smsOn", True))
 
@@ -709,7 +736,7 @@ def _deliver_decision(db: Session, decision_id: str, actor: str) -> None:
         return
     g, people, site_name, company_name, decider_name = _context(db, d, actor)
     results = {}
-    for p in json.loads(d.people_json or "[]"):
+    for p in _crew(db, json.loads(d.people_json or "[]")):
         if p["selected"]:
             results[p["email"]] = notify_person(db, d, g, p, site_name=site_name, company_name=company_name,
                                                 actor=actor, decider_name=decider_name)
@@ -738,7 +765,7 @@ def notify_decision(db: Session, d, g, people: dict, actor: str, cid: str, defer
     """The bells now (priority for the picked, quiet for the rest), the
     sends in a delivery job. Returns what was queued."""
     decider_name = _name(people.get(actor)) or actor
-    ppl = json.loads(d.people_json or "[]")
+    ppl = _crew(db, json.loads(d.people_json or "[]"))
     for p in ppl:
         if p["selected"]:
             _bell_person(db, d, g, p, decider_name)
@@ -827,7 +854,7 @@ def remind_silent(db: Session, d, actor: str = "", defer=None) -> int:
     g = _group(db, d.group_id)
     people = weather_watch._people(db)
     decider_name = _name(people.get(d.decided_by)) or d.decided_by
-    silent = [p for p in json.loads(d.people_json or "[]") if p["selected"] and not p.get("ackAt")]
+    silent = _silent(db, json.loads(d.people_json or "[]"))
     if not silent:
         return 0
     for p in silent:
@@ -853,7 +880,7 @@ def _deliver_reminders(db: Session, decision_id: str, actor: str, emails: list) 
     g, people, site_name, company_name, _ = _context(db, d, actor)
     decider_name = _name(people.get(d.decided_by)) or d.decided_by
     out = {}
-    for p in json.loads(d.people_json or "[]"):
+    for p in _crew(db, json.loads(d.people_json or "[]")):
         if p["email"] in emails and not p.get("ackAt"):   # acknowledged since: no text
             out[p["email"]] = notify_person(db, d, g, p, site_name=site_name, company_name=company_name, actor=actor,
                                             decider_name=decider_name, reminder=True).get("sms", "")
@@ -871,8 +898,7 @@ def deliver_reminders(decision_id: str, actor: str, emails: list) -> None:
 
 def _escalate(db: Session, d) -> int:
     g = _group(db, d.group_id)
-    ppl = json.loads(d.people_json or "[]")
-    silent = [p for p in ppl if p["selected"] and not p.get("ackAt")]
+    silent = _silent(db, json.loads(d.people_json or "[]"))
     if not silent:
         return 0
     deciders, told = weather_watch.deciders_for(db, g, d.company)
@@ -901,8 +927,7 @@ def follow_up_once(db: Session, now_utc: datetime = None) -> dict:
         except ValueError:
             continue
         age = (now_utc - decided).total_seconds() / 60
-        ppl = json.loads(d.people_json or "[]")
-        silent = [p for p in ppl if p["selected"] and not p.get("ackAt")]
+        silent = _silent(db, json.loads(d.people_json or "[]"))
         if not silent:
             continue
         if age >= REMIND_AFTER_MIN and any(not p.get("remindedAt") for p in silent):

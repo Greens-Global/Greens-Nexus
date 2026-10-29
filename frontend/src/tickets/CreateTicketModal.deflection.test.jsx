@@ -62,7 +62,7 @@ describe('CreateTicketModal suggested articles', () => {
     expect(screen.getByText('Click the Time Off tab.')).toBeTruthy();
     const link = screen.getByRole('link', { name: /Open Full Article/ });
     expect(link.getAttribute('target')).toBe('_blank');
-    expect(link.getAttribute('href')).toContain('/support/documentation?doc=workday');
+    expect(link.getAttribute('href')).toContain('/help-center/documentation?doc=workday');
     expect(title.value).toBe('Need PTO next week');
   });
 
@@ -90,6 +90,10 @@ describe('CreateTicketModal suggested articles', () => {
     expect(createTicket).toHaveBeenCalledTimes(1);
     expect(createTicket.mock.calls[0][0].subject).toBe('Need PTO next week');
     expect(createTicket.mock.calls[0][0].application).toBe('Time off');
+    // The finish screen (Oct 28 2026) - Open Ticket hands over and closes.
+    expect(onClose).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Is In$/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Open Ticket' }));
     expect(onClose).toHaveBeenCalled();
   });
 });

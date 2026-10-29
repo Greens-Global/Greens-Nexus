@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 import models
 import weather_call
+import weather_scope
 from auth import get_current_user
 from database import SessionLocal, get_db
 from routers.timeclock import require_shift_manage, _parse_day
@@ -49,6 +50,15 @@ def _decision_or_404(db: Session, decision_id: str):
 def _require_decider(db: Session, user: dict, g, company_id: str) -> None:
     if not weather_call.may_decide(db, user, g, company_id):
         raise HTTPException(403, "Only this group's weather deciders, its schedulers, the company's managers or an administrator can make the weather call.")
+
+
+def _require_watched(db: Session, g) -> None:
+    """Weather by department (10/29/2026): no NEW call for a group the
+    weather does not cover - most often one with nobody in a department with
+    Weather Calls on. Reinstate and Remind on a call already made stay open."""
+    off = weather_scope.why_not_watched(db, g)
+    if off:
+        raise HTTPException(403, off)
 
 
 # ── Public: the acknowledgment link ──────────────────────────────────────
@@ -145,7 +155,10 @@ def my_prefs(user: dict = Depends(get_current_user), db: Session = Depends(get_d
     row = db.query(models.NexusPersonPref).filter(models.NexusPersonPref.email == user["email"].lower()).first()
     emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == user["email"].lower()).first()
     return {"weatherSms": bool(int(row.weather_sms if row is not None and row.weather_sms is not None else 1)),
-            "phone": bool(emp is not None and (emp.phone or "").strip())}
+            "phone": bool(emp is not None and (emp.phone or "").strip()),
+            # Weather calls are for weather departments only (10/29/2026):
+            # My Schedule shows the texts switch to those people alone.
+            "weatherOn": weather_scope.person_in_weather_department(db, user["email"])}
 
 
 @router.put("/my-prefs")
@@ -168,6 +181,8 @@ def save_my_prefs(body: PrefsIn, user: dict = Depends(get_current_user), db: Ses
 def read_screen(group_id: str, day: str, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     g = _group_or_404(db, group_id)
     day = _parse_day(day, "date").isoformat()
+    if weather_call.latest_decision(db, g.id, day) is None:
+        _require_watched(db, g)   # a call made before still opens, to read or reinstate
     return weather_call.screen(db, user, g, day)
 
 
@@ -216,6 +231,7 @@ def make_call(group_id: str, day: str, body: DecideIn, bt: BackgroundTasks, user
     import weather_watch
     cid = weather_watch.group_company(db, g, weather_call._members(db, g.id))
     _require_decider(db, user, g, cid)
+    _require_watched(db, g)
     try:
         return weather_call.decide(db, user, g, day, body.model_dump(), defer=bt.add_task)
     except ValueError as e:

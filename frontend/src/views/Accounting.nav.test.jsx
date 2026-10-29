@@ -18,6 +18,10 @@ vi.mock('../api', () => ({
     launchAccounting: vi.fn(async () => ({ url: 'https://example.test' })),
     getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
     saveAccountingPrefs: vi.fn(async (p) => ({ prefs: p })),
+    // Import Hub (opened by one test below) reads its rules and pickers on open.
+    getStatementRules: vi.fn(async () => ({ rules: [] })),
+    getAccountingAccounts: vi.fn(async () => ({ accounts: [] })),
+    getAccountingPartners: vi.fn(async () => ({ partners: [] })),
   },
 }));
 vi.mock('../contexts/RoleContext', () => ({

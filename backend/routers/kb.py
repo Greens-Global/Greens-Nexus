@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import auth
 import kb_access
 import kb_ai
 import kb_audience
@@ -33,6 +34,15 @@ from kb_access import require_author, require_manage
 router = APIRouter(prefix="/kb", tags=["Knowledge Base"], dependencies=[Depends(get_current_user)])
 
 PAGE_TYPES = kb_core.PAGE_TYPES
+
+# Policies signed through Nexus Sign: the switch is kb_core.NEXUS_SIGN_FOR_POLICIES
+# (kb_policy_sign.py sends the envelopes). Off = every page signs in-page and
+# the stored `signing` choice is kept untouched.
+def _signing(d) -> str:
+    """How people sign this page today."""
+    if kb_core.NEXUS_SIGN_FOR_POLICIES and d.signing == "nexus_sign":
+        return "nexus_sign"
+    return "in_page"
 _IMG_MARK = re.compile(r"\[\[IMG(\d+)\]\]")
 
 
@@ -282,7 +292,7 @@ def _page_full(db: Session, d: models.KbDocument, user: dict) -> dict:
     card.update({
         "blocks": blocks, "headings": kb_blocks.headings(blocks), "legacy_only": legacy_only,
         "effective_date": d.effective_date or "", "review_every_months": kb_core.review_months(db, d),
-        "review": kb_core.review_state(db, d), "signing": d.signing or "in_page",
+        "review": kb_core.review_state(db, d), "signing": _signing(d), "nexus_sign_available": kb_core.NEXUS_SIGN_FOR_POLICIES,
         "audience": kb_audience.loads(d.audience) if d.audience else {"everyone": True},
         "audience_text": kb_audience.describe(kb_audience.loads(d.audience), db) if d.audience else "Everyone",
         "signoff": kb_core.signoff_state(db, d, me),
@@ -434,8 +444,10 @@ def _review_queue(db: Session, user: dict) -> list[dict]:
 # ----------------------------------------------------------------- search / ask
 
 @router.get("/search")
-def search(q: str = "", type: str = "", collection: str = "", limit: int = 30,
+def search(q: str = "", type: str = "", collection: str = "", limit: int = 30, log: bool = True,
            user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # log=false: the header search bar asks on every pause while typing, so its
+    # half-typed words ("pr", "pra") must not land on Health as misses (Oct 29 2026).
     q = (q or "").strip()
     pub = _published(db, user)
     if collection:
@@ -460,7 +472,8 @@ def search(q: str = "", type: str = "", collection: str = "", limit: int = 30,
         d = by_id.get(r["id"])
         if d:
             results.append({**_page_card(db, d, user, pins), "snippet": r["snippet"], "score": r["score"]})
-    kb_search.log_miss(db, q, len(results), user["email"].lower())
+    if log:
+        kb_search.log_miss(db, q, len(results), user["email"].lower())
     db.commit()
     return {"results": results, "also_matched": res["also_matched"], "did_you_mean": res["did_you_mean"], "total": len(results)}
 
@@ -549,6 +562,7 @@ def update_collection(cid: str, body: CollectionIn, user: dict = Depends(get_cur
     c = _collection(db, cid)
     if not c:
         raise HTTPException(404, "Collection not found")
+    kb_access.assert_wall(c, user, db)   # owned by another company: theirs to change (no owner = shared)
     if not (kb_access.is_manage(user, db) or kb_access.owns_collection(user, db, cid)):
         raise HTTPException(403, "Only the collection owner or a Knowledge Base manager can change this")
     if body.name is not None and body.name.strip():
@@ -746,8 +760,8 @@ def update_page(doc_id: str, body: PageUpdate, user: dict = Depends(get_current_
             a["due_days"] = int(raw.get("due_days") or 14)
             a["renew_months"] = int(raw.get("renew_months") or 0)
             d.audience = json.dumps(a, separators=(",", ":"))
-    if body.signing in ("in_page", "nexus_sign"):
-        d.signing = body.signing
+    if kb_core.NEXUS_SIGN_FOR_POLICIES and body.signing in ("in_page", "nexus_sign"):
+        d.signing = body.signing   # while it is off, the stored choice stays untouched
     if body.related_ids is not None:
         d.related_ids = ",".join(str(x) for x in body.related_ids if str(x) and str(x) != d.id)[:2000]
     if body.effective_date is not None:
@@ -1177,7 +1191,7 @@ def sign_page(doc_id: str, body: SignIn, user: dict = Depends(get_current_user),
     d = kb_access.get_page(db, doc_id, user)
     if d.status != "approved" or not d.require_ack:
         raise HTTPException(409, "This page does not take signatures")
-    if d.signing == "nexus_sign":
+    if _signing(d) == "nexus_sign":
         raise HTTPException(409, "This policy is signed through Nexus Sign")
     me_ = user["email"].lower()
     real = _name(db, me_)
@@ -1210,16 +1224,20 @@ def list_signatures(doc_id: str, user: dict = Depends(get_current_user), db: Ses
             older.setdefault(s.user_email, s)
     emps = {(e.work_email or "").lower(): e for e in db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email != "").all()}
     unsigned = []
+    via_sign = _signing(d) == "nexus_sign"
+    import kb_policy_sign
     for e in sorted(audience):
         if e in current:
             continue
         emp = emps.get(e)
         due = kb_core.signature_due(db, d, emp)
-        unsigned.append({"email": e, "name": _name(db, e), "due": due, "overdue_days": max(0, kb_core.days_between(due, kb_core.today())),
+        env = kb_policy_sign.state_for(db, d, e) if via_sign else {"status": "", "reason": ""}
+        unsigned.append({"email": e, "name": _name(db, e), "due": due, "overdue_days": max(0, kb_core.days_between(due, kb_core.today_for(db, e))),
                          "signed_older": older[e].version if e in older else "", "department": emp.department if emp else "",
-                         "manager_email": (emp.manager_email or "").lower() if emp else ""})
+                         "manager_email": (emp.manager_email or "").lower() if emp else "",
+                         "envelope": env["status"], "declined_reason": env["reason"]})
     unsigned.sort(key=lambda x: (-x["overdue_days"], x["name"]))
-    return {"version": d.version, "major": d.major, "audience_count": len(audience), "audience_text": kb_audience.describe(kb_audience.loads(d.audience), db) if d.audience else "Everyone",
+    return {"version": d.version, "major": d.major, "signing": _signing(d), "audience_count": len(audience), "audience_text": kb_audience.describe(kb_audience.loads(d.audience), db) if d.audience else "Everyone",
             "signed": [{"email": s.user_email, "name": s.user_name or _name(db, s.user_email), "typed_name": s.typed_name, "signed_at": s.signed_at,
                         "version": s.version, "method": s.method} for s in sorted(current.values(), key=lambda s: s.signed_at or "", reverse=True)],
             "unsigned": unsigned, "signed_count": len([e for e in audience if e in current]),
@@ -1232,7 +1250,14 @@ def nudge_signers(doc_id: str, body: NudgeIn, user: dict = Depends(get_current_u
     if not kb_access.can_edit_page(d, user, db):
         raise HTTPException(403, "Only the page's editors can nudge")
     me_ = user["email"].lower()
-    targets = {e.lower() for e in (body.emails or [])} or kb_core.policy_audience_emails(db, d)
+    audience = kb_core.policy_audience_emails(db, d)
+    named = {e.lower() for e in (body.emails or [])}
+    targets = (named & audience) if named else audience   # never anyone outside the page's audience
+    if _signing(d) == "nexus_sign" and d.status == "approved":
+        # Resend: a fresh envelope to everyone named who has none open,
+        # declined, expired and voided ones included (kb_policy_sign.py).
+        import kb_policy_sign
+        return {"nudged": kb_policy_sign.resend(db, d, targets, actor=me_), "resent": True}
     n = 0
     for e in targets:
         if kb_core.signature_for(db, d, e):
@@ -1447,6 +1472,7 @@ def get_job(job_id: str, user: dict = Depends(get_current_user), db: Session = D
     j = db.query(models.KbJob).filter(models.KbJob.id == job_id).first()
     if not j or (j.created_by != user["email"].lower() and not kb_access.is_manage(user, db)):
         raise HTTPException(404, "Job not found")
+    kb_access.assert_wall(j, user, db, owner_attr="created_by")
     return _job_out(j)
 
 
@@ -1549,12 +1575,21 @@ def request_page(body: RequestIn, user: dict = Depends(get_current_user), db: Se
 
 # ----------------------------------------------------------------- manage: health, activity, migration
 
+# What the Health screen lists as searches with no good answer: the
+# Knowledge Base's own search only. What people type into the Help search
+# and Ask Nexus, and ticket titles from the ticket form, reach administrators
+# only, in Help Signals - collection owners at any company read this list,
+# and free text typed for help is not theirs to read.
+_HEALTH_MISS_SOURCES = ("kb",)
+
+
 @router.get("/health")
 def health(user: dict = Depends(require_author), db: Session = Depends(get_db)):
     me_ = user["email"].lower()
     manage = kb_access.is_manage(user, db)
     owned = {c.id for c in db.query(models.KbCollection).filter(models.KbCollection.owner_email == me_).all()}
     pub = _published(db, user)
+    pub_ids = {d.id for d in pub}
 
     def mine(d: models.KbDocument) -> bool:
         return manage or (d.owner_email or "").lower() == me_ or d.collection_id in owned
@@ -1567,11 +1602,13 @@ def health(user: dict = Depends(require_author), db: Session = Depends(get_db)):
     flags = []
     for f in db.query(models.KbFlag).filter(models.KbFlag.status == "open").order_by(models.KbFlag.created_at.desc()).all():
         d = db.query(models.KbDocument).filter(models.KbDocument.id == f.doc_id).first()
-        if d and mine(d):
+        if d and d.id in pub_ids and mine(d):   # pub is walled: never another company's page
             flags.append({"id": f.id, "doc_id": d.id, "title": d.title, "code": d.doc_code or "", "text": f.text, "user_name": f.user_name or _name(db, f.user_email),
                           "created_at": f.created_at, "version": f.version})
-    reqs = [{"id": r.id, "query": r.query, "note": r.note, "user_name": r.user_name, "created_at": r.created_at, "collection_id": r.collection_id}
-            for r in db.query(models.KbPageRequest).filter(models.KbPageRequest.status == "open").order_by(models.KbPageRequest.created_at.desc()).all()
+    reqs = [{"id": r.id, "query": r.query, "note": r.note, "user_name": r.user_name, "created_at": r.created_at, "collection_id": r.collection_id,
+             "assigned_to": r.assigned_to or "", "assigned_name": _name(db, r.assigned_to) if r.assigned_to else ""}
+            for r in kb_access.wall_rows(db.query(models.KbPageRequest).filter(models.KbPageRequest.status == "open").order_by(models.KbPageRequest.created_at.desc()).all(),
+                                         user, db, owner_attr="user_email")
             if manage or (r.collection_id in owned)]
     drafts = [_page_card(db, d, user) for d in kb_access.visible_pages(db.query(models.KbDocument).filter(models.KbDocument.status.in_(("draft", "changes_requested"))).all(), user, db) if mine(d)]
     in_review = [_page_card(db, d, user) for d in kb_access.visible_pages(db.query(models.KbDocument).filter(models.KbDocument.status == "in_review").all(), user, db) if mine(d)]
@@ -1581,7 +1618,8 @@ def health(user: dict = Depends(require_author), db: Session = Depends(get_db)):
                   "requests": len(reqs), "unmigrated": unmigrated,
                   "signatures_outstanding": sum(1 for d in pub if d.require_ack for e in kb_core.policy_audience_emails(db, d) if not kb_core.signature_for(db, d, e)) if manage else 0},
         "review_queue": _review_queue(db, user), "stale": stale[:60], "flags": flags[:60], "requests": reqs[:60],
-        "misses": kb_search.misses(db) if manage or owned else [], "drafts": drafts[:60], "in_review": in_review[:60],
+        "misses": kb_search.misses(db, sources=_HEALTH_MISS_SOURCES, scope=kb_access.scope(user, db)) if manage or owned else [],
+        "synonyms": kb_search.custom_groups(db) if manage else [], "drafts": drafts[:60], "in_review": in_review[:60],
         "activity": activity(limit=40, user=user, db=db),
     }
 
@@ -1594,12 +1632,19 @@ def activity(limit: int = Query(60, ge=1, le=300), doc_id: str = "", user: dict 
         q = q.filter(models.KbEvent.doc_id == doc_id)
     rows = q.order_by(models.KbEvent.created_at.desc()).limit(limit * 3).all()
     visible = {d.id for d in kb_access.visible_pages(db.query(models.KbDocument).all(), user, db)}
+    sc = kb_access.scope(user, db)
     out = []
     for e in rows:
         if e.doc_id and e.doc_id not in visible:
             continue
         d = db.query(models.KbDocument).filter(models.KbDocument.id == e.doc_id).first() if e.doc_id else None
         c = db.query(models.KbCourse).filter(models.KbCourse.id == e.course_id).first() if e.course_id else None
+        # A course event follows the course's wall; one about neither a page
+        # nor a course follows the person who did it (Oct 29 2026).
+        if e.course_id and not e.doc_id and (not c or not kb_access.wall_rows([c], user, db) or not kb_access.can_see_course(c, user, db)):
+            continue
+        if not e.doc_id and not e.course_id and not kb_access.in_scope(db, e.actor_email or "", sc):
+            continue
         out.append({"id": e.id, "kind": e.kind, "version": e.version, "actor_email": e.actor_email, "actor_name": e.actor_name or _name(db, e.actor_email),
                     "note": e.note, "created_at": e.created_at, "doc_id": e.doc_id, "course_id": e.course_id,
                     "title": (d.title if d else (c.title if c else "")), "code": (d.doc_code if d else (c.course_code if c else "")) or ""})
@@ -1630,16 +1675,80 @@ def close_request(rid: str, body: ResolveIn, user: dict = Depends(require_author
     r = db.query(models.KbPageRequest).filter(models.KbPageRequest.id == rid).first()
     if not r:
         raise HTTPException(404, "Not found")
+    kb_access.assert_wall(r, user, db, owner_attr="user_email")   # the asker's company
     me_ = user["email"].lower()
     r.status, r.closed_at, r.closed_by = "done", kb_core.now(), me_
-    if body.resolution and body.resolution.startswith("kb_"):
-        r.doc_id = body.resolution
+    note = (body.resolution or "").strip()
+    if note.startswith("kb_"):
+        r.doc_id = note
+        note = ""
+    r.close_note = note[:500]   # the word back to the asker (WP 4.3) - it used to be dropped
     if r.user_email and r.user_email != me_:
         d = db.query(models.KbDocument).filter(models.KbDocument.id == r.doc_id).first() if r.doc_id else None
         kb_core.notify(db, recipient=r.user_email, ntype="kb_request_done", title="The Page You Asked For Is Ready" if d else "About the Page You Asked For",
-                       body=(d.title if d else r.query), ref_id=d.id if d else r.id, item_name=d.title if d else r.query, sub=f"page:{d.id}" if d else "index", requested_by=me_)
+                       body=(d.title if d else r.query) + (f": {note[:300]}" if note else ""), ref_id=d.id if d else r.id,
+                       item_name=d.title if d else r.query, sub=f"page:{d.id}" if d else "index", requested_by=me_)
+    kb_core.event(db, kind="request_closed", actor=me_, note=f"{r.query}" + (f" - {note}" if note else ""), actor_name=_name(db, me_))
     db.commit()
     return {"ok": True}
+
+
+class AssignIn(BaseModel):
+    email: str
+
+
+class SynonymsIn(BaseModel):
+    groups: list
+
+
+@router.get("/synonyms")
+def get_synonyms(user: dict = Depends(require_author), db: Session = Depends(get_db)):
+    """The synonym groups Manage added from real misses (WP 4.4)."""
+    return {"groups": kb_search.custom_groups(db)}
+
+
+@router.put("/synonyms")
+def put_synonyms(body: SynonymsIn, user: dict = Depends(require_manage), db: Session = Depends(get_db)):
+    """Replace the custom synonym groups (organization-wide: search words are
+    not company data). Each group 2-12 words; 60 groups at most."""
+    import cache
+    groups = kb_search.clean_groups(body.groups)
+    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == kb_search.SYN_KEY).first()
+    if not row:
+        row = models.NexusSetting(key=kb_search.SYN_KEY)
+        db.add(row)
+    row.value = json.dumps(groups)
+    row.updated_by = user["email"].lower()
+    row.updated_at = kb_core.now()
+    kb_core.event(db, kind="synonyms_changed", actor=user["email"], note="; ".join(", ".join(g) for g in groups)[:900],
+                  actor_name=_name(db, user["email"].lower()))
+    db.commit()
+    cache.settings_config.invalidate(kb_search.SYN_KEY)
+    return {"groups": groups}
+
+
+@router.post("/requests/{rid}/assign")
+def assign_request(rid: str, body: AssignIn, user: dict = Depends(require_author), db: Session = Depends(get_db)):
+    """Manage > Health (WP 4.3): give a page request to someone to write.
+    They must be a Knowledge Base author inside the asker's company wall."""
+    r = db.query(models.KbPageRequest).filter(models.KbPageRequest.id == rid, models.KbPageRequest.status == "open").first()
+    if not r:
+        raise HTTPException(404, "Not found")
+    kb_access.assert_wall(r, user, db, owner_attr="user_email")
+    who = (body.email or "").strip().lower()
+    emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == who).first() if who else None
+    if not emp or not kb_access.in_scope(db, who, kb_access.scope_of_email(db, r.user_email)) or not kb_access.in_scope(db, who, kb_access.scope(user, db)):
+        raise HTTPException(422, "Pick someone from People in the asker's company")
+    if not kb_access.is_author({"email": who, "level": auth.level_for(who, db)}, db):
+        raise HTTPException(422, "That person cannot write Knowledge Base pages")
+    me_ = user["email"].lower()
+    r.assigned_to = who
+    if who != me_:
+        kb_core.notify(db, recipient=who, ntype="kb_page_request", title="A Page Request For You",
+                       body=f"\"{r.query}\"" + (f": {r.note[:200]}" if r.note else ""), ref_id=r.id, item_name=r.query, sub="health", requested_by=me_)
+    kb_core.event(db, kind="request_assigned", actor=me_, note=f"{r.query} - {_name(db, who)}", actor_name=_name(db, me_))
+    db.commit()
+    return {"ok": True, "assigned_to": who, "assigned_name": _name(db, who)}
 
 
 @router.get("/migrate")
@@ -1669,7 +1778,7 @@ class AudienceIn(BaseModel):
 
 @router.post("/audience/preview")
 def audience_preview(body: AudienceIn, user: dict = Depends(require_author), db: Session = Depends(get_db)):
-    return kb_audience.preview(db, body.audience or {})
+    return kb_audience.preview(db, body.audience or {}, scope=kb_access.scope(user, db))
 
 
 @router.get("/people")
@@ -1677,10 +1786,13 @@ def people(user: dict = Depends(get_current_user), db: Session = Depends(get_db)
     """Reviewer / owner pickers: the curated People list (manager+ roles are
     flagged so a reviewer picker can prefer them)."""
     roles = {r.email.lower(): r.role for r in db.query(models.NexusRole).all()}
+    sc = kb_access.scope(user, db)   # the same company wall as the People directory (/myhr/directory)
     out = []
     for e in db.query(models.NexusEmployee).filter(models.NexusEmployee.status.in_(("onboarding", "active")), models.NexusEmployee.deleted_at == "",
                                                    models.NexusEmployee.work_email != "", models.NexusEmployee.identity_type != "guest").all():
         em = (e.work_email or "").lower()
+        if sc is not None and not auth.company_ok(e.company or "", sc, shared_when_blank=True):
+            continue
         out.append({"email": em, "name": (e.display_name or f"{e.first_name or ''} {e.last_name or ''}").strip() or em,
                     "department": e.department or "", "job_title": e.job_title or "", "role": roles.get(em, "employee")})
     out.sort(key=lambda p: p["name"].lower())

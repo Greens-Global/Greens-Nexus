@@ -53,7 +53,7 @@ describe('LedgerSearch on a phone', () => {
     expect(screen.getByText('2')).toBeTruthy();
   });
 
-  it('a tapped card opens the entry full screen with its lines stacked', async () => {
+  it('a tapped card opens the entry in the record panel (the whole screen on a phone), its lines stacked', async () => {
     render(<LedgerSearch term="amazon" entities={[]} onClose={() => {}} onClearDrill={() => {}} />);
     fireEvent.click((await screen.findByText('Amazon Marketplace Pay - Mop stainless steel')).closest('button'));
     const dialog = await screen.findByRole('dialog', { name: /Journal entry/ });
@@ -61,8 +61,10 @@ describe('LedgerSearch on a phone', () => {
     expect(within(dialog).queryByRole('table')).toBeNull();
     expect(within(dialog).queryByRole('button', { name: /Fill the screen|Back to window size/ })).toBeNull();
     expect(within(dialog).getByText('Personal')).toBeTruthy();
-    expect(within(dialog).getByText('V00225 American Express')).toBeTruthy();
+    // On the card and as the payee over it (item 17: the transaction's head).
+    expect(within(dialog).getAllByText('V00225 American Express').length).toBeGreaterThan(0);
     expect(within(dialog).getByText('22.46 debit · 0.00 credit')).toBeTruthy();
-    expect(dialog.style.width).toBe('100vw');
+    // The side panel is 100vw on a phone (style.css, max-width 640px).
+    expect(dialog.className).toContain('acct-side-panel');
   });
 });

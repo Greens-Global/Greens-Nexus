@@ -35,7 +35,9 @@ const LINE = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis
 
 const coarsePointer = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)')?.matches;
 
-export function ShiftBlock({ shift: s, open = false, compact = false, teamZone = '', onOpen, onContextMenu, dragProps = {},
+// `onSelect` (the week grid, Oct 28 2026 - Excel-style): a click selects the
+// block and draws a box round it; a double-click or Enter opens it.
+export function ShiftBlock({ shift: s, open = false, compact = false, teamZone = '', onOpen, onSelect = null, selected = false, onContextMenu, dragProps = {},
   tabIndex, showConflicts = true, dragging = false, className = '', actual = null, tapActual = null, children, style, ...rest }) {
   const reduce = useReducedMotion();
   const color = s.color || (open ? OPEN_SHIFT_COLOR : DEFAULT_SHIFT_COLOR);
@@ -53,7 +55,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   // Second line: the shift's own label, else its shift type's name - never
   // a repeat of the code ("GSV" named "GSV" shows once).
   const ownLabel = s.label && s.label !== code ? s.label : '';
-  const typeName = s.shiftName && s.shiftName !== code ? s.shiftName : '';
+  const typeName = s.shiftName || '';
   const label = ownLabel || typeName;
   const draft = s.published === false && !s.hasChanges && !s.pendingDelete;
   // Weather Call (Oct 2026): a cancelled day stays on the grid, struck
@@ -72,7 +74,9 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
     <div data-shift={s.id} data-conflict={warn ? '' : undefined} data-weather-status={s.weatherStatus || undefined} role={interactive ? 'button' : undefined} tabIndex={interactive ? (tabIndex ?? 0) : undefined}
       aria-label={interactive ? `${open ? 'Open shift' : 'Shift'} ${shiftTimeText(s)}${code ? ` ${code}` : ''}${label ? ` ${label}` : ''}${st.tag ? `, ${st.tag}` : ''}${act ? `, ${actualWord(act.status)}` : ''}${weather ? `, ${weather.toLowerCase()}` : ''}` : undefined}
       title={title} className={`sched-chip${className ? ` ${className}` : ''}`}
-      onClick={interactive ? (e) => { e.stopPropagation(); onOpen(e, s); } : undefined}
+      onClick={interactive ? (e) => { e.stopPropagation(); (onSelect || onOpen)(e, s); } : undefined}
+      onDoubleClick={interactive && onSelect ? (e) => { e.stopPropagation(); onOpen(e, s); } : undefined}
+      data-selected={selected ? '' : undefined} aria-pressed={onSelect ? selected : undefined}
       onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpen(e, s); } } : undefined}
       onContextMenu={onContextMenu}
       {...dragProps} {...rest}
@@ -80,7 +84,8 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
         border: `1px ${draft ? 'dashed' : 'solid'} ${draft ? color : open ? alpha(color, 0.45) : 'transparent'}`,
         padding: compact ? '2px 4px' : '4px 8px', marginBottom: 3, minWidth: 0, overflow: 'hidden',
         cursor: interactive ? 'pointer' : 'default', userSelect: 'none', color: 'var(--ink)', fontFamily: 'inherit', textAlign: 'left',
-        opacity: dragging ? 0.4 : s.pendingDelete || cancelled ? 0.55 : 1, textDecoration: s.pendingDelete ? 'line-through' : 'none', ...style }}>
+        opacity: dragging ? 0.4 : s.pendingDelete || cancelled ? 0.55 : 1, textDecoration: s.pendingDelete ? 'line-through' : 'none',
+        ...(selected ? { outline: '2px solid var(--wk-brand)', outlineOffset: 1 } : {}), ...style }}>
       {warn && (
         <span data-conflict-dot="" title={s.conflicts.join('\n')} aria-label={`Warning: ${s.conflicts.join('; ')}`}
           style={{ position: 'absolute', top: 3, right: s.hasChanges && !s.pendingDelete ? 11 : 4, width: 7, height: 7, borderRadius: '50%', background: 'hsl(var(--color-orange))', boxShadow: '0 0 0 1.5px var(--card)', zIndex: 1 }} />
@@ -90,7 +95,6 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
       )}
       <div data-shift-time="" style={{ ...LINE, display: 'flex', alignItems: 'baseline', gap: 4, fontSize: fit(share, compact ? 11 : 12), fontWeight: 700, lineHeight: 1.3, textDecoration: cancelled ? 'line-through' : undefined }}>
         <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{shiftShortText(s)}</span>
-        {code && <span style={{ ...LINE, color, fontSize: '0.85em', fontWeight: 800, letterSpacing: '.02em', flexShrink: 1 }}>{code}</span>}
         {slots > 0 && <span style={{ fontSize: '0.75em', fontWeight: 800, background: color, color: '#fff', borderRadius: 10, padding: '0 4px', flexShrink: 0, alignSelf: 'center' }}>×{slots}</span>}
         {otherZone && <span title={`Times in ${zoneOptionLabel(zone)}`} style={{ fontSize: '0.78em', fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 4, padding: '0 3px', flexShrink: 0, alignSelf: 'center' }}>{tzAbbrev(zone)}</span>}
         {letter && (

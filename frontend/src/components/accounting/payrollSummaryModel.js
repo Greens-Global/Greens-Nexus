@@ -132,15 +132,41 @@ export function pickEmployees(summary, picked) {
   return { ...summary, employees, rows, partial: true };
 }
 
-/** Lay the summary out for the table and the exports: employees as columns (QuickBooks) or rows. */
+/** The accounts a summary row adds up: its own account, its section's, or Net Pay's / Total Payroll Cost's sections'. */
+export function rowAccounts(row, sections = PAYROLL_SUMMARY_SECTIONS) {
+  const of = (...keys) => keys.flatMap((k) => sections.find((s) => s.key === k)?.accounts || []);
+  const list = row.account ? [row.account] : row.kind === 'total' ? of(row.section) : row.key === 'net-pay' ? of('gross', 'withheld', 'deductions') : row.key === 'cost' ? of('gross', 'employer') : [];
+  return [...new Set(list)];
+}
+
+/** Whose lines a cell can open: an employee on the ledger (not "No Employee on the Line", not one read from a description). */
+export const drillableEmployee = (key) => !!key && !String(key).startsWith('desc:');
+
+/**
+ * What a figure opens (call of 10/27 with Charmi, item 17: every amount drills):
+ * { accounts, employees } - the row's accounts for those employees; `null`
+ * employee keys (a Total over every employee) = no employee filter
+ * (employees []). null when the lines cannot be told apart on the ledger.
+ */
+export function cellDrill(row, employeeKeys) {
+  const accounts = rowAccounts(row);
+  if (!accounts.length) return null;
+  if (employeeKeys === null) return { accounts, employees: [] };
+  const keys = employeeKeys.filter(drillableEmployee);
+  return keys.length === employeeKeys.length && keys.length ? { accounts, employees: keys } : null;
+}
+
+/** Lay the summary out for the table and the exports: employees as columns (QuickBooks) or rows. Each cell's `drills` entry is cellDrill's. */
 export function tableOf(summary, as = 'columns') {
+  const shown = summary.employees.map((e) => e.key);
+  const total = (r) => (summary.partial ? cellDrill(r, shown) : cellDrill(r, null));
   if (as === 'rows') {
     const lines = summary.rows.filter((r) => r.kind !== 'section' && r.kind !== 'account');
     return {
       columns: [{ key: 'employee', label: 'Employee' }, ...lines.map((r) => ({ key: r.key, label: r.label, num: true }))],
       rows: [
-        ...summary.employees.map((e) => ({ kind: 'account', label: e.name, cells: lines.map((r) => r.values[e.key] || 0) })),
-        { kind: 'grand', label: 'Total', cells: lines.map((r) => r.total) },
+        ...summary.employees.map((e) => ({ kind: 'account', label: e.name, cells: lines.map((r) => r.values[e.key] || 0), drills: lines.map((r) => cellDrill(r, [e.key])) })),
+        { kind: 'grand', label: 'Total', cells: lines.map((r) => r.total), drills: lines.map(total) },
       ],
     };
   }
@@ -148,6 +174,6 @@ export function tableOf(summary, as = 'columns') {
     columns: [{ key: 'item', label: 'Payroll Item' }, ...summary.employees.map((e) => ({ key: e.key || '~none', label: e.name, num: true })), { key: 'total', label: 'Total', num: true }],
     rows: summary.rows.map((r) => (r.kind === 'section'
       ? { kind: 'section', label: r.label, cells: [] }
-      : { kind: r.kind, label: r.label, cells: [...summary.employees.map((e) => r.values[e.key] || 0), r.total] })),
+      : { kind: r.kind, label: r.label, cells: [...summary.employees.map((e) => r.values[e.key] || 0), r.total], drills: [...summary.employees.map((e) => cellDrill(r, [e.key])), total(r)] })),
   };
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildIntacctRows, findHeaderRow, guessColumns, parseAmount, parseCsv, parseDate, readTransactions, toCsv, usDate } from './statementImport';
+import { buildIntacctRows, classifyLines, findHeaderRow, guessColumns, parseAmount, parseCsv, parseDate, readTransactions, ruleFromLine, ruleMatches, toCsv, usDate } from './statementImport';
 
 // Import Hub (Neil, 10/14): a statement in, an Intacct GL journal entry import out.
 
@@ -67,5 +67,71 @@ describe('statement import', () => {
     expect(lines[1][col('SOURCEENTITY')]).toBe('15000');
     expect(lines[2][col('REFERENCE_NO')]).toBe('T9');
     expect(toCsv(rows).startsWith('DONOTIMPORT,JOURNAL,DATE')).toBe(true);
+  });
+});
+
+// Rules (Charmi, 10/27 call item 01): "the $200 which hits my account every
+// month has to be classified as interest income ... that $200 transaction
+// going from my bank account will also have a rule set up."
+describe('statement rules', () => {
+  const day = { y: 2026, m: 10, d: 1 };
+  const T = [
+    { date: day, description: 'INTEREST PAYMENT', memo: '', reference: '', amount: 200 },
+    { date: day, description: 'Online Transfer to  CHK 4410', memo: '', reference: '', amount: -200 },
+    { date: day, description: 'AAA INSURANCE AUTOPAY', memo: '', reference: '', amount: -734.33 },
+    { date: day, description: 'Coffee', memo: '', reference: '', amount: -4.5 },
+  ];
+  const RULES = [
+    { id: 'r1', matchText: 'interest payment', matchType: 'contains', direction: 'in', amount: null, account: '40100', priority: 100, active: true },
+    { id: 'r2', matchText: 'online transfer to chk', matchType: 'starts_with', direction: 'out', amount: 200, account: '20500', vendorId: 'V00099', vendorName: 'Sam Payee', priority: 100, active: true },
+    { id: 'r3', matchText: 'AAA INSURANCE', matchType: 'contains', direction: 'any', amount: null, account: '61500', vendorId: 'V00037', priority: 50, active: true },
+    { id: 'r4', matchText: 'aaa insurance autopay', matchType: 'equals', direction: 'any', amount: null, account: '99999', priority: 90, active: true },
+    { id: 'r5', matchText: 'Coffee', matchType: 'equals', direction: 'any', amount: null, account: '62000', priority: 1, active: false },
+  ];
+
+  it('matches on description text, direction and amount, case and spacing ignored', () => {
+    expect(ruleMatches(RULES[0], T[0])).toBe(true);
+    expect(ruleMatches(RULES[0], { ...T[0], amount: -200 })).toBe(false);         // money out, rule is money in
+    expect(ruleMatches(RULES[1], T[1])).toBe(true);
+    expect(ruleMatches(RULES[1], { ...T[1], amount: -200.01 })).toBe(false);      // another amount
+    expect(ruleMatches(RULES[3], T[2])).toBe(true);
+    expect(ruleMatches(RULES[3], { ...T[2], description: 'AAA INSURANCE AUTOPAY 2' })).toBe(false);
+    expect(ruleMatches(RULES[4], T[3])).toBe(false);                               // turned off
+    expect(ruleMatches(RULES[0], { ...T[0], description: '', memo: 'Interest  Payment Oct' })).toBe(true);
+  });
+
+  it('classifies each line by the first rule in priority order; a pick on the line wins', () => {
+    const lines = classifyLines(T, RULES, { 3: { account: '62000' } });
+    expect(lines.map((l) => [l.account, l.vendorId, l.how, l.classified])).toEqual([
+      ['40100', '', 'rule', true], ['20500', 'V00099', 'rule', true],
+      ['61500', 'V00037', 'rule', true],                                           // priority 50 beats 90
+      ['62000', '', 'hand', true],
+    ]);
+    const open = classifyLines(T, RULES.slice(0, 1));
+    expect(open.filter((l) => !l.classified).map((l) => l.index)).toEqual([1, 2, 3]);
+    // Clearing a rule's account on the line leaves it unclassified, on purpose.
+    expect(classifyLines(T, RULES, { 0: { account: '' } })[0].classified).toBe(false);
+  });
+
+  it('puts each line on its own account and its vendor or customer in the Intacct columns', () => {
+    const lines = classifyLines(T, RULES, { 0: { customerId: 'C00010' } });
+    const rows = buildIntacctRows(lines.map((l) => ({ ...l, account: l.account || '12000' })), { journal: 'GJCA', cashAccount: '10100', offsetAccount: '12000' });
+    const [head, ...out] = rows;
+    // Charmi's own template carries the dimensions after SOURCEENTITY, in this order.
+    expect(head.slice(15)).toEqual(['CURRENCY', 'EXCH_RATE_DATE', 'EXCH_RATE_TYPE_ID', 'EXCHANGE_RATE', 'STATE', 'ALLOCATION_ID', 'BILLABLE', 'RPESENTRY', 'GLENTRY_CUSTOMERID', 'GLENTRY_VENDORID']);
+    const col = (n) => head.indexOf(n);
+    expect(out.map((l) => [l[col('ACCT_NO')], l[col('GLENTRY_VENDORID')], l[col('GLENTRY_CUSTOMERID')]])).toEqual([
+      ['40100', '', 'C00010'], ['10100', '', ''],
+      ['20500', 'V00099', ''], ['10100', '', ''],
+      ['61500', 'V00037', ''], ['10100', '', ''],
+      ['12000', '', ''], ['10100', '', ''],
+    ]);
+    expect(out.every((l) => l.length === head.length)).toBe(true);
+  });
+
+  it('turns a line into a rule to save', () => {
+    const [line] = classifyLines([T[1]], [], { 0: { account: '20500', vendorId: 'V00099' } });
+    expect(ruleFromLine(line)).toMatchObject({ matchText: 'Online Transfer to  CHK 4410', direction: 'out', amount: null, account: '20500', vendorId: 'V00099' });
+    expect(ruleFromLine(line, { withAmount: true }).amount).toBe(200);
   });
 });

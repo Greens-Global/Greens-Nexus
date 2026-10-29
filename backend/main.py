@@ -9,6 +9,10 @@ from dotenv import load_dotenv
 # already locked in SKIP_AUTH=False, so NEXUS_SKIP_AUTH in backend/.env was
 # silently ignored and every request 401'd even with the dev bypass configured.
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+# AI is OFF unless Neil or Visesh turned it on (NEXUS_AI_ENABLED=true) - before
+# any other import, so no module ever sees the Anthropic key (ai_switch.py).
+import ai_switch  # noqa: E402
+ai_switch.apply()
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +21,7 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
+from routers import tasks, purchases, reviews, marketing, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
@@ -1349,6 +1353,43 @@ def _run_migrations():
             "ALTER TABLE time_punches ADD COLUMN entry_source VARCHAR DEFAULT ''",
             # Workflows run cap (Oct 28) - see the Postgres list. models.WorkflowRun.
             "ALTER TABLE workflow_runs ADD COLUMN active_seconds FLOAT DEFAULT 0",
+            # Holiday policies (Oct 29) - see the Postgres list. models.HrCompanyHoliday / HrHolidayPolicy.
+            "ALTER TABLE hr_company_holidays ADD COLUMN policy_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_company_holidays ADD COLUMN policy_key VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_company_holidays ADD COLUMN actual_date VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_company_holidays ADD COLUMN overridden INTEGER DEFAULT 0",
+            "CREATE INDEX IF NOT EXISTS ix_hr_company_holidays_policy_id ON hr_company_holidays (policy_id)",
+            "ALTER TABLE hr_holiday_policies ADD COLUMN description VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_holiday_policies ADD COLUMN weekend_rule VARCHAR DEFAULT 'keep'",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_holiday_policy_assignments_policy_company "
+            "ON hr_holiday_policy_assignments (policy_id, company_id)",
+            # Weather by department (Oct 29) - see the Postgres list. models.HrDepartment.
+            "ALTER TABLE hr_departments ADD COLUMN weather INTEGER DEFAULT 0",
+            # Help Center (Oct 2026) - see the Postgres list. models.KbSearchLog.
+            "ALTER TABLE kb_search_log ADD COLUMN source VARCHAR DEFAULT 'kb'",
+            # Shift groups (Oct 28) - see the Postgres list.
+            "ALTER TABLE shift_groups ADD COLUMN open_shifts INTEGER DEFAULT 0",
+            "ALTER TABLE shift_groups ADD COLUMN department VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_group_members ADD COLUMN source VARCHAR DEFAULT ''",
+            # Performance, made simple (Oct 29) - see the Postgres list. models.PerfGoal / PerfReview.
+            "ALTER TABLE hr_perf_goals ADD COLUMN metric_key VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_goals ADD COLUMN period_start VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_goals ADD COLUMN period_end VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_goals ADD COLUMN approved_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_goals ADD COLUMN approved_by VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN rating VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN goal_scores JSON DEFAULT '{}'",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN promotion_ready BOOLEAN DEFAULT 0",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN employee_comment TEXT DEFAULT ''",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN reminded JSON DEFAULT '{}'",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN removed_at VARCHAR DEFAULT ''",
+            # Training emails opt-out (Oct 29) - see the Postgres list. models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN kb_due_soon_email INTEGER DEFAULT 1",
+            # Page request assign / close note (Oct 29) - see the Postgres list. models.KbPageRequest.
+            "ALTER TABLE kb_page_requests ADD COLUMN assigned_to VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_page_requests ADD COLUMN close_note VARCHAR DEFAULT ''",
+            # Search misses by company (Oct 29) - see the Postgres list. models.KbSearchLog.
+            "ALTER TABLE kb_search_log ADD COLUMN company VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3167,6 +3208,14 @@ def _run_migrations():
         # table, explicit RLS. models.TimePunch.entry_source, TimeEntryBatch.
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS entry_source VARCHAR DEFAULT ''",
         "ALTER TABLE time_entry_batches ENABLE ROW LEVEL SECURITY",
+        # Import Hub bank statement rules (Charmi, 10/27 call item 01): new
+        # table, shared by the accounting team - explicit RLS.
+        # import_hub_models.AccountingStatementRule.
+        "ALTER TABLE accounting_statement_rules ENABLE ROW LEVEL SECURITY",
+        # Workers' comp rate per person and year (Charmi, 10/27 call, item 14) -
+        # a new table: explicit RLS on top of the _enable_rls_everywhere sweep.
+        # models.WorkersCompRate.
+        "ALTER TABLE workers_comp_rates ENABLE ROW LEVEL SECURITY",
         # Workflows (Neil, Oct 28 2026, docs/superpowers/specs/
         # 2026-10-28-workflows-design.md): eight new tables - the workflows,
         # their versions, the event outbox, runs, run steps, the wait queue,
@@ -3184,6 +3233,71 @@ def _run_migrations():
         # far - the engine fails the run at 10 minutes of active work (spec
         # 6.5). models.WorkflowRun.active_seconds.
         "ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS active_seconds FLOAT DEFAULT 0",
+        # Holiday policies (Neil, Oct 29 2026, docs/superpowers/specs/
+        # 2026-10-29-holiday-policies-design.md): a policy is a live link to
+        # the companies it applies to - company rows a policy put there carry
+        # policy_id / policy_key, the real date when observed on another day
+        # (actual_date) and whether the company changed it (overridden); the
+        # policy gains a description and a weekend rule; the assignments are a
+        # new table - explicit RLS. models.HrCompanyHoliday / HrHolidayPolicy /
+        # HrHolidayPolicyAssignment.
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS policy_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS policy_key VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS actual_date VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS overridden INTEGER DEFAULT 0",
+        "CREATE INDEX IF NOT EXISTS ix_hr_company_holidays_policy_id ON hr_company_holidays (policy_id)",
+        "ALTER TABLE hr_holiday_policies ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_holiday_policies ADD COLUMN IF NOT EXISTS weekend_rule VARCHAR DEFAULT 'keep'",
+        "ALTER TABLE hr_holiday_policy_assignments ENABLE ROW LEVEL SECURITY",
+        # One assignment per (policy, company) - a double click on Assign made
+        # two (Oct 29 2026 review). The table is new in this release, so no
+        # duplicate can stand in the way. models.HrHolidayPolicyAssignment.
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_holiday_policy_assignments_policy_company "
+        "ON hr_holiday_policy_assignments (policy_id, company_id)",
+        # Weather by department (Neil, 10/29/2026): Weather Calls on or off per
+        # department; existing rows start off and the startup seed turns on the
+        # Construction ones once (weather_scope.seed_weather_departments).
+        # models.HrDepartment.
+        "ALTER TABLE hr_departments ADD COLUMN IF NOT EXISTS weather INTEGER DEFAULT 0",
+        # Help Center (Oct 2026): which search box a failed search came from
+        # ('kb' | 'help' | 'ask' | 'ticket-form') - models.KbSearchLog.source;
+        # Was This Helpful? votes are a new table - explicit RLS.
+        # models.HelpFeedback.
+        "ALTER TABLE kb_search_log ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'kb'",
+        "ALTER TABLE help_feedback ENABLE ROW LEVEL SECURITY",
+        # Shift groups (Neil, Oct 28 2026): open shifts per team (off by
+        # default), the department a team follows, and which members that
+        # department added. models.ShiftGroup / ShiftGroupMember.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS open_shifts INTEGER DEFAULT 0",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_group_members ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT ''",
+        # Performance, made simple (Neil, Oct 29 2026): a goal measured by a
+        # Nexus number over its own period, Proposed until approved; a review's
+        # 4-word rating, goal scores, Ready for Promotion, the employee's
+        # comments, the reminders sent and removal from a cycle. Additive only.
+        # models.PerfGoal / PerfReview.
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS metric_key VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS period_start VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS period_end VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS approved_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS approved_by VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS rating VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS goal_scores JSON DEFAULT '{}'",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS promotion_ready BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS employee_comment TEXT DEFAULT ''",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS reminded JSON DEFAULT '{}'",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS removed_at VARCHAR DEFAULT ''",
+        # Knowledge Base training emails (WP 2.4, 10/29/2026): a person may
+        # turn off due-soon emails only. models.NexusPersonPref.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS kb_due_soon_email INTEGER DEFAULT 1",
+        # Knowledge Base Health (WP 4.3, 10/29/2026): a page request's writer
+        # and the note back to the asker. models.KbPageRequest.
+        "ALTER TABLE kb_page_requests ADD COLUMN IF NOT EXISTS assigned_to VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_page_requests ADD COLUMN IF NOT EXISTS close_note VARCHAR DEFAULT ''",
+        # Knowledge Base search misses, walled by the searcher's company (WP 4.4,
+        # 10/29/2026). Older rows stay '' and read as shared. models.KbSearchLog.
+        "ALTER TABLE kb_search_log ADD COLUMN IF NOT EXISTS company VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_kb_search_log_company ON kb_search_log (company)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3840,10 +3954,50 @@ def _startup_seeds():
             b = hr_probation.backfill_existing(db)
             if b:
                 print(f"[startup] probation: {b} existing employee(s) still inside their window now tracked")
+            # Past the window = passed (Neil, Oct 29 2026): once, every open
+            # probation past its end with no recommendation waiting.
+            pw = hr_probation.pass_past_window_once(db)
+            if pw is not None:
+                print(f"[startup] probation: {pw[0]} past their end date passed automatically, "
+                      f"{pw[1]} with a recommendation left open for HR")
         finally:
             db.close()
     except Exception as e:
         print(f"[startup] probation seeds skipped: {e}")
+    # Presidents' Day (Neil, Oct 29 2026: "it's not showing Presidents' Day").
+    # Calendars filled from the old Nager list say "Washington's Birthday" -
+    # in hr_company_holidays.name and inside hr_holiday_policies.holidays.
+    # One-time, idempotent RENAME only (nothing deleted, policy keys kept);
+    # a no-op once no old name is left. holiday_policies.rename_presidents_day.
+    try:
+        import holiday_policies
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            rows_, pols_ = holiday_policies.rename_presidents_day(db)
+            if rows_ or pols_:
+                db.commit()
+                print(f"[startup] renamed Washington's Birthday to Presidents' Day on {rows_} company holiday "
+                      f"row(s) and {pols_} holiday {'policy' if pols_ == 1 else 'policies'}")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] Presidents' Day rename skipped: {e}")
+    # Weather by department (Neil, 10/29/2026): Weather Calls start on for
+    # the Construction departments only, ONCE (a nexus_settings marker), so
+    # a department an administrator later turns off is never turned back on.
+    try:
+        import weather_scope
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            n = weather_scope.seed_weather_departments(db)
+            if n is not None:
+                print(f"[startup] Weather Calls turned on for {n} Construction department(s); every other department is off")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] weather department seed skipped: {e}")
 
 
 @asynccontextmanager
@@ -4663,7 +4817,6 @@ app.include_router(hr.router)
 app.include_router(hr_life_events_router.router)
 app.include_router(kb_router.router)
 app.include_router(kb_training_router.router)
-app.include_router(help_router.router)
 app.include_router(esign.router)
 app.include_router(documents_router.router)
 app.include_router(timeclock.router)
@@ -4883,5 +5036,11 @@ from routers import perf_reviews as perf_reviews_router  # noqa: E402 - new tabl
 app.include_router(perf_reviews_router.router)  # Performance: review cycles - People > Performance, Workday > Performance (Neil, Oct 27 2026)
 from routers import extra_time as extra_time_router  # noqa: E402
 app.include_router(extra_time_router.router)  # India Contractor Extra Time claims: file, approve, decline (Neil, Oct 27 2026, docs/India-Contractor-Pay.md)
+from routers import import_hub as import_hub_router  # noqa: E402 - also registers import_hub_models before create_all
+app.include_router(import_hub_router.router)  # Accounting > Tools > Import Hub: bank statement rules, shared by the team (Charmi, 10/27 call item 01)
 from routers import workflows as workflows_router  # noqa: E402 - eight new tables: create_all + explicit RLS lines above
 app.include_router(workflows_router.router)  # Workflows: when X happens, do Y across modules - catalog, builder, runs, approvals, settings (Neil, Oct 28 2026)
+from routers import help_center as help_center_router  # noqa: E402 - new table help_feedback: create_all + explicit RLS line
+app.include_router(help_center_router.router)  # Help Center: Ask Nexus (docs only), failed searches, Was This Helpful?, Known Issues (Oct 2026)
+from routers import kb_reminder_settings  # noqa: E402
+app.include_router(kb_reminder_settings.router)  # Training Reminders switches - Settings > Emails & Reminders (Sagar, Oct 28 2026)

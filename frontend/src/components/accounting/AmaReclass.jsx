@@ -7,6 +7,7 @@ import { formatAmount } from './Amount';
 import { control } from './reportControls';
 import { Chip } from './LoanSetupDialog';
 import { downloadBlob } from './reportModel';
+import { AvatarName } from '../../tasks/components';
 import { useBackdropClose } from './LoanDialogs';
 import { LineFacts } from './AskAccountantDialog';
 import { AMA_GL_PICKER_LIMIT, AMA_OFFSET_BATCH, AMA_OFFSET_DISPLAY, AMA_RECLASS_MODE_DEFAULT } from './assumptions';
@@ -135,7 +136,7 @@ export function NoteCell({ row, onSaved }) {
   return (
     <input type="text" value={v} maxLength={4000} onChange={(e) => { setV(e.target.value); setState(''); }} onBlur={save}
       onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') e.currentTarget.blur(); }}
-      aria-label={`Notes for ${row.entryNo || row.accountNo || 'line'}`} placeholder="Add a note" title={err || v || undefined}
+      aria-label={`Notes for ${row.entryNo || row.accountNo || 'line'}`} placeholder="Add a Note" title={err || v || undefined}
       style={{ ...control, height: 26, width: 180, fontSize: '0.78rem', ...(err ? { borderColor: 'var(--bad-fg, #dc2626)' } : {}), ...(state === 'saving' ? { opacity: 0.6 } : {}) }} />
   );
 }
@@ -493,9 +494,9 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, reclassM
 
           {rv && (
             <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'grid', gap: 2 }}>
-              <div>Proposed by <strong>{rv.proposedByName || rv.proposedBy}</strong>{rv.proposedAt ? ` · ${formatDateTime(rv.proposedAt)}` : ''} · Reference {rv.reclassRef}</div>
+              <div>Proposed by <AvatarName email={rv.proposedBy} name={rv.proposedByName || rv.proposedBy} size={18}><strong>{rv.proposedByName || rv.proposedBy}</strong></AvatarName>{rv.proposedAt ? ` · ${formatDateTime(rv.proposedAt)}` : ''} · Reference {rv.reclassRef}</div>
               {status === 'Pushed' && (
-                <div>Approved by <strong>{rv.approvedByName || rv.approvedBy}</strong> · {formatDateTime(rv.approvedAt)}{rv.intacctRef ? ` · Intacct record ${rv.intacctRef}` : ''}</div>
+                <div>Approved by <AvatarName email={rv.approvedBy} name={rv.approvedByName || rv.approvedBy} size={18}><strong>{rv.approvedByName || rv.approvedBy}</strong></AvatarName> · {formatDateTime(rv.approvedAt)}{rv.intacctRef ? ` · Intacct record ${rv.intacctRef}` : ''}</div>
               )}
               {(rv.history || []).length > 0 && (
                 <ol aria-label="Reclass history" style={{ margin: '4px 0 0', paddingLeft: 18 }}>

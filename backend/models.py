@@ -1592,6 +1592,22 @@ class HrDepartment(Base):
     backup_email = Column(String, default="")
     created_by = Column(String, default="")
     created_at = Column(String, default="")
+    # Weather by department (Neil, 10/29/2026): 1 = rain advisories and
+    # weather calls apply to this department's people (weather_scope.py).
+    # A new department named like "Construction" starts on, every other one
+    # off (the before_insert hook below); main.py seeds existing rows once.
+    weather    = Column(Integer, default=0)
+
+
+def _new_department_weather(_mapper, _connection, target) -> None:
+    """A department nobody set Weather Calls on starts on only when its name
+    says construction (Neil, 10/29/2026) - whichever path created it."""
+    if target.weather is None:
+        target.weather = 1 if "construction" in (target.name or "").lower() else 0
+
+
+from sqlalchemy import event as _sa_event   # noqa: E402 - kept beside the model it serves
+_sa_event.listen(HrDepartment, "before_insert", _new_department_weather)
 
 
 class TicketDepartment(Base):
@@ -1702,6 +1718,16 @@ class HrCompanyHoliday(Base):
     created_by    = Column(String, default="")
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
+    # Holiday policies (Neil, Oct 29 2026, holiday_policies.py): a row a policy
+    # put here. policy_id '' = the company's own holiday (every row before Oct
+    # 29). policy_key = the holiday's key inside that policy. actual_date = the
+    # real calendar date when `date` is an observed day off ('' otherwise).
+    # overridden = 1 once the company changed this policy holiday's date, type
+    # or name for itself - sync then leaves it alone.
+    policy_id     = Column(String, default="", index=True)
+    policy_key    = Column(String, default="")
+    actual_date   = Column(String, default="")
+    overridden    = Column(Integer, default=0)
 
 
 class HrHolidayPolicy(Base):
@@ -1732,6 +1758,14 @@ class HrHolidayPolicy(Base):
     created_by    = Column(String, default="")
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
+    # Holiday policies (Neil, Oct 29 2026): a policy is now a LIVE link -
+    # assigned companies (HrHolidayPolicyAssignment) get its holidays through
+    # holiday_policies.sync. weekend_rule = what a holiday on a Saturday or
+    # Sunday becomes when it is added from a source (holiday_policies.
+    # WEEKEND_RULES; 'keep' = the real date, Neil: do not assume).
+    # holidays rows gain key, actualDate, countries, scope, tentative.
+    description   = Column(String, default="")
+    weekend_rule  = Column(String, default="keep")
 
 
 class HrMailboxExport(Base):
@@ -2652,6 +2686,14 @@ class ShiftGroup(Base):
     # Shifts Phase 0 (Oct 14 2026): the HrEntity company this group belongs
     # to; '' = shared across companies (managed company-wide only).
     company_id      = Column(String, default="")
+    # Neil, Oct 28 2026: open shifts are a per-team choice, OFF by default -
+    # useful for Ops or retail, noise for IT, Accounting or Admin. 1 = this
+    # team can post new open shifts; ones already posted always stay visible.
+    open_shifts     = Column(Integer, default=0)
+    # The department this team follows ('' = none): its active people are
+    # added automatically (shift_group_departments.py). A department NAME, as
+    # nexus_employees.department holds it, within company_id when set.
+    department      = Column(String, default="")
 
 
 class ShiftGroupMember(Base):
@@ -2659,6 +2701,9 @@ class ShiftGroupMember(Base):
     id             = Column(String, primary_key=True)   # uuid
     group_id       = Column(String, index=True, nullable=False)
     employee_email = Column(String, index=True, nullable=False)
+    # '' = added by hand; 'department' = added because they are in the
+    # group's department, and taken off again when they leave it.
+    source         = Column(String, default="")
 
 
 class ShiftAssignment(Base):
@@ -6576,6 +6621,10 @@ class NexusPersonPref(Base):
     # at the card, so it can mark what arrived since - on the server so a
     # phone and a desktop agree. ALTER lines in main.py.
     updates_seen_at = Column(String, default="")
+    # Knowledge Base training emails (WP 2.4, Oct 29 2026, kb_daily.py): 0 =
+    # no email when training is only DUE SOON. Overdue training and policies
+    # to sign always email; the bell always rings. ALTER lines in main.py.
+    kb_due_soon_email = Column(Integer, default=1)
 
 
 class TaskAutomationRun(Base):
@@ -8062,6 +8111,15 @@ class KbSearchLog(Base):
     count      = Column(Integer, default=1)
     results    = Column(Integer, default=0)          # best result count seen that day
     last_user  = Column(String, default="")
+    # Which search box (Help Center, Oct 2026): 'kb' (the Knowledge Base),
+    # 'help' (the Help panel and the Help Center search bar), 'ask' (an Ask
+    # Nexus answer the sources did not cover) or 'ticket-form' (searched in
+    # the ticket form, then filed the ticket anyway).
+    source     = Column(String, default="kb")
+    # The searcher's company (WP 4.4, Oct 29 2026): one row per query, day,
+    # box and company, so Health shows a company only its own people's misses.
+    # ALTER lines in main.py.
+    company    = Column(String, default="", index=True)
 
 
 class KbPageRequest(Base):
@@ -8079,6 +8137,10 @@ class KbPageRequest(Base):
     created_at    = Column(String, default="")
     closed_at     = Column(String, default="")
     closed_by     = Column(String, default="")
+    # Manage > Health (WP 4.3, Oct 29 2026): who is writing it, and the word
+    # back to the asker when it is closed. ALTER lines in main.py.
+    assigned_to   = Column(String, default="")
+    close_note    = Column(String, default="")
 
 
 class KbJob(Base):
@@ -8733,6 +8795,15 @@ class PerfGoal(Base):
     created_by       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")
+    # Performance, made simple (Neil, Oct 29 2026): a goal can be measured BY
+    # one of the person's Nexus numbers (perf_metrics.METRICS key, '' = by
+    # hand) over its own period; status is computed, never picked; a goal an
+    # employee sets for themselves waits for their manager's Approve.
+    metric_key       = Column(String, default="")
+    period_start     = Column(String, default="")                      # YYYY-MM-DD
+    period_end       = Column(String, default="")                      # YYYY-MM-DD (due_on mirrors it)
+    approved_at      = Column(String, default="")                      # '' = Proposed
+    approved_by      = Column(String, default="")
 
 
 class PerfGoalCheckin(Base):
@@ -8862,7 +8933,7 @@ class PerfReview(Base):
     company_id           = Column(String, default="", index=True)
     employee_email       = Column(String, nullable=False, index=True)
     manager_email        = Column(String, default="", index=True)      # who writes the manager review ('' = HR)
-    stage                = Column(String, default="self_review", index=True)  # self_review | manager_review | hr_review | shared | complete
+    stage                = Column(String, default="self_review", index=True)  # self_review | manager_review | ready | shared | complete | removed
     self_answers         = Column(JSON, default=dict)                  # {question id: {rating, text}}
     self_values          = Column(JSON, default=dict)                  # {value id: rating}
     self_submitted_at    = Column(String, default="")
@@ -8884,6 +8955,17 @@ class PerfReview(Base):
     nudged_at            = Column(String, default="")
     created_at           = Column(String, default="")
     updated_at           = Column(String, default="")
+    # Performance, made simple (Oct 29 2026): one 4-word rating
+    # (exceeds | meets | partly | below), each goal scored (met | partly |
+    # not), Ready for Promotion, the employee's own comments printed on the
+    # signed copy, which automatic reminders went out, and removal from a
+    # cycle (stage "removed" - the row is kept).
+    rating               = Column(String, default="")
+    goal_scores          = Column(JSON, default=dict)                  # {goal id: met | partly | not}
+    promotion_ready      = Column(Boolean, default=False)
+    employee_comment     = Column(Text, default="")
+    reminded             = Column(JSON, default=dict)                  # {launch, soonSelf, dueSelf, soonMgr, dueMgr: ISO}
+    removed_at           = Column(String, default="")
 
 
 class ExtraTimeClaim(Base):
@@ -8939,6 +9021,26 @@ class TimeEntryBatch(Base):
     created_at     = Column(String, default="")
     undone_by      = Column(String, default="")
     undone_at      = Column(String, default="")
+
+
+class WorkersCompRate(Base):
+    """A person's workers' comp rate (Charmi, 10/27 call, item 14: "it changes
+    every year ... I would enter here in the HR module, in the people's module
+    when I'm setting that up"): a percent of gross wages, in force from
+    `effective_year` until a later year has its own. Append-only - a changed
+    rate is a new row and the newest row for a year wins, so every earlier
+    entry stays as the history. Written from People > Pay, Benefits & Bank
+    (hr_comp editors); read by Accounting > Compensation, which charges
+    rate x gross wages for each year of the period. New table - RLS on dev and
+    prod at release."""
+    __tablename__ = "workers_comp_rates"
+    id             = Column(String, primary_key=True)                 # uuid
+    employee_id    = Column(String, nullable=False, index=True)       # NexusEmployee.id
+    effective_year = Column(Integer, nullable=False)
+    rate_pct       = Column(Float, nullable=False)                    # percent of gross wages, e.g. 3.5
+    note           = Column(String, default="")
+    set_by         = Column(String, default="")
+    set_at         = Column(String, default="")                       # ISO timestamp, UTC
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -9149,3 +9251,45 @@ class WorkflowSubjectMark(Base):
     entity      = Column(String, primary_key=True)
     subject_id  = Column(String, primary_key=True)
     last_run_at = Column(String, default="")
+
+
+class HrHolidayPolicyAssignment(Base):
+    """A holiday policy applies to a company (Neil, Oct 29 2026 - "apply to
+    one or more companies"). holiday_policies.sync materializes the policy's
+    holidays into that company's hr_company_holidays rows (policy_id set),
+    minus the keys in `skipped` (holidays this company does not take).
+    RELEASE: new table - `ALTER TABLE hr_holiday_policy_assignments ENABLE ROW
+    LEVEL SECURITY` on dev AND prod (in main.py's Postgres list).
+    One row per (policy, company): the unique index is also in both of
+    main.py's migration lists (a double click used to make two)."""
+    __tablename__ = "hr_holiday_policy_assignments"
+    __table_args__ = (
+        Index("ux_hr_holiday_policy_assignments_policy_company", "policy_id", "company_id", unique=True),
+    )
+    id          = Column(String, primary_key=True)   # uuid
+    policy_id   = Column(String, nullable=False, index=True)
+    company_id  = Column(String, nullable=False, index=True)
+    # [policy holiday key | {key, date, actualDate, type, name, countryCode}]
+    # - the dict keeps a change the company made before skipping it.
+    skipped     = Column(JSON, default=list)
+    assigned_by = Column(String, default="")
+    assigned_at = Column(String, default="")
+
+
+class HelpFeedback(Base):
+    """Was This Helpful? (Help Center, Oct 2026) - one vote per person per
+    guide article or Ask Nexus answer, changed in place. Administrators read
+    the No votes in Knowledge Base > Manage > Help Signals. New table - RLS
+    line in main.py."""
+    __tablename__ = "help_feedback"
+    id          = Column(String, primary_key=True)
+    user_email  = Column(String, nullable=False, index=True)
+    target_kind = Column(String, default="guide")    # 'guide' | 'answer'
+    target_id   = Column(String, default="", index=True)  # guide: "<docId>#<anchor>"; answer: a hash of the question
+    helpful     = Column(Boolean, default=True)
+    note        = Column(String, default="")         # "What was missing?" (No votes)
+    question    = Column(String, default="")         # the question an answer was for
+    title       = Column(String, default="")         # what the person was reading
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+    __table_args__ = (UniqueConstraint("user_email", "target_kind", "target_id", name="ux_help_feedback_vote"),)

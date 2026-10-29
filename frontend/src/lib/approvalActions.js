@@ -70,6 +70,11 @@ export const APPROVAL_ACTIONS = {
     approve: (r) => api.probationApprove(r.id, {}),
     decline: (r, note) => api.probationDecline(r.id, note),
   },
+  // A goal a direct report proposed for themselves (Performance, Oct 29
+  // 2026): POST /performance/goals/{id}/approve - the Approve on the goal.
+  perf_goal: {
+    approve: (r) => api.perfGoalApprove(r.id),
+  },
   // An HR letter request: Review opens the HR Letters card; a decline needs a reason.
   hr_letter: {
     decline: (r, note) => api.hrLetterDecline(r.id, note),
@@ -92,6 +97,64 @@ export const APPROVAL_ACTIONS = {
     yes: (r, note) => api.addTaskComment(r.id, { body: voteBody('Yes', note) }),
     no: (r, note) => api.addTaskComment(r.id, { body: voteBody('No', note) }),
   },
+  // ── Every other approval (Neil, 10/28/2026: "make sure all approvals go
+  // into that approval box"). Rows that need more than a note (an allocator
+  // to pick, a return photo, the vault's code step, a page or log to read, a
+  // packet to verify) only offer Open, so they have no entry here.
+  // An approval task: the task drawer's Approval block (PATCH /tasks/{id}).
+  task_approval: {
+    approve: (r) => api.updateTask(r.id, { approval_status: 'approved' }),
+    changes: (r) => api.updateTask(r.id, { approval_status: 'changes_requested' }),
+    reject: (r) => api.updateTask(r.id, { approval_status: 'rejected' }),
+  },
+  // A due-date ask on a task: an extension held for approval, or a new
+  // date an assignee proposed (routers/tasks.py respond_due). Suggesting a
+  // third date stays on the task.
+  task_date_ask: {
+    approve: (r, note) => api.respondTaskDue(r.id, true, note),
+    decline: (r, note) => api.respondTaskDue(r.id, false, note),
+  },
+  // A ticket's named approver (routers/tickets.py decide_approval) - a
+  // reject needs a reason.
+  ticket_approval: {
+    approve: (r) => api.decideTicketApproval(r.id, 'approve', ''),
+    reject: (r, note) => api.decideTicketApproval(r.id, 'reject', note),
+  },
+  // More days on a checked-out item (items.py resolve_extension).
+  item_extension: {
+    approve: (r, note) => api.resolveItemExtension(r.id, { action: 'approve', note }),
+    reject: (r, note) => api.resolveItemExtension(r.id, { action: 'reject', note }),
+  },
+  // An item assigned to me: the acceptance photo is optional (Neil, Jul 17).
+  assignment_accept: {
+    accept: (r) => api.acceptAssignment(r.id, {}),
+    decline: (r, note) => api.declineAssignment(r.id, { note }),
+  },
+  // Tasks > Teams: a member request (administrators) and a personal team
+  // asking to be a workspace team (Send Back leaves it personal).
+  task_member_request: {
+    approve: (r) => api.decideTaskMemberRequest(r.id, 'approved'),
+    deny: (r) => api.decideTaskMemberRequest(r.id, 'rejected'),
+  },
+  task_team_approval: {
+    approve: (r) => api.decideTeamApproval(r.id, 'approved'),
+    send_back: (r) => api.decideTeamApproval(r.id, 'rejected'),
+  },
+  // A role change request from before Oct 22 (routers/hr_life_events.py).
+  role_change: {
+    approve: (r) => api.approveRoleChange(r.id),
+    decline: (r, note) => api.declineRoleChange(r.id, note),
+  },
+  // A vendor or customer change (routers/accounting_partners.py).
+  accounting_partner_change: {
+    approve: (r) => api.decideAccountingPartnerChange(r.id, 'approve', ''),
+    decline: (r, note) => api.decideAccountingPartnerChange(r.id, 'decline', note),
+  },
+  // A Credential Vault share request: approving goes through the vault's
+  // code step (Review opens it); Deny runs here.
+  credvault_request: {
+    deny: (r) => api.cvDenyRequest(r.id),
+  },
   // Workflows (Oct 28 2026): an Ask For Approval step names its own options
   // (Approve / Decline, or whatever the builder wrote), so EVERY action key
   // the row offers decides it - POST /workflows/approvals/{id}/decide with
@@ -106,6 +169,12 @@ export const APPROVAL_ACTIONS = {
 /** Can this action run in place (else the row opens its module)? */
 export const runsInline = (row, key) => key !== 'open' && typeof APPROVAL_ACTIONS[row?.kind]?.[key] === 'function';
 
+/** The one-click yes a row can join Approve Selected with (Neil, 10/28/2026:
+ *  "easy for anyone to clear the approvals"): its primary action, run in
+ *  place, asking for no note. A row without one is decided on its own. */
+export const bulkAction = (row) => (row?.actions || [])
+  .find((a) => a.tone === 'primary' && (!a.note || a.note === 'none') && runsInline(row, a.key)) || null;
+
 /** Run one action; rejects with the module's own error when it refuses. */
 export function runApproval(row, key, note = '', opts = {}) {
   const fn = APPROVAL_ACTIONS[row?.kind]?.[key];
@@ -117,7 +186,7 @@ export function runApproval(row, key, note = '', opts = {}) {
 // option keys are whatever the builder wrote ("Approve", "Send Back"), so
 // the lookup ignores case and spacing.
 const DONE = { approve: 'Approved', reject: 'Rejected', decline: 'Declined', accept: 'Accepted',
-  send_back: 'Sent back', yes: 'Voted Yes', no: 'Voted No' };
+  send_back: 'Sent back', yes: 'Voted Yes', no: 'Voted No', deny: 'Denied', changes: 'Changes requested' };
 export const doneWord = (key) => DONE[String(key || '').trim().toLowerCase().replace(/[\s-]+/g, '_')] || 'Done';
 
 /** "Priya Sharma" -> "Priya S."; a team, a place or a role stays as it is. */

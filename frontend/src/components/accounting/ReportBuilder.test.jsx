@@ -23,6 +23,7 @@ vi.mock('../../api', () => ({
     saveAccountingReport: vi.fn(async (body) => ({ id: 'new1', name: body.name, shared: !!body.shared, config: body.config, mine: true })),
     updateAccountingSavedReport: vi.fn(async (id, body) => ({ id, name: body.name, shared: !!body.shared, config: body.config, mine: true })),
     deleteAccountingSavedReport: vi.fn(async () => null),
+    searchAccountingLedger: vi.fn(async () => ({ rows: [], total: 0, debit: 0, credit: 0 })),
   },
 }));
 
@@ -64,6 +65,28 @@ describe('ReportBuilder', () => {
     // Folding a line keeps its total and hides its accounts.
     fireEvent.click(screen.getByRole('button', { name: 'Fold Line A' }));
     expect(screen.queryByText('Advertising')).toBeNull();
+  });
+
+  it('opens the lines behind any amount on the right, and its columns resize (10/27 call, item 17)', async () => {
+    render(<ReportBuilder />);
+    await waitFor(() => expect(api.getAccountingBuckets).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /Add Row Group/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Row group 1 name' }), { target: { value: 'Line A' } });
+    await pick('Row group 1 accounts', ['61000', '61010']);
+    fireEvent.click(screen.getByRole('button', { name: /^Run/ }));
+    const table = await screen.findByRole('table');
+    expect(within(table).getByRole('separator', { name: 'Resize the Account column' })).toBeTruthy();
+    const read = api.getAccountingBuckets.mock.calls.at(-1)[0];
+    // An account's amount: its lines in the report's window.
+    fireEvent.click(within(within(table).getByText('Advertising').closest('tr')).getByRole('button', { name: '1,200.00' }));
+    const panel = await screen.findByTestId('acct-side-panel');
+    await waitFor(() => expect(api.searchAccountingLedger).toHaveBeenCalledTimes(1));
+    expect(api.searchAccountingLedger.mock.calls[0][0]).toMatchObject({ account: '61000', to: read.to });
+    expect(within(panel).getByRole('button', { name: /Open in Reports/ })).toBeTruthy();
+    // A group's total: every account under it, and the group does not fold.
+    fireEvent.click(within(within(table).getByText('Line A').closest('tr')).getByRole('button', { name: '1,500.00' }));
+    await waitFor(() => expect(api.searchAccountingLedger.mock.calls.slice(1).map(([p]) => p.account).sort()).toEqual(['61000', '61010']));
+    expect(within(table).getByText('Advertising')).toBeTruthy();
   });
 
   it('saves a draft, publishes it unshared, then shares it with everyone (CR-05)', async () => {

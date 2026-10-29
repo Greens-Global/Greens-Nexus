@@ -6,7 +6,7 @@
 //
 // Advisory only: nothing here blocks or slows Create Ticket, and when nothing
 // clears the relevance floor the block is simply absent.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, ListChecks, Layers, Lightbulb, ShieldCheck, ChevronDown, ExternalLink, Check } from 'lucide-react';
 import { suggestForTicket } from './docsSearch';
 import { useDocAccess } from './docsAccess';
@@ -57,8 +57,10 @@ function ArticleBody({ r }) {
  * @param {string} subject      ticket title as typed
  * @param {string} description  ticket description as typed
  * @param {() => void} onSolved close the form without creating a ticket
+ * @param {(n: number) => void} [onResults] how many articles it is showing
+ *        (the form records "searched, then filed" with it - support/helpLog.js)
  */
-export default function TicketDeflection({ subject, description, onSolved }) {
+export default function TicketDeflection({ subject, description, onSolved, onResults }) {
   const { allow } = useDocAccess();
   const draft = useDebounced(JSON.stringify([subject || '', description || '']), DEFLECT_DEBOUNCE_MS);
   const results = useMemo(() => {
@@ -71,6 +73,9 @@ export default function TicketDeflection({ subject, description, onSolved }) {
   // longer open.
   const openId = results.some((r) => r.id === pickedId) ? pickedId : null;
   const [dismissed, setDismissed] = useState(false);
+  const onResultsRef = useRef(onResults);
+  useEffect(() => { onResultsRef.current = onResults; });
+  useEffect(() => { onResultsRef.current?.(results.length); }, [results]);
 
   if (dismissed || results.length === 0) return null;
 

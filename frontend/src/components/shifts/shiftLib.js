@@ -319,8 +319,8 @@ export function coverageFor(members, dayIsos, { byCell = {}, offOn = () => [], u
       if (working) on.push(m);
       const p = usualOf(m.email);
       const days = String(p?.days || '').split(',').map(Number).filter((n) => n >= 1 && n <= 7).map((n) => n - 1);
-      if (!p || !(days.length ? days : [0, 1, 2, 3, 4]).includes(wd)) return;
-      if (dayFullyOff(offOn(m.email, ds))) { off.push(m); return; }
+      if (!working && !(days.length ? days : [0, 1, 2, 3, 4]).includes(wd)) return;
+      if (!working && dayFullyOff(offOn(m.email, ds))) { off.push(m); return; }
       expected.push(m);
     });
     const onSet = new Set(on.map((m) => m.email));

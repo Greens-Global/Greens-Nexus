@@ -89,15 +89,64 @@ for _g in SYNONYM_GROUPS:
     for _x in _g:
         _SYN.setdefault(_stem(_x), set()).update(_stems)
         for _w in _x.split():
-            if len(_x.split()) > 1:
+            # A short word inside a phrase ("off" in "time off", "out" in
+            # "locked out") is filler on its own: "take the lock off" is not
+            # about time off (Ask Nexus check list, Oct 29 2026).
+            if len(_x.split()) > 1 and len(_w) > 3:
                 _SYN.setdefault(_stem(_w), set()).add(_stem(_x))
 
 
-def expand(q: str) -> tuple[list[str], list[str]]:
-    """(query stems, synonym stems) for a query."""
+# Synonyms an administrator added from real misses (WP 4.4, Oct 29 2026):
+# NexusSetting "kb_synonyms", a JSON list of word groups, searched alongside
+# SYNONYM_GROUPS. Managed on Manage > Health.
+SYN_KEY = "kb_synonyms"
+
+
+def clean_groups(raw) -> list[list[str]]:
+    """Groups of 2-12 distinct lowercase words or phrases, 60 groups at most."""
+    out: list[list[str]] = []
+    for g in raw if isinstance(raw, list) else []:
+        if not isinstance(g, list):
+            continue
+        words = []
+        for w in g:
+            w = " ".join(tokens(str(w)))[:60] if isinstance(w, str) else ""
+            if w and w not in words:
+                words.append(w)
+        if 2 <= len(words) <= 12:
+            out.append(words)
+    return out[:60]
+
+
+def custom_groups(db: Session | None) -> list[list[str]]:
+    if db is None:
+        return []
+    import json
+    import cache
+
+    def load():
+        row = db.query(models.NexusSetting).filter(models.NexusSetting.key == SYN_KEY).first()
+        try:
+            return clean_groups(json.loads(row.value)) if row and row.value else []
+        except (TypeError, ValueError):
+            return []
+    try:
+        return cache.settings_config.get_or_load(SYN_KEY, load)
+    except Exception:  # noqa: BLE001 - search never fails over its synonyms
+        return []
+
+
+def expand(q: str, db: Session | None = None) -> tuple[list[str], list[str]]:
+    """(query stems, synonym stems) for a query; `db` adds the custom groups."""
     base = [_stem(t) for t in tokens(q)]
     syn: set[str] = set()
     ql = " ".join(tokens(q))
+    extra = custom_groups(db)
+    for g in extra:
+        stems = {_stem(x) for x in g}
+        for x in g:
+            if _stem(x) in base or (len(x.split()) > 1 and x in ql):
+                syn.update(stems)
     for g in SYNONYM_GROUPS:
         for phrase in g:
             if len(phrase.split()) > 1 and phrase in ql:
@@ -219,7 +268,7 @@ def _edit1(a: str, b: str) -> bool:
 def search(db: Session, pages: list[models.KbDocument], q: str, limit: int = 30) -> dict:
     """Rank the given (already walled, already published-filtered) pages.
     Returns {results:[{id, score, snippet}], also_matched:[...], did_you_mean}."""
-    base, syn = expand(q)
+    base, syn = expand(q, db)
     results = []
     vocab: set[str] = set()
     for d in pages:
@@ -241,7 +290,7 @@ def pg_candidates(db: Session, q: str, limit: int = 200) -> list[str] | None:
     Python ranking; None = not Postgres (rank everything)."""
     if db.bind is None or db.bind.dialect.name != "postgresql":
         return None
-    base, syn = expand(q)
+    base, syn = expand(q, db)
     terms = [t for t in base if t]
     if not terms:
         return []
@@ -258,28 +307,51 @@ def pg_candidates(db: Session, q: str, limit: int = 200) -> list[str] | None:
         return None
 
 
-def log_miss(db: Session, q: str, results: int, user_email: str) -> None:
-    """Remember a search that found nothing good (Health screen)."""
+def log_miss(db: Session, q: str, results: int, user_email: str, source: str = "kb", floor: int = 3) -> None:
+    """Remember a search that found nothing good (Health screen). `floor`:
+    a search with at least this many results is not a miss (the Knowledge
+    Base counts under three; the Help panel counts only none at all, and
+    passes 10**6 for "always", e.g. searched and then filed a ticket)."""
     q = (q or "").strip()[:200]
-    if not q or results >= 3:
+    if not q or results >= floor:
         return
+    source = source or "kb"
     day = datetime.now(timezone.utc).date().isoformat()
-    row = db.query(models.KbSearchLog).filter(models.KbSearchLog.query == q.lower(), models.KbSearchLog.day == day).first()
+    import auth
+    company = auth.company_of(user_email, db)   # misses are walled by the searcher's company (WP 4.4)
+    same_box = models.KbSearchLog.source == source
+    if source == "kb":   # rows from before the column read as the Knowledge Base's
+        same_box = same_box | (models.KbSearchLog.source == None)  # noqa: E711
+    row = (db.query(models.KbSearchLog)
+           .filter(models.KbSearchLog.query == q.lower(), models.KbSearchLog.day == day, same_box,
+                   models.KbSearchLog.company == company)
+           .first())
     if row:
         row.count = (row.count or 0) + 1
         row.results = max(row.results or 0, results)
         row.last_user = user_email
     else:
         import uuid
-        db.add(models.KbSearchLog(id=uuid.uuid4().hex, query=q.lower(), day=day, count=1, results=results, last_user=user_email))
+        db.add(models.KbSearchLog(id=uuid.uuid4().hex, query=q.lower(), day=day, count=1, results=results,
+                                  last_user=user_email, source=source, company=company))
 
 
-def misses(db: Session, days: int = 30, limit: int = 20) -> list[dict]:
+def misses(db: Session, days: int = 30, limit: int = 20, sources: tuple[str, ...] | None = None, scope=None) -> list[dict]:
+    """Top missed searches, one row per (query, search box). `sources` narrows
+    it (the Help Signals list reads the Help Center's boxes only). `scope` = a
+    company scope (kb_access.scope / scope_of_email): only those companies'
+    searches, older rows with no company count as shared; None = every company."""
+    import auth
     since = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
     rows = db.query(models.KbSearchLog).filter(models.KbSearchLog.day >= since).all()
-    agg: dict[str, dict] = {}
+    if scope is not None:
+        rows = [r for r in rows if auth.company_ok(r.company or "", scope, shared_when_blank=True)]
+    agg: dict[tuple, dict] = {}
     for r in rows:
-        a = agg.setdefault(r.query, {"query": r.query, "count": 0, "last_day": "", "results": 0})
+        src = r.source or "kb"
+        if sources and src not in sources:
+            continue
+        a = agg.setdefault((r.query, src), {"query": r.query, "source": src, "count": 0, "last_day": "", "results": 0})
         a["count"] += r.count or 0
         a["last_day"] = max(a["last_day"], r.day or "")
         a["results"] = max(a["results"], r.results or 0)

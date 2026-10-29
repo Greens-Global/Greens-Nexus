@@ -35,9 +35,9 @@ export default function JournalTab({ symbol }) {
   }, [symbol]);
   // The journal is a filter like any other (its chip can be lifted to compare).
   const kinds = useMemo(() => POPOVER_DIMS.filter((k) => k.key !== 'journals'), []);
-  const drill = useMemo(() => ({ from: config.from, to: config.to, account: '', accountName: `${symbol} journal`, book: 'accrual', dims: { journals: [symbol] } }), [config.from, config.to, symbol]);
+  const drill = useMemo(() => ({ from: config.from, to: config.to, account: '', accountName: `${symbol} Journal`, book: 'accrual', dims: { journals: [symbol] } }), [config.from, config.to, symbol]);
   const dims = useMemo(() => ({ ...EMPTY_DIMS, ...config.dims, journals: [] }), [config.dims]);
-  const entityName = !config.entities.length ? 'All entities' : config.entities.length > 1 ? `${config.entities.length} entities` : config.entities[0];
+  const entityName = !config.entities.length ? 'All Entities' : config.entities.length > 1 ? `${config.entities.length} entities` : config.entities[0];
 
   const [lines, setLines] = useState(null);
   // 10/23 meeting, item 13: Sync reads this journal's lines again, nothing else.

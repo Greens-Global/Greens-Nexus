@@ -18,6 +18,13 @@
 // export (board and per card), the drill-down ("click Open, see who" -
 // Pranshu, Sep 14), the link from each card to its module, the alert-level
 // filter and the metric search, and hiding cards you do not want.
+//
+// Oct 28 2026 (Neil: "far superior"): the module icon stands on its own - no
+// tile around it - at the size of the title it heads; nothing in a card
+// scrolls sideways; and every count past its alert level leads somewhere it
+// can be fixed - the breakdown ends in a Take Action button (biModel's
+// actionFor: the screen in its module that lists those items), and each
+// Needs Attention tile says so.
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { ResponsiveContainer, AreaChart, Area, Tooltip } from 'recharts';
 import {
@@ -27,12 +34,13 @@ import {
 import { api } from '../api';
 import { SkeletonBlocks, LoadingState } from '../components/AsyncState';
 import { navigate } from './widgets.jsx';
+import { NAV } from '../components/Sidebar';
 import { MoreRow } from './listParts.jsx';
 import { formatTime } from '../lib/datetime';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import {
   TONE_COLOR, TONE_LABEL, moduleMeta, attentionRows, worstTone, alertCount,
-  visibleModule, csvText, boardCsvRows, cardCsvRows, loadHidden, saveHidden,
+  visibleModule, csvText, boardCsvRows, cardCsvRows, loadHidden, saveHidden, actionFor,
 } from './biModel';
 
 const C = (color) => `hsl(var(--color-${color}))`;
@@ -42,7 +50,7 @@ const toneColor = (tone) => C(TONE_COLOR[tone] || 'blue');
 const valueColor = (tone) => (tone === 'critical' || tone === 'warning' ? toneColor(tone) : 'var(--ink)');
 const REFRESH_MS = 30000;
 const ATTENTION_SHOWN = 8;
-const TABLE_SHOWN = 12;
+const TABLE_SHOWN = 4;   // a card is one fixed size; More opens the module for the rest
 // en-US grouping on purpose: a bare toLocaleString() groups by the viewer's
 // locale, which reads 1,23,456 for India staff.
 const count = (n) => n.toLocaleString('en-US');
@@ -58,6 +66,20 @@ function downloadCsv(name, rows) {
 
 // The server labels trend days "MM-DD"; show them the US way, "M/D".
 const dayLabel = (label) => String(label || '').replace(/^(\d{2})-(\d{2})$/, (_, m, d) => `${Number(m)}/${Number(d)}`);
+
+// A module's icon is the one the left menu draws for it (Neil, 10/28/2026:
+// "a matching icon ... so it's consistent"), looked up by the view the card
+// opens - never a second icon set. A module the menu does not list (the
+// Knowledge Base lives in the Help Center) keeps its own, else the gauge.
+function ModuleIcon({ moduleId, nav, size = 16 }) {
+  const item = nav ? NAV.find((n) => n.view === nav) : null;
+  const style = { width: size, height: size, flexShrink: 0, strokeWidth: 1.85 };
+  let glyph;
+  if (item?.icon) glyph = <item.icon style={style} />;
+  else if (item?.svgPath) glyph = <svg className="material-symbol-svg" viewBox="0 -960 960 960" style={style}><path d={item.svgPath} /></svg>;
+  else { const { Icon } = moduleMeta(moduleId); glyph = <Icon style={style} />; }
+  return <span className="bi-mod-icon" aria-hidden="true">{glyph}</span>;
+}
 
 // ── Needs Attention: every critical/warning count above zero ─────────────────
 function AttentionStrip({ rows, onDrill }) {
@@ -91,15 +113,21 @@ function AttentionStrip({ rows, onDrill }) {
       ) : (
         <div className="bi-attention">
           {shown.map((r) => (
+            // No colored edge bar (Neil, 10/28/2026): the module's own icon
+            // says where it comes from, the count's color and the dotted
+            // level word say how bad it is.
             <button key={`${r.moduleId}:${r.key}`} type="button" className={`bi-alert bi-alert--${r.tone}`}
               onClick={() => onDrill(r)} title={r.drill === false ? `Open ${r.moduleLabel}` : `See the breakdown of ${r.label}`}>
               <span className="bi-alert-top">
-                <span className="bi-alert-tone">{TONE_LABEL[r.tone]}</span>
-                <ArrowUpRight size={14} className="bi-alert-arrow" />
+                <ModuleIcon moduleId={r.moduleId} nav={r.nav} size={15} />
+                <span className="bi-alert-mod">{r.moduleLabel}</span>
               </span>
               <span className="bi-alert-num">{typeof r.value === 'number' ? count(r.value) : r.value}</span>
               <span className="bi-alert-label">{r.label}</span>
-              <span className="bi-alert-mod">{r.moduleLabel}</span>
+              <span className="bi-alert-foot">
+                <span className="bi-alert-tone"><i className="bi-dot" style={{ background: toneColor(r.tone) }} />{TONE_LABEL[r.tone]}</span>
+                <span className="bi-alert-act">{r.drill === false ? 'Open' : 'Review'} <ChevronRight size={13} /></span>
+              </span>
             </button>
           ))}
         </div>
@@ -201,15 +229,14 @@ function SmallTable({ rows, onMore }) {
 
 // ── One module ───────────────────────────────────────────────────────────────
 function ModuleCard({ mod, stats, shapes, onDrill }) {
-  const { Icon, color } = moduleMeta(mod.id);
   const tone = worstTone(mod);
   const alerts = alertCount(mod);
   const open = () => mod.nav && navigate(mod.nav);
   return (
     <section className="dash-card bi-card" aria-label={mod.label}>
-      <div className="dash-card-head" style={{ marginBottom: 10, alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <span className={`dk-chip dk-chip--${color}`}><Icon /></span>
+      <div className="dash-card-head bi-card-head">
+        <div className="bi-card-id">
+          <ModuleIcon moduleId={mod.id} nav={mod.nav} size={18} />
           <div style={{ minWidth: 0 }}>
             <div className="dash-card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mod.label}</span>
@@ -229,6 +256,9 @@ function ModuleCard({ mod, stats, shapes, onDrill }) {
         </div>
       </div>
 
+      {/* Fixed-size card (style.css .bi-grid): the counts and shapes scroll
+          here if a module ever sends more than the card holds. */}
+      <div className="bi-card-body">
       {stats.length > 0 && (
         <div className="bi-stats">
           {stats.map((s) => {
@@ -236,7 +266,7 @@ function ModuleCard({ mod, stats, shapes, onDrill }) {
             const Row = drillable ? 'button' : 'div';
             return (
               <Row key={s.key} type={drillable ? 'button' : undefined} className={`bi-stat${drillable ? ' bi-stat--drill' : ''}`}
-                onClick={drillable ? () => onDrill({ moduleId: mod.id, moduleLabel: mod.label, ...s }) : undefined}
+                onClick={drillable ? () => onDrill({ moduleId: mod.id, moduleLabel: mod.label, nav: mod.nav, ...s }) : undefined}
                 title={drillable ? `See the breakdown of ${s.label}` : undefined}>
                 <span className="bi-stat-label">
                   {(s.tone === 'critical' || s.tone === 'warning') && typeof s.value === 'number' && s.value > 0 && (
@@ -258,6 +288,7 @@ function ModuleCard({ mod, stats, shapes, onDrill }) {
       {shapes && mod.trend?.length > 0 && <Trend rows={mod.trend} label="Clocked in, last 7 days" />}
       {shapes && mod.funnel?.length > 0 && <Stages rows={mod.funnel} label="Hiring pipeline by stage" />}
       {shapes && mod.table?.length > 0 && <SmallTable rows={mod.table} onMore={mod.nav ? open : undefined} />}
+      </div>
     </section>
   );
 }
@@ -292,7 +323,9 @@ function DrilldownModal({ request, onClose }) {
 
   const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
   const max = Math.max(1, ...state.rows.map((r) => num(r.value)));
-  const go = () => { onClose(); if (request.nav) navigate(request.nav); };
+  const action = actionFor(request);
+  const go = () => { onClose(); if (action) navigate(action.view, action.sub || undefined); };
+  const alarming = request.tone === 'critical' || request.tone === 'warning';
   return (
     <div className="bi-scrim" onClick={onClose} role="presentation">
       <div className="bi-modal nx-popup" role="dialog" aria-modal="true" aria-label={state.title || request.label} onClick={(e) => e.stopPropagation()}>
@@ -304,12 +337,9 @@ function DrilldownModal({ request, onClose }) {
               {!state.loading && !state.error && state.rows.length > 0 && ` · ${state.total || state.rows.length} in total`}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {request.nav && <button type="button" className="secondary-btn" onClick={go}>Open {request.moduleLabel}</button>}
-            <button ref={closeRef} type="button" className="bi-icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
-          </div>
+          <button ref={closeRef} type="button" className="bi-icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
-        <div className="bi-modal-body">
+        <div className="bi-modal-body nx-fill">
           {state.loading ? <LoadingState compact />
             : state.error ? <div className="bi-empty">{state.error}</div>
             : state.rows.length === 0 ? <div className="bi-empty">Nothing currently matches this metric.</div>
@@ -331,6 +361,20 @@ function DrilldownModal({ request, onClose }) {
               </div>
             )}
         </div>
+        {action && (
+          <div className="bi-modal-foot">
+            <span className="bi-modal-foot-note">
+              {alarming && !state.loading && state.rows.length > 0
+                ? `Fix these in ${request.moduleLabel}.`
+                : `The full list is in ${request.moduleLabel}.`}
+            </span>
+            <button type="button" className="secondary-btn" onClick={onClose}>Close</button>
+            <button type="button" className={alarming ? 'primary-btn' : 'secondary-btn'} onClick={go}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {alarming ? 'Take Action' : action.label} <ArrowUpRight size={14} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -417,8 +461,8 @@ export default function BiInsights() {
     .filter((c) => c.visible), [shownModules, tone, query]);
   const narrowed = tone !== 'all' || !!query.trim();
   const onDrill = (row) => {
-    // A metric with no breakdown opens its module instead of a dead end.
-    if (row.drill === false) { if (row.nav) navigate(row.nav); return; }
+    // A metric with no breakdown goes straight to where it is acted on.
+    if (row.drill === false) { const a = actionFor(row); if (a) navigate(a.view, a.sub || undefined); return; }
     setDrill(row);
   };
   const onDrillAttention = (r) => onDrill(r);

@@ -19,7 +19,7 @@ the flush always succeeds. Events caused by a run are skipped past depth 2
 from __future__ import annotations
 
 from workflows import catalog
-from workflows.emit import CURRENT_RUN, MAX_DEPTH, emit
+from workflows.emit import CURRENT_RUN, MAX_DEPTH, QUIET, emit
 
 PENDING = "_wf_pending_changes"     # session.info: [(obj, entity_def, {field: (old, new)})]
 
@@ -80,6 +80,8 @@ def _stored_values(session, obj, attrs: list) -> dict:
 def collect_changes(session) -> None:
     """before_flush: note each observed object's changed fields, filling in
     old values the ORM did not have loaded."""
+    if QUIET.get():
+        return
     run = CURRENT_RUN.get()
     if run and int(run[1] or 0) + 1 > MAX_DEPTH:
         return
@@ -122,6 +124,8 @@ def emit_changes(session) -> None:
     """after_flush: created rows for the new objects, field_changed rows for
     what before_flush collected."""
     pending = session.info.pop(PENDING, [])
+    if QUIET.get():
+        return
     run = CURRENT_RUN.get()
     if run and int(run[1] or 0) + 1 > MAX_DEPTH:
         return

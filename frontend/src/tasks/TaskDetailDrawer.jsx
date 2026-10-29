@@ -54,7 +54,7 @@ import { RecurrenceMenu, RecurrenceEnds, repeatOption, repeatSummary } from './R
 // Moved to RecurrenceMenu.jsx with the rest of the Repeat controls; still
 // importable from here.
 export { CommitNumberInput } from './RecurrenceMenu';
-import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
+import { StatusLabel, PrioritySignal, PriorityMark } from '../components/StatusLabel';
 import { FieldHistoryButton, HistoryChange } from './FieldHistoryPopover';
 import LabelsEditor from './LabelsEditor';
 import { labelsInUse } from './labels';
@@ -1153,18 +1153,19 @@ const sameValue = (x, y) => JSON.stringify(x ?? null) === JSON.stringify(y ?? nu
 /** A real dropdown for Status / Priority / Team: an outlined box, the value's
  *  color on a dot, a chevron (Neil, Oct 14 2026 - a bare chip did not read as
  *  something that could be changed). */
-function MenuSelect({ label, color, options, current, onPick, ariaLabel, width = 200 }) {
+// `mark(key)` draws an option's own mark (the priority chevrons) instead of a dot.
+function MenuSelect({ label, color, options, current, onPick, ariaLabel, width = 200, mark }) {
   const dot = (c) => <span style={{ width: 9, height: 9, borderRadius: '50%', background: c || NX.faint, flexShrink: 0 }} />;
   return (
     <Pop width={width} trigger={(t) => (
       <button type="button" onClick={t} aria-label={ariaLabel} aria-haspopup="menu"
         style={{ ...btn('outline'), minWidth: width, justifyContent: 'space-between', padding: '6px 10px', fontSize: 13, color: NX.ink }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>{dot(color)}{label}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>{mark ? mark(current) : dot(color)}{label}</span>
         <ChevronDown size={15} style={{ color: NX.faint, flexShrink: 0 }} />
       </button>
     )}>
       {(close) => options.map((o) => (
-        <MenuItem key={o.key} icon={dot(o.color)} onClick={() => { onPick(o.key); close(); }}>
+        <MenuItem key={o.key} icon={mark ? mark(o.key) : dot(o.color)} onClick={() => { onPick(o.key); close(); }}>
           <span style={{ flex: 1 }}>{o.label}</span>
           {o.key === current && <Check size={13} style={{ color: NX.blue }} />}
         </MenuItem>
@@ -1388,6 +1389,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       <Row label="Priority" history="priority">
         <MenuSelect ariaLabel="Priority" label={pm.label || task.priority} color={pm.color} current={task.priority}
           options={PRIORITY_ORDER.map((x) => ({ key: x, label: PRIORITY_META[x].label, color: PRIORITY_META[x].color }))}
+          mark={(k) => <PriorityMark priority={k} color={PRIORITY_META[k]?.color} />}
           onPick={(x) => patch({ priority: x })} />
       </Row>
 
@@ -2429,10 +2431,10 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
         <Pop width={150} trigger={(t) => (
           <button type="button" onClick={t} title={`Priority: ${PRIORITY_META[pri]?.label || pri}`} aria-label="Priority"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 3, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, fontSize: 11.5, fontWeight: 600, fontFamily: FONT, color: PRIORITY_META[pri]?.color || NX.dim, flexShrink: 0 }}>
-            {PRIORITY_META[pri]?.label || pri}<ChevronDown size={11} />
+            <PriorityMark priority={pri} size={12} />{PRIORITY_META[pri]?.label || pri}<ChevronDown size={11} />
           </button>
         )}>
-          {(close) => PRIORITY_ORDER.map((x) => <MenuItem key={x} onClick={() => { setPriority(x); close(); }}>{PRIORITY_META[x].label}</MenuItem>)}
+          {(close) => PRIORITY_ORDER.map((x) => <MenuItem key={x} icon={<PriorityMark priority={x} color={PRIORITY_META[x].color} />} onClick={() => { setPriority(x); close(); }}>{PRIORITY_META[x].label}</MenuItem>)}
         </Pop>
         <span style={{ width: SUB_PEOPLE_W, display: 'flex', flexShrink: 0 }}>
           <FacePicker value={forWhom} people={people} label="Assignees of the new subtask" onChange={setAssignees} />

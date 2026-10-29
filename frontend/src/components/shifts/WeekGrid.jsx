@@ -98,7 +98,9 @@ const hoursPrefsText = (emp) => {
 // `onNow`: true (on shift), or a live clock state 'working' / 'break' (the
 // dot turns orange on a break). `extra`: an optional line under the name.
 export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false, photos = true, onNow = false, usual = null, confirm = null, extra = null, tools, style, ...rest }) {
-  const availRows = (Array.isArray(emp.availability) ? emp.availability : emp.availability?.days || []).filter((a) => a && a.kind !== 'prefs' && a.weekday !== undefined && a.weekday !== null && !a.date);
+  const workDays = (() => { const d = String(usual?.days || '').split(',').map(Number).filter((n) => n >= 1 && n <= 7).map((n) => n - 1); return d.length ? d : [0, 1, 2, 3, 4]; })();
+  const availRows = (Array.isArray(emp.availability) ? emp.availability : emp.availability?.days || []).filter((a) => a && a.kind !== 'prefs' && a.weekday !== undefined && a.weekday !== null && !a.date
+    && workDays.includes(Number(a.weekday)) && (a.kind === 'unavailable' || (a.start && a.end && usual?.start && usual?.end ? (a.start > usual.start || a.end < usual.end) : a.kind !== 'available' || !!(a.start || a.end))));
   const limited = availRows.length > 0;
   const prefsText = hoursPrefsText(emp);
   return (
@@ -128,12 +130,12 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
           <div data-hours-prefs title="Their preferred and most hours a week (My Availability). A guide, never a block." style={{ fontSize: 10.5, color: 'var(--muted)', ...ELLIPSIS }}>{prefsText}</div>
         )}
         {usual && (
-          <div title="Their usual hours (shift type). Fill From Usual Hours places them." style={{ fontSize: 11, color: 'var(--muted)', ...ELLIPSIS }}>
+          <div title="Their usual hours (shift type). Fill Automatically places them." style={{ fontSize: 11, color: 'var(--muted)', ...ELLIPSIS }}>
             Usual {shiftShortText(usual)}
           </div>
         )}
         {limited && (
-          <div title={`Availability: ${availText(availRows)}`} style={{ fontSize: 11, color: 'hsl(var(--color-orange))', fontWeight: 600, ...ELLIPSIS }}>Limited Availability</div>
+          <div data-limited="" title={`Not fully available on a day they usually work: ${availText(availRows)}. Set in their My Availability; it never blocks a shift.`} style={{ fontSize: 11, color: 'hsl(var(--color-orange))', fontWeight: 600, ...ELLIPSIS }}>Limited Availability</div>
         )}
       </span>
       {tools && <span style={{ position: 'absolute', right: 6, top: PAD + 2, display: 'inline-flex' }}>{tools}</span>}
@@ -278,7 +280,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   notes = {}, weather = {}, holidayDates = new Set(), me = '', prefs = {}, teamZone = '', canManage = false,
   rowEditable = () => false, empWeekMin, dayStats, weekMin, overWeeks = () => [], copied = null, dropKey = '', dragId = '',
   isCollapsed = () => false, on = null, dragProps = () => ({}), personDragProps = null, dropProps = () => ({}), dropStyle = () => ({}),
-  hoverCell = () => ({}), hoverShift = () => ({}), clickable = (fn) => fn, onNowOf = () => false, blockChildren = null,
+  hoverCell = () => ({}), hoverShift = () => ({}), clickable = (fn) => fn, onNowOf = () => false, blockChildren = null, selected = null,
   ariaRole = 'grid', ariaLabel = 'Schedule', notesRow = false, maxHeight = 'calc(100vh - 150px)',
   single = false, emptyNote = null, cornerTools = null, ghostOf = () => null, blockClass = () => '', motion = true, glowToday = false,
   personFill = null, usualCan = () => false, coverageOf = null, onCoverage = null, pulseCells = null, conflictCount = 0, onConflicts = null,
@@ -304,9 +306,11 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   // the only shift in the cell).
   const block = (s, email, ds, groupId, sole = false) => (
     <ShiftBlock key={s.id} shift={s} open={!email} compact={compact} teamZone={teamZone} tabIndex={-1} dragging={dragId === s.id} className={blockClass(s)}
+      selected={selected?.shiftId === s.id}
       showConflicts={prefs.conflicts !== false} style={{ marginBottom: 0 }} actual={actualOf && email ? actualFor(actualOf(email, ds), s, sole) : null} tapActual={coarse}
       {...(on ? {
         onOpen: (e) => on.openShift(e, s, email, ds),
+        ...(on.selectShift ? { onSelect: (e) => { on.selectShift(s, email, ds); e.currentTarget.focus?.({ preventScroll: true }); } } : {}),
         dragProps: dragProps(s), ...hoverShift(s),
         onContextMenu: (e) => on.menu(e, { email, date: ds, groupId, shift: s }),
         onPointerDown: (e) => { dragProps(s).onPointerDown?.(e); on.longPress(e, { email, date: ds, groupId, shift: s }); },
@@ -320,24 +324,34 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
     const ds = isoDate(d);
     const ghost = !items.length && editable && on && email ? ghostOf(email, ds) : null;
     const handlers = on ? {
-      onClick: clickable((e) => { if (!items.length && editable) on.cellClick(email, ds, groupId, e); }),
+      // Excel-style (Oct 28 2026): a click selects the day, a double-click
+      // (or Enter) adds to it; Shift+click still opens the editor at once.
+      onClick: clickable((e) => {
+        if (on.selectCell && !(e.shiftKey && editable && !items.length)) { on.selectCell(email, ds, groupId); e.currentTarget.focus?.({ preventScroll: true }); return; }
+        if (!items.length && editable) on.cellClick(email, ds, groupId, e);
+      }),
+      ...(on.selectCell ? { onDoubleClick: clickable((e) => { if (!items.length && editable) on.cellClick(email, ds, groupId, e); }) } : {}),
       ...dropProps(email, ds), ...(editable ? hoverCell(email, ds, groupId) : {}),
+      ...(on.selectCell ? { onFocus: (e) => { hoverCell(email, ds, groupId).onFocus?.(e); if (e.target === e.currentTarget) on.selectCell(email, ds, groupId); } } : {}),
       onContextMenu: (e) => on.menu(e, { email, date: ds, groupId, shift: null }),
       onPointerDown: (e) => on.longPress(e, { email, date: ds, groupId, shift: null }),
     } : {};
     return (
       <div key={ds} data-cell={`${email}|${ds}`} data-r={r} data-c={c} data-group={groupId || undefined} data-today={ds === today ? '' : undefined} tabIndex={on ? (r === 0 && c === 0 ? 0 : -1) : undefined} role={cellRole}
-        title={ghost ? `Click to place ${shiftShortText(ghost)}${ghost.code ? ` ${ghost.code}` : ''} (their usual hours). Shift+click opens the editor.` : undefined}
+        title={ghost ? `Double-click to place ${shiftShortText(ghost)}${ghost.name ? ` ${ghost.name}` : ''} (their usual hours). Shift+click opens the editor.` : undefined}
         aria-label={`${email ? '' : 'Open shifts '}${formatDate(ds)}${items.length ? `, ${items.length} shift${items.length === 1 ? '' : 's'}` : ', empty'}`}
         className={`sched-cell${pulseCells?.has(`${email}|${ds}`) ? ' m-pulse-cell' : ''}`} {...handlers}
-        style={cellStyle(row, c, d, { cursor: on && !items.length && editable ? 'pointer' : 'default', paddingTop: (compact ? 3 : PAD) + top, ...(on ? dropStyle(email, ds) : {}) })}>
+        data-selected={selected && !selected.shiftId && selected.key === `${email}|${ds}` ? '' : undefined}
+        style={cellStyle(row, c, d, { cursor: on && !items.length && editable ? 'pointer' : 'default', paddingTop: (compact ? 3 : PAD) + top,
+          ...(selected && !selected.shiftId && selected.key === `${email}|${ds}` ? { outline: '2px solid var(--wk-brand)', outlineOffset: -2, zIndex: 1 } : {}),
+          ...(on ? dropStyle(email, ds) : {}) })}>
         {inner}
         {items.map((s) => block(s, email, ds, groupId, items.length === 1))}
         {!items.length && editable && on && (ghost ? (
           <div className="sched-add" data-ghost="" aria-hidden="true" style={{ position: 'absolute', left: compact ? 3 : PAD, right: compact ? 3 : PAD, top: (compact ? 3 : PAD) + top, opacity: 0, pointerEvents: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: compact ? '2px 4px' : '4px 8px', borderRadius: 6, border: `1px dashed ${ghost.color || 'var(--wk-line2, var(--line))'}`, background: 'color-mix(in srgb, var(--card) 70%, transparent)', color: 'var(--muted)', fontSize: compact ? 10 : 11.5, fontWeight: 700, ...ELLIPSIS, opacity: 0.85 }}>
               <Plus size={11} style={{ flexShrink: 0 }} />
-              <span style={ELLIPSIS}>{shiftShortText(ghost)}{ghost.code ? <span style={{ color: ghost.color || 'var(--muted)', marginLeft: 4 }}>{ghost.code}</span> : null}</span>
+              <span style={ELLIPSIS}>{shiftShortText(ghost)}</span>
             </div>
           </div>
         ) : (
@@ -453,7 +467,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
     const hasShifts = hasOpen || g.members.some((m) => days.some((d) => (byCell[`${m.email}|${isoDate(d)}`] || []).length));
     const people = `${g.members.length} ${g.members.length === 1 ? 'person' : 'people'}`;
     if (single) {
-      if (g.isGroup && prefs.open !== false && (hasOpen || canManage)) out.push(openRow(g));
+      if (g.isGroup && prefs.open !== false && (hasOpen || (canManage && g.openShifts))) out.push(openRow(g));
     } else {
     const gr = addRow(`minmax(${SLIM}px, auto)`);
     out.push(
@@ -499,7 +513,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
         </div>,
       );
     }
-    if (g.isGroup && prefs.open !== false && (hasOpen || canManage)) out.push(openRow(g));
+    if (g.isGroup && prefs.open !== false && (hasOpen || (canManage && g.openShifts))) out.push(openRow(g));
     }
     if (!g.members.length) {
       const er = addRow('auto');

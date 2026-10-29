@@ -113,7 +113,7 @@
 | Status | Item | Source |
 |---|---|---|
 | ✅ | Reimbursements (approver, then HR with the receipt) and purchase requests | built |
-| 🚀 | **Salary advances** (manager tier asks, HR decides and pays out, repaid per pay period on the time sheet and the contractor invoice) - #812 | Keka |
+| 🚀 | **Salary advances** (asked for someone from their Time Sheet - their direct manager sends a request to HR, HR with the pay grant grants it; nobody asks for their own and Workday has no card (Neil, 10/29/2026); HR decides and pays out from the Time Sheet or Approvals, repaid per pay period on the time sheet and the contractor invoice) - #812 | Keka |
 | ⛔ | Payroll engine (gross to net, payslips) - payroll stays with the provider; Nexus exports | dropped (Neil) |
 | ⛔ | Expense mileage and category limits | dropped (Neil) |
 | ⛔ | PSA (professional services automation) | dropped (Neil) |

@@ -12,7 +12,7 @@ const api = {
   timeSchedule: vi.fn(), timeSchedCreate: vi.fn(), timeSchedDelete: vi.fn(), timeSchedDiscard: vi.fn(), timeSchedBulk: vi.fn(),
   timeSchedCopy: vi.fn(), timeSchedUnshared: vi.fn(), timeSchedMove: vi.fn(), timeSchedCheck: vi.fn(), timeOffTypes: vi.fn(),
   timeShiftGroupMembers: vi.fn(), timeShiftGroupMeta: vi.fn(), timeSchedPublishReview: vi.fn(), timeSchedHistory: vi.fn(),
-  timeSchedConfirmations: vi.fn(), timeSchedNudge: vi.fn(),
+  timeSchedConfirmations: vi.fn(), timeSchedNudge: vi.fn(), timeSchedDiscardAll: vi.fn(),
 };
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => api[k] || vi.fn().mockResolvedValue({}) }) }));
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: vi.fn().mockResolvedValue(true), prompt: vi.fn() } }));
@@ -45,6 +45,9 @@ const asMotion = (reduce) => vi.spyOn(window, 'matchMedia').mockImplementation((
 
 beforeEach(() => {
   try { localStorage.clear(); } catch { /* none */ }
+  // Most tests look at one team; the first-visit default (All Teams, Oct 28
+  // 2026) has its own test, which clears this.
+  try { localStorage.setItem('nexus.shifts.team.anon', 'g1'); } catch { /* none */ }
   role.current = {};
   Object.values(api).forEach((f) => f.mockReset());
   api.timeSchedCreate.mockResolvedValue({ id: 'new1' });
@@ -56,30 +59,27 @@ beforeEach(() => {
   api.timeOffTypes.mockResolvedValue({ builtIn: ['vacation'], custom: [], requestsOn: true });
   api.timeSchedConfirmations.mockResolvedValue({ people: [], unconfirmed: 0 });
   api.timeSchedNudge.mockResolvedValue({ nudged: 0 });
+  api.timeSchedDiscardAll.mockResolvedValue({ discarded: 1 });
 });
 
 describe('Team switcher', () => {
-  it('opens on the first team the signed-in person is in, with no group header row', async () => {
+  it('opens on All Teams the first time, every team stacked and Everyone Else folded (Neil, Oct 28 2026)', async () => {
     role.current = { myEmail: C };
-    api.timeSchedule.mockResolvedValue(data([shift()]));
-    render(<ShiftSchedule />);
-    await screen.findByText('Cat Cole');
-    expect(teamButton().textContent).toContain('Back');
-    expect(teamButton().textContent).toContain('1 person');
-    expect(screen.queryByText('Amy Adams')).toBeNull();
-    expect(document.querySelector('[data-team]')).toBeNull();               // the switcher names the team
-  });
-
-  it('else opens on the team with the most shifts this week, and its numbers are that team\'s', async () => {
     api.timeSchedule.mockResolvedValue(data([shift({ id: 'c1', email: C }), shift({ id: 'c2', email: C, date: plusDays(monday, 1) }), shift({ id: 'a1' })]));
     render(<ShiftSchedule />);
     await screen.findByText('Cat Cole');
-    expect(teamButton().textContent).toMatch(/Back.*1 person · 16 Hrs/);
-    expect(screen.getByText('Week · 16 Hrs')).toBeTruthy();
+    expect(teamButton().textContent).toContain('All Teams');
+    expect(screen.getByText('Amy Adams')).toBeTruthy();
+    expect([...document.querySelectorAll('[data-team]')].map((r) => r.getAttribute('data-team'))).toEqual(['g1', 'g2']);
+    expect(screen.getByText('Everyone Else')).toBeTruthy();
+    expect(screen.queryByText('Dan Dye')).toBeNull();                       // folded until opened
     fireEvent.click(teamButton());
-    const front = screen.getByRole('option', { name: /^Front/ });
-    expect(front.textContent).toContain('2 people');
-    expect(front.textContent).toContain('8 Hrs');
+    const opts = screen.getAllByRole('option').map((o) => o.textContent);
+    expect(opts[0]).toMatch(/^All Teams/);                                   // first in the list
+    expect(opts[opts.length - 1]).toMatch(/^People Without a Team/);         // last
+    const back = screen.getByRole('option', { name: /^Back/ });
+    expect(back.textContent).toContain('1 person');
+    expect(back.textContent).toContain('16 Hrs');
   });
 
   it('remembers the choice per person', async () => {
@@ -122,7 +122,18 @@ describe('Team switcher', () => {
     fireEvent.keyDown(list, { key: 'ArrowDown' });
     fireEvent.keyDown(list, { key: 'Enter' });
     expect(screen.queryByRole('listbox')).toBeNull();
-    expect(teamButton().textContent).toContain('Back');
+    // Front has an unsaved draft on screen: switching asks first (Oct 28 2026).
+    let ask = await screen.findByRole('alertdialog');
+    expect(ask.textContent).toContain('1 change on this team has not been shared with the team yet');
+    fireEvent.click(within(ask).getByRole('button', { name: 'Keep Editing' }));
+    expect(teamButton().textContent).toContain('Front');
+    fireEvent.click(teamButton());
+    fireEvent.keyDown(screen.getByRole('listbox', { name: 'Teams' }), { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByRole('listbox', { name: 'Teams' }), { key: 'Enter' });
+    ask = await screen.findByRole('alertdialog');
+    fireEvent.click(within(ask).getByRole('button', { name: 'Discard Changes' }));
+    await waitFor(() => expect(api.timeSchedDiscardAll).toHaveBeenCalledWith({ include_drafts: true, group_id: 'g1' }));
+    await waitFor(() => expect(teamButton().textContent).toContain('Back'));
     fireEvent.click(teamButton());
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('listbox')).toBeNull();
@@ -182,20 +193,55 @@ describe('Date block and week keys', () => {
   });
 });
 
+describe('Fill Automatically (Neil, Oct 28 2026)', () => {
+  it('opens on the team on screen, gives each person their usual hours, and names who has none', async () => {
+    api.timeSchedule.mockResolvedValue(data([shift()], { usual: { [A]: 'p1' } }));
+    api.timeSchedBulk.mockResolvedValue({ created: 5 });
+    render(<ShiftSchedule toastOk={vi.fn()} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.click(within(screen.getByRole('toolbar', { name: 'Schedule' })).getByRole('button', { name: /Fill Automatically/ }));
+    const dlg = screen.getByRole('dialog', { name: 'Fill Automatically' });
+    expect(within(dlg).getByRole('combobox', { name: 'Apply to' }).value).toBe('g1');            // Front, not the first group by chance
+    expect(within(dlg).getByRole('combobox', { name: 'Shift' }).value).toBe('__usual');
+    expect(dlg.querySelector('[data-fill-summary]').textContent).toContain('1 person gets their usual hours.');
+    expect(dlg.querySelector('[data-fill-summary]').textContent).toContain('No usual hours set for Bob Brown');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Fill Schedule' }));
+    await waitFor(() => expect(api.timeSchedBulk).toHaveBeenCalledWith({ shift_id: 'p1', emails: [A], start_date: monday, end_date: plusDays(monday, 6),
+      weekdays: [0, 1, 2, 3, 4], skip_timeoff: true, overwrite: false }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Fill Automatically' })).toBeNull());
+  });
+
+  it('puts one picked shift type on the whole team instead', async () => {
+    api.timeSchedule.mockResolvedValue(data([shift()]));
+    api.timeSchedBulk.mockResolvedValue({ created: 10, people: 2 });
+    render(<ShiftSchedule toastOk={vi.fn()} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.click(within(screen.getByRole('toolbar', { name: 'Schedule' })).getByRole('button', { name: /Fill Automatically/ }));
+    const dlg = screen.getByRole('dialog', { name: 'Fill Automatically' });
+    fireEvent.change(within(dlg).getByRole('combobox', { name: 'Shift' }), { target: { value: 'p1' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Fill Schedule' }));
+    await waitFor(() => expect(api.timeSchedBulk).toHaveBeenCalledWith({ shift_id: 'p1', weekdays: [0, 1, 2, 3, 4], start_date: monday, end_date: plusDays(monday, 6),
+      skip_timeoff: true, overwrite: false, group_id: 'g1' }));
+  });
+});
+
 describe('Building a week in clicks', () => {
   const usualData = (scheduled = []) => data(scheduled, { usual: { [A]: 'p1', [B]: 'p1' } });
 
-  it('places the usual shift on a click of an empty day, and Shift+click opens the editor', async () => {
+  it('selects an empty day on a click, places the usual shift on a double-click, and Shift+click opens the editor', async () => {
     api.timeSchedule.mockResolvedValue(usualData([shift()]));
     render(<ShiftSchedule toastOk={vi.fn()} />);
     await screen.findByText('Amy Adams');
     const tue = cellOf(A, plusDays(monday, 1));
-    expect(tue.getAttribute('title')).toMatch(/^Click to place 9:00a - 5:00p GST/);
+    expect(tue.getAttribute('title')).toMatch(/^Double-click to place 9:00a - 5:00p Store/);
     fireEvent.click(tue);
+    expect(tue.hasAttribute('data-selected')).toBe(true);                    // a click only selects (Oct 28 2026)
+    expect(api.timeSchedCreate).not.toHaveBeenCalled();
+    fireEvent.doubleClick(tue);
     await waitFor(() => expect(api.timeSchedCreate).toHaveBeenCalledWith(expect.objectContaining({ employee_email: A, work_date: plusDays(monday, 1), shift_id: 'p1' })));
     // Undo removes exactly what was placed.
     const bar = await screen.findByRole('status');
-    expect(bar.textContent).toContain('GST placed as a draft.');
+    expect(bar.textContent).toContain('Store placed as a draft.');
     fireEvent.click(within(bar).getByRole('button', { name: /Undo/ }));
     await waitFor(() => expect(api.timeSchedDelete).toHaveBeenCalledWith('new1'));
     // Saturday is not a usual day: no ghost, the editor opens.
@@ -227,20 +273,20 @@ describe('Building a week in clicks', () => {
     api.timeSchedule.mockResolvedValue(data([shift({ published: false, note: 'Keys', breakMin: 30 })]));
     render(<ShiftSchedule toastOk={vi.fn()} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(document.querySelector('[data-shift="s1"]'));
+    fireEvent.doubleClick(document.querySelector('[data-shift="s1"]'));
     fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
     await waitFor(() => expect(api.timeSchedDelete).toHaveBeenCalledWith('s1'));
     fireEvent.click(within(await screen.findByRole('status')).getByRole('button', { name: /Undo/ }));
     await waitFor(() => expect(api.timeSchedCreate).toHaveBeenCalledWith(expect.objectContaining({ employee_email: A, work_date: monday, shift_id: 'p1', note: 'Keys', break_min: 30 })));
   });
 
-  it('greets a team with nothing this week with Fill Usual Hours and Copy Last Week', async () => {
+  it('greets a team with nothing this week with Fill Automatically and Copy Last Week', async () => {
     api.timeSchedule.mockResolvedValue(data([]));
     render(<ShiftSchedule toastOk={vi.fn()} />);
     const row = (await screen.findByText(/^No shifts yet for Front this week/)).closest('[data-empty-team]');
     fireEvent.click(within(row).getByRole('button', { name: /Copy Last Week/ }));
     await waitFor(() => expect(api.timeSchedCopy).toHaveBeenCalledWith(expect.objectContaining({ source_start: plusDays(monday, -7), source_end: plusDays(monday, -1), target_start: monday, group_id: 'g1' })));
-    expect(within(row).getByRole('button', { name: /Fill Usual Hours/ })).toBeTruthy();
+    expect(within(row).getByRole('button', { name: /Fill Automatically/ })).toBeTruthy();
   });
 });
 
@@ -258,9 +304,9 @@ describe('Coverage and conflicts', () => {
     expect(chips[5].getAttribute('data-coverage')).toBe('none');            // Saturday: nobody expected
     fireEvent.click(chips[0]);
     expect(cellOf(B).className).toContain('m-pulse-cell');
-    // Off under ⋯, remembered.
-    fireEvent.click(screen.getByRole('button', { name: 'More' }));
-    fireEvent.click(within(screen.getByRole('menu', { name: 'More' })).getByRole('menuitemcheckbox', { name: /Show Coverage/ }));
+    // Off under Customize, remembered.
+    fireEvent.click(screen.getByRole('button', { name: /^Customize/ }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Customize' })).getByRole('checkbox', { name: 'Show coverage' }));
     expect(document.querySelector('[data-coverage]')).toBeNull();
   });
 
@@ -279,18 +325,18 @@ describe('Coverage and conflicts', () => {
 });
 
 describe('Share summary and motion', () => {
-  it('leads with where 50+ changes are and picks this week and next', async () => {
+  it('leads with where 50+ changes are and picks the dates on screen (Oct 28 2026)', async () => {
     api.timeSchedule.mockResolvedValue({ ...data([shift({ published: false })]), unsharedCount: 242 });
     api.timeSchedUnshared.mockResolvedValueOnce({ count: 4 }).mockResolvedValueOnce({ count: 8 }).mockResolvedValue({ count: 12 });
     render(<ShiftSchedule />);
     await screen.findByText('Amy Adams');
-    const share = screen.getByRole('button', { name: /^Share, 242 unshared/ });
-    expect(share.getAttribute('title')).toBe('242 changes your team has not seen yet');
+    const share = screen.getByRole('button', { name: /^Save & Share, 242 unsaved/ });
+    expect(share.getAttribute('title')).toBe('242 changes your team has not seen yet. Save & Share sends them and tells the people affected.');
     fireEvent.click(share);
     const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
     await waitFor(() => expect(dlg.textContent).toContain('This week: 4 · Next week: 8 · Other weeks: 230'));
     expect(within(dlg).getByLabelText('Share from').value).toBe(monday);
-    expect(within(dlg).getByLabelText('Share to').value).toBe(plusDays(monday, 13));
+    expect(within(dlg).getByLabelText('Share to').value).toBe(plusDays(monday, 6));
   });
 
   it('animates the grid in, and not at all with reduced motion', async () => {
@@ -310,5 +356,55 @@ describe('Share summary and motion', () => {
     await act(async () => {});
     expect(document.querySelector('[data-range-title]').parentElement.className || '').not.toMatch(/m-slide/);
     mm.mockRestore();
+  });
+});
+
+describe('Excel-style selection and the conflicts list (Neil and Charmi, Oct 28 2026)', () => {
+  it('boxes a clicked shift, copies it with Ctrl+C onto a selected day, and moves it with Ctrl+X', async () => {
+    api.timeSchedule.mockResolvedValue(data([shift()]));
+    api.timeSchedMove.mockResolvedValue({ shift: { id: 'm1' }, moved: true });
+    render(<ShiftSchedule toastOk={vi.fn()} />);
+    await screen.findByText('Amy Adams');
+    const block = document.querySelector('[data-shift="s1"]');
+    fireEvent.click(block);
+    expect(block.hasAttribute('data-selected')).toBe(true);
+    expect(screen.queryByRole('dialog', { name: /Edit Shift/ })).toBeNull();   // a click selects; it does not open
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    const target = cellOf(B, plusDays(monday, 1));
+    fireEvent.click(target);
+    expect(target.hasAttribute('data-selected')).toBe(true);
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    await waitFor(() => expect(api.timeSchedCreate).toHaveBeenCalledWith(expect.objectContaining({ employee_email: B, work_date: plusDays(monday, 1), shift_id: 'p1' })));
+    // Cut: the next paste moves the shift and empties the clipboard.
+    fireEvent.click(document.querySelector('[data-shift="s1"]'));
+    fireEvent.keyDown(window, { key: 'x', ctrlKey: true });
+    fireEvent.click(cellOf(B, plusDays(monday, 2)));
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    await waitFor(() => expect(api.timeSchedMove).toHaveBeenCalledWith('s1', { employee_email: B, work_date: plusDays(monday, 2), duplicate: false }));
+    // Escape clears the selection.
+    fireEvent.click(cellOf(B, plusDays(monday, 3)));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(document.querySelector('[data-selected]')).toBeNull();
+  });
+
+  it('lists every conflict under the schedule in plain words, and a click shows the shift', async () => {
+    api.timeSchedule.mockResolvedValue({ ...data([shift()]),
+      availability: { [A]: [{ weekday: 0, kind: 'unavailable', start: '', end: '', note: '' }] } });
+    render(<ShiftSchedule />);
+    await screen.findByText('Amy Adams');
+    const list = document.querySelector('[data-conflict-list]');
+    expect(list.textContent).toContain('Conflicts To Review (1)');
+    expect(list.textContent).toContain('Amy Adams -');
+    expect(list.textContent).toContain('Scheduled on a day they marked as unavailable (Mon)');
+    fireEvent.click(within(list).getByRole('button'));
+    await waitFor(() => expect(cellOf(A).className).toContain('m-pulse-cell'));
+  });
+
+  it('never warns about 40 hours for a contractor', async () => {
+    const long = [0, 1, 2, 3, 4].map((i) => shift({ id: `l${i}`, date: plusDays(monday, i), start: '06:00', end: '16:00' }));
+    api.timeSchedule.mockResolvedValue({ ...data(long), employees: [{ email: A, name: 'Amy Adams', contractor: true }, { email: B, name: 'Bob Brown' }] });
+    render(<ShiftSchedule />);
+    await screen.findByText('Amy Adams');
+    expect(screen.queryByLabelText('Over 40 hours')).toBeNull();
   });
 });

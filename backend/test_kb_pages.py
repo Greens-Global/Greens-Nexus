@@ -257,6 +257,154 @@ class KbPagesCase(unittest.TestCase):
         eve = next(u for u in sigs["unsigned"] if u["email"] == EMP)
         self.assertEqual(eve["signed_older"], "1.0")
 
+    def test_the_nexus_sign_switch(self):
+        # Off (WP 1.4): nothing sends envelopes, so a page saved with Nexus Sign
+        # signs in-page and the option is hidden. On (Release 3): the page says
+        # Nexus Sign and the in-page signature is refused.
+        import kb_core
+        from unittest import mock
+        page = self._published(page_type="policy", title="Key Handling Policy")
+        db = database.SessionLocal()
+        try:
+            d = db.query(models.KbDocument).filter(models.KbDocument.id == page["id"]).first()
+            d.signing = "nexus_sign"
+            db.commit()
+        finally:
+            db.close()
+        with mock.patch.object(kb_core, "NEXUS_SIGN_FOR_POLICIES", False):
+            self._as(AUT)
+            draft = self._create(page_type="how_to", title="Badge Policy")
+            r = self.client.patch(f"/kb/pages/{draft['id']}", json={"signing": "nexus_sign"})
+            self.assertEqual((r.json()["signing"], r.json()["nexus_sign_available"]), ("in_page", False))
+            self._as(EMP)
+            self.assertEqual(self.client.get(f"/kb/pages/{page['id']}").json()["signing"], "in_page")
+        with mock.patch.object(kb_core, "NEXUS_SIGN_FOR_POLICIES", True):
+            self._as(EMP)
+            got = self.client.get(f"/kb/pages/{page['id']}").json()
+            self.assertEqual((got["signing"], got["nexus_sign_available"]), ("nexus_sign", True))
+            self.assertEqual(got["signoff"]["nexus_sign"]["status"], "")      # the daily run has not sent it yet
+            self.assertEqual(self.client.post(f"/kb/pages/{page['id']}/sign", json={"typed_name": "Eve Test"}).status_code, 409)
+
+    # ── Neil's rebuild rules (PR #743) that had no test yet (WP 2.1/2.2, Oct 29 2026) ──
+    def test_a_policy_needs_a_second_person_and_a_reference_publishes_directly(self):
+        pol = self._create(page_type="policy", title="Visitor Policy")
+        self.assertNotEqual(self.client.post(f"/kb/pages/{pol['id']}/publish", json={}).status_code, 200)
+        self.assertEqual(self.client.post(f"/kb/pages/{pol['id']}/submit", json={}).status_code, 200)
+        self.assertEqual(self.client.post(f"/kb/pages/{pol['id']}/review", json={"decision": "approve"}).status_code, 403)
+        self._as(REV)
+        r = self.client.post(f"/kb/pages/{pol['id']}/review", json={"decision": "approve"})
+        self.assertEqual((r.status_code, r.json().get("status"), r.json().get("version")), (200, "approved", "1.0"))
+        ref = self._create(page_type="reference", title="Gate Code List")
+        r = self.client.post(f"/kb/pages/{ref['id']}/publish", json={})
+        self.assertEqual((r.status_code, r.json().get("status")), (200, "approved"), r.text)
+
+    def test_a_real_change_is_a_major_version_and_review_locks_the_revision(self):
+        page = self._published(title="Unit Turnover")
+        self._as(AUT)
+        rev = self.client.post(f"/kb/pages/{page['id']}/revisions").json()
+        r = self.client.patch(f"/kb/revisions/{rev['id']}", json={"blocks": _blocks(("Inspect", "Paint")), "change_kind": "major", "change_note": "New process"})
+        self.assertEqual(r.json()["next_version"], "2.0")
+        self.assertEqual(self.client.post(f"/kb/revisions/{rev['id']}/submit", json={}).status_code, 200)
+        self.assertEqual(self.client.patch(f"/kb/revisions/{rev['id']}", json={"summary": "late edit"}).status_code, 409)
+
+    def test_archived_pages_are_for_authors_and_drafts_for_the_collection_owner(self):
+        page = self._create(page_type="how_to", title="Old Lock Codes")
+        self.assertEqual(self.client.post(f"/kb/pages/{page['id']}/publish", json={}).status_code, 200)
+        self.assertEqual(self.client.post(f"/kb/pages/{page['id']}/archive", json={}).status_code, 403)   # the collection owner or Manage archives
+        self._as(MGR)
+        r = self.client.post(f"/kb/pages/{page['id']}/archive", json={})
+        self.assertEqual(r.status_code, 200, r.text)
+        self._as(EMP)
+        self.assertEqual(self.client.get(f"/kb/pages/{page['id']}").status_code, 404)
+        self._as(AUT)
+        self.assertEqual(self.client.get(f"/kb/pages/{page['id']}").status_code, 200)
+        draft = self._create(page_type="how_to", title="Draft In Ops")
+        self._as(OWN)                                   # owns the Operations collection
+        self.assertEqual(self.client.get(f"/kb/pages/{draft['id']}").status_code, 200)
+        self._as(EMP)
+        self.assertEqual(self.client.get(f"/kb/pages/{draft['id']}").status_code, 404)
+
+    # ── Manage > Health actions (WP 4.3, Oct 29 2026) ───────────────────────
+    def test_a_page_request_is_assigned_then_closed_with_a_note(self):
+        self._as(EMP)
+        self.assertEqual(self.client.post("/kb/requests", json={"query": "How do I reset a gate code?"}).status_code, 201)
+        self._as(MGR)
+        req = next(r for r in self.client.get("/kb/health").json()["requests"] if r["query"] == "How do I reset a gate code?")
+        self.assertEqual(self.client.post(f"/kb/requests/{req['id']}/assign", json={"email": EMP}).status_code, 422)   # not an author
+        r = self.client.post(f"/kb/requests/{req['id']}/assign", json={"email": AUT})
+        self.assertEqual((r.status_code, r.json()["assigned_to"]), (200, AUT), r.text)
+        req = next(x for x in self.client.get("/kb/health").json()["requests"] if x["id"] == req["id"])
+        self.assertEqual((req["assigned_to"], req["assigned_name"]), (AUT, "Al Test"))
+        db = database.SessionLocal()
+        try:
+            bell = db.query(models.NexusNotification).filter(models.NexusNotification.recipient == AUT,
+                                                             models.NexusNotification.type == "kb_page_request").first()
+            self.assertIsNotNone(bell)
+        finally:
+            db.close()
+        self.assertEqual(self.client.post(f"/kb/requests/{req['id']}/close", json={"resolution": "Covered in Gate Codes"}).status_code, 200)
+        db = database.SessionLocal()
+        try:
+            row = db.query(models.KbPageRequest).filter(models.KbPageRequest.id == req["id"]).first()
+            self.assertEqual((row.status, row.close_note), ("done", "Covered in Gate Codes"))
+            done = db.query(models.NexusNotification).filter(models.NexusNotification.recipient == EMP,
+                                                             models.NexusNotification.type == "kb_request_done").first()
+            self.assertIn("Covered in Gate Codes", done.body)
+        finally:
+            db.close()
+
+    # ── search misses and synonyms (WP 4.4, Oct 29 2026) ────────────────────
+    def test_a_synonym_from_a_miss_finds_the_page(self):
+        page = self._create(page_type="how_to", title="Gate Opening")
+        self.assertEqual(self.client.post(f"/kb/pages/{page['id']}/publish", json={}).status_code, 200)
+        self._as(EMP)
+        self.assertEqual(self.client.get("/kb/search", params={"q": "portcullis"}).json()["total"], 0)
+        self.assertEqual(self.client.put("/kb/synonyms", json={"groups": [["portcullis", "gate"]]}).status_code, 403)
+        self._as(MGR)
+        r = self.client.put("/kb/synonyms", json={"groups": [["Portcullis", "gate", "gate"], ["only-one"]]})
+        self.assertEqual(r.json()["groups"], [["portcullis", "gate"]])
+        self.assertEqual(self.client.get("/kb/health").json()["synonyms"], [["portcullis", "gate"]])
+        self._as(EMP)
+        found = self.client.get("/kb/search", params={"q": "portcullis"}).json()
+        self.assertIn(page["id"], [x["id"] for x in found["results"]])
+
+    def test_type_ahead_searches_are_never_misses(self):
+        self._as(EMP)
+        self.client.get("/kb/search", params={"q": "pran", "limit": 5, "log": "false"})
+        self.client.get("/kb/search", params={"q": "pranshu birthday"})
+        self._as(MGR)
+        got = [m["query"] for m in self.client.get("/kb/health").json()["misses"]]
+        self.assertNotIn("pran", got)
+        self.assertIn("pranshu birthday", got)
+
+    def test_the_first_monday_lists_misses_to_collection_owners(self):
+        from datetime import datetime, timezone
+        from unittest import mock
+        import graph_mail
+        import kb_daily
+
+        class FirstMonday(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2026, 11, 2, 9, 0, tzinfo=timezone.utc)
+        self._as(EMP)
+        self.client.get("/kb/search", params={"q": "snow plow schedule"})
+        db = database.SessionLocal()
+        try:
+            import kb_search
+            kb_search.log_miss(db, "my payslip is wrong", 0, EMP, source="help")   # typed into Help: never an owner's
+            db.query(models.KbReminderLog).delete()
+            db.commit()
+            with mock.patch.object(kb_daily, "datetime", FirstMonday), mock.patch.object(graph_mail, "DEFAULT_FROM_EMAIL", ""):
+                kb_daily.run_owner_digests(db)
+            bell = db.query(models.NexusNotification).filter(models.NexusNotification.recipient == OWN,
+                                                             models.NexusNotification.type == "kb_owner_digest").first()
+            self.assertIsNotNone(bell)
+            self.assertIn('no good answer: "snow plow schedule"', bell.body)
+            self.assertNotIn("payslip", bell.body)
+        finally:
+            db.close()
+
     def test_archive_then_restore_lands_in_draft_not_published(self):
         page = self._published()
         self._as(AUT)   # author, not owner/manage

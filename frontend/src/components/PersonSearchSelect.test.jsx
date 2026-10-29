@@ -16,6 +16,17 @@ const setup = () => {
 };
 
 describe('PersonSearchSelect', () => {
+  // Neil, Oct 28 2026: "add profile picture to these dropdowns".
+  it('shows each person photo, a plain glyph when there is none', () => {
+    const onPick = vi.fn();
+    render(<PersonSearchSelect groups={[{ label: 'Nexus People', people: [{ email: 'a@x.com', name: 'Ana Bell', photoUrl: 'https://p/a.png' }, { email: 'b@x.com', name: 'Bo Chu' }] }]} onPick={onPick} placeholder="pick" />);
+    fireEvent.focus(screen.getByPlaceholderText('pick'));
+    const [a, b] = screen.getAllByRole('option');
+    expect(a.querySelector('img')?.getAttribute('src')).toBe('https://p/a.png');
+    expect(b.querySelector('img')).toBeNull();
+    expect(b.textContent).toBe('Bo Chub@x.com');
+  });
+
   it('opens the whole list, grouped, like a dropdown', () => {
     const { input } = setup();
     fireEvent.focus(input);

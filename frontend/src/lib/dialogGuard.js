@@ -80,7 +80,16 @@ export function hasDirtyDialog() {
 // the module asks for them too; a backdrop click or Escape is not theirs.
 const inlineDirty = new Map();
 export function setInlineDirty(key, dirty) { if (dirty) inlineDirty.set(key, true); else inlineDirty.delete(key); }
-export function hasUnsavedWork() { return hasDirtyDialog() || inlineDirty.size > 0; }
+export function hasUnsavedWork() { return hasDirtyDialog() || inlineDirty.size > 0 || !!leaveAsk; }
+
+// A screen with its own Save / Keep Editing / Discard prompt (the shift
+// schedule's unshared drafts, Neil Oct 28 2026) registers how to ask; leaving
+// asks it instead of the plain prompt. `fn` resolves true to leave.
+let leaveAsk = null;
+export function setLeaveGuard(fn) { leaveAsk = fn || null; }
+export function askToLeave() {
+  return hasDirtyDialog() || inlineDirty.size > 0 || !leaveAsk ? confirmDiscard() : leaveAsk();
+}
 
 // Ask the person. Resolves true to discard (proceed), false to keep editing.
 export function confirmDiscard() {

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import models
+import weather_scope
 import weather_watch
 from database import get_db
 from routers.timeclock import require_shift_manage, _require_unscoped_team
@@ -20,24 +21,23 @@ router = APIRouter(prefix="/weather-watch", tags=["weather-watch"])
 
 def _settings_payload(db: Session, cfg: dict) -> dict:
     # Which groups the watch covers per company, with the switch ignored, so
-    # the screen can say "3 groups ready" before a company is turned on.
-    people = weather_watch._people(db)
-    members: dict = {}
-    for m in db.query(models.ShiftGroupMember).all():
-        members.setdefault(m.group_id, []).append((m.employee_email or "").lower())
-    sites = {s.id: s for s in db.query(models.HrWorkSite).all()}
+    # the screen can say "3 groups ready" before a company is turned on. Only
+    # groups with someone in a department with Weather Calls on count at all
+    # (weather_scope, 10/29/2026) - an office team is not "not ready", it is
+    # simply not a weather team.
+    sc = weather_scope.WeatherScope(db, cfg)
     ready: dict = {}
     unready: dict = {}
-    for g in db.query(models.ShiftGroup).all():
-        if getattr(g, "archived", 0):
+    for g in sc.groups:
+        why = sc.why_not(g)
+        if why in ("archived", "departments"):
             continue
-        cid = weather_watch.group_company(db, g, members.get(g.id, []), people)
-        site = sites.get(getattr(g, "work_site_id", "") or "")
-        on = int(getattr(g, "weather_alerts", 1) if getattr(g, "weather_alerts", 1) is not None else 1)
-        located = bool(site and (site.latitude or "").strip() and (site.longitude or "").strip())
-        (ready if (on and located) else unready).setdefault(cid, []).append(g.name)
+        cid = sc.company_of(g)
+        (ready if why in ("", "company") else unready).setdefault(cid, []).append(g.name)
     companies = [{"id": e.id, "name": e.name, "enabled": weather_watch.company_enabled(cfg, e.id),
-                  "groupsReady": sorted(ready.get(e.id, [])), "groupsNotReady": sorted(unready.get(e.id, []))}
+                  "groupsReady": sorted(ready.get(e.id, [])), "groupsNotReady": sorted(unready.get(e.id, [])),
+                  # Who the weather applies to (Settings > Companies > Departments).
+                  "weatherDepartments": sc.departments_on(e.id)}
                  for e in db.query(models.HrEntity).order_by(models.HrEntity.name).all()]
     last = (db.query(models.WeatherAdvisory).order_by(models.WeatherAdvisory.created_at.desc()).first())
     return {"config": cfg, "companies": companies,

@@ -89,7 +89,7 @@ vi.mock('../../api', () => ({
   withFreshReads: vi.fn((fn) => fn()),
 }));
 const LINES_TABLE = {
-  title: 'Ledger Lines - 61000 Repairs', period: '01-01-2026 - 08-31-2026', subtitle: 'All entities',
+  title: 'Ledger Lines - 61000 Repairs', period: '01-01-2026 - 08-31-2026', subtitle: 'All Entities',
   columns: [{ label: 'Date', width: 96 }, { label: 'Debit', num: true, width: 118 }], rows: [['08/19/2026', 22.46]], totals: ['Totals - 1 lines', 22.46],
 };
 vi.mock('./LedgerSearch', async () => {
@@ -195,6 +195,17 @@ describe('Cross-tab drill with filters (Oct 7)', () => {
     render(<ReportsTab />);
     await waitFor(() => expect(screen.getByTestId('ledger-search').dataset.party).toBe('C1'));
     expect(JSON.parse(screen.getByTestId('ledger-search').dataset.drillDims)).toEqual({ departments: ['9500'], journals: ['ARJ'] });
+  });
+});
+
+// Call of 10/27 with Charmi, item 17: a total sent from another screen has no
+// account - it used to be dropped as an empty search; several entities travel.
+describe('Cross-tab drill of a total (10/27, item 17)', () => {
+  it('opens every line of the window, on the entities sent', async () => {
+    requestReportDrill({ account: '', accountName: 'Actual', from: '2026-01-01', to: '2026-02-28', book: 'accrual', entities: ['13000', '15000'], department: '9100' });
+    render(<ReportsTab />);
+    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('drill::2026-02-28:accrual'));
+    expect(screen.getByTestId('ledger-search').dataset.from).toBe('2026-01-01');
   });
 });
 
@@ -571,7 +582,7 @@ describe('ReportsTab controls', () => {
     const d = new Date();
     const today = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${d.getFullYear()}`;
     const line = within(dialog).getByLabelText('Where the file will be saved');
-    expect(line.textContent).toBe(`Will be saved as /Shared/Accounting/Reports/Income Statement - All entities - 01-01-${d.getFullYear()} to ${today}.pdf`);
+    expect(line.textContent).toBe(`Will be saved as /Shared/Accounting/Reports/Income Statement - All Entities - 01-01-${d.getFullYear()} to ${today}.pdf`);
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Excel' }));
     expect(line.textContent).toMatch(/\.xlsx$/);
     // Browse opens the Files browser, tree and all, at the folder in the box; picking fills the box.

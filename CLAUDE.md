@@ -50,6 +50,11 @@ Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
 the build-notes skill refuses commits by it) - change both together.
 
 **Do not modify the other developer's files** — ask them instead.
+**Neil has the final say** (Oct 28 2026): he is head of the company and
+Visesh's lead. A change Neil made or a decision he gave (the "(Neil, <date>)"
+notes in this file and in code comments) is never changed or undone without
+discussing it with him first - the same guardrail as another developer's
+files. Neil may green-light work on anyone's files himself.
 Shared files (`backend/models.py`, `backend/main.py` migrations list,
 `frontend/src/api.js`, `App.jsx`/`Sidebar`): **append only, never reorder**,
 keep the diff minimal.
@@ -88,6 +93,17 @@ keep the diff minimal.
   privileged `DATABASE_URL`; RLS only locks out the public anon key, so a new
   table without it is fully exposed to anyone holding that key. Run
   `get_advisors` after every release — this gap recurs.
+- **AI is OFF - Nexus never spends the Anthropic key unless Neil or Visesh
+  explicitly turns it on (Neil, Oct 29 2026: "we cannot afford it").**
+  `ai_switch.apply()` runs first thing in `main.py` and blanks
+  `ANTHROPIC_API_KEY` for the whole process unless the server carries
+  `NEXUS_AI_ENABLED=true` - an Azure app setting only Neil or Visesh sets.
+  Every AI feature then reads as "not set up". Never add another way to turn
+  it on (a code default, a database row, a Settings switch), never read the
+  key under another name or call the API around the switch, never add a
+  standalone script that calls Anthropic, and never add credits, auto-reload
+  or billing anywhere or suggest doing so - ask Neil. `test_ai_switch.py`
+  pins it.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 - **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
   `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,
@@ -177,6 +193,22 @@ keep the diff minimal.
   button (`lib/usePopupNudge.js`); Close, Cancel and Escape close.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
+- **Every amount on every Accounting report drills down to its ledger lines
+  and on to the source transaction; columns resizable** (Charmi, call of
+  10/27/2026, item 17 - asked before and it did not stick, so it is a house
+  rule now; no one should have to ask for it on a new report). A figure that
+  is posted opens the lines behind it: on Reports through `drill.js`
+  (`requestReportDrill` - the General Ledger lines, `LedgerSearch.jsx`), on
+  any other screen in the side panel (`LinesPanel.jsx` with `lineQuery` from
+  `reportModel.js`; Open in Reports for the full grid). The lines read like
+  Intacct's General Ledger (Doc, Memo/Description, Entity, Vendor, Customer,
+  Item, Employee, Department, Debit / Credit, running Balance on a
+  drill-down, totals) and every line opens its transaction (`EntryDetail`
+  `panel`: right-side panel with Open Full). Every report column takes a
+  `ColumnResizer` with `useColumnWidths('<table key>')` so each person's
+  widths are kept. Only a figure that is worked out rather than posted
+  (a variance, a percent, a budget, a projection, a computed cash-flow line)
+  may stay plain - say which and why in the PR.
 - **Settings saves one way (Oct 23 2026):** a switch, a select, a chip list
   or a reorder saves on change, with a toast; a form with typed fields keeps
   a draft beside the saved value (`lib/useDraft.js`) and has ONE Save row at
@@ -364,7 +396,13 @@ keep the diff minimal.
   has it off. Never rename the key back to `outlookCalendar` (every settings
   save stored that one as true), `routers/shift_ical.py` is the signed personal feed,
   `shift_confirm.py` the confirm-my-schedule ask and nudge,
-  `shift_offboard.py` clears a leaver's future shifts. New shift tables rely
+  `shift_offboard.py` clears a leaver's future shifts. Weather (the
+  `weather_watch.py` advisory, the `weather_call.py` call and its notices)
+  applies ONLY to people in departments with Weather Calls on
+  (`hr_departments.weather`, Settings > Companies > Departments; on for
+  Construction by default, off for every other department - Neil, 10/29/2026):
+  `weather_scope.py` is the one rule every weather path reads - never add a
+  second one. New shift tables rely
   on `_enable_rls_everywhere`; run `get_advisors` after each release.
 
 - **Settings is one tab (Neil, Oct 23 2026, plan
