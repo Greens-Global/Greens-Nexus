@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   X, Copy, Check, Eye, EyeOff, ExternalLink, Pencil, Trash2, RefreshCw, Share2, KeyRound, Star,
-  ShieldAlert, Clock, UserMinus, Lock, Send,
+  ShieldAlert, Clock, UserMinus, Lock, Send, ShieldCheck,
 } from "lucide-react";
 import { api } from "../api";
 import { useDialogFocus, trapTab } from "../lib/useDialogFocus";
@@ -23,6 +23,30 @@ function CopyButton({ text, onCopied, title = "Copy", disabled = false }) {
       onClick={() => { try { navigator.clipboard?.writeText(text); } catch { /* clipboard blocked */ } setDone(true); setTimeout(() => setDone(false), 1400); onCopied?.(); }}>
       {done ? <Check size={14} style={{ color: "var(--cv-ok)" }} /> : <Copy size={14} />}
     </button>
+  );
+}
+
+// The authenticator code (Oct 29 2026): comes with the reveal, counts down,
+// and fetches the next one when it rolls over while the drawer is open.
+function TotpRow({ credId, first, onCopied }) {
+  const [totp, setTotp] = useState(first);
+  const [left, setLeft] = useState(first.left);
+  useEffect(() => { setTotp(first); setLeft(first.left); }, [first]);
+  useEffect(() => {
+    const t = setInterval(() => setLeft((n) => n - 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    if (left > 0) return;
+    api.cvTotp(credId).then((r) => { setTotp(r); setLeft(r.left); }).catch(() => setLeft(30));
+  }, [left, credId]);
+  return (
+    <div className="cv-field" data-totp="">
+      <span className="cv-field-label">Code</span>
+      <span className="cv-field-value cv-mono is-open" style={{ letterSpacing: ".18em", fontWeight: 700 }}>{totp.code.slice(0, 3)} {totp.code.slice(3)}</span>
+      <span className="cv-hint" style={{ minWidth: 60, textAlign: "right" }}>{Math.max(0, left)}s</span>
+      <div className="cv-field-actions"><CopyButton text={totp.code} title="Copy Code" onCopied={onCopied} /></div>
+    </div>
   );
 }
 
@@ -104,6 +128,8 @@ export function CredentialDetail({
                   <CopyButton text={revealed?.secret} title="Copy Password" disabled={!revealed} onCopied={onCopiedSecret} />
                 </div>
               </div>
+              {revealed?.totp && <TotpRow credId={cred.id} first={revealed.totp} onCopied={onCopiedSecret} />}
+              {!revealed && cred.hasTotp && !inTrash && <p className="cv-hint" style={{ marginTop: -4 }}><ShieldCheck size={11} style={{ verticalAlign: -1 }} /> This login has two-step sign-in: Reveal also shows the current authenticator code.</p>}
               {revealed?.previousSecret && (
                 <div className="cv-field" style={{ background: "var(--bg-secondary)" }}>
                   <span className="cv-field-label">Previous</span>

@@ -1373,6 +1373,10 @@ def _run_migrations():
             "ALTER TABLE shift_group_members ADD COLUMN source VARCHAR DEFAULT ''",
             # Credentials (Oct 29 2026): a link on a Personal Vault row. models.VaultPersonalCredential.
             "ALTER TABLE vault_personal_credentials ADD COLUMN url VARCHAR DEFAULT ''",
+            # Credentials security pass (Oct 29 2026): authenticator key, where a reveal came from.
+            "ALTER TABLE vault_credentials ADD COLUMN totp_enc VARCHAR DEFAULT ''",
+            "ALTER TABLE vault_access_logs ADD COLUMN ip VARCHAR DEFAULT ''",
+            "ALTER TABLE vault_access_logs ADD COLUMN user_agent VARCHAR DEFAULT ''",
             # Performance, made simple (Oct 29) - see the Postgres list. models.PerfGoal / PerfReview.
             "ALTER TABLE hr_perf_goals ADD COLUMN metric_key VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_goals ADD COLUMN period_start VARCHAR DEFAULT ''",
@@ -3276,6 +3280,12 @@ def _run_migrations():
         # Credentials (Oct 29 2026): the sign-in link on a Personal Vault row, so
         # My Logins can open it. models.VaultPersonalCredential.
         "ALTER TABLE vault_personal_credentials ADD COLUMN IF NOT EXISTS url VARCHAR DEFAULT ''",
+        # Credentials security pass (Oct 29 2026): the authenticator key a shared
+        # login carries (vault_totp.py) and where a reveal came from.
+        # models.VaultCredential / VaultAccessLog.
+        "ALTER TABLE vault_credentials ADD COLUMN IF NOT EXISTS totp_enc VARCHAR DEFAULT ''",
+        "ALTER TABLE vault_access_logs ADD COLUMN IF NOT EXISTS ip VARCHAR DEFAULT ''",
+        "ALTER TABLE vault_access_logs ADD COLUMN IF NOT EXISTS user_agent VARCHAR DEFAULT ''",
         # Performance, made simple (Neil, Oct 29 2026): a goal measured by a
         # Nexus number over its own period, Proposed until approved; a review's
         # 4-word rating, goal scores, Ready for Promotion, the employee's
@@ -3897,6 +3907,12 @@ def _startup_seeds():
             n = rehash_secret_hashes(db)
             if n:
                 print(f"[startup] credential vault: rehashed {n} reuse hash(es) with the keyed scheme")
+            # Key rotation (Oct 29 2026): rows written under an older key in
+            # NEXUS_VAULT_KEYS are rewritten under the newest one.
+            from routers.credvault import rotate_vault_keys
+            n = rotate_vault_keys(db)
+            if n:
+                print(f"[startup] credential vault: re-encrypted {n} secret(s) under the current key")
         finally:
             db.close()
     except Exception as e:

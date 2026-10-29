@@ -28,6 +28,7 @@ export const rotationDaysLeft = (c) => (c.rotationMax || 90) - (c.rotatedDays ||
 /** The dated things wrong with a credential, worst first. */
 export function healthFlags(c) {
   const f = [];
+  if (c.breached) f.push({ key: "breached", label: "Found in a Breach", tone: "bad" });
   if (c.expiresInDays != null && c.expiresInDays < 0) f.push({ key: "expired", label: "Expired", tone: "bad" });
   if (c.strength === "weak") f.push({ key: "weak", label: "Weak Password", tone: "bad" });
   const left = rotationDaysLeft(c);
@@ -195,7 +196,7 @@ export function healthByDept(rows) {
     const mine = liveRows.filter((c) => (c.dept || "Other") === d);
     const known = mine.filter((c) => c.canReveal);
     const has = (key) => known.filter((c) => healthFlags(c).some((f) => f.key === key)).length;
-    return { dept: d, total: mine.length, weak: has("weak"), reused: has("reused"), overdue: has("overdue"),
+    return { dept: d, total: mine.length, breached: has("breached"), weak: has("weak"), reused: has("reused"), overdue: has("overdue"),
       expiring: has("expiring") + has("expired"), noBackup: mine.filter((c) => !c.backupOwner).length,
       critical: mine.filter((c) => c.tier === "Critical").length };
   });

@@ -10,7 +10,7 @@ import { Field, PasswordField, TYPES, TIERS } from "./vaultShared";
 import { DURATIONS, ROTATION_CHOICES, audienceKey, siteOf } from "./vaultModel";
 import { FIELDS, guessMap, applyMap, validateRows, findDuplicates, toPayload } from "./importModel";
 
-const EMPTY = { name: "", dept: "", type: "Password", tier: "Standard", username: "", secret: "", url: "", note: "", owner: "", backupOwner: "", rotationMax: 90, expiresAt: "" };
+const EMPTY = { name: "", dept: "", type: "Password", tier: "Standard", username: "", secret: "", url: "", note: "", owner: "", backupOwner: "", rotationMax: 90, expiresAt: "", totpSecret: "", clearTotp: false };
 const deptAudience = (dept) => (dept ? [{ kind: "department", value: dept, level: "open", label: `Everyone in ${dept}` }] : []);
 
 // Who may open the credential (Oct 29 2026, vault_access.py): rows of
@@ -124,6 +124,17 @@ export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, 
             label={editing ? "New Password" : "Password"} placeholder={editing ? "Leave blank to keep the current password" : "Enter or generate a password"} />
           {editing && form.secret && <p className="cv-hint">Saving a new password counts as a rotation. The current one is kept as the previous password until the next rotation.</p>}
           <Field label="Link"><input value={form.url} onChange={(e) => set("url", e.target.value)} className="cv-ipt" placeholder="https://…" /></Field>
+          <Field label={cred?.hasTotp && !form.clearTotp ? "Authenticator Key (set)" : "Authenticator Key"}>
+            {cred?.hasTotp && !form.clearTotp ? (
+              <div className="cv-form-grid" style={{ alignItems: "center" }}>
+                <input value={form.totpSecret} onChange={(e) => set("totpSecret", e.target.value)} className="cv-ipt" placeholder="Leave blank to keep the current key" autoComplete="off" />
+                <button type="button" className="cv-btn" onClick={() => set("clearTotp", true)}>Remove Authenticator</button>
+              </div>
+            ) : (
+              <input value={form.totpSecret} onChange={(e) => { set("totpSecret", e.target.value); set("clearTotp", false); }} className="cv-ipt" placeholder="The text under the site's QR code, or the otpauth:// link" autoComplete="off" />
+            )}
+            <p className="cv-hint" style={{ marginTop: 4 }}>For logins with two-step sign-in: whoever can open this credential gets the current 6-digit code too, so nobody waits on one person's phone.</p>
+          </Field>
           <Field label="Notes"><textarea value={form.note} onChange={(e) => set("note", e.target.value)} className="cv-ipt" placeholder="Recovery hints, who to call, what this login is for. Shown only to people who can open the password." /></Field>
           <div className="cv-form-grid">
             <Field label="Rotate Every">

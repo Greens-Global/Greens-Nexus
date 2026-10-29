@@ -12,7 +12,7 @@ export async function exportAudit(rows, nameOf) {
   const XLSX = await import("xlsx");
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(auditRows(rows, nameOf)), "Who Can Open What");
-  const health = healthByDept(rows).map((h) => ({ Department: h.dept, Logins: h.total, Critical: h.critical, Weak: h.weak, Reused: h.reused,
+  const health = healthByDept(rows).map((h) => ({ Department: h.dept, Logins: h.total, Critical: h.critical, Breached: h.breached, Weak: h.weak, Reused: h.reused,
     "Rotation Overdue": h.overdue, "Expiring or Expired": h.expiring, "No Backup Owner": h.noBackup }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(health), "Health by Department");
   const d = new Date();
@@ -40,11 +40,11 @@ export default function Overview({ rows, depts, attention, sharedWithMe, request
           {health.length === 0 ? <p className="cv-hint">No logins yet.</p> : (
             <div style={{ overflowX: "auto" }}>
               <table className="cv-health">
-                <thead><tr><th>Department</th><th className="num">Logins</th><th className="num">Critical</th><th className="num">Weak</th><th className="num">Reused</th><th className="num">Overdue</th><th className="num">Expiring</th><th className="num">No Backup</th></tr></thead>
+                <thead><tr><th>Department</th><th className="num">Logins</th><th className="num">Critical</th><th className="num">Breached</th><th className="num">Weak</th><th className="num">Reused</th><th className="num">Overdue</th><th className="num">Expiring</th><th className="num">No Backup</th></tr></thead>
                 <tbody>
                   {health.map((h) => (
                     <tr key={h.dept} className={`is-link${fDept === h.dept ? " is-active" : ""}`} onClick={() => onPickDept(h.dept)} title={`Show ${h.dept}`}>
-                      <td style={{ fontWeight: 600 }}>{h.dept}</td><td className="num">{h.total}</td><Num n={h.critical} tone="warn" /><Num n={h.weak} /><Num n={h.reused} tone="warn" /><Num n={h.overdue} /><Num n={h.expiring} tone="warn" /><Num n={h.noBackup} tone="warn" />
+                      <td style={{ fontWeight: 600 }}>{h.dept}</td><td className="num">{h.total}</td><Num n={h.critical} tone="warn" /><Num n={h.breached} /><Num n={h.weak} /><Num n={h.reused} tone="warn" /><Num n={h.overdue} /><Num n={h.expiring} tone="warn" /><Num n={h.noBackup} tone="warn" />
                     </tr>
                   ))}
                 </tbody>

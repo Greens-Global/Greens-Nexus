@@ -1958,6 +1958,7 @@ export const api = {
   cvRequest:        (id, body)   => req(`/credvault/credentials/${id}/request`, { method: 'POST', body: JSON.stringify(body || {}) }),
   cvAccess:         (id)         => req(`/credvault/credentials/${id}/access`),
   cvAudienceOptions: ()          => req('/credvault/audience-options'),
+  cvTotp:           (id)         => req(`/credvault/credentials/${id}/totp`),
   cvRevokeGrant:    (grantId)    => req(`/credvault/grants/${grantId}`, { method: 'DELETE' }),
   cvOtpStatus:      ()           => req('/credvault/otp/status'),
   cvPersonalUpdate: (id, body)   => req(`/credvault/personal/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
