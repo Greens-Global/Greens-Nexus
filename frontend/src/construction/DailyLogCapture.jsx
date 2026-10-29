@@ -225,7 +225,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   return (
     <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch' }}>
       <div className="modal-content nx-popup" onClick={(e) => e.stopPropagation()}
-        style={{ display: 'flex', flexDirection: 'column' }}>
+        style={{ display: 'flex', flexDirection: 'column', padding: '22px 24px 20px' }}>
 
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
           <div style={{ minWidth: 0 }}>

@@ -173,7 +173,7 @@ export default function Checklist({ task, people = [], canEdit = true, canConver
               {canEdit && canConvert && <ItemMenu item={item} onConvert={convert} />}
               {canEdit && (
                 <button type="button" data-x aria-label="Remove item" onClick={() => remove(item)}
-                  style={{ ...btn('ghost'), padding: 2, color: NX.faint, opacity: 0, transition: 'opacity 0.1s' }}><X size={13} /></button>
+                  className="nx-touch-reveal" style={{ ...btn('ghost'), padding: 2, color: NX.faint, opacity: 0, transition: 'opacity 0.1s' }}><X size={13} /></button>
               )}
             </div>
           );

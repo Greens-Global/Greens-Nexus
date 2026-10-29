@@ -43,7 +43,7 @@ export default function SerpOverviewModal({ keyword, onClose }) {
 
   return (
     <Modal title={`SERP Overview - ${keyword.keyword}`} onClose={onClose} width="max-w-3xl">
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
+      <div className="mktg-cols-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
         <StatBox icon={Search} color={{ color: C.blue600, background: C.blue50 }} value={formatNumber(keyword.volume)} label="Monthly Volume" />
         <StatBox icon={Gauge} color={kdColor(keyword.difficulty)} value={String(keyword.difficulty)} label="Difficulty (KD)" />
         <StatBox icon={DollarSign} color={{ color: C.emerald600, background: C.emerald50 }} value={`$${keyword.cpc.toFixed(2)}`} label="CPC" />

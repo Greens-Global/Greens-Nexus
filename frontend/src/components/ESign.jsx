@@ -1468,6 +1468,12 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
       {(docFields || []).filter(f => f.page === pageIdx).map(f => {
         const mine = f.role === myRole;
         const st = { position: 'absolute', left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%` };
+        // A phone zooms the page into any field typed under 16px (iOS), so
+        // the signer's text box and dropdown render at 16px and are scaled
+        // down to the 11px look - same box on the page, no zoom (phone pass,
+        // Oct 29 2026). Borders and padding are drawn 16/11 larger to match.
+        const Z = 16 / 11;
+        const zoomSafe = { ...st, width: `${f.w * 100 * Z}%`, height: `${f.h * 100 * Z}%`, fontSize: 16, transform: `scale(${1 / Z})`, transformOrigin: '0 0' };
         if (f.type === 'merge') {
           // Printed from the offer at send; the same for every signer, never typed.
           return <span key={f.id} title={MERGE_LABEL[f.merge] || 'Offer field'}
@@ -1486,13 +1492,13 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
         }
         if (f.type === 'text' && mine) {
           return <input key={f.id} ref={el => { fieldRefs.current[f.id] = el; }} value={values[f.id] || ''} disabled={!payload.myTurn} onChange={e => setVal(f.id, e.target.value)}
-            placeholder="Text" style={{ ...st, border: '1.5px dashed #fbbf24', background: 'rgba(251,191,36,0.1)', borderRadius: 4, fontSize: 11, padding: '0 4px' }} />;
+            placeholder="Text" style={{ ...zoomSafe, border: '2.2px dashed #fbbf24', background: 'rgba(251,191,36,0.1)', borderRadius: 6, padding: '0 6px' }} />;
         }
         if (f.type === 'dropdown' && mine) {
           return (
             <select key={f.id} ref={el => { fieldRefs.current[f.id] = el; }} value={values[f.id] || ''} disabled={!payload.myTurn}
               onChange={e => setVal(f.id, e.target.value)}
-              style={{ ...st, border: `1.5px solid ${values[f.id] ? '#10b981' : '#fbbf24'}`, borderRadius: 4, fontSize: 11,
+              style={{ ...zoomSafe, border: `2.2px solid ${values[f.id] ? '#10b981' : '#fbbf24'}`, borderRadius: 6,
                 fontFamily: 'Inter,sans-serif', background: values[f.id] ? 'rgba(16,185,129,0.07)' : 'rgba(251,191,36,0.12)', cursor: 'pointer' }}>
               <option value="">- select -</option>
               {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}

@@ -41,6 +41,7 @@ function PostCard({ p, showFacility, onEditClick }) {
     >
       <button
         onClick={() => onEditClick(p)}
+        className="nx-touch-reveal"
         style={{
           position: 'absolute',
           top: 8,
@@ -119,7 +120,7 @@ export default function GbpPostsCard({ posts, showFacility, onAddClick, onEditCl
           Create Post
         </button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12, maxHeight: 460, overflowY: 'auto', padding: 2 }}>
+      <div className="mktg-cols-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12, maxHeight: 460, overflowY: 'auto', padding: 2 }}>
         {posts.map((p) => (
           <PostCard key={p.id} p={p} showFacility={showFacility} onEditClick={onEditClick} />
         ))}
