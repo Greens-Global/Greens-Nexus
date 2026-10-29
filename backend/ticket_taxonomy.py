@@ -91,7 +91,7 @@ NEXUS_MODULES = [
     "Tickets or Support", "Files", "Knowledge Base", "Documents or Nexus Sign",
     "Item Management", "Asset Management", "Accounting", "Investor Relations",
     "People", "Construction", "Operations", "Marketing", "Business Intelligence",
-    "Credential Vault", "Workforce Analytics", "Notifications or Emails", "Settings",
+    "Credentials", "Workforce Analytics", "Notifications or Emails", "Settings",
 ]
 
 DEFAULT_HELP_TOPICS = [

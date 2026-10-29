@@ -106,7 +106,7 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Left Menu', desc: 'Grouped into My Desk (Dashboard, Workday, Team, Approvals...), Work (Tasks, Tickets, Files, Documents, Credential Vault, Workflows), Modules and System (Help Center, Settings). You only see what your role or Access Groups allow.' },
+      { name: 'Left Menu', desc: 'Grouped into My Desk (Dashboard, Workday, Team, Approvals...), Work (Tasks, Tickets, Files, Documents, Credentials, Workflows), Modules and System (Help Center, Settings). You only see what your role or Access Groups allow.' },
       { name: 'Approvals', desc: 'Left menu > Approvals: everything waiting on your decision, from every module, in one list. See the Approvals page of this guide.' },
       { name: 'Top Tabs', desc: 'Each module shows its own tabs in the header (in the page itself on a phone).' },
       { name: 'Search (Ctrl+K)', desc: 'One Search Nexus bar in the same place on every screen: tasks, projects, people, portfolios, teams, items, checkouts, purchase requests and pages. Press / to jump to it (on the Company Directory and the Knowledge Base, / goes to that page\'s own search), and Esc clears it.' },
@@ -960,11 +960,11 @@ export const DOCS = [
     tips: ['Signers outside the company do not need a Nexus account. The emailed link is enough.'],
   },
   {
-    id: 'credential-vault', name: 'Credential Vault', group: 'Work', icon: 'KeyRound', view: 'credvault',
+    id: 'credential-vault', name: 'Credentials', group: 'Work', icon: 'KeyRound', view: 'credvault',
     tagline: 'Shared company passwords, kept by their owners, opened by the people who need them.',
-    where: 'Left menu > Credential Vault',
-    access: 'Anyone with the Credential Vault grant. The grant is given on purpose per role; it is never part of a default bundle.',
-    purpose: 'Credential Vault stores company logins so they are never shared in chat or spreadsheets. Every credential has an owner and a department. People in that department can open it; everyone else can see that it exists and ask the owner for timed access. Critical credentials are opened only by their owners and admins. Your Personal Vault is private, locked with your own password, and nobody else - admins included - can read it.',
+    where: 'Left menu > Credentials',
+    access: 'Anyone with the Credentials grant. The grant is given on purpose per role; it is never part of a default bundle.',
+    purpose: 'Credentials stores company logins so they are never shared in chat or spreadsheets. Every credential has an owner and a department. People in that department can open it; everyone else can see that it exists and ask the owner for timed access. Critical credentials are opened only by their owners and admins. Your Personal Vault is private, locked with your own password, and nobody else - admins included - can read it.',
     gains: [
       'No more passwords in email, chat or sticky notes.',
       'Every reveal, copy, share and change is logged, with who and when.',
@@ -974,7 +974,7 @@ export const DOCS = [
       {
         title: 'Open a Shared Password',
         steps: [
-          'Open Credential Vault and find the credential - search, pick a collection tab above the list (Owned by Me, Shared With Me, Favorites), or choose a department in the Department filter.',
+          'Open Credentials and find the credential - search, pick a collection tab above the list (Owned by Me, Shared With Me, Favorites), or choose a department in the Department filter.',
           'Click the row. The drawer shows the username, the masked password, the link and the notes.',
           'Click Reveal. The first time in a while you confirm it is you with a code by text or email; after that the header says "Verified until" and reveals are instant.',
           'Click Copy. Copies are logged, like reveals.',
@@ -992,7 +992,7 @@ export const DOCS = [
         title: 'Share a Password You Own',
         steps: [
           'Open the credential and click Share in the Access section.',
-          'Pick the person and a duration. They see it in their own Credential Vault for that long.',
+          'Pick the person and a duration. They see it in their own Credentials screen for that long.',
           'The Access section lists who has it and until when; End Access cuts it short.',
         ],
       },

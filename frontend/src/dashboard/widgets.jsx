@@ -655,7 +655,7 @@ export const QUICK_ACTIONS = [
   { key: 'checkout-item', label: 'Check Out an Item', view: 'inventory', sub: 'checkouts',    color: 'orange', Icon: HandCoins },
   { key: 'my-shifts',     label: 'My Shifts',         view: 'myhr', sub: 'shifts',            color: 'green',  Icon: CalendarDays },
   { key: 'briefing',      label: 'My Briefing',       view: 'briefing',                       color: 'brand',  Icon: Sun },
-  { key: 'credvault',     label: 'Credential Vault',  view: 'credvault', module: 'credvault', color: 'purple', Icon: ShieldCheck },
+  { key: 'credvault',     label: 'Credentials',       view: 'credvault', module: 'credvault', color: 'purple', Icon: ShieldCheck },
 ];
 // Time Clock and Knowledge Base left the default set for New Ticket (Neil,
 // 10/08); both stay in the catalog for a tile that picks them.
