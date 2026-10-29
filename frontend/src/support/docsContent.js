@@ -2080,7 +2080,7 @@ export const DOCS = [
     ],
     features: [
       { name: 'Search Bar', desc: 'At the top of Help Center: one search across this guide, the Knowledge Base and your courses, with Ask Nexus for a written answer.' },
-      { name: 'Ask Nexus', desc: 'The card with the question mark, and the answers in the search bar and the ? Help panel. Nexus answers only from this guide and the Knowledge Base pages you can read, cites its sources, and offers File a Ticket with your question filled in when it cannot help. It never reads tickets or anyone\'s records.' },
+      { name: 'Ask Nexus', desc: 'The Ask Nexus card (it takes you to the search bar), and the answers in the search bar and the ? Help panel. Nexus answers only from this guide and the Knowledge Base pages you can read, cites its sources, and offers File a Ticket with your question filled in when it cannot help. It never reads tickets or anyone\'s records.' },
       { name: 'Was This Helpful?', desc: 'Yes or No under every guide article and every Ask Nexus answer. The team sees what did not help and fixes the guide.' },
       { name: 'I Need To...', desc: 'Shortcuts straight to the screens that do the common things: Request Time Off, Reimbursement, Purchase Request, a Time Sheet fix, Ask HR and Request Access.' },
       { name: 'Known Issues', desc: 'When something in Nexus is broken or slow, administrators post a Known Issues banner. It shows on Help Center, in the ? Help panel and on the ticket form, so you know before you file a ticket about it.' },
