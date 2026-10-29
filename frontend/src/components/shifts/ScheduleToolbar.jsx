@@ -1,15 +1,15 @@
-// The schedule toolbar (Oct 2026, Teams parity; tightened 10/02): ONE row -
-// [Team ▾] [‹ date ›  Today] [Day Week Month] ...... [+ Add] [Share N] [⋯].
-// The team switcher leads (one team at a time), the decorated date block is
-// the anchor ("Sep 28 - Oct 4" over "2026 · Week 40 · This Week", a click
-// jumps to any date), and "Today" is a small text button that shows only
-// when today is out of view. Everything that used to be a button of its own
-// (Fill, Copy, Clear, Import, Export, Print, Discard, Requests, the View
-// menu, the filters) lives under + Add or ⋯. On a phone: [Team ▾] [+] [⋯]
-// over [‹ date ›] [Today] [Week ▾]; Share moves under ⋯.
+// The schedule toolbar (Oct 2026, Teams parity; reworked Oct 28 2026 after
+// Neil's walk-through): ONE row - [‹ date ›  Today] [Day Week Month] ......
+// [Fill Automatically] [Add] [Customize] [Export ▾] [Import] [⋯] | [Discard]
+// [Save & Share N]. The date bar leads on the left; the team picker is not
+// here any more - it sits on its own line right above the schedule, so the
+// grid always says which team it is. ⋯ keeps only Copy Week, Clear Week,
+// Requests and Keyboard Shortcuts. On a phone: [‹ date ›] [+] [⋯] over
+// [Team ▾] [Week ▾]; Save & Share, Discard, Fill, Import, Export and
+// Customize move under ⋯.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, Plus, Send, MoreHorizontal, Clock, CalendarRange, CalendarOff, StickyNote, Copy, CalendarDays, Trash2, Upload, Download, Printer, RotateCcw, Inbox, SlidersHorizontal, X, Search, EyeOff, Keyboard, Gauge, ChevronDown, ChevronUp, AlertTriangle, CircleCheck, BellRing } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Send, MoreHorizontal, Clock, CalendarRange, CalendarOff, StickyNote, Copy, Wand2, Trash2, Upload, Download, Printer, RotateCcw, Inbox, SlidersHorizontal, X, Search, Keyboard, ChevronDown, ChevronUp, AlertTriangle, CircleCheck, BellRing } from 'lucide-react';
 import { api } from '../../api';
 import { formatDate, formatDateTime, formatWeekday, formatHHMM } from '../../lib/datetime';
 import { MenuButton, POP, HEAD, useAnchor, useDismissBoth } from './Menu';
@@ -46,33 +46,33 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
     ...(actions.canTimeOff ? [{ key: 'timeoff', label: 'Time Off', Icon: CalendarOff, onClick: () => onAdd('timeoff') }] : []),
     { key: 'note', label: 'Day Note', Icon: StickyNote, onClick: () => onAdd('note') },
   ];
-  // On a phone, Share lives under ⋯ so the rows stay short; nothing is lost.
+  // Export and Print in one place (Neil, Oct 28 2026: "an Export button that
+  // has a dropdown that allows for all print/share type options").
+  const exportItems = [
+    { key: 'export', label: 'Export to Excel', Icon: Download, onClick: actions.exportFile, disabled: !ready },
+    { key: 'print', label: 'Print', Icon: Printer, onClick: actions.print, disabled: !ready },
+  ];
+  const saveTitle = unsharedCount ? `${unsharedCount} change${unsharedCount === 1 ? '' : 's'} your team has not seen yet. Save & Share sends them and tells the people affected.` : 'Everything is saved and shared with the team';
+  // ⋯ keeps only what is used now and then (Neil, Oct 28 2026: "the 3 dots
+  // is hiding too many options"). On a phone it also carries what has no
+  // room on the row.
   const moreItems = [
     ...(phone && canManage ? [
-      { key: 'share', label: `Share${unsharedCount ? ` (${unsharedCount})` : ''}`, Icon: Send, onClick: onShare, disabled: busy || !ready, title: unsharedCount ? `${unsharedCount} change${unsharedCount === 1 ? '' : 's'} your team has not seen yet` : 'Everything is shared with the team' },
+      { key: 'share', label: `Save & Share${unsharedCount ? ` (${unsharedCount})` : ''}`, Icon: Send, onClick: onShare, disabled: busy || !ready, title: saveTitle },
+      { key: 'discard', label: 'Discard Changes', Icon: RotateCcw, onClick: actions.discard, disabled: !unsharedCount || busy },
       'sep',
-    ] : []),
-    ...(canManage ? [
-      { key: 'copy', label: 'Copy Week', Icon: Copy, onClick: actions.copy, disabled: !ready },
-      { key: 'fill', label: 'Fill From Usual Hours', Icon: CalendarDays, onClick: actions.fill, disabled: !ready },
-      { key: 'clear', label: 'Clear Week', Icon: Trash2, onClick: actions.clear, disabled: !ready },
-      'sep',
+      { key: 'fill', label: 'Fill Automatically', Icon: Wand2, onClick: actions.fill, disabled: !ready },
       { key: 'import', label: 'Import', Icon: Upload, onClick: actions.importFile, disabled: !ready },
     ] : []),
-    { key: 'export', label: 'Export', Icon: Download, onClick: actions.exportFile, disabled: !ready },
-    { key: 'print', label: 'Print', Icon: Printer, onClick: actions.print, disabled: !ready },
-    'sep',
-    { key: 'view', label: 'View Options', Icon: SlidersHorizontal, onClick: actions.viewOptions },
-    { key: 'hideEmpty', label: 'Hide People Without Shifts', Icon: EyeOff, checked: !!actions.hideEmpty, onClick: actions.toggleHideEmpty },
-    ...(actions.toggleCoverage ? [{ key: 'coverage', label: 'Show Coverage', Icon: Gauge, checked: !!actions.coverage, onClick: actions.toggleCoverage }] : []),
+    ...(phone ? [...exportItems, { key: 'customize', label: 'Customize', Icon: SlidersHorizontal, onClick: actions.viewOptions }, 'sep'] : []),
     ...(canManage ? [
+      { key: 'copy', label: 'Copy Week', Icon: Copy, onClick: actions.copy, disabled: !ready },
+      { key: 'clear', label: 'Clear Week', Icon: Trash2, onClick: actions.clear, disabled: !ready },
       'sep',
-      { key: 'discard', label: `Discard Changes${actions.discardCount ? ` (${actions.discardCount})` : ''}`, Icon: RotateCcw, onClick: actions.discard, disabled: !actions.discardCount || busy,
-        title: 'Undo edits and removals that are not shared yet' },
       { key: 'requests', label: 'Requests', Icon: Inbox, onClick: actions.requests },
     ] : []),
     ...(!phone && actions.shortcuts ? ['sep', { key: 'keys', label: 'Keyboard Shortcuts', Icon: Keyboard, onClick: actions.shortcuts }] : []),
-  ];
+  ].filter((x, i, all) => x !== 'sep' || (i > 0 && i < all.length - 1 && all[i - 1] !== 'sep'));
   const unit = viewName.toLowerCase();
   const dateNav = (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
@@ -82,10 +82,10 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
       {showToday && <button type="button" className="sched-today" onClick={onToday} title="Today (T)" style={TODAY_BTN}>Today</button>}
     </div>
   );
-  const more = (
-    <MenuButton label="" Icon={MoreHorizontal} items={moreItems} ariaLabel="More" align="right" width={240} style={{ padding: phone ? '7px 9px' : '6px 8px', height: phone ? 36 : undefined }}
+  const more = moreItems.length ? (
+    <MenuButton label="" Icon={MoreHorizontal} items={moreItems} ariaLabel="More" align="right" width={220} style={{ padding: phone ? '7px 9px' : '6px 8px', height: phone ? 36 : undefined }}
       badge={phone && unsharedCount > 0 ? <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--wk-brand)', marginLeft: -4 }} /> : null} />
-  );
+  ) : null;
   // "5 Of 8 Confirmed" (Phase 3a): only when a share in view asked someone to confirm.
   const confirmChip = canManage && confirmations && confirmations.total > 0 ? <ConfirmChip c={confirmations} onNudge={onNudge} compact={phone} /> : null;
   if (phone) {
@@ -93,24 +93,23 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
     return (
       <div role="toolbar" aria-label="Schedule" style={{ marginBottom: 10, display: 'grid', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          {teamSwitcher}
-          {!teamSwitcher && <div style={{ flex: 1 }} />}
+          {dateNav}
+          <div style={{ flex: 1 }} />
           {canManage && <MenuButton label="" Icon={Plus} items={addItems} ariaLabel="Add" primary width={190} disabled={!ready} align="right" style={{ padding: '7px 10px', height: 36 }} />}
           {more}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          {dateNav}
-          <div style={{ flex: 1 }} />
+          {teamSwitcher}
+          {!teamSwitcher && <div style={{ flex: 1 }} />}
           {confirmChip}
           <MenuButton label={viewName} items={viewItems} ariaLabel="View" width={150} align="right" style={{ padding: '6px 10px', fontWeight: 700 }} />
         </div>
       </div>
     );
   }
+  const BTN = { fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 };
   return (
-    <div role="toolbar" aria-label="Schedule" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap', rowGap: 10 }}>
-      {teamSwitcher}
-      {teamSwitcher && <span aria-hidden="true" style={{ width: 1, height: 26, background: 'var(--line)' }} />}
+    <div role="toolbar" aria-label="Schedule" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap', rowGap: 10 }}>
       {dateNav}
       <div role="group" aria-label="View" style={{ display: 'inline-flex', border: '1px solid var(--line)', borderRadius: 9, overflow: 'hidden', background: 'var(--card)' }}>
         {VIEWS.map(([k, label]) => {
@@ -123,19 +122,38 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
         })}
       </div>
       <div style={{ flex: 1 }} />
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         {confirmChip}
-        {canManage && <MenuButton label="Add" Icon={Plus} items={addItems} ariaLabel="Add" primary width={190} disabled={!ready} />}
         {canManage && (
-          <button type="button" className={unsharedCount ? 'primary-btn' : 'secondary-btn'} onClick={onShare} disabled={busy || !ready}
-            title={unsharedCount ? `${unsharedCount} change${unsharedCount === 1 ? '' : 's'} your team has not seen yet` : 'Everything is shared with the team'}
-            aria-label={`Share${unsharedCount ? `, ${unsharedCount} unshared` : ''}`}
-            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Send size={13} /> Share
-            {unsharedCount > 0 && <span style={{ fontSize: 10.5, fontWeight: 800, background: '#fff', color: 'var(--wk-brand)', borderRadius: 10, padding: '0 6px', minWidth: 18, textAlign: 'center' }}><RollingNumber value={unsharedCount} /></span>}
+          <button type="button" className="secondary-btn" onClick={actions.fill} disabled={!ready} title="Place each person's usual hours across the dates you pick" style={BTN}>
+            <Wand2 size={13} /> Fill Automatically
+          </button>
+        )}
+        {canManage && <MenuButton label="Add" Icon={Plus} items={addItems} ariaLabel="Add" width={190} disabled={!ready} />}
+        <button type="button" className="secondary-btn" onClick={actions.viewOptions} title="Choose what the schedule shows" style={BTN}>
+          <SlidersHorizontal size={13} /> Customize
+        </button>
+        <MenuButton label="Export" Icon={Download} items={exportItems} ariaLabel="Export" width={180} align="right" disabled={!ready} />
+        {canManage && (
+          <button type="button" className="secondary-btn" onClick={actions.importFile} disabled={!ready} title="Add shifts from an Excel file" style={BTN}>
+            <Upload size={13} /> Import
           </button>
         )}
         {more}
+        {canManage && (
+          <>
+            <span aria-hidden="true" style={{ width: 1, height: 26, background: 'var(--line)', margin: '0 2px' }} />
+            <button type="button" className="secondary-btn" onClick={actions.discard} disabled={busy || !ready || !unsharedCount}
+              title={unsharedCount ? 'Throw away the changes your team has not seen yet' : 'Nothing to discard'} style={BTN}>
+              <RotateCcw size={13} /> Discard
+            </button>
+            <button type="button" className={unsharedCount ? 'primary-btn' : 'secondary-btn'} onClick={onShare} disabled={busy || !ready}
+              title={saveTitle} aria-label={`Save & Share${unsharedCount ? `, ${unsharedCount} unsaved` : ''}`} style={BTN}>
+              <Send size={13} /> Save &amp; Share
+              {unsharedCount > 0 && <span style={{ fontSize: 10.5, fontWeight: 800, background: '#fff', color: 'var(--wk-brand)', borderRadius: 10, padding: '0 6px', minWidth: 18, textAlign: 'center' }}><RollingNumber value={unsharedCount} /></span>}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -259,11 +277,13 @@ export const REASON_MAX = 300;   // the server keeps 300 (routers/timeclock publ
 // `memo` / `onMemo` (Oct 15): a warning jump closes the dialog to show the
 // cell; what was picked and typed - and the review itself - is handed back
 // to the schedule and restored when the dialog reopens, on Review And Share.
-export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCount = 0, totalCount = 0, thisWeek = null, groups = [], busy, onPublish, onJump, onClose,
+export function ShareDialog({ defaultStart, defaultEnd, defaultGroupId = '', lastPublishedAt, localCount = 0, totalCount = 0, thisWeek = null, groups = [], busy, onPublish, onJump, onClose,
   memo = null, onMemo = null }) {
   const big = totalCount > SHARE_SUMMARY_OVER && !!thisWeek && !memo;
-  const [from, setFrom] = useState(memo?.from || (big ? thisWeek.start : defaultStart));
-  const [to, setTo] = useState(memo?.to || (big ? addDaysIso(thisWeek.start, 13) : defaultEnd));
+  // The dates on screen, always (Neil, Oct 28 2026: sharing the week he was
+  // looking at opened this week instead and said there was nothing to share).
+  const [from, setFrom] = useState(memo?.from || defaultStart);
+  const [to, setTo] = useState(memo?.to || defaultEnd);
   const [byWeek, setByWeek] = useState(null);
   useEffect(() => {
     if (!big) return undefined;
@@ -277,7 +297,7 @@ export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCo
     return () => { live = false; };
   }, [big]); // eslint-disable-line react-hooks/exhaustive-deps
   const [notify, setNotify] = useState(memo?.notify || 'changed');
-  const [groupId, setGroupId] = useState(memo?.groupId || '');
+  const [groupId, setGroupId] = useState(memo?.groupId ?? defaultGroupId);
   const [count, setCount] = useState(null);    // null = unknown (older API)
   // Recent shares made with warnings (Oct 15), under step 1 - the reason in
   // quotes. An older API without the route: nothing shown.
@@ -360,7 +380,7 @@ export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCo
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 3 }}>
                   {byWeek ? `This week: ${byWeek.tw} · Next week: ${byWeek.nw} · Other weeks: ${byWeek.other}` : 'Counting by week...'}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>This week and next are picked. Widen the dates to share the rest.</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>The dates on screen are picked. Widen them to share the rest.</div>
               </div>
             )}
             <div style={{ display: 'grid', gap: 12 }}>
@@ -541,12 +561,16 @@ export function DayNoteDialog({ date, groups = [], notes = [], busy, onSave, onC
 // toolbar - search, rows by team or location, one shift type, Teams' Show
 // list, your own shifts only, and two weeks at a time.
 export const SHOW_OPTIONS = [['teams', 'Groups'], ['open', 'Open Shifts'], ['conflicts', 'Shift Conflicts'], ['availability', 'Availability'], ['photos', 'Profile Pictures'], ['sunday', 'Sunday'], ['actuals', 'Actuals']];
-export function ViewOptionsDialog({ prefs, onPrefs, query, onQuery, groupBy, onGroupBy, presetFilter, onPresetFilter, presets = [], twoWeeks, onTwoWeeks, canViewByShift, onClose }) {
+// Customize (Neil, Oct 28 2026: "a Customize button that allows for all
+// customizations"): everything about what the schedule shows, in one place -
+// Hide People Without Shifts and Show Coverage moved here from ⋯.
+export function ViewOptionsDialog({ prefs, onPrefs, query, onQuery, groupBy, onGroupBy, presetFilter, onPresetFilter, presets = [], twoWeeks, onTwoWeeks, canViewByShift,
+  coverage = null, onCoverage = null, onClose }) {
   const set = (k, v) => onPrefs({ ...prefs, [k]: v });
   return (
     <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="View Options" className="nx-popup" style={MODAL_CARD}>
-        <DialogHead title="View Options" onClose={onClose} />
+      <div role="dialog" aria-label="Customize" className="nx-popup" style={MODAL_CARD}>
+        <DialogHead title="Customize" onClose={onClose} />
         <div style={{ display: 'grid', gap: 14, marginTop: 8 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 8, padding: '5px 10px' }}>
             <Search size={13} color="var(--muted)" />
@@ -574,6 +598,8 @@ export function ViewOptionsDialog({ prefs, onPrefs, query, onQuery, groupBy, onG
               {SHOW_OPTIONS.map(([k, label]) => (
                 <label key={k} style={CHECK}><input type="checkbox" checked={prefs[k] !== false} onChange={(e) => set(k, e.target.checked)} aria-label={`Show ${label}`} /> {label}</label>
               ))}
+              <label style={CHECK}><input type="checkbox" checked={!prefs.hideEmpty} onChange={(e) => set('hideEmpty', !e.target.checked)} aria-label="Show people without shifts" /> People Without Shifts</label>
+              {onCoverage && <label style={CHECK}><input type="checkbox" checked={!!coverage} onChange={(e) => onCoverage(e.target.checked)} aria-label="Show coverage" /> Coverage</label>}
               <label style={CHECK}><input type="checkbox" checked={!!prefs.mine} onChange={(e) => set('mine', e.target.checked)} aria-label="Your shifts only" /> Your Shifts Only</label>
               <label style={CHECK}><input type="checkbox" checked={!!twoWeeks} onChange={(e) => onTwoWeeks(e.target.checked)} aria-label="Two weeks at a time" /> Two Weeks At A Time</label>
             </div>

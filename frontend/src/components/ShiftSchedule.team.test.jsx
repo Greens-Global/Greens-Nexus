@@ -12,7 +12,7 @@ const api = {
   timeSchedule: vi.fn(), timeSchedCreate: vi.fn(), timeSchedDelete: vi.fn(), timeSchedDiscard: vi.fn(), timeSchedBulk: vi.fn(),
   timeSchedCopy: vi.fn(), timeSchedUnshared: vi.fn(), timeSchedMove: vi.fn(), timeSchedCheck: vi.fn(), timeOffTypes: vi.fn(),
   timeShiftGroupMembers: vi.fn(), timeShiftGroupMeta: vi.fn(), timeSchedPublishReview: vi.fn(), timeSchedHistory: vi.fn(),
-  timeSchedConfirmations: vi.fn(), timeSchedNudge: vi.fn(),
+  timeSchedConfirmations: vi.fn(), timeSchedNudge: vi.fn(), timeSchedDiscardAll: vi.fn(),
 };
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => api[k] || vi.fn().mockResolvedValue({}) }) }));
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: vi.fn().mockResolvedValue(true), prompt: vi.fn() } }));
@@ -56,6 +56,7 @@ beforeEach(() => {
   api.timeOffTypes.mockResolvedValue({ builtIn: ['vacation'], custom: [], requestsOn: true });
   api.timeSchedConfirmations.mockResolvedValue({ people: [], unconfirmed: 0 });
   api.timeSchedNudge.mockResolvedValue({ nudged: 0 });
+  api.timeSchedDiscardAll.mockResolvedValue({ discarded: 1 });
 });
 
 describe('Team switcher', () => {
@@ -122,7 +123,18 @@ describe('Team switcher', () => {
     fireEvent.keyDown(list, { key: 'ArrowDown' });
     fireEvent.keyDown(list, { key: 'Enter' });
     expect(screen.queryByRole('listbox')).toBeNull();
-    expect(teamButton().textContent).toContain('Back');
+    // Front has an unsaved draft on screen: switching asks first (Oct 28 2026).
+    let ask = await screen.findByRole('alertdialog');
+    expect(ask.textContent).toContain('1 change on this team has not been shared with the team yet');
+    fireEvent.click(within(ask).getByRole('button', { name: 'Keep Editing' }));
+    expect(teamButton().textContent).toContain('Front');
+    fireEvent.click(teamButton());
+    fireEvent.keyDown(screen.getByRole('listbox', { name: 'Teams' }), { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByRole('listbox', { name: 'Teams' }), { key: 'Enter' });
+    ask = await screen.findByRole('alertdialog');
+    fireEvent.click(within(ask).getByRole('button', { name: 'Discard Changes' }));
+    await waitFor(() => expect(api.timeSchedDiscardAll).toHaveBeenCalledWith({ include_drafts: true, group_id: 'g1' }));
+    await waitFor(() => expect(teamButton().textContent).toContain('Back'));
     fireEvent.click(teamButton());
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('listbox')).toBeNull();
@@ -182,6 +194,38 @@ describe('Date block and week keys', () => {
   });
 });
 
+describe('Fill Automatically (Neil, Oct 28 2026)', () => {
+  it('opens on the team on screen, gives each person their usual hours, and names who has none', async () => {
+    api.timeSchedule.mockResolvedValue(data([shift()], { usual: { [A]: 'p1' } }));
+    api.timeSchedBulk.mockResolvedValue({ created: 5 });
+    render(<ShiftSchedule toastOk={vi.fn()} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.click(within(screen.getByRole('toolbar', { name: 'Schedule' })).getByRole('button', { name: /Fill Automatically/ }));
+    const dlg = screen.getByRole('dialog', { name: 'Fill Automatically' });
+    expect(within(dlg).getByRole('combobox', { name: 'Apply to' }).value).toBe('g1');            // Front, not the first group by chance
+    expect(within(dlg).getByRole('combobox', { name: 'Shift' }).value).toBe('__usual');
+    expect(dlg.querySelector('[data-fill-summary]').textContent).toContain('1 person gets their usual hours.');
+    expect(dlg.querySelector('[data-fill-summary]').textContent).toContain('No usual hours set for Bob Brown');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Fill Schedule' }));
+    await waitFor(() => expect(api.timeSchedBulk).toHaveBeenCalledWith({ shift_id: 'p1', emails: [A], start_date: monday, end_date: plusDays(monday, 6),
+      weekdays: [0, 1, 2, 3, 4], skip_timeoff: true, overwrite: false }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Fill Automatically' })).toBeNull());
+  });
+
+  it('puts one picked shift type on the whole team instead', async () => {
+    api.timeSchedule.mockResolvedValue(data([shift()]));
+    api.timeSchedBulk.mockResolvedValue({ created: 10, people: 2 });
+    render(<ShiftSchedule toastOk={vi.fn()} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.click(within(screen.getByRole('toolbar', { name: 'Schedule' })).getByRole('button', { name: /Fill Automatically/ }));
+    const dlg = screen.getByRole('dialog', { name: 'Fill Automatically' });
+    fireEvent.change(within(dlg).getByRole('combobox', { name: 'Shift' }), { target: { value: 'p1' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Fill Schedule' }));
+    await waitFor(() => expect(api.timeSchedBulk).toHaveBeenCalledWith({ shift_id: 'p1', weekdays: [0, 1, 2, 3, 4], start_date: monday, end_date: plusDays(monday, 6),
+      skip_timeoff: true, overwrite: false, group_id: 'g1' }));
+  });
+});
+
 describe('Building a week in clicks', () => {
   const usualData = (scheduled = []) => data(scheduled, { usual: { [A]: 'p1', [B]: 'p1' } });
 
@@ -234,13 +278,13 @@ describe('Building a week in clicks', () => {
     await waitFor(() => expect(api.timeSchedCreate).toHaveBeenCalledWith(expect.objectContaining({ employee_email: A, work_date: monday, shift_id: 'p1', note: 'Keys', break_min: 30 })));
   });
 
-  it('greets a team with nothing this week with Fill Usual Hours and Copy Last Week', async () => {
+  it('greets a team with nothing this week with Fill Automatically and Copy Last Week', async () => {
     api.timeSchedule.mockResolvedValue(data([]));
     render(<ShiftSchedule toastOk={vi.fn()} />);
     const row = (await screen.findByText(/^No shifts yet for Front this week/)).closest('[data-empty-team]');
     fireEvent.click(within(row).getByRole('button', { name: /Copy Last Week/ }));
     await waitFor(() => expect(api.timeSchedCopy).toHaveBeenCalledWith(expect.objectContaining({ source_start: plusDays(monday, -7), source_end: plusDays(monday, -1), target_start: monday, group_id: 'g1' })));
-    expect(within(row).getByRole('button', { name: /Fill Usual Hours/ })).toBeTruthy();
+    expect(within(row).getByRole('button', { name: /Fill Automatically/ })).toBeTruthy();
   });
 });
 
@@ -258,9 +302,9 @@ describe('Coverage and conflicts', () => {
     expect(chips[5].getAttribute('data-coverage')).toBe('none');            // Saturday: nobody expected
     fireEvent.click(chips[0]);
     expect(cellOf(B).className).toContain('m-pulse-cell');
-    // Off under ⋯, remembered.
-    fireEvent.click(screen.getByRole('button', { name: 'More' }));
-    fireEvent.click(within(screen.getByRole('menu', { name: 'More' })).getByRole('menuitemcheckbox', { name: /Show Coverage/ }));
+    // Off under Customize, remembered.
+    fireEvent.click(screen.getByRole('button', { name: /^Customize/ }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Customize' })).getByRole('checkbox', { name: 'Show coverage' }));
     expect(document.querySelector('[data-coverage]')).toBeNull();
   });
 
@@ -279,18 +323,18 @@ describe('Coverage and conflicts', () => {
 });
 
 describe('Share summary and motion', () => {
-  it('leads with where 50+ changes are and picks this week and next', async () => {
+  it('leads with where 50+ changes are and picks the dates on screen (Oct 28 2026)', async () => {
     api.timeSchedule.mockResolvedValue({ ...data([shift({ published: false })]), unsharedCount: 242 });
     api.timeSchedUnshared.mockResolvedValueOnce({ count: 4 }).mockResolvedValueOnce({ count: 8 }).mockResolvedValue({ count: 12 });
     render(<ShiftSchedule />);
     await screen.findByText('Amy Adams');
-    const share = screen.getByRole('button', { name: /^Share, 242 unshared/ });
-    expect(share.getAttribute('title')).toBe('242 changes your team has not seen yet');
+    const share = screen.getByRole('button', { name: /^Save & Share, 242 unsaved/ });
+    expect(share.getAttribute('title')).toBe('242 changes your team has not seen yet. Save & Share sends them and tells the people affected.');
     fireEvent.click(share);
     const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
     await waitFor(() => expect(dlg.textContent).toContain('This week: 4 · Next week: 8 · Other weeks: 230'));
     expect(within(dlg).getByLabelText('Share from').value).toBe(monday);
-    expect(within(dlg).getByLabelText('Share to').value).toBe(plusDays(monday, 13));
+    expect(within(dlg).getByLabelText('Share to').value).toBe(plusDays(monday, 6));
   });
 
   it('animates the grid in, and not at all with reduced motion', async () => {

@@ -8413,10 +8413,13 @@ def move_scheduled(sched_id: str, body: MoveIn, user: dict = Depends(require_sch
 
 
 class DiscardAllIn(BaseModel):
-    start_date: str
-    end_date: str
+    start_date: str = ""          # "" with include_drafts = no bound
+    end_date: str = ""
     group_id: Optional[str] = ""
     emails: List[str] = []
+    # Save / Discard (Neil, Oct 28 2026): Discard throws away everything not
+    # shared yet - new drafts are deleted too, not only edits and removals.
+    include_drafts: bool = False
 
 
 @router.post("/schedule/discard-all")
@@ -8424,7 +8427,11 @@ def discard_all_changes(body: DiscardAllIn, user: dict = Depends(require_schedul
                         db: Session = Depends(get_db)):
     """Undo every unpublished edit and removal on PUBLISHED shifts in a range
     at once (Sep 29, Teams parity) - back to exactly what staff see. New
-    drafts are left alone: they are new work, and Clear removes those."""
+    drafts are left alone: they are new work, and Clear removes those -
+    unless `include_drafts` (the schedule's Discard button and its leave
+    prompt), which deletes the caller's unshared drafts as well."""
+    if body.include_drafts:
+        return _discard_everything(db, user, body)
     d0, d1 = _parse_day(body.start_date, "start date"), _parse_day(body.end_date, "end date")
     if d1 < d0:
         raise HTTPException(400, "End date is before the start date.")
@@ -8454,6 +8461,34 @@ def discard_all_changes(body: DiscardAllIn, user: dict = Depends(require_schedul
         n += 1
     import shift_calendar
     shift_calendar.enqueue(db, restored)   # Phase 3a: the Outlook events follow what staff see
+    db.commit()
+    return {"discarded": n}
+
+
+def _discard_everything(db: Session, user: dict, body: DiscardAllIn) -> dict:
+    """Everything a Share by this caller would send, thrown away instead:
+    drafts deleted, edits and removals back to what staff see. Optionally
+    inside a range and narrowed to a team / people (same rows as Share)."""
+    import shift_calendar
+    d0 = _parse_day(body.start_date, "start date").isoformat() if body.start_date else ""
+    d1 = _parse_day(body.end_date, "end date").isoformat() if body.end_date else ""
+    if d0 and d1 and d1 < d0:
+        raise HTTPException(400, "End date is before the start date.")
+    n, restored = 0, []
+    for r in _unshared_query(db, user, d0, d1, body.group_id or "", body.emails).all():
+        if not r.published:
+            shift_log.record(db, "removed", r, user["email"], before=shift_log.snapshot(r), reason="Discarded before sharing")
+            shift_calendar.enqueue_delete(db, r.id, r.employee_email)
+            db.delete(r)
+        else:
+            shift_log.record(db, "discarded", r, user["email"],
+                             before=shift_log.snapshot({**_pending(r), "date": r.work_date, "email": r.employee_email}
+                                                       if not r.pending_delete else r, pendingDelete=bool(r.pending_delete)),
+                             after=shift_log.snapshot(r))
+            r.pending_json, r.pending_delete = "", 0
+            restored.append(r.id)
+        n += 1
+    shift_calendar.enqueue(db, restored)
     db.commit()
     return {"discarded": n}
 
