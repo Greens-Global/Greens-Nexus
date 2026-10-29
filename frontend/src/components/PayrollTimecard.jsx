@@ -2581,7 +2581,15 @@ const punchHistory = (meta, rounded) => !meta ? '' : [
     + (rounded && t12(rounded) !== t12(meta.at) ? ` - counted as ${t12(rounded)} (rounded)` : ''),
   [meta.source, meta.site, meta.ip ? `IP ${meta.ip}` : ''].filter(Boolean).join(' · '),
   meta.manual && meta.createdBy ? `Entered by ${meta.createdBy} on ${_z(meta.createdAt)}` : '',
-  meta.adjustedAt ? `Changed by ${meta.adjustedBy} on ${_z(meta.adjustedAt)}${meta.originalAt ? ` - was ${t12s(meta.originalAt)}` : ''}${meta.adjustNote ? `: ${meta.adjustNote}` : ''}` : '',
+  // An approved employee edit stamps adjustedAt with no adjustedBy - the
+  // decision line below says who, so this one says only what it was.
+  meta.adjustedAt ? `Changed ${meta.adjustedBy ? `by ${meta.adjustedBy} ` : ''}on ${_z(meta.adjustedAt)}${meta.originalAt ? ` - was ${t12s(meta.originalAt)}` : ''}${meta.adjustNote ? `: ${meta.adjustNote}` : ''}` : '',
+  // The employee's own edit and what became of it (Neil, Oct 29 2026): what
+  // they asked for stays here after an approval or a rejection.
+  (meta.editStatus === 'approved' || meta.editStatus === 'rejected') && meta.editRequestedAt
+    ? `${meta.editedBy || 'The employee'} asked for ${t12s(meta.editRequestedAt)}${meta.editedAt ? ` on ${_z(meta.editedAt)}` : ''}${meta.editReason ? ` - "${meta.editReason}"` : ''}` : '',
+  (meta.editStatus === 'approved' || meta.editStatus === 'rejected') && meta.editReviewedAt
+    ? `${meta.editStatus === 'approved' ? 'Approved' : 'Rejected'}${meta.editReviewedBy ? ` by ${meta.editReviewedBy}` : ''} on ${_z(meta.editReviewedAt)}${meta.editNote ? `: ${meta.editNote}` : ''}` : '',
 ].filter(Boolean).join('\n');
 
 function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, locateEmail, onLocate }) {

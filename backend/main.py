@@ -1390,6 +1390,9 @@ def _run_migrations():
             "ALTER TABLE kb_page_requests ADD COLUMN close_note VARCHAR DEFAULT ''",
             # Search misses by company (Oct 29) - see the Postgres list. models.KbSearchLog.
             "ALTER TABLE kb_search_log ADD COLUMN company VARCHAR DEFAULT ''",
+            # Punch edit history (Oct 29) - see the Postgres list. models.TimePunch.
+            "ALTER TABLE time_punches ADD COLUMN edit_requested_at VARCHAR DEFAULT ''",
+            "ALTER TABLE time_punches ADD COLUMN edit_note VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3298,6 +3301,10 @@ def _run_migrations():
         # 10/29/2026). Older rows stay '' and read as shared. models.KbSearchLog.
         "ALTER TABLE kb_search_log ADD COLUMN IF NOT EXISTS company VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_kb_search_log_company ON kb_search_log (company)",
+        # Punch edit history (Neil, 10/29/2026): the time an employee asked
+        # for and the approver's note, kept after the decision. models.TimePunch.
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS edit_requested_at VARCHAR DEFAULT ''",
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS edit_note VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

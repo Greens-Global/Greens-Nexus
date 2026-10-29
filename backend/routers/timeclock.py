@@ -4589,6 +4589,9 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
                    f"Your edited {row.kind} punch time was not approved; your time sheet is unchanged."
                    + (f" Reason: {note}" if note else ""),
                    ref_id=row.id, action={"view": "timeclock", "sub": "timesheet"})
+    # Kept after the decision, whichever way it went (Neil, Oct 29 2026).
+    row.edit_requested_at = (row.pending_at or "")[:19]
+    row.edit_note = note[:500]
     row.pending_at = ""
     row.edit_status = decision
     row.edit_reviewed_by, row.edit_reviewed_at = user["email"], now
@@ -10744,6 +10747,13 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          # shown (Miranda, Oct 20).
                          "pendingAt": p.pending_at or "", "editStatus": p.edit_status or "",
                          "editReason": p.edit_reason or "",
+                         # The employee's edit and its decision, after the fact
+                         # (Neil, Oct 29 2026): asked for what, when, decided by
+                         # whom, with the note.
+                         "editRequestedAt": getattr(p, "edit_requested_at", "") or "",
+                         "editedBy": _who(p.edited_by), "editedAt": p.edited_at or "",
+                         "editReviewedBy": _who(p.edit_reviewed_by), "editReviewedAt": p.edit_reviewed_at or "",
+                         "editNote": getattr(p, "edit_note", "") or "",
                          # The record's tag: the card and the PDF say "Entered By HR
                          # From Record" with the reason (recordBatches has the rest).
                          **({"entrySource": _RECORD_SOURCE, "batchId": p.batch_id or "",

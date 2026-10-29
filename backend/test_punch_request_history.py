@@ -69,6 +69,24 @@ class PunchRequestHistoryTests(ReviewCase):
         # Bounded by the day the punch is for.
         self.assertNotIn(r["id"], [x["id"] for x in self._decided(from_="2000-01-01", to="2000-01-31")])
 
+    def test_a_rejected_punch_edit_keeps_the_time_asked_for_and_the_note(self):
+        day = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        self._punch(day, "in", "09:00:00")
+        self._punch(day, "out", "17:00:00")
+        self.db.commit()
+        pid = f"p-{day}-in-09:00:00"
+        timeclock.request_punch_edit(timeclock.PunchEditIn(punch_id=pid, at=f"{day}T08:30:00", reason="Came in early"),
+                                     user={"email": EMP, "level": 1}, db=self.db)
+        timeclock.decide_punch_edit(pid, timeclock.PunchEditDecision(status="rejected", note="Badge shows 9:00"),
+                                    user={"email": MGR, "level": 4}, db=self.db)
+        self.db.expire_all()
+        p = self.db.get(models.TimePunch, pid)
+        self.assertEqual((p.edit_status, p.pending_at), ("rejected", ""))
+        self.assertEqual(p.at[:19], f"{day}T09:00:00")                 # the time sheet did not move
+        self.assertEqual(p.edit_requested_at, f"{day}T08:30:00")        # but what was asked is kept
+        self.assertEqual(p.edit_note, "Badge shows 9:00")
+        self.assertEqual(p.edit_reason, "Came in early")
+
 
 if __name__ == "__main__":
     unittest.main()
