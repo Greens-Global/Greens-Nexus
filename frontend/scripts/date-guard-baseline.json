@@ -157,18 +157,6 @@
   "m365.js": {
     "Intl.DateTimeFormat(": 1
   },
-  "marketing/gbp/GoogleListingsPanel.jsx": {
-    "type=\"date\"": 1
-  },
-  "marketing/reputation/CreatePostModal.jsx": {
-    "type=\"date\"": 1
-  },
-  "marketing/reputation/ReviewCard.jsx": {
-    "toLocaleTimeString(": 1
-  },
-  "marketing/shared/DateRangePicker.jsx": {
-    "type=\"date\"": 1
-  },
   "marketing/shared/utils.js": {
     "toLocaleDateString(": 1
   },

@@ -31,7 +31,7 @@ function Card({
 export default function ProfileStatCards({ current, previous, platform = 'google' }) {
   const primaryLabel = platform === 'google' ? 'Maps' : 'Direct'
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
+    <div className="mktg-cols-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
       <Card
         icon={Eye}
         color={{ color: C.blue600, background: C.blue50 }}

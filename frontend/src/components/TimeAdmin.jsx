@@ -1150,8 +1150,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
             <Plus size={13} /> Request on Behalf
           </button>
         </div>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, padding: '10px 14px', background: 'var(--wk-hover)', fontSize: 12.5, fontWeight: 500, color: 'var(--wk-dim)' }}>
+        {/* Six fixed columns: on a phone the table scrolls sideways inside its
+            card instead of cutting off Approver and Status (phone pass, Oct 29 2026). */}
+        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflowX: 'auto', overflowY: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', minWidth: 790, gap: 10, padding: '10px 14px', background: 'var(--wk-hover)', fontSize: 12.5, fontWeight: 500, color: 'var(--wk-dim)' }}>
             <span>{sortHead('name', 'Requested By')}</span><span>Type</span><span>{sortHead('period', 'Period')}</span><span>Days</span><span>Approver</span>
             <span style={{ display: 'flex', justifyContent: 'flex-end' }}>{sortHead('status', 'Status')}</span>
           </div>
@@ -1178,7 +1180,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
             const hm12 = (v) => { const [h, m] = (v || '').split(':').map(Number); return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
             const partial = r.startTime && r.endTime;
             return (
-              <div key={r.id} className={r.status === 'pending' && r.canDecide !== false ? 'nx-needs-you--row' : undefined} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
+              <div key={r.id} className={r.status === 'pending' && r.canDecide !== false ? 'nx-needs-you--row' : undefined} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', minWidth: 790, gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                   <Avatar email={r.email} name={r.name || r.email} size={22} />
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{r.name || r.email}{r.forEmail && <ForChip name={r.forName} email={r.forEmail} />}</span>

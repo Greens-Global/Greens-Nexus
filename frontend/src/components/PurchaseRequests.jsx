@@ -100,7 +100,7 @@ function ModalShell({ title, sub, onClose, children }) {
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', padding: phone ? 0 : 16 }}
       onClick={nudge}>
-      <div role="dialog" aria-modal="true" aria-label={title} className={popupClass} onClick={(e) => e.stopPropagation()}
+      <div role="dialog" aria-modal="true" aria-label={title} className={`${popupClass}${phone ? ' nx-sheet' : ''}`} onClick={(e) => e.stopPropagation()}
         style={phone
           ? { background:'var(--card)', width:'100%', height:'100%', display:'flex', flexDirection:'column' }
           : { background:'var(--card)', borderRadius:14, width:'60vw', minWidth:'min(420px, 100%)', maxWidth:'100%', minHeight:'60vh', maxHeight:'85vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
@@ -509,7 +509,7 @@ export function PurchaseRequestsPanel({ onClose, toast, openNewKey = 0 }) {
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', padding: phone ? 0 : 16 }}
       onClick={nudge}>
-      <div role="dialog" aria-modal="true" aria-label="Purchase Requests" className={popupClass} onClick={(e) => e.stopPropagation()}
+      <div role="dialog" aria-modal="true" aria-label="Purchase Requests" className={`${popupClass}${phone ? ' nx-sheet' : ''}`} onClick={(e) => e.stopPropagation()}
         style={phone
           ? { background:'var(--card)', width:'100%', height:'100%', display:'flex', flexDirection:'column' }
           : { background:'var(--card)', borderRadius:14, width:'85vw', minWidth:'min(420px, 100%)', maxWidth:'100%', height:'85vh', maxHeight:'100%', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>

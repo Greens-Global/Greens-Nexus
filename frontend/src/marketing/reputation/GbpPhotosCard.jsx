@@ -88,7 +88,7 @@ export default function GbpPhotosCard({ photos, showFacility, staleWarning, onAd
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, maxHeight: 420, overflowY: 'auto', padding: 2 }}>
+      <div className="mktg-cols-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, maxHeight: 420, overflowY: 'auto', padding: 2 }}>
         {filtered.map((p) => (
           <PhotoTile key={p.id} p={p} showFacility={showFacility} />
         ))}

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Megaphone, Tag, CalendarDays, MapPin, Upload } from 'lucide-react'
 import Modal from '../shared/Modal'
+import { DateField } from '../../tasks/components'
 import { ANCHOR_DATE, addDays, formatDateLabel } from '../shared/utils'
 import { C } from '../theme'
 
@@ -124,7 +125,7 @@ export default function CreatePostModal({ facilities, defaultFacility, platform,
   return (
     <Modal title={isEdit ? 'Edit Post' : 'Create Post'} onClose={onClose} width="max-w-3xl"
       isDirty={dirty} onSave={(text.trim() && expiresDate) ? submit : undefined}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 24 }}>
+      <div className="mktg-cols-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 24 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
             <label style={labelStyle}>Property</label>
@@ -230,11 +231,14 @@ export default function CreatePostModal({ facilities, defaultFacility, platform,
           </div>
           <div>
             <label style={labelStyle}>{showsOnLabel}</label>
-            <input
-              type="date"
+            {/* DateField, not a native date box: that one follows the
+                computer's region (Oct 29 2026). It has no lower bound of its
+                own, so an earlier pick snaps to the first allowed day. */}
+            <DateField
               value={expiresDate}
-              min={minDate}
-              onChange={(e) => setExpiresDate(e.target.value)}
+              onChange={(v) => setExpiresDate(v && v < minDate ? minDate : (v || ''))}
+              placeholder="Pick a date"
+              title={showsOnLabel}
               style={{ ...inputStyle, color: C.gray700 }}
             />
             <p style={{ marginTop: 4, fontSize: 11, color: C.gray400 }}>
