@@ -69,6 +69,7 @@ describe('deep links and labels', () => {
   it('reads every kind of sub', () => {
     expect(parseSub('cred-abc')).toEqual({ tab: 'vault', credId: 'abc', collection: null });
     expect(parseSub('approvals').tab).toBe('approvals');
+    expect(parseSub('new')).toEqual({ tab: 'vault', credId: null, collection: null, create: true });   // the header's Create menu
     expect(parseSub('personal').tab).toBe('personal');
     expect(parseSub('trash')).toEqual({ tab: 'vault', credId: null, collection: 'trash' });
     expect(parseSub('')).toEqual({ tab: null, credId: null, collection: null });

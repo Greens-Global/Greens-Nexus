@@ -103,6 +103,8 @@ export function parseSub(sub) {
   const s = (sub || "").trim();
   if (!s) return { tab: null, credId: null, collection: null };
   if (s.startsWith("cred-")) return { tab: "vault", credId: s.slice(5), collection: null };
+  // The header's Create menu (Oct 29 2026): the vault with New Credential open.
+  if (s === "new") return { tab: "vault", credId: null, collection: null, create: true };
   if (["approvals", "personal", "activity"].includes(s)) return { tab: s, credId: null, collection: null };
   if (["trash", "mine", "shared", "attention", "favorites"].includes(s)) return { tab: "vault", credId: null, collection: s };
   return { tab: "vault", credId: null, collection: null };

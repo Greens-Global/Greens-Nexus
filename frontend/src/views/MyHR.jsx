@@ -226,6 +226,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
     if (!askFocus?.n) return;
     openAskPanel();
     if (askFocus.letter) setLetterOpen(askFocus.letter);
+    if (askFocus.compose) setAskOpen(true);   // "ask-hr:new" - on New Request
   }, [askFocus?.n]);   // eslint-disable-line react-hooks/exhaustive-deps
   // What arrives while the panel is open (a link opens it before the lists
   // load) is marked and seen there too, so the dot does not come back.

@@ -101,7 +101,7 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
   const [openGoal, setOpenGoal] = useState(initial.goal || '');
   const [openSeries, setOpenSeries] = useState(initial.oneOnOne || '');
   const [openReview, setOpenReview] = useState(initial.review || '');
-  const [newOneOnOne, setNewOneOnOne] = useState(null); // null | { reportEmail }
+  const [newOneOnOne, setNewOneOnOne] = useState(initial.newOneOnOne ? { reportEmail: '' } : null); // null | { reportEmail }
   const [person, setPerson] = useState(null);
   const [need, setNeed] = useState('');
   const [openFeedback, setOpenFeedback] = useState(initial.feedback || '');
@@ -120,6 +120,7 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
     if (p?.feedback) setOpenFeedback(p.feedback);
     if (p?.kudos) setOpenKudos(p.kudos);
     if (p?.plan) setOpenPlan(p.plan);
+    if (p?.newOneOnOne) setNewOneOnOne({ reportEmail: '' });
     if (p?.view === 'team') { setView('team'); setPerson(null); }
   }
   useEffect(() => { if (focus) onFocusUsed?.(); }, [focus, onFocusUsed]);

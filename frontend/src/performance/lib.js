@@ -70,8 +70,10 @@ export function parsePerfSub(sub) {
   const m = String(sub || '').match(/^performance(?::(team|goal|1on1|review|feedback|kudos|plan)(?::(.+))?)?$/);
   if (!m) return null;
   const id = (k) => (m[1] === k ? m[2] || '' : '');
-  return { view: m[1] === 'team' ? 'team' : 'me', goal: id('goal'), oneOnOne: id('1on1'), review: id('review'),
-    feedback: id('feedback'), kudos: id('kudos'), plan: id('plan') };
+  // "performance:1on1:new" (the header's Create menu, Oct 29 2026) opens Set Up a 1:1.
+  const newOneOnOne = m[1] === '1on1' && m[2] === 'new';
+  return { view: m[1] === 'team' ? 'team' : 'me', goal: id('goal'), oneOnOne: newOneOnOne ? '' : id('1on1'), review: id('review'),
+    feedback: id('feedback'), kudos: id('kudos'), plan: id('plan'), newOneOnOne };
 }
 
 export const card = {
