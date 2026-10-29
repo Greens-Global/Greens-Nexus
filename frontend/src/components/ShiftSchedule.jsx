@@ -42,6 +42,14 @@ import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber,
 // people shown, and the Open Shifts rows carry their own hours.
 
 const WEEK_LIMIT_MIN = 40 * 60;   // over this in a week reads red (Neil, Sep 30)
+// The grid's short conflict lines, said in full for the list under the
+// schedule (Neil, Oct 28 2026: "made very clear in simple English").
+const plainConflict = (t) => String(t)
+  .replace(/^Outside availability: (.+) unavailable$/, 'Scheduled on a day they marked as unavailable ($1)')
+  .replace(/^Outside availability: (.+)$/, 'Scheduled outside their availability - that day they can only work $1')
+  .replace(/^Overlaps (?!another)(.+)$/, 'Overlaps another of their shifts ($1)')
+  .replace(/^Duplicate of another shift$/, 'Placed twice - the same shift is on this day already')
+  .replace(/^On approved (.+)$/, 'Scheduled on a day of approved $1');
 const PREFS_KEY = 'nexus.shifts.viewPrefs';
 function loadPrefs() {
   try { return { ...DEFAULT_VIEW_PREFS, ...(JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') || {}) }; }
@@ -61,8 +69,9 @@ const createPayload = (s) => ({ employee_email: s.email || '', work_date: s.date
   break_min: s.breakMin ?? 0, color: s.ownColor || '', activities: s.activities || [], group_id: s.groupId || '', ...(s.email ? {} : { open_slots: s.openSlots || 1 }) });
 const SHORTCUTS = [
   ['Left / Right', 'Previous or next week (outside the grid)'], ['T', 'Today'], ['1 - 9', 'Switch to that team'],
-  ['Arrow keys', 'Move between days in the grid'], ['Enter', 'Open the day or shift'], ['Shift + Click', 'Open the editor on an empty day'],
-  ['Delete', 'Remove a draft'], ['Ctrl + C / Ctrl + V', 'Copy a shift, paste it on a day'], ['Esc', 'Close a menu or panel'],
+  ['Arrow keys', 'Move the selection between days'], ['Enter', 'Open the day or shift'], ['Shift + Click', 'Open the editor on an empty day'],
+  ['Click', 'Select a day or a shift'], ['Double-click', 'Add to the day, or open the shift'],
+  ['Delete', 'Remove a draft'], ['Ctrl + C / Ctrl + X', 'Copy or cut the selected shift'], ['Ctrl + V', 'Paste it on the selected day'], ['Esc', 'Clear the selection and the clipboard'],
 ];
 
 export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus = null }) {
@@ -91,6 +100,11 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   const [personMenu, setPersonMenu] = useState(null);
   const [details, setDetails] = useState(null);
   const [copied, setCopied] = useState(null);
+  // Excel-style selection (Neil and Charmi, Oct 28 2026: "it should be just
+  // like in Excel" - a box round what you clicked, Ctrl+C / Ctrl+X / Ctrl+V
+  // on it, the arrow keys to move): { key: 'email|date', groupId, shiftId }.
+  const [sel, setSel] = useState(null);
+  const [cut, setCut] = useState(false);
   const [drag, setDrag] = useState(null);
   const [ghost, setGhost] = useState(null);
   const [dropKey, setDropKey] = useState('');
@@ -252,7 +266,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   const noTeamEmails = useMemo(() => (data?.employees || []).map((e) => e.email).filter((e) => !claimedAll.has(e)), [data, claimedAll]);
   const computedDefault = useMemo(() => {
     if (!data) return null;
-    if (!liveGroups.length) return ALL_TEAMS;
+    if (!liveGroups.length || liveGroups.length > 1) return ALL_TEAMS;
     const mine = me && liveGroups.find((g) => (g.members || []).includes(me));
     if (mine) return mine.id;
     let best = liveGroups[0], bestN = -1;
@@ -461,7 +475,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     });
     return m;
   }, [data, weekStart]);
-  const overWeeks = (email) => Object.entries(weekLoad).filter(([k, v]) => k.startsWith(`${email}|`) && v > WEEK_LIMIT_MIN).map(([, v]) => v);
+  // Not for a contractor (Neil, Oct 28 2026: "this should not come up on a contractor").
+  const overWeeks = (email) => (empByEmail[email]?.contractor ? [] : Object.entries(weekLoad).filter(([k, v]) => k.startsWith(`${email}|`) && v > WEEK_LIMIT_MIN).map(([, v]) => v));
   const empWeekMin = (email) => days.reduce((sum, d) => sum + (byCell[`${email}|${isoDate(d)}`] || []).filter(counts).reduce((a, s) => a + paidMinutes(s), 0), 0);
   const dayStats = (d) => {
     const ds = isoDate(d);
@@ -524,10 +539,12 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     }, fail: 'Could not share the schedule.', after: () => setOpen('') });
     return r ?? (failed ? { error: failed?.message || 'Could not share the schedule.' } : null);
   };
-  const pasteInto = (email, date, groupId = '') => copied && run(() => api.timeSchedCreate({ employee_email: email, work_date: date, shift_id: copied.shiftId,
+  const pasteInto = (email, date, groupId = '') => copied && (cut ? pasteCut(email, date) : run(() => api.timeSchedCreate({ employee_email: email, work_date: date, shift_id: copied.shiftId,
     start_hhmm: copied.start, end_hhmm: copied.end, label: copied.label, note: copied.note, break_min: copied.breakMin ?? 0, color: copied.ownColor || '',
     activities: copied.activities || [], group_id: email ? (copied.groupId || '') : (groupId || copied.groupId || ''), ...(email ? {} : { open_slots: 1 }) }),
-  { ok: 'Shift copied here.', fail: 'Could not paste the shift.', undo: (r) => (r?.id ? () => api.timeSchedDelete(r.id) : null) });
+  { ok: 'Shift copied here.', fail: 'Could not paste the shift.', undo: (r) => (r?.id ? () => api.timeSchedDelete(r.id) : null) }));
+  // A cut shift moves on its first paste; the clipboard is then empty.
+  const pasteCut = (email, date) => { const s0 = copied; setCopied(null); setCut(false); moveShift(s0, email, date, false); };
   const saveCell = (payload) => run(() => (payload.id ? api.timeSchedUpdate(payload.id, payload) : api.timeSchedCreate(payload)),
     { ok: (r) => (r?.hasChanges ? 'Change saved. The team sees it once you share.' : 'Shift saved.'), fail: 'Could not save.', after: () => setPanel(null) });
   const delCell = (id) => {
@@ -553,7 +570,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       }) });
   };
   const placePreset = (p, email, date, groupId = '') => run(() => api.timeSchedCreate({ employee_email: email, work_date: date, shift_id: p.id, group_id: groupId, ...(email ? {} : { open_slots: 1 }) }),
-    { ok: `${p.code || p.name} placed as a draft.`, fail: 'Could not place the shift.', undo: (r) => (r?.id ? () => api.timeSchedDelete(r.id) : null) });
+    { ok: `${p.name || p.code} placed as a draft.`, fail: 'Could not place the shift.', undo: (r) => (r?.id ? () => api.timeSchedDelete(r.id) : null) });
   // Fill usual hours for some people across the visible dates (one bulk call
   // per shift type); Undo removes exactly the drafts it made.
   async function fillUsual(emails, who, opts = {}) {
@@ -650,7 +667,10 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   };
 
   // ── Clipboard, menus, keyboard ─────────────────────────────────────────
-  const copyShift = (s) => { setCopied(s); toastOk?.('Shift copied. Click an empty day to place it, or press Ctrl+V over one.'); };
+  const copyShift = (s, asCut = false) => {
+    setCopied(s); setCut(asCut);
+    toastOk?.(asCut ? 'Shift cut. Select a day and press Ctrl+V to move it there.' : 'Shift copied. Select a day and press Ctrl+V, or double-click an empty day.');
+  };
   const openShiftEditor = (s, email, ds) => {
     if (!shiftEditable(s)) { setDetails({ x: 200, y: 200, shift: s, readOnly: true }); return; }
     if (!email && s.canEdit === false) { toastErr?.('This open shift was posted by another manager - only they or an administrator can change it.'); return; }
@@ -719,16 +739,23 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     pressRef.current = { timer };
   };
   const keysRef = useRef(null);
-  useEffect(() => { keysRef.current = { copied, canManage, copyShift, pasteInto }; });
+  useEffect(() => { keysRef.current = { copied, canManage, copyShift, pasteInto, sel, setSel, setCopied, setCut, byCell, scheduled: data?.scheduled || [] }; });
   useEffect(() => {
     const onKey = (e) => {
       const k = keysRef.current;
-      if (!k?.canManage || !(e.ctrlKey || e.metaKey) || e.altKey) return;
-      if (e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      if (!k?.canManage) return;
+      if (e.target?.closest?.('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+      if (e.key === 'Escape' && !e.ctrlKey && !e.metaKey && (k.sel || k.copied)) { k.setSel(null); k.setCopied(null); k.setCut(false); return; }
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       if (window.getSelection?.()?.toString()) return;
       const key = (e.key || '').toLowerCase();
-      const { shift, cell: at } = hoverRef.current;
-      if (key === 'c' && shift && !shift.pendingDelete) { e.preventDefault(); k.copyShift(shift); }
+      const hover = hoverRef.current;
+      // The selected shift, else the first shift of the selected day, else the one under the mouse.
+      const selShift = k.sel?.shiftId ? k.scheduled.find((x) => x.id === k.sel.shiftId)
+        : k.sel ? (k.byCell[k.sel.key] || []).find((x) => !x.pendingDelete) : null;
+      const shift = selShift || (!k.sel ? hover.shift : null);
+      const at = k.sel ? { email: k.sel.key.split('|')[0], date: k.sel.key.split('|')[1], groupId: k.sel.groupId || '' } : hover.cell;
+      if ((key === 'c' || key === 'x') && shift && !shift.pendingDelete) { e.preventDefault(); k.copyShift(shift, key === 'x'); }
       else if (key === 'v' && at && k.copied) { e.preventDefault(); k.pasteInto(at.email, at.date, at.groupId); }
     };
     window.addEventListener('keydown', onKey);
@@ -756,7 +783,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     e.preventDefault();
     const from = { x: e.clientX, y: e.clientY };
     let moved = false;
-    const label = `${payload.code || 'Shift'} ${shiftTimeText(payload)}`;
+    const label = `${payload.shiftName || 'Shift'} ${shiftTimeText(payload)}`;
     const move = (ev) => {
       if (!moved && Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < 5) return;
       if (!moved) { moved = true; setDrag(payload); document.body.classList.add('sched-dragging'); }
@@ -875,6 +902,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     const set = new Set();
     sections.forEach((g) => {
       const key = sectionKey(g);
+      // Everyone Else starts folded when there are teams above it (Neil, Oct 28 2026).
+      if (!g.isGroup && g.name === 'Everyone Else') { if (fold[key] ?? true) set.add(key); return; }
       if (!g.isGroup || sections.length < 2) { if (fold[key]) set.add(key); return; }
       const busyGroup = days.some((d) => { const ds = isoDate(d); return (openCells[`${g.id || ''}|${ds}`] || []).length || g.members.some((m) => (byCell[`${m.email}|${ds}`] || []).length || offOn(m.email, ds).length); });
       if (fold[key] ?? !busyGroup) set.add(key);
@@ -903,6 +932,11 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     teamAction, toggleCollapse,
     add: (email, ds, groupId) => (!rowEditable(email) ? toastErr?.(readOnlyMsg) : setPanel({ cell: { email, date: ds, groupId }, mode: 'shift' })),
     paste: (email, ds, groupId) => pasteInto(email, ds, groupId),
+  };
+  const weekOn = {
+    ...gridOn,
+    selectCell: (email, ds, groupId) => setSel({ key: `${email}|${ds}`, groupId: groupId || '' }),
+    selectShift: (s, email, ds) => setSel({ key: `${email}|${ds}`, groupId: s.groupId || '', shiftId: s.id }),
   };
   const ready = !!data;
   // The usual shift an empty day would get on a click (none on a whole day
@@ -1069,6 +1103,9 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   const conflictCount = prefs.conflicts === false ? 0 : shown.filter((x) => x.email && !x.pendingDelete && conflicts[x.id]?.length).length;
   // "N warnings" once any of them is a schedule rule, "N conflicts" otherwise (Oct 15).
   const conflictWord = conflictCount > 0 && shown.some((x) => x.email && !x.pendingDelete && (x.ruleWarnings?.length || (conflicts[x.id] || []).some(isRuleWarning))) ? 'warning' : 'conflict';
+  const conflictList = prefs.conflicts === false ? [] : shown.filter((x) => x.email && !x.pendingDelete && conflicts[x.id]?.length)
+    .sort((a, b) => a.date.localeCompare(b.date) || (names[a.email] || '').localeCompare(names[b.email] || ''))
+    .flatMap((x) => conflicts[x.id].map((t, i) => ({ key: `${x.id}|${i}`, email: x.email, date: x.date, shift: x, name: names[x.email] || nameOf(x.email), text: plainConflict(t) })));
   const goToConflict = () => {
     const el = rootRef.current?.querySelector('.week-grid [data-conflict]');
     if (!el) return;
@@ -1131,10 +1168,10 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       )}
       {copied && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '8px 12px', background: 'var(--wk-brand-tint)', border: '1px dashed var(--wk-brand)', borderRadius: 10, fontSize: 12.5 }}>
-          <span style={{ fontWeight: 700 }}>Copied {copied.code || 'shift'} ({shiftTimeText(copied)})</span>
-          <span style={{ color: 'var(--muted)' }}>- click any empty day to place it.</span>
+          <span style={{ fontWeight: 700 }}>{cut ? 'Cut' : 'Copied'} {copied.shiftName || copied.label || 'shift'} ({shiftTimeText(copied)})</span>
+          <span style={{ color: 'var(--muted)' }}>- select a day and press Ctrl+V{cut ? ' to move it there' : ', or double-click an empty day'}.</span>
           <div style={{ flex: 1 }} />
-          <button type="button" className="secondary-btn" onClick={() => setCopied(null)} style={{ fontSize: 12 }}>Cancel</button>
+          <button type="button" className="secondary-btn" onClick={() => { setCopied(null); setCut(false); }} style={{ fontSize: 12 }}>Cancel</button>
         </div>
       )}
 
@@ -1169,7 +1206,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
         <WeekGrid days={days} compact={compact} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} availOn={availOn} usualOf={usualOf}
           notes={notes} weather={weather} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
           rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} weekMin={weekMin} overWeeks={overWeeks}
-          copied={copied} dropKey={dropKey} dragId={drag?.id} isCollapsed={(k) => collapsed.has(k)} on={gridOn}
+          copied={copied} dropKey={dropKey} dragId={drag?.id} isCollapsed={(k) => collapsed.has(k)} on={managing ? weekOn : gridOn} selected={sel}
           dragProps={dragProps} personDragProps={personDragProps} dropProps={dropProps} dropStyle={dropStyle} hoverCell={hoverCell} hoverShift={hoverShift} clickable={clickable}
           single={single} emptyNote={emptyNote} cornerTools={cornerTools} ghostOf={ghostOf} blockClass={blockClass} motion={!reduce} glowToday={glowRef.current}
           personFill={managing ? personFill : null} usualCan={(email) => !!usualOf(email)}
@@ -1179,6 +1216,21 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       </div>
       )}
       {data && teamZoneLabel && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>}
+      {data && view !== 'month' && conflictList.length > 0 && (
+        <section aria-label="Conflicts to review" data-conflict-list="" style={{ marginTop: 14, border: '1px solid hsl(var(--color-orange) / 0.35)', borderRadius: 12, background: 'hsl(var(--color-orange) / 0.06)', padding: '10px 14px' }}>
+          <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6 }}>Conflicts To Review ({conflictList.length})</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>These shifts may be a mistake. They can still be shared - click one to see it on the schedule.</div>
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 4 }}>
+            {conflictList.map((c) => (
+              <li key={c.key}>
+                <button type="button" onClick={() => jumpToShift(c.email, c.date)} style={{ border: 'none', background: 'none', padding: '3px 0', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, color: 'var(--ink)', textAlign: 'left' }}>
+                  <strong>{c.name} -</strong> {formatWeekday(c.date, 'short')} {formatDate(c.date)}, {shiftTimeText(c.shift)}: {c.text}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {ghost && (
         <div style={{ position: 'fixed', left: ghost.x + 12, top: ghost.y + 10, zIndex: 1600, pointerEvents: 'none', fontSize: 11.5, fontWeight: 800, transform: reduce ? 'none' : 'rotate(-2deg)',

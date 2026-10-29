@@ -45,6 +45,9 @@ const asMotion = (reduce) => vi.spyOn(window, 'matchMedia').mockImplementation((
 
 beforeEach(() => {
   try { localStorage.clear(); } catch { /* none */ }
+  // Most tests look at one team; the first-visit default (All Teams, Oct 28
+  // 2026) has its own test, which clears this.
+  try { localStorage.setItem('nexus.shifts.team.anon', 'g1'); } catch { /* none */ }
   role.current = {};
   Object.values(api).forEach((f) => f.mockReset());
   api.timeSchedCreate.mockResolvedValue({ id: 'new1' });
@@ -60,27 +63,23 @@ beforeEach(() => {
 });
 
 describe('Team switcher', () => {
-  it('opens on the first team the signed-in person is in, with no group header row', async () => {
+  it('opens on All Teams the first time, every team stacked and Everyone Else folded (Neil, Oct 28 2026)', async () => {
     role.current = { myEmail: C };
-    api.timeSchedule.mockResolvedValue(data([shift()]));
-    render(<ShiftSchedule />);
-    await screen.findByText('Cat Cole');
-    expect(teamButton().textContent).toContain('Back');
-    expect(teamButton().textContent).toContain('1 person');
-    expect(screen.queryByText('Amy Adams')).toBeNull();
-    expect(document.querySelector('[data-team]')).toBeNull();               // the switcher names the team
-  });
-
-  it('else opens on the team with the most shifts this week, and its numbers are that team\'s', async () => {
     api.timeSchedule.mockResolvedValue(data([shift({ id: 'c1', email: C }), shift({ id: 'c2', email: C, date: plusDays(monday, 1) }), shift({ id: 'a1' })]));
     render(<ShiftSchedule />);
     await screen.findByText('Cat Cole');
-    expect(teamButton().textContent).toMatch(/Back.*1 person · 16 Hrs/);
-    expect(screen.getByText('Week · 16 Hrs')).toBeTruthy();
+    expect(teamButton().textContent).toContain('All Teams');
+    expect(screen.getByText('Amy Adams')).toBeTruthy();
+    expect([...document.querySelectorAll('[data-team]')].map((r) => r.getAttribute('data-team'))).toEqual(['g1', 'g2']);
+    expect(screen.getByText('Everyone Else')).toBeTruthy();
+    expect(screen.queryByText('Dan Dye')).toBeNull();                       // folded until opened
     fireEvent.click(teamButton());
-    const front = screen.getByRole('option', { name: /^Front/ });
-    expect(front.textContent).toContain('2 people');
-    expect(front.textContent).toContain('8 Hrs');
+    const opts = screen.getAllByRole('option').map((o) => o.textContent);
+    expect(opts[0]).toMatch(/^All Teams/);                                   // first in the list
+    expect(opts[opts.length - 1]).toMatch(/^People Without a Team/);         // last
+    const back = screen.getByRole('option', { name: /^Back/ });
+    expect(back.textContent).toContain('1 person');
+    expect(back.textContent).toContain('16 Hrs');
   });
 
   it('remembers the choice per person', async () => {
@@ -229,17 +228,20 @@ describe('Fill Automatically (Neil, Oct 28 2026)', () => {
 describe('Building a week in clicks', () => {
   const usualData = (scheduled = []) => data(scheduled, { usual: { [A]: 'p1', [B]: 'p1' } });
 
-  it('places the usual shift on a click of an empty day, and Shift+click opens the editor', async () => {
+  it('selects an empty day on a click, places the usual shift on a double-click, and Shift+click opens the editor', async () => {
     api.timeSchedule.mockResolvedValue(usualData([shift()]));
     render(<ShiftSchedule toastOk={vi.fn()} />);
     await screen.findByText('Amy Adams');
     const tue = cellOf(A, plusDays(monday, 1));
-    expect(tue.getAttribute('title')).toMatch(/^Click to place 9:00a - 5:00p GST/);
+    expect(tue.getAttribute('title')).toMatch(/^Double-click to place 9:00a - 5:00p Store/);
     fireEvent.click(tue);
+    expect(tue.hasAttribute('data-selected')).toBe(true);                    // a click only selects (Oct 28 2026)
+    expect(api.timeSchedCreate).not.toHaveBeenCalled();
+    fireEvent.doubleClick(tue);
     await waitFor(() => expect(api.timeSchedCreate).toHaveBeenCalledWith(expect.objectContaining({ employee_email: A, work_date: plusDays(monday, 1), shift_id: 'p1' })));
     // Undo removes exactly what was placed.
     const bar = await screen.findByRole('status');
-    expect(bar.textContent).toContain('GST placed as a draft.');
+    expect(bar.textContent).toContain('Store placed as a draft.');
     fireEvent.click(within(bar).getByRole('button', { name: /Undo/ }));
     await waitFor(() => expect(api.timeSchedDelete).toHaveBeenCalledWith('new1'));
     // Saturday is not a usual day: no ghost, the editor opens.
@@ -271,7 +273,7 @@ describe('Building a week in clicks', () => {
     api.timeSchedule.mockResolvedValue(data([shift({ published: false, note: 'Keys', breakMin: 30 })]));
     render(<ShiftSchedule toastOk={vi.fn()} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(document.querySelector('[data-shift="s1"]'));
+    fireEvent.doubleClick(document.querySelector('[data-shift="s1"]'));
     fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
     await waitFor(() => expect(api.timeSchedDelete).toHaveBeenCalledWith('s1'));
     fireEvent.click(within(await screen.findByRole('status')).getByRole('button', { name: /Undo/ }));
@@ -354,5 +356,55 @@ describe('Share summary and motion', () => {
     await act(async () => {});
     expect(document.querySelector('[data-range-title]').parentElement.className || '').not.toMatch(/m-slide/);
     mm.mockRestore();
+  });
+});
+
+describe('Excel-style selection and the conflicts list (Neil and Charmi, Oct 28 2026)', () => {
+  it('boxes a clicked shift, copies it with Ctrl+C onto a selected day, and moves it with Ctrl+X', async () => {
+    api.timeSchedule.mockResolvedValue(data([shift()]));
+    api.timeSchedMove.mockResolvedValue({ shift: { id: 'm1' }, moved: true });
+    render(<ShiftSchedule toastOk={vi.fn()} />);
+    await screen.findByText('Amy Adams');
+    const block = document.querySelector('[data-shift="s1"]');
+    fireEvent.click(block);
+    expect(block.hasAttribute('data-selected')).toBe(true);
+    expect(screen.queryByRole('dialog', { name: /Edit Shift/ })).toBeNull();   // a click selects; it does not open
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    const target = cellOf(B, plusDays(monday, 1));
+    fireEvent.click(target);
+    expect(target.hasAttribute('data-selected')).toBe(true);
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    await waitFor(() => expect(api.timeSchedCreate).toHaveBeenCalledWith(expect.objectContaining({ employee_email: B, work_date: plusDays(monday, 1), shift_id: 'p1' })));
+    // Cut: the next paste moves the shift and empties the clipboard.
+    fireEvent.click(document.querySelector('[data-shift="s1"]'));
+    fireEvent.keyDown(window, { key: 'x', ctrlKey: true });
+    fireEvent.click(cellOf(B, plusDays(monday, 2)));
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    await waitFor(() => expect(api.timeSchedMove).toHaveBeenCalledWith('s1', { employee_email: B, work_date: plusDays(monday, 2), duplicate: false }));
+    // Escape clears the selection.
+    fireEvent.click(cellOf(B, plusDays(monday, 3)));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(document.querySelector('[data-selected]')).toBeNull();
+  });
+
+  it('lists every conflict under the schedule in plain words, and a click shows the shift', async () => {
+    api.timeSchedule.mockResolvedValue({ ...data([shift()]),
+      availability: { [A]: [{ weekday: 0, kind: 'unavailable', start: '', end: '', note: '' }] } });
+    render(<ShiftSchedule />);
+    await screen.findByText('Amy Adams');
+    const list = document.querySelector('[data-conflict-list]');
+    expect(list.textContent).toContain('Conflicts To Review (1)');
+    expect(list.textContent).toContain('Amy Adams -');
+    expect(list.textContent).toContain('Scheduled on a day they marked as unavailable (Mon)');
+    fireEvent.click(within(list).getByRole('button'));
+    await waitFor(() => expect(cellOf(A).className).toContain('m-pulse-cell'));
+  });
+
+  it('never warns about 40 hours for a contractor', async () => {
+    const long = [0, 1, 2, 3, 4].map((i) => shift({ id: `l${i}`, date: plusDays(monday, i), start: '06:00', end: '16:00' }));
+    api.timeSchedule.mockResolvedValue({ ...data(long), employees: [{ email: A, name: 'Amy Adams', contractor: true }, { email: B, name: 'Bob Brown' }] });
+    render(<ShiftSchedule />);
+    await screen.findByText('Amy Adams');
+    expect(screen.queryByLabelText('Over 40 hours')).toBeNull();
   });
 });

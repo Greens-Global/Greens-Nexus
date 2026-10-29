@@ -198,7 +198,7 @@ export function ShiftMenu({ menu, presets = [], canTimeOff, hasCopied, onAction,
         <>
           <MenuHead>Place Shift Type</MenuHead>
           {presets.slice(0, 8).map((p) => (
-            <MenuItem key={p.id} label={`${p.code || p.name} · ${shiftTimeText(p)}`} onClick={() => onAction('place', p)}
+            <MenuItem key={p.id} label={`${p.name || p.code} · ${shiftTimeText(p)}`} onClick={() => onAction('place', p)}
               Icon={() => <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color || DEFAULT_SHIFT_COLOR, display: 'inline-block' }} />} />
           ))}
           <MenuSep />

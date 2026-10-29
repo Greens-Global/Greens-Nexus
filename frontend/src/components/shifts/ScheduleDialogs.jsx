@@ -74,7 +74,7 @@ export function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onC
           </label>
           <label style={CHECK}><input type="checkbox" checked={includeNotes} onChange={(e) => setIncludeNotes(e.target.checked)} /> Include shift notes</label>
           <label style={CHECK}><input type="checkbox" checked={includeActs} onChange={(e) => setIncludeActs(e.target.checked)} /> Include shift activities</label>
-          <label style={CHECK}><input type="checkbox" checked={skipOff} onChange={(e) => setSkipOff(e.target.checked)} /> Skip days a person has time off</label>
+          <label style={CHECK}><input type="checkbox" checked={skipOff} onChange={(e) => setSkipOff(e.target.checked)} /> Skip days a person has approved time off</label>
           <label style={CHECK}><input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} /> Replace shifts that are already there (otherwise keep them)</label>
           <label style={CHECK}><input type="checkbox" checked={copyOff} onChange={(e) => setCopyOff(e.target.checked)} /> Copy approved time off too (as requests to approve)</label>
           <div style={{ fontSize: 11.5, color: overlaps || span > 31 ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
@@ -218,7 +218,7 @@ export function BulkModal({ groups, shifts, allEmails, defaultGroupId = '', usua
               </div>
             </div>
           )}
-          <label style={CHECK}><input type="checkbox" checked={skipOff} onChange={(e) => setSkipOff(e.target.checked)} /> Skip days a person has time off</label>
+          <label style={CHECK}><input type="checkbox" checked={skipOff} onChange={(e) => setSkipOff(e.target.checked)} /> Skip days a person has approved time off</label>
           <label style={CHECK}><input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} /> Replace shifts that are already there (otherwise keep them)</label>
           <div data-fill-summary="" style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
             {usual ? (

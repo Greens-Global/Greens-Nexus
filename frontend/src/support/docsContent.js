@@ -506,7 +506,7 @@ export const DOCS = [
       {
         title: 'Place or Change One Shift',
         steps: [
-          'Click an empty day on a person\'s row.',
+          'Double-click an empty day on a person\'s row (a single click only selects it, like a cell in Excel). Double-click a shift to change it.',
           'Pick a Shift Type or set the start, end and unpaid break, and add a label or note. If the shift breaks a rule or clashes with time off, Check before saving says why - you can still save.',
           'Click Save. Drag a shift to move it, or Ctrl-drag to copy it.',
         ],
@@ -592,7 +592,12 @@ export const DOCS = [
       'When someone is offboarded in People, their future shifts come off the schedule (shared ones at the next share); past shifts stay as the record.',
       'No Teams status in the Company Directory means the Teams status permission is not granted yet - it is not an error.',
       'Scheduled hours leave out the unpaid break, so a 9:00 AM to 5:00 PM shift with a 30-minute lunch counts as 7.5 hours.',
-      'Ctrl+C over a shift and Ctrl+V over a day copies it, like in Teams.',
+      'The schedule works like Excel: click a shift or a day to select it (a box goes round it), move with the arrow keys, Ctrl+C or Ctrl+X the selected shift and Ctrl+V on the selected day to copy or move it. Esc clears it.',
+      'Conflicts To Review under the schedule lists every shift that may be a mistake, in plain words - outside someone\'s availability, overlapping another shift, on approved time off. Click one to see it.',
+      'Limited Availability under a name means the person is off or only partly available on a day they usually work; days they never work (weekends off, say) do not count. Hover it for the days.',
+      'The day chip "3 of 4 on" counts everyone on the team who usually works that day and is not off; contractors never get the over 40 hours warning.',
+      'Copy Week and Fill Automatically skip days of APPROVED time off; a request still waiting does not take the day away - the shift goes in and Approve And Remove Shifts clears it if approved.',
+      'Schedule opens on All Teams the first time, with Everyone Else folded; pick a team and it opens there next time. The shift type codes no longer show on the grid - the shift type\'s name does.',
       'Shifts became its own module on 09/29/2026 and part of Team on 10/13/2026, when your own shifts moved to Workday > My Schedule. Old Shifts and Contact Directory links still land in the right place.',
     ],
   },
