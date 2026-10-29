@@ -6091,10 +6091,13 @@ body:has(.docs-root) { overflow-x: clip; }
 .hw-pad { padding: 14px 14px 18px; }
 .hw-hero {
   padding: 18px 20px 58px;
-  background: linear-gradient(165deg, #0b1224 0%, #172554 55%, var(--wk-brand, #2b45e1) 130%);
+  /* Nexus green (Neil, 10/28/2026), the New in Nexus bar's hue: deep at the
+     top, lifting toward the cards; white text stays 5:1 and up. */
+  background: linear-gradient(165deg, hsl(152, 58%, 11%) 0%, hsl(144, 60%, 20%) 55%, hsl(142, 58%, 32%) 130%);
   color: #fff;
 }
 .hw-mark { width: 32px; height: 32px; font-size: 16px; box-shadow: 0 0 0 2px rgba(255,255,255,.18); }
+.hw-hero .hw-mark { background: #fff; color: hsl(142, 62%, 25%); }
 .hw-mark-sm { width: 26px; height: 26px; font-size: 13px; border-radius: 7px; }
 .hw-hello { margin-top: 30px; font-size: 22px; font-weight: 600; opacity: .72; letter-spacing: -0.01em; }
 .hw-title { margin: 2px 0 0; font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; color: #fff; }

@@ -111,7 +111,10 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
   // is no "elsewhere").
   useEffect(() => {
     if (!open) return undefined;
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) close(false); };
+    // The panel lives at the page root (below), so a click in it is not "outside".
+    const onDown = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target) && !e.target.closest?.('.help-widget')) close(false);
+    };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [open, close]);
@@ -151,7 +154,9 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
         onClick={() => (open ? close() : show())}>
         <CircleHelp style={{ width: 17, height: 17 }} />
       </button>
-      {open && (
+      {/* The panel too: its "fixed" bottom-right measured from the blurred
+          header put it above the top of the screen (Oct 28 2026). */}
+      {open && createPortal(
         <WidgetBoundary onContact={() => {
           close(false);
           window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'support' } }));
@@ -161,7 +166,8 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
               onTabChange={(t) => { lastTab = t; }}
               onWhatsNew={onWhatsNew} onAsk={ask} onClose={close} />
           </Suspense>
-        </WidgetBoundary>
+        </WidgetBoundary>,
+        document.body,
       )}
       {/* At the page root: inside the header, whose backdrop blur makes it
           the box "fixed" positions measure from, the spotlight sat a

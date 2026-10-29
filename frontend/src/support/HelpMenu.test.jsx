@@ -157,7 +157,7 @@ describe('Help widget', () => {
   it('opens on Home with the greeting and the three cards', async () => {
     render(<HelpMenu activeView="dashboard" onWhatsNew={() => {}} />);
     await openWidget();
-    expect(screen.getByText('Hi Pranshu')).toBeTruthy();
+    expect(screen.getByText('Hi Pranshu!')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'How can we help?' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Search for Help/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Ask a Question.*Our support team can help/ })).toBeTruthy();
@@ -257,6 +257,18 @@ describe('Help widget', () => {
     expect(buttons.findIndex((t) => t === 'Workday')).toBeGreaterThan(gs);
     // An employee does not browse modules they cannot open.
     expect(buttons).not.toContain('Accounting');
+  });
+
+  it('the Help tab opens the full Documentation (Neil, 10/28/2026)', async () => {
+    const onNav = vi.fn((e) => e.detail);
+    window.addEventListener('nexus:navigate', onNav);
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    await goToHelpSearch();
+    fireEvent.click(screen.getByRole('button', { name: /Open Full Documentation/ }));
+    window.removeEventListener('nexus:navigate', onNav);
+    expect(onNav.mock.calls.map(([e]) => e.detail)).toContainEqual({ view: 'support', sub: 'documentation' });
+    expect(screen.queryByRole('dialog', { name: 'Help' })).toBeNull();
   });
 
   it('Messages lists your tickets', async () => {
