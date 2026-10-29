@@ -9,6 +9,10 @@ from dotenv import load_dotenv
 # already locked in SKIP_AUTH=False, so NEXUS_SKIP_AUTH in backend/.env was
 # silently ignored and every request 401'd even with the dev bypass configured.
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+# AI is OFF unless Neil or Visesh turned it on (NEXUS_AI_ENABLED=true) - before
+# any other import, so no module ever sees the Anthropic key (ai_switch.py).
+import ai_switch  # noqa: E402
+ai_switch.apply()
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
