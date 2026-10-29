@@ -23,6 +23,7 @@ import {
   Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
   FileText, Monitor, HardHat, Store, Package, Home, Calculator, Landmark, Users,
   Megaphone, KeyRound, HelpCircle, Settings, Handshake, Receipt,
+  Inbox, Newspaper, Scale, Workflow,
 } from 'lucide-react';
 import InsightsChart from '../components/icons/InsightsChart';
 import { DOCS, DOC_GROUPS, ROLE_TIERS, ACCESS_LEVELS } from './docsContent';
@@ -46,6 +47,7 @@ const ICONS = {
   Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
   BookOpen, FileText, Monitor, HardHat, Store, Package, Home, Calculator, Landmark,
   Users, Megaphone, InsightsChart, KeyRound, HelpCircle, Settings, Handshake, Receipt,
+  Inbox, Newspaper, Scale, Workflow,
 };
 
 const LAST_KEY = 'nexus-support-docs-last';
