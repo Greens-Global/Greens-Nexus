@@ -49,8 +49,10 @@ const Q_FUZZY = 0.75;   // one typo
 // docsSearch.test.js: real questions land well above it, junk far below.
 // Every new guide entry lowers every score a little (rarity is relative to
 // the guide's size), so the edge pair the tests pin drifts: Oct 21 "vacat"
-// measured 3.495 and the junk "movie times" 3.401, so the floor sits between.
-export const MIN_SCORE = 3.45;
+// measured 3.495 and the junk "movie times" 3.401; after the Oct 29 2026
+// guide refresh "vacat" measures 3.433 and "movie times" 3.357, so the floor
+// sits between them.
+export const MIN_SCORE = 3.4;
 // Ticket suggestions sit inside a form, so they need to be surer.
 export const TICKET_MIN_SCORE = 4;
 // Results under this share of the best result's score are dropped as noise.
@@ -705,7 +707,7 @@ export function suggestForTicket(subject, description, opts = {}) {
 /** The guide entry for an app view id (e.g. "myhr" -> Workday), or null. */
 export function docForView(view) {
   if (!view) return null;
-  return DOCS.find((d) => d.view === view) || null;
+  return DOCS.find((d) => d.view === view) || DOCS.find((d) => d.alsoViews?.includes(view)) || null;
 }
 
 /** Label for where a result comes from. */
