@@ -1367,6 +1367,18 @@ def _run_migrations():
             "ALTER TABLE hr_departments ADD COLUMN weather INTEGER DEFAULT 0",
             # Help Center (Oct 2026) - see the Postgres list. models.KbSearchLog.
             "ALTER TABLE kb_search_log ADD COLUMN source VARCHAR DEFAULT 'kb'",
+            # Performance, made simple (Oct 29) - see the Postgres list. models.PerfGoal / PerfReview.
+            "ALTER TABLE hr_perf_goals ADD COLUMN metric_key VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_goals ADD COLUMN period_start VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_goals ADD COLUMN period_end VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_goals ADD COLUMN approved_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_goals ADD COLUMN approved_by VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN rating VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN goal_scores JSON DEFAULT '{}'",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN promotion_ready BOOLEAN DEFAULT 0",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN employee_comment TEXT DEFAULT ''",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN reminded JSON DEFAULT '{}'",
+            "ALTER TABLE hr_perf_reviews ADD COLUMN removed_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3234,6 +3246,22 @@ def _run_migrations():
         # models.HelpFeedback.
         "ALTER TABLE kb_search_log ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'kb'",
         "ALTER TABLE help_feedback ENABLE ROW LEVEL SECURITY",
+        # Performance, made simple (Neil, Oct 29 2026): a goal measured by a
+        # Nexus number over its own period, Proposed until approved; a review's
+        # 4-word rating, goal scores, Ready for Promotion, the employee's
+        # comments, the reminders sent and removal from a cycle. Additive only.
+        # models.PerfGoal / PerfReview.
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS metric_key VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS period_start VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS period_end VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS approved_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_goals ADD COLUMN IF NOT EXISTS approved_by VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS rating VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS goal_scores JSON DEFAULT '{}'",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS promotion_ready BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS employee_comment TEXT DEFAULT ''",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS reminded JSON DEFAULT '{}'",
+        "ALTER TABLE hr_perf_reviews ADD COLUMN IF NOT EXISTS removed_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -66,8 +66,17 @@ CHECKIN_DAYS_MAX = 90
 
 LEVELS = ("company", "department", "personal")
 MEASURES = ("percent", "number", "done")
-STATUSES = ("on_track", "at_risk", "off_track", "done")
-STATUS_LABELS = {"on_track": "On Track", "at_risk": "At Risk", "off_track": "Off Track", "done": "Done"}
+# Status is COMPUTED (Oct 29 2026, docs/superpowers/specs/2026-10-29-
+# performance-simple-design.md): Done when the target is met, else On Track /
+# At Risk / Behind from progress against the time gone in the goal's period;
+# No Data Yet for a Nexus-measured goal whose number does not apply yet. The
+# hand-picked status of the first build is ignored ("off_track" reads as Behind).
+STATUSES = ("on_track", "at_risk", "behind", "done", "no_data")
+STATUS_LABELS = {"on_track": "On Track", "at_risk": "At Risk", "behind": "Behind", "done": "Done",
+                 "no_data": "No Data Yet", "off_track": "Behind"}
+MAX_OPEN_GOALS = 5
+DEFAULT_PERIOD_MONTHS = 6
+REFRESH_HOURS = 6            # how often the loop re-reads a Nexus-measured goal
 CADENCES = ("once", "weekly", "biweekly", "monthly")
 CADENCE_LABELS = {"once": "Does Not Repeat", "weekly": "Weekly", "biweekly": "Every 2 Weeks", "monthly": "Monthly"}
 DEFAULT_TZ = "America/Los_Angeles"
@@ -225,6 +234,15 @@ def companies_out(db: Session, reach) -> list:
     return [{"id": e.id, "name": e.name or ""} for e in rows if reach is None or e.id in reach]
 
 
+def can_see_person(db: Session, user: dict, email: str) -> bool:
+    """A person's numbers, goals and reviews: the person, their reporting
+    chain, HR for their company - never a peer."""
+    me, who = _low(user.get("email")), _low(email)
+    if user.get("external") or not who:
+        return False
+    return who == me or is_above(db, me, who) or hr_for_person(db, user, who)
+
+
 def require_internal(user: dict) -> None:
     if user.get("external"):
         raise HTTPException(403, "Performance is for employees")
@@ -252,9 +270,23 @@ def settings_for(db: Session, email: str) -> dict:
 
 # ── Goals ────────────────────────────────────────────────────────────────────
 
+def _metric_def(g):
+    import perf_metrics
+    return perf_metrics.METRICS.get(g.metric_key or "") if getattr(g, "metric_key", "") else None
+
+
 def progress(g: models.PerfGoal) -> int:
-    """0-100, from the measure."""
+    """0-100, from the measure (a Nexus-measured goal: its number against the
+    target - for a 'less is better' number, 100 while it is within target)."""
     cur = float(g.current_value or 0)
+    md = _metric_def(g)
+    if md is not None:
+        target = float(g.target_value or 0)
+        if md[2] == "low":
+            return 100 if cur <= target else 0
+        if target <= 0:
+            return 100
+        return int(max(0, min(100, round(cur / target * 100))))
     if g.measure == "done":
         return 100 if cur >= 1 else 0
     if g.measure == "number":
@@ -265,6 +297,119 @@ def progress(g: models.PerfGoal) -> int:
     else:
         pct = cur
     return int(max(0, min(100, round(pct))))
+
+
+def local_today() -> str:
+    return datetime.now(timezone.utc).astimezone(zone(DEFAULT_TZ)).strftime("%Y-%m-%d")
+
+
+def goal_period(g: models.PerfGoal) -> tuple:
+    """(start, end) of the goal's period, ISO; end '' = open-ended."""
+    start = (g.period_start or g.start_on or (g.created_at or "")[:10] or local_today())[:10]
+    end = (g.period_end or g.due_on or "")[:10]
+    return start, end
+
+
+def _elapsed(start: str, end: str, today: str) -> Optional[float]:
+    """Share of the period gone, 0..1 (None when it has no end)."""
+    if not end:
+        return None
+    from datetime import date as _d
+    try:
+        d0, d1, t = _d.fromisoformat(start), _d.fromisoformat(end), _d.fromisoformat(today)
+    except ValueError:
+        return None
+    span = (d1 - d0).days or 1
+    return max(0.0, min(1.0, (t - d0).days / span))
+
+
+def refresh_metric(db: Session, g: models.PerfGoal, today: Optional[str] = None) -> bool:
+    """A Nexus-measured goal's number for its period, read from the person's
+    scorecard (perf_metrics.metric - the one calculation). Sets
+    current_value; returns whether the number applies to them at all."""
+    if not getattr(g, "metric_key", ""):
+        return True
+    import perf_metrics
+    from datetime import date as _d
+    today = today or local_today()
+    start, end = goal_period(g)
+    try:
+        m = perf_metrics.metric(db, g.owner_email, g.metric_key, start, end or today, today=_d.fromisoformat(today))
+    except (KeyError, ValueError):
+        return False
+    if not m.get("available"):
+        return False
+    g.current_value = float(m["value"] or 0)
+    return True
+
+
+def computed_status(g: models.PerfGoal, today: Optional[str] = None, applies: bool = True) -> str:
+    today = today or local_today()
+    md = _metric_def(g)
+    if md is not None and not applies:
+        return "no_data"
+    start, end = goal_period(g)
+    ended = bool(end) and today > end
+    if md is not None and (md[3] in ("rate", "now") or md[2] == "low"):
+        # A rate, a point-in-time number or a "less is better" count is
+        # judged as it stands; it is Done only once the period is over with
+        # the target met.
+        target = float(g.target_value or 0)
+        cur = float(g.current_value or 0)
+        met = cur <= target if md[2] == "low" else cur >= target
+        if met:
+            return "done" if ended else "on_track"
+        if md[2] == "low" or ended:
+            return "behind"
+        return "at_risk" if target and cur >= 0.9 * target else "behind"
+    p = progress(g)
+    if p >= 100:
+        return "done"
+    share = _elapsed(start, end, today)
+    if share is None:
+        return "on_track"
+    if ended:
+        return "behind"
+    expected = share * 100
+    if p >= expected:
+        return "on_track"
+    return "at_risk" if p >= 0.7 * expected else "behind"
+
+
+def is_open(g: models.PerfGoal, today: Optional[str] = None) -> bool:
+    """Counts toward the 5-goal cap: not archived, not Done, period not over."""
+    today = today or local_today()
+    _s, end = goal_period(g)
+    if g.archived_at or (end and end < today):
+        return False
+    return computed_status(g, today) != "done"
+
+
+def open_goal_count(db: Session, owner: str, exclude_id: str = "") -> int:
+    rows = (db.query(models.PerfGoal).filter(models.PerfGoal.owner_email == _low(owner),
+                                             models.PerfGoal.level == "personal",
+                                             models.PerfGoal.archived_at == "").all())
+    today = local_today()
+    return sum(1 for g in rows if g.id != exclude_id and is_open(g, today))
+
+
+def needs_approval(db: Session, creator: str, owner: str, level: str) -> bool:
+    """An employee's own personal goal waits for their manager (or HR) to
+    approve it; one the manager or HR sets is agreed at once, and so is one
+    for someone with no manager."""
+    if level != "personal" or _low(creator) != _low(owner):
+        return False
+    emp = employee(db, owner)
+    return bool(emp is not None and _low(emp.manager_email) and _low(emp.manager_email) != _low(owner))
+
+
+def can_approve_goal(db: Session, user: dict, g: models.PerfGoal) -> bool:
+    me = _low(user.get("email"))
+    if user.get("external") or g.archived_at or g.approved_at or g.level != "personal":
+        return False
+    if me == _low(g.owner_email):
+        return False
+    return is_above(db, me, g.owner_email) or hr_for(db, user, g.company_id or "")
 
 
 def can_see_goal(db: Session, user: dict, g: models.PerfGoal, me_emp=None) -> bool:
@@ -360,7 +505,7 @@ def check_create(db: Session, user: dict, level: str, owner: str, company_id: st
 
 
 def goal_out(db: Session, user: dict, g: models.PerfGoal, *, names: Optional[dict] = None,
-             parents: Optional[dict] = None) -> dict:
+             parents: Optional[dict] = None, today: Optional[str] = None) -> dict:
     names = names if names is not None else {}
     owner = _low(g.owner_email)
     if owner not in names:
@@ -371,22 +516,35 @@ def goal_out(db: Session, user: dict, g: models.PerfGoal, *, names: Optional[dic
         p = parents.get(g.parent_id) if parents is not None else db.get(models.PerfGoal, g.parent_id)
         if p is not None and can_see_goal(db, user, p):
             parent_title = p.title
+    today = today or local_today()
+    applies = refresh_metric(db, g, today)
+    status = computed_status(g, today, applies)
+    md = _metric_def(g)
+    start, end = goal_period(g)
+    can_edit = can_edit_goal(db, user, g)
     return {
         "id": g.id, "level": g.level, "companyId": g.company_id or "", "department": g.department or "",
         "ownerEmail": owner, "ownerName": names[owner], "title": g.title, "description": g.description or "",
         "measure": g.measure, "startValue": g.start_value or 0, "targetValue": g.target_value or 0,
-        "currentValue": g.current_value or 0, "unit": g.unit or "", "status": g.status,
-        "statusLabel": STATUS_LABELS.get(g.status, g.status), "progress": progress(g),
-        "startOn": g.start_on or "", "dueOn": g.due_on or "", "parentId": g.parent_id or "",
+        "currentValue": g.current_value or 0, "unit": (md[1] if md else g.unit) or "", "status": status,
+        "statusLabel": STATUS_LABELS.get(status, status), "progress": progress(g),
+        "metricKey": g.metric_key or "", "metricLabel": md[0] if md else "", "metricGood": md[2] if md else "high",
+        "measuredByNexus": md is not None, "periodStart": start, "periodEnd": end,
+        "startOn": g.start_on or "", "dueOn": g.due_on or end, "parentId": g.parent_id or "",
         "parentTitle": parent_title, "lastCheckinAt": g.last_checkin_at or "", "archived": bool(g.archived_at),
+        "proposed": g.level == "personal" and not (g.approved_at or ""),
+        "approvedAt": g.approved_at or "", "approvedBy": g.approved_by or "",
         "createdBy": g.created_by or "", "createdAt": g.created_at or "", "updatedAt": g.updated_at or "",
-        "canEdit": can_edit_goal(db, user, g),
+        "canEdit": can_edit, "canCheckIn": can_edit and md is None, "canApprove": can_approve_goal(db, user, g),
     }
 
 
 def apply_checkin(db: Session, g: models.PerfGoal, by: str, value, status: str, note: str) -> models.PerfGoalCheckin:
-    if status and status not in STATUSES:
-        raise HTTPException(400, "Pick On Track, At Risk, Off Track or Done.")
+    """A by-hand goal's new number and a note. The status is worked out from
+    the number (computed_status) - a status a caller sends is ignored. A
+    Nexus-measured goal has no check-ins: its number comes in by itself."""
+    if getattr(g, "metric_key", ""):
+        raise HTTPException(400, "This goal is measured by Nexus - its number updates by itself.")
     if value is not None:
         try:
             value = float(value)
@@ -397,10 +555,7 @@ def apply_checkin(db: Session, g: models.PerfGoal, by: str, value, status: str, 
         elif g.measure == "done":
             value = 1.0 if value >= 1 else 0.0
         g.current_value = value
-    if g.measure == "done" and value == 1.0:
-        status = "done"     # ticking Done is the goal being done, whatever status was picked
-    if status:
-        g.status = status
+    g.status = computed_status(g)
     now = now_iso()
     g.last_checkin_at = now
     g.updated_at = now
@@ -607,11 +762,12 @@ def _remind_checkins(db: Session, now: datetime) -> int:
     rewritten in place, each goal counted at most once per period."""
     import notify_rollup
     rows = (db.query(models.PerfGoal)
-            .filter(models.PerfGoal.archived_at == "", models.PerfGoal.status != "done").all())
+            .filter(models.PerfGoal.archived_at == "", models.PerfGoal.metric_key == "").all())
+    today = local_today()
     by_owner: dict = {}
     for g in rows:
         owner = _low(g.owner_email)
-        if not owner:
+        if not owner or not is_open(g, today):
             continue
         days = settings_for_company(db, g.company_id or "")["checkinEveryDays"]
         if days <= 0:
@@ -645,12 +801,38 @@ def _parse_any(s: str) -> Optional[datetime]:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+def refresh_measured_goals(db: Session, now: Optional[datetime] = None) -> int:
+    """Keep the stored number and status of every live Nexus-measured goal
+    current (the screens compute them on read; this is what lists, counts and
+    exports see between reads). Every few hours per goal is plenty."""
+    today = local_today()
+    now = now or datetime.now(timezone.utc)
+    rows = (db.query(models.PerfGoal)
+            .filter(models.PerfGoal.archived_at == "", models.PerfGoal.metric_key != "").all())
+    n = 0
+    for g in rows:
+        last = _parse_any(g.updated_at)
+        if last is not None and now - last < timedelta(hours=REFRESH_HOURS):
+            continue
+        _s, end = goal_period(g)
+        if end and end < today and g.status in ("done", "behind"):
+            continue
+        applies = refresh_metric(db, g, today)
+        g.status = computed_status(g, today, applies)
+        g.updated_at = now_iso()
+        n += 1
+    return n
+
+
 def reminders_pass(now: Optional[datetime] = None) -> dict:
     """One pass of the loop: keep the next meeting of every recurring 1:1,
-    then the two reminders. Its own session; sync - run it in a thread."""
+    the two reminders, the Nexus-measured goals' numbers, and the review
+    cycles' members and automatic reminders (perf_reviews.loop_pass). Its own
+    session; sync - run it in a thread."""
     if job_switch.off("performance"):   # Workflows > Automations switch
         return {}
     from database import SessionLocal
+    import perf_reviews
     now = now or datetime.now(timezone.utc)
     db = SessionLocal()
     try:
@@ -658,6 +840,10 @@ def reminders_pass(now: Optional[datetime] = None) -> dict:
             ensure_upcoming(db, s, now)
         db.flush()
         out = {"agendas": _remind_agendas(db, now), "checkins": _remind_checkins(db, now)}
+        db.commit()
+        out["measured"] = refresh_measured_goals(db, now)
+        db.commit()
+        out["reviews"] = perf_reviews.loop_pass(db)
         db.commit()
         return out
     finally:
