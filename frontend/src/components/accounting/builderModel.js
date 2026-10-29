@@ -327,7 +327,7 @@ export function builderSummary(config, entities = []) {
   const period = c.period === 'asof'
     ? (c.asofToday === false ? `As of ${formatDate(c.asof)}` : 'As of today')
     : c.preset === 'custom' ? `${formatDate(c.from)} - ${formatDate(c.to)}` : presetLabel(c.preset);
-  const ent = !c.entities.length ? 'All entities' : c.entities.length > 1 ? `${c.entities.length} entities`
+  const ent = !c.entities.length ? 'All Entities' : c.entities.length > 1 ? `${c.entities.length} entities`
     : (() => { const e = entities.find((x) => x.code === c.entities[0]); return e?.name ? `${e.name} (${e.code})` : c.entities[0]; })();
   const accts = includedAccounts(c).length;
   const filters = DIM_KINDS.reduce((s, k) => s + ((c.dims?.[k.key] || []).length ? 1 : 0), 0);

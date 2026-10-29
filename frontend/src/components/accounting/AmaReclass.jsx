@@ -135,7 +135,7 @@ export function NoteCell({ row, onSaved }) {
   return (
     <input type="text" value={v} maxLength={4000} onChange={(e) => { setV(e.target.value); setState(''); }} onBlur={save}
       onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') e.currentTarget.blur(); }}
-      aria-label={`Notes for ${row.entryNo || row.accountNo || 'line'}`} placeholder="Add a note" title={err || v || undefined}
+      aria-label={`Notes for ${row.entryNo || row.accountNo || 'line'}`} placeholder="Add a Note" title={err || v || undefined}
       style={{ ...control, height: 26, width: 180, fontSize: '0.78rem', ...(err ? { borderColor: 'var(--bad-fg, #dc2626)' } : {}), ...(state === 'saving' ? { opacity: 0.6 } : {}) }} />
   );
 }

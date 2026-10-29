@@ -162,7 +162,7 @@ export default function PayrollSummary() {
     try {
       const file = await linesFile({
         title: 'Payroll Summary', period: `${config.from}_${config.to}`,
-        subtitle: [`${formatDate(config.from)} - ${formatDate(config.to)}`, config.entities.length ? config.entities.join(', ') : 'All entities', `${PAYROLL_SUMMARY_JOURNAL} journal`].join(' · '),
+        subtitle: [`${formatDate(config.from)} - ${formatDate(config.to)}`, config.entities.length ? config.entities.join(', ') : 'All Entities', `${PAYROLL_SUMMARY_JOURNAL} journal`].join(' · '),
         columns: table.columns.map((c) => ({ label: c.label, num: !!c.num, width: c.num ? 110 : 260 })),
         rows: table.rows.map((r) => [r.label, ...(r.kind === 'section' ? table.columns.slice(1).map(() => '') : r.cells)]),
         totals: null,
@@ -224,7 +224,7 @@ export default function PayrollSummary() {
         <div style={{ ...card, padding: 10, opacity: loading ? 0.6 : 1 }}>
           <h3 style={{ margin: '0 0 6px', fontSize: '0.98rem' }}>Payroll Summary</h3>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
-            {formatDate(config.from)} - {formatDate(config.to)} · {config.entities.length ? `${config.entities.length} ${config.entities.length === 1 ? 'entity' : 'entities'}` : 'All entities'} · {summary.employees.length} {summary.employees.length === 1 ? 'employee' : 'employees'}
+            {formatDate(config.from)} - {formatDate(config.to)} · {config.entities.length ? `${config.entities.length} ${config.entities.length === 1 ? 'entity' : 'entities'}` : 'All Entities'} · {summary.employees.length} {summary.employees.length === 1 ? 'employee' : 'employees'}
           </div>
           <div className="acct-report-wrap acct-scroll-box acct-fit" ref={setBox} data-testid="payroll-summary-box" style={fit}>
             <table className="acct-report">

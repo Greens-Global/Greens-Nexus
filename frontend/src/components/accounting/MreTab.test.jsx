@@ -140,7 +140,7 @@ describe('MreTab', () => {
     const [name, file] = downloadBlob.mock.calls[0];
     expect(name).toBe('Monthly Recurring Expenses - 2026.csv');
     expect(file.type).toMatch(/text\/csv/);
-    const text = linesCsv(mreTable(grid.rows.slice(0, 2), 2026, 'All entities'));
+    const text = linesCsv(mreTable(grid.rows.slice(0, 2), 2026, 'All Entities'));
     expect(text).toContain('Vendor No.,Vendor,Entity,Category,Frequency,Expected,Jan');
     expect(text).toContain('V-SDGE,San Diego Gas & Electric,"Greens Escondido, LLC. (15000)",Utilities,Monthly,410');
     expect(text).toContain('Total Paid');

@@ -494,7 +494,7 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
 // section, with a tick per account. Nothing ticked = all of them.
 // Oct 23 (Report Builder): `allLabel` names an empty pick ("No accounts yet"
 // on a row group) and `ariaLabel` tells several pickers on one screen apart.
-export function AccountsPicker({ accounts, value, onChange, showHistorical = false, align = 'left', allLabel = 'All accounts', ariaLabel = 'Accounts' }) {
+export function AccountsPicker({ accounts, value, onChange, showHistorical = false, align = 'left', allLabel = 'All Accounts', ariaLabel = 'Accounts' }) {
   const [open, setOpen, ref] = usePopover();
   const options = useMemo(() => {
     const known = new Set(accounts.map((a) => a.code));
@@ -961,7 +961,7 @@ export function ClearButton({ onClick, label }) {
 // rest sit in ONE ControlBar. It keeps them on one line by folding words
 // away before anything wraps: first the action words (Saved Reports,
 // Memorize, Customize, Export, Sync - `acct-bar-label`), then the words of
-// pickers still at their default (All entities, Filters, All accounts -
+// pickers still at their default (All Entities, Filters, All Accounts -
 // `acct-bar-label-2`). The icon, the count and the tooltip stay, so no
 // control is lost. Only on a window too narrow for even that does the row
 // wrap - cleanly, as whole controls, never on top of each other. The fold is

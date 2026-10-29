@@ -507,7 +507,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const updateNote = (id, note) => setRoll((d) => d && { ...d, rows: d.rows.map((r) => (r.lease.id === id ? { ...r, lease: { ...r.lease, teamNote: note } } : r)) });
 
   // What the Export menu writes: the section on screen, as on screen.
-  const entityLabel = !entities.length ? (locations.limited ? 'All my entities' : 'All entities') : entities.length === 1 ? (() => { const e = locations.entities.find((x) => x.code === entities[0]); return e?.name ? `${e.name} (${e.code})` : entities[0]; })() : `${entities.length} entities`;
+  const entityLabel = !entities.length ? (locations.limited ? 'All My Entities' : 'All Entities') : entities.length === 1 ? (() => { const e = locations.entities.find((x) => x.code === entities[0]); return e?.name ? `${e.name} (${e.code})` : entities[0]; })() : `${entities.length} entities`;
   const periodLabel = periodText(period, year, span);
   const buildTable = () => {
     const title = section === 'outstanding' ? 'Income Outstanding' : section === 'tenants' ? 'Payers' : 'Monthly Recurring Income';
@@ -861,11 +861,11 @@ function NoteCell({ lease, canEdit, onSaved, monthNotes = '' }) {
     : null;
   const body = note.text
     ? <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{note.text}<span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)' }}>{who}</span>{months}</span>
-    : months ? <span style={{ display: 'block', minWidth: 0 }}>{months}</span> : <span style={{ color: 'var(--text-muted)' }}>{canEdit ? 'Add a note' : '-'}</span>;
+    : months ? <span style={{ display: 'block', minWidth: 0 }}>{months}</span> : <span style={{ color: 'var(--text-muted)' }}>{canEdit ? 'Add a Note' : '-'}</span>;
   const tip = [note.text ? `${note.text} - ${who}` : '', monthNotes].filter(Boolean).join('\n');
   if (!canEdit) return <span title={tip || undefined}>{body}</span>;
   return (
-    <button type="button" onClick={() => { setText(note.text || ''); setEditing(true); }} aria-label={note.text ? `Change the note on ${lease.propertyName}` : `Add a note on ${lease.propertyName}`} title={tip ? `${tip}${note.text ? '' : '\nClick to add a note'}` : 'Add a note'}
+    <button type="button" onClick={() => { setText(note.text || ''); setEditing(true); }} aria-label={note.text ? `Change the note on ${lease.propertyName}` : `Add a note on ${lease.propertyName}`} title={tip ? `${tip}${note.text ? '' : '\nClick to add a note'}` : 'Add a Note'}
       style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: '0.76rem', color: 'var(--text-primary)', cursor: 'text', textAlign: 'left', width: '100%', minWidth: 0 }}>
       {body}
     </button>
