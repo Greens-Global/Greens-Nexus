@@ -18,6 +18,9 @@ import { StatusLabel } from '../components/StatusLabel';
 import { GOAL_STATUS, card, cardHead, HD, LBL, muted, parsePerfSub } from './lib';
 import Figures from './Figures';
 import { NX } from '../tasks/theme';
+import { FeedbackCard } from './Feedback';
+import { KudosCard } from './Kudos';
+import { PlanCard } from './Plans';
 
 // Needs You (Oct 29 2026): what a manager's team is waiting on, each a
 // filter for the table under it.
@@ -101,6 +104,9 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
   const [newOneOnOne, setNewOneOnOne] = useState(null); // null | { reportEmail }
   const [person, setPerson] = useState(null);
   const [need, setNeed] = useState('');
+  const [openFeedback, setOpenFeedback] = useState(initial.feedback || '');
+  const [openKudos, setOpenKudos] = useState(initial.kudos || '');
+  const [openPlan, setOpenPlan] = useState(initial.plan || '');
 
   // A new bell while the tab is open opens what it points at.
   const [seenFocus, setSeenFocus] = useState(focus);
@@ -110,6 +116,10 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
     if (p?.goal) setOpenGoal(p.goal);
     if (p?.oneOnOne) setOpenSeries(p.oneOnOne);
     if (p?.review) setOpenReview(p.review);
+    if (p?.feedback || p?.kudos || p?.plan) { setView('me'); setPerson(null); }
+    if (p?.feedback) setOpenFeedback(p.feedback);
+    if (p?.kudos) setOpenKudos(p.kudos);
+    if (p?.plan) setOpenPlan(p.plan);
     if (p?.view === 'team') { setView('team'); setPerson(null); }
   }
   useEffect(() => { if (focus) onFocusUsed?.(); }, [focus, onFocusUsed]);
@@ -152,7 +162,13 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto', minHeight: 40 }}><Plus size={14} /> Set Up a 1:1</button>
             </div>
             <PersonPerformance key={person.email} ctx={ctx} email={person.email} name={person.name} reviews={theirReviews}
-              canAdd onChanged={changed} toastOk={toastOk} toastErr={toastErr} />
+              canAdd onChanged={changed} toastOk={toastOk} toastErr={toastErr} extra={(
+                <>
+                  <PlanCard email={person.email} name={person.name} canStart toastOk={toastOk} toastErr={toastErr} />
+                  <FeedbackCard ctx={ctx} email={person.email} name={person.name} toastOk={toastOk} toastErr={toastErr} />
+                  <KudosCard ctx={ctx} person={person.email} name={person.name} toastOk={toastOk} toastErr={toastErr} />
+                </>
+              )} />
           </div>
         ) : (
           <div style={{ display: 'grid', gap: 14 }}>
@@ -196,7 +212,10 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
         )
       ) : (
         <PersonPerformance ctx={ctx} reviews={reviews?.mine || []} openGoalId={openGoal} openReviewId={view === 'me' ? openReview : ''}
-          onChanged={changed} toastOk={toastOk} toastErr={toastErr} wide={!phone} aside={(
+          onChanged={changed} toastOk={toastOk} toastErr={toastErr} wide={!phone}
+          top={<PlanCard self focusId={openPlan} toastOk={toastOk} toastErr={toastErr} />}
+          extra={<FeedbackCard ctx={ctx} focusId={openFeedback} toastOk={toastOk} toastErr={toastErr} />} aside={(
+          <div style={{ display: 'grid', gap: 14, minWidth: 0, alignContent: 'start' }}>
           <section style={card} aria-label="My 1:1s">
             <div style={cardHead}>
               <span className="wkc-chip"><CalendarClock size={14} /></span>
@@ -214,6 +233,8 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
               <div style={{ ...muted, fontSize: 12, marginTop: 8 }}>Next: {formatDateTime((oneOnOnes.find(s => s.next?.at) || {}).next.at)}</div>
             )}
           </section>
+          <KudosCard key={openKudos} ctx={ctx} focusId={openKudos} toastOk={toastOk} toastErr={toastErr} />
+          </div>
         )} />
       )}
 

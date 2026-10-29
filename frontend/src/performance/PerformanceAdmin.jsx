@@ -11,6 +11,7 @@ import { GoalList, GoalFormModal, GoalDetailModal, AddGoalButton } from './Goals
 import ReviewCycles from './ReviewCycles';
 import { GOAL_STATUS, card, cardHead, HD, LBL, muted } from './lib';
 import Figures from './Figures';
+import { PlansAdmin } from './Plans';
 
 const STATUS_FILTER = ['behind', 'at_risk', 'on_track', 'done', 'no_data'];
 const ATTENTION = { behind: 0, at_risk: 1, no_data: 2, on_track: 3, done: 4 };
@@ -58,6 +59,7 @@ export default function PerformanceAdmin({ toastOk, toastErr }) {
         </label>
       )}
       <ReviewCycles company={company} companies={ctx.hrCompanies || []} toastOk={toastOk} toastErr={toastErr} />
+      <PlansAdmin company={company} toastOk={toastOk} toastErr={toastErr} />
       <section style={card} aria-label="Company and Department Goals">
         <div style={cardHead}>
           <span className="wkc-chip"><Target size={14} /></span>

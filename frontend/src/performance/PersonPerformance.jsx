@@ -30,8 +30,9 @@ function Card({ Icon, title, action, children, label }) {
 // viewer add a goal for them (themselves, or a direct report).
 // `aside` - a column beside the goals and reviews (Workday puts My 1:1s
 // there), with the numbers across the top; `wide` = side by side.
+// `extra` - more cards under the reviews (feedback, kudos, an improvement plan).
 export default function PersonPerformance({ ctx, email = '', name = '', reviews = null, canAdd = true, openGoalId = '',
-  openReviewId = '', onChanged, toastOk, toastErr, aside = null, wide = true }) {
+  openReviewId = '', onChanged, toastOk, toastErr, aside = null, wide = true, extra = null, top = null }) {
   const self = !email || email === ctx?.email;
   const [goals, setGoals] = useState(null);
   const [err, setErr] = useState('');
@@ -63,6 +64,7 @@ export default function PersonPerformance({ ctx, email = '', name = '', reviews 
 
   const main = (
     <>
+      {top}
       <Card Icon={Target} title={self ? 'My Goals' : 'Goals'} label={self ? 'My Goals' : 'Goals'}
         action={canAdd ? (
           <AddGoalButton onClick={() => setForm(true)} disabled={full}
@@ -102,6 +104,7 @@ export default function PersonPerformance({ ctx, email = '', name = '', reviews 
           })()}
         </Card>
       )}
+      {extra}
     </>
   );
 
