@@ -4902,6 +4902,61 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
             "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
 
 
+# ── Workers' comp rate (Charmi, 10/27 call, item 14) ─────────────────────────
+# A percent of gross wages per person, in force from its year until a later
+# year has its own (models.WorkersCompRate: append-only, the newest entry for a
+# year wins, every earlier one stays as the history). Accounting >
+# Compensation charges rate x gross wages for each year of its period. The pay
+# record's grant: hr_comp viewers read, editors (HR and payroll) add a rate.
+class WorkersCompIn(BaseModel):
+    year:    int
+    ratePct: float
+    note:    Optional[str] = ""
+
+
+def workers_comp_out(db: Session, employee_id: str) -> dict:
+    """{rates: the one in force per year, newest year first; history: every entry}."""
+    from models import WorkersCompRate
+    rows = (db.query(WorkersCompRate).filter(WorkersCompRate.employee_id == employee_id)
+            .order_by(WorkersCompRate.effective_year.desc(), WorkersCompRate.set_at.desc()).all())
+    history = [{"year": r.effective_year, "ratePct": r.rate_pct, "note": r.note or "", "setBy": r.set_by or "", "setAt": r.set_at or ""} for r in rows]
+    rates, seen = [], set()
+    for h in history:
+        if h["year"] not in seen:
+            seen.add(h["year"])
+            rates.append(h)
+    return {"rates": rates, "history": history}
+
+
+@router.get("/employees/{eid}/workers-comp")
+def get_workers_comp(eid: str, user: dict = Depends(require_hr_comp_read),
+                     _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    _assert_scope(row, hr_scope(user, db))
+    return workers_comp_out(db, row.id)
+
+
+@router.post("/employees/{eid}/workers-comp")
+def add_workers_comp(eid: str, body: WorkersCompIn, user: dict = Depends(require_hr_comp_write),
+                     _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    from models import WorkersCompRate
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    _assert_scope(row, hr_scope(user, db))
+    now = datetime.now(timezone.utc)
+    if not 2000 <= body.year <= now.year + 1:
+        raise HTTPException(400, f"Pick a year from 2000 to {now.year + 1}.")
+    if not 0 <= body.ratePct <= 100:   # NaN fails both sides too
+        raise HTTPException(400, "The workers' comp rate is a percent of gross wages, from 0 to 100.")
+    db.add(WorkersCompRate(id=str(uuid.uuid4()), employee_id=row.id, effective_year=body.year, rate_pct=round(body.ratePct, 4),
+                           note=(body.note or "").strip()[:200], set_by=user["email"], set_at=now.isoformat()))
+    db.commit()
+    return workers_comp_out(db, row.id)
+
+
 # ---------------------------------------------------------------------------
 # HR Section B5 - Assets tab: LIVE read from Item Management (no duplication).
 # HR-gated so an HR user without an inventory grant can still see what a person

@@ -62,4 +62,26 @@ describe('Payroll Summary', () => {
     fireEvent.keyDown(find, { key: 'Enter' });
     await waitFor(() => expect([...screen.getByRole('table').querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(['Payroll Item', 'Shah, Urmi', 'Total']));
   });
+
+  // Call of 10/27 with Charmi, item 17: every amount opens its lines; columns resize.
+  it('an amount opens its PYRJ lines for that employee in the side panel, and the columns resize', async () => {
+    api.searchAccountingLedger.mockImplementation(async () => ({ rows: [{ line_id: 'l1', entry_id: 'e1', entry_no: 'PYRJ-9', entry_date: '2026-10-10', gl_code: '61905', account_name: 'Wages - Hourly', employee_id: 'E-0185', employee_name: 'Bhole, Vinod', description: 'Payroll 10/10/2026 - E-0185', debit: 2000, credit: 0 }], total: 1 }));
+    render(<PayrollSummary />);
+    const table = await screen.findByRole('table');
+    expect(within(table).getByRole('separator', { name: 'Resize the Bhole, Vinod column' })).toBeTruthy();
+    expect(within(table).getByRole('separator', { name: 'Resize the Payroll Item column' })).toBeTruthy();
+    fireEvent.click(within(table).getByRole('button', { name: 'Lines behind 61905 Wages - Hourly - Bhole, Vinod' }));
+    const panel = await screen.findByRole('dialog', { name: '61905 Wages - Hourly - Bhole, Vinod' });
+    await waitFor(() => expect(api.searchAccountingLedger).toHaveBeenCalledWith(expect.objectContaining({ journal: 'PYRJ', account: '61905', party_kind: 'employee', party: 'E-0185', offset: 0 })));
+    expect(await within(panel).findByRole('button', { name: 'PYRJ-9' })).toBeTruthy();
+    // The Total of Gross Pay reads every gross account, no employee filter.
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    api.searchAccountingLedger.mockClear();
+    const gross = [...table.querySelectorAll('tbody tr')].find((tr) => tr.firstChild.textContent === 'Total Gross Pay');
+    fireEvent.click(within(gross).getByRole('button', { name: 'Lines behind Total Gross Pay - Total' }));
+    await waitFor(() => expect(api.searchAccountingLedger).toHaveBeenCalled());
+    const calls = api.searchAccountingLedger.mock.calls.map(([q]) => q);
+    expect(calls.every((q) => q.journal === 'PYRJ' && !q.party)).toBe(true);
+    expect(calls.map((q) => q.account)).toContain('61910');
+  });
 });

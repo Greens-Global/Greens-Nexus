@@ -19,6 +19,9 @@ vi.mock('../../api', () => ({
   api: {
     getAccountingLocations: vi.fn(async () => ({ entities: [{ code: '15000', name: 'Sunset Plaza' }] })),
     getProfitability: vi.fn(async () => sheet),
+    getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
+    saveAccountingPrefs: vi.fn(async () => ({})),
+    searchAccountingLedger: vi.fn(async () => ({ rows: [{ line_id: 'l1', entry_id: 'e1', entry_no: 'AR-7', entry_date: '2026-03-01', gl_code: '40100', account_name: 'Rental Income', description: 'March rent', debit: 0, credit: 1050 }], total: 1 })),
   },
 }));
 vi.mock('./drill', () => ({ requestReportDrill: vi.fn() }));
@@ -35,7 +38,7 @@ describe('ProfitabilityReport', () => {
     expect(await screen.findByText('Sunset Plaza')).toBeTruthy();
     expect(screen.getByText('Profitability Sheet')).toBeTruthy();
     expect(screen.getByText('Prior Year Net Income')).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: 'Cash Flow After Debt Service' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: /^Cash Flow After Debt Service/ })).toBeTruthy();
     expect(screen.getAllByText('(16.7%)').length).toBeGreaterThan(0);
     expect(api.getProfitability).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-01-01$/), expect.stringMatching(/^\d{4}-12-31$/), { locations: [], book: 'accrual', expand: false });
   });
@@ -50,11 +53,41 @@ describe('ProfitabilityReport', () => {
     expect(requestReportDrill).toHaveBeenCalledWith({ account: '40100', accountName: 'Rental Income', from: '2026-01-01', to: '2026-12-31', entity: '15000', book: 'accrual' });
   });
 
+  // Call of 10/27 with Charmi, item 17: an account amount opens its lines on the right; the columns resize.
+  it('an account amount opens its ledger lines in the side panel, and every column resizes', async () => {
+    render(<ProfitabilityReport />);
+    await screen.findByText('Sunset Plaza');
+    for (const c of ['Entity', 'Revenue', 'NOI', 'Debt Service', 'Prior Year', 'Change %']) expect(screen.getByRole('separator', { name: `Resize the ${c} column` })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Revenue for Sunset Plaza' }));
+    const region = screen.getByRole('region', { name: 'Accounts Behind the Figure' });
+    fireEvent.click(within(region).getByRole('button', { name: 'Lines behind 40100 Rental Income' }));
+    const panel = await screen.findByRole('dialog', { name: '40100 Rental Income, Sunset Plaza' });
+    expect(await within(panel).findByRole('button', { name: 'AR-7' })).toBeTruthy();
+    expect(api.searchAccountingLedger).toHaveBeenCalledWith({ account: '40100', location: '15000', from: '2026-01-01', to: '2026-12-31', book: 'accrual', offset: 0, limit: 500 });
+    fireEvent.click(within(panel).getByRole('button', { name: /Open in Reports/ }));
+    expect(requestReportDrill).toHaveBeenCalledWith({ account: '40100', accountName: 'Rental Income', from: '2026-01-01', to: '2026-12-31', entity: '15000', book: 'accrual' });
+  });
+
   it('asks again with sub-entities', async () => {
     render(<ProfitabilityReport />);
     await screen.findByText('Sunset Plaza');
     fireEvent.click(screen.getByLabelText('Show Sub-Entities'));
     expect(api.getProfitability).toHaveBeenLastCalledWith(expect.any(String), expect.any(String), { locations: [], book: 'accrual', expand: true });
+  });
+
+  // Charmi 10/28, round 4: the date boxes read MM/DD/YYYY whatever the PC's region, and send the same ISO dates.
+  it('shows the dates as MM/DD/YYYY and sends a picked day as the same ISO date', async () => {
+    const y = new Date().getFullYear();
+    const { container } = render(<ProfitabilityReport />);
+    await screen.findByText('Sunset Plaza');
+    expect(container.querySelector('input[type="date"]')).toBeNull();
+    expect(screen.getByTitle('From').textContent).toBe(`01/01/${y}`);
+    expect(screen.getByTitle('To').textContent).toBe(`12/31/${y}`);
+    fireEvent.click(screen.getByTitle('From'));
+    fireEvent.click(screen.getByRole('button', { name: '15' }));
+    expect(screen.getByTitle('From').textContent).toBe(`01/15/${y}`);
+    expect(screen.getByLabelText('Period').value).toBe('custom');
+    expect(api.getProfitability).toHaveBeenLastCalledWith(`${y}-01-15`, `${y}-12-31`, { locations: [], book: 'accrual', expand: false });
   });
 
   it('says what went wrong', async () => {

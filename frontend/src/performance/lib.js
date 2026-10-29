@@ -1,24 +1,29 @@
-// Performance (Neil, Oct 27 2026): goals and 1:1s. Shared words and colors for
-// Workday > Performance and People > Performance. The rules live on the
-// server (backend/performance.py); this only draws what it says.
+// Performance, made simple (Neil, Oct 29 2026: "this really needs to be easy
+// and it needs to provide some real metrics from Nexus"). Shared words and
+// colors for Workday > Performance and People > Performance. The rules live
+// on the server (backend/performance.py, perf_reviews.py, perf_metrics.py);
+// this only draws what it says.
 import { NX } from '../tasks/theme';
 import { LOCAL_TZ } from '../lib/worldClockZones';
 
-// Soft status labels (components/StatusLabel.jsx) - the color is the signal.
+// Goal status is computed on the server - soft labels, the color is the signal.
 export const GOAL_STATUS = {
-  on_track:  { label: 'On Track',  color: NX.green },
-  at_risk:   { label: 'At Risk',   color: NX.amber },
-  off_track: { label: 'Off Track', color: NX.red },
-  done:      { label: 'Done',      color: NX.blue },
+  on_track: { label: 'On Track',    color: NX.green },
+  at_risk:  { label: 'At Risk',     color: NX.amber },
+  behind:   { label: 'Behind',      color: NX.red },
+  off_track: { label: 'Behind',     color: NX.red },
+  done:     { label: 'Done',        color: NX.blue },
+  no_data:  { label: 'No Data Yet', color: '#64748b' },
 };
-export const GOAL_STATUS_KEYS = ['on_track', 'at_risk', 'off_track', 'done'];
+export const GOAL_STATUS_KEYS = ['behind', 'at_risk', 'on_track', 'done', 'no_data'];
 
 export const LEVEL_LABEL = { company: 'Company', department: 'Department', personal: 'Personal' };
 
+// "I'll update it" goals - how the number is kept.
 export const MEASURES = [
-  { key: 'percent', label: 'Percent', hint: 'Progress from 0% to 100%.' },
-  { key: 'number', label: 'Number', hint: 'A count toward a target - calls made, sales closed.' },
-  { key: 'done', label: 'Done / Not Done', hint: 'Either it is done or it is not.' },
+  { key: 'percent', label: 'Percent Done' },
+  { key: 'number', label: 'A Number' },
+  { key: 'done', label: 'Done or Not' },
 ];
 
 export const CADENCES = [
@@ -28,14 +33,26 @@ export const CADENCES = [
   { key: 'monthly', label: 'Monthly' },
 ];
 
+// My Numbers periods.
+export const PERIODS = [
+  { key: 'month', label: 'This Month' },
+  { key: 'quarter', label: 'This Quarter' },
+  { key: 'review', label: 'This Review' },
+];
+
 const num = (v) => {
   const n = Number(v || 0);
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 };
 
-// "12 of 40 calls", "65%", "Done" / "Not Done".
+// "92% of 95%", "12 of 40 calls", "65%", "Done" / "Not Done", "1 (target 2 or fewer)".
 export function measureText(g) {
   if (!g) return '';
+  if (g.measuredByNexus) {
+    if (g.status === 'no_data') return `Target ${num(g.targetValue)}${g.unit}`;
+    const low = g.metricGood === 'low';
+    return `${num(g.currentValue)}${g.unit} ${low ? `- target ${num(g.targetValue)} or fewer` : `of ${num(g.targetValue)}${g.unit}`}`;
+  }
   if (g.measure === 'done') return Number(g.currentValue) >= 1 ? 'Done' : 'Not Done';
   if (g.measure === 'number') return `${num(g.currentValue)} of ${num(g.targetValue)}${g.unit ? ` ${g.unit}` : ''}`;
   return `${num(g.currentValue)}%`;
@@ -63,13 +80,35 @@ export const cardHead = { display: 'flex', alignItems: 'center', gap: 9, marginB
 export const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 export const LBL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 export const muted = { fontSize: 12.5, color: 'var(--muted)' };
+// A finger-sized button (phones).
+export const TAP = { minHeight: 44 };
 
 // Review stages (backend/perf_reviews.py STAGES) - soft labels.
 export const REVIEW_STAGE = {
-  self_review:    { label: 'Self Review',          color: NX.amber },
-  manager_review: { label: 'Manager Review',       color: NX.purple },
-  hr_review:      { label: 'HR Finalize',          color: NX.blue },
-  shared:         { label: 'Shared With Employee', color: NX.teal },
-  complete:       { label: 'Complete',             color: NX.green },
+  self_review:    { label: 'Self Review',    color: NX.amber },
+  manager_review: { label: 'Manager Review', color: NX.purple },
+  ready:          { label: 'Ready to Share', color: NX.blue },
+  hr_review:      { label: 'Ready to Share', color: NX.blue },
+  shared:         { label: 'Shared',         color: NX.teal },
+  complete:       { label: 'Acknowledged',   color: NX.green },
+  removed:        { label: 'Removed',        color: '#64748b' },
 };
-export const REVIEW_STAGE_KEYS = ['self_review', 'manager_review', 'hr_review', 'shared', 'complete'];
+export const REVIEW_STAGE_KEYS = ['self_review', 'manager_review', 'ready', 'shared', 'complete'];
+
+// One Overall Rating in four words; a score per goal.
+export const RATINGS = [
+  { key: 'exceeds', label: 'Exceeds' },
+  { key: 'meets', label: 'Meets' },
+  { key: 'partly', label: 'Partly Meets' },
+  { key: 'below', label: 'Below' },
+];
+export const GOAL_SCORES = [
+  { key: 'met', label: 'Met' },
+  { key: 'partly', label: 'Partly Met' },
+  { key: 'not', label: 'Not Met' },
+];
+export const QUESTIONS = [
+  { id: 'well', text: 'What went well?' },
+  { id: 'better', text: 'What could be better?' },
+  { id: 'next', text: 'What should the focus be next?' },
+];

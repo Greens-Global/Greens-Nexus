@@ -1,23 +1,36 @@
 """Accounting -> Reporting -> Employee Compensation (Neil, 10/15: "We still
-need to make employee compensation report").
+need to make employee compensation report"; rebuilt from the ledger after the
+10/27 call with Charmi, items 11-17).
 
-Two reads:
+Three reads:
 
-  /accounting/compensation/people   per employee for a range of months:
-      company, department, title, pay type, rate, regular / overtime /
-      double time hours, sick / vacation / personal leave hours and gross
-      wages, with totals by company and by department and per currency.
-      Hours and wages are Time Clock's payroll card for each month -
-      `_compute_timecard` for hourly people, `_fixed_card` for salaried -
-      read through accounting_allocations._people_and_cards, the roster and
-      engine the Allocations entry already uses. There is NO second pay
-      computation here: this only adds the months up.
-  /accounting/compensation/ledger   payroll expense on the ledger for the
-      same months, by Intacct department or employee dimension, split into
-      Wages, Employer Taxes and Benefits by account title (classification
-      below). Employer taxes and benefits are not kept in Nexus HR, so the
-      ledger is where they come from. Through accounting._acct_get (buckets),
-      never the accounting database.
+  /accounting/compensation/report   per employee, Intacct's Employee
+      Compensation Report: Payroll Expenses (Bonus, Salaried / Hourly
+      Payroll), Benefits (401(k) and Health Insurance - Company), Employer
+      Payroll Taxes (FUTA, Medicare, Social Security, SUTA, CA Employment
+      Training Tax), Other Benefits (by account), Workers' Comp, Total
+      Employer Expenses, and
+      the employee's side: Deductions from Gross Pay, Employee Taxes Withheld
+      (Federal, Medicare, Social Security, SDI, State) and Employee Net Pay -
+      for the months asked and the same months a year before (Intacct's
+      "Year Ending" and prior-year columns). Every figure is the LEDGER's: the
+      lines carrying the Intacct Employee dimension, read through the
+      accounting app's buckets (by=employee), never the accounting database -
+      so a correction made in Intacct shows on the next Sync (Charmi, 15:41:
+      "when I fix it in Intacct, Nexus should fix it too"). Before 10/27 wages
+      came from Time Clock's payroll cards (Valinda Cranfill: 3,540.23 against
+      Intacct's 52,123.06).
+  /accounting/compensation/lines    the ledger lines behind one figure (item
+      17: "everything should have the drill down option").
+  /accounting/compensation/people   hours per employee from Time Clock's
+      payroll card for each month (`_compute_timecard` / `_fixed_card` through
+      accounting_allocations._people_and_cards, the Allocations engine) -
+      regular, overtime / double time, sick and vacation (no Personal: item
+      15, "either it is sick or vacation"). The screen labels them as Time
+      Clock's. There is NO second pay computation here. Intacct's own Hours
+      Worked and Accruals are the payroll file's statistical accounts (P.REG,
+      P.OHR, P.SHR, P.VHR in the STAT journal), which the accounting app
+      leaves out when it builds its ledger - so they cannot be read here yet.
 
 Who may read it: wages for everyone are payroll figures. The gate is the
 strictest one already used for them (Accounting > Allocations): the FULL level
@@ -25,35 +38,38 @@ on the Accounting grant (administrators bypass, as everywhere), a fresh
 step-up, AND no entity limit - the roster covers every company, so there is
 no part of it to show a person limited to certain entities (CR-02: the
 policy is `COMP_ENTITY_SCOPED_POLICY` in accounting_assumptions.py). The HR
-record's compensation block (hr_comp grant) is not read; rates come from the
-payroll card like everywhere else in Time Clock. No figure is ever logged.
+record's compensation block (hr_comp grant) is not read; the workers' comp
+rate (models.WorkersCompRate, item 14) is the one thing from People. No
+figure is ever logged.
 
-SPEED (CR-02, Oct 23 2026: Jan-Sep "never finished loading"): the engine is
-built for one card at a time and made ~26 database round trips per person
-per month. The pass now runs inside read_memo.memoized (an identical SELECT
-is answered once) with each month's punches, finalizations, idle frames and
-punch requests preloaded (timeclock.preload_range) and the CA waiver /
-premium rows preloaded (ca_breaks.preload). The cards are still priced by
-the same engine - only the repeated reads are gone. A run is refused up
-front past COMP_MAX_PERSON_MONTHS and stopped past COMP_TIME_BUDGET_SEC,
-both with a 422 that says what to do (a 5xx would be retried by the
-browser and raise the "reconnecting" banner).
+SPEED (CR-02, Oct 23 2026: Jan-Sep "never finished loading"): the Time Clock
+engine is built for one card at a time and made ~26 database round trips per
+person per month. The pass now runs inside read_memo.memoized (an identical
+SELECT is answered once) with each month's punches, finalizations, idle
+frames and punch requests preloaded (timeclock.preload_range) and the CA
+waiver / premium rows preloaded (ca_breaks.preload). A run is refused up
+front past COMP_MAX_PERSON_MONTHS and stopped past COMP_TIME_BUDGET_SEC, both
+with a 422 that says what to do (a 5xx would be retried by the browser and
+raise the "reconnecting" banner). The ledger report is one buckets read per
+calendar year in each period, so it is on screen while the hours still build.
 
-LEDGER CLASSIFICATION (cost-section accounts only - cogs, expense,
-other_expense; amount = debits less credits):
-  Employer Taxes  title says payroll tax, employer tax, FICA, FUTA, SUTA / SUI,
-                  Medicare, Social Security or unemployment.
-  Benefits        title says benefit, health / medical / dental / vision,
-                  401(k), retirement, pension, workers' comp, life insurance,
-                  HSA / FSA.
-  Wages           title says payroll, salary / salaries, wage, bonus,
-                  commission, overtime, PTO, vacation or sick pay.
-  Taxes are tested first ("Payroll Taxes" is a tax, not a wage). Anything
-  else is not payroll and is left out. Contract labor is not payroll.
-  Each row's total is also split DIRECT (cost of sales) / INDIRECT
-  (operating and other expense) - CR-02's "direct or indirect expenses",
-  sections in accounting_assumptions.COMP_DIRECT_SECTIONS.
+LEDGER LINES (comp_line below). The payroll accounts the Import Hub's payroll
+file posts to (payrollConvert.js DEFAULT_PAYROLL_MAPPING - the accounts on the
+OSM payroll file Charmi shared) are named by number in ACCOUNT_LINES; any
+other account goes by its title. On cost accounts (cogs, expense,
+other_expense; amount = debits less credits): payroll taxes first, then
+bonus, 401(k) / retirement, health / dental / vision, wages; EVERY other cost
+line carrying an employee is Other Benefits, by account (item 12: "anytime a
+transaction has an employee name attached to it, it should be considered as
+a part of the compensation" - the fuel on a company card). On balance-sheet
+accounts only the employee's side of pay counts - what was withheld or
+deducted (a credit, so a negative figure); net pay owed, cash, cards and the
+employer-tax liabilities are not compensation. Health insurance is split by
+side: the company's premium is the debit, the employee's share deducted from
+pay is the credit the payroll file posts to the same account (61903). Income
+accounts never count.
 """
+import asyncio
 import re
 import time
 from datetime import date, datetime, timedelta
@@ -64,6 +80,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 import accounting_assumptions as A
+import database
 import models
 import read_memo
 from auth import require_module_grant
@@ -93,7 +110,8 @@ router = APIRouter(
 
 MAX_MONTHS = 12
 _MONTH = re.compile(r"^\d{4}-\d{2}$")
-_MIN_KEYS = ("regMin", "otMin", "dtMin", "sickMin", "vacationMin", "personalMin")
+# Time Clock minutes per month. No Personal: time off is Sick or Vacation (10/27 item 15).
+_MIN_KEYS = ("regMin", "otMin", "dtMin", "sickMin", "vacationMin")
 
 
 def _r2(v) -> float:
@@ -171,7 +189,7 @@ def summarize(months: list[tuple[str, list[dict], dict]], titles: dict[str, str]
     for r in rows:
         r["rateChanged"] = len(r.pop("rates")) > 1
         r["overtimeMin"] = r["otMin"] + r["dtMin"]
-        r["leaveMin"] = r["sickMin"] + r["vacationMin"] + r["personalMin"]
+        r["leaveMin"] = r["sickMin"] + r["vacationMin"]
     return {
         "people": rows,
         "byCompany": group(rows, lambda r: (r["company"], r["companyName"] or "No Company")),
@@ -288,73 +306,329 @@ def compensation_people(from_: str = Query(alias="from"), to: str = Query(...),
     return {"from": f"{months[0]}-01", "to": month_end(months[-1]), "months": months, **out}
 
 
-# ── Payroll expense on the ledger ────────────────────────────────────────────
-_TAX = re.compile(r"payroll tax|employer tax|\bfica\b|\bfuta\b|\bsuta\b|\bsui\b|medicare|social security|unemployment", re.I)
-_BENEFIT = re.compile(r"benefit|health|medical|dental|vision|401\s*\(?k|retirement|pension|workers'?\s*comp|life insurance|\bhsa\b|\bfsa\b", re.I)
-_WAGE = re.compile(r"payroll|salar|wage|bonus|commission|overtime|\bpto\b|vacation|sick pay", re.I)
+# ── The report from the ledger (10/27 call, items 11-14) ─────────────────────
 _COSTS = ("cogs", "expense", "other_expense")
+_INCOME = ("income", "revenue", "other_income")
+
+PAYROLL_LINES = ("bonus", "payroll")
+# Intacct's report keeps Other Benefits (every other cost line carrying the
+# employee, item 12) as its own group after Payroll Taxes, outside Total
+# Benefits: Valinda 2026 = 5,770.06 Benefits + 1,087.16 Other Benefits.
+BENEFIT_LINES = ("k401", "health")
+OTHER_LINES = ("otherBenefits",)
+TAX_LINES = ("futa", "medicare", "socsec", "suta", "ett", "otherTaxes")
+DEDUCTION_LINES = ("dedHealth", "ded401k", "dedOther")
+WITHHELD_LINES = ("fedWh", "medicareWh", "socsecWh", "sdi", "stateWh")
+LEDGER_LINES = PAYROLL_LINES + BENEFIT_LINES + TAX_LINES + OTHER_LINES + DEDUCTION_LINES + WITHHELD_LINES
+
+# The accounts the payroll file posts to (payrollConvert.js DEFAULT_PAYROLL_MAPPING).
+ACCOUNT_LINES = {
+    "61908": "bonus",
+    "61904": "payroll", "61905": "payroll", "61906": "payroll", "61907": "payroll", "61909": "payroll", "61910": "payroll",
+    "61903": "health",
+    "62101": "futa", "62102": "medicare", "62104": "socsec", "62105": "suta", "62106": "ett",
+    "23801": "fedWh", "23804": "medicareWh", "23807": "socsecWh", "23806": "sdi", "23811": "stateWh",
+    "23101": "ded401k",
+}
+# Net pay owed and the employer-tax liabilities: the expense side of each is what counts.
+NOT_PAY_ACCOUNTS = frozenset({"23700", "23802", "23803", "23805", "23808", "23810"})
+
+_PAY_TAX = re.compile(r"payroll tax|employer tax|\bfica\b|\bfuta\b|\bsuta\b|\bsui\b|medicare|social security|unemployment|training tax|\bett\b", re.I)
+_BONUS = re.compile(r"\bbonus", re.I)
+_K401 = re.compile(r"401\s*\(?k|retirement|pension", re.I)
+_HEALTH = re.compile(r"health|medical|dental|vision", re.I)
+_WAGE = re.compile(r"payroll|salar|wage|commission|overtime|hourly|holiday|\bpto\b|vacation|\bsick", re.I)
 
 
-def payroll_class(section: str, title: str) -> Optional[str]:
-    """wages / taxes / benefits, or None when the account is not payroll."""
-    if section not in _COSTS:
-        return None
+def _tax_line(title: str) -> str:
+    for line, pat in (("futa", r"\bfuta\b|federal unemployment"), ("medicare", r"medicare"), ("socsec", r"social security|oasdi|\bfica\b"),
+                      ("ett", r"training tax|\bett\b"), ("suta", r"\bsuta\b|\bsui\b|unemployment")):
+        if re.search(pat, title, re.I):
+            return line
+    return "otherTaxes"
+
+
+def _withheld_line(title: str) -> Optional[str]:
+    """A balance-sheet account: the employee's side of pay, or None."""
     t = title or ""
-    if re.search(r"contract labor|contractor", t, re.I):
+    if re.search(r"compan|employer|net pay", t, re.I):
         return None
-    if _TAX.search(t):
-        return "taxes"
-    if _BENEFIT.search(t):
-        return "benefits"
-    if _WAGE.search(t):
-        return "wages"
+    if re.search(r"federal|\bfit\b", t, re.I) and re.search(r"withh|income tax|\bfit\b", t, re.I):
+        return "fedWh"
+    for line, pat in (("medicareWh", r"medicare"), ("socsecWh", r"social security|oasdi"), ("sdi", r"\bsdi\b|disability"),
+                      ("stateWh", r"withh|state income tax|\bsit\b")):
+        if re.search(pat, t, re.I):
+            return line
+    if _K401.search(t):
+        return "ded401k"
+    if _HEALTH.search(t):
+        return "dedHealth"
+    if re.search(r"deduction|garnish|child support", t, re.I):
+        return "dedOther"
     return None
 
 
-def cost_kind(section: str) -> str:
-    """direct / indirect (CR-02's "direct or indirect expenses" - the sections
-    are accounting_assumptions.COMP_DIRECT_SECTIONS / COMP_INDIRECT_SECTIONS)."""
-    return "direct" if section in A.COMP_DIRECT_SECTIONS else "indirect"
+def comp_line(section: str, account_no: str, title: str) -> Optional[str]:
+    """The report line an employee's ledger line belongs to, or None when it is
+    not compensation (LEDGER LINES above). Pure."""
+    code = str(account_no or "").strip()
+    if code in NOT_PAY_ACCOUNTS:
+        return None
+    if code in ACCOUNT_LINES:
+        return ACCOUNT_LINES[code]
+    t = title or ""
+    if section in _COSTS:
+        if _PAY_TAX.search(t):
+            return _tax_line(t)
+        if _BONUS.search(t):
+            return "bonus"
+        if _K401.search(t):
+            return "k401"
+        if _HEALTH.search(t):
+            return "health"
+        if _WAGE.search(t) and not re.search(r"contract", t, re.I):
+            return "payroll"
+        return "otherBenefits"
+    if not section or section in _INCOME:
+        return None
+    return _withheld_line(t)
 
 
-def ledger_rows(rows: list[dict], labels: dict) -> dict:
-    """Bucket rows (one per account per department / employee) -> one row per
-    bucket with wages, taxes, benefits, the same total split direct /
-    indirect, and the accounts behind them. Pure."""
+def employee_code(bucket) -> str:
+    """The employee ID from "E-0084" or Intacct's "E-0084--Valinda Cranfill"."""
+    return str(bucket or "").split("--")[0].strip()
+
+
+def _add_account(accounts: dict, line: str, acct: str, title: str, side: str, amount: float):
+    rows = accounts.setdefault(line, [])
+    hit = next((a for a in rows if a["account"] == acct and a["side"] == side), None)
+    if hit:
+        hit["amount"] = _r2(hit["amount"] + amount)
+    else:
+        rows.append({"account": acct, "title": title, "side": side, "amount": amount})
+
+
+def ledger_people(rows: list[dict], labels: dict) -> dict[str, dict]:
+    """Buckets by employee (one row per account per employee) -> per employee
+    code: the name the ledger knows, each line's amount and the accounts behind
+    it ({account, title, side, amount}; side "d" / "c" = only the debits /
+    credits, the health split). Lines with no employee are left out. Pure."""
     out: dict[str, dict] = {}
     for r in rows or []:
+        code = employee_code(r.get("bucket"))
+        if not code:
+            continue
         section = r.get("section") or ""
-        cls = payroll_class(section, r.get("title") or "")
-        if not cls:
+        acct = str(r.get("account_no") or "").strip()
+        title = r.get("title") or ""
+        line = comp_line(section, acct, title)
+        if not line:
             continue
-        amt = _r2(float(r.get("debit") or 0) - float(r.get("credit") or 0))
-        if amt == 0:
-            continue
-        k = str(r.get("bucket") or "")
-        g = out.setdefault(k, {"key": k, "label": labels.get(k) or k or "Unassigned", "wages": 0.0, "taxes": 0.0, "benefits": 0.0,
-                               "direct": 0.0, "indirect": 0.0, "total": 0.0, "accounts": []})
-        kind = cost_kind(section)
-        g[cls] = _r2(g[cls] + amt)
-        g[kind] = _r2(g[kind] + amt)
-        g["total"] = _r2(g["total"] + amt)
-        g["accounts"].append({"account": str(r.get("account_no") or ""), "title": r.get("title") or "", "class": cls, "cost": kind, "amount": amt})
-    groups = sorted(out.values(), key=lambda g: (g["key"] == "", g["label"].lower()))
-    tot = {k: _r2(sum(g[k] for g in groups)) for k in ("wages", "taxes", "benefits", "direct", "indirect", "total")}
-    return {"rows": groups, "totals": tot}
+        debit, credit = _r2(r.get("debit")), _r2(r.get("credit"))
+        # The company's premium is the debit; the employee's share, deducted from pay, the credit.
+        parts = [("health", "d", debit), ("dedHealth", "c", -credit)] if line == "health" else [(line, "", _r2(debit - credit))]
+        p = out.setdefault(code, {"code": code, "name": str(labels.get(r.get("bucket")) or labels.get(code) or "").strip(), "lines": {}, "accounts": {}})
+        for key, side, amt in parts:
+            if not amt:
+                continue
+            p["lines"][key] = _r2(p["lines"].get(key, 0) + amt)
+            _add_account(p["accounts"], key, acct, title, side, amt)
+    return out
 
 
-@router.get("/ledger")
-async def compensation_ledger(from_: str = Query(alias="from"), to: str = Query(...), by: str = "department",
-                              locations: Optional[str] = None, book: Optional[str] = None,
+def with_totals(lines: dict, workers_comp: float = 0.0) -> dict:
+    """Every line and Intacct's totals. Deductions and taxes withheld are
+    negative (taken out of pay), so Net Pay is their sum with the payroll."""
+    v = {k: _r2(lines.get(k)) for k in LEDGER_LINES}
+    v["workersComp"] = _r2(workers_comp)
+    v["totalPayroll"] = _r2(sum(v[k] for k in PAYROLL_LINES))
+    v["totalBenefits"] = _r2(sum(v[k] for k in BENEFIT_LINES))
+    v["totalTaxes"] = _r2(sum(v[k] for k in TAX_LINES))
+    v["totalEmployer"] = _r2(v["totalPayroll"] + v["totalBenefits"] + v["totalTaxes"] + v["otherBenefits"] + v["workersComp"])
+    v["totalDeductions"] = _r2(sum(v[k] for k in DEDUCTION_LINES))
+    v["totalWithheld"] = _r2(sum(v[k] for k in WITHHELD_LINES))
+    v["netPay"] = _r2(v["totalPayroll"] + v["totalDeductions"] + v["totalWithheld"])
+    return v
+
+
+def rate_in_force(entries: list[tuple], year: int) -> Optional[tuple]:
+    """(rate %, the year it is from) for `year` - the latest year on or before
+    it, the newest entry for that year - or None. `entries` = [(effective_year,
+    rate_pct, set_at)]. Pure."""
+    best = None
+    for y, rate, at in entries or []:
+        if y <= year and (best is None or (y, at or "") > (best[0], best[2] or "")):
+            best = (y, rate, at)
+    return (best[1], best[0]) if best else None
+
+
+def year_slices(months: list[str]) -> list[tuple[int, str, str]]:
+    """[(year, first day, last day)] - the months split where a new year starts
+    (workers' comp takes the rate in force each year)."""
+    out: list[tuple[int, str, str]] = []
+    for m in months:
+        y = int(m[:4])
+        if out and out[-1][0] == y:
+            out[-1] = (y, out[-1][1], month_end(m))
+        else:
+            out.append((y, f"{m}-01", month_end(m)))
+    return out
+
+
+def build_report(slices: list[tuple[str, int, dict]], rates: dict, people: dict) -> list[dict]:
+    """`slices` = [(period "cur" | "prior", year, buckets answer)], `rates` =
+    employee code -> [(effective_year, rate_pct, set_at)], `people` = employee
+    code -> the Nexus People record. One row per employee with something in
+    the current period: both periods' lines with totals, the accounts behind
+    each line and the workers' comp worked out per year. Pure."""
+    per: dict[str, dict] = {}
+    for key, year, data in slices:
+        for code, p in ledger_people(data.get("rows") or [], data.get("labels") or {}).items():
+            e = per.setdefault(code.upper(), {"code": code, "name": "", "cur": {"lines": {}, "accounts": {}, "wc": []},
+                                              "prior": {"lines": {}, "accounts": {}, "wc": []}})
+            e["name"] = e["name"] or p["name"]
+            t = e[key]
+            for k, amt in p["lines"].items():
+                t["lines"][k] = _r2(t["lines"].get(k, 0) + amt)
+            for k, accts in p["accounts"].items():
+                for a in accts:
+                    _add_account(t["accounts"], k, a["account"], a["title"], a["side"], a["amount"])
+            gross = _r2(sum(p["lines"].get(k, 0) for k in PAYROLL_LINES))
+            hit = rate_in_force(rates.get(code.upper()) or [], year)
+            if hit and gross:
+                t["wc"].append({"year": year, "ratePct": hit[0], "rateYear": hit[1], "gross": gross, "amount": _r2(gross * hit[0] / 100)})
+    rows = []
+    for code_u, e in per.items():
+        cur = with_totals(e["cur"]["lines"], sum(w["amount"] for w in e["cur"]["wc"]))
+        if not any(cur.values()):
+            continue
+        info = people.get(code_u) or {}
+        rows.append({
+            "code": e["code"], "name": info.get("name") or e["name"] or e["code"], "email": info.get("email") or "",
+            "company": info.get("company") or "", "companyName": info.get("companyName") or "",
+            "department": info.get("department") or "", "title": info.get("title") or "", "inPeople": bool(info),
+            "hasRate": bool(rates.get(code_u)),
+            "cur": cur, "prior": with_totals(e["prior"]["lines"], sum(w["amount"] for w in e["prior"]["wc"])),
+            "accounts": {"cur": e["cur"]["accounts"], "prior": e["prior"]["accounts"]},
+            "workersComp": {"cur": e["cur"]["wc"], "prior": e["prior"]["wc"]},
+        })
+    rows.sort(key=lambda r: (r["companyName"].lower(), r["department"].lower(), r["name"].lower()))
+    return rows
+
+
+def _people_and_rates() -> tuple[dict, dict]:
+    """Nexus People by employee code (the Intacct employee ID - Valinda
+    Cranfill is E-0084 in both), and the workers' comp rates by the same code.
+    Its own session: called through asyncio.to_thread."""
+    db = database.SessionLocal()
+    try:
+        companies = {c.id: c.name or "" for c in db.query(models.HrEntity).all()}
+        people, ids = {}, {}
+        # An active record wins over an old one with the same code.
+        for e in sorted(db.query(models.NexusEmployee).all(), key=lambda e: e.status == "active"):
+            code = (e.employee_code or "").strip().upper()
+            if not code:
+                continue
+            ids[e.id] = code
+            people[code] = {"name": (e.display_name or f"{e.first_name or ''} {e.last_name or ''}").strip(), "email": (e.work_email or "").lower(),
+                            "company": e.company or "", "companyName": companies.get(e.company or "", ""),
+                            "department": e.department or "", "title": e.job_title or e.designation or ""}
+        rates: dict[str, list] = {}
+        for r in db.query(models.WorkersCompRate).all():
+            code = ids.get(r.employee_id)
+            if code and r.rate_pct is not None:
+                rates.setdefault(code, []).append((int(r.effective_year), float(r.rate_pct), r.set_at or ""))
+        return people, rates
+    finally:
+        db.close()
+
+
+def _year_back(month: str) -> str:
+    return f"{int(month[:4]) - 1:04d}{month[4:]}"
+
+
+@router.get("/report")
+async def compensation_report(from_: str = Query(alias="from"), to: str = Query(...),
                               scope: dict = Depends(comp_scope), _su: dict = Depends(require_stepup)):
-    """Payroll expense on the ledger for the months [from, to], by department
-    or employee (the Intacct dimensions), optionally for some entities."""
-    if by not in ("department", "employee"):
-        raise HTTPException(status_code=400, detail="by must be department or employee")
+    """Intacct's Employee Compensation Report for every employee on the ledger:
+    the months [from, to] (YYYY-MM, at most 12) and the same months a year
+    before. One buckets read per calendar year in each period, side by side."""
     months = month_list(from_, to)
-    location, locs = await _limit(scope, None, locations)
-    data = await accounting._acct_get("/api/internal/reports/buckets", {
-        "from": f"{months[0]}-01", "to": month_end(months[-1]), "by": by, "location": location, "locations": locs,
-        "book": accounting._book(book),
-    })
-    return {"from": f"{months[0]}-01", "to": month_end(months[-1]), "by": by, **ledger_rows(data.get("rows") or [], data.get("labels") or {})}
+    prior = [_year_back(m) for m in months]
+    location, locs = await _limit(scope, None, None)
+    slices = [(key, y, f, t) for key, ms in (("cur", months), ("prior", prior)) for (y, f, t) in year_slices(ms)]
+    answers = await asyncio.gather(*[accounting._acct_get("/api/internal/reports/buckets", {
+        "from": f, "to": t, "by": "employee", "location": location, "locations": locs}) for (_k, _y, f, t) in slices])
+    people, rates = await asyncio.to_thread(_people_and_rates)
+    rows = build_report([(k, y, a) for (k, y, _f, _t), a in zip(slices, answers)], rates, people)
+    return {"from": f"{months[0]}-01", "to": month_end(months[-1]), "months": months,
+            "prior": {"from": f"{prior[0]}-01", "to": month_end(prior[-1])}, "people": rows,
+            "notInPeople": sum(1 for r in rows if not r["inPeople"])}
+
+
+_SPEC = re.compile(r"^[A-Za-z0-9._-]{1,24}(:[dc])?$")
+_EMP = re.compile(r"^[A-Za-z0-9 ._-]{1,40}$")
+MAX_DRILL_ACCOUNTS = 60
+MAX_DRILL_PEOPLE = 500
+DRILL_PAGE = 1000
+
+
+# What a drill-down line carries: the ledger search's own fields, so the
+# screen lays it out in Intacct's General Ledger columns (item 17: Posted
+# Date, Doc, Memo, Location, Vendor, Customer, Item, Employee, Department,
+# Debit, Credit) with the other reports' lines.
+_GL_FIELDS = ("line_id", "entry_id", "entry_no", "entry_date", "doc", "journal", "gl_code", "account_name", "memo", "description",
+              "location", "location_name", "department", "department_name", "vendor_id", "vendor_name", "customer_id", "customer_name",
+              "employee_id", "employee_name", "project_id", "project_name", "item_id", "item_name")
+
+
+def drill_line(x: dict, side: str) -> dict:
+    """One ledger line for the drill-down, in the ledger search's shape. Only
+    the side asked for counts on a split account (the health split), so the
+    other side is zero here; `amount` is debits less credits, as on the report."""
+    debit, credit = _r2(x.get("debit")), _r2(x.get("credit"))
+    if side == "d":
+        credit = 0.0
+    elif side == "c":
+        debit = 0.0
+    out = {k: ("" if x.get(k) is None else str(x.get(k))) for k in _GL_FIELDS}
+    return {**out, "debit": debit, "credit": credit, "amount": _r2(debit - credit)}
+
+
+@router.get("/lines")
+async def compensation_lines(from_: str = Query(alias="from"), to: str = Query(...), employees: str = Query(...), accounts: str = Query(...),
+                             scope: dict = Depends(comp_scope), _su: dict = Depends(require_stepup)):
+    """The ledger lines behind one figure (10/27 call, item 17): the employees'
+    lines on those accounts between two ISO dates. Each account may say
+    `:d` / `:c` - only its debits / credits (the health split). Sorted by date;
+    `truncated` when an account had more than DRILL_PAGE lines."""
+    for v, what in ((from_, "from"), (to, "to")):
+        try:
+            date.fromisoformat(v)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"{what} must be a date (YYYY-MM-DD)") from None
+    codes = list(dict.fromkeys(c.strip() for c in employees.split(",") if c.strip()))
+    specs = list(dict.fromkeys(a.strip() for a in accounts.split(",") if a.strip()))
+    if not codes or len(codes) > MAX_DRILL_PEOPLE or not all(_EMP.match(c) for c in codes):
+        raise HTTPException(status_code=400, detail=f"employees must be 1 to {MAX_DRILL_PEOPLE} employee IDs")
+    if not specs or len(specs) > MAX_DRILL_ACCOUNTS or not all(_SPEC.match(a) for a in specs):
+        raise HTTPException(status_code=400, detail=f"accounts must be 1 to {MAX_DRILL_ACCOUNTS} account numbers")
+    location, locs = await _limit(scope, None, None)
+
+    async def one(spec: str):
+        acct, _, side = spec.partition(":")
+        params = {"from": from_, "to": to, "account": acct, "employee": ",".join(codes), "location": location, "locations": locs,
+                  "offset": 0, "limit": DRILL_PAGE}
+        if side == "d":
+            params.update(debit_op="gt", debit_v=0)
+        elif side == "c":
+            params.update(credit_op="gt", credit_v=0)
+        return side, await accounting._acct_get("/api/internal/search", params)
+
+    lines, truncated = [], False
+    for side, data in await asyncio.gather(*[one(s) for s in specs]):
+        got = data.get("rows") or []
+        truncated = truncated or int(data.get("total") or 0) > len(got)
+        lines.extend(drill_line(x, side) for x in got)
+    lines.sort(key=lambda r: (r["entry_date"], r["entry_no"], r["gl_code"]))
+    return {"from": from_, "to": to, "lines": lines, "total": _r2(sum(r["amount"] for r in lines)), "truncated": truncated}

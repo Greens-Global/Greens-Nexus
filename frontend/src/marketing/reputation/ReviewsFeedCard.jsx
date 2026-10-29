@@ -31,7 +31,7 @@ export default function ReviewsFeedCard({
     <div style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
         <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900 }}>Live Reviews Feed</h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="mktg-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, borderRadius: 8, border: '1px solid ' + C.gray200, padding: 2 }}>
             {['Pending', 'Posted', 'All'].map((f) => {
               const active = statusFilter === f

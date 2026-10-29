@@ -7,6 +7,7 @@ import { useIsMobile } from '../../lib/useIsMobile';
 import { useAccountingPrefs } from './prefs';
 import Amount, { formatAmount } from './Amount';
 import AskAccountantDialog, { AskButton, lineFromEntry } from './AskAccountantDialog';
+import SidePanel from './SidePanel';
 
 // One journal entry, opened from the entry number on a search result or a
 // report drill-down (Charmi, Sep 24: "we should be able to click on the entry
@@ -21,6 +22,13 @@ import AskAccountantDialog, { AskButton, lineFromEntry } from './AskAccountantDi
 // can fill it, and can be dragged larger from its corner.
 // The "Open in Nexus Accounting" button that used to sit here came off on
 // 09/30 (Charmi, call of 09/29: remove it everywhere).
+//
+// Call of 10/27 with Charmi, item 17 (14:48-15:41, her Intacct demo: a
+// General Ledger line opens the credit card transaction behind it): `panel`
+// opens the entry on the right, the ledger lines still beside it, with Open
+// Full (SidePanel). Over the lines go the transaction's own facts as Intacct
+// heads its record - date, total, payee, description, reference - then the
+// entries, every dimension a column, as before.
 
 const BOOK_LABEL = { both: 'Both books', actual_only: 'Accrual only', tax_only: 'Cash only' };
 const named = (name, id) => name || id || '';
@@ -43,7 +51,7 @@ const COLUMNS = [
   { key: 'customer', label: 'Customer', width: '9%' },
 ];
 
-export default function EntryDetail({ entryId, entryNo, onClose }) {
+export default function EntryDetail({ entryId, entryNo, onClose, panel = false }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [prefs, setPrefs] = useAccountingPrefs();
@@ -96,6 +104,17 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
     books.length === 1 ? BOOK_LABEL[books[0]] || '' : '',
   ].filter(Boolean).join(' · ') : '';
 
+  // The transaction's head, as Intacct shows it over the entries (15:41).
+  const payee = intacct.map((g) => numbered(g.vendor_name, g.vendor_id) || numbered(g.customer_name, g.customer_id)).find(Boolean) || '';
+  const facts = entry ? [
+    ['Date', formatDate(entry.entry_date)],
+    ['Total', data?.totals ? formatAmount(data.totals.debit) : ''],
+    ['Journal', journal],
+    ['Payee', payee],
+    ['Description', title],
+    ['Reference', doc || entry.entry_no || ''],
+  ].filter(([, v]) => v) : [];
+
   const cell = (l, g, key) => {
     switch (key) {
       case 'account': return <><span className="acct-code">{l.gl_code}</span>{l.account_name}</>;
@@ -113,13 +132,116 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
     }
   };
 
+  const body = (
+    <div className={isPhone || panel ? undefined : 'acct-entry-body'} style={panel ? { minWidth: 0 } : { padding: isPhone ? '10px 12px 16px' : '12px 18px 16px', overflow: isPhone ? 'auto' : undefined }}>
+      {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', marginBottom: 12 }}>{error}</div>}
+      {asked && (
+        <div role="status" style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 10px', fontSize: '0.8rem', marginBottom: 10, color: 'var(--ok-fg, #15803d)' }}>
+          {asked.merged ? 'Added to the open question on this line' : 'Question sent'} to {asked.accountantName || asked.accountant}. It is on the AMA screen under Accounting - Reporting.
+        </div>
+      )}
+      {!data && !error && <SkeletonBlocks count={3} />}
+      {data && isPhone && (
+        <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
+          {lines.map((l) => {
+            const g = intacct.find((x) => x.record_no && x.record_no === l.intacct_record_no);
+            const facts = COLUMNS.filter((c) => !['account', 'debit', 'credit'].includes(c.key)).map((c) => [c.label, cell(l, g, c.key)]).filter(([, v]) => v);
+            return (
+              <div key={l.id} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: '0.86rem', fontWeight: 600 }}>{cell(l, g, 'account')}</span>
+                  <span style={{ fontSize: '0.86rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                    {Number(l.debit) > 0 ? formatAmount(l.debit) : Number(l.credit) > 0 ? `(${formatAmount(l.credit)})` : '0.00'}
+                  </span>
+                  <AskButton onClick={() => ask(l, g)} />
+                </div>
+                {facts.map(([label, v]) => (
+                  <div key={label} style={{ display: 'flex', gap: 8, fontSize: '0.76rem', marginTop: 3 }}>
+                    <span style={{ color: 'var(--text-muted)', flex: '0 0 88px' }}>{label}</span>
+                    <span style={{ color: 'var(--text-secondary)', minWidth: 0, overflowWrap: 'anywhere' }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '10px 12px', fontSize: '0.84rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', background: 'var(--bg-secondary)' }}>
+            <span>Total</span>
+            <span>{formatAmount(data.totals.debit)} debit · {formatAmount(data.totals.credit)} credit</span>
+          </div>
+        </div>
+      )}
+      {data && (
+        <>
+          {!isPhone && <div className="acct-lines-wrap acct-entry-box" data-testid="entry-lines-box" style={{ maxHeight: 'none' }}>
+            <table className="acct-lines acct-entry-lines acct-sticky-head" style={{ width: '100%', minWidth: 1180 }}>
+              <colgroup>{COLUMNS.map((c) => <col key={c.key} style={{ width: c.width }} />)}<col style={{ width: 34 }} /></colgroup>
+              <thead>
+                <tr>{COLUMNS.map((c) => <th key={c.key} scope="col" className={c.num ? 'acct-num' : undefined}>{c.label}</th>)}<th scope="col" aria-label="Ask My Accountant" /></tr>
+              </thead>
+              <tbody>
+                {lines.map((l) => {
+                  const g = intacct.find((x) => x.record_no && x.record_no === l.intacct_record_no);
+                  return (
+                    <tr key={l.id}>
+                      {COLUMNS.map((c) => <td key={c.key} className={c.num ? 'acct-num' : undefined}>{cell(l, g, c.key)}</td>)}
+                      <td style={{ textAlign: 'center', padding: 0 }}><AskButton onClick={() => ask(l, g)} /></td>
+                    </tr>
+                  );
+                })}
+                <tr className="acct-grand">
+                  <td>Total</td>
+                  <td className="acct-num"><Amount value={data.totals.debit} /></td>
+                  <td className="acct-num"><Amount value={data.totals.credit} /></td>
+                  <td colSpan={COLUMNS.length - 2} />
+                </tr>
+              </tbody>
+            </table>
+          </div>}
+          {Math.abs(data.totals.debit - data.totals.credit) >= 0.01 && (
+            <div style={{ marginTop: 8, fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>This entry is out of balance by {formatAmount(data.totals.debit - data.totals.credit)}.</div>
+          )}
+          {books.length > 1 && (
+            <div style={{ marginTop: 8, fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+              Lines by book: {books.map((b) => `${BOOK_LABEL[b] || b} ${lines.filter((l) => l.book_tag === b).length}`).join(' · ')}
+            </div>
+          )}
+          <div style={{ marginTop: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+            From the Nexus Accounting ledger{intacct.length ? ` · ${intacct.length} Intacct ${intacct.length === 1 ? 'record' : 'records'}` : ''}.{isPhone || panel ? '' : ' Drag the corner of this window to resize it.'}
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  if (panel) {
+    return (
+      <>
+        <SidePanel label={`Journal entry ${entryNo || ''}`.trim()} title={entry ? `${formatDate(entry.entry_date)}${journal ? ` · ${journal}` : ''}${title ? ` · ${title}` : ''}` : `Journal Entry ${entryNo || ''}`}
+          caption={entry ? quiet : 'Loading the entry...'} onClose={onClose}>
+          {facts.length > 0 && (
+            <dl className="acct-entry-facts" data-testid="entry-facts" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '8px 16px', margin: 0, padding: '10px 14px', border: '1px solid var(--border-color)', borderRadius: 10, background: 'var(--bg-card)' }}>
+              {facts.map(([label, v]) => (
+                <div key={label} style={{ minWidth: 0 }}>
+                  <dt style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{label}</dt>
+                  <dd style={{ margin: 0, fontSize: '0.84rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }} title={v}>{v}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {body}
+        </SidePanel>
+        {asking && <AskAccountantDialog line={asking} onClose={() => setAsking(null)} onAsked={(t) => { setAsking(null); setAsked(t); }} />}
+      </>
+    );
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation" style={full ? { padding: 0 } : { padding: 12 }}>
       {/* Chat 10/26, item 03 (Urmi: "In the entry of any account, header is
           still not static"): on a computer the window is a column and the
           lines scroll in their own box, so the heading row (pinned as one
           block, acct-sticky-head) stays in view. A phone keeps its cards. */}
-      <div className={`modal-content acct-entry${isPhone ? '' : ' acct-entry--box'}`} role="dialog" aria-modal="true" aria-label={`Journal entry ${entryNo || ''}`} onClick={(e) => e.stopPropagation()}
+      <div className={`modal-content acct-entry${isPhone ? ' nx-sheet' : ' acct-entry--box'}`} role="dialog" aria-modal="true" aria-label={`Journal entry ${entryNo || ''}`} onClick={(e) => e.stopPropagation()}
         style={full ? { maxWidth: '100vw', width: '100vw', height: '100vh', maxHeight: '100vh', borderRadius: 0, resize: 'none' } : { maxWidth: '98vw', width: 'min(1720px, 96vw)', maxHeight: '94vh' }}>
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
@@ -140,84 +262,7 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
             </button>
           </div>
         </div>
-        <div className={isPhone ? undefined : 'acct-entry-body'} style={{ padding: isPhone ? '10px 12px 16px' : '12px 18px 16px', overflow: isPhone ? 'auto' : undefined }}>
-          {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', marginBottom: 12 }}>{error}</div>}
-          {asked && (
-            <div role="status" style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 10px', fontSize: '0.8rem', marginBottom: 10, color: 'var(--ok-fg, #15803d)' }}>
-              {asked.merged ? 'Added to the open question on this line' : 'Question sent'} to {asked.accountantName || asked.accountant}. It is on the AMA screen under Accounting - Reporting.
-            </div>
-          )}
-          {!data && !error && <SkeletonBlocks count={3} />}
-          {data && isPhone && (
-            <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
-              {lines.map((l) => {
-                const g = intacct.find((x) => x.record_no && x.record_no === l.intacct_record_no);
-                const facts = COLUMNS.filter((c) => !['account', 'debit', 'credit'].includes(c.key)).map((c) => [c.label, cell(l, g, c.key)]).filter(([, v]) => v);
-                return (
-                  <div key={l.id} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)' }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-                      <span style={{ flex: 1, minWidth: 0, fontSize: '0.86rem', fontWeight: 600 }}>{cell(l, g, 'account')}</span>
-                      <span style={{ fontSize: '0.86rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                        {Number(l.debit) > 0 ? formatAmount(l.debit) : Number(l.credit) > 0 ? `(${formatAmount(l.credit)})` : '0.00'}
-                      </span>
-                      <AskButton onClick={() => ask(l, g)} />
-                    </div>
-                    {facts.map(([label, v]) => (
-                      <div key={label} style={{ display: 'flex', gap: 8, fontSize: '0.76rem', marginTop: 3 }}>
-                        <span style={{ color: 'var(--text-muted)', flex: '0 0 88px' }}>{label}</span>
-                        <span style={{ color: 'var(--text-secondary)', minWidth: 0, overflowWrap: 'anywhere' }}>{v}</span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '10px 12px', fontSize: '0.84rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', background: 'var(--bg-secondary)' }}>
-                <span>Total</span>
-                <span>{formatAmount(data.totals.debit)} debit · {formatAmount(data.totals.credit)} credit</span>
-              </div>
-            </div>
-          )}
-          {data && (
-            <>
-              {!isPhone && <div className="acct-lines-wrap acct-entry-box" data-testid="entry-lines-box" style={{ maxHeight: 'none' }}>
-                <table className="acct-lines acct-entry-lines acct-sticky-head" style={{ width: '100%', minWidth: 1180 }}>
-                  <colgroup>{COLUMNS.map((c) => <col key={c.key} style={{ width: c.width }} />)}<col style={{ width: 34 }} /></colgroup>
-                  <thead>
-                    <tr>{COLUMNS.map((c) => <th key={c.key} scope="col" className={c.num ? 'acct-num' : undefined}>{c.label}</th>)}<th scope="col" aria-label="Ask My Accountant" /></tr>
-                  </thead>
-                  <tbody>
-                    {lines.map((l) => {
-                      const g = intacct.find((x) => x.record_no && x.record_no === l.intacct_record_no);
-                      return (
-                        <tr key={l.id}>
-                          {COLUMNS.map((c) => <td key={c.key} className={c.num ? 'acct-num' : undefined}>{cell(l, g, c.key)}</td>)}
-                          <td style={{ textAlign: 'center', padding: 0 }}><AskButton onClick={() => ask(l, g)} /></td>
-                        </tr>
-                      );
-                    })}
-                    <tr className="acct-grand">
-                      <td>Total</td>
-                      <td className="acct-num"><Amount value={data.totals.debit} /></td>
-                      <td className="acct-num"><Amount value={data.totals.credit} /></td>
-                      <td colSpan={COLUMNS.length - 2} />
-                    </tr>
-                  </tbody>
-                </table>
-              </div>}
-              {Math.abs(data.totals.debit - data.totals.credit) >= 0.01 && (
-                <div style={{ marginTop: 8, fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>This entry is out of balance by {formatAmount(data.totals.debit - data.totals.credit)}.</div>
-              )}
-              {books.length > 1 && (
-                <div style={{ marginTop: 8, fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-                  Lines by book: {books.map((b) => `${BOOK_LABEL[b] || b} ${lines.filter((l) => l.book_tag === b).length}`).join(' · ')}
-                </div>
-              )}
-              <div style={{ marginTop: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                From the Nexus Accounting ledger{intacct.length ? ` · ${intacct.length} Intacct ${intacct.length === 1 ? 'record' : 'records'}` : ''}.{isPhone ? '' : ' Drag the corner of this window to resize it.'}
-              </div>
-            </>
-          )}
-        </div>
+        {body}
         {asking && <AskAccountantDialog line={asking} onClose={() => setAsking(null)} onAsked={(t) => { setAsking(null); setAsked(t); }} />}
       </div>
     </div>

@@ -167,6 +167,9 @@ export function readTransactions(rows, map, { flip = false } = {}) {
 /** The columns of Intacct's General Ledger journal entry import template -
  * the same header the stand-alone Import Hub's Fidelity export writes. */
 export const INTACCT_JE_COLUMNS = ['DONOTIMPORT', 'JOURNAL', 'DATE', 'REVERSEDATE', 'DESCRIPTION', 'REFERENCE_NO', 'LINE_NO', 'ACCT_NO', 'LOCATION_ID', 'DEPT_ID', 'DOCUMENT', 'MEMO', 'DEBIT', 'CREDIT', 'SOURCEENTITY'];
+// The template goes on in this order (Charmi's own OSM template); a file
+// with a vendor or customer on any line carries it through GLENTRY_VENDORID.
+const PARTNER_COLUMNS = ['CURRENCY', 'EXCH_RATE_DATE', 'EXCH_RATE_TYPE_ID', 'EXCHANGE_RATE', 'STATE', 'ALLOCATION_ID', 'BILLABLE', 'RPESENTRY', 'GLENTRY_CUSTOMERID', 'GLENTRY_VENDORID'];
 
 const money = (n) => (n ? n.toFixed(2) : '');
 
@@ -175,10 +178,14 @@ const money = (n) => (n ? n.toFixed(2) : '');
  * the stand-alone Import Hub's export: line 1 the offset account, line 2 the
  * cash (or brokerage) account; the entry's journal, date, description and
  * reference sit on line 1 only. Money in debits cash and credits the offset;
- * money out the other way round. Returns rows including the header.
+ * money out the other way round. A transaction's own `account` (a rule's or
+ * one picked on the line - 10/27 call item 01) replaces the offset account,
+ * and its `vendorId` / `customerId` go on that line. Returns rows including
+ * the header.
  */
 export function buildIntacctRows(transactions, { journal, cashAccount, offsetAccount, location = '', department = '' }) {
-  const rows = [INTACCT_JE_COLUMNS];
+  const partners = transactions.some((t) => t.vendorId || t.customerId);
+  const rows = [partners ? [...INTACCT_JE_COLUMNS, ...PARTNER_COLUMNS] : INTACCT_JE_COLUMNS];
   transactions.forEach((t) => {
     const date = usDate(t.date);
     const description = (t.description || t.memo || 'Statement transaction').slice(0, 400);
@@ -188,11 +195,69 @@ export function buildIntacctRows(transactions, { journal, cashAccount, offsetAcc
     const line = (no, acct, debit, credit) => [
       '', no === 1 ? journal || '' : '', no === 1 ? date : '', '', no === 1 ? description : '', no === 1 ? t.reference || '' : '',
       String(no), acct, location, department, '', memo, money(debit), money(credit), location,
+      ...(partners ? ['', '', '', '', '', '', '', '', no === 1 ? t.customerId || '' : '', no === 1 ? t.vendorId || '' : ''] : []),
     ];
-    rows.push(line(1, offsetAccount, cashIn ? 0 : amt, cashIn ? amt : 0));
+    rows.push(line(1, t.account || offsetAccount, cashIn ? 0 : amt, cashIn ? amt : 0));
     rows.push(line(2, cashAccount, cashIn ? amt : 0, cashIn ? 0 : amt));
   });
   return rows;
+}
+
+// ── Rules (10/27 call item 01, ported from the stand-alone Import Hub) ──────
+// A rule (routers/import_hub.py) names text the description holds - contains,
+// equals or starts with, case and spacing ignored - and optionally the
+// direction (in = money into the account) and the exact amount. The first
+// active rule that matches, in priority order, classifies the line.
+
+const squash = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** Does `rule` match transaction `t` (description first, else the memo)? */
+export function ruleMatches(rule, t) {
+  if (!rule || rule.active === false) return false;
+  const want = squash(rule.matchText);
+  if (!want) return false;
+  if (rule.direction === 'in' && !(t.amount > 0)) return false;
+  if (rule.direction === 'out' && !(t.amount < 0)) return false;
+  if (rule.amount !== null && rule.amount !== undefined && rule.amount !== '' && Math.abs(Math.abs(t.amount) - Math.abs(Number(rule.amount))) >= 0.005) return false;
+  return [t.description, t.memo].some((field) => {
+    const have = squash(field);
+    if (!have) return false;
+    if (rule.matchType === 'equals') return have === want;
+    if (rule.matchType === 'starts_with') return have.startsWith(want);
+    return have.includes(want);
+  });
+}
+
+const RULE_FIELDS = ['account', 'accountName', 'vendorId', 'vendorName', 'customerId', 'customerName'];
+
+/**
+ * Transactions -> lines with what each posts to: `picks[i]` (set on the line
+ * by hand) wins field by field over the first matching rule. `how` is
+ * 'hand' | 'rule' | '' and `classified` says the line has an account of its
+ * own - an unclassified line is flagged before download.
+ */
+export function classifyLines(transactions, rules = [], picks = {}) {
+  const ordered = [...(rules || [])].sort((a, b) => (a.priority ?? 100) - (b.priority ?? 100));
+  return (transactions || []).map((t, i) => {
+    const rule = ordered.find((r) => ruleMatches(r, t)) || null;
+    const pick = picks[i] || {};
+    const line = { ...t, index: i, rule, how: '' };
+    RULE_FIELDS.forEach((k) => { line[k] = (k in pick ? pick[k] : rule?.[k]) || ''; });
+    if (Object.keys(pick).length) line.how = 'hand';
+    else if (rule) line.how = 'rule';
+    line.classified = !!line.account;
+    return line;
+  });
+}
+
+/** A line -> the rule it suggests: its description, its direction, its account / vendor / customer. */
+export function ruleFromLine(line, { withAmount = false } = {}) {
+  return {
+    matchText: String(line.description || line.memo || '').trim().slice(0, 200), matchType: 'contains',
+    direction: line.amount > 0 ? 'in' : 'out', amount: withAmount ? Math.abs(line.amount) : null,
+    account: line.account || '', accountName: line.accountName || '', vendorId: line.vendorId || '', vendorName: line.vendorName || '',
+    customerId: line.customerId || '', customerName: line.customerName || '', priority: 100, active: true, notes: '',
+  };
 }
 
 const cell = (v) => {

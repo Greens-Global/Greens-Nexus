@@ -40,8 +40,19 @@ describe('PersonCell hours prefs hint', () => {
 
   it('ignores dated rows mixed into the weekday list for the limited flag', () => {
     render(<PersonCell emp={{ ...emp, availability: [{ date: '2026-10-20', kind: 'unavailable' }, { weekday: 1, kind: 'unavailable', start: '', end: '' }] }} hrs={0} />);
-    const tag = document.body.querySelector('[title^="Availability:"]');
+    const tag = document.body.querySelector('[data-limited]');
     expect(tag.textContent).toBe('Limited Availability');
-    expect(tag.getAttribute('title')).toBe('Availability: Tue unavailable');
+    expect(tag.getAttribute('title')).toMatch(/^Not fully available on a day they usually work: Tue unavailable\./);
+  });
+
+  it('is not limited for days they do not work anyway, e.g. weekends off (Neil, Oct 28 2026)', () => {
+    render(<PersonCell emp={{ ...emp, availability: [{ weekday: 5, kind: 'unavailable' }, { weekday: 6, kind: 'unavailable' }] }} hrs={0} />);
+    expect(document.body.querySelector('[data-limited]')).toBeNull();
+  });
+
+  it('is limited when a usual day is only partly available', () => {
+    const usual = { start: '06:30', end: '14:30', days: '1,2,3,4,5' };
+    render(<PersonCell emp={{ ...emp, availability: [{ weekday: 4, kind: 'available', start: '06:30', end: '12:30' }] }} usual={usual} hrs={0} />);
+    expect(document.body.querySelector('[data-limited]')).toBeTruthy();
   });
 });

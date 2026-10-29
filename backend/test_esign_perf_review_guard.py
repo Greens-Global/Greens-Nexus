@@ -13,15 +13,13 @@ from test_perf_reviews import ReviewCase, U, _Req, EMP, MGR, BOSS, HR, FARHR  # 
 
 import models  # noqa: E402
 from routers import esign  # noqa: E402
-from routers import perf_reviews as api  # noqa: E402
 
 
 class EnvelopeWriteGuard(ReviewCase):
     def shared(self):
-        c, rid = self.to_hr()
-        api.share_review(rid, _Req(), U(HR), self.db)
-        self.db.expire_all()
-        req = self.db.get(models.HrSignRequest, self.db.get(models.PerfReview, rid).sign_request_id)
+        # The envelope exists once the employee clicks Acknowledge (Oct 29 2026).
+        c, rid, r, _ = self.acknowledged()
+        req = self.db.get(models.HrSignRequest, r.sign_request_id)
         party = self.db.query(models.HrSignParty).filter_by(request_id=req.id).first()
         return req, party
 

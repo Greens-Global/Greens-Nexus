@@ -3,7 +3,7 @@ import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput, formatAmount } from './Amount';
 import { formatDate } from '../../lib/datetime';
-import { BarMore, BarSearch, BarSummary, ControlBar, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, GlAccountPicker, Pager, SyncButton, control, fitSelect } from './reportControls';
+import { BarMore, BarSearch, BarSummary, ControlBar, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, GlAccountPicker, Pager, SyncButton, control, fitSelect, widest } from './reportControls';
 import {
   MGMT_FEE_DEFAULT_BASIS, MGMT_FEE_DEFAULT_FLAT, MGMT_FEE_DEFAULT_MONTHLY_MINIMUM, MGMT_FEE_DEFAULT_PERIOD, MGMT_FEE_DEFAULT_RATE, MGMT_FEE_DEFAULT_THRESHOLD, MGMT_FEE_DEFAULT_THRESHOLD_BASIS, MGMT_FEE_TIER_FLAT_IS_ANNUAL,
 } from './assumptions';
@@ -468,7 +468,7 @@ ${FILTER_CSS}`}</style>
         <select value={year} onChange={(e) => setYear(Number(e.target.value))} aria-label="Year" style={control}>
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
         </select>
-        <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Period" style={{ ...control, ...fitSelect(periods.find(([k]) => k === period)?.[1]) }}
+        <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Period" style={{ ...control, ...fitSelect(periods.find(([k]) => k === period)?.[1], { base: widest(periods.map(([, l]) => l)) }) }}
           title="The period Gross Revenue and Calculated Fee cover. Billed and Expected YTD run from January 1 through its end.">
           {periods.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>

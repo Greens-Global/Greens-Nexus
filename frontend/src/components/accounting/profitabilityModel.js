@@ -91,7 +91,7 @@ function cellsOf(fig, prior, change, compareOn, withPrior) {
  * is written as plain figures (the sheet's own totals, roots only) instead of
  * live sums, which would count a sub-entity twice.
  */
-export function profitTable(data, { compareOn = 'netIncome', entityLabel = 'All entities', bookLabel = 'Accrual' } = {}) {
+export function profitTable(data, { compareOn = 'netIncome', entityLabel = 'All Entities', bookLabel = 'Accrual' } = {}) {
   const withPrior = !!data?.totals?.prior;
   const cmp = COMPARE_ON.find((c) => c.key === compareOn) || COMPARE_ON[0];
   const columns = [

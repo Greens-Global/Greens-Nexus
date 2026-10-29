@@ -122,7 +122,10 @@ const pointerDrag = (from, to, keys = {}) => {
 };
 const more = (label) => { fireEvent.click(screen.getByRole('button', { name: 'More' })); fireEvent.click(within(screen.getByRole('menu', { name: 'More' })).getByText(label)); };
 const add = (label) => { fireEvent.click(screen.getByRole('button', { name: 'Add' })); fireEvent.click(within(screen.getByRole('menu', { name: 'Add' })).getByText(label)); };
-const viewOptions = () => { more('View Options'); return screen.getByRole('dialog', { name: 'View Options' }); };
+// Customize (Oct 28 2026) is its own toolbar button; Export is a dropdown; Import a button.
+const viewOptions = () => { more('Customize'); return screen.getByRole('dialog', { name: 'Customize' }); };
+// Print is a toolbar button; Export to Excel sits under More (Oct 29 2026).
+const exportMenu = (label) => (label === 'Print' ? fireEvent.click(screen.getByRole('button', { name: 'Print' })) : more(label));
 const toastOk = vi.fn();
 const toastErr = vi.fn();
 // The stacked view of every team (10/02: the schedule shows one team at a
@@ -135,6 +138,9 @@ const asPhone = () => vi.spyOn(window, 'matchMedia').mockImplementation((q) => (
 
 beforeEach(() => {
   try { localStorage.clear(); } catch { /* none */ }
+  // All Teams starts with every team folded (Oct 29 2026); most tests look
+  // inside the teams, so they start open. The folding test clears this.
+  try { localStorage.setItem('nexus.shifts.fold.anon', JSON.stringify({ g1: false, g2: false, g3: false })); } catch { /* none */ }
   toastOk.mockReset(); toastErr.mockReset();
   timeSchedule.mockReset();
   timeShiftGroupMembers.mockReset().mockResolvedValue({});
@@ -167,7 +173,7 @@ beforeEach(() => {
 });
 
 describe('Toolbar: one row, seven controls', () => {
-  it('shows nav, views, group, Add, Share and More - and nothing else', async () => {
+  it('shows the date bar first, then Fill Automatically, Add, Print, More, Discard and Save & Share (Oct 29 2026)', async () => {
     timeSchedule.mockResolvedValue(data([shift({ published: false })]));
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
     await screen.findByText('Amy Adams');
@@ -176,15 +182,16 @@ describe('Toolbar: one row, seven controls', () => {
     // No groups: no team switcher. Today is hidden while this week is on screen.
     expect(names[0]).toBe('Previous week');
     expect(names[1]).toMatch(/· This Week\. Pick a date$/);
-    expect(names.slice(2)).toEqual(['Next week', 'Day', 'Week', 'Month', 'Add', 'Share, 1 unshared', 'More']);
+    expect(names.slice(2)).toEqual(['Next week', 'Day', 'Week', 'Month', 'Fill Automatically', 'Add', 'Print', 'More', 'Discard', 'Save & Share, 1 unsaved']);
     expect(screen.queryByText('Fill Schedule')).toBeNull();
     expect(screen.queryByText('Publish 1')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'More' }));
     const items = within(screen.getByRole('menu', { name: 'More' })).getAllByRole('menuitem').map((b) => b.textContent.trim());
-    expect(items).toEqual(['Copy Week', 'Fill From Usual Hours', 'Clear Week', 'Import', 'Export', 'Print', 'View Options', 'Discard Changes', 'Requests', 'Keyboard Shortcuts']);
-    expect(within(screen.getByRole('menu', { name: 'More' })).getByRole('menuitemcheckbox', { name: /Show Coverage/ }).getAttribute('aria-checked')).toBe('true');
-    const sw = within(screen.getByRole('menu', { name: 'More' })).getByRole('menuitemcheckbox', { name: /Hide People Without Shifts/ });
-    expect(sw.getAttribute('aria-checked')).toBe('false');
+    expect(items).toEqual(['Customize', 'Export to Excel', 'Import', 'Copy Week', 'Clear Week', 'Requests', 'Keyboard Shortcuts']);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    const d = viewOptions();
+    expect(within(d).getByRole('checkbox', { name: 'Show coverage' }).checked).toBe(true);
+    expect(within(d).getByRole('checkbox', { name: 'Show people without shifts' }).checked).toBe(true);
   });
 
   it('shows an error with Retry when the schedule cannot load, with nothing offered on it', async () => {
@@ -192,10 +199,10 @@ describe('Toolbar: one row, seven controls', () => {
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
     expect(await screen.findByText(/The schedule could not be loaded/)).toBeTruthy();
     expect(screen.queryByText('Amy Adams')).toBeNull();
-    expect(screen.getByRole('button', { name: /^Share/ }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: /^Save & Share/ }).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('Amy Adams')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Share/ }).disabled).toBe(false);
+    expect(screen.getByRole('button', { name: /^Save & Share/ }).disabled).toBe(false);
   });
 });
 
@@ -216,7 +223,7 @@ describe('Grid: blocks, time off beside shifts, open shifts per group', () => {
     expect(screen.getAllByRole('columnheader')[1].textContent).toMatch(/^[A-Z][a-z]{2} \d{1,2}\d/);   // the next day has no month
     expect(header.textContent).toContain('1 · 7.25 Hrs');
     // One calm line: the short time and the type's code; the break is the hover title, not the block.
-    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pGST');
+    expect(blockOf('s1').textContent).toBe('9:00a - 5:00p');
     expect(blockOf('s1').getAttribute('title')).toContain('Break 45m');
     expect(blockOf('s1').getAttribute('aria-label')).toBe('Shift 9:00 AM - 5:00 PM GST');
     // No zone chip: the shift is in the team's own zone (it used to print "PDT" on every block).
@@ -228,7 +235,7 @@ describe('Grid: blocks, time off beside shifts, open shifts per group', () => {
     timeSchedule.mockResolvedValue(grid([shift({ timeZone: 'America/Los_Angeles' }), shift({ id: 's2', email: 'bob@greensglobal.com', timeZone: 'Asia/Kolkata' })]));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pGST');
+    expect(blockOf('s1').textContent).toBe('9:00a - 5:00p');
     expect(blockOf('s2').textContent).toMatch(/IST|GMT\+5:30/);
     expect(blockOf('s2').getAttribute('title')).toContain('Times in');
   });
@@ -241,14 +248,14 @@ describe('Grid: blocks, time off beside shifts, open shifts per group', () => {
     // The state is a border, a corner mark or a strike - never a word on the block.
     expect(blockOf('a').getAttribute('aria-label')).toContain('Draft');
     expect(blockOf('a').style.border).toContain('dashed');
-    expect(blockOf('a').textContent).toBe('9:00a - 5:00pGST');
+    expect(blockOf('a').textContent).toBe('9:00a - 5:00p');
     expect(blockOf('b').getAttribute('aria-label')).toContain('Edited');
     expect(blockOf('b').querySelector('[title="Edited, not shared"]')).toBeTruthy();
     expect(blockOf('b').textContent).not.toContain('Edited');
     expect(blockOf('c').getAttribute('aria-label')).toContain('Removing');
     expect(blockOf('c').style.textDecoration).toBe('line-through');
     expect(screen.getByText('Week · 16 Hrs')).toBeTruthy();   // the removal is out
-    expect(screen.getByRole('button', { name: 'Share, 3 unshared' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save & Share, 3 unsaved' })).toBeTruthy();
   });
 
   it('keeps the shift beside a partial day of time off, with its hours (QA 19 / 20)', async () => {
@@ -315,7 +322,7 @@ describe('Grid: blocks, time off beside shifts, open shifts per group', () => {
       availability: { 'amy@greensglobal.com': [{ weekday: 0, kind: 'unavailable', start: '', end: '', note: '' }, { weekday: 1, kind: 'available', start: '08:00', end: '12:00', note: '' }] } });
     render(<ShiftSchedule toastOk={toastOk} />);
     const tag = await screen.findByText('Limited Availability');
-    expect(tag.getAttribute('title')).toBe('Availability: Mon unavailable · Tue 8:00 AM - 12:00 PM');
+    expect(tag.getAttribute('title')).toBe('Not fully available on a day they usually work: Mon unavailable · Tue 8:00 AM - 12:00 PM. Set in their My Availability; it never blocks a shift.');
     // The API's sentence stays; the grid adds what it sees itself, one short line each.
     expect(screen.getByLabelText('Warning: Outside availability: Mon unavailable; On approved time off that day (sick).')).toBeTruthy();
   });
@@ -372,15 +379,19 @@ describe('The week grid engine (WeekGrid, 10/02)', () => {
     expect(within(v2).getByLabelText('Continues next week')).toBeTruthy();
   });
 
-  it('folds groups with nothing this week, says so in one row, and remembers what the user opens', async () => {
+  it('folds every team in All Teams, says so in one row, and remembers what the user opens (Oct 29 2026)', async () => {
+    try { localStorage.removeItem('nexus.shifts.fold.anon'); } catch { /* none */ }
     allTeams();
     timeSchedule.mockResolvedValue(groups2([shift()]));
     const { unmount } = render(<ShiftSchedule toastOk={toastOk} />);
-    await screen.findByText('Amy Adams');
+    await screen.findByRole('button', { name: 'Expand Front' });            // even a team with shifts starts folded
+    expect(screen.queryByText('Amy Adams')).toBeNull();
     expect(screen.queryByText('Bob Brown')).toBeNull();
     expect(screen.getByText('1 person · no shifts this week')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Expand Back' }).getAttribute('aria-expanded')).toBe('false');
-    expect(document.querySelector('[data-open-row="g2"]')).toBeNull();    // a folded group shows nothing under it
+    expect(document.querySelector('[data-open-row]')).toBeNull();           // a folded team shows nothing under it
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Front' }));
+    expect(screen.getByText('Amy Adams')).toBeTruthy();
     expect(document.querySelector('[data-open-row="g1"]')).toBeTruthy();  // a manager gets the slim Open Shifts row where open shifts are on
     fireEvent.click(screen.getByRole('button', { name: 'Expand Back' }));
     expect(screen.getByText('Bob Brown')).toBeTruthy();
@@ -391,7 +402,7 @@ describe('The week grid engine (WeekGrid, 10/02)', () => {
     expect(screen.queryByText('Amy Adams')).toBeNull();
   });
 
-  it('keeps a group open when someone in it is off, and never shows a viewer an empty Open Shifts row', async () => {
+  it('never shows a viewer an empty Open Shifts row', async () => {
     allTeams();
     timeSchedule.mockResolvedValue({ ...groups2([shift()]), canManage: false,
       timeoff: [{ id: 'v1', email: 'bob@greensglobal.com', startDate: monday, endDate: plusDays(monday, 1), type: 'vacation', status: 'approved' }] });
@@ -401,21 +412,20 @@ describe('The week grid engine (WeekGrid, 10/02)', () => {
     expect(document.querySelector('[data-open-row]')).toBeNull();
   });
 
-  it('hides people without shifts from the ⋯ menu, and remembers it', async () => {
+  it('hides people without shifts from Customize, and remembers it', async () => {
     timeSchedule.mockResolvedValue(data([shift()]));
     const { unmount } = render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
     expect(screen.getByText('Bob Brown')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'More' }));
-    fireEvent.click(within(screen.getByRole('menu', { name: 'More' })).getByRole('menuitemcheckbox', { name: /Hide People Without Shifts/ }));
+    fireEvent.click(within(viewOptions()).getByRole('checkbox', { name: 'Show people without shifts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(screen.queryByText('Bob Brown')).toBeNull();
     expect(screen.getByText('Amy Adams')).toBeTruthy();
     unmount();
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
     expect(screen.queryByText('Bob Brown')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'More' }));
-    expect(within(screen.getByRole('menu', { name: 'More' })).getByRole('menuitemcheckbox', { name: /Hide People Without Shifts/ }).getAttribute('aria-checked')).toBe('true');
+    expect(within(viewOptions()).getByRole('checkbox', { name: 'Show people without shifts' }).checked).toBe(false);
   });
 });
 
@@ -446,9 +456,9 @@ describe('Menus, clipboard, keyboard and touch', () => {
     fireEvent.contextMenu(cellOf('bob@greensglobal.com'));
     const menu = screen.getByRole('menu', { name: 'Day options' });
     expect(within(menu).getByText('Place Shift Type')).toBeTruthy();
-    fireEvent.click(within(menu).getByText(/NGT · 9:00 PM - 5:00 AM/));
+    fireEvent.click(within(menu).getByText(/Night · 9:00 PM - 5:00 AM/));
     await waitFor(() => expect(timeSchedCreate).toHaveBeenCalledWith({ employee_email: 'bob@greensglobal.com', work_date: monday, shift_id: 'p2', group_id: '' }));
-    expect(toastOk).toHaveBeenCalledWith('NGT placed as a draft.');
+    expect(toastOk).toHaveBeenCalledWith('Night placed as a draft.');
   });
 
   it('offers History on an empty day only once the API says a shift was there (Oct 15)', async () => {
@@ -491,7 +501,7 @@ describe('Menus, clipboard, keyboard and touch', () => {
     fireEvent.contextMenu(cellOf('bob@greensglobal.com', plusDays(monday, 1)));
     fireEvent.click(within(screen.getByRole('menu', { name: 'Day options' })).getByText('Paste'));
     await waitFor(() => expect(timeSchedCreate).toHaveBeenLastCalledWith(expect.objectContaining({ work_date: plusDays(monday, 1) })));
-    fireEvent.click(cellOf('bob@greensglobal.com', plusDays(monday, 2)));
+    fireEvent.doubleClick(cellOf('bob@greensglobal.com', plusDays(monday, 2)));
     await waitFor(() => expect(timeSchedCreate).toHaveBeenLastCalledWith(expect.objectContaining({ work_date: plusDays(monday, 2) })));
     expect(screen.queryByRole('dialog')).toBeNull();   // a paste, not the editor
   });
@@ -553,7 +563,7 @@ describe('The editor panel', () => {
     timeSchedule.mockResolvedValue(data([shift()]));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(blockOf('s1'));
+    fireEvent.doubleClick(blockOf('s1'));
     expect(screen.queryByRole('dialog', { name: 'Shift Details' })).toBeNull();
     const panel = screen.getByRole('dialog', { name: 'Edit Shift' });
     expect(panel.tagName).toBe('ASIDE');
@@ -568,12 +578,12 @@ describe('The editor panel', () => {
     timeSchedule.mockResolvedValue(data([shift(), shift({ id: 's2', email: 'bob@greensglobal.com', shiftId: '', code: '', label: 'All Properties', start: '08:30', end: '17:30', ownColor: '#94a3b8' })]));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(blockOf('s1'));
+    fireEvent.doubleClick(blockOf('s1'));
     const panel = screen.getByRole('dialog', { name: 'Edit Shift' });
     fireEvent.click(within(panel).getByRole('button', { name: /All Properties 8:30 AM - 5:30 PM/ }));
     expect(within(panel).getByLabelText('Start').value).toBe('08:30');
     expect(within(panel).getByLabelText('Label').value).toBe('All Properties');
-    fireEvent.click(within(panel).getByRole('button', { name: /^Save/ }));
+    fireEvent.click(within(panel).getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(timeSchedUpdate).toHaveBeenCalledWith('s1', expect.objectContaining({ shift_id: '', start_hhmm: '08:30', end_hhmm: '17:30', label: 'All Properties', color: '#94a3b8' })));
   });
 
@@ -581,7 +591,7 @@ describe('The editor panel', () => {
     timeSchedule.mockResolvedValue(data([shift({ start: '10:00', end: '18:00' })]));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(blockOf('s1'));
+    fireEvent.doubleClick(blockOf('s1'));
     const panel = screen.getByRole('dialog', { name: 'Edit Shift' });
     fireEvent.click(within(panel).getByRole('button', { name: 'Custom' }));
     expect(within(panel).getByLabelText('Start').value).toBe('10:00');
@@ -592,9 +602,9 @@ describe('The editor panel', () => {
     timeSchedule.mockResolvedValue(data([shift()]));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(blockOf('s1'));
+    fireEvent.doubleClick(blockOf('s1'));
     fireEvent.click(screen.getByLabelText('Color #dc2626'));
-    fireEvent.click(screen.getByRole('button', { name: /^Save/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(timeSchedUpdate).toHaveBeenCalledWith('s1', expect.objectContaining({ color: '#dc2626' })));
   });
 
@@ -602,7 +612,7 @@ describe('The editor panel', () => {
     timeSchedule.mockResolvedValue(data([shift()]));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(blockOf('s1'));
+    fireEvent.doubleClick(blockOf('s1'));
     const panel = screen.getByRole('dialog', { name: 'Edit Shift' });
     fireEvent.click(within(panel).getByText('Add Activity'));
     fireEvent.change(within(panel).getByLabelText('Activity 1 name'), { target: { value: 'Lunch' } });
@@ -611,7 +621,7 @@ describe('The editor panel', () => {
     expect(within(panel).getByRole('button', { name: 'Unpaid', pressed: true })).toBeTruthy();   // new activities start unpaid
     expect(panel.textContent).toContain('7.5 Hrs');
     expect(panel.textContent).toContain('30m unpaid');
-    fireEvent.click(within(panel).getByRole('button', { name: /^Save/ }));
+    fireEvent.click(within(panel).getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(timeSchedUpdate).toHaveBeenCalledWith('s1', expect.objectContaining({
       break_min: 30, activities: [{ start: '12:00', end: '12:30', label: 'Lunch', paid: false }] })));
   });
@@ -620,9 +630,9 @@ describe('The editor panel', () => {
     timeSchedule.mockResolvedValue(data([shift({ start: '10:00', end: '10:00' }), shift({ id: 's2', email: 'bob@greensglobal.com', code: 'BOB' })]));
     render(<ShiftSchedule toastOk={toastOk} />);
     expect(await screen.findByText('Week · 8 Hrs')).toBeTruthy();   // an old 10:00-10:00 row counts as 0 h
-    fireEvent.click(blockOf('s1'));
+    fireEvent.doubleClick(blockOf('s1'));
     expect(screen.getByRole('alert').textContent).toBe("Start and end can't be the same time.");
-    expect(screen.getByRole('button', { name: /^Save/ }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: /^Save$/ }).disabled).toBe(true);
   });
 
   it('warns live but still lets it save', async () => {
@@ -630,24 +640,24 @@ describe('The editor panel', () => {
     timeSchedCheck.mockResolvedValue({ warnings: ['Overlaps another shift (4:00 PM - 8:00 PM on 09/28/2026).'] });
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(blockOf('s1'));
+    fireEvent.doubleClick(blockOf('s1'));
     expect(await screen.findByText('Overlaps another shift (4:00 PM - 8:00 PM on 09/28/2026).')).toBeTruthy();
     expect(screen.getByText('You can still save this shift.')).toBeTruthy();
     expect(timeSchedCheck).toHaveBeenCalledWith(expect.objectContaining({ email: 'amy@greensglobal.com', exclude_id: 's1' }));
-    expect(screen.getByRole('button', { name: /^Save/ }).disabled).toBe(false);
+    expect(screen.getByRole('button', { name: /^Save$/ }).disabled).toBe(false);
   });
 
   it('explains a pending removal and can discard it; removing a shared shift waits for Share', async () => {
     timeSchedule.mockResolvedValue(data([shift({ published: false, pendingDelete: true }), shift({ id: 's2', email: 'bob@greensglobal.com' })]));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(blockOf('s1'));
+    fireEvent.doubleClick(blockOf('s1'));
     expect(screen.getByText(/will be removed when you share/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull();
     fireEvent.click(screen.getByText('Discard Changes'));
     await waitFor(() => expect(timeSchedDiscard).toHaveBeenCalledWith('s1'));
     expect(toastOk).toHaveBeenCalledWith('Changes discarded.');
-    fireEvent.click(blockOf('s2'));
+    fireEvent.doubleClick(blockOf('s2'));
     fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
     await waitFor(() => expect(timeSchedDelete).toHaveBeenCalledWith('s2'));
     // Said in the Undo bar (Undo discards the pending removal).
@@ -658,7 +668,7 @@ describe('The editor panel', () => {
     timeSchedule.mockResolvedValue(data([]));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(cellOf('amy@greensglobal.com'));
+    fireEvent.doubleClick(cellOf('amy@greensglobal.com'));
     const panel = screen.getByRole('dialog', { name: 'Add Shift' });
     fireEvent.click(within(panel).getByRole('tab', { name: 'Time Off' }));
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Add Time Off' }).querySelector('option[value="Jury Duty"]')).toBeTruthy());
@@ -688,7 +698,7 @@ describe('The editor panel', () => {
     api.timeSchedAssign.mockResolvedValue({});
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(blockOf('o1'));
+    fireEvent.doubleClick(blockOf('o1'));
     const panel = screen.getByRole('dialog', { name: 'Edit Open Shift' });
     expect(within(panel).getByLabelText('People needed').value).toBe('2');
     fireEvent.change(within(panel).getByLabelText('Assign to'), { target: { value: 'bob@greensglobal.com' } });
@@ -826,7 +836,7 @@ describe('Views, options, export, drag', () => {
       groups: [{ id: 'g1', name: 'Front', members: ['amy@greensglobal.com'], canEdit: true }] });
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    more('Export');
+    exportMenu('Export to Excel');
     await waitFor(() => expect(exportExcel).toHaveBeenCalledTimes(1));
     const { columns, rows } = exportExcel.mock.calls[0][0];
     const row = Object.fromEntries(columns.map((c) => [c.header, c.get(rows[0])]));
@@ -841,14 +851,14 @@ describe('Views, options, export, drag', () => {
     timeSchedule.mockResolvedValue(data([shift({ label: 'Front <desk>' })]));
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
     await screen.findByText('Amy Adams');
-    more('Print');
+    exportMenu('Print');
     const html = doc.write.mock.calls[0][0];
     expect(html).toContain(`Schedule ${formatUs(monday)} - ${formatUs(plusDays(monday, 6))}`);
     expect(html).toContain('Amy Adams');
     expect(html).toContain('Front &lt;desk&gt;');
     expect(win.print).toHaveBeenCalled();
     open.mockReturnValue(null);
-    more('Print');
+    exportMenu('Print');
     expect(toastErr).toHaveBeenCalledWith('Allow pop-ups for this site to print the schedule.');
     open.mockRestore();
   });
@@ -906,7 +916,7 @@ describe('Views, options, export, drag', () => {
     await screen.findByText('Amy Adams');
     fireEvent.pointerDown(blockOf('s1'), { button: 0, clientX: 10, clientY: 10, pointerType: 'mouse' });
     fireEvent.pointerUp(window, { clientX: 11, clientY: 10 });
-    fireEvent.click(blockOf('s1'));
+    fireEvent.doubleClick(blockOf('s1'));
     expect(await screen.findByRole('dialog', { name: 'Edit Shift' })).toBeTruthy();
     expect(timeSchedMove).not.toHaveBeenCalled();
   });
@@ -925,7 +935,7 @@ describe('Views, options, export, drag', () => {
     timeSchedule.mockResolvedValue(data([shift({ label: 'Front', note: 'Keys at desk' })]));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pGSTFront');   // the label is the only second line
+    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pFront');   // the label is the only second line
     fireEvent.contextMenu(blockOf('s1'));
     fireEvent.click(within(screen.getByRole('menu', { name: 'Shift options' })).getByText('Details'));
     const card = screen.getByRole('dialog', { name: 'Shift Details' });
@@ -955,7 +965,7 @@ describe('Share, copy, clear, discard', () => {
     timeSchedUnshared.mockResolvedValue({ count: 2, firstDate: monday, lastDate: monday });
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(screen.getByRole('button', { name: 'Share, 5 unshared' }));   // the count across the WHOLE schedule
+    fireEvent.click(screen.getByRole('button', { name: 'Save & Share, 5 unsaved' }));   // the count across the WHOLE schedule
     const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
     expect(dlg.textContent).toContain('Last shared 09/28/2026');
     expect(await within(dlg).findByText('2 changes to share in these dates.')).toBeTruthy();
@@ -980,7 +990,7 @@ describe('Share, copy, clear, discard', () => {
     timeSchedPublish.mockRejectedValue(Object.assign(new Error('A reason is needed to share a schedule with warnings.'), { status: 400 }));
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(screen.getByRole('button', { name: 'Share, 1 unshared' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save & Share, 1 unsaved' }));
     const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
     fireEvent.click(within(dlg).getByRole('button', { name: 'Review' }));
     await within(dlg).findByText('Review And Share');
@@ -996,7 +1006,7 @@ describe('Share, copy, clear, discard', () => {
       warnings: [{ email: 'amy@greensglobal.com', name: 'Amy Adams', date: monday, shiftId: 's1', text: 'Only 6 hours of rest.', kind: 'rule' }], reasonRequired: false });
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(screen.getByRole('button', { name: 'Share, 1 unshared' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save & Share, 1 unsaved' }));
     const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
     fireEvent.click(within(dlg).getByRole('button', { name: 'Review' }));
     await within(dlg).findByText('Review And Share');
@@ -1010,7 +1020,7 @@ describe('Share, copy, clear, discard', () => {
     timeSchedUnshared.mockRejectedValue(new Error('404'));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(screen.getByRole('button', { name: 'Share, 1 unshared' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save & Share, 1 unsaved' }));
     const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
     expect(within(dlg).getByText('1 change to share in these dates.')).toBeTruthy();
     fireEvent.change(within(dlg).getByLabelText('Share to'), { target: { value: plusDays(monday, 100) } });
@@ -1042,17 +1052,17 @@ describe('Share, copy, clear, discard', () => {
     await waitFor(() => expect(toastOk).toHaveBeenCalledWith('2 drafts removed · 1 shared shift marked for removal until you share.'));
   });
 
-  it('discards every unshared change after confirming, and not otherwise', async () => {
+  it('discards every unsaved change - new drafts too - after confirming, and not otherwise (Oct 28 2026)', async () => {
     timeSchedule.mockResolvedValue(data([shift({ hasChanges: true }), shift({ id: 's2', email: 'bob@greensglobal.com', pendingDelete: true })]));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
     confirmAsk.mockResolvedValueOnce(false);
-    more('Discard Changes (2)');
-    await waitFor(() => expect(confirmAsk).toHaveBeenCalledWith(expect.stringMatching(/^Discard 2 unshared changes in this week\?/), expect.objectContaining({ title: 'Discard Changes' })));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(confirmAsk).toHaveBeenCalledWith(expect.stringMatching(/^Discard 2 unsaved changes\? New shifts you placed are removed/), expect.objectContaining({ title: 'Discard Changes' })));
     expect(timeSchedDiscardAll).not.toHaveBeenCalled();
-    more('Discard Changes (2)');
-    await waitFor(() => expect(timeSchedDiscardAll).toHaveBeenCalledWith({ start_date: monday, end_date: plusDays(monday, 6) }));
-    expect(toastOk).toHaveBeenCalledWith('Discarded 2 unshared changes.');
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(timeSchedDiscardAll).toHaveBeenCalledWith({ include_drafts: true }));
+    expect(toastOk).toHaveBeenCalledWith('Discarded 2 unsaved changes.');
   });
 
   it('opens Requests from the More menu', async () => {
@@ -1085,9 +1095,10 @@ describe('Groups on the grid', () => {
     expect(screen.queryByText('Old Crew')).toBeNull();
     fireEvent.click(screen.getByLabelText('Choose a team'));
     const names = screen.getAllByRole('option').map((o) => o.textContent);
-    expect(names[0]).toMatch(/^Office/);                                  // the saved order
-    expect(names[1]).toMatch(/^Construction/);
-    expect(names[2]).toMatch(/^Old Crew/);                                // archived, apart, under its own heading
+    expect(names[0]).toMatch(/^All Teams/);                               // first (Neil, Oct 28 2026)
+    expect(names[1]).toMatch(/^Office/);                                  // then the saved order
+    expect(names[2]).toMatch(/^Construction/);
+    expect(names[3]).toMatch(/^Old Crew/);                                // archived, apart, under its own heading
     expect(screen.getByRole('listbox', { name: 'Teams' }).textContent).toContain('Archived');
     fireEvent.click(screen.getByRole('option', { name: /Construction/ }));
     expect(screen.queryByText('Bob Brown')).toBeNull();
@@ -1102,7 +1113,7 @@ describe('Groups on the grid', () => {
     expect(screen.getByText('View Only')).toBeTruthy();
     fireEvent.contextMenu(blockOf('s2'));
     expect(screen.queryByRole('menu', { name: 'Shift options' })).toBeNull();
-    fireEvent.click(blockOf('s2'));
+    fireEvent.doubleClick(blockOf('s2'));
     const card = screen.getByRole('dialog', { name: 'Shift Details' });
     expect(within(card).queryByText('Edit Shift')).toBeNull();
     expect(screen.getAllByText('Add Members')).toHaveLength(1);
@@ -1159,8 +1170,8 @@ describe('On a phone', () => {
       await screen.findByText('Amy Adams');
       const bar = screen.getByRole('toolbar', { name: 'Schedule' });
       const names = within(bar).getAllByRole('button').map((b) => b.getAttribute('aria-label') || b.textContent.trim());
-      // [Team ▾] [+] [⋯] over [‹ date ›] [Week ▾]: the team switcher is on the phone too.
-      expect(names.map((n) => (/Pick a date$/.test(n) ? 'date' : n))).toEqual(['Choose a team', 'Add', 'More', 'Previous week', 'date', 'Next week', 'View']);
+      // [‹ date ›] [+] [⋯] over [Team ▾] [Week ▾] (Oct 28 2026: the date leads, as on a computer).
+      expect(names.map((n) => (/Pick a date$/.test(n) ? 'date' : n))).toEqual(['Previous week', 'date', 'Next week', 'Add', 'More', 'Choose a team', 'View']);
       expect(bar.querySelector('[data-range-caption]').textContent).toContain('This Week');
       expect(screen.queryByRole('columnheader')).toBeNull();                    // no 7-column grid
       const strip = screen.getByRole('tablist', { name: 'Day' });
@@ -1174,12 +1185,12 @@ describe('On a phone', () => {
       fireEvent.click(within(strip).getByRole('tab', { name: new RegExp(formatUs(plusDays(monday, 1))) }));
       expect(blockOf('s2')).toBeTruthy();
       expect(screen.getByText('Stock count')).toBeTruthy();
-      // Share and the group picker live under ⋯; the views under the Week menu; a block still opens the editor.
+      // Save & Share and Discard lead ⋯ on a phone; the views under the Week menu; a block still opens the editor.
       fireEvent.click(screen.getByRole('button', { name: 'More' }));
       const items = within(screen.getByRole('menu', { name: 'More' })).getAllByRole('menuitem').map((b) => b.textContent.replace(/✓/g, '').trim());
-      expect(items.slice(0, 2)).toEqual(['Share (1)', 'Copy Week']);
+      expect(items.slice(0, 2)).toEqual(['Save & Share (1)', 'Discard Changes']);
       expect(items).toContain('Copy Week');
-      fireEvent.click(within(screen.getByRole('menu', { name: 'More' })).getByText('Share (1)'));
+      fireEvent.click(within(screen.getByRole('menu', { name: 'More' })).getByText('Save & Share (1)'));
       expect(screen.getByRole('dialog', { name: 'Share Schedule' })).toBeTruthy();
       fireEvent.click(screen.getByRole('button', { name: 'Close' }));
       fireEvent.click(screen.getByRole('button', { name: 'View' }));
@@ -1215,7 +1226,7 @@ describe('Actuals: the schedule meets the clock', () => {
     expect(bar.style.background).toBe('hsl(var(--color-orange))');
     expect(blockOf('s1').getAttribute('title')).toContain('Clocked in 9:04 AM (4 min late)\nClocked out 4:58 PM');
     expect(blockOf('s1').getAttribute('aria-label')).toBe('Shift 9:00 AM - 5:00 PM GST, Late');
-    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pGSTL');   // the bar and the letter badge are the only additions
+    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pL');   // the bar and the letter badge are the only additions
     // The line follows the people on screen.
     const dlg = viewOptions();
     fireEvent.change(within(dlg).getByLabelText('Search people'), { target: { value: 'amy' } });

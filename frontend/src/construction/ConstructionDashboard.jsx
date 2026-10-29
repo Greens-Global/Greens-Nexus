@@ -128,7 +128,9 @@ function NewProjectModal({ onClose, onCreated }) {
   return (
     <div className="modal-overlay" onClick={guard.requestClose}>
       <div className="modal-content nx-popup" onClick={(e) => e.stopPropagation()}>
-        <form onSubmit={save}>
+        {/* .modal-content has no padding of its own (it expects modal-header /
+            modal-body), so the form brings its own - it sat flush to the edges. */}
+        <form onSubmit={save} style={{ padding: '22px 24px 20px' }}>
           <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>New Project</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>
             A jobsite. You are added as its manager so you can review logs straight away.

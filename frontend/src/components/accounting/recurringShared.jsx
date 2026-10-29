@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { AlertTriangle, ChevronLeft, ChevronRight, Settings, X } from 'lucide-react';
 import { api } from '../../api';
 import { formatDate, formatDateTime } from '../../lib/datetime';
-import { control, fitSelect } from './reportControls';
+import { control, fitSelect, widest } from './reportControls';
 import { EgnyteField } from './LoanDialogs';
 
 // What MRI (LeasingTab) and MRE (MreTab) share (Oct 22): the period control,
@@ -44,8 +44,8 @@ export function PeriodPicker({ year, onYear, period, onPeriod, custom, onCustom 
       <button type="button" style={arrow} aria-label="Previous year" onClick={() => onYear(year - 1)}><ChevronLeft size={16} /></button>
       <strong style={{ fontSize: '0.86rem', minWidth: 40, textAlign: 'center' }}>{year}</strong>
       <button type="button" style={arrow} aria-label="Next year" disabled={year >= new Date().getFullYear() + 1} onClick={() => onYear(year + 1)}><ChevronRight size={16} /></button>
-      {/* As wide as the period picked (item 02, round 3): "Q1" no longer holds the width of "Custom Months". */}
-      <select value={period} onChange={(e) => onPeriod(e.target.value)} aria-label="Months" style={{ ...control, ...fitSelect(PERIODS.find((p) => p.key === period)?.label) }}>
+      {/* 10/27 call, item 09: one width whatever is picked (the longest choice), so a period never moves the bar's buttons. */}
+      <select value={period} onChange={(e) => onPeriod(e.target.value)} aria-label="Months" style={{ ...control, ...fitSelect(PERIODS.find((p) => p.key === period)?.label, { base: widest(PERIODS.map((p) => p.label)) }) }}>
         {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
       </select>
       {period === 'custom' && (
@@ -226,7 +226,7 @@ function RecurringSettingsDialog({ onClose, recheck }) {
                 <label style={lbl} htmlFor="rs-months">Possibly Ended After (Months)</label>
                 <input id="rs-months" type="number" min={1} max={24} step={1} value={s.staleMonths} onChange={(e) => setS({ ...s, staleMonths: e.target.value })} style={{ ...control, width: 120 }} />
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                  Once a day, and right away when a new number is saved, an active MRI source or MRE line with nothing posted in this many months (at least one full cycle of its frequency) is flagged Possibly Ended, and one accounting task is opened for it - assigned to the entity&apos;s accountants in Ask My Accountant&apos;s settings. The task closes itself when money posts again or the line is ended. Nothing about the line is changed.
+                  Once a day, and right away when a new number is saved, an active line with nothing posted for a while is flagged Possibly Ended: on MRE a monthly line after this many months in a row, a quarterly, semi-annual or annual one after one cycle and a month (4, 7 or 13 months); on MRI a source after this many months (at least one full cycle of its frequency). One accounting task is opened for it - assigned to the entity&apos;s accountants in Ask My Accountant&apos;s settings. The task closes itself when money posts again or the line is ended. Nothing about the line is changed.
                 </div>
                 <div data-testid="last-check" style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 4 }}>
                   {recheck.status === 'running' ? 'Checking now...' : lastCheckText(last)}

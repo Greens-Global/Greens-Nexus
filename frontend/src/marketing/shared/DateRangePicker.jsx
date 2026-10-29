@@ -10,18 +10,22 @@ const presets = [
   { label: 'Last Month', get: () => lastMonth() },
 ]
 
-// The filter always displays and accepts dates as YYYY/MM/DD - native
-// `<input type="date">` renders in whatever format the browser/OS locale
-// dictates, which can't be forced to a specific format, so custom range
-// entry uses a plain text field instead.
+// The filter always displays and accepts dates as MM/DD/YYYY (YYYY/MM/DD
+// until Oct 29 2026) - a native date box renders in whatever format the
+// browser/OS locale dictates, which can't be forced to a specific format, so
+// custom range entry uses a plain text field instead. Single-digit months
+// and days are accepted (6/1/2025).
 function toDisplay(iso) {
-  return iso.replaceAll('-', '/')
+  const [y, mo, d] = iso.split('-')
+  return `${mo}/${d}/${y}`
 }
 
 function toISO(display) {
-  const m = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(display.trim())
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(display.trim())
   if (!m) return null
-  const [, y, mo, d] = m
+  const [, rawMo, rawD, y] = m
+  const mo = rawMo.padStart(2, '0')
+  const d = rawD.padStart(2, '0')
   const iso = `${y}-${mo}-${d}`
   const date = new Date(`${iso}T00:00:00Z`)
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== iso) return null
@@ -53,7 +57,7 @@ export default function DateRangePicker({ range, onChange }) {
     const start = toISO(startText)
     const end = toISO(endText)
     if (!start || !end) {
-      setError('Enter dates as YYYY/MM/DD.')
+      setError('Enter dates as MM/DD/YYYY.')
       return
     }
     if (start > end) {
@@ -144,13 +148,13 @@ export default function DateRangePicker({ range, onChange }) {
                 marginBottom: 8,
               }}
             >
-              Custom Range (YYYY/MM/DD)
+              Custom Range (MM/DD/YYYY)
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <input
                 type="text"
                 inputMode="numeric"
-                placeholder="YYYY/MM/DD"
+                placeholder="MM/DD/YYYY"
                 maxLength={10}
                 value={startText}
                 onChange={(e) => setStartText(e.target.value)}
@@ -169,7 +173,7 @@ export default function DateRangePicker({ range, onChange }) {
               <input
                 type="text"
                 inputMode="numeric"
-                placeholder="YYYY/MM/DD"
+                placeholder="MM/DD/YYYY"
                 maxLength={10}
                 value={endText}
                 onChange={(e) => setEndText(e.target.value)}

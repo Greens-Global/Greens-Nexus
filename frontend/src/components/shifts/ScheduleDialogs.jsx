@@ -1,5 +1,5 @@
-// Copy Week, Clear Week and Fill From Usual Hours (Oct 2026) - the three
-// range actions under the schedule's ⋯ menu. Moved out of ShiftSchedule.jsx
+// Copy Week, Clear Week and Fill Automatically (Oct 2026) - the three
+// range actions of the schedule toolbar. Moved out of ShiftSchedule.jsx
 // as they were (Sep 28 / Teams parity), with the shift-type wording and
 // type="button" on every button.
 import { useState } from 'react';
@@ -8,6 +8,7 @@ import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../UnsavedChangesPrompt';
 import { MODAL_BACK, MODAL_CARD, LBL, CHECK, DialogHead } from './ScheduleToolbar';
 import { addDaysIso } from './shiftLib';
+import { DateField } from '../../tasks/components';
 
 const INPUT = { width: '100%', fontSize: 13 };
 
@@ -73,7 +74,7 @@ export function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onC
           </label>
           <label style={CHECK}><input type="checkbox" checked={includeNotes} onChange={(e) => setIncludeNotes(e.target.checked)} /> Include shift notes</label>
           <label style={CHECK}><input type="checkbox" checked={includeActs} onChange={(e) => setIncludeActs(e.target.checked)} /> Include shift activities</label>
-          <label style={CHECK}><input type="checkbox" checked={skipOff} onChange={(e) => setSkipOff(e.target.checked)} /> Skip days a person has time off</label>
+          <label style={CHECK}><input type="checkbox" checked={skipOff} onChange={(e) => setSkipOff(e.target.checked)} /> Skip days a person has approved time off</label>
           <label style={CHECK}><input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} /> Replace shifts that are already there (otherwise keep them)</label>
           <label style={CHECK}><input type="checkbox" checked={copyOff} onChange={(e) => setCopyOff(e.target.checked)} /> Copy approved time off too (as requests to approve)</label>
           <div style={{ fontSize: 11.5, color: overlaps || span > 31 ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
@@ -131,60 +132,80 @@ export function ClearModal({ groups, defaultStart, defaultEnd, busy, onApply, on
   );
 }
 
-// Fill From Usual Hours: apply a shift type to a whole group (or everyone in
-// view) across a date range and chosen weekdays in one action. Skips time
-// off and (unless overwrite) days that already have a shift.
-export function BulkModal({ groups, shifts, allEmails, defaultStart, defaultEnd, busy, onApply, onClose }) {
-  const [groupId, setGroupId] = useState(groups[0]?.id || '');
-  const [shiftId, setShiftId] = useState(shifts[0]?.id || '');
+// Fill Automatically (Neil, Oct 28 2026 - was "Fill From Usual Hours"): it
+// opens on the team on screen and, by default, gives EACH person their own
+// usual hours (their shift type, on its days) - Urmi her early shift, Vinod
+// his day shift - across the dates in view (the whole month in Month view).
+// Picking one shift type instead puts that one on everyone it applies to.
+// Skips time off and (unless Replace) days that already have a shift.
+export const USUAL = '__usual';
+export function BulkModal({ groups, shifts, allEmails, defaultGroupId = '', usualOf = () => null, nameOf = (e) => e, defaultStart, defaultEnd, busy, onApply, onClose }) {
+  const startGroup = groups.some((g) => g.id === defaultGroupId) ? defaultGroupId : '';
+  const [groupId, setGroupId] = useState(startGroup);
+  const [shiftId, setShiftId] = useState(USUAL);
   const [from, setFrom] = useState(defaultStart);
   const [to, setTo] = useState(defaultEnd);
   const [dows, setDows] = useState([0, 1, 2, 3, 4]);
   const [skipOff, setSkipOff] = useState(true);
   const [overwrite, setOverwrite] = useState(false);
+  const usual = shiftId === USUAL;
   const preset = shifts.find((s) => s.id === shiftId);
   const DOW = [['Mon', 0], ['Tue', 1], ['Wed', 2], ['Thu', 3], ['Fri', 4], ['Sat', 5], ['Sun', 6]];
   const toggle = (n) => setDows((d) => (d.includes(n) ? d.filter((x) => x !== n) : [...d, n]));
-  const targetCount = groupId ? (groups.find((g) => g.id === groupId)?.members?.length || 0) : allEmails.length;
-  const canApply = shifts.length > 0 && from && to && dows.length > 0 && !busy && (groupId || allEmails.length);
+  // A shift type picked: its own days to start with.
+  const pickShift = (id) => {
+    setShiftId(id);
+    const p = shifts.find((s) => s.id === id);
+    const d = String(p?.days || '').split(',').map(Number).filter((n) => n >= 1 && n <= 7).map((n) => n - 1);
+    if (d.length) setDows(d);
+  };
+  const targets = groupId ? (groups.find((g) => g.id === groupId)?.members || []) : allEmails;
+  const withUsual = targets.filter((e) => usualOf(e));
+  const noUsual = targets.filter((e) => !usualOf(e));
+  const canApply = from && to && from <= to && !busy && targets.length > 0
+    && (usual ? withUsual.length > 0 : shifts.length > 0 && dows.length > 0);
 
   function submit() {
-    const payload = { shift_id: shiftId, start_date: from, end_date: to, weekdays: dows, skip_timeoff: skipOff, overwrite };
+    const common = { start_date: from, end_date: to, skip_timeoff: skipOff, overwrite };
+    if (usual) { onApply({ usual: true, emails: withUsual, ...common }); return; }
+    const payload = { shift_id: shiftId, weekdays: dows, ...common };
     if (groupId) payload.group_id = groupId; else payload.emails = allEmails;
     onApply(payload);
   }
-  const dirty = groupId !== (groups[0]?.id || '') || shiftId !== (shifts[0]?.id || '') || from !== defaultStart
+  const dirty = groupId !== startGroup || shiftId !== USUAL || from !== defaultStart
     || to !== defaultEnd || JSON.stringify(dows) !== JSON.stringify([0, 1, 2, 3, 4]) || skipOff !== true || overwrite !== false;
   const guard = useUnsavedGuard(dirty, onClose, canApply ? submit : undefined);
+  const names = (list) => list.map(nameOf).join(', ');
 
   return (
     <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && guard.requestClose()}>
-      <div role="dialog" aria-label="Fill From Usual Hours" className="nx-popup" style={MODAL_CARD}>
-        <DialogHead title="Fill From Usual Hours" onClose={guard.requestClose} />
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>Place a shift type on a whole group across a date range in one go.</div>
-        {shifts.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift types yet - add one under Settings &gt; Shifts &amp; Scheduling first.</div>
-        ) : (
-          <div style={{ display: 'grid', gap: 14 }}>
+      <div role="dialog" aria-label="Fill Automatically" className="nx-popup" style={{ ...MODAL_CARD, display: 'flex', flexDirection: 'column' }}>
+        <DialogHead title="Fill Automatically" onClose={guard.requestClose} />
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>Places shifts for a whole team across the dates you pick, in one go. They land as drafts until you Save &amp; Share.</div>
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div>
+            <div style={LBL}>Apply To</div>
+            <select className="form-input" value={groupId} onChange={(e) => setGroupId(e.target.value)} style={INPUT} aria-label="Apply to">
+              {groups.map((g) => <option key={g.id} value={g.id}>{g.name} ({g.members?.length || 0})</option>)}
+              <option value="">Everyone in view ({allEmails.length})</option>
+            </select>
+          </div>
+          <div>
+            <div style={LBL}>Shift</div>
+            <select className="form-input" value={shiftId} onChange={(e) => pickShift(e.target.value)} style={INPUT} aria-label="Shift">
+              <option value={USUAL}>Each Person&apos;s Usual Hours</option>
+              {shifts.map((s) => <option key={s.id} value={s.id}>{s.name || s.code} ({formatHHMM(s.start)} - {formatHHMM(s.end)})</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <label style={{ flex: 1 }}><div style={LBL}>From</div><DateField value={from} onChange={(v) => setFrom(v || '')} placeholder="MM/DD/YYYY" title="From" style={INPUT} /></label>
+            <label style={{ flex: 1 }}><div style={LBL}>To</div><DateField value={to} onChange={(v) => setTo(v || '')} placeholder="MM/DD/YYYY" title="To" style={INPUT} /></label>
+          </div>
+          {usual ? (
+            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Each person on the days their usual hours cover.</div>
+          ) : (
             <div>
-              <div style={LBL}>Apply to</div>
-              <select className="form-input" value={groupId} onChange={(e) => setGroupId(e.target.value)} style={INPUT} aria-label="Apply to">
-                {groups.map((g) => <option key={g.id} value={g.id}>{g.name} ({g.members?.length || 0})</option>)}
-                <option value="">Everyone in view ({allEmails.length})</option>
-              </select>
-            </div>
-            <div>
-              <div style={LBL}>Shift Type</div>
-              <select className="form-input" value={shiftId} onChange={(e) => setShiftId(e.target.value)} style={INPUT} aria-label="Shift type">
-                {shifts.map((s) => <option key={s.id} value={s.id}>{s.name || s.code} ({formatHHMM(s.start)} - {formatHHMM(s.end)})</option>)}
-              </select>
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <label style={{ flex: 1 }}><div style={LBL}>From</div><input type="date" className="form-input" value={from} onChange={(e) => setFrom(e.target.value)} style={INPUT} /></label>
-              <label style={{ flex: 1 }}><div style={LBL}>To</div><input type="date" className="form-input" value={to} onChange={(e) => setTo(e.target.value)} style={INPUT} /></label>
-            </div>
-            <div>
-              <div style={LBL}>Days of week</div>
+              <div style={LBL}>Days of Week</div>
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                 {DOW.map(([label, n]) => {
                   const on = dows.includes(n);
@@ -196,16 +217,23 @@ export function BulkModal({ groups, shifts, allEmails, defaultStart, defaultEnd,
                 })}
               </div>
             </div>
-            <label style={CHECK}><input type="checkbox" checked={skipOff} onChange={(e) => setSkipOff(e.target.checked)} /> Skip days a person has time off</label>
-            <label style={CHECK}><input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} /> Replace shifts that are already there (otherwise keep them)</label>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-              {targetCount} {targetCount === 1 ? 'person' : 'people'} · {preset ? `${formatHHMM(preset.start)} - ${formatHHMM(preset.end)}` : 'shift type'} · {dows.length} day{dows.length !== 1 ? 's' : ''}/week
-            </div>
+          )}
+          <label style={CHECK}><input type="checkbox" checked={skipOff} onChange={(e) => setSkipOff(e.target.checked)} /> Skip days a person has approved time off</label>
+          <label style={CHECK}><input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} /> Replace shifts that are already there (otherwise keep them)</label>
+          <div data-fill-summary="" style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+            {usual ? (
+              <>
+                {withUsual.length} {withUsual.length === 1 ? 'person gets' : 'people get'} their usual hours.
+                {noUsual.length > 0 && <div style={{ color: 'hsl(var(--color-orange))' }}>No usual hours set for {names(noUsual)} - pick a shift type above, or set their usual hours from the ⋯ beside their name.</div>}
+              </>
+            ) : (
+              <>{targets.length} {targets.length === 1 ? 'person' : 'people'} · {preset ? `${formatHHMM(preset.start)} - ${formatHHMM(preset.end)}` : 'shift type'} · {dows.length} day{dows.length !== 1 ? 's' : ''} a week</>
+            )}
           </div>
-        )}
-        <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 'auto', paddingTop: 16, justifyContent: 'flex-end' }}>
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
-          {shifts.length > 0 && <button type="button" className="primary-btn" onClick={submit} disabled={!canApply} style={{ opacity: canApply ? 1 : 0.55 }}>{busy ? '…' : 'Fill Schedule'}</button>}
+          <button type="button" className="primary-btn" onClick={submit} disabled={!canApply} style={{ opacity: canApply ? 1 : 0.55 }}>{busy ? '…' : 'Fill Schedule'}</button>
         </div>
       </div>
       {guard.confirming && (

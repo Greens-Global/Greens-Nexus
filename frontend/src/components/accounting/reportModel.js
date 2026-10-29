@@ -432,7 +432,7 @@ export const periodText = (config) => {
 };
 
 export function entityText(config, entities = []) {
-  if (!config.entities.length) return 'All entities';
+  if (!config.entities.length) return 'All Entities';
   if (config.entities.length > 1) return `${config.entities.length} entities`;
   const e = entities.find((x) => x.code === config.entities[0]);
   return e?.name ? `${e.name} (${e.code})` : config.entities[0];
@@ -546,7 +546,7 @@ export function sortKeys(mode, keys, labels) {
   return [...keys].sort((a, b) => (!a ? 1 : !b ? -1 : sortText(a).localeCompare(sortText(b), 'en-US', { numeric: true })));
 }
 // The window an amount in one bucket column opens.
-function bucketDrill(mode, key, range, book, labels) {
+export function bucketDrill(mode, key, range, book, labels) {
   const base = { from: range.from || '', to: range.to, book };
   if (PERIOD_MODES.includes(mode)) {
     const d = parse(key);
@@ -2017,12 +2017,17 @@ export function csvRows(result, entities = []) {
   return out;
 }
 
-export function csvFileName(result) {
+/** A download's name, the house way like Save to Files (reportFileName):
+ *  "Income Statement by Customer - All Entities - 01-01-2026 to 10-27-2026.csv",
+ *  the Columns pick after the dates when the title does not already say it.
+ *  (UI test 10/29: it was "Custom-Report_all-entities_accrual_2026-01-01_...".) */
+export function csvFileName(result, entities = []) {
   const { config, def } = result;
-  const stamp = periodOf(config) === 'asof' ? config.asof : `${config.from}_${config.to}`;
-  const who = config.entities.length === 1 ? config.entities[0] : config.entities.length ? 'entities' : 'all-entities';
-  const cols = activeColumns(config) === 'total' ? '' : `_${activeColumns(config)}`;
-  return `${(dimTitle(config) || def.label).replace(/[^A-Za-z]+/g, '-')}_${who}_${config.book}${cols}_${stamp}.csv`;
+  const title = dimTitle(config);
+  const cols = activeColumns(config);
+  const mode = cols === 'total' || title ? '' : columnModes(config.report).find((m) => m.key === cols)?.label || '';
+  const name = reportFileName({ config, def: { ...def, label: title || def.label } }, entities, 'csv');
+  return mode ? name.replace(/\.csv$/, ` - ${mode.replace(/[\\/:*?"<>|]+/g, ' ')}.csv`) : name;
 }
 
 /**
@@ -2061,4 +2066,23 @@ export function downloadBlob(name, blob) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * One ledger search (api.searchAccountingLedger) for the lines behind one
+ * amount (call of 10/27 with Charmi, item 17), for screens that show them in
+ * the side panel (LinesPanel): the account, the column's window (`drill`:
+ * from / to / book, or an entity, department or party - bucketDrill), the
+ * report's entities and its filters. An as-of column reads an income or
+ * expense account (`pl`) from the start of that year, as its figure does.
+ */
+export function lineQuery({ account = '', drill, entities = [], dims = null, pl = false }) {
+  const d = drill || {};
+  const from = d.asof && pl ? `${String(d.to || '').slice(0, 4)}-01-01` : d.from || undefined;
+  const place = d.entity ? { location: d.entity } : entities.length === 1 ? { location: entities[0] } : entities.length ? { locations: entities.join(',') } : {};
+  return {
+    ...(account ? { account } : {}), from, to: d.to, book: d.book && d.book !== 'both' ? d.book : undefined, ...place, ...glLineParams(dims),
+    ...(d.department ? { departments: d.department } : {}),
+    ...(d.party ? { party_kind: d.party.kind, party: d.party.code } : {}),
+  };
 }

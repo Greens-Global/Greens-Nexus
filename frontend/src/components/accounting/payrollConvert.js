@@ -105,7 +105,8 @@ export const DEFAULT_PAYROLL_MAPPING = [
 // mapping gets them once (savePayrollPrefs then records every default as seen).
 const ADDED_DEFAULTS = ['Hourly', 'Overtime', 'Qualified OT Tracking'];
 
-export const DEFAULT_PAYROLL_SETTINGS = { journal: 'PYRJ', hoursJournal: 'STAT', location: '', department: '', netPayAccount: '23700', payDate: '', periodStart: '', periodEnd: '', prefix: '' };
+// qbCreateTime (10/27 call item 02): the IIF header's COMPANYCREATETIME, from her QuickBooks Timer Lists export.
+export const DEFAULT_PAYROLL_SETTINGS = { journal: 'PYRJ', hoursJournal: 'STAT', location: '', department: '', netPayAccount: '23700', payDate: '', periodStart: '', periodEnd: '', prefix: '', qbCreateTime: '' };
 
 const key = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -138,24 +139,82 @@ const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
  */
 export function parseQbPayroll(rows) {
   const clean = (rows || []).map((r) => (r || []).map((c) => String(c ?? '').trim()));
-  const wide = parseWide(clean);
-  if (wide?.employees.length) return wide;
-  const long = parseLong(clean);
-  if (long) return long;
-  return { format: 'unknown', employees: [], items: [], company: '', period: '', source: '', missing: wide ? wide.missing : missingLongColumns(clean) };
+  // The file's own line (or the sheet's row) for row i - blank rows are dropped
+  // before parsing, so a reason names the line the person sees (10/27 item 03).
+  const lineOf = (i) => (Array.isArray(rows?.lines) && rows.lines[i] ? rows.lines[i] : i + 1);
+  const sheet = rows?.sheet || '';
+  const wide = parseWide(clean, lineOf);
+  if (wide?.employees.length) return { ...wide, sheet };
+  const long = parseLong(clean, lineOf);
+  if (long?.employees.length) return { ...long, sheet };
+  const problem = wide?.problem || long?.problem || '';
+  return { format: 'unknown', employees: [], items: [], company: '', period: '', source: '', sheet, problem, unreadable: [], missing: wide ? wide.missing : missingLongColumns(clean) };
 }
 
-/** Every sheet's rows (a CSV is one sheet), blank rows dropped. */
+const READABLE = /\.(csv|txt|xlsx|xls)$/i;
+
+/** Every sheet's rows (a CSV is one sheet), blank rows dropped; each list keeps
+ * `lines` (the 1-based line / row number of each kept row) and its `sheet` name.
+ * A file that cannot be opened throws an Error saying so in plain words. */
 export async function readPayrollSheets(file) {
-  let sheets;
-  if (/\.(xlsx|xls)$/i.test(file?.name || '')) {
-    const XLSX = await import('xlsx');
-    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
-    sheets = wb.SheetNames.map((n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '' }).map((r) => r.map((c) => String(c ?? '').trim())));
-  } else {
-    sheets = [await readSheetFile(file)];
+  const name = file?.name || 'that file';
+  if (!READABLE.test(name)) {
+    throw new Error(`${name} is not a spreadsheet. Nexus reads the QuickBooks payroll report saved as Excel (.xlsx or .xls) or CSV - in QuickBooks open the Payroll Summary and use Excel > Create New Worksheet, or Export > CSV.`);
   }
-  return sheets.map((rows) => rows.filter((r) => r.some((c) => c !== '')));
+  let sheets;
+  try {
+    if (/\.(xlsx|xls)$/i.test(name)) {
+      const XLSX = await import('xlsx');
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+      sheets = wb.SheetNames.map((n) => {
+        const ws = wb.Sheets[n];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '', blankrows: true }).map((r) => r.map((c) => String(c ?? '').trim()));
+        rows.sheet = n;
+        // The sheet's used range may start below row 1; line numbers count from the sheet's top.
+        rows.first = ws?.['!ref'] ? XLSX.utils.decode_range(ws['!ref']).s.r : 0;
+        return rows;
+      });
+    } else {
+      sheets = [await readSheetFile(file)];
+    }
+  } catch (e) {
+    throw new Error(`Could not open ${name}: ${e?.message || 'the file is damaged or locked'}. Save it again from QuickBooks as Excel (.xlsx) or CSV and upload that copy.`, { cause: e });
+  }
+  return sheets.map((rows) => {
+    const kept = [];
+    kept.lines = [];
+    kept.sheet = rows.sheet || '';
+    rows.forEach((r, i) => { if (r.some((c) => c !== '')) { kept.push(r); kept.lines.push((rows.first || 0) + i + 1); } });
+    return kept;
+  });
+}
+
+/** A cell that holds something but is not an amount (a lone dash is QuickBooks' blank). */
+const unreadableCell = (v) => {
+  const s = String(v ?? '').trim();
+  return s !== '' && !/^[-–—]$/.test(s) && parseAmount(s) === null;
+};
+
+/**
+ * What would make the Intacct file wrong even though the report was read, in
+ * plain words with the line and column (10/27 call item 03: "never a silent
+ * failure"): amounts that could not be read, and people with no payroll
+ * items under them. Any of these stops the download.
+ */
+export function payrollReportProblems(report) {
+  const out = [];
+  const bad = report?.unreadable || [];
+  if (bad.length) {
+    const shown = bad.slice(0, 5).map((u) => `line ${u.line}, ${u.item}${u.employee ? ` for ${u.employee}` : ''} ("${u.value}")`);
+    out.push(`Could not read ${bad.length === 1 ? 'an amount' : `${bad.length} amounts`} in the report: ${shown.join('; ')}${bad.length > 5 ? `; and ${bad.length - 5} more` : ''}. Fix ${bad.length === 1 ? 'it' : 'them'} in the file and upload it again.`);
+  }
+  const empty = (report?.employees || []).filter((e) => !e.items.length);
+  if (empty.length && empty.length === (report?.employees || []).length) {
+    out.push(`Found ${empty.length === 1 ? '1 employee' : `${empty.length} employees`}${report.nameLine ? ` on line ${report.nameLine}` : ''} but no payroll item amounts under them - check the Amount column under each name.`);
+  } else if (empty.length) {
+    out.push(`No payroll items were read for ${empty.map((e) => e.name).join(', ')} - check their Amount column in the report.`);
+  }
+  return out;
 }
 
 /** The first sheet that reads as a payroll report; otherwise the first non-empty sheet's result, with its `missing` columns. */
@@ -165,24 +224,28 @@ export function parsePayrollSheets(sheets) {
     if (!rows.length) continue;
     const report = parseQbPayroll(rows);
     if (report.employees.length) return report;
-    first = first || report;
+    // A sheet whose columns were found explains more than one that has none.
+    if (!first || (!first.problem && report.problem)) first = report;
   }
   return first || parseQbPayroll([]);
 }
 
-/** The message for a file with no employees, naming the column(s) it lacks. */
+/** The message for a file with no employees, naming the column(s) it lacks - or, when the columns
+ * were found, the line where reading stopped. */
 export function payrollFileProblem(report) {
+  if (report?.problem) return report.problem;
   const missing = report?.missing?.length ? report.missing : LONG_LABELS.map((l) => l[1]);
   const list = missing.length > 1 ? `${missing.slice(0, -1).join(', ')} and ${missing[missing.length - 1]}` : missing[0];
   return `No ${list} column${missing.length > 1 ? 's' : ''} found. Upload the QuickBooks Payroll Summary from QuickBooks Desktop or Online (employees across the top, an Amount column under each) or a payroll detail export with Employee, Payroll Item and Amount columns.`;
 }
 
-function parseWide(rows) {
+function parseWide(rows, lineOf = (i) => i + 1) {
   let nameRow = -1;
   for (let r = 0; r < Math.min(rows.length, 15); r += 1) {
     if (rows[r].some((c) => c.toUpperCase() === 'TOTAL')) { nameRow = r; break; }
   }
   if (nameRow < 0) return null;
+  const unreadable = [];
   const names = rows[nameRow];
   const starts = [];
   names.forEach((c, i) => { if (c) starts.push(i); });
@@ -210,7 +273,13 @@ function parseWide(rows) {
     blocks.push(block);
   });
   const people = blocks.filter((b) => b.name.toUpperCase() !== 'TOTAL' && b.amount >= 0);
-  if (!people.length) return { format: 'unknown', employees: [], items: [], company: '', period: '', source: '', missing: ['Amount'] };
+  if (!people.length) {
+    const named = blocks.filter((b) => b.name.toUpperCase() !== 'TOTAL').length;
+    return { format: 'unknown', employees: [], items: [], company: '', period: '', source: '', missing: ['Amount'],
+      problem: named
+        ? `Found ${named === 1 ? 'an employee name' : `${named} employee names`} and TOTAL on line ${lineOf(nameRow)}, but no Amount column under them - line ${lineOf(nameRow + 1)} should read Hours, Rate and Amount (QuickBooks Online puts the pay period where Amount goes).`
+        : `Found TOTAL on line ${lineOf(nameRow)} but no employee names beside it. Upload the Payroll Summary with the employees across the top.` };
+  }
   const periodHead = people.find((b) => b.periodHead)?.periodHead || '';
   const firstCol = Math.min(...blocks.map((b) => b.col));
   const employees = people.map((b) => ({ name: b.name, code: codeFromName(b.name), items: [], netPay: null }));
@@ -228,6 +297,7 @@ function parseWide(rows) {
     let any = false;
     people.forEach((b, i) => {
       const amount = num(row[b.amount]);
+      if (amount === null && unreadableCell(row[b.amount])) unreadable.push({ line: lineOf(r), item: label, employee: b.name, value: row[b.amount] });
       const hours = b.hours >= 0 && b.hours !== b.amount ? num(row[b.hours]) : null;
       if (amount === null && hours === null) return;
       any = true;
@@ -243,6 +313,8 @@ function parseWide(rows) {
     period: findPeriod(rows.slice(0, nameRow)) || periodHead,
     source: periodHead ? 'online' : 'desktop',
     missing: [],
+    unreadable,
+    nameLine: lineOf(nameRow),
   };
 }
 
@@ -284,17 +356,20 @@ function guessHeader(rows, need, spec) {
   return null;
 }
 
-function parseLong(rows) {
+function parseLong(rows, lineOf = (i) => i + 1) {
   const g = guessHeader(rows, ['name', 'item', 'amount'], LONG);
   if (!g) return null;
   const { idx } = g;
   const byName = new Map();
   const items = [];
-  for (const row of rows.slice(g.header + 1)) {
+  const unreadable = [];
+  for (let r = g.header + 1; r < rows.length; r += 1) {
+    const row = rows[r];
     const name = row[idx.name] || '';
     const item = row[idx.item] || '';
     if (!name || !item || /^total\b/i.test(name)) continue;
     const amount = num(row[idx.amount]);
+    if (amount === null && unreadableCell(row[idx.amount])) unreadable.push({ line: lineOf(r), item, employee: name, value: row[idx.amount] });
     const hours = idx.hours >= 0 ? num(row[idx.hours]) : null;
     if (amount === null && hours === null) continue;
     if (!byName.has(name)) byName.set(name, { name, code: codeFromName(name), items: [], netPay: null });
@@ -306,8 +381,13 @@ function parseLong(rows) {
     else emp.items.push({ item, hours: hours || 0, amount: amount || 0 });
     if (!items.includes(item)) items.push(item);
   }
-  if (!byName.size) return null;
-  return { format: 'detail', employees: [...byName.values()], items, company: '', period: '', source: '', missing: [] };
+  if (!byName.size) {
+    return { format: 'unknown', employees: [], items: [], missing: [],
+      problem: unreadable.length
+        ? `Found the Employee, Payroll Item and Amount columns on line ${lineOf(g.header)}, but no amount under them could be read - line ${unreadable[0].line} has "${unreadable[0].value}".`
+        : `Found the Employee, Payroll Item and Amount columns on line ${lineOf(g.header)}, but no line under it has all three filled in.` };
+  }
+  return { format: 'detail', employees: [...byName.values()], items, company: '', period: '', source: '', missing: [], unreadable, nameLine: lineOf(g.header) };
 }
 
 /** The mapping row for a payroll item (case and spacing ignored), or null. */
@@ -476,7 +556,7 @@ export function hoursFromNexus(rows) {
   return (rows || []).map((r) => {
     const h = r.hours || {};
     return {
-      name: r.name, code: r.employeeCode || '', dept: r.department || '', approved: !!r.approved,
+      name: r.name, code: r.employeeCode || '', dept: r.department || '', approved: !!r.approved, finalized: r.finalized === true,
       buckets: {
         'P.REG': round2(h.regular || 0),
         'P.OHR': round2((h.overtime || 0) + (h.doubleTime || 0)),
@@ -610,6 +690,36 @@ export function buildIif(entries, { fallbackDate = '', company = 'Greens Global'
     lines.push(`TIMEACT\t${iifDate(e.date || fb)}\t${job}\t${iifClean(e.name)}\t\t${PITEM[classifyHoursItem(e.item)]}\t${e.hours.toFixed(2)}\t\t\tY\t${job ? 1 : 0}`);
   }
   return `${lines.join('\r\n')}\r\n`;
+}
+
+// ── Nexus pay periods ──────────────────────────────────────────────────────
+// 14 days, Sunday to Saturday, stepping from the server's own Sunday anchor
+// (timeclock._PAYPERIOD_ANCHOR, 2024-01-14 - SwipeClock's period series), so
+// the Payroll Hours card defaults to a period HR actually finalizes. "The
+// last 14 days ending last Saturday" was a week off every other week and
+// matched no finalized time sheet at all (10/27 call item 02).
+const PERIOD_ANCHOR = Date.UTC(2024, 0, 14);
+const DAY_MS = 86400000;
+const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+/** The `count` most recent CLOSED pay periods before the one holding `todayIso` (YYYY-MM-DD), newest first. */
+export function payPeriods(todayIso, count = 6) {
+  const [y, m, d] = String(todayIso || '').split('-').map(Number);
+  if (!y || !m || !d) return [];
+  const idx = Math.floor((Date.UTC(y, m - 1, d) - PERIOD_ANCHOR) / (14 * DAY_MS));
+  const out = [];
+  for (let i = 1; i <= count; i += 1) {
+    const s = PERIOD_ANCHOR + (idx - i) * 14 * DAY_MS;
+    out.push({ start: isoDay(s), end: isoDay(s + 13 * DAY_MS) });
+  }
+  return out;
+}
+
+/** "Amando Lucero, Edgar Carrillo and 3 more" - up to `max` names, then a count. */
+export function nameList(names, max = 6) {
+  const list = (names || []).filter(Boolean);
+  if (list.length <= max) return list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}` : (list[0] || '');
+  return `${list.slice(0, max).join(', ')} and ${list.length - max} more`;
 }
 
 // ── Remembered per browser ─────────────────────────────────────────────────

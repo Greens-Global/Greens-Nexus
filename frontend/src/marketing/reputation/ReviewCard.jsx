@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Sparkles, RefreshCw, Pencil, Check, CheckCircle2 } from 'lucide-react'
 import PlatformBadge from './PlatformBadge'
 import StarRating from '../shared/StarRating'
-import { formatLocalDateUS } from '../shared/utils'
+import { formatDateTime } from '../../lib/datetime'
 import { C } from '../theme'
 
 const sentimentStyles = {
@@ -18,9 +18,7 @@ const statusStyles = {
 }
 
 function formatDate(iso) {
-  const d = new Date(iso)
-  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  return `${formatLocalDateUS(d)}, ${time}`
+  return formatDateTime(iso)
 }
 
 // Highlights every occurrence of `term` in `text` - same substring match the

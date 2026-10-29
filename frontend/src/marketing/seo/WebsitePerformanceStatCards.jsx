@@ -55,7 +55,7 @@ function VitalCard({ vital }) {
 
 export default function WebsitePerformanceStatCards({ vitals, totalOrganicSessions }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
+    <div className="mktg-cols-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
       {vitals.map((v) => (
         <VitalCard key={v.key} vital={v} />
       ))}

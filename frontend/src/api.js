@@ -109,6 +109,35 @@ function _emitHealth(down) {
   _backendDown = down;
   _downCount   = down ? _downCount + 1 : 0;
   _healthListeners.forEach(fn => fn(down));
+  if (down) _startHealthProbe();
+  else {
+    _stopHealthProbe();
+    // Reads that failed while it was down are asked again (TanStack screens);
+    // App.jsx remounts the views opened during the outage.
+    _queryClient?.refetchQueries({ predicate: (q) => q.state.status === 'error' });
+  }
+}
+// Oct 28 (Charmi, 10/27 call item 21): the red bar said "Retrying
+// automatically" but cleared only when the screen happened to make another
+// request, so an idle page kept it up until someone refreshed. While it is
+// up, /health (no sign-in, exempt from the rate limit) is asked every 5s; the
+// first answer clears it. Not a keep-warm ping: it runs only while the bar
+// is showing, and stops the moment Nexus answers.
+const HEALTH_PROBE_MS = 5000;
+let _healthProbe = null;
+function _startHealthProbe() {
+  if (_healthProbe || typeof fetch !== 'function') return;
+  _healthProbe = setInterval(async () => {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), HEALTH_PROBE_MS - 500);
+    try {
+      const res = await fetch(`${BASE}/health`, { signal: controller.signal, cache: 'no-store' });
+      if (res.ok) _setBackendDown(false);
+    } catch { /* still down - try again on the next tick */ } finally { clearTimeout(tid); }
+  }, HEALTH_PROBE_MS);
+}
+function _stopHealthProbe() {
+  if (_healthProbe) { clearInterval(_healthProbe); _healthProbe = null; }
 }
 function _setBackendDown(down) {
   if (down) {
@@ -1260,7 +1289,7 @@ export const api = {
   markAccountingOpened: () => req("/accounting/opened", { method: "POST" }),
   // My own layout of the accounting screens: columns shown, widths, density.
   getAccountingPrefs: () => req("/accounting/prefs"),
-  saveAccountingPrefs: (prefs) => req("/accounting/prefs", { method: "PUT", body: JSON.stringify({ prefs }) }),
+  saveAccountingPrefs: (prefs, opts = {}) => req("/accounting/prefs", { method: "PUT", body: JSON.stringify({ prefs }), ...(opts.keepalive ? { keepalive: true } : {}) }),
   // Memorized reports (a Reports view saved under a name) and reporting
   // packages (an ordered set of them, sent out as one PDF).
   // Send the statement on (Charmi, 09/29): by email from my own mailbox, or shared with a teammate.
@@ -1490,6 +1519,9 @@ export const api = {
   // HR - compensation + bank (restricted: hr_comp grant / owner)
   getCompensation:  (id)       => req(`/hr/employees/${id}/compensation`),
   saveCompensation: (id, data) => req(`/hr/employees/${id}/compensation`, { method: 'PUT', body: JSON.stringify(data) }),
+  // Workers' comp rate per year (Charmi, 10/27 item 14): { rates, history }; adding one keeps the earlier ones.
+  getWorkersCompRates: (id)       => req(`/hr/employees/${id}/workers-comp`),
+  addWorkersCompRate:  (id, data) => req(`/hr/employees/${id}/workers-comp`, { method: 'POST', body: JSON.stringify(data) }),
 
   // HR - live assets (permanent assignments + active checkouts from Item Management)
   getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
@@ -2268,8 +2300,15 @@ export const api = {
   // finalized time sheets only unless finalizedOnly is false (a -DRAFT file, Oct 19).
   timeExportHours:      (start, end, { company = '', approvedOnly = false, finalizedOnly = false } = {}) =>
     req(`/timeclock/export-hours?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
-  timeExportIifFor:     (start, end, { company = '', approvedOnly = false, finalizedOnly = true } = {}) =>
-    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
+  // createTime (10/27 call item 02): the COMPANYCREATETIME from her QuickBooks Timer Lists export; '' keeps 0.
+  timeExportIifFor:     (start, end, { company = '', approvedOnly = false, finalizedOnly = true, createTime = '' } = {}) =>
+    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}${createTime ? `&create_time=${encodeURIComponent(createTime)}` : ''}`, { timeoutMs: 120_000 }),
+  // Import Hub > Bank Statement to Intacct (Charmi, 10/27 call item 01): the
+  // team's statement rules - matched in the browser, kept here.
+  getStatementRules:    () => req('/accounting/import-hub/rules'),
+  createStatementRule:  (body) => req('/accounting/import-hub/rules', { method: 'POST', body: JSON.stringify(body) }),
+  updateStatementRule:  (id, body) => req(`/accounting/import-hub/rules/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteStatementRule:  (id) => req(`/accounting/import-hub/rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Accounting > Loans & Financing (Oct 2): loans proposed from the ledger's
   // liability accounts, the ledger-driven review (balances, principal and
   // interest paid, NOI, DSCR) for a month, and the typed fields (rate,
@@ -2635,7 +2674,10 @@ export const api = {
   getProfitability:      (from, to, { locations = [], book = 'accrual', expand = false, compare = true } = {}) => req(`/accounting/profitability?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${book && book !== 'accrual' ? `&book=${encodeURIComponent(book)}` : ''}${expand ? '&expand=true' : ''}${compare ? '' : '&compare=false'}`, { timeoutMs: 120_000 }),
   // One attempt (noRetry): the server bounds the run and says why it stopped.
   getCompensationPeople: (from, to, { timeoutMs = 180_000 } = {}) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs, noRetry: true }),
-  getCompensationLedger: (from, to, by = 'department') => req(`/accounting/compensation/ledger?from=${from}&to=${to}&by=${by}`, { timeoutMs: 120_000 }),
+  // 10/27 call (items 11-17): the report from the Intacct ledger, and the ledger lines behind one figure
+  // (`accounts` = account numbers, "61903:d" / ":c" for one side only).
+  getCompensationReport: (from, to) => req(`/accounting/compensation/report?from=${from}&to=${to}`, { timeoutMs: 120_000 }),
+  getCompensationLines: ({ from, to, employees = [], accounts = [] }) => req(`/accounting/compensation/lines?from=${from}&to=${to}&employees=${encodeURIComponent(employees.join(','))}&accounts=${encodeURIComponent(accounts.join(','))}`, { timeoutMs: 120_000 }),
   // Flux Analysis review (Charmi, Oct 15): close (sign off) or reopen one
   // account's review - { entity, period, accountNo, closed }.
   saveAccountingFluxReview: (body) => req('/accounting/flux-notes/review', { method: 'PUT', body: JSON.stringify(body) }),
@@ -3200,24 +3242,26 @@ export const api = {
   // Performance review cycles (Neil, Oct 27 2026) - routers/perf_reviews.py.
   perfCycles: (company = "") => req(`/performance/cycles?company=${encodeURIComponent(company || "")}`),
   perfCycle: (id) => req(`/performance/cycles/${encodeURIComponent(id)}`),
-  perfCycleCreate: (data) => req("/performance/cycles", { method: "POST", body: JSON.stringify(data) }),
+  perfCycleCreate: (data) => req("/performance/cycles", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
   perfCycleUpdate: (id, data) => req(`/performance/cycles/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
-  perfReviewDepartments: (company) => req(`/performance/review-departments?company=${encodeURIComponent(company || "")}`),
-  perfCycleParticipants: (id) => req(`/performance/cycles/${encodeURIComponent(id)}/participants`),
   perfCycleLaunch: (id) => req(`/performance/cycles/${encodeURIComponent(id)}/launch`, { method: "POST", timeoutMs: 60000 }),
-  perfCycleClose: (id) => req(`/performance/cycles/${encodeURIComponent(id)}/close`, { method: "POST" }),
-  perfCycleNudge: (id, data = {}) => req(`/performance/cycles/${encodeURIComponent(id)}/nudge`, { method: "POST", body: JSON.stringify(data) }),
-  perfReviews: () => req("/performance/reviews"),
+  perfCycleClose: (id, force = false) => req(`/performance/cycles/${encodeURIComponent(id)}/close`, { method: "POST", body: JSON.stringify({ force }) }),
+  perfReviews: (person = "") => req(`/performance/reviews${person ? `?person=${encodeURIComponent(person)}` : ""}`),
   perfReview: (id) => req(`/performance/reviews/${encodeURIComponent(id)}`),
   perfReviewSelf: (id, data) => req(`/performance/reviews/${encodeURIComponent(id)}/self`, { method: "PUT", body: JSON.stringify(data) }),
   perfReviewManager: (id, data) => req(`/performance/reviews/${encodeURIComponent(id)}/manager`, { method: "PUT", body: JSON.stringify(data) }),
-  perfReviewHrNote: (id, note) => req(`/performance/reviews/${encodeURIComponent(id)}/hr-note`, { method: "PUT", body: JSON.stringify({ note }) }),
-  perfReviewReturn: (id, data) => req(`/performance/reviews/${encodeURIComponent(id)}/return`, { method: "POST", body: JSON.stringify(data) }),
+  perfReviewReturn: (id, note) => req(`/performance/reviews/${encodeURIComponent(id)}/return`, { method: "POST", body: JSON.stringify({ note }) }),
   perfReviewReviewer: (id, email) => req(`/performance/reviews/${encodeURIComponent(id)}/reviewer`, { method: "POST", body: JSON.stringify({ email }) }),
-  perfReviewShare: (id) => req(`/performance/reviews/${encodeURIComponent(id)}/share`, { method: "POST", timeoutMs: 60000 }),
+  perfReviewShare: (id) => req(`/performance/reviews/${encodeURIComponent(id)}/share`, { method: "POST" }),
   perfReviewRecall: (id, note = "") => req(`/performance/reviews/${encodeURIComponent(id)}/recall`, { method: "POST", body: JSON.stringify({ note }) }),
-  perfReviewSettings: (company = "") => req(`/performance/review-settings?company=${encodeURIComponent(company || "")}`),
-  perfReviewSettingsSave: (data) => req("/performance/review-settings", { method: "PUT", body: JSON.stringify(data) }),
+  // Performance, made simple (Oct 29 2026) - My Numbers, goal approval,
+  // Share All Ready, Remove From Cycle, the employee's Acknowledge.
+  perfScorecard: ({ email = "", period = "quarter", start = "", end = "" } = {}) =>
+    req(`/performance/scorecard?${new URLSearchParams({ email, period, start, end }).toString()}`),
+  perfGoalApprove: (id) => req(`/performance/goals/${encodeURIComponent(id)}/approve`, { method: "POST" }),
+  perfCycleShareAll: (id) => req(`/performance/cycles/${encodeURIComponent(id)}/share-all`, { method: "POST" }),
+  perfReviewRemove: (id) => req(`/performance/reviews/${encodeURIComponent(id)}/remove`, { method: "POST" }),
+  perfReviewAcknowledge: (id, comment = "") => req(`/performance/reviews/${encodeURIComponent(id)}/acknowledge`, { method: "POST", body: JSON.stringify({ comment }), timeoutMs: 60000 }),
   // India Contractor Policy (Neil, Oct 27 2026, docs/India-Contractor-Pay.md):
   // the per-company switch and Policy Starts - { mode: '' | 'on' | 'off',
   // startDate, enabled, companyCountry, hasOverride, companies }.

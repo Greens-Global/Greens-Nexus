@@ -174,6 +174,21 @@ class CopyClearTests(unittest.TestCase):
         self.assertEqual(b["06:00"].pending_delete, 1)     # published: staff keep it until the copy is published
         self.assertEqual(b["09:00"].published, 0)
 
+    def test_a_pending_time_off_request_does_not_take_the_day_away(self):
+        # Oct 28 2026: Neil's copy left Vinod's Wednesday empty - a request
+        # still waiting is not time off yet; the shift goes in and the grid
+        # flags it (Approve And Remove Shifts clears it on approval).
+        self._place(A, MON)
+        db = database.SessionLocal()
+        try:
+            db.add(models.TimeOffRequest(id="to-pending", employee_email=A, start_date=NEXT_MON, end_date=NEXT_MON,
+                                         status="pending", type="vacation"))
+            db.commit()
+        finally:
+            db.close()
+        r = self._copy().json()
+        self.assertEqual((r["created"], r["timeoffSkipped"]), (1, 0))
+
     def test_open_shifts_copy_when_included_and_are_never_doubled(self):
         self._place("", MON, open_slots=2, group_id=GROUP)
         self.assertEqual(self._copy(include_open=False).json()["created"], 0)

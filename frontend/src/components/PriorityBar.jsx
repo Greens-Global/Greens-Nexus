@@ -93,7 +93,7 @@ export default function PriorityBar({ onNavigate }) {
 
   const openBtn = (item) => item.action?.view && <button type="button" style={BTN} onClick={() => go(item)}>Open</button>;
   const closeBtn = (item) => (
-    <button type="button" style={ICON} onClick={() => close(item)} title="Close this notice (it stays in the bell under Closed for 30 days)" aria-label="Close notice"><X size={16} /></button>
+    <button type="button" className="nx-touch-target" style={ICON} onClick={() => close(item)} title="Close this notice (it stays in the bell under Closed for 30 days)" aria-label="Close notice"><X size={16} /></button>
   );
   // Title + summary, one line, tap for the whole message.
   const headline = (item, { split = false } = {}) => {
@@ -121,6 +121,10 @@ export default function PriorityBar({ onNavigate }) {
     </span>
   );
   const showAllBtn = open.length > 1 && <button type="button" style={BTN} onClick={() => { setDetail(''); setShowAll(true); }}>Show All</button>;
+  // Clear All on the bar itself, beside Show All (Charmi, 10/27 call item 10:
+  // "You can show all and clear all") - closes THIS person's notices only,
+  // each kept in the bell's Closed list for 30 days.
+  const clearAllBtn = open.length > 1 && <button type="button" style={BTN} onClick={clearAll} title="Close every notice (they stay in the bell under Closed for 30 days)">Clear All</button>;
 
   // The layer above the bar: a bottom sheet on a phone, a dropdown under the
   // bar on a desktop (capped, scrolling) - never a taller bar.
@@ -184,6 +188,7 @@ export default function PriorityBar({ onNavigate }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2, paddingLeft: 23 }}>
           <div style={{ flex: 1, minWidth: 0 }}>{headline(n, { split: true })}</div>
           {openBtn(n)}
+          {clearAllBtn}
         </div>
         {layerEl}
       </div>
@@ -196,6 +201,7 @@ export default function PriorityBar({ onNavigate }) {
       {pager}
       {openBtn(n)}
       {!showAll && showAllBtn}
+      {!showAll && clearAllBtn}
       {closeBtn(n)}
       {layerEl}
     </div>

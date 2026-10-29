@@ -974,7 +974,7 @@ export function ShareModal({ task, people, nameOf, patch, onClose, canKeepPrivat
     <div className="nx-tasks-portal" onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 5000, display: 'flex', alignItems: isMobile ? 'stretch' : 'center', justifyContent: 'center', padding: isMobile ? 0 : '16px', fontFamily: FONT }}>
       {/* A flex column: header and footer stay put, the body (.nx-fill) takes
           the rest of the 60vh and scrolls - no short form over an empty half. */}
-      <div className="nx-popup" role="dialog" aria-modal="true" aria-label={`Share ${task.title}`}
+      <div className={`nx-popup${isMobile ? ' nx-sheet' : ''}`} role="dialog" aria-modal="true" aria-label={`Share ${task.title}`}
         style={{ background: NX.surface, borderRadius: isMobile ? 0 : 14, boxShadow: '0 24px 60px rgba(0,0,0,0.28)', display: 'flex', flexDirection: 'column', overflow: 'hidden', ...(isMobile ? { height: '100%', maxHeight: '100%' } : null) }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 20px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>Share “{task.title}”</div>
