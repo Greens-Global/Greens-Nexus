@@ -24,6 +24,10 @@ vi.mock('../components/accounting/dashboard/DashContext', () => ({ DashProvider:
 
 import Accounting from './Accounting';
 import { setPendingOpen } from '../lib/pendingOpen';
+// The AMA tab is lazy; since the drill-down (10/28) it brings the transaction
+// panel and ledger lines with it, and a cold first load passed findBy's 1s wait.
+// Load it up front so the test times the landing, not the module transform.
+import '../components/accounting/AskAccountantTab';
 
 function Harness() {
   const [sub, setSub] = useState('ama');

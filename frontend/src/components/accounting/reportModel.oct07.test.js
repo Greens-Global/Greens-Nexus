@@ -331,8 +331,8 @@ describe('books (item 35)', () => {
     expect(reportTitle({ report: 'balance-sheet', book: 'both' }, 'Lender Package')).toBe('Lender Package (Accrual and Cash Books)');
     expect(reportTitle({ report: 'pnl', book: 'cash' }, 'Income Statement (Cash Book)')).toBe('Income Statement (Cash Book)');
     const result = { config: resolveConfig({ report: 'pnl', book: 'cash', preset: 'custom', from: '2026-01-01', to: '2026-09-30' }, NOW), def: { label: 'Income Statement', period: 'range' } };
-    expect(reportFileName(result, [], 'excel')).toBe('Income Statement - All entities - 01-01-2026 to 09-30-2026 - Cash Book.xlsx');
-    expect(reportFileName({ ...result, config: { ...result.config, book: 'accrual' } }, [], 'pdf')).toBe('Income Statement - All entities - 01-01-2026 to 09-30-2026.pdf');
+    expect(reportFileName(result, [], 'excel')).toBe('Income Statement - All Entities - 01-01-2026 to 09-30-2026 - Cash Book.xlsx');
+    expect(reportFileName({ ...result, config: { ...result.config, book: 'accrual' } }, [], 'pdf')).toBe('Income Statement - All Entities - 01-01-2026 to 09-30-2026.pdf');
     setUserBooks([]);
   });
 

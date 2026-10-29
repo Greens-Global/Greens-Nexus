@@ -9,8 +9,8 @@ import { downloadBlob } from './reportModel';
 import { readSheetFile, toCsv } from './statementImport';
 import {
   DEFAULT_PAYROLL_MAPPING, HOUR_BUCKETS, ITEM_KINDS, buildIif, buildPayrollEntries, checkBalance, employeeInfo, employeeKey, hoursFromNexus,
-  hoursFromPayroll, hoursRows, loadPayrollPrefs, netPayMismatches, parseHoursFile, parsePayrollSheets, payrollFileProblem, payrollRows, readPayrollSheets, savePayrollPrefs,
-  totalsFromHoursFile, unmappedItems,
+  hoursFromPayroll, hoursRows, loadPayrollPrefs, nameList, netPayMismatches, parseHoursFile, parsePayrollSheets, payPeriods, payrollFileProblem, payrollReportProblems, payrollRows,
+  readPayrollSheets, savePayrollPrefs, totalsFromHoursFile, unmappedItems,
 } from './payrollConvert';
 
 // Import Hub payroll cards (Neil, 10/15: "Payroll export to QB is not there";
@@ -43,14 +43,15 @@ const PREVIEW = 60;
 const fileBase = (name, fallback) => (name || fallback).replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_');
 const saveCsv = (name, rows) => downloadBlob(name, new Blob([toCsv(rows)], { type: 'text/csv;charset=utf-8' }));
 
-// Default period: the last 14 days ending last Saturday (Nexus pay periods run Sunday to Saturday).
-function lastPeriod() {
+// Default period: the last CLOSED Nexus pay period (payPeriods - the server's
+// own 14-day calendar), never "14 days ending last Saturday", which was a
+// week off every other week (10/27 call item 02).
+const todayIso = () => {
   const d = new Date();
-  d.setDate(d.getDate() - ((d.getDay() + 1) % 7 || 7));
-  const iso = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
-  const end = iso(d);
-  d.setDate(d.getDate() - 13);
-  return { start: iso(d), end };
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+function lastPeriod() {
+  return payPeriods(todayIso(), 1)[0];
 }
 
 function usePrefs({ defaultPeriod = false } = {}) {
@@ -155,7 +156,11 @@ function EmployeeTable({ people, employeeMap, setEmployee, showVendor = true }) 
   );
 }
 
-function HoursPreview({ people, showApproval }) {
+// Nexus rows carry Finalized / Not Finalized (Approved when a manager approved
+// it but it is not signed and final yet); a row left out of the file is muted.
+const sheetStatus = (p) => (p.finalized ? 'Finalized' : p.approved ? 'Approved, Not Finalized' : 'Not Finalized');
+
+function HoursPreview({ people, showStatus, isIn = () => true }) {
   return (
     <div className="req-table-wrapper" style={{ overflowX: 'auto', maxHeight: 420 }}>
       <table className="req-table" aria-label="Hours Preview">
@@ -163,24 +168,26 @@ function HoursPreview({ people, showApproval }) {
           <tr>
             <th>Employee</th><th>Employee ID</th>
             <th style={num}>Regular</th><th style={num}>Overtime</th><th style={num}>Double Time</th><th style={num}>Sick</th><th style={num}>Vacation</th><th style={num}>Personal</th>
-            {showApproval && <th>Status</th>}
+            {showStatus && <th>Status</th>}
           </tr>
         </thead>
         <tbody>
           {people.slice(0, PREVIEW).map((p) => (
-            <tr key={p.name}>
+            <tr key={p.name} style={isIn(p) ? undefined : { color: 'var(--text-muted)' }}>
               <td>{p.name}</td><td>{p.code}</td>
               <td style={num}>{fmtH(p.hours.regular)}</td><td style={num}>{fmtH(p.hours.overtime)}</td><td style={num}>{fmtH(p.hours.doubleTime)}</td>
               <td style={num}>{fmtH(p.hours.sick)}</td><td style={num}>{fmtH(p.hours.vacation)}</td><td style={num}>{fmtH(p.hours.personal)}</td>
-              {showApproval && <td>{p.approved ? 'Approved' : 'Not Approved'}</td>}
+              {showStatus && <td style={{ whiteSpace: 'nowrap', color: p.finalized ? 'var(--success, #15803d)' : 'var(--warning, #b45309)' }}>{sheetStatus(p)}{isIn(p) ? '' : ' - Left Out'}</td>}
             </tr>
           ))}
-          {people.length === 0 && <tr><td colSpan={showApproval ? 9 : 8} style={{ color: 'var(--text-muted)' }}>No hours for this period.</td></tr>}
+          {people.length === 0 && <tr><td colSpan={showStatus ? 9 : 8} style={{ color: 'var(--text-muted)' }}>No hours for this period.</td></tr>}
         </tbody>
       </table>
     </div>
   );
 }
+
+const periodLabel = (p) => `${formatDate(p.start)} - ${formatDate(p.end)}`;
 
 // ── Payroll Hours to QuickBooks ─────────────────────────────────────────────
 
@@ -191,13 +198,18 @@ export function PayrollHoursToQb() {
   const [source, setSource] = useState('nexus');
   const [companies, setCompanies] = useState([]);
   const [company, setCompany] = useState('');
-  // Finalized time sheets only by default (Oct 19): unchecked is a draft
-  // preview that includes time not signed and finalized yet.
-  const [finalizedOnly, setFinalizedOnly] = useState(true);
-  const [nexus, setNexus] = useState(null);      // { rows, start, end, company, finalizedOnly }
+  // Finalized time sheets only by default (Oct 19). Since 10/27 (Charmi: "I
+  // am still not able to download the IIF files") the card loads EVERY time
+  // sheet of the period, says how many are not finalized and who, and
+  // Include Them puts them in the file (named DRAFT) - never a file with
+  // nobody in it.
+  const [includeOpen, setIncludeOpen] = useState(false);
+  const [nexus, setNexus] = useState(null);      // { rows, start, end, company }
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [file, setFile] = useState(null);        // { name, entries, skipped }
+  const periods = useMemo(() => payPeriods(todayIso(), 8), []);
+  const periodKey = periods.some((p) => p.start === s.periodStart && p.end === s.periodEnd) ? `${s.periodStart}|${s.periodEnd}` : 'custom';
 
   useEffect(() => {
     let alive = true;
@@ -219,8 +231,8 @@ export function PayrollHoursToQb() {
     if (!s.periodStart || !s.periodEnd) { setError('Pick the period start and end.'); return; }
     setBusy('load'); setError('');
     try {
-      const d = await withStepUp(() => api.timeExportHours(s.periodStart, s.periodEnd, { company, finalizedOnly }));
-      if (d) setNexus({ rows: d.rows || [], start: s.periodStart, end: s.periodEnd, company, finalizedOnly });
+      const d = await withStepUp(() => api.timeExportHours(s.periodStart, s.periodEnd, { company, finalizedOnly: false }));
+      if (d) { setNexus({ rows: d.rows || [], start: s.periodStart, end: s.periodEnd, company }); setIncludeOpen(false); }
     } catch (e) {
       setError(e?.status === 403 ? 'Time sheet hours need payroll access in People. You can still upload an hours file.' : (e?.message || 'Could not load the hours.'));
     } finally { setBusy(''); }
@@ -236,15 +248,26 @@ export function PayrollHoursToQb() {
     } catch (e) { setError(e?.message || 'Could not read that file.'); }
   };
 
-  const people = useMemo(() => {
+  const everyone = useMemo(() => {
     if (source === 'nexus') {
       return nexus ? hoursFromNexus(nexus.rows).map((p, i) => ({ ...p, hours: nexus.rows[i].hours })) : [];
     }
     return file ? totalsFromHoursFile(file.entries) : [];
   }, [source, nexus, file]);
-  const stale = source === 'nexus' && nexus && (nexus.start !== s.periodStart || nexus.end !== s.periodEnd || nexus.company !== company || nexus.finalizedOnly !== finalizedOnly);
+  // In the file: every row of an uploaded hours file; from Nexus the finalized
+  // time sheets, plus the others once Include Them is on.
+  const isIn = (p) => source === 'file' || p.finalized || includeOpen;
+  const people = everyone.filter(isIn);
+  const open = source === 'nexus' ? everyone.filter((p) => !p.finalized) : [];
+  const stale = source === 'nexus' && nexus && (nexus.start !== s.periodStart || nexus.end !== s.periodEnd || nexus.company !== company);
   const have = people.length > 0 && !stale;
   const totalHours = people.reduce((t, p) => t + Object.values(p.buckets).reduce((a, b) => a + b, 0), 0);
+  const draft = source === 'nexus' && includeOpen && open.length > 0;
+  const pickPeriod = (v) => {
+    if (v === 'custom') return;
+    const [start, end] = v.split('|');
+    setSettings({ periodStart: start, periodEnd: end });
+  };
 
   const downloadIif = async () => {
     if (source === 'file') {
@@ -254,7 +277,7 @@ export function PayrollHoursToQb() {
     }
     setBusy('iif'); setError('');
     try {
-      const res = await withStepUp(() => api.timeExportIifFor(nexus.start, nexus.end, { company: nexus.company, finalizedOnly: nexus.finalizedOnly }));
+      const res = await withStepUp(() => api.timeExportIifFor(nexus.start, nexus.end, { company: nexus.company, finalizedOnly: !draft, createTime: (s.qbCreateTime || '').trim() }));
       if (res) downloadBlob(res.filename || `timeclock-${nexus.start}-to-${nexus.end}.iif`, res.blob);
     } catch (e) { setError(e?.message || 'Could not download the QuickBooks file.'); }
     finally { setBusy(''); }
@@ -263,6 +286,10 @@ export function PayrollHoursToQb() {
     const name = source === 'file' ? `${fileBase(file.name, 'hours')}_intacct_hours_import.csv` : `Intacct Hours Import - ${s.periodStart} to ${s.periodEnd}.csv`;
     saveCsv(name, hoursRows(people, { ...s, payDate: s.payDate || s.periodEnd }, prefs.employees));
   };
+  // Why the downloads are off, in words, so the screen never just goes quiet.
+  const blocked = !nexus || source !== 'nexus' || stale ? '' : everyone.length === 0
+    ? `Nobody has hours on a time sheet for ${periodLabel(nexus)}${nexus.company ? ' at this company' : ''}.`
+    : people.length === 0 ? 'No time sheet in this period is finalized yet - include them below, or ask HR to finalize them first.' : '';
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
@@ -281,6 +308,13 @@ export function PayrollHoursToQb() {
         <div>
           <h3 style={h3}>Pay Period</h3>
           <div style={grid}>
+            <label style={label}>
+              Pay Period
+              <select value={periodKey} onChange={(e) => pickPeriod(e.target.value)} aria-label="Pay Period" style={{ ...control, width: '100%' }}>
+                {periods.map((p) => <option key={p.start} value={`${p.start}|${p.end}`}>{periodLabel(p)}</option>)}
+                <option value="custom">Other Dates</option>
+              </select>
+            </label>
             <PayDate k="periodStart" t="Period Start" settings={s} set={setSettings} />
             <PayDate k="periodEnd" t="Period End" settings={s} set={setSettings} />
             {source === 'nexus' && (
@@ -295,19 +329,27 @@ export function PayrollHoursToQb() {
           </div>
           {source === 'nexus' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 10 }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                <input type="checkbox" checked={finalizedOnly} onChange={(e) => setFinalizedOnly(e.target.checked)} />
-                Finalized time sheets only
-              </label>
               <button type="button" className="primary-btn" onClick={load} disabled={busy === 'load'} style={btn}>
                 {busy === 'load' ? 'Loading...' : 'Load Hours'}
               </button>
+              {periodKey === 'custom' && <span style={small}>Time sheets are finalized per pay period, so other dates usually have none finalized.</span>}
               {stale && <span style={small}>The period or filters changed - load the hours again.</span>}
             </div>
           )}
-          {source === 'nexus' && !finalizedOnly && (
-            <div role="note" data-testid="iif-draft-note" style={{ marginTop: 8, fontSize: '0.78rem', color: 'hsl(var(--color-orange))', fontWeight: 600 }}>
-              Draft preview: includes time sheets that are not finalized yet. The QuickBooks file is named DRAFT - do not import it into payroll.
+          {source === 'nexus' && nexus && !stale && open.length > 0 && (
+            <div role="status" data-testid="iif-unfinalized"
+              style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap', padding: '8px 10px', borderRadius: 8, fontSize: '0.78rem',
+                background: 'var(--warn-bg, #fff7e6)', border: '1px solid var(--warn-border, #f5d08a)', color: 'var(--warn-fg, #7a4b00)' }}>
+              <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span style={{ flex: '1 1 320px', minWidth: 0 }}>
+                {includeOpen
+                  ? <>The file includes {open.length} time {open.length === 1 ? 'sheet' : 'sheets'} not finalized yet ({nameList(open.map((p) => p.name))}) - their hours can still change, and the file is named DRAFT.</>
+                  : <><strong>{open.length} of {everyone.length}</strong> time {everyone.length === 1 ? 'sheet' : 'sheets'} for {periodLabel(nexus)} {open.length === 1 ? 'is' : 'are'} not finalized yet: {nameList(open.map((p) => p.name))}.{' '}
+                    {people.length ? `The QuickBooks file has the ${people.length} finalized ${people.length === 1 ? 'one' : 'ones'} only.` : 'Without them the QuickBooks file would have nobody in it.'}</>}
+              </span>
+              <button type="button" className="secondary-btn" onClick={() => setIncludeOpen((v) => !v)} style={{ fontSize: '0.76rem', padding: '3px 10px', flexShrink: 0 }}>
+                {includeOpen ? 'Leave Them Out' : 'Include Them'}
+              </button>
             </div>
           )}
         </div>
@@ -325,16 +367,33 @@ export function PayrollHoursToQb() {
               <span><strong>{fmtH(totalHours) || 0}</strong> hours</span>
               {source === 'nexus' && nexus && <span style={small}>{formatDate(nexus.start)} to {formatDate(nexus.end)}</span>}
               <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
-                <button type="button" className="primary-btn" disabled={!have || busy === 'iif'} onClick={downloadIif} style={btn}><Download size={14} /> {source === 'nexus' && nexus && !nexus.finalizedOnly ? 'Download Draft QuickBooks IIF' : 'Download QuickBooks IIF'}</button>
-                <button type="button" className="secondary-btn" disabled={!have} onClick={downloadStat} style={btn}><Download size={14} /> Download Intacct Hours Import</button>
+                <button type="button" className="primary-btn" disabled={!have || busy === 'iif'} onClick={downloadIif} title={blocked || undefined} style={btn}><Download size={14} /> {draft ? 'Download Draft QuickBooks IIF' : 'Download QuickBooks IIF'}</button>
+                <button type="button" className="secondary-btn" disabled={!have} onClick={downloadStat} title={blocked || undefined} style={btn}><Download size={14} /> Download Intacct Hours Import</button>
               </span>
             </div>
-            <HoursPreview people={people} showApproval={source === 'nexus'} />
-            {people.length > PREVIEW && <div style={small}>Showing the first {PREVIEW} of {people.length}; the downloads have them all.</div>}
+            {blocked && <div role="status" data-testid="iif-blocked" style={{ fontSize: '0.78rem', color: 'var(--warning, #b45309)', fontWeight: 600 }}>{blocked}</div>}
+            <HoursPreview people={everyone} showStatus={source === 'nexus'} isIn={isIn} />
+            {everyone.length > PREVIEW && <div style={small}>Showing the first {PREVIEW} of {everyone.length}; the downloads have every one in the file.</div>}
             <p style={{ ...small, margin: 0 }}>
               QuickBooks matches the employee by name and the payroll items Regular Pay, Overtime Pay, Double-time Pay, Holiday Pay, Sick Pay, Vacation Pay and Personal Pay - they must exist in QuickBooks or be mapped when importing. Nexus time sheets use each company's names, and its QuickBooks company name, from Settings &gt; Time Clock &gt; Pay Rules &gt; Payroll Export Codes.
             </p>
           </>
+        )}
+
+        {source === 'nexus' && (
+          <details>
+            <summary style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700 }}>QuickBooks Import Settings</summary>
+            <div style={{ ...grid, marginTop: 10 }}>
+              <label style={label}>
+                QuickBooks Company Create Time
+                <input value={s.qbCreateTime || ''} onChange={(e) => setSettings({ qbCreateTime: e.target.value.replace(/\D+/g, '').slice(0, 12) })}
+                  inputMode="numeric" placeholder="Optional" aria-label="QuickBooks Company Create Time" style={{ ...control, width: '100%' }} />
+              </label>
+            </div>
+            <p style={{ ...small, margin: '8px 0 0' }}>
+              In QuickBooks Desktop the file is imported with File &gt; Utilities &gt; Import &gt; Timer Activities. If QuickBooks says the file was not made for this company, export Timer Lists from the same company file (File &gt; Utilities &gt; Export &gt; Timer Lists), open that file in Notepad, copy the number at the end of its TIMERHDR line and paste it here. Remembered in this browser.
+            </p>
+          </details>
         )}
 
         <details>
@@ -402,10 +461,16 @@ export function QbPayrollToIntacct() {
     setError('');
     try {
       // Every sheet: QuickBooks Online saves an empty "Export Tips" sheet first.
-      const report = parsePayrollSheets(await readPayrollSheets(f));
-      if (!report.employees.length) { setError(payrollFileProblem(report)); return; }
+      const sheets = await readPayrollSheets(f);
+      if (!sheets.some((rows) => rows.length)) { setError(`${f.name} is empty - nothing to read.`); return; }
+      const report = parsePayrollSheets(sheets);
+      if (!report.employees.length) {
+        const where = sheets.length > 1 && report.sheet ? ` (sheet "${report.sheet}")` : '';
+        setError(`${f.name}${where}: ${payrollFileProblem(report)}`);
+        return;
+      }
       setFile({ name: f.name, report });
-    } catch (e) { setError(e?.message || 'Could not read that file.'); }
+    } catch (e) { setError(e?.message || `Could not read ${f.name}.`); }
   };
 
   const employees = useMemo(() => file?.report.employees || [], [file]);
@@ -430,6 +495,8 @@ export function QbPayrollToIntacct() {
 
   const missingAccounts = [...new Set(built.missing.map((m) => m.item))];
   const problems = [
+    // What the report itself holds that cannot be posted as read (10/27 item 03).
+    ...payrollReportProblems(file?.report),
     !s.payDate ? 'Pick the pay date.' : '',
     !s.journal.trim() ? 'Give the payroll journal.' : '',
     unmapped.length ? `Map or ignore ${unmapped.length === 1 ? 'this payroll item' : 'these payroll items'}: ${unmapped.map((u) => u.item).join(', ')}.` : '',

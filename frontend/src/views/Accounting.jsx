@@ -387,7 +387,7 @@ export default function Accounting({ activeSub, onSubChange }) {
     ama: 'Ask My Accountant - lines parked for the accountant and questions on any ledger line',
     'mgmt-fees': 'Asset management agreements - the fee per managed entity, billed against expected',
     profitability: 'Revenue, NOI, net income and cash flow after debt service per entity, against the prior year',
-    compensation: 'Hours and gross wages per employee from Time Clock, with payroll expense on the ledger',
+    compensation: 'Payroll, benefits and taxes per employee from the Intacct ledger, with hours from Time Clock',
     'payroll-summary': 'Gross pay, taxes, deductions, net pay and employer costs per employee, from the QuickBooks payroll in PYRJ',
     'gl-accounts': 'The chart of accounts - every general ledger account, read-only',
     'manual-je': 'Journal entries a person keyed in Intacct - who created and posted each one, for review',

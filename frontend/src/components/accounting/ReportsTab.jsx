@@ -19,7 +19,7 @@ import { useColumnWidths, useCustomizePrefs } from './tableHooks';
 import Amount, { Figure } from './Amount';
 import {
   AccountsPicker, BarMore, ClearButton, ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, OpFilter, Pager, PeriodStepper,
-  SavedReportsMenu, control, ControlBar, SyncButton, fitSelect,
+  SavedReportsMenu, control, ControlBar, SyncButton, fitSelect, widest,
 } from './reportControls';
 import { useTableSync } from './tableSync';
 import {
@@ -262,7 +262,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
       // filters (`dims`: vendor, customer, departments, journals ...) - they
       // follow into the lines like the report's own. A drill with none of
       // those is the Find a Transaction tile's search (`q`, Oct 1).
-      if (!(d.account || d.party || d.dims)) {
+      // 10/27 call, item 17: a total sent from another screen has no account,
+      // only its window (`to`) - every line of it, as a total on a statement.
+      if (!(d.account || d.party || d.dims || d.to)) {
         if (!d.q) return;
         setDrill(null);
         setSearchText(d.q);
@@ -271,9 +273,10 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         toTop();
         return;
       }
-      if (d.entity !== undefined) patch({ entities: d.entity ? [d.entity] : [] });
+      if (Array.isArray(d.entities)) patch({ entities: d.entities });
+      else if (d.entity !== undefined) patch({ entities: d.entity ? [d.entity] : [] });
       setDrill({ account: d.account || '', accountName: d.accountName || '', from: d.from || '', to: d.to || iso(new Date()), book: d.book || 'accrual',
-        ...(d.party ? { party: d.party } : {}), ...(d.dims ? { dims: d.dims } : {}), ...(d.back?.sub ? { back: { label: d.back.label || '', sub: d.back.sub } } : {}) });
+        ...(d.party ? { party: d.party } : {}), ...(d.department ? { department: d.department } : {}), ...(d.dims ? { dims: d.dims } : {}), ...(d.back?.sub ? { back: { label: d.back.label || '', sub: d.back.sub } } : {}) });
       toTop();
     };
     take(takePendingDrill());
@@ -393,7 +396,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
       const { buildPackagePdf } = await import('./reportPdf');
       const title = reportTitle(r.config, activeSaved?.name || r.def.label);
       const bytes = await buildPackagePdf({ name: title, statements: [{ title: r.def.label, result: r, entities }], cover: false });
-      downloadBlob(csvFileName(r).replace(/\.csv$/, '.pdf'), new Blob([bytes], { type: 'application/pdf' }));
+      downloadBlob(csvFileName(r, entities).replace(/\.csv$/, '.pdf'), new Blob([bytes], { type: 'application/pdf' }));
     } catch (e) {
       setError(e?.message || 'Could not build the PDF.');
     } finally {
@@ -410,7 +413,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     try {
       const { buildStatementWorkbook } = await import('./reportExcel');
       const bytes = await buildStatementWorkbook({ title: activeSaved?.name || r.def.label, result: r, entities });
-      downloadBlob(csvFileName(r).replace(/\.csv$/, '.xlsx'), new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      downloadBlob(csvFileName(r, entities).replace(/\.csv$/, '.xlsx'), new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     } catch (e) {
       setError(e?.message || 'Could not build the workbook.');
     } finally {
@@ -447,6 +450,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   const def = reportDef(config.report);
   const cols = activeColumns(config);
   const modes = columnModes(config.report, config);
+  // The Columns this screen opens on: a quick view's own (By Customer...), else Total Only.
+  const quick = viewConfig(view);
+  const openCols = (quick?.report === config.report && quick.cols) || (modes.some((m) => m.key === 'total') ? 'total' : modes[0]?.key);
   const showColumns = modes.length > 1 && !(config.book === 'both' && canBothBooks(config));
   const books = useMemo(() => bookOptions(config), [config.report, config.book, booksListed]); // eslint-disable-line react-hooks/exhaustive-deps
   const chips = filterChips(config, entities, dimNames);
@@ -640,11 +646,16 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
 
         {/* Fix 10/24 (item 02): on a row too narrow even for the icons,
             Columns and Book are the second to move into the More menu. */}
-        <BarMore level={2} active={(showColumns && cols !== 'total' ? 1 : 0) + (canPickBook(config) && config.book !== 'accrual' ? 1 : 0)}>
+        {/* More's count is what the person changed: a quick view's own Columns
+            (Income Statement by Customer opens By Customer) is not a change
+            (UI lesson, 10/27). Columns and Book keep one width whatever is
+            picked (10/27 call, item 09). */}
+        <BarMore level={2} active={(showColumns && cols !== openCols ? 1 : 0) + (canPickBook(config) && config.book !== 'accrual' ? 1 : 0)}>
         {showColumns && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
             <span className="acct-bar-label-2">Columns</span>
-            <select value={cols} onChange={(e) => { setCollapsed(new Set()); patch({ cols: e.target.value }); }} aria-label="Columns" style={{ ...select(cols !== 'total'), ...fitSelect(modes.find((m) => m.key === cols)?.label) }}>
+            <select value={cols} onChange={(e) => { setCollapsed(new Set()); patch({ cols: e.target.value }); }} aria-label="Columns" title={modes.find((m) => m.key === cols)?.label}
+              style={{ ...select(cols !== openCols), ...fitSelect(modes.find((m) => m.key === cols)?.label, { base: widest(columnModes(config.report).map((m) => m.label)) }) }}>
               {modes.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
             </select>
           </label>
@@ -653,7 +664,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         {canPickBook(config) && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
             <span className="acct-more-only">Book</span>
-            <select value={config.book} onChange={(e) => patch({ book: e.target.value })} aria-label="Book" style={{ ...select(config.book !== 'accrual'), ...fitSelect(books.find((b) => b.key === config.book)?.label) }}>
+            <select value={config.book} onChange={(e) => patch({ book: e.target.value })} aria-label="Book" style={{ ...select(config.book !== 'accrual'), ...fitSelect(books.find((b) => b.key === config.book)?.label, { base: widest(books.map((b) => b.label)) }) }}>
               {books.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
             </select>
           </label>
@@ -707,7 +718,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         {activity && (
           <BarMore level={6} active={config.accounts.length ? 1 : 0}>
           <select value={config.accounts[0] || ''} onChange={(e) => { closeSearch(); patch({ accounts: e.target.value ? [e.target.value] : [] }); }} aria-label={activity.pick}
-            style={{ ...select(!!config.accounts.length), ...fitSelect(activityLabel, { max: 320 }) }}>
+            title={activityLabel} style={{ ...select(!!config.accounts.length), ...fitSelect(activityLabel, { max: 320, base: `Pick a ${activity.pick}...` }) }}>
             <option value="">{`Pick a ${activity.pick}...`}</option>
             {(shown?.pickable || []).map((a) => <option key={a.code} value={a.code}>{a.title ? `${a.code} ${a.title}` : a.code}</option>)}
           </select>
@@ -745,7 +756,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
           ] : [
             { key: 'excel', label: 'Excel', hint: 'Totals in bold, columns fitted, live formulas', onPick: () => shown && exportExcel(shown), busy: xlsxBusy },
-            { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => shown && downloadCsv(csvFileName(shown), csvRows(shown, entities)) },
+            { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => shown && downloadCsv(csvFileName(shown, entities), csvRows(shown, entities)) },
             { key: 'pdf', label: 'PDF', hint: 'Laid out like a page of a package', onPick: () => shown && exportPdf(shown), busy: pdfBusy },
             { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, statement attached', Icon: Mail, onPick: () => setSending('email') },
             { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
@@ -942,7 +953,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             </table>
           </div>
           <Pager {...pager} />
-          {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
+          {entry && <EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel />}
           {filterOn && (
             <div role="status" style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <span>Filtered to {matchedCount.toLocaleString('en-US')} {matchedCount === 1 ? 'row' : 'rows'}. Section and grand totals are for the whole report.</span>

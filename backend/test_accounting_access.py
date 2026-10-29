@@ -584,12 +584,16 @@ class AccountingAccessTests(unittest.TestCase):
 
     def test_layout_is_each_persons_own(self):
         _as(OPEN)
-        self.assertEqual(self.client.get("/accounting/prefs").json(), {"prefs": {}})
+        self.assertEqual(self.client.get("/accounting/prefs").json(), {"prefs": {}, "updatedAt": ""})
         layout = {"lines": {"hidden": ["doc"], "widths": {"description": 520}}, "density": "condensed"}
-        self.assertEqual(self.client.put("/accounting/prefs", json={"prefs": layout}).json(), {"prefs": layout})
-        self.assertEqual(self.client.get("/accounting/prefs").json(), {"prefs": layout})
+        saved = self.client.put("/accounting/prefs", json={"prefs": layout}).json()
+        self.assertEqual(saved["prefs"], layout)
+        self.assertTrue(saved["updatedAt"])
+        # The read says when it was saved, so a browser can tell a newer copy from its own unsent one.
+        self.assertEqual(self.client.get("/accounting/prefs").json(), {"prefs": layout, "updatedAt": saved["updatedAt"]})
+        self.assertGreater(self.client.put("/accounting/prefs", json={"prefs": layout}).json()["updatedAt"], saved["updatedAt"])
         _as(LIMITED)
-        self.assertEqual(self.client.get("/accounting/prefs").json(), {"prefs": {}})
+        self.assertEqual(self.client.get("/accounting/prefs").json(), {"prefs": {}, "updatedAt": ""})
         self.assertEqual(self.client.put("/accounting/prefs", json={"prefs": {"x": "y" * 130000}}).status_code, 400)
 
     def test_saved_table_views_fit_and_stay_each_persons_own(self):

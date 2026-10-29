@@ -3189,6 +3189,14 @@ def _run_migrations():
         # table, explicit RLS. models.TimePunch.entry_source, TimeEntryBatch.
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS entry_source VARCHAR DEFAULT ''",
         "ALTER TABLE time_entry_batches ENABLE ROW LEVEL SECURITY",
+        # Import Hub bank statement rules (Charmi, 10/27 call item 01): new
+        # table, shared by the accounting team - explicit RLS.
+        # import_hub_models.AccountingStatementRule.
+        "ALTER TABLE accounting_statement_rules ENABLE ROW LEVEL SECURITY",
+        # Workers' comp rate per person and year (Charmi, 10/27 call, item 14) -
+        # a new table: explicit RLS on top of the _enable_rls_everywhere sweep.
+        # models.WorkersCompRate.
+        "ALTER TABLE workers_comp_rates ENABLE ROW LEVEL SECURITY",
         # Workflows (Neil, Oct 28 2026, docs/superpowers/specs/
         # 2026-10-28-workflows-design.md): eight new tables - the workflows,
         # their versions, the event outbox, runs, run steps, the wait queue,
@@ -4982,6 +4990,8 @@ from routers import perf_reviews as perf_reviews_router  # noqa: E402 - new tabl
 app.include_router(perf_reviews_router.router)  # Performance: review cycles - People > Performance, Workday > Performance (Neil, Oct 27 2026)
 from routers import extra_time as extra_time_router  # noqa: E402
 app.include_router(extra_time_router.router)  # India Contractor Extra Time claims: file, approve, decline (Neil, Oct 27 2026, docs/India-Contractor-Pay.md)
+from routers import import_hub as import_hub_router  # noqa: E402 - also registers import_hub_models before create_all
+app.include_router(import_hub_router.router)  # Accounting > Tools > Import Hub: bank statement rules, shared by the team (Charmi, 10/27 call item 01)
 from routers import workflows as workflows_router  # noqa: E402 - eight new tables: create_all + explicit RLS lines above
 app.include_router(workflows_router.router)  # Workflows: when X happens, do Y across modules - catalog, builder, runs, approvals, settings (Neil, Oct 28 2026)
 from routers import help_center as help_center_router  # noqa: E402 - new table help_feedback: create_all + explicit RLS line

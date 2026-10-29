@@ -277,12 +277,12 @@ describe('round 3 fixes', () => {
     expect(screen.queryByText(/Row Filters/)).toBeNull();
   });
 
-  it('fix 6: a saved view the server refuses says so, kept on this computer', async () => {
+  it('fix 6: a saved view the server refuses says so, and that it may be lost on a reload', async () => {
     api.saveAccountingPrefs.mockRejectedValue(Object.assign(new Error('Forbidden'), { status: 403 }));
     render(<Harness />);
     await saveView('Mine');
     const alert = await screen.findByRole('alert', {}, { timeout: 2000 });
-    expect(alert.textContent).toContain("Couldn't save your view to your account. It's kept on this computer only.");
+    expect(alert.textContent).toContain("Couldn't save your view to your account. It may be lost when you reload the page.");
     expect(JSON.parse(localStorage.getItem('nexus-accounting-prefs')).tableViews['test-table'].list[0].name).toBe('Mine');
     fireEvent.click(within(alert).getByRole('button', { name: 'Dismiss' }));
     expect(screen.queryByRole('alert')).toBeNull();
@@ -306,7 +306,7 @@ describe('round 3 fixes', () => {
     localStorage.setItem('nexus-accounting-prefs', JSON.stringify({ tableViews: { other: { list: big } } }));
     render(<Harness />);
     await saveView('One More');
-    expect((await screen.findByRole('alert', {}, { timeout: 2000 })).textContent).toBe("Couldn't save your view to your account. It's kept on this computer only. Try removing some saved views.");
+    expect((await screen.findByRole('alert', {}, { timeout: 2000 })).textContent).toBe("Couldn't save your view to your account. It may be lost when you reload the page. Remove some saved views, then try again.");
     expect(api.saveAccountingPrefs).not.toHaveBeenCalled();
   });
 
@@ -322,7 +322,7 @@ describe('round 3 fixes', () => {
     fireEvent.click(within(views).getByRole('button', { name: 'Save' }));
     await screen.findByRole('alert', {}, { timeout: 2000 });
     expect(screen.getAllByRole('alert')).toHaveLength(1);
-    expect(screen.getByRole('alert').textContent).toContain('Try removing some saved views');
+    expect(screen.getByRole('alert').textContent).toContain('Remove some saved views, then try again.');
   });
 
   it('a date rule reads in the shared MM/DD/YYYY format', async () => {

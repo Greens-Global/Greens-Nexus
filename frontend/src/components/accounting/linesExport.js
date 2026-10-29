@@ -8,7 +8,7 @@ import JSZip from 'jszip';
 //
 // table: {
 //   title     'Ledger Lines - 11101 Chase Checking'
-//   subtitle  'All entities · 01/01/2026 - 10/02/2026 · accrual book'
+//   subtitle  'All Entities · 01/01/2026 - 10/02/2026 · accrual book'
 //   columns   [{ label, num, width }]   num: an amount column; width: the on-screen px
 //   rows      [[cell, ...]]             amounts as numbers, the rest as text
 //   totals    [cell, ...] | null        the Totals line (text in the first cell)

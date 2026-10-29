@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Database, FileText, FolderOpen, FolderUp, Ma
 import { api } from '../../api';
 import Amount, { Figure, formatAmount, parseAmountInput } from './Amount';
 import { formatDate } from '../../lib/datetime';
-import { BarMore, BarSearch, BarSummary, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, Pager, PeriodStepper, SyncButton, control, fitSelect } from './reportControls';
+import { BarMore, BarSearch, BarSummary, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, Pager, PeriodStepper, SyncButton, control, fitSelect, widest } from './reportControls';
 import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
@@ -492,7 +492,7 @@ export default function LoansTab({ canEdit = false }) {
   const unavailable = error && notAvailable(error);
   const to = review?.to || period.to;
   const from = review?.from || period.from;
-  const entityLabel = !picked.length ? (limited ? 'All my entities' : 'All entities')
+  const entityLabel = !picked.length ? (limited ? 'All My Entities' : 'All Entities')
     : picked.length === 1 ? `${entities.find((o) => o.code === picked[0])?.name || 'Unnamed'} (${picked[0]})` : `${picked.length} entities`;
   // Rows per Page (Customize): the page shown; totals and exports keep every row.
   const paged = usePaged(rows, custom.pageSize, [period.from, period.to, picked, type, text, showClosed, tv.state, JSON.stringify(boxes.typed)]);
@@ -568,7 +568,7 @@ export default function LoansTab({ canEdit = false }) {
         <PeriodStepper config={period} period="range" onChange={onPeriod} />
         {view === 'loans' && <>
         <BarMore level={2} active={type !== 'all' ? 1 : 0}>
-        <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Internal or External" style={{ ...control, ...fitSelect(TYPES.find(([k]) => k === type)?.[1]), color: type === 'all' ? 'var(--text-primary)' : 'var(--wk-brand, #2b45e1)' }}>
+        <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Internal or External" style={{ ...control, ...fitSelect(TYPES.find(([k]) => k === type)?.[1], { base: widest(TYPES.map(([, l]) => l)) }), color: type === 'all' ? 'var(--text-primary)' : 'var(--wk-brand, #2b45e1)' }}>
           {TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
         </BarMore>

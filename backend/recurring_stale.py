@@ -16,8 +16,10 @@ A line in force for the whole window that had NOTHING post in any month of
 the window is flagged Possibly Ended (stale_since, stale_last_paid). The
 window is the last N complete months (N = staleMonths, default 3,
 configurable in the settings below), never shorter than one cycle of the
-line's frequency - a quarterly bill gets three months, an annual one twelve,
-so a line that is simply not due yet is never flagged.
+line's frequency, so a line that is simply not due yet is never flagged. MRI:
+the setting or one cycle, whichever is longer (a quarterly rent three months,
+an annual one twelve). MRE: one cycle and a month (quarterly 4, annual 13 -
+see 10/28 below).
 
 A flagged line gets ONE accounting task (models.Task, stale_task_id),
 assigned to the entity's accountants from Ask My Accountant's settings (the
@@ -40,6 +42,19 @@ not at the next daily pass - flags that no longer qualify clear, new ones
 appear, and the screens reload when it is done. MRE reads the ledger with the
 grid's grouped read (seconds), and each finished pass is recorded
 (acct_recurring_last_check) so the settings say when it last ran.
+
+10/28 (Charmi, call of 10/27, item 06: "if the payment is on a monthly basis
+and if for three months in a row it has not been paid ... possibly ended";
+"anything which is being paid annually at the end of the 13th month ... we
+should get a notification"): an MRE line's window is the setting's months
+(default 3) for a monthly line, and ONE CYCLE AND A MONTH for the rest -
+quarterly 4, semi-annual 7, annual 13, every N months N + 1 (mre_window).
+And an active MRE line the check cannot judge (it has not run long enough
+for its window, or has no vendor - typically a line edited since it was
+flagged: a new start date, Annual instead of Monthly) has its old flag
+cleared and its task closed, instead of keeping it forever (AAA Insurance,
+V00037 / 14001: flagged 10/21 as Monthly, since made Annual from 04/2026).
+MRI keeps its rule.
 """
 import asyncio
 import json
@@ -149,16 +164,33 @@ def mri_candidates(leases: list[dict], today: date, months: int) -> list[tuple[d
     return out
 
 
+def mre_window(today: date, months: int, step: int = 1) -> list[str]:
+    """An MRE line's quiet months before it is Possibly Ended (Charmi, 10/27):
+    monthly - `months` in a row (the setting, default 3); quarterly, semi-annual,
+    annual and every N months - one cycle and a month (4, 7, 13, N + 1)."""
+    step = int(step or 1)
+    return window(today, months if step <= 1 else step + 1)
+
+
 def mre_candidates(lines: list[dict], today: date, months: int) -> list[tuple[dict, list[str]]]:
     from routers import accounting_mre
     out = []
     for l in lines:
         if l["status"] != "active" or (l["endDate"] and l["endDate"] < today.isoformat()) or not l["vendorId"]:
             continue
-        win = window(today, months, accounting_mre.step_months(l))
+        win = mre_window(today, months, accounting_mre.step_months(l))
         if in_force_since(l["startDate"], win):
             out.append((l, win))
     return out
+
+
+def mre_unjudged(lines: list[dict], cands: list[tuple[dict, list[str]]], today: date) -> list[dict]:
+    """Not stale: the active lines the rule does not judge (not in force for a
+    whole window yet, or no vendor), so a flag set before an edit clears."""
+    judged = {l["id"] for l, _w in cands}
+    return [{"id": l["id"], "stale": False, "lastPaid": "", "entity": l["entityCode"], "window": [],
+             "label": l["vendorName"] or l["vendorId"], "who": l["entityName"] or l["entityCode"]}
+            for l in lines if l["id"] not in judged and l["status"] == "active" and not (l["endDate"] and l["endDate"] < today.isoformat())]
 
 
 def mri_posted(lease: dict, receipts: dict, back: list[str]) -> dict:
@@ -228,10 +260,10 @@ async def _mre_results(today: date, months: int) -> list[dict]:
     from routers import accounting_mre
     lines = await asyncio.to_thread(accounting_mre._load_all)
     cands = mre_candidates(lines, today, months)
+    out = mre_unjudged(lines, cands, today)
     if not cands:
-        return []
+        return out
     grouped, slow = await _mre_grouped(cands, today)
-    out = []
     for l, win in cands:
         back = lookback(today, win)
         pair = (l["entityCode"], l["vendorId"])
@@ -272,14 +304,14 @@ def _task_text(kind: str, r: dict, months: int) -> tuple[str, str]:
     if kind == "mri":
         title = f"Possibly Ended: {r['label']} - No Income in {len(r['window'])} Months"
         body = (f"MRI: nothing has posted for {r['who']} at {r['label']} (entity {r['entity'] or 'not set'}) in the last {quiet}. "
-                f"{f'The last payment posted in {last}.' if last else 'Nothing posted in the last twelve months.'} "
+                f"{f'The last payment posted in {last}.' if last else 'Nothing posted in that time.'} "
                 "If the lease or income source has ended, open Accounting > MRI > Payers and set its Status to Ended (or Vacant). "
                 "If it is still going, check the customer code and income accounts on it. "
                 "This task closes itself when a payment posts again or the source is marked ended.")
     else:
         title = f"Possibly Ended: {r['label']} - No Expense in {len(r['window'])} Months"
         body = (f"MRE: nothing has posted for {r['label']} on {r['who']} in the last {quiet}. "
-                f"{f'The last expense posted in {last}.' if last else 'Nothing posted in the last twelve months.'} "
+                f"{f'The last expense posted in {last}.' if last else 'Nothing posted in that time.'} "
                 "If the bill has stopped, open Accounting > MRE, edit the line and press End Today. "
                 "If it is still going, check the vendor and expense accounts on it. "
                 "This task closes itself when an expense posts again or the line is ended.")

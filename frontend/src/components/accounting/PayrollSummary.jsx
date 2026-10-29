@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, AlertTriangle, ChevronDown } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import Amount from './Amount';
-import { BarMore, ControlBar, EntitiesPicker, ExportMenu, PeriodStepper, SyncButton, control, fitSelect } from './reportControls';
-import { useFitHeight } from './tableHooks';
+import { BarMore, ColumnResizer, ControlBar, EntitiesPicker, ExportMenu, PeriodStepper, SyncButton, control, fitSelect } from './reportControls';
+import { useColumnWidths, useFitHeight } from './tableHooks';
+import { cellStyle, headStyle } from './columnStyles';
+import LinesPanel from './LinesPanel';
 import { useTableSync } from './tableSync';
 import { EMPTY_DIMS, downloadBlob, fetchBuckets, resolveConfig } from './reportModel';
 import { linesFile } from './linesExport';
@@ -28,6 +30,22 @@ import {
 // with a check that every PYRJ dollar of the period is in a row. Read in ONE
 // buckets read (PYRJ, split by employee); the rows and accounts are
 // PAYROLL_SUMMARY_SECTIONS in ./assumptions.js (pending Charmi's QB copy).
+
+// Call of 10/27 with Charmi, item 17 ("everything should have the drill down
+// option ... make sure this is also all resizable"): every amount opens the
+// payroll journal (PYRJ) lines behind it - the row's accounts, for that
+// employee (a Total: every employee shown) - in the side panel; the columns
+// drag wider or narrower, kept per person. Lines with no employee on them, or
+// whose employee was read from a description, are not apart on the ledger:
+// their cells do not open (the Total still does).
+const MAX_QUERIES = 80;
+export function payrollQueries(drill, config) {
+  if (!drill) return null;
+  const place = config.entities.length === 1 ? { location: config.entities[0] } : config.entities.length ? { locations: config.entities.join(',') } : {};
+  const who = drill.employees.length ? drill.employees : [null];
+  if (drill.accounts.length * who.length > MAX_QUERIES) return null;
+  return drill.accounts.flatMap((account) => who.map((e) => ({ journal: PAYROLL_SUMMARY_JOURNAL, account, from: config.from, to: config.to, ...place, ...(e ? { party_kind: 'employee', party: e } : {}) })));
+}
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 
@@ -81,6 +99,9 @@ export default function PayrollSummary() {
   const [picked, setPicked] = useState([]);
   const [as, setAs] = useState(PAYROLL_SUMMARY_EMPLOYEES_AS);
   const [res, setRes] = useState({ key: '', data: null, error: '' });
+  const [lines, setLines] = useState(null);           // the lines behind a figure (item 17)
+  const closeLines = useCallback(() => setLines(null), []);
+  const widths = useColumnWidths('payroll-summary', {}, { min: 60 });
   useEffect(() => {
     let alive = true;
     api.getAccountingLocations().then((d) => { if (alive) { setEntities(d?.entities || []); setLimited(!!d?.limited); } }).catch(() => {});
@@ -140,8 +161,8 @@ export default function PayrollSummary() {
     setBusy(format);
     try {
       const file = await linesFile({
-        title: 'Payroll Summary', period: `${config.from}_${config.to}`,
-        subtitle: [`${formatDate(config.from)} - ${formatDate(config.to)}`, config.entities.length ? config.entities.join(', ') : 'All entities', `${PAYROLL_SUMMARY_JOURNAL} journal`].join(' · '),
+        title: 'Payroll Summary', period: `${formatDate(config.from)} - ${formatDate(config.to)}`.replace(/\//g, '-'),
+        subtitle: [`${formatDate(config.from)} - ${formatDate(config.to)}`, config.entities.length ? config.entities.join(', ') : 'All Entities', `${PAYROLL_SUMMARY_JOURNAL} journal`].join(' · '),
         columns: table.columns.map((c) => ({ label: c.label, num: !!c.num, width: c.num ? 110 : 260 })),
         rows: table.rows.map((r) => [r.label, ...(r.kind === 'section' ? table.columns.slice(1).map(() => '') : r.cells)]),
         totals: null,
@@ -166,7 +187,7 @@ export default function PayrollSummary() {
         <EmployeePicker employees={full?.employees || []} value={picked} onChange={setPicked} />
         </BarMore>
         <BarMore level={1} active={as !== PAYROLL_SUMMARY_EMPLOYEES_AS ? 1 : 0}>
-        <select value={as} onChange={(e) => setAs(e.target.value)} aria-label="Layout" style={{ ...control, ...fitSelect(as === 'rows' ? 'Employees as Rows' : 'Employees as Columns') }}>
+        <select value={as} onChange={(e) => setAs(e.target.value)} aria-label="Layout" style={{ ...control, ...fitSelect(as === 'rows' ? 'Employees as Rows' : 'Employees as Columns', { base: 'Employees as Columns' }) }}>
           <option value="columns">Employees as Columns</option>
           <option value="rows">Employees as Rows</option>
         </select>
@@ -203,20 +224,35 @@ export default function PayrollSummary() {
         <div style={{ ...card, padding: 10, opacity: loading ? 0.6 : 1 }}>
           <h3 style={{ margin: '0 0 6px', fontSize: '0.98rem' }}>Payroll Summary</h3>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
-            {formatDate(config.from)} - {formatDate(config.to)} · {config.entities.length ? `${config.entities.length} ${config.entities.length === 1 ? 'entity' : 'entities'}` : 'All entities'} · {summary.employees.length} {summary.employees.length === 1 ? 'employee' : 'employees'}
+            {formatDate(config.from)} - {formatDate(config.to)} · {config.entities.length ? `${config.entities.length} ${config.entities.length === 1 ? 'entity' : 'entities'}` : 'All Entities'} · {summary.employees.length} {summary.employees.length === 1 ? 'employee' : 'employees'}
           </div>
           <div className="acct-report-wrap acct-scroll-box acct-fit" ref={setBox} data-testid="payroll-summary-box" style={fit}>
             <table className="acct-report">
               <thead>
-                <tr>{table.columns.map((c) => <th key={c.key} className={c.num ? 'acct-num' : 'acct-label acct-head'}>{c.label}</th>)}</tr>
+                <tr>{table.columns.map((c, j) => (
+                  <th key={c.key} className={c.num ? 'acct-num' : 'acct-label acct-head'} style={headStyle(widths.width(c.key), j ? null : { position: 'sticky', left: 0 })}>
+                    {c.label}<ColumnResizer {...widths.resizer(c.key, c.label)} />
+                  </th>
+                ))}</tr>
               </thead>
               <tbody>
                 {table.rows.map((r, i) => (r.kind === 'section'
                   ? <tr key={`s${i}`} className="acct-section"><td className="acct-label" colSpan={table.columns.length}>{r.label}</td></tr>
                   : (
                     <tr key={`r${i}`} className={r.kind === 'grand' ? 'acct-grand' : undefined} style={bold(r.kind) ? { fontWeight: 700 } : undefined}>
-                      <td className={`acct-label${r.kind === 'account' && as === 'columns' ? ' acct-indent' : ''}`}>{r.label}</td>
-                      {r.cells.map((v, j) => <td key={j} className="acct-num"><Amount value={v} zero="dash" /></td>)}
+                      <td className={`acct-label${r.kind === 'account' && as === 'columns' ? ' acct-indent' : ''}`} style={cellStyle(widths.width(table.columns[0].key))} title={r.label}>{r.label}</td>
+                      {r.cells.map((v, j) => {
+                        const col = table.columns[j + 1];
+                        const queries = Math.abs(Number(v) || 0) >= 0.005 ? payrollQueries(r.drills?.[j], config) : null;
+                        const what = as === 'columns' ? `${r.label} - ${col.label}` : `${col.label} - ${r.label}`;
+                        return (
+                          <td key={j} className="acct-num" style={cellStyle(widths.width(col.key))}>
+                            {queries
+                              ? <button type="button" className="acct-drill" onClick={() => setLines({ what, queries, drill: r.drills[j] })} title="See the lines behind this amount" aria-label={`Lines behind ${what}`}><Amount value={v} zero="dash" /></button>
+                              : <Amount value={v} zero="dash" />}
+                          </td>
+                        );
+                      })}
                     </tr>
                   )))}
               </tbody>
@@ -224,6 +260,13 @@ export default function PayrollSummary() {
           </div>
           <Reconciliation check={full.check} unmapped={full.unmapped} partial={!!summary.partial} />
         </div>
+      )}
+      {lines && (
+        <LinesPanel key={lines.what} label={lines.what} title={lines.what} widthsKey="payroll-summary" queries={lines.queries} onClose={closeLines}
+          caption={`${PAYROLL_SUMMARY_JOURNAL} lines, ${lines.drill.accounts.join(', ')}, ${formatDate(config.from)} - ${formatDate(config.to)}`}
+          report={{ ...(lines.drill.accounts.length === 1 ? { account: lines.drill.accounts[0], accountName: '' } : {}), from: config.from, to: config.to, entity: config.entities.length === 1 ? config.entities[0] : '',
+            ...(lines.drill.employees.length === 1 ? { party: { kind: 'employee', code: lines.drill.employees[0], name: full?.employees.find((e) => e.key === lines.drill.employees[0])?.name || lines.drill.employees[0] } } : {}),
+            dims: { journals: [PAYROLL_SUMMARY_JOURNAL] } }} />
       )}
     </div>
   );

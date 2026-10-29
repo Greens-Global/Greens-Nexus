@@ -84,6 +84,13 @@ export function useTableViewWith(store, tableKey, baseColumns, rows, { sort = nu
   }, [write, savedOf]);
   const drop = () => { clearTimeout(timer.current); timer.current = null; pending.current = null; setLocal(null); };
   useEffect(() => () => { if (pending.current) flush(); }, [flush]);
+  // A reload inside the save delay keeps the change too (UI test 10/28: an MRE
+  // month dragged wider went back after a reload).
+  useEffect(() => {
+    const leave = () => { if (pending.current) flush(); };
+    window.addEventListener('pagehide', leave);
+    return () => window.removeEventListener('pagehide', leave);
+  }, [flush]);
 
   /** Change the working state: a patch object or a function of the state. */
   const setState = useCallback((patch) => {

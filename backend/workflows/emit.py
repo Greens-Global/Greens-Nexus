@@ -19,9 +19,16 @@ active workflow subscribes to its key (`subscribed`, a process cache of the
 emitted under it carries `caused_by_run` and `depth + 1`, and anything that
 would pass depth 2 is not written at all (spec: a chain never exceeds
 depth 2).
+
+`quiet()` writes nothing - no emit and no record-observer row - for work
+that is housekeeping rather than something happening (Charmi 10/28: HR's
+close-out of the periods paid in SwipeClock would otherwise fire every
+"time sheet changed" workflow once per old period). The module's own
+history and audit rows are written as usual.
 """
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import json
 import threading
@@ -34,6 +41,18 @@ from typing import Any, Optional
 from workflows import catalog
 
 CURRENT_RUN: contextvars.ContextVar = contextvars.ContextVar("workflow_run", default=None)
+QUIET: contextvars.ContextVar = contextvars.ContextVar("workflow_quiet", default=False)
+
+
+@contextlib.contextmanager
+def quiet():
+    """No workflow event inside the block (emit and the record observer).
+    Flush inside it: the observer writes at flush time."""
+    token = QUIET.set(True)
+    try:
+        yield
+    finally:
+        QUIET.reset(token)
 
 SUBSCRIBED_KEY = "workflows.subscribed"     # NexusSetting: JSON list of event keys active workflows use
 MAX_DEPTH = 2
@@ -193,6 +212,8 @@ def emit(db, key: str, *, subject, actor: str = "", changes: Optional[dict] = No
          extra: Optional[dict] = None, company_id: Optional[str] = None) -> None:
     """Write one outbox row for event `key` about `subject` (the ORM row or
     its id) inside the caller's transaction. Never raises."""
+    if QUIET.get():
+        return
     try:
         catalog.load_packs()     # a request worker's first emit may come before any flush loaded them
         ev = catalog.EVENTS.get(key)
