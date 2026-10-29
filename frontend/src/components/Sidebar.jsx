@@ -98,8 +98,14 @@ export const NAV = [
   // carry tasks:*). Knowledge Base moved into Help Center as a tile (Neil,
   // Oct 13 2026: "anything to do with support or learning is right here") -
   // still baseline, the 'sop' view and its address are unchanged.
+  //
+  // The Work group reads Tasks, Tickets, Files, Documents, Credential Vault,
+  // Workflows (Neil, 10/28/2026) - Credential Vault and Workflows moved up
+  // from Modules. Sidebar.orderNav.test.jsx pins this order.
   { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
-  // Files (Egnyte-backed) sits directly beneath Tasks (Pranshu, Aug 31).
+  { view: "tickets", code: "TKT",           label: "Tickets",             icon: TicketToken,  minRole: 'supervisor' },
+  // Files (Egnyte-backed; beneath Tasks since Pranshu, Aug 31 - Tickets
+  // now sits between them, Neil 10/28/2026).
   // Egnyte stays the source of truth for files; this module browses, uploads
   // and searches it in place. Sub list is for the mobile menu - the desktop
   // rail is flat and the module renders its own tab strip.
@@ -110,13 +116,16 @@ export const NAV = [
       { subview: "property", label: "Property Documents", icon: Home },
     ],
   },
-  { view: "tickets", code: "TKT",           label: "Tickets",             icon: TicketToken,  minRole: 'supervisor' },
   {
     view: "documents", code: "DOC", label: "Documents", icon: FileText, minRole: 'supervisor',
     sub: [
       { subview: "documents-esign", label: "Nexus Sign", icon: PenTool },
     ],
   },
+  { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
+  // Workflows (Oct 28 2026): cross-module automations - build, pause, review
+  // what ran. Granted like the other modules.
+  { view: "workflows", code: "WFL", label: "Workflows", icon: Workflow, minRole: 'supervisor' },
   { divider: true },
   {
     view: "it", code: "IT", label: "IT", icon: Monitor, minRole: 'supervisor',
@@ -205,10 +214,6 @@ export const NAV = [
   // BI board (Neil, Sep 14): cross-module KPIs, sortable/filterable, reusing
   // the same widget-grid engine as Dashboard - see dashboard/useDashboards.js.
   { view: "bi", code: "INS", label: "Insights", icon: InsightsChart, minRole: 'supervisor' },
-  // Workflows (Oct 28 2026): cross-module automations - build, pause, review
-  // what ran. Granted like the other modules; the group sorts itself by name.
-  { view: "workflows", code: "WFL", label: "Workflows", icon: Workflow, minRole: 'supervisor' },
-  { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
   { divider: true },
   // Help Center (Neil, Oct 13 2026; was Support): Submit a Ticket,
   // Documentation and the Knowledge Base & Training. View id stays 'support'.
