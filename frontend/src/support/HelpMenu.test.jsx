@@ -316,6 +316,18 @@ describe('Help widget', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Help' }));
   });
 
+  it('Esc closes only the widget, never the drawer or modal under it', async () => {
+    // A drawer's own Esc listener, added before the widget opened.
+    const under = vi.fn();
+    window.addEventListener('keydown', under);
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    window.removeEventListener('keydown', under);
+    expect(screen.queryByRole('dialog', { name: 'Help' })).toBeNull();
+    expect(under).not.toHaveBeenCalled();
+  });
+
   it('closes on a click outside', async () => {
     render(<><button type="button">Elsewhere</button><HelpMenu activeView="dashboard" /></>);
     await openWidget();
