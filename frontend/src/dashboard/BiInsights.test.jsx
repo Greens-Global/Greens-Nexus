@@ -121,6 +121,30 @@ describe('BiInsights', () => {
     expect(iconOf(tile)).toContain('lucide-square-check-big');
   });
 
+  // Neil, 10/28/2026: "it mentions the problem but doesn't give a link to solve it".
+  it('a signal past its alert level ends in Take Action, which goes where it is fixed', async () => {
+    render(<BiInsights />);
+    await screen.findByText('Needs Attention');
+    const tile = screen.getAllByTitle('See the breakdown of Overdue')[0];
+    expect(tile.textContent).toContain('Review');
+    fireEvent.click(tile);
+    expect(await screen.findByText('Charmi Desai')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Take Action/ }));
+    expect(navigate).toHaveBeenCalledWith('tasks', undefined);
+    expect(screen.queryByText('Charmi Desai')).toBeNull();
+    const { actionFor } = await import('./biModel');
+    expect(actionFor({ moduleId: 'people', key: 'leave_pending', nav: 'hr' })).toEqual({ view: 'hr', sub: 'hr-time-off', label: 'Review Leave Requests' });
+    expect(actionFor({ moduleId: 'construction', key: 'overdue_rfis', nav: 'ops' }).sub).toBe('construction-dashboard');
+    expect(actionFor({ moduleId: 'tickets', key: 'unassigned', nav: 'tickets', moduleLabel: 'Tickets' })).toEqual({ view: 'tickets', sub: null, label: 'Open Tickets' });
+  });
+
+  it('never scrolls a card sideways, and the icon has no tile around it', () => {
+    const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
+    expect(css).toMatch(/\.bi-card-body \{[^}]*overflow-x: hidden/);
+    expect(css).toMatch(/\.bi-stat \{[^}]*box-sizing: border-box/);
+    expect(css).not.toMatch(/\.bi-mod-icon \{[^}]*border:/);
+  });
+
   it('draws no edge bar on a tile and gives every card one size', () => {
     const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
     expect(css).not.toMatch(/\.bi-alert[^{]*::before/);
