@@ -253,6 +253,23 @@ class VaultAccessTests(unittest.TestCase):
         self.assertEqual(self._as(PEER).post("/credvault/personal/lock/setup", json={"password": "short12"}).status_code, 400)
         self.assertEqual(self._as(PEER).post("/credvault/personal/lock/setup", json={"password": "long-enough-1"}).status_code, 200)
 
+    def test_import_skips_what_the_vault_holds_and_sets_backup_and_audience(self):
+        self._create(name="Zoom Admin", username="it@x.com")
+        r = self._as(OWNER).post("/credvault/import", json={"rows": [
+            {"name": "Zoom Admin", "username": "it@x.com", "secret": "Dup!2026xx", "department": "IT"},           # already there
+            {"name": "Procore", "username": "field", "secret": "Build!2026xx", "department": "Construction", "backupOwner": PEER,
+             "audiences": [{"kind": "company", "value": CO}], "url": "https://app.procore.com"},
+            {"name": "Wi-Fi Guest", "secret": "Guest!2026xx", "department": "IT"},                               # default: its department
+        ]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["imported"], r.json()["skipped"], r.json()["skippedNames"]), (2, 1, ["Zoom Admin"]))
+        rows = {c["name"]: c for c in self._as(OWNER).get("/credvault/credentials").json()}
+        self.assertEqual(rows["Procore"]["backupOwner"], PEER)
+        self.assertEqual(rows["Procore"]["audiences"][0]["kind"], "company")
+        self.assertEqual(self._row(ACCT, rows["Procore"]["id"])["access"], "company")
+        self.assertEqual(rows["Wi-Fi Guest"]["audiences"][0]["label"], "Everyone in IT")
+        self.assertEqual(len([c for c in rows.values() if c["name"] == "Zoom Admin"]), 1)
+
     def test_offboarding_removes_a_leavers_person_audience(self):
         from routers.credvault import handover_person
         cid = self._create(audiences=[{"kind": "person", "value": OPS}])

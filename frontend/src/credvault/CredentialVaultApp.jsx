@@ -38,7 +38,7 @@ import { Monogram } from "./vaultCards";
 import MyLogins from "./MyLogins";
 import Overview from "./Overview";
 import CredentialSheet, { CredentialDetail } from "./CredentialDrawer";
-import { CredentialForm, ImportModal, ShareModal, RequestModal } from "./CredentialForm";
+import { CredentialForm, ImportWizard, ShareModal, RequestModal } from "./CredentialForm";
 import PersonalVault from "./PersonalVault";
 import "./credvault.css";
 
@@ -251,9 +251,12 @@ export default function CredentialVaultApp({ activeSub }) {
     setForm(null); setRevealed(null);
     await refresh();
   }
+  // The wizard shows the result itself and closes on Done; this only sends
+  // the rows and refreshes the list behind it.
   async function importRows(list) {
-    try { const res = await api.cvImport(list); setImportOpen(false); await refresh(); flash(`Imported ${res.imported} credential${res.imported === 1 ? "" : "s"}.`); }
-    catch (e) { flash(e?.message || "Import failed.", "info"); }
+    const res = await api.cvImport(list);
+    refresh().catch(() => {});
+    return res;
   }
   async function trash(c) {
     const ok = await dialog.confirm(`Move ${c.name} to the trash? It can be recovered from there.`, { title: "Move to Trash", confirmText: "Move to Trash", danger: true });
@@ -349,7 +352,7 @@ export default function CredentialVaultApp({ activeSub }) {
               {addMenu && (
                 <div className="cv-menu" role="menu">
                   <button type="button" role="menuitem" className="cv-menu-item" onClick={() => { setAddMenu(false); setForm({ cred: null }); }}><Plus size={14} /> New Credential</button>
-                  <button type="button" role="menuitem" className="cv-menu-item" onClick={() => { setAddMenu(false); setImportOpen(true); }}><Upload size={14} /> Import From CSV</button>
+                  <button type="button" role="menuitem" className="cv-menu-item" onClick={() => { setAddMenu(false); setImportOpen(true); }}><Upload size={14} /> Import From a Spreadsheet</button>
                 </div>
               )}
             </div>
@@ -562,7 +565,7 @@ export default function CredentialVaultApp({ activeSub }) {
 
       {selected && isMobile && <CredentialSheet key={selected.id} {...detailProps} />}
       {form && <CredentialForm cred={form.cred} depts={depts} people={people} myEmail={myEmail} nameOf={nameOf} onClose={() => setForm(null)} onSave={saveCredential} />}
-      {importOpen && <ImportModal depts={depts} onClose={() => setImportOpen(false)} onImport={importRows} />}
+      {importOpen && <ImportWizard depts={depts} people={people} myEmail={myEmail} existing={creds} nameOf={nameOf} onClose={() => setImportOpen(false)} onImport={importRows} />}
       {shareFor && <ShareModal cred={shareFor} people={people.filter((p) => p.email !== myEmail)} nameOf={nameOf} onClose={() => setShareFor(null)} onSubmit={(email, ms, label) => share(shareFor, email, ms, label)} />}
       {requestFor && <RequestModal cred={requestFor} nameOf={nameOf} onClose={() => setRequestFor(null)} onSubmit={(ms, label) => request(requestFor, ms, label)} />}
       {otpGate && <VaultOtpModal onClose={() => setOtpGate(null)} onVerified={afterOtp} />}

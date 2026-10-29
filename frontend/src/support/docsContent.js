@@ -1098,7 +1098,7 @@ export const DOCS = [
       { name: 'Timed Sharing and Requests', desc: 'Owners share for 1 hour to 7 days; others request the same way. Access ends by itself.' },
       { name: 'Rotation and Expiry Reminders', desc: 'Owners and backup owners get a bell when a rotation is due or a key is about to expire. The previous password is kept for one rotation.' },
       { name: 'Personal Vault', desc: 'Private, encrypted, locked with your own password (10 characters or more). Each row can carry a link, so Open copies the password and takes you to the site. Reset the vault password with a code if you forget it.' },
-      { name: 'Import and Trash', desc: 'Load credentials from a CSV with Add Credential > Import From CSV; removed ones sit in the Trash until recovered or deleted for good.' },
+      { name: 'Import and Trash', desc: 'Add Credential > Import From a Spreadsheet takes the Excel or CSV file you already keep: match its columns to ours (guessed from the headers), review what is missing and what the vault already holds, pick a fallback department, a backup owner and who can open them, and import. Removed credentials sit in the Trash until recovered or deleted for good.' },
       { name: 'Activity', desc: 'Your own actions and every action on the credentials you own or manage, searchable by person, credential, action and date. Admins see everything.' },
     ],
     manager: {
