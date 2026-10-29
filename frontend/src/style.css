@@ -6501,7 +6501,13 @@ body:has(.docs-root) { overflow-x: clip; }
    it. The full-height views follow its height live (--nx-announce-h). */
 .feature-banner {
   position: relative; display: grid; grid-template-rows: 1fr; flex-shrink: 0; overflow: hidden;
-  background: linear-gradient(100deg, hsl(142, 62%, 25%) 0%, hsl(142, 58%, 30%) 55%, hsl(150, 56%, 29%) 100%);
+  /* Deep green into emerald-teal, with soft light falling from the left
+     behind the icon (Oct 28 2026). Every stop stays at 32% lightness or
+     under, so the white text keeps 5:1 and up. */
+  background:
+    radial-gradient(90% 220% at 0% 0%, rgba(255, 255, 255, .11), transparent 55%),
+    linear-gradient(100deg, hsl(146, 64%, 21%) 0%, hsl(142, 58%, 27%) 42%, hsl(152, 56%, 27%) 74%, hsl(166, 58%, 25%) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .10), inset 0 -1px 0 rgba(0, 0, 0, .14);
   color: #fff; font-family: var(--wk-font, inherit);
   animation: fb-open .44s cubic-bezier(.16, 1, .3, 1) both;
 }
@@ -6510,17 +6516,29 @@ body:has(.docs-root) { overflow-x: clip; }
 .feature-banner.is-closing { animation: fb-close .3s cubic-bezier(.4, 0, .2, 1) both; }
 @keyframes fb-open { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
 @keyframes fb-close { from { grid-template-rows: 1fr; opacity: 1; } to { grid-template-rows: 0fr; opacity: 0; } }
-/* One sheen across the bar when it arrives - not a loop. */
-.feature-banner::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .16) 48%, transparent 66%);
-  transform: translateX(-100%);
-  animation: fb-sheen 1.5s .45s cubic-bezier(.4, 0, .2, 1) both;
-}
-@keyframes fb-sheen { to { transform: translateX(100%); } }
+/* One flash of light across the bar once it has settled - not a loop
+   (Neil, Oct 28 2026: "a subtle flash moving through the bar once"). A
+   narrow soft band, brightest in its middle, with a fainter wash around it,
+   on the keyed row so it plays again when a new version takes the bar over.
+   It eases in and out (slow at the edges, quick across the middle) and
+   fades as it leaves, so it reads as light passing, not a sliding stripe. */
 .feature-banner-clip { min-height: 0; overflow: hidden; }
+.feature-banner-row::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 42%; pointer-events: none;
+  background:
+    linear-gradient(100deg, transparent 38%, rgba(255, 255, 255, .26) 50%, transparent 62%),
+    linear-gradient(100deg, transparent 10%, rgba(255, 255, 255, .07) 50%, transparent 90%);
+  opacity: 0; transform: translateX(-110%) skewX(-12deg);
+  animation: fb-flash 1.25s .6s cubic-bezier(.65, 0, .35, 1) both;
+}
+@keyframes fb-flash {
+  0%   { opacity: 0; transform: translateX(-110%) skewX(-12deg); }
+  15%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(260%) skewX(-12deg); }
+}
 .feature-banner-row {
-  display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 18px;
+  position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 18px;
   font-size: 13.5px; line-height: 1.35;
   animation: fb-content .5s .1s cubic-bezier(.16, 1, .3, 1) both;
 }
@@ -6598,7 +6616,7 @@ body:has(.docs-root) { overflow-x: clip; }
 }
 @media (prefers-reduced-motion: reduce) {
   .feature-banner, .feature-banner.is-closing, .feature-banner-row, .feature-banner-icon, .feature-banner-spin { animation: none; }
-  .feature-banner::after { display: none; }
+  .feature-banner-row::after { display: none; }
   .feature-banner-cta, .feature-banner-cta-arrow { transition: none; }
   .feature-banner-cta:hover, .feature-banner-cta:hover .feature-banner-cta-arrow { transform: none; }
 }
