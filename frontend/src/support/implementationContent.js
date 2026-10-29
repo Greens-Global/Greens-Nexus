@@ -183,7 +183,7 @@ export const IMPL_PHASES = [
         'Edit the Policy Text, Save Draft, have it approved, then click Publish and Ask Everyone.',
       ]},
       { title: 'Sessions and Guest Sign-In', where: 'Settings > Security > Sign-In & Sessions', view: 'admin-console', sub: 'security:sign-in-sessions', items: [
-        'Set the Web Session Idle Limit, Act As Session Length and the Credential Vault unlock times.',
+        'Set the Web Session Idle Limit, Act As Session Length and the Credentials unlock times.',
         'Guest Sign-In: code lifetime, wrong-code attempts, lockout duration, code requests per hour and invitation link lifetime.',
       ]},
       { title: 'Email Signature', where: 'Settings > Branding & Email > Email Signature', view: 'admin-console', sub: 'branding:email-signature', items: [
@@ -579,7 +579,7 @@ export const IMPL_PHASES = [
         'Add company links by category, department and company, or Batch Import them.',
       ]},
       { title: 'The Rest', items: [
-        'Credential Vault: Add Credential > Import From CSV for the shared passwords, then set owners and backup owners.',
+        'Credentials: Add Credential > Import From CSV for the shared passwords, then set owners and backup owners.',
         'Marketing: connect Google Business Profile and Google Ads; set lead goals and budgets per property.',
         'Investor Relations, Construction, IT and Insights: give the grants to their owners and load their records.',
       ]},

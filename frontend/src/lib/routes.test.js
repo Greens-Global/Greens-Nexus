@@ -51,3 +51,13 @@ describe('addressFor', () => {
     expect(addressFor('/tasks')).toBe('/tasks');
   });
 });
+
+// Credential Vault is Credentials (Neil, Oct 28 2026): the address reads
+// /credentials, old /credvault links still land, the stored id stays.
+describe('credentials address', () => {
+  it('writes /credentials and reads both addresses as the credvault view', () => {
+    expect(VIEW_TO_PATH.credvault).toBe('credentials');
+    expect(PATH_TO_VIEW.credentials).toBe('credvault');
+    expect(PATH_TO_VIEW.credvault).toBe('credvault');
+  });
+});

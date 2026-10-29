@@ -177,7 +177,7 @@ export function ShareModal({ cred, people, nameOf, onClose, onSubmit }) {
           <div className="cv-segment">{DURATIONS.map((x) => <button key={x.key} type="button" className={`cv-btn${duration === x.key ? " is-on" : ""}`} onClick={() => setDuration(x.key)}>{x.label}</button>)}</div>
         </Field>
         <div className="cv-callout">
-          <span>{email ? nameOf(email) : "They"} will see the password in their own Credential Vault for {d.label.toLowerCase()}, then it disappears. They need the Credential Vault grant to open the screen. You can end the access early from the drawer.</span>
+          <span>{email ? nameOf(email) : "They"} will see the password in their own Credentials screen for {d.label.toLowerCase()}, then it disappears. They need the Credentials grant to open the screen. You can end the access early from the drawer.</span>
         </div>
       </div>
     </Modal>
