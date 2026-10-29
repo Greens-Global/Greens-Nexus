@@ -11,6 +11,7 @@ On test_timesheet_review's real-engine fixture (same throwaway database):
 import json
 import unittest
 import uuid
+from unittest import mock
 
 from test_timesheet_review import ReviewCase, EMP, MGR, HR, _tmp_db  # noqa: F401  (sets DATABASE_URL first)
 
@@ -20,6 +21,7 @@ import closeout_swipeclock_periods as closeout  # noqa: E402
 import daily_briefing  # noqa: E402
 import models  # noqa: E402
 import timesheet_review as tsr  # noqa: E402
+from workflows.emit import QUIET  # noqa: E402
 from routers import timeclock  # noqa: E402
 
 OLD = ("2026-09-20", "2026-10-03")       # paid in SwipeClock
@@ -119,6 +121,52 @@ class CloseOutTests(ReviewCase):
         tsr._finalize_without_signature(self.db, EMP, s, e, pay_type, HR, "Left the company")
         self.db.commit()
         self.assertIn("timesheet.review_changed", self._events())
+
+    def _old_period_with_notices(self):
+        tsr.approve_period(self.db, EMP, OLD[0], MGR, "ok")
+        self.db.commit()
+        envelope = tsr.active_review(self.db, EMP, OLD[0]).sign_request_id
+        self._notice(MGR, "Signature Required: Timesheet - Erin Test - 09/20/2026 - 10/03/2026", ref=envelope)
+        self._notice(MGR, "Review Erin Test's Time Sheet", action={"view": "hr", "sub": "hr-time", "timecard": EMP, "start": OLD[0]})
+        self._notice(MGR, "Review Erin Test's Time Sheet (new)", action={"view": "hr", "sub": "hr-time", "timecard": EMP, "start": NEW[0]})
+        return self._open_bar(MGR)
+
+    def _nothing_half_done(self, bar):
+        # Not finalized, the review still open, every notice still asking, the period still planned.
+        self.db.expire_all()
+        self.assertFalse(timeclock._finalized_row(self.db, EMP, *OLD))
+        self.assertEqual(tsr.active_review(self.db, EMP, OLD[0]).status, "signing")
+        self.assertEqual(self._open_bar(MGR), bar)
+        self.assertEqual([p[:3] for p in closeout.plan(self.db)], [(EMP, OLD[0], OLD[1])])
+        self.assertFalse(QUIET.get())
+
+    def _retry_clears_it(self):
+        out = tsr.close_out_outside_nexus(self.db, EMP, OLD[0], HR)
+        self.db.commit()
+        self.assertEqual(out.status, "completed")
+        self.assertTrue(timeclock._finalized_row(self.db, EMP, *OLD))
+        self.assertEqual(self._open_bar(MGR), ["Review Erin Test's Time Sheet (new)"])
+        self.assertEqual(closeout.plan(self.db), [])
+
+    def test_a_failed_notice_cleanup_finalizes_nothing_and_a_retry_clears_the_notices(self):
+        # Backend Tester, 10/29: the finalize committed before the notice cleanup, so a
+        # cleanup error left the period finalized with its notices open, and a retry skipped it.
+        bar = self._old_period_with_notices()
+        with mock.patch.object(tsr, "_settle_period_notices", side_effect=RuntimeError("forced cleanup failure")):
+            with self.assertRaises(RuntimeError):
+                tsr.close_out_outside_nexus(self.db, EMP, OLD[0], HR)
+        self.db.rollback()
+        self._nothing_half_done(bar)
+        self._retry_clears_it()
+
+    def test_a_failed_finalize_after_the_cleanup_leaves_the_notices_open(self):
+        bar = self._old_period_with_notices()
+        with mock.patch.object(timeclock, "finalize_timecard", side_effect=RuntimeError("forced finalize failure")):
+            with self.assertRaises(RuntimeError):
+                tsr.close_out_outside_nexus(self.db, EMP, OLD[0], HR)
+        self.db.rollback()
+        self._nothing_half_done(bar)
+        self._retry_clears_it()
 
     def test_hrs_own_finalize_button_is_unchanged(self):
         # finalize_unsigned still refuses a period nobody approved (the manager reviews first).

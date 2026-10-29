@@ -1157,10 +1157,16 @@ def close_out_outside_nexus(db: Session, email: str, start: str, actor: str,
     # Housekeeping, not news: no Workflows event for the old periods (Charmi
     # 10/28 review - "time sheet changed" would fire once per period). The
     # review's rounds, the approval note and the voided envelope's log stay.
+    # Notices FIRST (Backend Tester, 10/29): Time Clock's finalize commits at
+    # its end, so the cleanup goes out in that same commit. A failure in
+    # either step leaves the period unfinalized with its notices open, and it
+    # stays on the close-out list for a retry - never finalized with its old
+    # notices still asking (a retry skipped it as already finalized). The
+    # finalize itself adds no notice the cleanup would catch.
     import workflows
     with workflows.quiet():
-        r = _finalize_without_signature(db, email, s, e, pay_type, actor, reason, notify_manager=False)
         _settle_period_notices(db, email, s, sign_id)
+        r = _finalize_without_signature(db, email, s, e, pay_type, actor, reason, notify_manager=False)
         db.flush()
     return r
 

@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { api } from '../../api';
+import { DateField } from '../../tasks/components';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import Amount, { Figure } from './Amount';
 import { BarMore, ColumnResizer, ControlBar, control, EntitiesPicker, ExportMenu, SyncButton, fitSelect, widest } from './reportControls';
@@ -121,9 +122,10 @@ export default function ProfitabilityReport({ limited = false }) {
           {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
         </select>
         <span style={inline}>
-          <input type="date" value={from} onChange={(e) => { setPeriod('custom'); setRange([e.target.value, to]); }} style={control} aria-label="From" title="From" />
+          {/* Charmi 10/28, round 4: the shared DateField, never a native date box (that one follows the PC's region - 31-12-2026). */}
+          <span style={{ width: 120 }}><DateField value={from} onChange={(v) => { if (v) { setPeriod('custom'); setRange([v, to]); } }} placeholder="MM/DD/YYYY" title="From" style={{ ...control, width: '100%' }} /></span>
           to
-          <input type="date" value={to} onChange={(e) => { setPeriod('custom'); setRange([from, e.target.value]); }} style={control} aria-label="To" title="To" />
+          <span style={{ width: 120 }}><DateField value={to} onChange={(v) => { if (v) { setPeriod('custom'); setRange([from, v]); } }} placeholder="MM/DD/YYYY" title="To" style={{ ...control, width: '100%' }} /></span>
         </span>
         <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} />
         <select value={book} onChange={(e) => setBook(e.target.value)} style={{ ...control, ...fitSelect(book === 'cash' ? 'Cash' : 'Accrual', { base: 'Accrual' }) }} aria-label="Book" title="Book">
