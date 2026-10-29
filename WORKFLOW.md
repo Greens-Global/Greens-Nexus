@@ -54,6 +54,14 @@ cd frontend && npm run dev
 3. Click through the feature locally one full time.
 4. `git push -u origin feat/<short-task-name>`
 5. Open a Pull Request into `dev` on GitHub. Write 2-3 lines: what + how to test.
+   **As few PRs as possible** (Neil, raised several times; 10/28/2026): a
+   branch per task still, but do not open a PR per branch. Push the branches
+   and wait; when it is time to ship, merge every ready branch of the day
+   into ONE release branch (`release/<date>-batch`, `--no-ff` merges from
+   fresh `dev`) and open one PR for all of them, a section per branch in the
+   description. Anything finished later in the session joins that open PR's
+   branch, not a new PR. Claude Code sessions open or merge a PR only when
+   asked.
 6. **Message the team: "PR ready: <name>"** — do not merge to dev unannounced.
 7. After the merge (~4 min deploy), open dev.nexus.greensglobal.com and verify
    the feature works there too.
@@ -69,6 +77,7 @@ cd frontend && npm run dev
 
 - Commit directly to `dev` or `main`
 - Push or open a PR without pulling `dev` first and running the lint checks
+- Open a second PR while one of yours is still open - add to it instead
 - Commit `.env` / `.env.local` files
 - Reuse a branch after it merged — always branch fresh from `dev`
 - Edit another developer's files (see CLAUDE.md ownership table)
