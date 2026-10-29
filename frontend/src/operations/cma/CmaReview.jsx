@@ -11,7 +11,7 @@ import { Fragment, useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Check, Eye, Plus, RotateCcw, Send, X } from 'lucide-react';
 import { api } from '../../api';
 import { ErrorBanner, LoadingState } from '../../components/AsyncState';
-import { Modal } from '../../tasks/components';
+import { Modal, AvatarName, usePeople } from '../../tasks/components';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { dash, exportRows, requestId, signedUsd, usd } from './cmaModel';
 
@@ -111,6 +111,12 @@ function PreviewModal({ items, onClose }) {
 
 export default function CmaReview({ facility, onSection, onChanged }) {
   const fid = facility.id;
+  // approvedBy / doneBy arrive as emails: shown as the person (face + name).
+  const people = usePeople();
+  const who = (email) => {
+    const p = people.find((x) => x.email === (email || '').toLowerCase());
+    return <AvatarName email={email} name={p?.name || email} size={18} />;
+  };
   const [state, setState] = useState({ status: 'loading', data: null });
   const [picked, setPicked] = useState(null);
   const [role, setRole] = useState('ops_manager');
@@ -367,8 +373,8 @@ export default function CmaReview({ facility, onSection, onChanged }) {
                         ? <>Web {usd(c.oldWeb)} → {usd(c.newWeb)}<div className="cma-type-sub">Standard {usd(c.oldStandard)} → {usd(c.newStandard)}</div></>
                         : <>{c.kind === 'promo_end' ? 'End ' : ''}{c.promo.name}<div className="cma-type-sub">{c.promoText}</div></>}</td>
                       <td data-th="Status"><span className={`status-badge ${cls}`}>{label}</span>{c.detail ? <div className="cma-why">{c.detail}</div> : null}</td>
-                      <td data-th="Approved">{c.approvedBy ? <>{c.approvedBy}<div className="cma-type-sub">{d.roleLabels[c.approverRole] || ''} {formatDateTime(c.approvedAt)}</div></> : dash}{c.note ? <div className="cma-why">{c.note}</div> : null}</td>
-                      <td data-th="Done">{c.doneAt ? <>{c.doneBy}<div className="cma-type-sub">{formatDateTime(c.doneAt)}</div></> : dash}</td>
+                      <td data-th="Approved">{c.approvedBy ? <>{who(c.approvedBy)}<div className="cma-type-sub">{d.roleLabels[c.approverRole] || ''} {formatDateTime(c.approvedAt)}</div></> : dash}{c.note ? <div className="cma-why">{c.note}</div> : null}</td>
+                      <td data-th="Done">{c.doneAt ? <>{c.doneBy ? who(c.doneBy) : dash}<div className="cma-type-sub">{formatDateTime(c.doneAt)}</div></> : dash}</td>
                       <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                         {['approved', 'failed'].includes(c.status) && (
                           <button type="button" className="secondary-btn cma-btn" disabled={!!busy} onClick={() => act(() => api.markOpsCmaEntered(c.id), 'entered')}

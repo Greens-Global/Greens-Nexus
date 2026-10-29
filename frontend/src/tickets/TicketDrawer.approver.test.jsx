@@ -35,10 +35,13 @@ const { TicketDrawer } = await import('./TicketsView');
 
 afterEach(() => { cleanup(); ME = 'boss@example.com'; decideTicketApproval.mockClear(); reloadTickets.mockClear(); });
 
+// The words a reader sees, without the avatars' initials in between.
+const said = (el) => { const c = el.cloneNode(true); c.querySelectorAll('[data-avatar]').forEach((n) => n.remove()); return c.textContent.replace(/\s+/g, ' '); };
+
 describe('TicketDrawer - the named approver', () => {
   it('shows Approve and Reject to the approver with no desk access, and decides', async () => {
     render(<TicketDrawer ticketId="t1" onClose={() => {}} />);
-    expect(screen.getByText(/waiting on you/)).toBeTruthy();
+    expect(said(screen.getByText(/waiting on/))).toMatch(/waiting on you/);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Approve/ })); });
     expect(decideTicketApproval).toHaveBeenCalledWith('t1', 'approve', '');
     expect(reloadTickets).toHaveBeenCalled();

@@ -19,11 +19,18 @@ vi.mock('../api', () => ({
     timeOffDecide: (...a) => timeOffDecide(...a),
     decideReimbursement: (...a) => decideReimbursement(...a),
     addTaskComment: (...a) => addTaskComment(...a),
+    // The profile pictures' directory (lib/peoplePhotos.js).
+    getPeopleDirectory: () => Promise.resolve([{ email: 'priya.s@greensglobal.com', photoUrl: '' }]),
     ...Object.fromEntries(Object.keys(hrApi).map((k) => [k, (...a) => hrApi[k](...a)])),
   },
 }));
 const prompt = vi.fn();
 vi.mock('../ui/dialog', () => ({ dialog: { prompt: (...a) => prompt(...a), confirm: vi.fn() } }));
+// The rows' profile pictures carry the person hover card, which reads the role.
+vi.mock('../contexts/RoleContext', async (importOriginal) => ({
+  ...(await importOriginal()),
+  useRole: () => ({ isExternal: false, can: () => false, myGrantedModules: new Set(), myEmail: 'me@greensglobal.com' }),
+}));
 
 const { default: Approvals } = await import('./Approvals');
 const { UNDO_MS, shortName, waited, runApproval, runsInline } = await import('../lib/approvalActions');
@@ -148,16 +155,64 @@ describe('Approvals', () => {
     expect(screen.queryByText('Undo')).toBeNull();
   });
 
-  it('opens a row that needs more than one click in its module', async () => {
+  it('opens a row that needs more than one click in its module, through Review', async () => {
     approvalsInbox.mockResolvedValue(INBOX);
     const seen = [];
     const on = (e) => seen.push(e.detail);
     window.addEventListener('nexus:navigate', on);
     render(<Approvals />);
     const row = (await screen.findByText(/Time Sheet Review/)).closest('.apv-row');
+    // One Review button on the row, never a second one from the row's own Open.
+    expect(within(row).getAllByRole('button', { name: /^Review:/ })).toHaveLength(1);
     fireEvent.click(within(row).getByRole('button', { name: /^Review:/ }));
+    expect(seen).toEqual([]);                                   // Review shows the detail first
+    fireEvent.click(await screen.findByRole('button', { name: /^Open In / }));
     window.removeEventListener('nexus:navigate', on);
     expect(seen).toEqual([{ view: 'hr', sub: 'hr-time' }]);
+  });
+
+  // Neil, 10/28/2026: Review gives the detail, a photo by every name, and
+  // the approvals are easy to clear.
+  it('Review lists every detail and decides from there', async () => {
+    approvalsInbox.mockResolvedValue({ ...INBOX, rows: INBOX.rows.map((r) => (r.kind === 'time_off'
+      ? { ...r, facts: [{ label: 'Type', value: 'Vacation' }, { label: 'Note', value: 'Family wedding in Pune' }] } : r)) });
+    timeOffDecide.mockResolvedValue({ conflicts: [] });
+    render(<Approvals />);
+    const row = (await screen.findByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)')).closest('.apv-row');
+    expect(row.querySelector('img, [title], div')).toBeTruthy();   // the avatar sits in the row
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fireEvent.click(within(row).getByRole('button', { name: /^Review:/ }));
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).getByText('Priya Sharma')).toBeTruthy();
+    expect(within(dlg).getByText('Family wedding in Pune')).toBeTruthy();
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Approve' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(UNDO_MS + 100); });
+    expect(timeOffDecide).toHaveBeenCalledWith('t1', { status: 'approved', note: '' });
+  });
+
+  it('approves the selected rows together, with one Undo', async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    timeOffDecide.mockResolvedValue({ conflicts: [] });
+    decideReimbursement.mockResolvedValue({});
+    render(<Approvals />);
+    await screen.findByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)');
+    // A row whose next step is in its module has no checkbox.
+    const review = screen.getByText(/Time Sheet Review/).closest('.apv-row');
+    expect(within(review).queryByRole('checkbox')).toBeNull();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fireEvent.click(screen.getByRole('checkbox', { name: /^Select every request/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }));
+    expect(screen.queryByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)')).toBeNull();
+    expect(screen.queryByText('Reimbursement - $142.50 (2 receipts)')).toBeNull();
+    fireEvent.click(screen.getByText('Undo'));
+    expect(screen.getByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)')).toBeTruthy();
+    expect(screen.getByText('Reimbursement - $142.50 (2 receipts)')).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox', { name: /^Select every request/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }));
+    await act(async () => { vi.advanceTimersByTime(UNDO_MS + 100); });
+    expect(timeOffDecide).toHaveBeenCalledWith('t1', { status: 'approved', note: '' });
+    expect(decideReimbursement).toHaveBeenCalledWith('r1', { action: 'approve', note: '' });
   });
 });
 

@@ -16,16 +16,25 @@
 // (UNDO_MS) - the module endpoints cannot be undone once called, so the undo
 // is the wait. Leaving the screen sends whatever is still waiting. A refusal
 // brings the row back with the module's own message.
+//
+// Neil, 10/28/2026: "easy for anyone to clear the approvals", a profile
+// picture by every name, and a Review on every row that shows the detail and
+// takes them to the item. So each row has the person's photo, a Review that
+// opens the full request (its `facts`, the decision buttons, and Open In
+// <module> for the item itself), and a checkbox: rows whose yes is one click
+// can be approved together, with the same single Undo.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Inbox, RefreshCw, CheckCircle2, ChevronRight } from 'lucide-react';
+import { Inbox, RefreshCw, CheckCircle2, ChevronRight, ArrowUpRight, Users } from 'lucide-react';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { ForChip } from '../components/DelegateApprovals';
+import { NAV } from '../components/Sidebar';
+import { Avatar, Modal } from '../tasks/components';
 import { dialog } from '../ui/dialog';
 import { formatDateTime } from '../lib/datetime';
 import { openNotificationTarget } from '../lib/openTarget';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
-import { UNDO_MS, doneWord, runApproval, runsInline, shortName, waited } from '../lib/approvalActions';
+import { UNDO_MS, bulkAction, doneWord, runApproval, runsInline, shortName, waited } from '../lib/approvalActions';
 
 const FONT = 'Inter, sans-serif';
 const POLL_MS = 60000;
@@ -53,12 +62,17 @@ function go(link) {
   openNotificationTarget(link);
 }
 
+// "Open In Team" - the module's name as the left menu shows it.
+const moduleName = (link) => NAV.find((n) => n.view === link?.view)?.label || '';
+
 export default function Approvals({ activeSub, onSubChange }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [hidden, setHidden] = useState(() => new Set());   // keys decided here, waiting out the Undo window or the reload
-  const [toast, setToast] = useState(null);                 // { kind: 'undo' | 'ok' | 'error', msg, key?, link? }
+  const [toast, setToast] = useState(null);                 // { kind: 'undo' | 'ok' | 'error', msg, keys?, link? }
+  const [selected, setSelected] = useState(() => new Set()); // keys checked for Approve Selected
+  const [reviewing, setReviewing] = useState(null);         // the row whose Review panel is open
   const pending = useRef(new Map());                        // key -> { row, action, note, timer }
   const settled = useRef(new Map());                        // key -> when it was sent; un-hidden by a load begun after that (a claim can come back for HR)
   const toastTimer = useRef(null);
@@ -146,6 +160,13 @@ export default function Approvals({ activeSub, onSubChange }) {
     };
   }, [commit]);
 
+  // Queue one decision: off the list now, sent when the Undo window closes.
+  function queue(row, action, note) {
+    hide(row.key, true);
+    const timer = setTimeout(() => commit(row.key), UNDO_MS);
+    pending.current.set(row.key, { row, action, note, timer });
+  }
+
   async function decide(row, action) {
     if (action.key === 'open' || !runsInline(row, action.key)) { go(row.link); return; }
     let note = '';
@@ -160,21 +181,34 @@ export default function Approvals({ activeSub, onSubChange }) {
       note = String(v).trim();
       if (required && !note) return;
     }
-    // Off the list now; sent when the Undo window closes.
-    hide(row.key, true);
-    const timer = setTimeout(() => commit(row.key), UNDO_MS);
-    pending.current.set(row.key, { row, action, note, timer });
+    queue(row, action, note);
+    setReviewing((cur) => (cur?.key === row.key ? null : cur));
+    setSelected((s) => { if (!s.has(row.key)) return s; const n = new Set(s); n.delete(row.key); return n; });
     const who = shortName(row.person);
-    say({ kind: 'undo', key: row.key, msg: `${doneWord(action.key)}: ${who ? `${who} - ` : ''}${row.title}` });
+    say({ kind: 'undo', keys: [row.key], msg: `${doneWord(action.key)}: ${who ? `${who} - ` : ''}${row.title}` });
   }
 
-  function undo(key) {
-    const p = pending.current.get(key);
-    if (!p) return;
-    clearTimeout(p.timer);
-    pending.current.delete(key);
-    hide(key, false);
-    say(null);
+  // Approve Selected: every checked row's one-click yes, one Undo for all.
+  function decideSelected() {
+    const picked = rows.filter((r) => selected.has(r.key) && bulkAction(r));
+    if (!picked.length) return;
+    picked.forEach((r) => queue(r, bulkAction(r), ''));
+    setSelected(new Set());
+    say({ kind: 'undo', keys: picked.map((r) => r.key),
+      msg: `Approved ${picked.length} ${picked.length === 1 ? 'request' : 'requests'}` });
+  }
+
+  function undo(keys) {
+    let any = false;
+    (keys || []).forEach((key) => {
+      const p = pending.current.get(key);
+      if (!p) return;
+      clearTimeout(p.timer);
+      pending.current.delete(key);
+      hide(key, false);
+      any = true;
+    });
+    if (any) say(null);
   }
 
   const groupLabels = data?.groupLabels?.length ? data.groupLabels : DEFAULT_GROUPS;
@@ -188,14 +222,29 @@ export default function Approvals({ activeSub, onSubChange }) {
   const chips = [{ key: 'all', label: 'All' }, ...groupLabels.filter((g) => counts[g.key] || g.key === group)];
   const errors = data?.errors || [];
   const groupName = groupLabels.find((g) => g.key === group)?.label || '';
+  const labelOf = (g) => groupLabels.find((x) => x.key === g)?.label || '';
+  // Approve Selected covers what is on screen: switching chips never approves
+  // a row the person cannot see.
+  const bulkable = shown.filter((r) => bulkAction(r));
+  const picked = bulkable.filter((r) => selected.has(r.key));
+  const allPicked = bulkable.length > 0 && picked.length === bulkable.length;
+  const toggle = (key) => setSelected((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const toggleAll = () => setSelected(allPicked ? new Set() : new Set(bulkable.map((r) => r.key)));
 
   return (
     <div style={{ fontFamily: FONT, color: 'var(--ink)', maxWidth: 1080, margin: '0 auto', padding: '4px 0 48px' }}>
       <style>{`
-        .apv-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) 76px auto; grid-template-areas: "who what age act";
+        .apv-row { display: grid; grid-template-columns: 20px 190px minmax(0, 1fr) 76px auto; grid-template-areas: "pick who what age act";
           gap: 6px 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); }
         .apv-row:first-child { border-top: none; }
-        .apv-who { grid-area: who; min-width: 0; }
+        .apv-pick { grid-area: pick; display: flex; align-items: center; }
+        .apv-pick input, .apv-bar input { width: 16px; height: 16px; margin: 0; accent-color: var(--wk-brand); cursor: pointer; }
+        .apv-who { grid-area: who; min-width: 0; display: flex; align-items: center; gap: 10px; }
+        .apv-bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--surface-2, var(--card)); }
+        .apv-facts { display: grid; grid-template-columns: minmax(120px, 180px) minmax(0, 1fr); border-top: 1px solid var(--line); }
+        .apv-facts > div { padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; line-height: 1.5; }
+        .apv-facts > div:nth-child(odd) { color: var(--muted); padding-right: 16px; }
+        .apv-facts > div:nth-child(even) { color: var(--ink); font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere; }
         .apv-what { grid-area: what; min-width: 0; }
         .apv-age { grid-area: age; text-align: right; }
         .apv-act { grid-area: act; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
@@ -203,7 +252,9 @@ export default function Approvals({ activeSub, onSubChange }) {
         .apv-title:hover { text-decoration: underline; }
         .apv-act button { font-size: 12.5px; padding: 6px 12px; white-space: nowrap; }
         @media (max-width: 720px) {
-          .apv-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "who age" "what what" "act act"; padding: 12px 14px; }
+          .apv-row { grid-template-columns: 20px minmax(0, 1fr) auto; grid-template-areas: "pick who age" ". what what" ". act act"; padding: 12px 14px; }
+          .apv-facts { grid-template-columns: minmax(0, 1fr); }
+          .apv-facts > div:nth-child(odd) { border-bottom: none; padding-bottom: 0; }
           .apv-act { justify-content: flex-start; }
           .apv-act button { flex: 1 1 auto; }
         }
@@ -265,16 +316,37 @@ export default function Approvals({ activeSub, onSubChange }) {
             <div style={{ fontSize: 16, fontWeight: 700, marginTop: 10 }}>
               {group === 'all' ? 'Nothing waiting on you' : `Nothing in ${groupName} waiting on you`}
             </div>
-            <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6, maxWidth: 460, marginInline: 'auto', lineHeight: 1.5 }}>
-              Time off, time sheets, reimbursements, shift requests, hiring votes and documents that need your decision show up here.
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
+              Every approval in Nexus that needs your decision shows up here - time off, time sheets, money, tasks, tickets, equipment, hiring and documents.
             </div>
           </div>
         }
       >
         <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', overflow: 'hidden' }}>
-          {shown.map((r) => <Row key={r.key} row={r} onAct={decide} />)}
+          {bulkable.length > 0 && (
+            <div className="apv-bar">
+              <input type="checkbox" checked={allPicked} aria-label="Select every request that can be approved in one click"
+                ref={(el) => { if (el) el.indeterminate = picked.length > 0 && !allPicked; }} onChange={toggleAll} />
+              <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1, minWidth: 0 }}>
+                {picked.length ? `${picked.length} selected` : 'Select requests to approve them together.'}
+              </span>
+              <button type="button" className="primary-btn" disabled={!picked.length} onClick={decideSelected}
+                style={{ fontSize: 12.5, padding: '6px 14px', whiteSpace: 'nowrap' }}>
+                Approve Selected{picked.length ? ` (${picked.length})` : ''}
+              </button>
+            </div>
+          )}
+          {shown.map((r) => (
+            <Row key={r.key} row={r} onAct={decide} onReview={() => setReviewing(r)}
+              selectable={!!bulkAction(r)} selected={selected.has(r.key)} onToggle={() => toggle(r.key)} />
+          ))}
         </div>
       </AsyncSection>
+
+      {reviewing && (
+        <ReviewPanel row={reviewing} kindLabel={labelOf(reviewing.group)} onClose={() => setReviewing(null)}
+          onAct={(a) => { if (a.key === 'open' || !runsInline(reviewing, a.key)) setReviewing(null); decide(reviewing, a); }} />
+      )}
 
       {toast && (
         <div role="status" aria-live="polite"
@@ -284,7 +356,7 @@ export default function Approvals({ activeSub, onSubChange }) {
             fontSize: 13, fontWeight: 600, fontFamily: FONT }}>
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{toast.msg}</span>
           {toast.kind === 'undo' && (
-            <button type="button" onClick={() => undo(toast.key)}
+            <button type="button" onClick={() => undo(toast.keys)}
               style={{ background: 'none', border: 'none', color: 'hsl(var(--color-green))', fontWeight: 800, fontSize: 13, cursor: 'pointer', padding: '2px 4px', fontFamily: FONT }}>
               Undo
             </button>
@@ -301,16 +373,40 @@ export default function Approvals({ activeSub, onSubChange }) {
   );
 }
 
-function Row({ row, onAct }) {
+// The person's photo (the shared Avatar: their Nexus photo, else initials).
+// A row about a team, a role or a workflow subject has no one person, so it
+// gets a plain group mark instead of made-up initials.
+function PersonMark({ person, size }) {
+  if (person?.email) return <Avatar email={person.email} name={person.name} size={size} />;
+  return (
+    <span aria-hidden="true" style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, display: 'inline-flex',
+      alignItems: 'center', justifyContent: 'center', background: 'var(--line)', color: 'var(--muted)' }}>
+      <Users size={Math.round(size * 0.5)} />
+    </span>
+  );
+}
+
+function Row({ row, onAct, onReview, selectable, selected, onToggle }) {
   const who = shortName(row.person);
+  // Decisions run here; a step that opens the module lives in Review, so a
+  // row never shows two buttons that both read "Review".
+  const inline = (row.actions || []).filter((a) => a.key !== 'open' && runsInline(row, a.key));
   return (
     <div className="apv-row" data-kind={row.kind}>
-      <div className="apv-who" title={row.person?.name || ''}
-        style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {who || '-'}
+      <div className="apv-pick">
+        {selectable && (
+          <input type="checkbox" checked={selected} onChange={onToggle}
+            aria-label={`Select ${row.title}${who ? ` (${who})` : ''}`} />
+        )}
+      </div>
+      <div className="apv-who" title={row.person?.name || ''}>
+        <PersonMark person={row.person} size={30} />
+        <span style={{ fontSize: 13.5, fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {who || '-'}
+        </span>
       </div>
       <div className="apv-what">
-        <button type="button" className="apv-title" onClick={() => go(row.link)} title="Open it in its module"
+        <button type="button" className="apv-title" onClick={onReview} title="Review the details"
           style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.35, display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%' }}>
           <span style={{ overflowWrap: 'anywhere' }}>{row.title}</span>
           <ChevronRight size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
@@ -327,7 +423,11 @@ function Row({ row, onAct }) {
         {waited(row.createdAt)}
       </div>
       <div className="apv-act">
-        {(row.actions || []).map((a) => (
+        <button type="button" className="secondary-btn" onClick={onReview}
+          aria-label={`Review: ${row.title}${who ? ` (${who})` : ''}`}>
+          Review
+        </button>
+        {inline.map((a) => (
           <button key={a.key} type="button" className={a.tone === 'primary' ? 'primary-btn' : 'secondary-btn'}
             aria-label={`${a.label}: ${row.title}${who ? ` (${who})` : ''}`} onClick={() => onAct(row, a)}>
             {a.label}
@@ -335,5 +435,80 @@ function Row({ row, onAct }) {
         ))}
       </div>
     </div>
+  );
+}
+
+// Review (Neil, 10/28/2026): the whole request - who, what, every detail the
+// module gave (`facts`), how long it has waited - with the decision buttons,
+// and the way to the item itself in its module.
+function ReviewPanel({ row, kindLabel, onClose, onAct }) {
+  const person = row.person || {};
+  const mod = moduleName(row.link);
+  const inline = (row.actions || []).filter((a) => a.key !== 'open' && runsInline(row, a.key));
+  // A row whose next step happens in the module ("Review & Sign", "Pay Out")
+  // keeps its own words on that button.
+  const step = (row.actions || []).find((a) => a.key === 'open' || !runsInline(row, a.key));
+  const openLabel = step && step.label && !/^(open|review)$/i.test(step.label)
+    ? step.label : mod ? `Open In ${mod}` : 'Open It In Its Module';
+  const facts = row.facts || [];
+  const footer = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: '100%' }}>
+      {row.link?.view && (
+        <button type="button" className={inline.length ? 'secondary-btn' : 'primary-btn'} onClick={() => { onClose(); go(row.link); }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {openLabel} <ArrowUpRight size={14} />
+        </button>
+      )}
+      <span style={{ flex: 1 }} />
+      {inline.slice().reverse().map((a) => (
+        <button key={a.key} type="button" className={a.tone === 'primary' ? 'primary-btn' : 'secondary-btn'} onClick={() => onAct(a)}>
+          {a.label}
+        </button>
+      ))}
+    </div>
+  );
+  return (
+    <Modal title={row.title} onClose={onClose} footer={footer}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18, fontFamily: FONT, color: 'var(--ink)', flex: 1, minHeight: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px 14px', flexWrap: 'wrap' }}>
+          <PersonMark person={person} size={48} />
+          <div style={{ minWidth: 180, flex: 1 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, overflowWrap: 'anywhere' }}>
+              {person.name || 'Your Team'}
+              {row.forName && <ForChip name={row.forName} />}
+            </div>
+            {person.email && person.email !== person.name && (
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', overflowWrap: 'anywhere' }}>{person.email}</div>
+            )}
+          </div>
+          <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+            {kindLabel && <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>{kindLabel}</div>}
+            {row.createdAt && (
+              <div style={{ fontSize: 12, color: 'var(--muted)' }} title={formatDateTime(row.createdAt)}>
+                Waiting since {formatDateTime(row.createdAt)}
+              </div>
+            )}
+          </div>
+        </div>
+        {row.detail && <div style={{ fontSize: 14, lineHeight: 1.5, overflowWrap: 'anywhere' }}>{row.detail}</div>}
+        {facts.length > 0 && (
+          // The wrapper takes the popup's spare height; the list inside keeps
+          // its rows at their own height instead of stretching to fill it.
+          <div className="nx-fill">
+            <div className="apv-facts" style={{ alignContent: 'start' }}>
+              {facts.map((f) => [
+                <div key={`${f.label}:l`}>{f.label}</div>,
+                <div key={`${f.label}:v`}>{f.value}</div>,
+              ])}
+            </div>
+          </div>
+        )}
+        {!facts.length && !row.detail && (
+          <div className="nx-fill" style={{ fontSize: 13.5, color: 'var(--muted)' }}>
+            {mod ? `The full request is in ${mod}.` : 'The full request is in its module.'}
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
