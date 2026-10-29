@@ -81,7 +81,9 @@ class PrefsBody(BaseModel):
 @router.get("/prefs")
 def get_prefs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = db.query(models.AccountingUserPref).filter(models.AccountingUserPref.email == user["email"].lower()).first()
-    return {"prefs": row.prefs if row and isinstance(row.prefs, dict) else {}}
+    # updatedAt: when the layout last reached the server, so a browser holding
+    # an unsent change can tell whether another computer saved since (10/29).
+    return {"prefs": row.prefs if row and isinstance(row.prefs, dict) else {}, "updatedAt": (row.updated_at or "") if row else ""}
 
 
 @router.put("/prefs")
@@ -91,12 +93,13 @@ def put_prefs(body: PrefsBody, user: dict = Depends(get_current_user), db: Sessi
         raise HTTPException(status_code=400, detail="That layout is too large to save.")
     me = user["email"].lower()
     row = db.query(models.AccountingUserPref).filter(models.AccountingUserPref.email == me).first()
+    now = _now()
     if row:
-        row.prefs, row.updated_at = body.prefs, _now()
+        row.prefs, row.updated_at = body.prefs, now
     else:
-        db.add(models.AccountingUserPref(email=me, prefs=body.prefs, updated_at=_now()))
+        db.add(models.AccountingUserPref(email=me, prefs=body.prefs, updated_at=now))
     db.commit()
-    return {"prefs": body.prefs}
+    return {"prefs": body.prefs, "updatedAt": now}
 
 
 @router.post("/opened")
