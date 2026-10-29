@@ -65,19 +65,15 @@ describe('Header Create menu', () => {
     expect(screen.getByRole('menu', { name: 'Create' })).toBeTruthy();
     expect(document.activeElement.textContent.trim()).toBe('New Task');
     // Section labels and rows in order. No 1:1, Ask HR, Reimbursement,
-    // Credential, Purchase Request or Send for Signature (Neil, Oct 29 2026).
+    // Credential, Purchase Request, Send for Signature, Workflow or Time Off
+    // (Neil, Oct 29 2026).
     expect([...document.querySelectorAll('.qc-menu .hud-sec')].map((e) => e.textContent)).toEqual(['Work', 'Requests', 'Outlook']);
-    expect(rows()).toEqual(['New Task', 'New Ticket', 'New Document', 'Request Time Off', 'Request an Item', 'New Email', 'New Event']);
+    expect(rows()).toEqual(['New Task', 'New Ticket', 'New Document', 'Request an Item', 'New Email', 'New Event']);
   });
 
-  it('hides what the person cannot use: no Workflows grant', async () => {
-    ROLE = employee();
-    header();
-    await act(async () => { fireEvent.click(plus()); });
-    expect(rows()).not.toContain('New Workflow');
-    expect(rows()).toContain('New Task');
-    cleanup();
-    // Without a Tasks grant, no New Task; an administrator gets Workflows.
+  it('hides what the person cannot use', async () => {
+    // Without a Tasks grant, no New Task; an administrator still gets no
+    // Workflow, Credential or Time Off row.
     ROLE = { ...employee(), myGrantedModules: new Map() };
     header();
     await act(async () => { fireEvent.click(plus()); });
@@ -87,8 +83,8 @@ describe('Header Create menu', () => {
     ROLE = { ...employee(), myRole: 'administrator', can: () => true, canAccessModule: () => true };
     header();
     await act(async () => { fireEvent.click(plus()); });
-    expect(rows()).toEqual(expect.arrayContaining(['New Workflow', 'New Task']));
-    expect(rows()).not.toContain('New Credential');
+    expect(rows()).toContain('New Task');
+    ['New Workflow', 'New Credential', 'Request Time Off'].forEach((r) => expect(rows()).not.toContain(r));
   });
 
   it('is not shown to an external guest with no module that creates anything', () => {
@@ -130,8 +126,8 @@ describe('Header Create menu', () => {
       expect(await screen.findByRole('dialog', { name: 'Composer task' })).toBeTruthy();
       expect(nav).not.toHaveBeenCalled();
       await act(async () => { fireEvent.click(plus()); });
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Request Time Off' }));
-      expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'myhr', sub: 'timeoff' });
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Request an Item' }));
+      expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'inventory', sub: 'catalog' });
       await act(async () => { fireEvent.click(plus()); });
       fireEvent.click(screen.getByRole('menuitem', { name: 'New Document' }));
       expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'documents', sub: 'documents-new' });

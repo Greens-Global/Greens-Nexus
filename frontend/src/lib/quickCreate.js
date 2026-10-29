@@ -11,36 +11,20 @@
 //             dialog - "<thing>:new" style subs, the convention "purchase:new"
 //             started (Workday > Purchase Requests):
 //               documents / documents-new         My Documents > New Document
-//               myhr / timeoff                    the Request Time Off form
 //               inventory / catalog               the item catalog's Request
-//   run     - New Workflow, which (like the module's own button) makes a
-//             blank workflow on the server and opens it in the builder.
 //
 // Who sees a row is the left menu's own rule (Sidebar's isNavItemVisible)
 // for the module it lands in, plus the grant level that module's own New
-// button asks for (canAccessModule, as Workflows does).
+// button asks for when a row sets `level` (canAccessModule).
 //
 // Kept off the menu on purpose (Neil, Oct 29 2026): 1:1s, Ask HR,
-// Reimbursements, Credentials, Purchase Requests and Send for Signature -
-// those start from their own modules.
-import { CheckSquare, FilePlus2, Workflow, CalendarClock, Package, Mail, CalendarPlus } from 'lucide-react';
+// Reimbursements, Credentials, Purchase Requests, Send for Signature,
+// Workflows and Time Off - those start from their own modules.
+import { CheckSquare, FilePlus2, Package, Mail, CalendarPlus } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { NAV, isNavItemVisible } from '../components/Sidebar';
-import { api } from '../api';
 
 export const goTo = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }));
-
-// Workflows' own New Workflow (workflows/Overview.jsx, WorkflowList.jsx): a
-// blank workflow in the owner's own scope, opened in the builder. If the
-// server says no, the Workflows list is where the person can see why.
-export async function newWorkflow() {
-  try {
-    const wf = await api.wfCreate({ name: 'Untitled Workflow', companyId: '' });
-    goTo('workflows', wf?.id ? `wf:${wf.id}` : 'list');
-  } catch {
-    goTo('workflows', 'list');
-  }
-}
 
 // Display order. `module` = the left-menu item the flow lives in; `level` =
 // the grant level that module's own New button needs.
@@ -48,8 +32,6 @@ export const CREATE_ITEMS = [
   { key: 'task', group: 'Work', label: 'New Task', Icon: CheckSquare, module: 'tasks', compose: 'task' },
   { key: 'ticket', group: 'Work', label: 'New Ticket', Icon: TicketToken, module: 'support', compose: 'ticket' },
   { key: 'document', group: 'Work', label: 'New Document', Icon: FilePlus2, module: 'documents', go: ['documents', 'documents-new'] },
-  { key: 'workflow', group: 'Work', label: 'New Workflow', Icon: Workflow, module: 'workflows', level: 'editor', run: newWorkflow },
-  { key: 'time-off', group: 'Requests', label: 'Request Time Off', Icon: CalendarClock, module: 'myhr', go: ['myhr', 'timeoff'] },
   { key: 'item', group: 'Requests', label: 'Request an Item', Icon: Package, module: 'inventory', go: ['inventory', 'catalog'] },
   // The Dashboard's Quick Actions offer these to everyone who has a Dashboard.
   { key: 'email', group: 'Outlook', label: 'New Email', Icon: Mail, module: 'dashboard', compose: 'email' },
