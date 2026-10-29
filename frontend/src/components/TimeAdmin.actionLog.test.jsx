@@ -13,15 +13,16 @@ vi.mock('../api', () => ({
     timeOffCalendar: () => Promise.resolve({ entries: [], holidays: [] }),
     timeMonitoringAlerts: () => Promise.resolve({ alerts: [] }),
     timesheetReviewWaiting: () => Promise.resolve({ reviews: [] }),
-    timePunchRequests: (status) => (status === 'decided' ? Promise.resolve([
+    timeDecidedPunchRequests: () => Promise.resolve([
       { id: 'd1', employeeEmail: 'amy@x.com', employeeName: 'Amy Ops', department: 'Operations', action: 'add', punchKind: 'in', at: '2026-10-02T15:00:00',
         reason: 'Doctor visit', status: 'approved', category: 'Sick', decidedBy: 'max@x.com', decidedByName: 'Max Lead', decidedAt: '2026-10-03T16:00:00Z',
         decisionNote: 'Type changed from Personal to Sick.', createdAt: '2026-10-02T20:00:00Z' },
-    ]) : Promise.resolve([
+    ]),
+    timePunchRequests: () => Promise.resolve([
       { id: 'q1', employeeEmail: 'amy@x.com', employeeName: 'Amy Ops', department: 'Operations', action: 'add', punchKind: 'out', at: '2026-10-01T23:00:00', reason: 'Manager meeting' },
       // The same fix filed twice - one row (Visesh, Oct 7).
       { id: 'q2', employeeEmail: 'amy@x.com', employeeName: 'Amy Ops', department: 'Operations', action: 'add', punchKind: 'out', at: '2026-10-01T23:00:30', reason: 'Manager meeting' },
-    ])),
+    ]),
     timeExceptions: () => Promise.resolve([
       { email: 'nick@x.com', name: 'Nick Build', department: 'Construction', blocking: 1,
         exceptions: [{ date: '2026-10-05', type: 'missing_out', label: 'No clock-out - open shift, needs an out time', blocking: true }] },

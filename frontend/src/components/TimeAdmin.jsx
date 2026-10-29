@@ -349,7 +349,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
     if (actKind !== 'decided') return undefined;
     let alive = true;
     setDecidedReqs(null);
-    api.timePunchRequests('decided', start, end)
+    api.timeDecidedPunchRequests(start, end)
       .then(r => { if (alive) setDecidedReqs(Array.isArray(r) ? r : []); })
       .catch(() => { if (alive) setDecidedReqs([]); });
     return () => { alive = false; };
