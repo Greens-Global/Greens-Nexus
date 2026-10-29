@@ -1371,6 +1371,8 @@ def _run_migrations():
             "ALTER TABLE shift_groups ADD COLUMN open_shifts INTEGER DEFAULT 0",
             "ALTER TABLE shift_groups ADD COLUMN department VARCHAR DEFAULT ''",
             "ALTER TABLE shift_group_members ADD COLUMN source VARCHAR DEFAULT ''",
+            # Credentials (Oct 29 2026): a link on a Personal Vault row. models.VaultPersonalCredential.
+            "ALTER TABLE vault_personal_credentials ADD COLUMN url VARCHAR DEFAULT ''",
             # Performance, made simple (Oct 29) - see the Postgres list. models.PerfGoal / PerfReview.
             "ALTER TABLE hr_perf_goals ADD COLUMN metric_key VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_goals ADD COLUMN period_start VARCHAR DEFAULT ''",
@@ -3271,6 +3273,9 @@ def _run_migrations():
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS open_shifts INTEGER DEFAULT 0",
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
         "ALTER TABLE shift_group_members ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT ''",
+        # Credentials (Oct 29 2026): the sign-in link on a Personal Vault row, so
+        # My Logins can open it. models.VaultPersonalCredential.
+        "ALTER TABLE vault_personal_credentials ADD COLUMN IF NOT EXISTS url VARCHAR DEFAULT ''",
         # Performance, made simple (Neil, Oct 29 2026): a goal measured by a
         # Nexus number over its own period, Proposed until approved; a review's
         # 4-word rating, goal scores, Ready for Promotion, the employee's

@@ -4263,6 +4263,7 @@ class VaultPersonalCredential(Base):
     note        = Column(String, default="")
     secret_enc  = Column(String, default="")
     strength    = Column(String, default="strong")
+    url         = Column(String, default="")           # the sign-in page (Oct 29 2026) - Open from My Logins
     created_at  = Column(String, default="")
 
 
