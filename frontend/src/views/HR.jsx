@@ -62,7 +62,7 @@ import { googleMapsUrl } from '../lib/addressSearch';
 import WorkSiteFenceCheck from '../components/WorkSiteFenceCheck';
 import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
-import { PersonSelect } from '../tasks/components';
+import { PersonSelect, Avatar as EmailAvatar } from '../tasks/components';
 import { US_STATE_NAMES } from '../lib/usStates';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
 import RecordsAudit from '../components/RecordsAudit';
@@ -3351,6 +3351,7 @@ export function CompanyDepartments({ entity, toastOk, toastErr }) {
   }
   const headPicker = (value, onPick, onClear, label) => value ? (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, fontSize: 12.5 }}>
+      <EmailAvatar email={value} name={nameOf(value)} size={22} />
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>{nameOf(value)}</span>
       <button onClick={onClear} title={`Clear ${label}`} aria-label={`Clear ${label}`}
         style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 20, height: 20, borderRadius: '50%', padding: 0, flexShrink: 0 }}>
