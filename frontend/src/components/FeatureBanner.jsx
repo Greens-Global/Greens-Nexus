@@ -185,7 +185,9 @@ export default function FeatureBanner({ activeView, onNavigate }) {
     : 'Updates this week, including ';
   const leadShort = update ? (hasNews ? 'New Version: ' : 'A New Version is ready.') : 'Including ';
   const message = `${lead}${parts.map((p, i) => `${p.count} ${p.label}${partJoiner(i, parts.length)}`).join('')}`;
-  const Icon = update && !(counts?.['New Feature'] > 0) ? RefreshCw : Sparkles;
+  // A new version is always the refresh arrows (they turn once as the bar
+  // lands - Neil, Oct 28 2026); the weekly news keeps the sparkle.
+  const Icon = update ? RefreshCw : Sparkles;
 
   return (
     <div role="region" aria-label={update ? 'New Version of Nexus' : 'New in Nexus'}
