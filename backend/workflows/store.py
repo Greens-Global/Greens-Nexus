@@ -196,6 +196,35 @@ def set_status(db, wf: models.Workflow, status: str, by: str, reason: str = "") 
     audit(db, by, f"workflow.{status}", wf, {"reason": reason or ""})
 
 
+def delete(db, wf: models.Workflow, by: str) -> dict:
+    """Delete a workflow for good (Neil, Oct 28 2026: "an option to delete
+    workflows not just archive them"). The row goes with its versions, its
+    parked waits and its once-per-record marks; a run still running or
+    waiting is cancelled and an open approval closes as cancelled (the
+    Approvals badge counts open ones). Past runs and their steps stay - they
+    carry the workflow's name - and the audit row records who deleted it."""
+    stamp = now_iso()
+    R, S, W, A = models.WorkflowRun, models.WorkflowRunStep, models.WorkflowWait, models.WorkflowApproval
+    open_runs = db.query(R).filter(R.workflow_id == wf.id, R.status.in_(("running", "waiting"))).all()
+    for run in open_runs:
+        run.status, run.finished_at = "cancelled", stamp
+        run.summary = f"Cancelled: the workflow was deleted by {by}"
+    if open_runs:
+        (db.query(S).filter(S.run_id.in_([r.id for r in open_runs]), S.status == "waiting")
+         .update({S.status: "skipped", S.detail: "Cancelled: the workflow was deleted", S.finished_at: stamp},
+                 synchronize_session=False))
+    approvals = (db.query(A).filter(A.workflow_id == wf.id, A.outcome == "")
+                 .update({A.outcome: "cancelled", A.decided_at: stamp}, synchronize_session=False))
+    db.query(W).filter(W.workflow_id == wf.id).delete(synchronize_session=False)
+    db.query(models.WorkflowSubjectMark).filter(models.WorkflowSubjectMark.workflow_id == wf.id).delete(synchronize_session=False)
+    versions = db.query(models.WorkflowVersion).filter(models.WorkflowVersion.workflow_id == wf.id).delete(synchronize_session=False)
+    kept = db.query(R).filter(R.workflow_id == wf.id).count()
+    out = {"cancelledRuns": len(open_runs), "cancelledApprovals": approvals, "versions": versions, "runsKept": kept}
+    audit(db, by, "workflow.delete", wf, {"status": wf.status, "owner": wf.owner_email, **out})
+    db.delete(wf)
+    return out
+
+
 def reown(db, wf: models.Workflow, new_owner: str, by: str) -> list:
     """Hand the workflow to someone else; returns the problems the draft
     has for them (an active workflow with problems goes needs_attention)."""

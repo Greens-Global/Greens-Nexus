@@ -99,7 +99,7 @@ describe('a new version, in the same bar', () => {
     mount();
     expect(await screen.findByText('1 New Feature')).toBeTruthy();
     const text = update().querySelector('.feature-banner-text');
-    expect(text.title).toBe('Reload to get the latest Nexus, including 1 New Feature and 2 Bug Fixes');
+    expect(text.title).toBe('Reload to get the latest version of Nexus, including 1 New Feature and 2 Bug Fixes');
     expect(update().querySelector('.feature-banner-lead-short').textContent).toBe('New Version: ');
     expect(screen.getByRole('button', { name: "See What's New" })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Reload/ })).toBeTruthy();
@@ -110,7 +110,7 @@ describe('a new version, in the same bar', () => {
     build.stale = true;
     mount();
     await waitFor(() => expect(api.getReleasedSince).toHaveBeenCalled());
-    expect(update().querySelector('.feature-banner-lead').textContent).toBe('Reload to get the latest Nexus whenever it suits you.');
+    expect(update().querySelector('.feature-banner-lead').textContent).toBe('Reload to get the latest version of Nexus whenever it suits you.');
     expect(screen.queryByRole('button', { name: "See What's New" })).toBeNull();
     expect(screen.getByRole('button', { name: /Reload/ })).toBeTruthy();
   });

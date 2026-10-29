@@ -68,7 +68,7 @@ class ShiftManageTests(unittest.TestCase):
             db.add(models.NexusRole(email=M2, role="manager", assigned_by="test"))
             db.add(models.NexusGroup(id=GRANT, name="ed", allowed_modules="hr:editor"))
             db.add(models.NexusGroupMember(group_id=GRANT, email=HR))
-            db.add(models.ShiftGroup(id=GROUP, name="Store"))
+            db.add(models.ShiftGroup(open_shifts=1, id=GROUP, name="Store"))
             for i, em in enumerate((A, B, M1)):
                 db.add(models.ShiftGroupMember(id=f"sgm-smgr-{i}", group_id=GROUP, employee_email=em))
             # Trading is OFF by default since Oct 14 2026 (Shifts Phase 0); these

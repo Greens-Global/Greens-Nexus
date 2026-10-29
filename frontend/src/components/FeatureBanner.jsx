@@ -40,7 +40,10 @@ import { prefersReducedMotion } from '../lib/reducedMotion';
 // "reload the app" - without squeezing the message to one word a line.
 //
 // Motion (style.css "New in Nexus bar"): it opens by growing to its height,
-// the icon pops once and a single sheen crosses it; it folds away on close.
+// the icon pops once and, once it has settled, a single soft flash of light
+// crosses it (Neil, Oct 28 2026: "a subtle flash moving through the bar
+// once ... cool and classy") - again whenever a new version takes the bar
+// over, since the flash rides on the keyed row. It folds away on close.
 // Transform/opacity plus that one height change, nothing loops, and reduced
 // motion turns all of it off.
 const RECHECK_MS = 30 * 60 * 1000;
@@ -178,11 +181,13 @@ export default function FeatureBanner({ activeView, onNavigate }) {
   // The label already says "New Version", so the desktop line leads with
   // what to do about it.
   const lead = update
-    ? (hasNews ? 'Reload to get the latest Nexus, including ' : 'Reload to get the latest Nexus whenever it suits you.')
+    ? (hasNews ? 'Reload to get the latest version of Nexus, including ' : 'Reload to get the latest version of Nexus whenever it suits you.')
     : 'Updates this week, including ';
   const leadShort = update ? (hasNews ? 'New Version: ' : 'A New Version is ready.') : 'Including ';
   const message = `${lead}${parts.map((p, i) => `${p.count} ${p.label}${partJoiner(i, parts.length)}`).join('')}`;
-  const Icon = update && !(counts?.['New Feature'] > 0) ? RefreshCw : Sparkles;
+  // A new version is always the refresh arrows (they turn once as the bar
+  // lands - Neil, Oct 28 2026); the weekly news keeps the sparkle.
+  const Icon = update ? RefreshCw : Sparkles;
 
   return (
     <div role="region" aria-label={update ? 'New Version of Nexus' : 'New in Nexus'}

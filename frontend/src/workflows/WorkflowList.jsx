@@ -2,10 +2,10 @@
 // in three scopes - Mine, My Company, Every Company (the last only with the
 // full grant or an administrator's role; GET /workflows?scope= enforces the
 // same on the server). Search, a table on desktop and cards on a phone, row
-// actions Pause / Resume / Duplicate / Archive, and a click opens the
+// actions Pause / Resume / Duplicate / Archive / Delete, and a click opens the
 // builder (wf:<id>).
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Archive, Copy, Pause, Play, Plus, Search, Workflow as WorkflowIcon } from 'lucide-react';
+import { Archive, Copy, Pause, Play, Plus, Search, Trash2, Workflow as WorkflowIcon } from 'lucide-react';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
@@ -89,6 +89,11 @@ export default function WorkflowList({ go }) {
     if (!ok) return;
     act(w, () => api.wfStatus(w.id, { status: 'archived', reason: '' }), () => setRows((rs) => (rs || []).filter((r) => r.id !== w.id)));
   };
+  const remove = async (w) => {
+    const ok = await dialog.confirm(`Delete "${w.name}" for good? It stops running and cannot be brought back. Runs still waiting are cancelled; its past runs stay in Runs.`, { title: 'Delete Workflow', confirmText: 'Delete', danger: true });
+    if (!ok) return;
+    act(w, () => api.wfDelete(w.id), () => setRows((rs) => (rs || []).filter((r) => r.id !== w.id)));
+  };
   const create = () => act({ id: 'new' }, () => api.wfCreate({ name: 'Untitled Workflow', companyId: '' }), (res) => { if (res?.id) go(buildSub('builder', res.id)); });
 
   const triggerText = (w) => w.triggerText || describeTrigger(w.trigger, catalog);
@@ -133,11 +138,12 @@ export default function WorkflowList({ go }) {
               {shown.map((w) => {
                 const m = wfStatusMeta(w.status);
                 const actions = (
-                  <div style={{ display: 'flex', gap: 6, justifyContent: isMobile ? 'flex-start' : 'flex-end', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+                  <div style={{ display: 'flex', gap: isMobile ? 6 : 4, justifyContent: isMobile ? 'flex-start' : 'flex-end', flexWrap: isMobile ? 'wrap' : 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                     {w.status === 'active' && <IconBtn label="Pause" Icon={Pause} onClick={() => pause(w)} disabled={busy === w.id} />}
                     {(w.status === 'paused' || w.status === 'needs_attention') && <IconBtn label="Resume" Icon={Play} onClick={() => resume(w)} disabled={busy === w.id} />}
                     <IconBtn label="Duplicate" Icon={Copy} onClick={() => duplicate(w)} disabled={busy === w.id} />
                     {w.status !== 'archived' && <IconBtn label="Archive" Icon={Archive} onClick={() => archive(w)} disabled={busy === w.id} />}
+                    <IconBtn label="Delete" Icon={Trash2} onClick={() => remove(w)} disabled={busy === w.id} />
                   </div>
                 );
                 const open = () => go(buildSub('builder', w.id));
@@ -185,17 +191,22 @@ export default function WorkflowList({ go }) {
   );
 }
 
-const GRID = { display: 'grid', gridTemplateColumns: 'minmax(160px, 1.4fr) minmax(180px, 2fr) minmax(110px, 1fr) minmax(120px, 1fr) 130px 70px 150px auto', gap: 12 };
+const GRID = { display: 'grid', gridTemplateColumns: 'minmax(160px, 1.4fr) minmax(160px, 2fr) minmax(110px, 1fr) minmax(120px, 1fr) 112px 64px 140px 132px', gap: 12 };   // the last: four 30px row actions and their gaps, the same on every row
 
 // The company has workflows switched off in Settings > Workflows: the server
 // says so with companyEnabled: false (a row without the flag says nothing).
 const COMPANY_OFF = 'Paused: company switch';
 
+// On a desktop row the actions are icons on one line (the label is the
+// tooltip and the accessible name); a phone card keeps the words.
 function IconBtn({ label, Icon, onClick, disabled }) {
+  const isMobile = useIsMobile('(max-width: 760px)');
   return (
     <button type="button" className="secondary-btn" onClick={onClick} disabled={disabled} title={label} aria-label={label}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', fontSize: 12.5 }}>
-      <Icon size={13} /> <span>{label}</span>
+      style={isMobile
+        ? { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', fontSize: 12.5 }
+        : { display: 'inline-grid', placeItems: 'center', width: 30, height: 30, padding: 0 }}>
+      <Icon size={isMobile ? 13 : 15} aria-hidden="true" />{isMobile && <span>{label}</span>}
     </button>
   );
 }

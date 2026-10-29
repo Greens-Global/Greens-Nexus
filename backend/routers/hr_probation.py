@@ -4,9 +4,11 @@
     POST /hr/employees/{eid}/probation/decision       Confirm / Extend / End - HR++ finalizes, a manager recommends
     POST /hr/employees/{eid}/probation/approve        HR++ approves the manager's recommendation
     POST /hr/employees/{eid}/probation/decline        HR++ declines it, with a note for the manager
-    POST /hr/employees/{eid}/probation/start          HR++ starts tracking (someone Not Tracked)
+    POST /hr/employees/{eid}/probation/start          HR++ starts tracking (someone Not Tracked), or a new
+                                                      probation from a day HR picks (start_date)
     PATCH /hr/employees/{eid}/probation               HR++ edits the length or the end date
-    POST /hr/employees/{eid}/probation/stop           HR++ stops tracking (back to Not Tracked)
+    POST /hr/employees/{eid}/probation/remove         HR++ Remove From Probation (reason required)
+    POST /hr/employees/{eid}/probation/stop           the old Stop Tracking - an alias of remove
     POST /hr/employees/{eid}/probation/send-letter    HR++ sends the letter again
     POST /hr/employees/{eid}/probation/letter-preview HR++ sees the PDF a decision would send
     GET/PUT /hr/probation/settings                    Settings > Hiring & Onboarding > Probation
@@ -90,12 +92,13 @@ def decline(eid: str, body: NoteIn, user: dict = Depends(get_current_user), db: 
 class StartIn(BaseModel):
     months: Optional[int] = None
     reason: Optional[str] = ""
+    start_date: Optional[str] = ""
 
 
 @router.post("/employees/{eid}/probation/start")
 def start(eid: str, body: StartIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     emp = _employee(db, eid, user, lock=True)
-    _run(hp.begin, db, user, emp, months=body.months, reason=body.reason or "")
+    _run(hp.begin, db, user, emp, months=body.months, reason=body.reason or "", start=body.start_date or "")
     return {"probation": hp.ser(db, _employee(db, eid, user), user)}
 
 
@@ -116,6 +119,13 @@ def edit(eid: str, body: EditIn, user: dict = Depends(get_current_user), db: Ses
 
 class StopIn(BaseModel):
     reason: Optional[str] = ""
+
+
+@router.post("/employees/{eid}/probation/remove")
+def remove(eid: str, body: StopIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    emp = _employee(db, eid, user, lock=True)
+    _run(hp.remove, db, user, emp, body.reason or "")
+    return {"probation": hp.ser(db, _employee(db, eid, user), user)}
 
 
 @router.post("/employees/{eid}/probation/stop")

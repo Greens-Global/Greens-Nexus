@@ -14,6 +14,14 @@
 .nexus-asset-root button, .nexus-asset-root [role=button], .nexus-asset-root select{touch-action:manipulation}
 .nexus-asset-root :focus-visible{outline:2px solid hsl(var(--color-blue));outline-offset:2px}
 .nexus-asset-root .gt-toc{position:sticky;top:76px;align-self:start;max-height:calc(100vh - 96px);overflow-y:auto}
+/* On This Page (Neil, 10/28/2026: no tinted box, no thick left bar). Flat and
+   editorial, the Docs rail's shape: a hairline rail on the left, the current
+   section in ink and semibold with the rail drawn in pine beside it only. */
+.nexus-asset-root .gt-toc-item{display:block;width:100%;text-align:left;padding:6px 12px;border:none;border-radius:0;background:none;font:inherit;font-family:Inter,sans-serif;font-size:.82rem;font-weight:500;line-height:1.35;color:var(--text-secondary);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:inset 1px 0 0 var(--border-color);transition:color .15s,box-shadow .15s}
+.nexus-asset-root .gt-toc-item:hover{color:var(--text-primary)}
+.nexus-asset-root .gt-toc-item[aria-current="true"]{color:var(--text-primary);font-weight:600;box-shadow:inset 1px 0 0 var(--pine)}
+.nexus-asset-root .gt-toc-item:focus-visible{outline:2px solid var(--pine);outline-offset:-2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){.nexus-asset-root .gt-toc-item{transition:none}}
 @media (max-width:860px){
   .nexus-asset-root .gt-toc{display:none!important}
 }

@@ -17,6 +17,7 @@ import { useTableSync } from './tableSync';
 import { linesFile } from './linesExport';
 import SidePanel, { PanelSection } from './SidePanel';
 import Amount from './Amount';
+import { AvatarName } from '../../tasks/components';
 
 // Accounting > Vendors & Customers (Charmi and Neil, 10/01: "edit a vendor,
 // change all the details and get pushed to manager for approval"). The
@@ -545,8 +546,8 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
                           <div key={f}><span style={{ color: 'var(--text-secondary)' }}>{FIELD_LABEL[f] || f}:</span> <s style={{ color: 'var(--text-muted)' }}>{v.from || '(blank)'}</s> {'->'} <strong>{v.to || '(blank)'}</strong></div>
                         ))}
                       </td>
-                      <td style={td}>{r.requestedByName}<div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{formatDateTime(r.requestedAt)}</div></td>
-                      <td style={td}><span style={chip(STATUS[r.status] || STATUS.pending)}>{STATUS[r.status]?.label || r.status}</span>{r.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{r.decidedByName} · {formatDateTime(r.decidedAt)}</div>}
+                      <td style={td}><AvatarName email={r.requestedBy} name={r.requestedByName} size={20} /><div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{formatDateTime(r.requestedAt)}</div></td>
+                      <td style={td}><span style={chip(STATUS[r.status] || STATUS.pending)}>{STATUS[r.status]?.label || r.status}</span>{r.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}><AvatarName email={r.decidedBy} name={r.decidedByName} size={16} /> · {formatDateTime(r.decidedAt)}</div>}
                         {r.intacctSeenAt && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>Seen in Intacct {formatDateTime(r.intacctSeenAt)}</div>}</td>
                       <td style={{ ...td, whiteSpace: 'pre-wrap', maxWidth: 260 }}>{[r.note, ...seenNote(r)].filter(Boolean).join('\n')}</td>
                       {canApprove && (
@@ -755,13 +756,13 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
                 <tbody>
                   {d.history.map((h) => (
                     <tr key={h.id}>
-                      <td style={td}>{h.requestedByName}<div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{formatDateTime(h.requestedAt)}</div></td>
+                      <td style={td}><AvatarName email={h.requestedBy} name={h.requestedByName} size={20} /><div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{formatDateTime(h.requestedAt)}</div></td>
                       <td style={td}>
                         {Object.entries(h.changes || {}).map(([f, v]) => (
                           <div key={f}><span style={{ color: 'var(--text-secondary)' }}>{FIELD_LABEL[f] || f}:</span> <s style={{ color: 'var(--text-muted)' }}>{v.from || '(blank)'}</s> {'->'} <strong>{v.to || '(blank)'}</strong></div>
                         ))}
                       </td>
-                      <td style={td}><span style={chip(STATUS[h.status] || STATUS.pending)}>{STATUS[h.status]?.label || h.status}</span>{h.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{h.decidedByName} · {formatDateTime(h.decidedAt)}</div>}
+                      <td style={td}><span style={chip(STATUS[h.status] || STATUS.pending)}>{STATUS[h.status]?.label || h.status}</span>{h.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}><AvatarName email={h.decidedBy} name={h.decidedByName} size={16} /> · {formatDateTime(h.decidedAt)}</div>}
                         {h.intacctSeenAt && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>Seen in Intacct {formatDateTime(h.intacctSeenAt)}</div>}</td>
                       <td style={{ ...td, whiteSpace: 'pre-wrap', maxWidth: 240 }}>{[h.note, ...seenNote(h)].filter(Boolean).join('\n')}</td>
                     </tr>

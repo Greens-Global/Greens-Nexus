@@ -892,7 +892,6 @@ export const api = {
   unarchiveKbDoc:(id)       => req(`/knowledge-base/documents/${id}/unarchive`, { method: "POST" }),
   aiFormatKbDoc: (data)     => req("/knowledge-base/ai-format", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   askKb:         (data)     => req("/knowledge-base/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
-  getPageHelp:        (key, label = '') => req(`/help/page?key=${encodeURIComponent(key)}&label=${encodeURIComponent(label)}`, { timeoutMs: AI_TIMEOUT_MS }),
   getKbAcks:        (id)        => req(`/knowledge-base/documents/${id}/acknowledgements`),
   acknowledgeKbDoc: (id)        => req(`/knowledge-base/documents/${id}/acknowledge`, { method: "POST" }),
   setKbAckRequired: (id, value) => req(`/knowledge-base/documents/${id}/ack-required`, { method: "POST", body: JSON.stringify({ value }) }),
@@ -3139,13 +3138,12 @@ export const api = {
   probationLetterPreview: (eid, data) => reqBlob(`/hr/employees/${encodeURIComponent(eid)}/probation/letter-preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), timeoutMs: 60000 }),
   probationSettings: (company = '') => req(`/hr/probation/settings?company=${encodeURIComponent(company || '')}`),
   probationSaveSettings: (data) => req('/hr/probation/settings', { method: 'PUT', body: JSON.stringify(data) }),
-  // Workday > Salary Advance (Neil, Oct 27 2026): the manager tier and up ask,
-  // HR decides, pays out and changes the repayment schedule.
-  getSalaryAdvances:        ()          => req('/salary-advances'),
+  // Remove From Probation (Oct 29 2026) - HR only, a reason required; nothing restarts it by itself.
+  probationRemove: (eid, reason) => req(`/hr/employees/${encodeURIComponent(eid)}/probation/remove`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  // Salary advances (Neil, Oct 27 2026; on the Time Sheet since Oct 29): HR
+  // decides, pays out and changes the repayment schedule.
   salaryAdvancesPending:    ()          => req('/salary-advances/pending'),
   personSalaryAdvances:     (email)     => req(`/salary-advances/person/${encodeURIComponent(email)}`),
-  requestSalaryAdvance:     (body)      => req('/salary-advances', { method: 'POST', body: JSON.stringify(body) }),
-  grantSalaryAdvance:       (body)      => req('/salary-advances/grant', { method: 'POST', body: JSON.stringify(body) }),
   decideSalaryAdvance:      (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify(body) }),
   cancelSalaryAdvance:      (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify(body || {}) }),
   paySalaryAdvance:         (id, body)  => req(`/salary-advances/${encodeURIComponent(id)}/paid`, { method: 'POST', body: JSON.stringify(body) }),
@@ -3229,6 +3227,8 @@ export const api = {
   wfStatus: (id, data) => req(`/workflows/${encodeURIComponent(id)}/status`, { method: "POST", body: JSON.stringify(data) }),
   wfReown: (id, data) => req(`/workflows/${encodeURIComponent(id)}/reown`, { method: "POST", body: JSON.stringify(data) }),
   wfDuplicate: (id, data = {}) => req(`/workflows/${encodeURIComponent(id)}/duplicate`, { method: "POST", body: JSON.stringify(data) }),
+  // Delete for good (Oct 28 2026) - past runs stay in Runs; waiting ones are cancelled.
+  wfDelete: (id) => req(`/workflows/${encodeURIComponent(id)}`, { method: "DELETE" }),
   wfVersions: (id) => req(`/workflows/${encodeURIComponent(id)}/versions`),
   wfVersion: (id, v) => req(`/workflows/${encodeURIComponent(id)}/versions/${encodeURIComponent(v)}`),
   wfRestore: (id, v) => req(`/workflows/${encodeURIComponent(id)}/versions/${encodeURIComponent(v)}/restore`, { method: "POST" }),
@@ -3254,6 +3254,17 @@ export const api = {
   wfApprovalDecide: (id, data) => req(`/workflows/approvals/${encodeURIComponent(id)}/decide`, { method: "POST", body: JSON.stringify(data) }),
   // Built-in automation off switch (Oct 28 2026): Global Admins only, one org-wide list.
   wfJobOff: (key, off) => req(`/workflows/automations/jobs/${encodeURIComponent(key)}/off`, { method: "POST", body: JSON.stringify({ off: !!off }) }),
+  // Salary advance from the person's Time Sheet (Neil, Oct 29 2026): their
+  // direct manager or HR asks - the server grants or requests by who asks.
+  askSalaryAdvanceFor: (email, body) => req(`/salary-advances/for/${encodeURIComponent(email)}`, { method: "POST", body: JSON.stringify(body) }),
+  // Help Center (Oct 2026) - backend/routers/help_center.py. Ask Nexus answers
+  // from the guide sections sent here and the Knowledge Base, docs only.
+  helpAsk: (question, guide) => req("/help-center/ask", { method: "POST", body: JSON.stringify({ question, guide }), timeoutMs: AI_TIMEOUT_MS }),
+  helpSearchLog: (q, results, source) => req("/help-center/search-log", { method: "POST", body: JSON.stringify({ q, results, source }) }),
+  helpFeedback: (data) => req("/help-center/feedback", { method: "POST", body: JSON.stringify(data) }),
+  helpSignals: () => req("/help-center/signals"),
+  helpKnownIssues: () => req("/help-center/known-issues"),
+  helpSaveKnownIssues: (issues) => req("/help-center/known-issues", { method: "PUT", body: JSON.stringify({ issues }) }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with

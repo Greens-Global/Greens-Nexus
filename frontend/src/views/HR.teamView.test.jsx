@@ -54,6 +54,15 @@ describe('People limited to my team', () => {
     expect(calls).not.toContain('getChecklistProgress');
   }, 20000);
 
+  it('names the open tab in the page heading (Oct 29 2026)', async () => {
+    const { default: HR } = await import('./HR');
+    const { rerender } = render(<HR activeSub="hr-people" onSubChange={() => {}} />);
+    expect((await screen.findByRole('heading', { level: 2 })).textContent).toBe('People');
+    rerender(<HR activeSub="hr-time" onSubChange={() => {}} />);
+    expect((await screen.findByRole('heading', { level: 2, name: 'Time' })).textContent).toBe('Time');
+    expect(screen.getByText('Time sheets, time off and punch fixes to review')).toBeTruthy();
+  }, 20000);
+
   it('falls back to People when a deep link points at a hidden section', async () => {
     await renderPeople('hr-hiring');
     expect(screen.getByText('Showing: Your Team')).toBeTruthy();

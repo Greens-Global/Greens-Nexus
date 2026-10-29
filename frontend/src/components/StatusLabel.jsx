@@ -19,19 +19,34 @@ export function StatusLabel({ label, color, title, size = 'md', className = '', 
   );
 }
 
-const BARS = { low: 1, medium: 2, high: 3, urgent: 3 };
-// Only these two carry color; Medium and Low stay quiet.
+// Priority marks (Neil, Oct 28 2026 - the signal bars read as Wi-Fi, and High
+// and Urgent looked the same): the direction says the level - double up
+// Urgent, up High, equals Medium, down Low - so it reads without color.
+// Every priority in Nexus draws this one mark; pickers use PriorityMark.
+const MARK = {
+  urgent: <><path d="m17 11-5-5-5 5" /><path d="m17 18-5-5-5 5" /></>,
+  high: <path d="m18 15-6-6-6 6" />,
+  medium: <path d="M6 9.5h12M6 14.5h12" />,
+  low: <path d="m6 9 6 6 6-6" />,
+};
+// Only these two carry color in the word; Medium and Low stay quiet.
 const LOUD = new Set(['high', 'urgent']);
+
+export function PriorityMark({ priority, size = 14, color, style }) {
+  const d = MARK[priority];
+  if (!d) return null;
+  return (
+    <svg className="nx-prio-mark" viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color || 'currentColor'}
+      strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, ...style }}>{d}</svg>
+  );
+}
 
 export function PrioritySignal({ priority, title }) {
   const known = PRIORITY_META[priority];
   const m = known || { label: priority || '-', color: '#64748b' };
-  const n = BARS[priority] || 0;
   return (
     <span className={`nx-prio${LOUD.has(priority) ? ' nx-prio-loud' : ''}`} style={{ '--c': m.color }} title={title || (known ? `${known.label} priority` : undefined)}>
-      <span className="nx-prio-bars" aria-hidden="true">
-        {[0, 1, 2].map((i) => <i key={i} className={i < n ? 'on' : ''} />)}
-      </span>
+      <PriorityMark priority={priority} />
       <span className="nx-label-text">{m.label}</span>
     </span>
   );

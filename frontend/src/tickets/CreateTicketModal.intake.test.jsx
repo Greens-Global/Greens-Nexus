@@ -34,8 +34,7 @@ async function open() {
 }
 
 async function pickDepartment(name) {
-  fireEvent.click(await screen.findByText('Select department'));
-  fireEvent.click(await screen.findByText(name));
+  fireEvent.click(await screen.findByRole('radio', { name: new RegExp(name) }));
 }
 
 const ERROR_Q = 'Error message, if you saw one';
@@ -43,7 +42,10 @@ const ERROR_Q = 'Error message, if you saw one';
 describe('CreateTicketModal intake (Oct 1)', () => {
   it('opens on Incident, with its questions pre-answered as dropdowns', async () => {
     await open();
-    expect(screen.getByText('Incident Details')).toBeTruthy();
+    // Part 2, Details for the Desk (Oct 28 2026), with Desk-Ready counting its answers.
+    expect(screen.getByText('Details for the Desk')).toBeTruthy();
+    expect(screen.getByText(/^Incident Details \(\d of \d\)$/)).toBeTruthy();
+    expect(screen.getByText('Can you keep working?')).toBeTruthy();
     // Who is affected? is a dropdown showing its default, not a row of chips.
     expect(screen.getByText('Who is affected?')).toBeTruthy();
     expect(screen.getByText('One User')).toBeTruthy();
@@ -73,8 +75,7 @@ describe('CreateTicketModal intake (Oct 1)', () => {
     expect(screen.queryByText(ERROR_Q)).toBeNull();
     await pickDepartment('Facilities');
     expect(screen.queryByText(ERROR_Q)).toBeNull();
-    fireEvent.click(screen.getByText('Facilities'));
-    fireEvent.click(await screen.findByText('IT'));
+    await pickDepartment('IT');
     expect(await screen.findByText(ERROR_Q)).toBeTruthy();
   });
 
@@ -91,10 +92,10 @@ describe('CreateTicketModal intake (Oct 1)', () => {
     } finally { HELP_TOPICS.length = 0; }
   });
 
-  it('puts Record Screen and Upload Attachment under the description, with the paste hint', async () => {
+  it('puts Record Screen and Attach File under the description, with the paste hint', async () => {
     await open();
     expect(screen.getByRole('button', { name: /Record Screen/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Upload Attachment/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Attach File/ })).toBeTruthy();
     expect(screen.getByText(/or press Ctrl\+V to paste a screenshot/)).toBeTruthy();
     // The rich editor's toolbar, the same one the Task module uses.
     expect(screen.getByRole('button', { name: 'Bold' })).toBeTruthy();

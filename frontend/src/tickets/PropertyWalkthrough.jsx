@@ -25,6 +25,7 @@ import { Camera, ImagePlus, Plus, Trash2, Copy, X, CheckCircle2, ChevronDown, Ch
 import { api } from '../api';
 import { filesFromPaste } from '../tasks/lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
+import { PriorityMark } from '../components/StatusLabel';
 import { Modal } from '../tasks/components';
 import { useIsMobile } from '../lib/useIsMobile';
 import { formatDateTime } from '../lib/datetime';
@@ -447,8 +448,8 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }} role="radiogroup" aria-label="Priority">
                 {PRIORITY_ORDER.map((p) => (
-                  <button key={p} type="button" role="radio" aria-checked={l.priority === p} onClick={() => patch(l.key, { priority: p })} style={chip(l.priority === p)}>
-                    {PRIORITY_META[p]?.label || p}
+                  <button key={p} type="button" role="radio" aria-checked={l.priority === p} onClick={() => patch(l.key, { priority: p })} style={{ ...chip(l.priority === p), display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <PriorityMark priority={p} size={12} color={PRIORITY_META[p]?.color} />{PRIORITY_META[p]?.label || p}
                   </button>
                 ))}
               </div>

@@ -354,7 +354,7 @@ def _signers(db: Session, sign_request_id: str) -> list:
         return []
     rows = (db.query(models.HrSignParty).filter(models.HrSignParty.request_id == sign_request_id)
             .order_by(models.HrSignParty.ordinal).all())
-    return [{"name": p.name or p.email, "signedAt": p.signed_at or ""} for p in rows if p.signed_at]
+    return [{"name": p.name or p.email, "email": p.email or "", "signedAt": p.signed_at or ""} for p in rows if p.signed_at]
 
 
 def role_history(db: Session, emp: models.NexusEmployee) -> list:

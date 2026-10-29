@@ -185,24 +185,21 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
 
   return (
     <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
-      <nav className="gt-toc" style={{ position: 'sticky', top: 64, flexShrink: 0, width: 178, display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <div style={{ ...labelStyle, padding: '2px 11px 8px' }}>On This Page</div>
-        {nav.map(([key, title]) => {
-          const on = current === key;
-          return (
-            <button
-              key={key}
-              type="button"
-              aria-current={on ? 'true' : undefined}
-              onClick={() => jumpTo(key)}
-              style={{ textAlign: 'left', padding: '7px 11px', borderRadius: 8, border: 'none', background: on ? 'var(--bg-secondary)' : 'transparent', boxShadow: on ? 'inset 3px 0 0 var(--pine)' : 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, color: on ? 'var(--pine)' : 'var(--text-secondary)', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-secondary)'; if (!on) e.currentTarget.style.color = 'var(--text-primary)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = on ? 'var(--bg-secondary)' : 'transparent'; e.currentTarget.style.color = on ? 'var(--pine)' : 'var(--text-secondary)'; }}
-            >
-              {title}
-            </button>
-          );
-        })}
+      {/* Flat rail (Neil, 10/28/2026): the look is .gt-toc-item in
+          asset-styles.scoped.css - a hairline, the current section in ink. */}
+      <nav className="gt-toc" aria-label="On This Page" style={{ position: 'sticky', top: 64, flexShrink: 0, width: 178, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ ...labelStyle, fontWeight: 600, color: 'var(--text-primary)', padding: '2px 12px 10px' }}>On This Page</div>
+        {nav.map(([key, title]) => (
+          <button
+            key={key}
+            type="button"
+            className="gt-toc-item"
+            aria-current={current === key ? 'true' : undefined}
+            onClick={() => jumpTo(key)}
+          >
+            {title}
+          </button>
+        ))}
       </nav>
 
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -244,7 +241,8 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
           const hidden = all.length - rows.length;
           return (
           <section key={'sec' + si} id={'gt-sec' + si} style={sectionCardStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
+            {/* The card's own header, flat (no tinted band) - a hairline under it. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 18px 12px', borderBottom: '1px solid var(--border-color)' }}>
               <strong style={{ fontSize: '0.98rem', color: 'var(--text-primary)' }}>{sec.title}</strong>
               <span title="Fields with a value" style={{ marginLeft: 'auto', fontSize: '0.78rem', fontWeight: 600, color: filled === all.length ? 'hsl(var(--color-green))' : 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
                 {filled} of {all.length}

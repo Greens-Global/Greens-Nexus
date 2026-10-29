@@ -28,6 +28,9 @@ vi.mock('../tasks/components', () => ({
     </select>
   ),
   DateField: ({ value, onChange, title }) => <input aria-label={title} value={value} onChange={(e) => onChange(e.target.value)} />,
+  // Review & Push names who approved / entered a change (face + name).
+  usePeople: () => [],
+  AvatarName: ({ name, email }) => <span>{name || email}</span>,
 }));
 const exportMock = vi.hoisted(() => ({ exportExcel: vi.fn(), exportPdf: vi.fn() }));
 vi.mock('../tasks/exporting', () => exportMock);

@@ -102,7 +102,7 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
                 {g.name} <span style={{ color: 'var(--muted)', fontWeight: 600 }}>· {g.members.length} {g.members.length === 1 ? 'person' : 'people'}</span>
               </div>
             )}
-            {g.isGroup && prefs.open !== false && openRow(g)}
+            {g.isGroup && prefs.open !== false && (g.openShifts || (openCells[`${g.id || ''}|${date}`] || []).length > 0) && openRow(g)}
             {g.members.map((emp) => {
               const off = offOn(emp.email, date);
               const hol = holOn(emp.email, date);

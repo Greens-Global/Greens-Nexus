@@ -154,13 +154,36 @@ describe('Help widget', () => {
     expect(names.some((n) => /Roles & Access/.test(n))).toBe(ROLE_CAN_ADMIN);
   });
 
+  it('Messages shows a ticket filed while the panel is open', async () => {
+    apiState.tickets = [];
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    fireEvent.click(screen.getByRole('tab', { name: /Messages/ }));
+    expect(await screen.findByText('No Messages Yet')).toBeTruthy();
+    apiState.tickets = TICKETS;
+    await act(async () => { window.dispatchEvent(new CustomEvent('nexus:tickets-changed', { detail: { propertyId: '' } })); });
+    expect(await screen.findByRole('button', { name: /VPN keeps dropping/ })).toBeTruthy();
+  });
+
+  it('lists one tour per screen: Reimbursements (on Workday) is not a second Workday tour', async () => {
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    fireEvent.click(screen.getByRole('button', { name: /Other Tours/ }));
+    const picks = [...document.querySelectorAll('[data-tour-pick]')];
+    const keys = picks.map((b) => b.getAttribute('data-tour-pick'));
+    expect(new Set(keys).size).toBe(keys.length);
+    const names = picks.map((b) => b.textContent);
+    expect(names.some((n) => /^Workday Tour/.test(n))).toBe(true);
+    expect(names.some((n) => /^Reimbursements Tour/.test(n))).toBe(false);
+  });
+
   it('opens on Home with the greeting and the three cards', async () => {
     render(<HelpMenu activeView="dashboard" onWhatsNew={() => {}} />);
     await openWidget();
-    expect(screen.getByText('Hi Pranshu')).toBeTruthy();
+    expect(screen.getByText('Hi Pranshu!')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'How can we help?' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Search for Help/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Ask a Question.*Our support team can help/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Ask a Question.*our team can help/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /What's New in Nexus/ })).toBeTruthy();
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Home', 'Messages', 'Help']);
     // No AI wording anywhere (the user asked for none).
@@ -202,7 +225,7 @@ describe('Help widget', () => {
     const input = await goToHelpSearch();
     fireEvent.change(input, { target: { value: 'banana smoothie recipe' } });
     expect(screen.queryByRole('list', { name: 'Help results' })).toBeNull();
-    expect(screen.getByText(/No results for/)).toBeTruthy();
+    expect(screen.getByText(/No guide or Knowledge Base page matches/)).toBeTruthy();
   });
 
   it('a Knowledge Base failure still shows guide results, with a quiet note', async () => {
@@ -259,6 +282,18 @@ describe('Help widget', () => {
     expect(buttons).not.toContain('Accounting');
   });
 
+  it('the Help tab opens the full Documentation (Neil, 10/28/2026)', async () => {
+    const onNav = vi.fn((e) => e.detail);
+    window.addEventListener('nexus:navigate', onNav);
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    await goToHelpSearch();
+    fireEvent.click(screen.getByRole('button', { name: /Open Full Documentation/ }));
+    window.removeEventListener('nexus:navigate', onNav);
+    expect(onNav.mock.calls.map(([e]) => e.detail)).toContainEqual({ view: 'support', sub: 'documentation' });
+    expect(screen.queryByRole('dialog', { name: 'Help' })).toBeNull();
+  });
+
   it('Messages lists your tickets', async () => {
     render(<HelpMenu activeView="dashboard" />);
     await openWidget();
@@ -302,6 +337,18 @@ describe('Help widget', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Help' })).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Help' }));
+  });
+
+  it('Esc closes only the widget, never the drawer or modal under it', async () => {
+    // A drawer's own Esc listener, added before the widget opened.
+    const under = vi.fn();
+    window.addEventListener('keydown', under);
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    window.removeEventListener('keydown', under);
+    expect(screen.queryByRole('dialog', { name: 'Help' })).toBeNull();
+    expect(under).not.toHaveBeenCalled();
   });
 
   it('closes on a click outside', async () => {

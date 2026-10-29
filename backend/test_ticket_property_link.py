@@ -105,6 +105,10 @@ class TicketPropertyLinkTests(unittest.TestCase):
         self.assertEqual(cm.exception.status_code, 400)
         self.assertIn("Pick the property", cm.exception.detail)
 
+    def test_none_or_other_is_an_answer(self):
+        # Neil, Oct 28 2026: the form offers "None / Other" - picked, it files.
+        self.assertIsNone(self._new(property_none=True)["propertyAssetId"])
+
     def test_the_desk_may_file_without_and_other_topics_never_need_one(self):
         self.assertIsNone(self._new(user=ADMIN)["propertyAssetId"])
         out = self._new(app="Payroll Question", dept="d-hr", subject="Pay stub")

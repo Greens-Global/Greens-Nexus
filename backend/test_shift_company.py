@@ -445,7 +445,10 @@ class ShiftCompanyTests(unittest.TestCase):
 
     def test_trading_is_off_until_the_switch_is_on(self):
         cfg = self.client.get(SETTINGS).json()
-        self.assertEqual((cfg["openShifts"], cfg["swaps"], cfg["offers"]), (False, False, False))
+        # Every way to trade a shift is off until a company turns it on
+        # (Neil, 10/28/2026: off by default for everyone).
+        self.assertEqual((cfg["openShifts"], cfg["swaps"], cfg["offers"], cfg["releaseShifts"], cfg["openShiftsAcrossTeams"]),
+                         (False, False, False, False, False))
         self._published(A, "ss-sco-a")
         self._published(B, "ss-sco-b")
         self._as(A)

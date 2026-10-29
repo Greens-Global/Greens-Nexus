@@ -72,6 +72,12 @@ export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onR
   const who = (p) => (p ? nameOf(p.email, p.name) : 'a teammate');
   const photos = inbox?.photos || {};
   const face = (email, name) => <Avatar name={nameOf(email, name)} photoUrl={photos[(email || '').toLowerCase()] || ''} size={36} />;
+  // A teammate or decider named inside a line: a small face before the name.
+  const tag = (p, size = 18) => (p ? (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, verticalAlign: 'middle' }}>
+      <Avatar name={who(p)} photoUrl={photos[(p.email || '').toLowerCase()] || ''} size={size} />{who(p)}
+    </span>
+  ) : 'a teammate');
   const pending = (inbox?.pending || []).filter((r) => r.kind === tab);
   const waiting = (inbox?.waitingOnPeer || []).filter((r) => r.kind === tab);
   const recent = (inbox?.recent || []).filter((r) => r.kind === tab);
@@ -220,7 +226,7 @@ export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onR
                       <div style={{ fontSize: 13.5, color: 'var(--ink)', margin: '4px 0' }}>{summaryOf(r, who)}.</div>
                       <RequestShifts r={r} who={who} />
                       {r.note && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{who(r.requester)}: “{r.note}”</div>}
-                      {r.peerNote && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{who(r.target)}: “{r.peerNote}”</div>}
+                      {r.peerNote && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{tag(r.target)}: “{r.peerNote}”</div>}
                       <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                         {noteBox(r.id, 'Note to the team')}
                         <button type="button" className="primary-btn" disabled={busyId === r.id} onClick={() => decide(r, true)} style={{ fontSize: 12.5 }}>Approve</button>
@@ -244,7 +250,7 @@ export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onR
                           <StatusChip status="pending_peer" />
                         </div>
                         <RequestShifts r={r} who={who} />
-                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{who(r.target)} has not answered yet. It reaches you once they accept.</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{tag(r.target)} has not answered yet. It reaches you once they accept.</div>
                       </div>
                     </div>
                   ))}
@@ -259,8 +265,10 @@ export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onR
             <div style={HEAD}>Recently Decided</div>
             {recent.map((r) => (
               <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '6px 0', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                <Avatar name={who(r.requester)} photoUrl={photos[(r.requester?.email || '').toLowerCase()] || ''} size={20} />
                 <span style={{ flex: 1, minWidth: 200 }}>{summaryOf(r, who)}{r.decisionNote ? <span style={{ color: 'var(--muted)' }}> · {r.decisionNote}</span> : null}</span>
                 <StatusChip status={r.status} />
+                {r.decidedBy && <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6 }}>by {tag({ email: r.decidedBy }, 18)}</span>}
                 <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{r.decidedAt ? formatDate(`${r.decidedAt}Z`) : ''}</span>
               </div>
             ))}

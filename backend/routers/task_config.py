@@ -1178,7 +1178,7 @@ def task_ai_rephrase(body: RephraseBody):
     Plain text in, plain text out: the client sends the editor's text content and
     re-inserts the result as a paragraph, which keeps the model away from the
     document's HTML structure entirely. Same httpx-to-api.anthropic.com shape as
-    routers/help.py and routers/hr_interviews.py rather than a new SDK dependency.
+    routers/hr_interviews.py rather than a new SDK dependency.
     """
     text = (body.text or "").strip()
     if not text:

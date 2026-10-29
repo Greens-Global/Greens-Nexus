@@ -290,7 +290,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   const cfg = reqs?.settings || {};
   // Phase 3b: a release needs no teammate - the shift goes to the open pool.
   const canRelease = cfg.releaseShifts === true;
-  const canAsk = ((reqs?.teammates || []).length > 0 && (cfg.swaps !== false || cfg.offers !== false)) || canRelease;
+  const canAsk = ((reqs?.teammates || []).length > 0 && (cfg.swaps === true || cfg.offers === true)) || canRelease;
   const pendingIds = new Set((reqs?.mine || []).filter((r) => PENDING.includes(r.status)).map((r) => r.shift?.id));
   const openList = cfg.openShifts ? reqs?.openShifts || [] : [];
   const whenText = (x) => (x.d.isToday ? 'today' : x.d.key === isoDate(addDays(now, 1)) ? 'tomorrow' : dayShort(x.d.date));
@@ -423,7 +423,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
 
       {flash && <div role="status" style={{ marginTop: 12, fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-green))' }}>{flash}</div>}
       {ask && reqs && (
-        <ShiftRequestDialog reqs={reqs} myShifts={(data?.scheduled || []).filter((s) => s.date >= todayKey)} shift={ask.shift} kind={cfg.swaps !== false ? 'swap' : cfg.offers !== false ? 'offer' : 'release'}
+        <ShiftRequestDialog reqs={reqs} myShifts={(data?.scheduled || []).filter((s) => s.date >= todayKey)} shift={ask.shift} kind={cfg.swaps === true ? 'swap' : cfg.offers === true ? 'offer' : 'release'}
           nameOf={nameOf} onClose={() => setAsk(null)} onDone={done} />
       )}
 
@@ -452,7 +452,8 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
           {' '}Swaps, offers{canRelease ? ', releases' : ''} and open-shift requests are in Workday &gt; Time Off.
         </span>
       </div>}
-      {mine && prefs && (
+      {/* The texts switch is for people in a weather department only (10/29/2026). */}
+      {mine && prefs && prefs.weatherOn !== false && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)' }}>
           <input type="checkbox" checked={prefs.weatherSms !== false} onChange={(e) => setWeatherSms(e.target.checked)} aria-label="Text me when a weather call changes my shift" />
           Text me when a weather call changes my shift{prefs.phone ? '' : ' (no phone number on file - ask HR to add one)'}

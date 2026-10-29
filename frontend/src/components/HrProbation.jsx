@@ -6,7 +6,14 @@
 //   ProbationCard      - the profile's Probation section: status, dates,
 //                        length, the manager's recommendation, the letter,
 //                        the history; Decide / Recommend, and HR's Start
-//                        Tracking / Edit / Stop Tracking / Send Letter.
+//                        Tracking / Edit / Remove From Probation / Send
+//                        Letter / Start A New Probation.
+//
+// Past the window (Neil, Oct 29 2026): a probation past its end with no
+// decision and no recommendation waiting becomes Passed Probation by itself
+// (no letter - HR can Send Letter); someone never tracked whose window is
+// over reads Past Probation; HR can Remove From Probation (Removed From
+// Probation, nothing restarts it).
 //   ProbationSettings  - Settings > Hiring & Onboarding > Probation: length,
 //                        reminder, the two letter templates and the letterhead,
 //                        a default and each company's own.
@@ -15,15 +22,25 @@
 // finalizes; a manager's Confirm / Extend / End is a recommendation HR
 // approves or declines. End Employment opens the existing Offboard flow.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, CalendarClock, CheckCircle2, Hourglass, LogOut, Eye, Send, Pencil, Play, Square, History } from 'lucide-react';
+import { X, CalendarClock, CheckCircle2, Hourglass, LogOut, Eye, Send, Pencil, Play, MinusCircle, History } from 'lucide-react';
 import { api } from '../api';
 import { Spinner, SkeletonBlocks, ErrorBanner } from './AsyncState';
 import { StatusLabel } from './StatusLabel';
-import { DateField } from '../tasks/components';
-import { formatDate } from '../lib/datetime';
+import { DateField, AvatarName } from '../tasks/components';
+import { formatDate, toDateInputValue } from '../lib/datetime';
 import { SettingCard, SettingRow, NumberBox } from './settings/SettingsUI';
 
-const COLORS = { in_probation: '#2563eb', extended: '#d97706', confirmed: '#16a34a', ended: '#dc2626', '': '#64748b' };
+// A person in a probation line: their face, then their name. `by` is an email,
+// or 'system' for the automatic steps (no face then).
+const who = (by, name, bold = false) => (name
+  ? <AvatarName email={(by || '').includes('@') ? by : ''} name={name} size={18}>{bold ? <b>{name}</b> : name}</AvatarName>
+  : null);
+
+const COLORS = {
+  in_probation: '#2563eb', extended: '#d97706', confirmed: '#16a34a', ended: '#dc2626', '': '#64748b',
+  passed: '#16a34a', past: '#64748b', removed: '#64748b',
+};
+const OPEN = ['in_probation', 'extended'];
 const LETTER_STATUS = {
   sent: ['Out For Signature', '#2563eb'], awaiting_sender: ['Out For Signature', '#2563eb'],
   completed: ['Signed', '#16a34a'], declined: ['Declined', '#dc2626'], voided: ['Voided', '#64748b'],
@@ -33,6 +50,7 @@ const ACTIONS = {
   started: 'Started tracking', edited: 'Changed the dates', stopped: 'Stopped tracking', recommended: 'Recommended',
   recommendation_declined: 'Declined the recommendation', confirmed: 'Confirmed', extended: 'Extended', ended: 'Ended',
   letter_sent: 'Sent the letter', letter_signed: 'Signed the letter',
+  passed: 'Passed probation automatically', removed: 'Removed from probation',
 };
 const CHOICES = [
   ['confirm', 'Confirm', CheckCircle2, '#16a34a', 'They passed probation. The confirmation letter goes to them to sign.'],
@@ -51,7 +69,7 @@ function daysText(days) {
 
 // The People list and the profile header: only while a decision is due.
 export function ProbationBadge({ p, size = 'sm' }) {
-  if (!p || !['in_probation', 'extended'].includes(p.status) || !p.ending) return null;
+  if (!p || !OPEN.includes(p.status) || !p.ending) return null;
   const overdue = (p.daysLeft ?? 0) < 0;
   return (
     <StatusLabel size={size} label={overdue ? 'Probation Overdue' : 'Probation Ending'} color={overdue ? '#dc2626' : '#d97706'}
@@ -158,7 +176,7 @@ export function ProbationDecisionModal({ employee: e, data, mode = 'decide', onC
         <>
           {pending && (
             <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)', fontSize: 12.5, lineHeight: 1.5 }}>
-              <b>{pending.byName}</b> recommends <b>{pending.label}</b>{pending.newEndDate ? ` to ${usDay(pending.newEndDate)}` : ''} ({usDay(pending.at)}). Adjust it below if needed, then approve or decline.
+              {who(pending.by, pending.byName, true)} recommends <b>{pending.label}</b>{pending.newEndDate ? ` to ${usDay(pending.newEndDate)}` : ''} ({usDay(pending.at)}). Adjust it below if needed, then approve or decline.
             </div>
           )}
           {!hr && (
@@ -212,20 +230,27 @@ export function ProbationDecisionModal({ employee: e, data, mode = 'decide', onC
   );
 }
 
-// Start Tracking / Edit / Stop Tracking - HR only.
+// Start Tracking / Start A New Probation / Edit / Remove From Probation - HR only.
 function ManageModal({ employee: e, data, mode, onClose, onDone, toastErr }) {
   const name = [e.firstName, e.lastName].filter(Boolean).join(' ');
+  // A new probation (after a decision, a removal, or past the window - say,
+  // a new role) counts from a day HR picks: today unless changed.
+  const fresh = mode === 'start' && !!data.status;
   const [own, setOwn] = useState(data.monthsOverride != null);
   const [months, setMonths] = useState(String(data.monthsOverride ?? data.companyMonths ?? 3));
   const [end, setEnd] = useState(data.endDate || '');
+  const [from, setFrom] = useState(() => (fresh ? toDateInputValue(new Date()) : ''));
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   async function save() {
     setBusy(true);
     try {
       let out;
-      if (mode === 'start') out = await api.probationStart(e.id, { months: own ? Number(months) : null, reason });
-      else if (mode === 'stop') out = await api.probationStop(e.id, reason);
+      if (mode === 'start') {
+        const body = { months: own ? Number(months) : null, reason };
+        if (fresh && from) body.start_date = from;
+        out = await api.probationStart(e.id, body);
+      } else if (mode === 'remove') out = await api.probationRemove(e.id, reason);
       else {
         const body = { reason };
         if (end && end !== data.endDate) body.end_date = end;
@@ -236,15 +261,25 @@ function ManageModal({ employee: e, data, mode, onClose, onDone, toastErr }) {
       onDone(out);
     } catch (err) { toastErr?.(err?.message || 'Could not save.'); setBusy(false); }
   }
-  const title = mode === 'start' ? `Start Tracking - ${name}` : mode === 'stop' ? `Stop Tracking - ${name}` : `Edit Probation - ${name}`;
-  const ok = mode !== 'stop' || reason.trim();
+  const startLabel = fresh ? 'Start A New Probation' : 'Start Tracking';
+  const title = mode === 'start' ? `${startLabel} - ${name}` : mode === 'remove' ? `Remove From Probation - ${name}` : `Edit Probation - ${name}`;
+  const ok = mode === 'remove' ? !!reason.trim() : mode !== 'start' || !fresh || !!from;
+  const sub = mode === 'start' ? (fresh ? 'A new probation, from the day you pick' : `Counts from their start date, ${usDay(e.startDate)}`)
+    : `Probation ends ${usDay(data.endDate)}`;
   return (
-    <Popup title={title} sub={mode === 'start' ? `Counts from their start date, ${usDay(e.startDate)}` : `Probation ends ${usDay(data.endDate)}`}
+    <Popup title={title} sub={sub}
       onClose={onClose} footer={<>
         <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-        <button className="primary-btn" onClick={save} disabled={busy || !ok}>{busy ? 'Saving…' : mode === 'start' ? 'Start Tracking' : mode === 'stop' ? 'Stop Tracking' : 'Save'}</button>
+        <button className="primary-btn" onClick={save} disabled={busy || !ok}>{busy ? 'Saving…' : mode === 'start' ? startLabel : mode === 'remove' ? 'Remove From Probation' : 'Save'}</button>
       </>}>
-      {mode !== 'stop' && data.status !== 'extended' && (
+      {fresh && (
+        <div style={{ maxWidth: 260 }}>
+          <label style={lbl}>Counts From *</label>
+          <DateField value={from} onChange={v => setFrom(v || '')} placeholder="MM/DD/YYYY" title="Counts from" style={{ width: '100%' }} />
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>For example, the day they moved into the new role.</div>
+        </div>
+      )}
+      {mode !== 'remove' && data.status !== 'extended' && (
         <>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, fontSize: 13 }}>
             <input type="checkbox" checked={own} onChange={ev => setOwn(ev.target.checked)} />
@@ -264,13 +299,14 @@ function ManageModal({ employee: e, data, mode, onClose, onDone, toastErr }) {
           <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>A date typed here stays put if their start date changes.</div>
         </div>
       )}
-      {mode === 'stop' && (
+      {mode === 'remove' && (
         <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-          They go back to Not Tracked: no reminder, no decision. The history stays.
+          They come off probation now: no reminder, no decision and no letter{data.pending ? ', and the waiting recommendation is closed' : ''}.
+          Nothing starts it again by itself - HR can start a new probation later. The history stays.
         </div>
       )}
       <div className="nx-fill">
-        <label style={lbl} htmlFor="prob-manage-reason">Reason{mode === 'stop' ? ' *' : ' (Optional)'}</label>
+        <label style={lbl} htmlFor="prob-manage-reason">Reason{mode === 'remove' ? ' *' : ' (Optional)'}</label>
         <textarea id="prob-manage-reason" className="form-input" value={reason} onChange={ev => setReason(ev.target.value)}
           placeholder="Kept in the probation history" style={{ width: '100%' }} />
       </div>
@@ -290,7 +326,7 @@ const Row = ({ k, children }) => (
 export function ProbationCard({ employee: e, focus = false, onOffboard, onChanged, toastOk, toastErr }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
-  const [modal, setModal] = useState(null);          // 'decide' | 'approve' | 'start' | 'edit' | 'stop'
+  const [modal, setModal] = useState(null);          // 'decide' | 'approve' | 'start' | 'edit' | 'remove'
   const [busy, setBusy] = useState(false);
   const [all, setAll] = useState(false);
   const ref = useRef(null);
@@ -308,7 +344,7 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
   if (data.hidden || (!data.applies && !data.status)) return null;
 
   const st = data.status || '';
-  const open = st === 'in_probation' || st === 'extended';
+  const open = OPEN.includes(st);
   const after = (out, info = {}) => {
     setModal(null);
     if (out?.probation) setData(out.probation); else load();
@@ -327,9 +363,23 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
   }
   const letter = data.letter || {};
   const [lw, lc] = LETTER_STATUS[letter.status] || [];
-  const canResend = data.canManage && ['confirmed', 'extended'].includes(st) && (letter.status === 'failed' || ['declined', 'voided', 'expired'].includes(letter.status));
+  // The server says when a letter can go (again) - a passed record has none until HR sends it.
+  const canResend = !!data.canSendLetter;
   const history = all ? data.history : (data.history || []).slice(0, 4);
   const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '5px 12px' };
+  const d = data.decision || {};
+  // Start A New Probation: a small link once a probation is closed or past (a new role, say).
+  const startNew = data.canManage && data.applies && st && !open && (
+    <button onClick={() => setModal('start')}
+      style={{ background: 'none', border: 'none', color: 'var(--pine)', cursor: 'pointer', fontSize: 12, fontWeight: 600, padding: '2px 0', marginTop: 6 }}>
+      Start A New Probation
+    </button>
+  );
+  const sendBtn = canResend && (
+    <button className="secondary-btn" style={{ ...btn, marginTop: 6 }} disabled={busy} onClick={sendLetter}>
+      {busy ? <Spinner size={13} /> : <Send size={13} />} Send Letter
+    </button>
+  );
 
   return (
     <section ref={ref} aria-label="Probation" style={{ marginBottom: 16, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: focus ? 'var(--wk-brand-tint)' : 'transparent' }}>
@@ -345,49 +395,72 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
             <CheckCircle2 size={13} /> {data.canFinalize ? 'Decide' : 'Recommend'}
           </button>
         )}
-        {data.canManage && !open && data.applies && (
+        {data.canManage && !st && data.applies && (
           <button className="secondary-btn" style={btn} onClick={() => setModal('start')} disabled={!e.startDate}
             title={e.startDate ? 'Probation counts from their start date' : 'Add their start date first'}>
             <Play size={13} /> Start Tracking
           </button>
         )}
         {data.canManage && open && <button className="secondary-btn" style={btn} onClick={() => setModal('edit')}><Pencil size={13} /> Edit</button>}
-        {data.canManage && st && <button className="secondary-btn" style={btn} onClick={() => setModal('stop')}><Square size={13} /> Stop Tracking</button>}
+        {(data.canRemove ?? (data.canManage && open)) && (
+          <button className="secondary-btn" style={btn} onClick={() => setModal('remove')}><MinusCircle size={13} /> Remove From Probation</button>
+        )}
       </div>
 
       {!st ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 8, lineHeight: 1.5 }}>
           {data.awaitingStart ? 'Starts by itself once their start date is added.'
-            : 'Not tracked. People who were here before probation tracking are not tracked unless HR starts it.'}
+            : e.startDate ? 'Not tracked. HR can start it from their start date.' : 'Not tracked. Add their start date - probation counts from it.'}
+        </div>
+      ) : st === 'past' ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 8, lineHeight: 1.5 }}>
+          <div>Past Probation since {usDay(data.pastSince)}. They were here past the probation window before it was tracked, so there is nothing to decide.</div>
+          {startNew}
         </div>
       ) : (
         <div style={{ marginTop: 6 }}>
           <Row k="Started">{usDay(data.startDate)}</Row>
-          <Row k={open ? 'Ends' : 'Ended'}>
+          <Row k={open ? 'Ends' : st === 'removed' ? 'Was Due' : 'Ended'}>
             {usDay(data.endDate)}
             {open && data.daysLeft !== null && <span style={{ color: data.daysLeft < 0 ? 'hsl(var(--color-red))' : data.ending ? 'hsl(var(--color-orange))' : 'var(--muted)', marginLeft: 8, fontSize: 12.5 }}>({daysText(data.daysLeft)})</span>}
           </Row>
           {st !== 'extended' && <Row k="Length">{data.months} months{data.monthsOverride != null ? ' (set for them)' : ' (company length)'}{data.endManual ? ' - end date set by hand' : ''}</Row>}
           {data.decision && !open && (
             <Row k="Decision">
-              {data.label} {data.decision.byName ? `by ${data.decision.byName} ` : ''}on {usDay(data.decision.at)}
-              {data.decision.reason ? <span style={{ color: 'var(--muted)' }}> - {data.decision.reason}</span> : null}
+              {st === 'passed' ? (
+                d.automatic || d.by === 'system'
+                  ? `Passed Probation on ${usDay(data.endDate)} - automatically, no decision was recorded`
+                  : <>Passed Probation on {usDay(data.endDate)}{d.byName ? <> by {who(d.by, d.byName)}</> : ''}</>
+              ) : st === 'removed' ? (
+                <>Removed From Probation on {usDay(d.at)}{d.byName ? <> by {who(d.by, d.byName)}</> : ''}{d.reason ? `: ${d.reason}` : ''}</>
+              ) : (
+                <>
+                  {data.label} {d.byName ? <>by {who(d.by, d.byName)} </> : ''}on {usDay(d.at)}
+                  {d.reason ? <span style={{ color: 'var(--muted)' }}> - {d.reason}</span> : null}
+                </>
+              )}
             </Row>
           )}
-          {lw && (
+          {lw ? (
             <Row k="Letter">
               <StatusLabel size="sm" label={lw} color={lc} /> <span style={{ marginLeft: 6 }}>{letter.title}</span>
               {letter.error && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))', marginTop: 4 }}>{letter.error}</div>}
-              {canResend && <button className="secondary-btn" style={{ ...btn, marginTop: 6 }} disabled={busy} onClick={sendLetter}>{busy ? <Spinner size={13} /> : <Send size={13} />} Send Letter</button>}
+              {sendBtn}
+            </Row>
+          ) : st === 'passed' && (
+            <Row k="Letter">
+              <span style={{ color: 'var(--muted)' }}>No letter went out by itself.{canResend ? ' Send them the confirmation letter if you want one on file.' : ''}</span>
+              {sendBtn && <div>{sendBtn}</div>}
             </Row>
           )}
+          {startNew}
         </div>
       )}
 
       {data.pending && (
         <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)', fontSize: 12.5, lineHeight: 1.5, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ flex: 1, minWidth: 200 }}>
-            <b>{data.pending.byName}</b> recommends <b>{data.pending.label}</b>{data.pending.newEndDate ? ` to ${usDay(data.pending.newEndDate)}` : ''}
+            {who(data.pending.by, data.pending.byName, true)} recommends <b>{data.pending.label}</b>{data.pending.newEndDate ? ` to ${usDay(data.pending.newEndDate)}` : ''}
             {data.pending.reason ? `: ${data.pending.reason}` : ''}. {data.canFinalize ? '' : 'Waiting for HR.'}
           </span>
           {data.canFinalize && <button className="primary-btn" style={btn} onClick={() => setModal('approve')}>Review Recommendation</button>}
@@ -413,7 +486,7 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
             <div key={`${h.at}-${i}`} style={{ fontSize: 12.5, padding: '4px 0', display: 'flex', gap: 8 }}>
               <span style={{ color: 'var(--muted)', width: 82, flexShrink: 0 }}>{usDay(h.at)}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
-                <b>{h.byName || 'Nexus'}</b> {(ACTIONS[h.action] || h.action).toLowerCase()}
+                {h.byName ? who(h.by, h.byName, true) : <b>Nexus</b>} {(ACTIONS[h.action] || h.action).toLowerCase()}
                 {h.note ? ` (${h.note})` : ''}{h.endDate && ['started', 'edited', 'extended'].includes(h.action) ? ` - ends ${usDay(h.endDate)}` : ''}
                 {h.reason ? <span style={{ color: 'var(--muted)' }}> - {h.reason}</span> : null}
               </span>
@@ -430,7 +503,7 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
       {(modal === 'decide' || modal === 'approve') && (
         <ProbationDecisionModal employee={e} data={data} mode={modal} onClose={() => setModal(null)} onDone={after} toastErr={toastErr} />
       )}
-      {['start', 'edit', 'stop'].includes(modal) && (
+      {['start', 'edit', 'remove'].includes(modal) && (
         <ManageModal employee={e} data={data} mode={modal} onClose={() => setModal(null)} onDone={out => after(out)} toastErr={toastErr} />
       )}
     </section>
@@ -488,7 +561,7 @@ export function ProbationSettings({ company: scoped, onOverride, toastOk, toastE
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <p className="nx-set-pad" style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-        New hires are on probation from their start date. People who were here before are Not Tracked until HR starts it on their profile.
+        New hires are on probation from their start date. A probation past its end with no decision or recommendation waiting passes by itself (no letter - HR can send one), and people who were already past the window read Past Probation.
         {company ? (meta.override ? ' This company has its own probation settings.' : ' This company uses the default.') : ' Each company can keep its own.'}
       </p>
       <SettingCard>

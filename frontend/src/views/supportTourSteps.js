@@ -17,8 +17,8 @@ export function buildSupportTourSteps() {
   return [
     {
       target: 'support-options',
-      title: 'Four shortcuts, one page',
-      body: 'Everything you might need help with or want to learn starts from one of these cards. The one you will use most is Submit a Ticket - the rest open the Assistant (search and ask), the Documentation guide and the Knowledge Base & Training.',
+      title: 'Four Shortcuts, One Page',
+      body: 'Everything you might need help with or want to learn starts from one of these cards. The one you will use most is Submit a Ticket - Ask Nexus answers a question from the guides, and the others open the Documentation guide and the Knowledge Base & Training.',
     },
     {
       target: 'support-submit-ticket',
@@ -32,13 +32,13 @@ export function buildSupportTourSteps() {
     },
     {
       target: 'support-open-tickets',
-      title: 'Track what you have raised',
-      body: 'Everything you have submitted shows up here with its live status - click a row to open it and see the full thread. Resolved stays listed until it is actually closed, so you can see it landed before it disappears.',
+      title: 'Track What You Have Raised',
+      body: 'Open Tickets holds the tickets that are for you, with their live status - click a row to open it and see the full thread. Resolved stays here until it is closed, so you can confirm it landed or reopen it. A ticket you raised for someone else, or were added to, is under Tickets I\'m Following, and Closed Tickets keeps the history.',
     },
     {
       target: 'support-options',
-      title: 'That is the tour',
-      body: 'Submit a Ticket covers almost everything - the rest of this page is there for the occasional Contact Directory lookup or a policy question. You can run this again any time from the profile menu\'s Tour row.',
+      title: 'That Is the Tour',
+      body: 'Submit a Ticket covers almost everything - the rest of this page is there for the occasional how-to or policy question. You can run this tour again any time from the Help panel (the "?" at the top): Take the Tour.',
     },
   ];
 }

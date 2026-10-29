@@ -13,6 +13,7 @@ import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
+import TimeSheetAdvances, { useTimeSheetAdvances } from '../components/TimeSheetAdvances';
 import BodModal from '../components/BodModal';
 import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending, utcStamp, holdPunch, signedIn } from '../lib/punchQueue';
@@ -86,9 +87,16 @@ const TAB_META = {
 // are the Overview with the Purchase Requests popup open - it is a popup like
 // Reimbursements, not a tab (Sagar, Oct 27); "purchase:new" opens its form too.
 const isPurchaseSub = (sub) => /^purchase(:|$)/.test(sub || '');
-// "salary-advances" (a salary advance bell, Oct 27 2026) is the Overview with its card (HR: Manage open).
-const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || sub === 'salary-advances' || isPurchaseSub(sub) || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
-  : sub === 'timecard' ? 'timesheet' : /^performance(:|$)/.test(sub || '') ? 'performance' : sub);
+// "ask-hr" (HR letter bells, Oct 28 2026) is the Overview with the Ask HR
+// panel open; "ask-hr:letter:<id>" (HR's bells, the Approvals row) also
+// opens that letter request for review.
+const isAskSub = (sub) => /^ask-hr(:|$)/.test(sub || '');
+const askLetterOf = (sub) => (String(sub || '').match(/^ask-hr:letter:(.+)$/) || [])[1] || '';
+// "salary-advances" (a salary advance bell or inbox row stored before Oct 29
+// 2026, when the Workday card went) is the Time Sheet, where advances live
+// now - HR with advances waiting goes on to the Approvals inbox.
+const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || isPurchaseSub(sub) || isAskSub(sub) || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
+  : sub === 'timecard' || sub === 'salary-advances' ? 'timesheet' : /^performance(:|$)/.test(sub || '') ? 'performance' : sub);
 // "performance:goal:<id>" / "performance:1on1:<id>" / "performance:team" (bells,
 // Oct 27 2026): the Performance tab with that goal, 1:1 or view open.
 const perfFocusOf = (sub) => (/^performance:/.test(sub || '') ? { sub } : null);
@@ -526,9 +534,18 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // A reimbursement bell lands on "reimbursements": open that panel (Oct 18 2026).
   const [openReimb, setOpenReimb] = useState(() => activeSub === 'reimbursements');
   useEffect(() => { if (activeSub === 'reimbursements') { setOpenReimb(true); window.dispatchEvent(new CustomEvent('nexus:open-reimbursements')); } }, [activeSub]);
-  // A salary advance bell lands on "salary-advances" (Oct 27 2026): HR gets Manage open.
-  const [openAdv, setOpenAdv] = useState(() => activeSub === 'salary-advances');
-  useEffect(() => { if (activeSub === 'salary-advances') { setOpenAdv(true); window.dispatchEvent(new CustomEvent('nexus:open-salary-advances')); } }, [activeSub]);
+  // An old salary advance bell (Oct 27 2026, before the Workday card went on
+  // Oct 29) lands on "salary-advances": the own Time Sheet (tabFor), and HR
+  // with advances waiting on them goes on to Approvals > Money, where each
+  // row opens that person's Time Sheet.
+  useEffect(() => {
+    if (activeSub !== 'salary-advances') return undefined;
+    let alive = true;
+    api.salaryAdvancesPending()
+      .then((rows) => { if (alive && (rows || []).length) window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'approvals', sub: 'money' } })); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [activeSub]);
   // "purchase:new" opens the New Purchase Request form (each time it arrives).
   const [purchaseNewKey, setPurchaseNewKey] = useState(() => (activeSub === 'purchase:new' ? 1 : 0));
   const [purchaseSeenSub, setPurchaseSeenSub] = useState(activeSub);
@@ -539,6 +556,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     if (activeSub === 'purchase:new') setPurchaseNewKey((k) => k + 1);
     if (isPurchaseSub(activeSub)) setPurchaseOpen({ newForm: activeSub === 'purchase:new' });
   }
+  // Each Ask HR arrival opens the panel again ({ n, letter }).
+  const [askSeenSub, setAskSeenSub] = useState(null);
+  const [askFocus, setAskFocus] = useState(null);
+  if (activeSub !== askSeenSub) {
+    setAskSeenSub(activeSub);
+    if (isAskSub(activeSub)) setAskFocus((f) => ({ n: (f?.n || 0) + 1, letter: askLetterOf(activeSub) }));
+  }
   const [tab, setTab] = useState(() => {
     const t = tabFor(activeSub) || tabFor(initialTab);
     return TAB_META[t] ? t : 'overview';
@@ -547,7 +571,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     const t = tabFor(activeSub);
     if (TAB_META[t] && t !== tab) setTab(t);
     // An old 'clock' or 'shifts' address already shows Overview - rewrite it to say so.
-    else if ((activeSub === 'clock' || activeSub === 'reimbursements' || activeSub === 'salary-advances' || /^(shifts|purchase)(:|$)/.test(activeSub || '')) && activeSub !== tab && onSubChange) onSubChange(tab);
+    else if ((activeSub === 'clock' || activeSub === 'reimbursements' || activeSub === 'salary-advances' || /^(shifts|purchase|ask-hr)(:|$)/.test(activeSub || '')) && activeSub !== tab && onSubChange) onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSub]);
   useEffect(() => {
@@ -1070,6 +1094,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   useEffect(() => {
     if (status) rememberTimeExempt(myEmail, status.timeTrackingExempt);
   }, [status, myEmail]);
+  // A time-tracking-exempt person has no time card, but their salary
+  // advances still live on their Time Sheet (Oct 29 2026 review: with the
+  // Workday card gone they had nowhere to see them). Everyone else reads
+  // them on their card (PayrollTimecard), so this asks only when exempt.
+  const ownAdv = useTimeSheetAdvances(exemptKnown ? myEmail : '');
+  const ownAdvCount = ownAdv.data?.advances?.length || 0;
 
   // ── The Time Clock widget (top of Overview, Oct 2) ─────────────────────────
   // The page's one headline: a greeting with today's scheduled shift, the
@@ -1368,8 +1398,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
              for what the tab itself lists (reviews and signatures waiting on
              a reviewing manager) - never for the badge count alone, which
              once surfaced a stale "sent back" row of an exempt person's own
-             old time sheet as a "1" over an empty tab (Neil, Oct 21 2026). */
-          ? ['overview', ...(toSignCount > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff', 'performance']
+             old time sheet as a "1" over an empty tab (Neil, Oct 21 2026).
+             Their own salary advances are listed there too (Oct 29 2026). */
+          ? ['overview', ...(toSignCount > 0 || ownAdvCount > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff', 'performance']
           : ['overview', 'timesheet', 'timeoff', 'performance']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title })), counts, 'myhr')}
         active={tab} onChange={setTab} syncTitle />
@@ -1387,7 +1418,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Nexus Sign documents waiting on me, signed here (Oct 18) - Documents needs a grant. */}
       {tab === 'overview' && <DocumentsToSign focusParty={signOf(activeSub)} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
       {tab === 'overview' && (
-        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} openSalaryAdvances={openAdv} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setPurchaseOpen({ newForm: false })} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
+        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} askFocus={askFocus} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setPurchaseOpen({ newForm: false })} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
 
       {/* Time sheets waiting on my signature - above my own timesheet. Renders
@@ -1400,6 +1431,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       )}
       {tab === 'timesheet' && status?.timeTrackingExempt && toSignCount === 0 && (
         <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 2px' }}>Nothing is waiting on your signature. Time sheets you review are in People &gt; Time.</div>
+      )}
+      {/* No time card when exempt - "Your Salary Advances" on its own
+          (nothing when there are none). */}
+      {tab === 'timesheet' && status?.timeTrackingExempt && (
+        <TimeSheetAdvances adv={ownAdv} self me={myEmail} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />
       )}
 
       {/* Timesheet - day list + week summary side panel */}
