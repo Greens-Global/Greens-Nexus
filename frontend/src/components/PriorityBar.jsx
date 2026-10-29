@@ -93,7 +93,7 @@ export default function PriorityBar({ onNavigate }) {
 
   const openBtn = (item) => item.action?.view && <button type="button" style={BTN} onClick={() => go(item)}>Open</button>;
   const closeBtn = (item) => (
-    <button type="button" style={ICON} onClick={() => close(item)} title="Close this notice (it stays in the bell under Closed for 30 days)" aria-label="Close notice"><X size={16} /></button>
+    <button type="button" className="nx-touch-target" style={ICON} onClick={() => close(item)} title="Close this notice (it stays in the bell under Closed for 30 days)" aria-label="Close notice"><X size={16} /></button>
   );
   // Title + summary, one line, tap for the whole message.
   const headline = (item, { split = false } = {}) => {

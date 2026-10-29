@@ -241,7 +241,7 @@ export default function EntryDetail({ entryId, entryNo, onClose, panel = false }
           still not static"): on a computer the window is a column and the
           lines scroll in their own box, so the heading row (pinned as one
           block, acct-sticky-head) stays in view. A phone keeps its cards. */}
-      <div className={`modal-content acct-entry${isPhone ? '' : ' acct-entry--box'}`} role="dialog" aria-modal="true" aria-label={`Journal entry ${entryNo || ''}`} onClick={(e) => e.stopPropagation()}
+      <div className={`modal-content acct-entry${isPhone ? ' nx-sheet' : ' acct-entry--box'}`} role="dialog" aria-modal="true" aria-label={`Journal entry ${entryNo || ''}`} onClick={(e) => e.stopPropagation()}
         style={full ? { maxWidth: '100vw', width: '100vw', height: '100vh', maxHeight: '100vh', borderRadius: 0, resize: 'none' } : { maxWidth: '98vw', width: 'min(1720px, 96vw)', maxHeight: '94vh' }}>
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>

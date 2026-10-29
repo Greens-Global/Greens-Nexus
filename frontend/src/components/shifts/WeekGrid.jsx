@@ -320,6 +320,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   );
 
   // One day cell. `top` is the room kept for the time-off pills above it.
+  const isSel = (key) => !!selected && !selected.shiftId && (selected.cells ? selected.cells.some((x) => x.key === key) : selected.key === key);
   const dayCell = (row, email, d, c, groupId, items, r, editable, inner = null, top = 0) => {
     const ds = isoDate(d);
     const ghost = !items.length && editable && on && email ? ghostOf(email, ds) : null;
@@ -327,12 +328,15 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
       // Excel-style (Oct 28 2026): a click selects the day, a double-click
       // (or Enter) adds to it; Shift+click still opens the editor at once.
       onClick: clickable((e) => {
+        if (on.selectCell && (e.ctrlKey || e.metaKey)) { on.selectCell(email, ds, groupId, true); return; }
         if (on.selectCell && !(e.shiftKey && editable && !items.length)) { on.selectCell(email, ds, groupId); e.currentTarget.focus?.({ preventScroll: true }); return; }
         if (!items.length && editable) on.cellClick(email, ds, groupId, e);
       }),
       ...(on.selectCell ? { onDoubleClick: clickable((e) => { if (!items.length && editable) on.cellClick(email, ds, groupId, e); }) } : {}),
       ...dropProps(email, ds), ...(editable ? hoverCell(email, ds, groupId) : {}),
       ...(on.selectCell ? { onFocus: (e) => { hoverCell(email, ds, groupId).onFocus?.(e); if (e.target === e.currentTarget) on.selectCell(email, ds, groupId); } } : {}),
+      // Ctrl/Cmd+click adds a day: keep focus (and the selection) where it is.
+      ...(on.selectCell ? { onMouseDown: (e) => { if (e.ctrlKey || e.metaKey) e.preventDefault(); } } : {}),
       onContextMenu: (e) => on.menu(e, { email, date: ds, groupId, shift: null }),
       onPointerDown: (e) => on.longPress(e, { email, date: ds, groupId, shift: null }),
     } : {};
@@ -341,9 +345,9 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
         title={ghost ? `Double-click to place ${shiftShortText(ghost)}${ghost.name ? ` ${ghost.name}` : ''} (their usual hours). Shift+click opens the editor.` : undefined}
         aria-label={`${email ? '' : 'Open shifts '}${formatDate(ds)}${items.length ? `, ${items.length} shift${items.length === 1 ? '' : 's'}` : ', empty'}`}
         className={`sched-cell${pulseCells?.has(`${email}|${ds}`) ? ' m-pulse-cell' : ''}`} {...handlers}
-        data-selected={selected && !selected.shiftId && selected.key === `${email}|${ds}` ? '' : undefined}
+        data-selected={isSel(`${email}|${ds}`) ? '' : undefined}
         style={cellStyle(row, c, d, { cursor: on && !items.length && editable ? 'pointer' : 'default', paddingTop: (compact ? 3 : PAD) + top,
-          ...(selected && !selected.shiftId && selected.key === `${email}|${ds}` ? { outline: '2px solid var(--wk-brand)', outlineOffset: -2, zIndex: 1 } : {}),
+          ...(isSel(`${email}|${ds}`) ? { outline: '2px solid var(--wk-brand)', outlineOffset: -2, zIndex: 1 } : {}),
           ...(on ? dropStyle(email, ds) : {}) })}>
         {inner}
         {items.map((s) => block(s, email, ds, groupId, items.length === 1))}

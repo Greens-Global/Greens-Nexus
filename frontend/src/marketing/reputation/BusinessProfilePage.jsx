@@ -252,7 +252,7 @@ function SampleBusinessProfilePage({ banner, range, onRangeChange, property, onP
         <>
           <ProfileStatCards current={profileTotals} previous={profilePrevTotals} platform={insightsPlatform} />
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, alignItems: 'stretch' }}>
+          <div className="mktg-stack" style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, alignItems: 'stretch' }}>
             <div style={{ gridColumn: 'span 7' }}>
               <ProfileViewsChart rows={profileRows} prevRows={profilePrevRows} platform={insightsPlatform} />
             </div>

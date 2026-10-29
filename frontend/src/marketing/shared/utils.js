@@ -1,3 +1,5 @@
+import { formatDate } from '../../lib/datetime'
+
 export const ANCHOR_DATE = '2025-06-30'
 export const DATA_START = '2025-01-01'
 export const DATA_END = '2025-06-30'
@@ -32,21 +34,25 @@ function pad2(n) {
   return String(n).padStart(2, '0')
 }
 
-// U.S.-formatted numeric date, YYYY/MM/DD - the one date format used
-// everywhere across the Marketing module (filters, charts, tables, reviews,
-// reports, and exports) so a date reads the same no matter where it shows up.
+// MM/DD/YYYY through the app's one date helper (lib/datetime), the format
+// used everywhere across the Marketing module (filters, charts, tables,
+// reviews, reports, and exports) - it printed YYYY/MM/DD until Oct 29 2026.
+// `d` is a UTC-normalized calendar date, so its UTC day is read back as a
+// local date before formatting (a UTC midnight would show the day before
+// west of Greenwich).
 export function formatDateFromDate(d) {
-  return `${d.getUTCFullYear()}/${pad2(d.getUTCMonth() + 1)}/${pad2(d.getUTCDate())}`
+  return formatDate(new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
 }
 
-// Same YYYY/MM/DD format, for Date objects carrying a real local time
-// (e.g. a review's post timestamp) rather than a UTC-normalized calendar date.
+// Same format, for Date objects carrying a real local time (e.g. a review's
+// post timestamp) rather than a UTC-normalized calendar date.
 export function formatLocalDateUS(d) {
-  return `${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`
+  return formatDate(d)
 }
 
+// MM/YYYY, for monthly chart buckets.
 export function formatYearMonthFromDate(d) {
-  return `${d.getUTCFullYear()}/${pad2(d.getUTCMonth() + 1)}`
+  return `${pad2(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`
 }
 
 export function formatDateUS(iso) {

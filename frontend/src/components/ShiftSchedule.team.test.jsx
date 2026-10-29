@@ -63,13 +63,14 @@ beforeEach(() => {
 });
 
 describe('Team switcher', () => {
-  it('opens on All Teams the first time, every team stacked and Everyone Else folded (Neil, Oct 28 2026)', async () => {
+  it('opens on All Teams the first time, every team stacked and folded until opened (Neil, Oct 28; Oct 29 2026)', async () => {
     role.current = { myEmail: C };
     api.timeSchedule.mockResolvedValue(data([shift({ id: 'c1', email: C }), shift({ id: 'c2', email: C, date: plusDays(monday, 1) }), shift({ id: 'a1' })]));
     render(<ShiftSchedule />);
-    await screen.findByText('Cat Cole');
+    fireEvent.click(await screen.findByRole('button', { name: 'Expand Back' }));
+    expect(screen.getByText('Cat Cole')).toBeTruthy();
     expect(teamButton().textContent).toContain('All Teams');
-    expect(screen.getByText('Amy Adams')).toBeTruthy();
+    expect(screen.queryByText('Amy Adams')).toBeNull();                     // Front stays folded
     expect([...document.querySelectorAll('[data-team]')].map((r) => r.getAttribute('data-team'))).toEqual(['g1', 'g2']);
     expect(screen.getByText('Everyone Else')).toBeTruthy();
     expect(screen.queryByText('Dan Dye')).toBeNull();                       // folded until opened
@@ -86,7 +87,7 @@ describe('Team switcher', () => {
     role.current = { myEmail: A };
     api.timeSchedule.mockResolvedValue(data([shift()]));
     const { unmount } = render(<ShiftSchedule />);
-    await screen.findByText('Amy Adams');
+    await screen.findByRole('button', { name: 'Expand Front' });
     pickTeam('Back');
     expect(screen.queryByText('Amy Adams')).toBeNull();
     expect(localStorage.getItem(`nexus.shifts.team.${A}`)).toBe('g2');
@@ -305,7 +306,8 @@ describe('Coverage and conflicts', () => {
     fireEvent.click(chips[0]);
     expect(cellOf(B).className).toContain('m-pulse-cell');
     // Off under Customize, remembered.
-    fireEvent.click(screen.getByRole('button', { name: /^Customize/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(within(screen.getByRole('menu', { name: 'More' })).getByText('Customize'));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Customize' })).getByRole('checkbox', { name: 'Show coverage' }));
     expect(document.querySelector('[data-coverage]')).toBeNull();
   });
@@ -385,6 +387,30 @@ describe('Excel-style selection and the conflicts list (Neil and Charmi, Oct 28 
     fireEvent.click(cellOf(B, plusDays(monday, 3)));
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(document.querySelector('[data-selected]')).toBeNull();
+  });
+
+  it('Ctrl+click picks several days, and one Ctrl+V pastes the copied shift into each (Oct 29 2026)', async () => {
+    api.timeSchedule.mockResolvedValue(data([shift()]));
+    api.timeSchedCreate.mockImplementation(async (p) => ({ id: `n-${p.work_date}` }));
+    render(<ShiftSchedule toastOk={vi.fn()} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.click(document.querySelector('[data-shift="s1"]'));
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    const days = [1, 2, 3].map((n) => cellOf(B, plusDays(monday, n)));
+    fireEvent.click(days[0]);
+    fireEvent.click(days[1], { ctrlKey: true });
+    fireEvent.click(days[2], { ctrlKey: true });
+    fireEvent.click(days[1], { ctrlKey: true });                              // a second Ctrl+click takes it out again
+    expect(days.map((d) => d.hasAttribute('data-selected'))).toEqual([true, false, true]);
+    fireEvent.click(days[1], { ctrlKey: true });
+    expect(document.querySelectorAll('[data-selected]')).toHaveLength(3);
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    await waitFor(() => expect(api.timeSchedCreate).toHaveBeenCalledTimes(3));
+    expect(api.timeSchedCreate.mock.calls.map(([p]) => p.work_date).sort()).toEqual([1, 2, 3].map((n) => plusDays(monday, n)));
+    expect(api.timeSchedCreate.mock.calls.every(([p]) => p.employee_email === B && p.shift_id === 'p1')).toBe(true);
+    expect(await screen.findByText('Shift copied into 3 days.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(api.timeSchedDelete).toHaveBeenCalledTimes(3));
   });
 
   it('lists every conflict under the schedule in plain words, and a click shows the shift', async () => {

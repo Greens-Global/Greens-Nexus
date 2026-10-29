@@ -1,10 +1,12 @@
 // The schedule toolbar (Oct 2026, Teams parity; reworked Oct 28 2026 after
 // Neil's walk-through): ONE row - [‹ date ›  Today] [Day Week Month] ......
-// [Fill Automatically] [Add] [Customize] [Export ▾] [Import] [⋯] | [Discard]
-// [Save & Share N]. The date bar leads on the left; the team picker is not
-// here any more - it sits on its own line right above the schedule, so the
-// grid always says which team it is. ⋯ keeps only Copy Week, Clear Week,
-// Requests and Keyboard Shortcuts. On a phone: [‹ date ›] [+] [⋯] over
+// [Fill Automatically] [Add] [Print] [⋯] | [Discard] [Save & Share N].
+// Discard shows only once there is something to discard; Customize, Export
+// to Excel and Import live under ⋯ with Copy Week, Clear Week, Requests and
+// Keyboard Shortcuts (Pranshu, Oct 29 2026: too many buttons). The date bar
+// leads on the left; the team picker is not here any more - it sits on its
+// own line right above the schedule, so the grid always says which team it
+// is. On a phone: [‹ date ›] [+] [⋯] over
 // [Team ▾] [Week ▾]; Save & Share, Discard, Fill, Import, Export and
 // Customize move under ⋯.
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -46,12 +48,9 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
     ...(actions.canTimeOff ? [{ key: 'timeoff', label: 'Time Off', Icon: CalendarOff, onClick: () => onAdd('timeoff') }] : []),
     { key: 'note', label: 'Day Note', Icon: StickyNote, onClick: () => onAdd('note') },
   ];
-  // Export and Print in one place (Neil, Oct 28 2026: "an Export button that
-  // has a dropdown that allows for all print/share type options").
-  const exportItems = [
-    { key: 'export', label: 'Export to Excel', Icon: Download, onClick: actions.exportFile, disabled: !ready },
-    { key: 'print', label: 'Print', Icon: Printer, onClick: actions.print, disabled: !ready },
-  ];
+  // Print is its own button on a desktop; Export to Excel sits under ⋯.
+  const exportItem = { key: 'export', label: 'Export to Excel', Icon: Download, onClick: actions.exportFile, disabled: !ready };
+  const printItem = { key: 'print', label: 'Print', Icon: Printer, onClick: actions.print, disabled: !ready };
   const saveTitle = unsharedCount ? `${unsharedCount} change${unsharedCount === 1 ? '' : 's'} your team has not seen yet. Save & Share sends them and tells the people affected.` : 'Everything is saved and shared with the team';
   // ⋯ keeps only what is used now and then (Neil, Oct 28 2026: "the 3 dots
   // is hiding too many options"). On a phone it also carries what has no
@@ -59,12 +58,16 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
   const moreItems = [
     ...(phone && canManage ? [
       { key: 'share', label: `Save & Share${unsharedCount ? ` (${unsharedCount})` : ''}`, Icon: Send, onClick: onShare, disabled: busy || !ready, title: saveTitle },
-      { key: 'discard', label: 'Discard Changes', Icon: RotateCcw, onClick: actions.discard, disabled: !unsharedCount || busy },
+      ...(unsharedCount ? [{ key: 'discard', label: 'Discard Changes', Icon: RotateCcw, onClick: actions.discard, disabled: busy }] : []),
       'sep',
       { key: 'fill', label: 'Fill Automatically', Icon: Wand2, onClick: actions.fill, disabled: !ready },
       { key: 'import', label: 'Import', Icon: Upload, onClick: actions.importFile, disabled: !ready },
     ] : []),
-    ...(phone ? [...exportItems, { key: 'customize', label: 'Customize', Icon: SlidersHorizontal, onClick: actions.viewOptions }, 'sep'] : []),
+    { key: 'customize', label: 'Customize', Icon: SlidersHorizontal, onClick: actions.viewOptions },
+    exportItem,
+    ...(phone ? [printItem] : []),
+    ...(!phone && canManage ? [{ key: 'import', label: 'Import', Icon: Upload, onClick: actions.importFile, disabled: !ready }] : []),
+    'sep',
     ...(canManage ? [
       { key: 'copy', label: 'Copy Week', Icon: Copy, onClick: actions.copy, disabled: !ready },
       { key: 'clear', label: 'Clear Week', Icon: Trash2, onClick: actions.clear, disabled: !ready },
@@ -130,23 +133,19 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
           </button>
         )}
         {canManage && <MenuButton label="Add" Icon={Plus} items={addItems} ariaLabel="Add" width={190} disabled={!ready} />}
-        <button type="button" className="secondary-btn" onClick={actions.viewOptions} title="Choose what the schedule shows" style={BTN}>
-          <SlidersHorizontal size={13} /> Customize
+        <button type="button" className="secondary-btn" onClick={actions.print} disabled={!ready} title="Print what is on screen" style={BTN}>
+          <Printer size={13} /> Print
         </button>
-        <MenuButton label="Export" Icon={Download} items={exportItems} ariaLabel="Export" width={180} align="right" disabled={!ready} />
-        {canManage && (
-          <button type="button" className="secondary-btn" onClick={actions.importFile} disabled={!ready} title="Add shifts from an Excel file" style={BTN}>
-            <Upload size={13} /> Import
-          </button>
-        )}
         {more}
         {canManage && (
           <>
             <span aria-hidden="true" style={{ width: 1, height: 26, background: 'var(--line)', margin: '0 2px' }} />
-            <button type="button" className="secondary-btn" onClick={actions.discard} disabled={busy || !ready || !unsharedCount}
-              title={unsharedCount ? 'Throw away the changes your team has not seen yet' : 'Nothing to discard'} style={BTN}>
-              <RotateCcw size={13} /> Discard
-            </button>
+            {unsharedCount > 0 && (
+              <button type="button" className="secondary-btn" onClick={actions.discard} disabled={busy || !ready}
+                title="Throw away the changes your team has not seen yet" style={BTN}>
+                <RotateCcw size={13} /> Discard
+              </button>
+            )}
             <button type="button" className={unsharedCount ? 'primary-btn' : 'secondary-btn'} onClick={onShare} disabled={busy || !ready}
               title={saveTitle} aria-label={`Save & Share${unsharedCount ? `, ${unsharedCount} unsaved` : ''}`} style={BTN}>
               <Send size={13} /> Save &amp; Share

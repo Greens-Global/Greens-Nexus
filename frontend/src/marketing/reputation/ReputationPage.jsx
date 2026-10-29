@@ -187,9 +187,9 @@ function SampleReputationPage({ banner, range, onRangeChange, property, onProper
       />
       {banner}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, alignItems: 'start' }}>
+      <div className="mktg-stack" style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, alignItems: 'start' }}>
         <div style={{ gridColumn: 'span 10' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
+          <div className="mktg-cols-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
             <StatCards
               overallRating={lifetimeCurrent.overallRating}
               prevOverallRating={lifetimePrevious.overallRating}

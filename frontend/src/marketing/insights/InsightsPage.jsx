@@ -376,7 +376,7 @@ export default function InsightsPage({
         onSelectMetric={(key, label, format) => setSelectedMetric({ key, label, format })}
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, marginBottom: 16, alignItems: 'stretch' }}>
+      <div className="mktg-stack" style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, marginBottom: 16, alignItems: 'stretch' }}>
         <div style={{ gridColumn: 'span 6' }}>
           <LeadsTrendChart rows={rows} prevRows={prevRows} />
         </div>
@@ -388,7 +388,7 @@ export default function InsightsPage({
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, marginBottom: 16, alignItems: 'stretch' }}>
+      <div className="mktg-stack" style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, marginBottom: 16, alignItems: 'stretch' }}>
         <div style={{ gridColumn: 'span 6' }}>
           <LeadSourceCard rows={leadSourceData} />
         </div>
