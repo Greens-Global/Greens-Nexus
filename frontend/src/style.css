@@ -6769,13 +6769,12 @@ body:has(.docs-root) { overflow-x: clip; }
 [data-theme="dark"] .nx-label { background: color-mix(in srgb, var(--c) 20%, transparent); color: color-mix(in srgb, var(--c) 55%, #fff); }
 .nx-prio { --c: #64748b; display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%;
   font-size: 12.5px; font-weight: 500; color: var(--nx-dim, var(--muted)); white-space: nowrap; }
-.nx-prio-bars { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 11px; flex-shrink: 0; }
-.nx-prio-bars i { width: 3px; border-radius: 1px; background: var(--nx-border, var(--line)); }
-.nx-prio-bars i:nth-child(1) { height: 5px; } .nx-prio-bars i:nth-child(2) { height: 8px; } .nx-prio-bars i:nth-child(3) { height: 11px; }
-.nx-prio-bars i.on { background: var(--nx-dim, var(--muted)); }
+/* The chevron mark (Oct 28 2026) is always in the priority's own color;
+   the word takes it only for High and Urgent. */
+.nx-prio .nx-prio-mark { color: var(--c); }
 .nx-prio-loud { font-weight: 600; color: color-mix(in srgb, var(--c) 72%, #000); }
-.nx-prio-loud .nx-prio-bars i.on { background: var(--c); }
 [data-theme="dark"] .nx-prio-loud { color: color-mix(in srgb, var(--c) 55%, #fff); }
+[data-theme="dark"] .nx-prio-loud .nx-prio-mark { color: color-mix(in srgb, var(--c) 80%, #fff); }
 
 /* What is waiting on me (Oct 18 2026; quiet counts since Oct 25 - components/
    NavCount.jsx, lib/useActionCounts.js). Neil: "make this more subtle".
