@@ -161,7 +161,7 @@ export default function PayrollSummary() {
     setBusy(format);
     try {
       const file = await linesFile({
-        title: 'Payroll Summary', period: `${config.from}_${config.to}`,
+        title: 'Payroll Summary', period: `${formatDate(config.from)} - ${formatDate(config.to)}`.replace(/\//g, '-'),
         subtitle: [`${formatDate(config.from)} - ${formatDate(config.to)}`, config.entities.length ? config.entities.join(', ') : 'All Entities', `${PAYROLL_SUMMARY_JOURNAL} journal`].join(' · '),
         columns: table.columns.map((c) => ({ label: c.label, num: !!c.num, width: c.num ? 110 : 260 })),
         rows: table.rows.map((r) => [r.label, ...(r.kind === 'section' ? table.columns.slice(1).map(() => '') : r.cells)]),

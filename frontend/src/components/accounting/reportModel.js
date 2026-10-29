@@ -2017,12 +2017,17 @@ export function csvRows(result, entities = []) {
   return out;
 }
 
-export function csvFileName(result) {
+/** A download's name, the house way like Save to Files (reportFileName):
+ *  "Income Statement by Customer - All Entities - 01-01-2026 to 10-27-2026.csv",
+ *  the Columns pick after the dates when the title does not already say it.
+ *  (UI test 10/29: it was "Custom-Report_all-entities_accrual_2026-01-01_...".) */
+export function csvFileName(result, entities = []) {
   const { config, def } = result;
-  const stamp = periodOf(config) === 'asof' ? config.asof : `${config.from}_${config.to}`;
-  const who = config.entities.length === 1 ? config.entities[0] : config.entities.length ? 'entities' : 'all-entities';
-  const cols = activeColumns(config) === 'total' ? '' : `_${activeColumns(config)}`;
-  return `${(dimTitle(config) || def.label).replace(/[^A-Za-z]+/g, '-')}_${who}_${config.book}${cols}_${stamp}.csv`;
+  const title = dimTitle(config);
+  const cols = activeColumns(config);
+  const mode = cols === 'total' || title ? '' : columnModes(config.report).find((m) => m.key === cols)?.label || '';
+  const name = reportFileName({ config, def: { ...def, label: title || def.label } }, entities, 'csv');
+  return mode ? name.replace(/\.csv$/, ` - ${mode.replace(/[\\/:*?"<>|]+/g, ' ')}.csv`) : name;
 }
 
 /**

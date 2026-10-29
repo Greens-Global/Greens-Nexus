@@ -396,7 +396,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
       const { buildPackagePdf } = await import('./reportPdf');
       const title = reportTitle(r.config, activeSaved?.name || r.def.label);
       const bytes = await buildPackagePdf({ name: title, statements: [{ title: r.def.label, result: r, entities }], cover: false });
-      downloadBlob(csvFileName(r).replace(/\.csv$/, '.pdf'), new Blob([bytes], { type: 'application/pdf' }));
+      downloadBlob(csvFileName(r, entities).replace(/\.csv$/, '.pdf'), new Blob([bytes], { type: 'application/pdf' }));
     } catch (e) {
       setError(e?.message || 'Could not build the PDF.');
     } finally {
@@ -413,7 +413,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     try {
       const { buildStatementWorkbook } = await import('./reportExcel');
       const bytes = await buildStatementWorkbook({ title: activeSaved?.name || r.def.label, result: r, entities });
-      downloadBlob(csvFileName(r).replace(/\.csv$/, '.xlsx'), new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      downloadBlob(csvFileName(r, entities).replace(/\.csv$/, '.xlsx'), new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     } catch (e) {
       setError(e?.message || 'Could not build the workbook.');
     } finally {
@@ -756,7 +756,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
           ] : [
             { key: 'excel', label: 'Excel', hint: 'Totals in bold, columns fitted, live formulas', onPick: () => shown && exportExcel(shown), busy: xlsxBusy },
-            { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => shown && downloadCsv(csvFileName(shown), csvRows(shown, entities)) },
+            { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => shown && downloadCsv(csvFileName(shown, entities), csvRows(shown, entities)) },
             { key: 'pdf', label: 'PDF', hint: 'Laid out like a page of a package', onPick: () => shown && exportPdf(shown), busy: pdfBusy },
             { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, statement attached', Icon: Mail, onPick: () => setSending('email') },
             { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },

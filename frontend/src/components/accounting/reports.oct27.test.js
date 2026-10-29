@@ -42,7 +42,7 @@ describe('Income Statement by Customer, Job and Department (item 16)', () => {
       const out = csvRows(result);
       expect(out[0]).toEqual([`${title} (Accrual Book)`]);
       expect(out[5]).toEqual(['Section', 'Account', 'Title', 'C1 Acme', 'Total']);
-      expect(csvFileName(result)).toMatch(new RegExp(`^${title.replace(/ /g, '-')}_all-entities_accrual_${cols}_2026-01-01_2026-10-27\\.csv$`));
+      expect(csvFileName(result)).toBe(`${title} - All Entities - 01-01-2026 to 10-27-2026.csv`);
       expect(out.flat().join(' ')).not.toMatch(/Profit\s*(&|and)\s*Loss|P&L/i);
     });
   });
