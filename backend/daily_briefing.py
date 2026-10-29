@@ -1245,6 +1245,7 @@ _SECTION_META = {
     "pending":         ("Needs Your Attention",                "#b45309", "Needs your attention"),
     "due_week":        ("Due This Week",                       "#1d4ed8", "Due this week"),
     "time_off_ahead":  ("Upcoming Time Off",                   "#0f766e", "Time off ahead"),
+    "holidays_ahead":  ("Upcoming Holidays",                   "#7c3aed", "Holidays ahead"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
 # Each section's tables carry that section's color (Pranshu, Sep 26): a light
@@ -1260,6 +1261,7 @@ _TONE = {
     "pending":         ("#fffaf0", "#fdefd5", "#f0d6a8"),
     "due_week":        ("#f5f8ff", "#e1e9fd", "#c3d3f7"),
     "time_off_ahead":  ("#f0fdfa", "#d5f5ee", "#a7e3d6"),
+    "holidays_ahead":  ("#f8f5ff", "#ece6fd", "#d4c8f7"),
 }
 
 _MODULE_META = {
@@ -1271,8 +1273,9 @@ _MODULE_META = {
     "shifts":   "Shifts",
     "items":    "Items",
     "team":     "Team",
+    "holidays": "Holidays",   # Weekly Digest Upcoming Holidays (Oct 29 2026)
 }
-_MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "shifts", "items", "team"]
+_MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "shifts", "items", "team", "holidays"]
 # "View all" target per module for the overflow rows - a plain link, so it
 # works identically in every client (Pranshu, Sep 20).
 _MODULE_VIEW_URL = {

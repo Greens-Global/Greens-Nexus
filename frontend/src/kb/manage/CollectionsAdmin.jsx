@@ -54,7 +54,7 @@ export default function CollectionsAdmin({ me }) {
         </section>
       </AsyncSection>
       {create && (
-        <Modal title={create.parent_id ? `New Sub-collection in ${create.parent_name}` : 'New Collection'} onClose={() => setCreate(null)} minHeight="40vh" footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><button type="button" className="kb-btn" onClick={() => setCreate(null)}>Cancel</button><button type="button" className="kb-btn pri" disabled={!form.name.trim()} onClick={save}>Create</button></div>}>
+        <Modal title={create.parent_id ? `New Sub-collection in ${create.parent_name}` : 'New Collection'} onClose={() => setCreate(null)} minHeight="40vh" footer={<div className="kb" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><button type="button" className="kb-btn" onClick={() => setCreate(null)}>Cancel</button><button type="button" className="kb-btn pri" disabled={!form.name.trim()} onClick={save}>Create</button></div>}>
           <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="kb-field"><label>Name</label><input className="kb-input" autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={create.parent_id ? 'Site Operations' : 'Operations'} /></div>
             {!create.parent_id && <div className="kb-field"><label>People department it stands for</label><input className="kb-input" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} placeholder="Same as the name, usually" /><div className="kb-help">Used for page codes (OPS-014) and the compliance filters.</div></div>}

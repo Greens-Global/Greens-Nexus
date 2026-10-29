@@ -77,6 +77,11 @@ class _Case(unittest.TestCase):
             mock.patch.object(daily_briefing, "_shift_local_now", _frozen_local_now),
             mock.patch.object(daily_briefing, "_logo_url", lambda db: ""),
             mock.patch.object(weekly_digest.graph_mail, "send_mail", lambda **kw: self.sent.append(kw)),
+            # The time sheet reminder reads the Time module's own "today"
+            # (daily_briefing._timecard_rows): frozen too, or the real date
+            # leaks in - two days before a period closes it adds a Confirm
+            # Your Time Sheet row to every digest (seen 10/29/2026).
+            mock.patch("routers.timeclock._employee_today", lambda db, email: TODAY.isoformat()),
         ]
         for p in patches:
             p.start()
@@ -222,6 +227,62 @@ class ScheduleTests(_Case):
         self._scan()
         self.assertEqual(self.sent, [])
         self.assertEqual(self._logs()[0].sent_at, "")
+
+
+class HolidayTests(_Case):
+    """Oct 29 2026: the holidays that apply to the person - their company's
+    calendar, their country - this week and next, with Day Off / Half Day /
+    Optional. New Year's Eve (a half day) and New Year's Day (off) land on the
+    digest of the week they fall in."""
+
+    def setUp(self):
+        super().setUp()
+        self.db.query(models.HrCompanyHoliday).delete()
+        self.db.commit()
+
+    def _holiday(self, day, name, type_="mandatory", company="co-us", countries=""):
+        self.db.add(models.HrCompanyHoliday(id=gen_id(), company_id=company, date=day, name=name,
+                                            type=type_, country_code=countries))
+        self.db.commit()
+
+    def test_new_years_week_says_half_day_and_day_off(self):
+        self._emp(AMY, company="co-us", country="US")
+        self._holiday("2026-12-25", "Christmas Day")                        # already past
+        self._holiday("2026-12-31", "New Year's Eve", "half_day")
+        self._holiday("2027-01-01", "New Year's Day")
+        self._holiday("2027-01-01", "Bank Holiday", countries="IN")           # another country's
+        self._holiday("2027-01-06", "Floating Holiday", "optional")
+        self._holiday("2027-01-11", "Too Far Out")                          # past next Sunday
+        self._holiday("2026-12-31", "Other Company", company="co-in")
+        rows = weekly_digest.build_sections(self.db, AMY, date(2026, 12, 28))["holidays_ahead"]
+        self.assertEqual([(r["title"], r["detail"]) for r in rows], [
+            ("New Year's Eve", "Thursday, 12/31/2026 - Half Day - This Week"),
+            ("New Year's Day", "Friday, 01/01/2027 - Day Off - This Week"),
+            ("Floating Holiday", "Wednesday, 01/06/2027 - Optional Holiday - Next Week"),
+        ])
+
+    def test_a_monday_holiday_is_flagged_the_week_before(self):
+        self._emp(AMY, company="co-us", country="US")
+        self._holiday("2027-01-18", "Martin Luther King Jr. Day", countries="US")
+        rows = weekly_digest.holiday_rows(self.db, AMY, date(2027, 1, 11))
+        self.assertEqual(rows[0]["detail"], "Monday, 01/18/2027 - Day Off - Next Week")
+
+    def test_no_company_no_holidays(self):
+        self._emp(AMY)
+        self._holiday("2026-10-01", "Somewhere Else")
+        self.assertNotIn("holidays_ahead", weekly_digest.build_sections(self.db, AMY, TODAY))
+
+    def test_a_holiday_week_is_enough_to_send(self):
+        self._emp(AMY, company="co-us", country="US")
+        self.db.query(models.Task).delete()
+        self.db.commit()
+        self._holiday("2026-10-02", "Company Picnic", "half_day")
+        self._config(defaultSendTime="07:00")
+        self._scan()
+        html = self.sent[0]["html"]
+        self.assertIn("Upcoming Holidays", html)
+        self.assertIn("Friday, 10/02/2026 - Half Day - This Week", html)
+        self.assertIn("the holidays coming up", html)
 
 
 class DueThisWeekTests(_Case):

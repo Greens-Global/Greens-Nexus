@@ -196,7 +196,7 @@ def void_older(db: Session, d: models.KbDocument, *, actor: str = "nexus") -> in
 
 
 def signs_in_nexus_sign(d: models.KbDocument) -> bool:
-    return kb_core.NEXUS_SIGN_FOR_POLICIES and d.signing == "nexus_sign" and d.status == "approved" and bool(d.require_ack)
+    return kb_core.NEXUS_SIGN_FOR_POLICIES and d.signing == "nexus_sign" and kb_core.is_live(d) and bool(d.require_ack)
 
 
 def run(db: Session, limit: int = BATCH) -> int:

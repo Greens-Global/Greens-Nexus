@@ -21,6 +21,13 @@ timesheet fixes; the opening line counts what is waiting across modules; the
 team table opens with a one-line total; Upcoming Time Off lists who on the
 team - and the person's own manager - is off in the next two weeks.
 
+Upcoming Holidays (Oct 29 2026, Sagar): the holidays on the person's own
+company calendar for their country (holiday_policies.holidays_by_date - the
+rule Time Sheets and the Workforce Scorecard read), this week and next, so a
+Monday holiday is flagged the week before. Each says whether it is a Day Off,
+a Half Day (New Year's Eve) or Optional. A week with a holiday is a reason
+to send on its own.
+
 Default schedule (Neil): every Monday, 2 hours before the person's shift -
 the same shift lookup the Daily Briefing uses (the Shift preset's own
 timezone, a published ScheduledShift first). Someone with no shift that
@@ -75,10 +82,12 @@ TEAM_SECTION = "team_overdue"  # manager: one line per direct report behind
 PENDING_SECTION = "pending"    # everything else still waiting on them (daily "Action Required")
 DUE_SECTION = "due_week"       # their open tasks due in the coming week (Oct 2)
 TIME_OFF_SECTION = "time_off_ahead"   # who is off in the next two weeks (Oct 5)
+HOLIDAY_SECTION = "holidays_ahead"    # company holidays this week and next (Oct 29 2026)
 # Actions first, then tasks (Neil, 10/01: "it needs to be all actions ... not
 # just the tasks").
-ORDER = [PENDING_SECTION, SECTION, DUE_SECTION, TEAM_SECTION, TIME_OFF_SECTION]
+ORDER = [PENDING_SECTION, SECTION, DUE_SECTION, TEAM_SECTION, TIME_OFF_SECTION, HOLIDAY_SECTION]
 TIME_OFF_DAYS = 14
+HOLIDAY_WORDS = {"mandatory": "Day Off", "half_day": "Half Day", "optional": "Optional Holiday"}
 
 SCAN_EVERY_SEC = 15 * 60
 _REPORT_TITLE_CAP = 3
@@ -285,6 +294,35 @@ def pending_rows(db: Session, email: str, my_reports: dict, skip_task_ids: set) 
             if not (r.get("task_id") and r["task_id"] in skip_task_ids)]
 
 
+def holiday_rows(db: Session, email: str, today: date) -> list:
+    """The holidays that apply to this person from `today` through the end of
+    NEXT week (Sunday): their company's calendar, their country's rows, one
+    answer per date (holiday_policies.holidays_by_date). Soonest first."""
+    import holiday_policies
+    emp = (db.query(models.NexusEmployee)
+           .filter(func.lower(models.NexusEmployee.work_email) == (email or "").lower()).first())
+    if not emp or not emp.company:
+        return []
+    this_monday = today - timedelta(days=today.weekday())
+    next_sunday = this_monday + timedelta(days=13)
+    rows = (db.query(models.HrCompanyHoliday)
+            .filter(models.HrCompanyHoliday.company_id == emp.company,
+                    models.HrCompanyHoliday.date >= today.isoformat(),
+                    models.HrCompanyHoliday.date <= next_sunday.isoformat()).all())
+    out = []
+    for d, h in holiday_policies.holidays_by_date(rows, emp.country).items():
+        try:
+            day = date.fromisoformat(d)
+        except ValueError:
+            continue
+        when = "This Week" if day < this_monday + timedelta(days=7) else "Next Week"
+        out.append({"title": h.get("name") or "Holiday",
+                    "detail": f"{day.strftime('%A')}, {day.strftime('%m/%d/%Y')} - "
+                              f"{HOLIDAY_WORDS.get(h.get('type'), 'Day Off')} - {when}",
+                    "url": "", "module": "holidays"})
+    return out
+
+
 def build_sections(db: Session, email: str, today: date) -> dict:
     my_reports = {(e.work_email or "").lower(): e for e in
                   db.query(models.NexusEmployee)
@@ -300,8 +338,9 @@ def build_sections(db: Session, email: str, today: date) -> dict:
     # "people are not guessing".
     off = daily.upcoming_time_off_rows(db, email, my_reports, today.isoformat(),
                                        (today + timedelta(days=TIME_OFF_DAYS - 1)).isoformat())
+    holidays = holiday_rows(db, email, today)
     return {k: v for k, v in ((PENDING_SECTION, pending), (SECTION, own), (DUE_SECTION, due),
-                              (TEAM_SECTION, team), (TIME_OFF_SECTION, off)) if v}
+                              (TEAM_SECTION, team), (TIME_OFF_SECTION, off), (HOLIDAY_SECTION, holidays)) if v}
 
 
 def _intro(sections: dict) -> str:
@@ -322,6 +361,8 @@ def _intro(sections: dict) -> str:
         parts.append(f"{n} team member{'' if n == 1 else 's'} behind on their tasks")
     if sections.get(TIME_OFF_SECTION):
         parts.append("who is off in the next two weeks")
+    if sections.get(HOLIDAY_SECTION):
+        parts.append("the holidays coming up")
     if not parts:
         return "Here is your week in Nexus."
     listed = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
@@ -346,7 +387,8 @@ def render(first_name: str, today: date, sections: dict, greeting: str, logo_url
     week_of = f"Week of {datetime.strptime(week_start(today), '%Y-%m-%d').strftime('%m/%d/%Y')}"
     footer = (f"You receive the Weekly Digest every {DAY_NAMES[send_day(cfg) - 1]}, before your shift "
               "starts. It lists everything waiting on you across Nexus - approvals and requests to decide, "
-              "your time sheet, tickets, items, documents to sign and tasks - and who on your team is off.")
+              "your time sheet, tickets, items, documents to sign and tasks - who on your team is off, "
+              "and the holidays coming up.")
     return daily.render_email(first_name, today.isoformat(), sections, greeting=greeting, logo_url=logo_url,
                               title="Weekly Digest", date_label=week_of, intro=_intro(sections),
                               footer=footer, order=ORDER, expanded=True,

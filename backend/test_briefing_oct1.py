@@ -70,7 +70,10 @@ class _Case(unittest.TestCase):
         self.db.commit()
         for p in (mock.patch.object(weekly_digest, "datetime", _FrozenDT),
                   mock.patch.object(daily_briefing, "datetime", _FrozenDT),
-                  mock.patch.object(daily_briefing, "_logo_url", lambda db: "")):
+                  mock.patch.object(daily_briefing, "_logo_url", lambda db: ""),
+                  # the time sheet reminder's own "today" (routers.timeclock), frozen
+                  # too, or the real date adds a Confirm Your Time Sheet row near a close
+                  mock.patch("routers.timeclock._employee_today", lambda db, email: TODAY.isoformat())):
             p.start()
             self.addCleanup(p.stop)
 
