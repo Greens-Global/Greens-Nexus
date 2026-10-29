@@ -13,7 +13,7 @@ import { NX, btn, input as inputStyle } from '../tasks/theme';
 import { Modal } from '../tasks/components';
 import { label, field, requiredHint } from './ticketMeta';
 import { TicketSelect } from './TicketAtoms';
-import { PropertySelect } from './PropertySelect';
+import { PropertySelect, PROPERTY_NONE } from './PropertySelect';
 import { formatDate } from '../lib/datetime';
 import { useRole } from '../contexts/RoleContext';
 import { COMMON_AREA, NO_UNITS, usePropertySuggestion, usePropertyUnits, openProperty } from './ticketPropertyLink';
@@ -45,8 +45,8 @@ function UnitInput({ value, onChange, units, invalid, style, listId }) {
  * `fixed` = raised from the property in Asset Management ({ id, name }).
  */
 export function TicketPropertyIntake({ value, unit, onChange, onUnitChange, fixed = null, required = false,
-  unitRequired = false, invalidProperty = false, invalidUnit = false, text = '', units = NO_UNITS, style }) {
-  const suggestion = usePropertySuggestion(text, !value && !fixed);
+  unitRequired = false, invalidProperty = false, invalidUnit = false, text = '', units = NO_UNITS, style, none = false, onNone }) {
+  const suggestion = usePropertySuggestion(text, !value && !fixed && !none);
   const req = <span style={{ color: NX.red }}>*</span>;
   return (<>
     <div style={field}>
@@ -54,9 +54,10 @@ export function TicketPropertyIntake({ value, unit, onChange, onUnitChange, fixe
       {fixed ? (
         <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', background: NX.surface2, color: NX.ink }}>{fixed.name}</div>
       ) : (
-        <PropertySelect value={value} onChange={onChange} invalid={invalidProperty} style={style} />
+        <PropertySelect value={none ? PROPERTY_NONE : value} invalid={invalidProperty} style={style} noneOption={!!onNone}
+          onChange={(v) => { if (v === PROPERTY_NONE) { onNone?.(true); onChange(''); } else { onNone?.(false); onChange(v); } }} />
       )}
-      {invalidProperty && <div style={requiredHint}>Required</div>}
+      {invalidProperty && <div style={requiredHint}>Pick the property, or None / Other</div>}
       {suggestion && (
         <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6, padding: '6px 10px', borderRadius: 8, background: NX.surface2, fontSize: 12.5, color: NX.ink }}>
           <span>Looks like <b>{suggestion.name}</b>{suggestion.unit ? <> - Unit <b>{suggestion.unit}</b></> : null}</span>
@@ -67,9 +68,11 @@ export function TicketPropertyIntake({ value, unit, onChange, onUnitChange, fixe
       )}
       {hint(fixed
         ? `Shows on ${fixed.name}'s Maintenance in Asset Management.`
-        : required
-          ? "Required for building and maintenance tickets - it shows on that property's Maintenance in Asset Management, and stays your ticket too."
-          : 'Optional - pick it and the ticket shows on that property in Asset Management.')}
+        : none
+          ? 'Not at one of our properties - say where in the description.'
+          : required
+            ? "Required for building and maintenance tickets - it shows on that property's Maintenance in Asset Management, and stays your ticket too. Not at one of ours? Pick None / Other."
+            : 'Optional - pick it and the ticket shows on that property in Asset Management.')}
     </div>
     {(value || fixed) && (
       <div style={field}>

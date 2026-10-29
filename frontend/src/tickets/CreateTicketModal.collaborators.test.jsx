@@ -37,8 +37,7 @@ describe('Create a Ticket - Collaborators', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Collaborators' }));
     fireEvent.click(await screen.findByText('Urmi Patel'));
     fireEvent.keyDown(screen.getByPlaceholderText('Search people…'), { key: 'Escape' });
-    fireEvent.click(await screen.findByText('Select department'));
-    fireEvent.click(await screen.findByText('Facilities'));
+    fireEvent.click(await screen.findByRole('radio', { name: /Facilities/ }));
     fireEvent.change(screen.getByPlaceholderText(/Front gate keypad/), { target: { value: 'Printer' } });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create Ticket' })); });
     expect(createTicket).toHaveBeenCalledWith(expect.objectContaining({ watcherIds: ['urmi@example.com'] }));

@@ -633,6 +633,9 @@ class TicketBody(BaseModel):
     property_locked: Optional[bool] = False
     # The unit (or "Common Area") - ticket_property_link.clean_unit.
     property_unit: Optional[str] = ""
+    # "None / Other" picked on purpose (Neil, Oct 28 2026): a maintenance
+    # ticket must name its property, or say it is not at one of ours.
+    property_none: Optional[bool] = False
     # Equipment (items) the ticket is about - checked by ticket_items.check_items.
     item_ids: Optional[list] = None
     # Mark an Issue on the Map (Charmi, Oct 20 2026): the spot on the

@@ -73,12 +73,14 @@ describe('Conversation can record and attach again', () => {
   });
 });
 
-describe('Create a Ticket recording card', () => {
-  it('is its own titled card with the full-size Record Screen button', async () => {
+// The red card became a calm bar under the description (Neil, Oct 28 2026).
+describe('Create a Ticket recording bar', () => {
+  it('puts Record Screen and Attach File right under the description', async () => {
     render(<CreateTicketModal onClose={vi.fn()} />);
-    expect(await screen.findByText('Show Us the Problem')).toBeTruthy();
-    expect(screen.getByText(/A short screen recording is the fastest way/)).toBeTruthy();
-    const rec = screen.getByRole('button', { name: /Record Screen/ });
-    expect(rec.style.fontSize).toBe('14px');   // the featured size, not the compact 12.5px
+    const rec = await screen.findByRole('button', { name: /Record Screen/ });
+    expect(screen.getByRole('button', { name: /Attach File/ })).toBeTruthy();
+    expect(screen.getByText(/press Ctrl\+V to paste a screenshot/)).toBeTruthy();
+    expect(screen.queryByText('Show Us the Problem')).toBeNull();
+    expect(rec.style.fontSize).toBe('12.5px');
   });
 });

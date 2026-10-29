@@ -45,8 +45,7 @@ describe('Property and Unit on Create a Ticket', () => {
   it('a building ticket must name its property, suggested from its words, with its unit', async () => {
     render(<CreateTicketModal onClose={vi.fn()} />);
     const title = await screen.findByPlaceholderText(/What is the issue\?/);
-    fireEvent.click(await screen.findByText('Select department'));
-    fireEvent.click(await screen.findByText('Facilities'));
+    fireEvent.click(await screen.findByRole('radio', { name: /Facilities/ }));
     fireEvent.change(title, { target: { value: 'AC not working - 26382 palisades cabana tenant' } });
     fireEvent.click(screen.getByText('Select one'));
     fireEvent.click(await screen.findByText('Heating or Cooling (HVAC)'));

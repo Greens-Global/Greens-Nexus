@@ -263,7 +263,10 @@ def check_intake(db: Session, user: dict, body, prop, service_area: str, desk: b
     if prop is not None:
         require_takes_property(db, body.hr_department_id, service_area)
     rules = get_rules(db)
+    # "None / Other" is an answer (Neil, Oct 28 2026) - the person said the
+    # ticket is not about one of our properties.
     must = (not desk and not (user or {}).get("external")
+            and not getattr(body, "property_none", False)
             and property_required(db, service_area, body.application, rules)
             and takes_property(db, body.hr_department_id, service_area))
     if must and prop is None and any(property_links.is_listed(p, user) for p in _listed(db)):
