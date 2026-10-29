@@ -154,6 +154,29 @@ describe('Help widget', () => {
     expect(names.some((n) => /Roles & Access/.test(n))).toBe(ROLE_CAN_ADMIN);
   });
 
+  it('Messages shows a ticket filed while the panel is open', async () => {
+    apiState.tickets = [];
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    fireEvent.click(screen.getByRole('tab', { name: /Messages/ }));
+    expect(await screen.findByText('No Messages Yet')).toBeTruthy();
+    apiState.tickets = TICKETS;
+    await act(async () => { window.dispatchEvent(new CustomEvent('nexus:tickets-changed', { detail: { propertyId: '' } })); });
+    expect(await screen.findByRole('button', { name: /VPN keeps dropping/ })).toBeTruthy();
+  });
+
+  it('lists one tour per screen: Reimbursements (on Workday) is not a second Workday tour', async () => {
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    fireEvent.click(screen.getByRole('button', { name: /Other Tours/ }));
+    const picks = [...document.querySelectorAll('[data-tour-pick]')];
+    const keys = picks.map((b) => b.getAttribute('data-tour-pick'));
+    expect(new Set(keys).size).toBe(keys.length);
+    const names = picks.map((b) => b.textContent);
+    expect(names.some((n) => /^Workday Tour/.test(n))).toBe(true);
+    expect(names.some((n) => /^Reimbursements Tour/.test(n))).toBe(false);
+  });
+
   it('opens on Home with the greeting and the three cards', async () => {
     render(<HelpMenu activeView="dashboard" onWhatsNew={() => {}} />);
     await openWidget();

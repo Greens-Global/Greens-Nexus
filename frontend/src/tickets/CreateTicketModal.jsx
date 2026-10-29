@@ -381,10 +381,10 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         }
       }
       onCreated?.(created);
-      if (created?.propertyAssetId) {
-        // A property's ticket tabs in Asset Management refresh on this.
-        window.dispatchEvent(new CustomEvent('nexus:tickets-changed', { detail: { propertyId: created.propertyAssetId } }));
-      }
+      // A property's ticket tabs in Asset Management refresh on this, and so do
+      // the Help Center's list and the Help panel's Messages (Oct 28 2026: a
+      // ticket filed from the "?" panel never showed until a reload).
+      window.dispatchEvent(new CustomEvent('nexus:tickets-changed', { detail: { propertyId: created?.propertyAssetId || '' } }));
       onClose();
     } catch (e) { if (equipmentError(e)) setEquipErr(equipmentError(e)); else appDialog.alert(`Could not create ticket: ${e.message || e}`); setBusy(false); }
   };

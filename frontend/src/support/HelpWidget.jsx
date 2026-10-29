@@ -148,10 +148,13 @@ function MessagesTab({ onAsk, onOpenTicket }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let alive = true;
-    api.getMyTickets()
-      .then((rows) => { if (alive) setTickets(Array.isArray(rows) ? rows : []); })
-      .catch(() => { if (alive) { setTickets([]); setFailed(true); } });
-    return () => { alive = false; };
+    const load = () => api.getMyTickets()
+      .then((rows) => { if (alive) { setTickets(Array.isArray(rows) ? rows : []); setFailed(false); } })
+      .catch(() => { if (alive) { setTickets((t) => t || []); setFailed(true); } });
+    load();
+    // A ticket filed while the panel is open (CreateTicketModal says so).
+    window.addEventListener('nexus:tickets-changed', load);
+    return () => { alive = false; window.removeEventListener('nexus:tickets-changed', load); };
   }, []);
   const sorted = useMemo(() => [...(tickets || [])].sort((a, b) =>
     String(b.modifiedAt || b.createdAt || '').localeCompare(String(a.modifiedAt || a.createdAt || ''))), [tickets]);
@@ -180,7 +183,7 @@ function MessagesTab({ onAsk, onOpenTicket }) {
                   <button type="button" className="hw-row" onClick={() => onOpenTicket(t.id)}>
                     <span className="hw-row-icon"><TicketIcon size={15} /></span>
                     <span style={{ flex: 1, minWidth: 0 }}>
-                      <span className="hw-row-title">{t.subject || 'Untitled ticket'}</span>
+                      <span className="hw-row-title">{t.subject || 'Untitled Ticket'}</span>
                       <span className="hw-row-sub">
                         {[ticketNoShort(t.code), `Updated ${formatDate(t.modifiedAt || t.createdAt, '-')}`].filter(Boolean).join(' · ')}
                       </span>
@@ -419,8 +422,15 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
     const reach = (t) => (t.need === 'administrator' ? !!can?.('administrator') : !t.need || allow(t.need));
     const hands = TOURS.filter(reach);
     const byView = new Map(hands.filter((t) => !t.sub).map((t) => [t.view, t]));
-    const mods = DOCS.filter((d) => d.view && d.view !== activeView && d.view !== 'dashboard' && allow(d.id))
-      .map((d) => ({ key: d.view, label: d.name, view: d.view, hand: byView.get(d.view) || null }));
+    // One tour per screen: a screen's tour is built from its FIRST guide page
+    // (docForView), so a second page on the same screen (Reimbursements, on
+    // Workday) has no tour of its own - listing it started Workday's.
+    const seen = new Set();
+    const mods = DOCS.filter((d) => {
+      if (!d.view || seen.has(d.view)) return false;
+      seen.add(d.view);
+      return d.view !== activeView && d.view !== 'dashboard' && allow(d.id);
+    }).map((d) => ({ key: d.id, label: d.name, view: d.view, hand: byView.get(d.view) || null }));
     const inner = hands.filter((t) => t.sub && t.key !== liveTour?.key).map((t) => ({ key: t.key, label: t.label, view: t.view, hand: t }));
     return [...mods, ...inner].sort((x, y) => x.label.localeCompare(y.label));
   }, [can, allow, activeView, liveTour]);
