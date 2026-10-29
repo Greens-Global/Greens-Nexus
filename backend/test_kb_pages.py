@@ -324,6 +324,84 @@ class KbPagesCase(unittest.TestCase):
         self._as(EMP)
         self.assertEqual(self.client.get(f"/kb/pages/{draft['id']}").status_code, 404)
 
+    # ── Manage > Health actions (WP 4.3, Oct 29 2026) ───────────────────────
+    def test_a_page_request_is_assigned_then_closed_with_a_note(self):
+        self._as(EMP)
+        self.assertEqual(self.client.post("/kb/requests", json={"query": "How do I reset a gate code?"}).status_code, 201)
+        self._as(MGR)
+        req = next(r for r in self.client.get("/kb/health").json()["requests"] if r["query"] == "How do I reset a gate code?")
+        self.assertEqual(self.client.post(f"/kb/requests/{req['id']}/assign", json={"email": EMP}).status_code, 422)   # not an author
+        r = self.client.post(f"/kb/requests/{req['id']}/assign", json={"email": AUT})
+        self.assertEqual((r.status_code, r.json()["assigned_to"]), (200, AUT), r.text)
+        req = next(x for x in self.client.get("/kb/health").json()["requests"] if x["id"] == req["id"])
+        self.assertEqual((req["assigned_to"], req["assigned_name"]), (AUT, "Al Test"))
+        db = database.SessionLocal()
+        try:
+            bell = db.query(models.NexusNotification).filter(models.NexusNotification.recipient == AUT,
+                                                             models.NexusNotification.type == "kb_page_request").first()
+            self.assertIsNotNone(bell)
+        finally:
+            db.close()
+        self.assertEqual(self.client.post(f"/kb/requests/{req['id']}/close", json={"resolution": "Covered in Gate Codes"}).status_code, 200)
+        db = database.SessionLocal()
+        try:
+            row = db.query(models.KbPageRequest).filter(models.KbPageRequest.id == req["id"]).first()
+            self.assertEqual((row.status, row.close_note), ("done", "Covered in Gate Codes"))
+            done = db.query(models.NexusNotification).filter(models.NexusNotification.recipient == EMP,
+                                                             models.NexusNotification.type == "kb_request_done").first()
+            self.assertIn("Covered in Gate Codes", done.body)
+        finally:
+            db.close()
+
+    # ── search misses and synonyms (WP 4.4, Oct 29 2026) ────────────────────
+    def test_a_synonym_from_a_miss_finds_the_page(self):
+        page = self._create(page_type="how_to", title="Gate Opening")
+        self.assertEqual(self.client.post(f"/kb/pages/{page['id']}/publish", json={}).status_code, 200)
+        self._as(EMP)
+        self.assertEqual(self.client.get("/kb/search", params={"q": "portcullis"}).json()["total"], 0)
+        self.assertEqual(self.client.put("/kb/synonyms", json={"groups": [["portcullis", "gate"]]}).status_code, 403)
+        self._as(MGR)
+        r = self.client.put("/kb/synonyms", json={"groups": [["Portcullis", "gate", "gate"], ["only-one"]]})
+        self.assertEqual(r.json()["groups"], [["portcullis", "gate"]])
+        self.assertEqual(self.client.get("/kb/health").json()["synonyms"], [["portcullis", "gate"]])
+        self._as(EMP)
+        found = self.client.get("/kb/search", params={"q": "portcullis"}).json()
+        self.assertIn(page["id"], [x["id"] for x in found["results"]])
+
+    def test_type_ahead_searches_are_never_misses(self):
+        self._as(EMP)
+        self.client.get("/kb/search", params={"q": "pran", "limit": 5, "log": "false"})
+        self.client.get("/kb/search", params={"q": "pranshu birthday"})
+        self._as(MGR)
+        got = [m["query"] for m in self.client.get("/kb/health").json()["misses"]]
+        self.assertNotIn("pran", got)
+        self.assertIn("pranshu birthday", got)
+
+    def test_the_first_monday_lists_misses_to_collection_owners(self):
+        from datetime import datetime, timezone
+        from unittest import mock
+        import graph_mail
+        import kb_daily
+
+        class FirstMonday(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2026, 11, 2, 9, 0, tzinfo=timezone.utc)
+        self._as(EMP)
+        self.client.get("/kb/search", params={"q": "snow plow schedule"})
+        db = database.SessionLocal()
+        try:
+            db.query(models.KbReminderLog).delete()
+            db.commit()
+            with mock.patch.object(kb_daily, "datetime", FirstMonday), mock.patch.object(graph_mail, "DEFAULT_FROM_EMAIL", ""):
+                kb_daily.run_owner_digests(db)
+            bell = db.query(models.NexusNotification).filter(models.NexusNotification.recipient == OWN,
+                                                             models.NexusNotification.type == "kb_owner_digest").first()
+            self.assertIsNotNone(bell)
+            self.assertIn('no good answer: "snow plow schedule"', bell.body)
+        finally:
+            db.close()
+
     def test_archive_then_restore_lands_in_draft_not_published(self):
         page = self._published()
         self._as(AUT)   # author, not owner/manage

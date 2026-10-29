@@ -1363,6 +1363,11 @@ def _run_migrations():
             "ALTER TABLE hr_departments ADD COLUMN weather INTEGER DEFAULT 0",
             # Training emails opt-out (Oct 29) - see the Postgres list. models.NexusPersonPref.
             "ALTER TABLE nexus_person_prefs ADD COLUMN kb_due_soon_email INTEGER DEFAULT 1",
+            # Page request assign / close note (Oct 29) - see the Postgres list. models.KbPageRequest.
+            "ALTER TABLE kb_page_requests ADD COLUMN assigned_to VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_page_requests ADD COLUMN close_note VARCHAR DEFAULT ''",
+            # Search misses by company (Oct 29) - see the Postgres list. models.KbSearchLog.
+            "ALTER TABLE kb_search_log ADD COLUMN company VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3227,6 +3232,14 @@ def _run_migrations():
         # Knowledge Base training emails (WP 2.4, 10/29/2026): a person may
         # turn off due-soon emails only. models.NexusPersonPref.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS kb_due_soon_email INTEGER DEFAULT 1",
+        # Knowledge Base Health (WP 4.3, 10/29/2026): a page request's writer
+        # and the note back to the asker. models.KbPageRequest.
+        "ALTER TABLE kb_page_requests ADD COLUMN IF NOT EXISTS assigned_to VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_page_requests ADD COLUMN IF NOT EXISTS close_note VARCHAR DEFAULT ''",
+        # Knowledge Base search misses, walled by the searcher's company (WP 4.4,
+        # 10/29/2026). Older rows stay '' and read as shared. models.KbSearchLog.
+        "ALTER TABLE kb_search_log ADD COLUMN IF NOT EXISTS company VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_kb_search_log_company ON kb_search_log (company)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

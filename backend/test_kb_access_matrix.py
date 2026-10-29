@@ -122,6 +122,7 @@ ROUTES = {
     ("POST", "/kb/quiz/{aid}/submit"): "wall",
     ("POST", "/kb/requests"): "create",
     ("POST", "/kb/requests/{rid}/close"): "wall",
+    ("POST", "/kb/requests/{rid}/assign"): "wall",
     ("GET", "/kb/revisions/{rid}"): "wall",
     ("PATCH", "/kb/revisions/{rid}"): "wall",
     ("POST", "/kb/revisions/{rid}/discard"): "wall",
@@ -133,6 +134,8 @@ ROUTES = {
     ("DELETE", "/kb/rules/{rid}"): "wall",
     ("GET", "/kb/search"): "list",
     ("GET", "/kb/tags"): "org",
+    ("GET", "/kb/synonyms"): "org",                   # search words, organization-wide (WP 4.4)
+    ("PUT", "/kb/synonyms"): "org",
     ("POST", "/kb/tags"): "create",
     ("GET", "/kb/training/me"): "own",
 }
@@ -160,6 +163,7 @@ BODIES = {
     "/kb/plans/{pid}": {"name": "Taken Over"},
     "/kb/rules/{rid}": {"due_days": 1},
     "/kb/revisions/{rid}": {"summary": "taken over"},
+    "/kb/requests/{rid}/assign": {"email": BAUTH},
 }
 
 # GETs whose owner answer is not a plain 2xx in this fixture (nothing to show yet).
@@ -173,6 +177,7 @@ READER = [
     ("POST", "/kb/courses/{cid}/assign"), ("GET", "/kb/plans"), ("PATCH", "/kb/plans/{pid}"), ("GET", "/kb/rules"),
     ("DELETE", "/kb/rules/{rid}"), ("POST", "/kb/flags/{fid}/resolve"), ("POST", "/kb/requests/{rid}/close"),
     ("POST", "/kb/requests/{rid}/assign"), ("PATCH", "/kb/collections/{cid}"), ("GET", "/kb/audience/options"), ("POST", "/kb/migrate"),
+    ("PUT", "/kb/synonyms"),
 ]
 
 
@@ -378,6 +383,15 @@ class KbAccessMatrixCase(unittest.TestCase):
         with mock.patch.object(kb_ai, "available", return_value=True):
             r = self.client.post(f"/kb/courses/{cid}/generate", json={"doc_ids": [self.ids["doc_id"]]})
         self.assertEqual(r.status_code, 422, r.text)
+
+    def test_search_misses_stay_in_their_company(self):
+        # WP 4.4: Health lists only the caller's company's searches that found nothing.
+        self._as(ALRN)
+        self.client.get("/kb/search", params={"q": "zebra crossing rules"})
+        self._as(AAUTH)
+        self.assertIn("zebra crossing rules", [m["query"] for m in self.client.get("/kb/health").json()["misses"]])
+        self._as(BAUTH)
+        self.assertNotIn("zebra crossing rules", [m["query"] for m in self.client.get("/kb/health").json()["misses"]])
 
     def _unchanged(self):
         db = database.SessionLocal()

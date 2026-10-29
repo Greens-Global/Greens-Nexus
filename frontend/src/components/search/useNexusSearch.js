@@ -123,7 +123,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
     if (!wantContent) return undefined;
     let live = true;
     const id = setTimeout(() => {
-      api.kbSearch(term, { limit: 5 })
+      api.kbSearch(term, { limit: 5, log: false })   // type-ahead: never a missed search
         .then((r) => { if (live) setKbAnswer({ term, rows: r?.results || [] }); })
         .catch(() => { if (live) setKbAnswer({ term, rows: [] }); });
     }, 180);

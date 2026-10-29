@@ -8100,6 +8100,9 @@ class KbSearchLog(Base):
     count      = Column(Integer, default=1)
     results    = Column(Integer, default=0)          # best result count seen that day
     last_user  = Column(String, default="")
+    # The searcher's company (WP 4.4, Oct 29 2026): one row per query, day and
+    # company, so Health shows a company only its own people's misses. ALTER lines in main.py.
+    company    = Column(String, default="", index=True)
 
 
 class KbPageRequest(Base):
@@ -8117,6 +8120,10 @@ class KbPageRequest(Base):
     created_at    = Column(String, default="")
     closed_at     = Column(String, default="")
     closed_by     = Column(String, default="")
+    # Manage > Health (WP 4.3, Oct 29 2026): who is writing it, and the word
+    # back to the asker when it is closed. ALTER lines in main.py.
+    assigned_to   = Column(String, default="")
+    close_note    = Column(String, default="")
 
 
 class KbJob(Base):

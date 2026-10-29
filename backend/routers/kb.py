@@ -444,8 +444,10 @@ def _review_queue(db: Session, user: dict) -> list[dict]:
 # ----------------------------------------------------------------- search / ask
 
 @router.get("/search")
-def search(q: str = "", type: str = "", collection: str = "", limit: int = 30,
+def search(q: str = "", type: str = "", collection: str = "", limit: int = 30, log: bool = True,
            user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # log=false: the header search bar asks on every pause while typing, so its
+    # half-typed words ("pr", "pra") must not land on Health as misses (Oct 29 2026).
     q = (q or "").strip()
     pub = _published(db, user)
     if collection:
@@ -470,7 +472,8 @@ def search(q: str = "", type: str = "", collection: str = "", limit: int = 30,
         d = by_id.get(r["id"])
         if d:
             results.append({**_page_card(db, d, user, pins), "snippet": r["snippet"], "score": r["score"]})
-    kb_search.log_miss(db, q, len(results), user["email"].lower())
+    if log:
+        kb_search.log_miss(db, q, len(results), user["email"].lower())
     db.commit()
     return {"results": results, "also_matched": res["also_matched"], "did_you_mean": res["did_you_mean"], "total": len(results)}
 
@@ -1594,7 +1597,8 @@ def health(user: dict = Depends(require_author), db: Session = Depends(get_db)):
         if d and d.id in pub_ids and mine(d):   # pub is walled: never another company's page
             flags.append({"id": f.id, "doc_id": d.id, "title": d.title, "code": d.doc_code or "", "text": f.text, "user_name": f.user_name or _name(db, f.user_email),
                           "created_at": f.created_at, "version": f.version})
-    reqs = [{"id": r.id, "query": r.query, "note": r.note, "user_name": r.user_name, "created_at": r.created_at, "collection_id": r.collection_id}
+    reqs = [{"id": r.id, "query": r.query, "note": r.note, "user_name": r.user_name, "created_at": r.created_at, "collection_id": r.collection_id,
+             "assigned_to": r.assigned_to or "", "assigned_name": _name(db, r.assigned_to) if r.assigned_to else ""}
             for r in kb_access.wall_rows(db.query(models.KbPageRequest).filter(models.KbPageRequest.status == "open").order_by(models.KbPageRequest.created_at.desc()).all(),
                                          user, db, owner_attr="user_email")
             if manage or (r.collection_id in owned)]
@@ -1606,7 +1610,8 @@ def health(user: dict = Depends(require_author), db: Session = Depends(get_db)):
                   "requests": len(reqs), "unmigrated": unmigrated,
                   "signatures_outstanding": sum(1 for d in pub if d.require_ack for e in kb_core.policy_audience_emails(db, d) if not kb_core.signature_for(db, d, e)) if manage else 0},
         "review_queue": _review_queue(db, user), "stale": stale[:60], "flags": flags[:60], "requests": reqs[:60],
-        "misses": kb_search.misses(db) if manage or owned else [], "drafts": drafts[:60], "in_review": in_review[:60],
+        "misses": kb_search.misses(db, scope=kb_access.scope(user, db)) if manage or owned else [],
+        "synonyms": kb_search.custom_groups(db) if manage else [], "drafts": drafts[:60], "in_review": in_review[:60],
         "activity": activity(limit=40, user=user, db=db),
     }
 
@@ -1665,14 +1670,77 @@ def close_request(rid: str, body: ResolveIn, user: dict = Depends(require_author
     kb_access.assert_wall(r, user, db, owner_attr="user_email")   # the asker's company
     me_ = user["email"].lower()
     r.status, r.closed_at, r.closed_by = "done", kb_core.now(), me_
-    if body.resolution and body.resolution.startswith("kb_"):
-        r.doc_id = body.resolution
+    note = (body.resolution or "").strip()
+    if note.startswith("kb_"):
+        r.doc_id = note
+        note = ""
+    r.close_note = note[:500]   # the word back to the asker (WP 4.3) - it used to be dropped
     if r.user_email and r.user_email != me_:
         d = db.query(models.KbDocument).filter(models.KbDocument.id == r.doc_id).first() if r.doc_id else None
         kb_core.notify(db, recipient=r.user_email, ntype="kb_request_done", title="The Page You Asked For Is Ready" if d else "About the Page You Asked For",
-                       body=(d.title if d else r.query), ref_id=d.id if d else r.id, item_name=d.title if d else r.query, sub=f"page:{d.id}" if d else "index", requested_by=me_)
+                       body=(d.title if d else r.query) + (f": {note[:300]}" if note else ""), ref_id=d.id if d else r.id,
+                       item_name=d.title if d else r.query, sub=f"page:{d.id}" if d else "index", requested_by=me_)
+    kb_core.event(db, kind="request_closed", actor=me_, note=f"{r.query}" + (f" - {note}" if note else ""), actor_name=_name(db, me_))
     db.commit()
     return {"ok": True}
+
+
+class AssignIn(BaseModel):
+    email: str
+
+
+class SynonymsIn(BaseModel):
+    groups: list
+
+
+@router.get("/synonyms")
+def get_synonyms(user: dict = Depends(require_author), db: Session = Depends(get_db)):
+    """The synonym groups Manage added from real misses (WP 4.4)."""
+    return {"groups": kb_search.custom_groups(db)}
+
+
+@router.put("/synonyms")
+def put_synonyms(body: SynonymsIn, user: dict = Depends(require_manage), db: Session = Depends(get_db)):
+    """Replace the custom synonym groups (organization-wide: search words are
+    not company data). Each group 2-12 words; 60 groups at most."""
+    import cache
+    groups = kb_search.clean_groups(body.groups)
+    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == kb_search.SYN_KEY).first()
+    if not row:
+        row = models.NexusSetting(key=kb_search.SYN_KEY)
+        db.add(row)
+    row.value = json.dumps(groups)
+    row.updated_by = user["email"].lower()
+    row.updated_at = kb_core.now()
+    kb_core.event(db, kind="synonyms_changed", actor=user["email"], note="; ".join(", ".join(g) for g in groups)[:900],
+                  actor_name=_name(db, user["email"].lower()))
+    db.commit()
+    cache.settings_config.invalidate(kb_search.SYN_KEY)
+    return {"groups": groups}
+
+
+@router.post("/requests/{rid}/assign")
+def assign_request(rid: str, body: AssignIn, user: dict = Depends(require_author), db: Session = Depends(get_db)):
+    """Manage > Health (WP 4.3): give a page request to someone to write.
+    They must be a Knowledge Base author inside the asker's company wall."""
+    r = db.query(models.KbPageRequest).filter(models.KbPageRequest.id == rid, models.KbPageRequest.status == "open").first()
+    if not r:
+        raise HTTPException(404, "Not found")
+    kb_access.assert_wall(r, user, db, owner_attr="user_email")
+    who = (body.email or "").strip().lower()
+    emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == who).first() if who else None
+    if not emp or not kb_access.in_scope(db, who, kb_access.scope_of_email(db, r.user_email)) or not kb_access.in_scope(db, who, kb_access.scope(user, db)):
+        raise HTTPException(422, "Pick someone from People in the asker's company")
+    if not kb_access.is_author({"email": who, "level": auth.level_for(who, db)}, db):
+        raise HTTPException(422, "That person cannot write Knowledge Base pages")
+    me_ = user["email"].lower()
+    r.assigned_to = who
+    if who != me_:
+        kb_core.notify(db, recipient=who, ntype="kb_page_request", title="A Page Request For You",
+                       body=f"\"{r.query}\"" + (f": {r.note[:200]}" if r.note else ""), ref_id=r.id, item_name=r.query, sub="health", requested_by=me_)
+    kb_core.event(db, kind="request_assigned", actor=me_, note=f"{r.query} - {_name(db, who)}", actor_name=_name(db, me_))
+    db.commit()
+    return {"ok": True, "assigned_to": who, "assigned_name": _name(db, who)}
 
 
 @router.get("/migrate")

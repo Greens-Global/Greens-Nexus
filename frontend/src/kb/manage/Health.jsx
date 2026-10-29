@@ -2,7 +2,7 @@
 // flags, page requests, searches with no good answer, drafts, activity,
 // and the migration (managers).
 import { useEffect, useState } from 'react';
-import { ShieldCheck, Pencil, Check, Flag, Search, History, Database, AlertTriangle, Loader2 } from 'lucide-react';
+import { ShieldCheck, Pencil, Check, Flag, Search, History, Database, AlertTriangle, Loader2, UserPlus, X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection from '../../components/AsyncState';
 import { Modal } from '../../tasks/components';
@@ -10,8 +10,76 @@ import { Chip, SectionHead, Stat, Av, TypeChip, Banner } from '../components/Chi
 import PageRow from '../components/PageCard';
 import { useToast, errText } from '../components/Toast';
 import { goKb, fmtDate, fmtDateTime, plural } from '../lib';
+import PeoplePick from '../components/PeoplePick';
 
-const KIND_WORDS = { created: 'created', submitted: 'submitted for review', published: 'published', changes_requested: 'asked for changes on', archived: 'archived', restored: 'restored', verified: 'verified', flagged: 'reported a problem with', signed: 'signed', translated: 'translated', revision_opened: 'started a revision of', revision_submitted: 'submitted a revision of', revision_discarded: 'discarded a revision of', task_started: 'started a task from', flag_resolved: 'resolved a report on', withdrawn: 'withdrew', course_created: 'created course', course_published: 'published course', course_completed: 'completed course', quiz_unlocked: 'unlocked the quiz on', migrated: 'ran the migration', edited: 'edited' };
+const KIND_WORDS = { created: 'created', submitted: 'submitted for review', published: 'published', changes_requested: 'asked for changes on', archived: 'archived', restored: 'restored', verified: 'verified', flagged: 'reported a problem with', signed: 'signed', translated: 'translated', revision_opened: 'started a revision of', revision_submitted: 'submitted a revision of', revision_discarded: 'discarded a revision of', task_started: 'started a task from', flag_resolved: 'resolved a report on', withdrawn: 'withdrew',
+  request_assigned: 'assigned a page request:', request_closed: 'closed a page request:', sign_sent: 'sent a signing request for', sign_declined: 'declined to sign',
+  sign_voided: 'canceled a signing request for', sign_expired: 'let a signing request expire for', course_created: 'created course', course_published: 'published course', course_completed: 'completed course', quiz_unlocked: 'unlocked the quiz on', migrated: 'ran the migration', edited: 'edited' };
+
+// Close a reader report or a page request with a word back to the person
+// (WP 4.3, Oct 29 2026) - a 60% popup, never the browser's prompt box.
+function NoteModal({ title, about, label, initial = '', confirm, onSave, onClose }) {
+  const [note, setNote] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const save = async () => { setBusy(true); try { await onSave(note.trim()); onClose(); } catch { /* the toast said why */ } finally { setBusy(false); } };
+  return (
+    <Modal title={title} onClose={onClose}
+           footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+             <button type="button" className="kb-btn" onClick={onClose}>Cancel</button>
+             <button type="button" className="kb-btn pri" disabled={busy} onClick={save}><Check />{confirm}</button></div>}>
+      <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+        <div className="kb-title">{about}</div>
+        <div className="kb-field nx-fill" style={{ display: 'flex', flexDirection: 'column' }}>
+          <label htmlFor="kb-note">{label}</label>
+          <textarea id="kb-note" className="kb-textarea" style={{ flex: 1, minHeight: 120 }} value={note} onChange={(e) => setNote(e.target.value)} />
+          <div className="kb-help">They get it in their notification bell. Optional.</div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// Give a page request to someone to write (WP 4.3): a Knowledge Base author
+// in the asker's company; they get a bell.
+function AssignModal({ request, onSave, onClose }) {
+  const [who, setWho] = useState(request.assigned_to || '');
+  const [busy, setBusy] = useState(false);
+  const save = async () => { setBusy(true); try { await onSave(who); onClose(); } catch { /* the toast said why */ } finally { setBusy(false); } };
+  return (
+    <Modal title="Assign Page Request" onClose={onClose}
+           footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+             <button type="button" className="kb-btn" onClick={onClose}>Cancel</button>
+             <button type="button" className="kb-btn pri" disabled={busy || !who} onClick={save}><UserPlus />Assign</button></div>}>
+      <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="kb-title">"{request.query}"</div>
+        {request.note && <div style={{ fontSize: 13.5 }}>{request.note}</div>}
+        <div className="kb-meta">Asked by {request.user_name} on {fmtDate(request.created_at)}</div>
+        <div className="kb-field"><label>Who Writes It</label><PeoplePick value={who} onChange={setWho} allowClear={false} placeholder="A Knowledge Base author" /></div>
+      </div>
+    </Modal>
+  );
+}
+
+// A synonym from a real miss (WP 4.4): "people search X, look for Y too".
+function SynonymModal({ query, onSave, onClose }) {
+  const [words, setWords] = useState('');
+  const [busy, setBusy] = useState(false);
+  const list = words.split(',').map((w) => w.trim().toLowerCase()).filter(Boolean);
+  const save = async () => { setBusy(true); try { await onSave([query, ...list]); onClose(); } catch { /* the toast said why */ } finally { setBusy(false); } };
+  return (
+    <Modal title="Add Synonym" onClose={onClose}
+           footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+             <button type="button" className="kb-btn" onClick={onClose}>Cancel</button>
+             <button type="button" className="kb-btn pri" disabled={busy || !list.length} onClick={save}><Check />Add Synonym</button></div>}>
+      <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="kb-title">When people search "{query}", also look for:</div>
+        <div className="kb-field"><label htmlFor="kb-syn">Words Your Pages Use</label>
+          <input id="kb-syn" className="kb-input" value={words} onChange={(e) => setWords(e.target.value)} placeholder="gate, entry code" />
+          <div className="kb-help">Separate words with commas. Search then finds pages with any of them, for everyone in the organization.</div></div>
+      </div>
+    </Modal>
+  );
+}
 
 function MigrationModal({ onClose, onApplied }) {
   const toast = useToast();
@@ -60,9 +128,14 @@ export default function Health({ me }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   const [migrate, setMigrate] = useState(false);
+  const [noteFor, setNoteFor] = useState(null);     // {kind: 'flag' | 'request', row}
+  const [assignFor, setAssignFor] = useState(null);
+  const [synFor, setSynFor] = useState('');
   const load = () => { setErr(''); api.kbHealth().then(setData).catch((e) => setErr(errText(e))); };
   useEffect(() => { load(); }, []);
   const act = (fn, msg) => fn().then(() => { if (msg) toast(msg); load(); }).catch((e) => toast(errText(e), 'err'));
+  // The popups' saves: throw on error so the popup stays open.
+  const run = async (fn, msg) => { try { await fn(); toast(msg); load(); } catch (e) { toast(errText(e), 'err'); throw e; } };
 
   return (
     <div className="kb-page">
@@ -122,7 +195,7 @@ export default function Health({ me }) {
                         <Flag size={16} style={{ color: '#dc2626', marginTop: 3 }} />
                         <div className="kb-grow"><div className="kb-title"><a href="#p" onClick={(e) => { e.preventDefault(); goKb('page', f.doc_id); }}>{f.title}</a> <span className="kb-meta" style={{ fontWeight: 400 }}>v{f.version}</span></div><div style={{ fontSize: 13.5 }}>"{f.text}"</div><div className="kb-meta">{f.user_name} · {fmtDateTime(f.created_at)}</div></div>
                         <button type="button" className="kb-btn sm" onClick={() => goKb('editor', f.doc_id)}><Pencil />Fix</button>
-                        <button type="button" className="kb-btn sm" onClick={() => { const res = window.prompt('A word back to the reader (optional):', 'Fixed, thank you.'); if (res !== null) act(() => api.kbResolveFlag(f.id, res), 'Resolved'); }}><Check />Resolve</button>
+                        <button type="button" className="kb-btn sm" onClick={() => setNoteFor({ kind: 'flag', row: f })}><Check />Resolve</button>
                       </div>
                     ))}
                   </section>
@@ -133,9 +206,10 @@ export default function Health({ me }) {
                     {data.requests.map((r) => (
                       <div key={r.id} className="kb-row" style={{ alignItems: 'flex-start' }}>
                         <Search size={16} style={{ color: 'var(--kb-dim)', marginTop: 3 }} />
-                        <div className="kb-grow"><div className="kb-title">"{r.query}"</div>{r.note && <div style={{ fontSize: 13.5 }}>{r.note}</div>}<div className="kb-meta">{r.user_name} · {fmtDateTime(r.created_at)}</div></div>
+                        <div className="kb-grow"><div className="kb-title">"{r.query}"</div>{r.note && <div style={{ fontSize: 13.5 }}>{r.note}</div>}<div className="kb-meta">{r.user_name} · {fmtDateTime(r.created_at)}{r.assigned_name ? ` · assigned to ${r.assigned_name}` : ''}</div></div>
                         <button type="button" className="kb-btn sm" onClick={() => goKb('editor', `new:${r.collection_id || ''}`)}><Pencil />Write It</button>
-                        <button type="button" className="kb-btn sm ghost" onClick={() => act(() => api.kbCloseRequest(r.id, ''), 'Closed')}>Close</button>
+                        <button type="button" className="kb-btn sm" onClick={() => setAssignFor(r)}><UserPlus />{r.assigned_to ? 'Reassign' : 'Assign'}</button>
+                        <button type="button" className="kb-btn sm ghost" onClick={() => setNoteFor({ kind: 'request', row: r })}><X />Close</button>
                       </div>
                     ))}
                   </section>
@@ -152,7 +226,16 @@ export default function Health({ me }) {
                 {data.misses.length > 0 && (
                   <section className="kb-card">
                     <SectionHead title="Searches With No Good Answer" sub="last 30 days" />
-                    {data.misses.map((m) => <div key={m.query} className="kb-row"><div className="kb-grow"><div className="kb-title">"{m.query}"</div><div className="kb-meta">{plural(m.count, 'search', 'searches')} · last {fmtDate(m.last_day)}</div></div><button type="button" className="kb-btn sm ghost" onClick={() => goKb('editor', 'new')}>Write</button></div>)}
+                    {data.misses.map((m) => <div key={m.query} className="kb-row"><div className="kb-grow"><div className="kb-title">"{m.query}"</div><div className="kb-meta">{plural(m.count, 'search', 'searches')} · last {fmtDate(m.last_day)}</div></div>{me?.can_manage && <button type="button" className="kb-btn sm ghost" onClick={() => setSynFor(m.query)}>Add Synonym</button>}<button type="button" className="kb-btn sm ghost" onClick={() => goKb('editor', 'new')}>Write</button></div>)}
+                  </section>
+                )}
+                {me?.can_manage && (data.synonyms || []).length > 0 && (
+                  <section className="kb-card">
+                    <SectionHead title="Synonyms Added" sub="search treats each group as the same word" />
+                    {data.synonyms.map((g, i) => (
+                      <div key={g.join('|')} className="kb-row"><div className="kb-grow" style={{ fontSize: 13.5 }}>{g.join(' = ')}</div>
+                        <button type="button" className="kb-ibtn" aria-label={`Remove ${g.join(', ')}`} onClick={() => act(() => api.kbSaveSynonyms(data.synonyms.filter((_, j) => j !== i)), 'Synonym removed')}><X size={14} /></button></div>
+                    ))}
                   </section>
                 )}
                 <section className="kb-card">
@@ -172,6 +255,12 @@ export default function Health({ me }) {
         )}
       </AsyncSection>
       {migrate && <MigrationModal onClose={() => setMigrate(false)} onApplied={load} />}
+      {noteFor?.kind === 'flag' && <NoteModal title="Resolve Report" about={`"${noteFor.row.text}" on ${noteFor.row.title}`} label="A Word Back to the Reader" initial="Fixed, thank you."
+        confirm="Resolve" onSave={(n) => run(() => api.kbResolveFlag(noteFor.row.id, n), 'Resolved')} onClose={() => setNoteFor(null)} />}
+      {noteFor?.kind === 'request' && <NoteModal title="Close Page Request" about={`"${noteFor.row.query}"`} label="A Word Back to the Person Who Asked"
+        confirm="Close Request" onSave={(n) => run(() => api.kbCloseRequest(noteFor.row.id, n), 'Closed')} onClose={() => setNoteFor(null)} />}
+      {synFor && <SynonymModal query={synFor} onSave={(g) => run(() => api.kbSaveSynonyms([...(data?.synonyms || []), g]), 'Synonym added')} onClose={() => setSynFor('')} />}
+      {assignFor && <AssignModal request={assignFor} onSave={(who) => run(() => api.kbAssignRequest(assignFor.id, who), 'Assigned')} onClose={() => setAssignFor(null)} />}
       <Chip color="transparent" style={{ display: 'none' }} />
     </div>
   );

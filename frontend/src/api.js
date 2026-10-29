@@ -2922,8 +2922,9 @@ export const api = {
   // /knowledge-base functions above are retired with the old screens.
   kbMe: () => req("/kb/me"),
   kbHome: () => req("/kb/home"),
-  kbSearch: (q, { type = "", collection = "", limit = 30 } = {}) =>
-    req(`/kb/search?q=${encodeURIComponent(q || "")}&type=${encodeURIComponent(type)}&collection=${encodeURIComponent(collection)}&limit=${limit}`),
+  // log: false = do not record a missed search (the header bar's type-ahead).
+  kbSearch: (q, { type = "", collection = "", limit = 30, log = true } = {}) =>
+    req(`/kb/search?q=${encodeURIComponent(q || "")}&type=${encodeURIComponent(type)}&collection=${encodeURIComponent(collection)}&limit=${limit}${log ? "" : "&log=false"}`),
   kbAsk: (question) => req("/kb/ask", { method: "POST", body: JSON.stringify({ question }), timeoutMs: AI_TIMEOUT_MS }),
   kbCollections: () => req("/kb/collections"),
   kbCollection: (id) => req(`/kb/collections/${id}`),
@@ -2971,6 +2972,8 @@ export const api = {
   kbActivity: (limit = 60, docId = "") => req(`/kb/activity?limit=${limit}&doc_id=${encodeURIComponent(docId)}`),
   kbResolveFlag: (id, resolution = "") => req(`/kb/flags/${id}/resolve`, { method: "POST", body: JSON.stringify({ resolution }) }),
   kbCloseRequest: (id, resolution = "") => req(`/kb/requests/${id}/close`, { method: "POST", body: JSON.stringify({ resolution }) }),
+  kbAssignRequest: (id, email) => req(`/kb/requests/${id}/assign`, { method: "POST", body: JSON.stringify({ email }) }),
+  kbSaveSynonyms: (groups) => req("/kb/synonyms", { method: "PUT", body: JSON.stringify({ groups }) }),
   kbMigrationReport: () => req("/kb/migrate", { timeoutMs: 180_000 }),
   kbMigrationApply: () => req("/kb/migrate", { method: "POST", timeoutMs: 600_000 }),
   kbAudienceOptions: () => req("/kb/audience/options"),

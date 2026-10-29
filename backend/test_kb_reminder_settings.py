@@ -174,6 +174,24 @@ class KbReminderSettingsCase(unittest.TestCase):
         self.assertEqual((n, len(sent)), (1, 1))
         self.assertIn("Training Overdue", sent[0]["subject"])
 
+    # ── the run summary on Workflows > Automations (WP 4.1) ─────────────────
+    def test_a_failed_pass_never_stops_the_others_and_the_run_is_reported(self):
+        from workflows import automations
+        with mock.patch.object(kb_daily, "run_rules", side_effect=RuntimeError("boom")),              mock.patch.object(graph_mail, "DEFAULT_FROM_EMAIL", ""):
+            out = kb_daily.run_daily()
+        self.assertNotIn("rules", out)
+        self.assertEqual(out["learners"], 1)                     # the reminders still ran
+        db = database.SessionLocal()
+        try:
+            job = next(j for j in automations.register(db, {"email": ADMIN, "level": 5})["jobs"] if j["key"] == "kb_daily")
+        finally:
+            db.close()
+        run = job["lastRun"]
+        self.assertTrue(run["at"])
+        self.assertIn({"label": "Training reminders", "count": 1}, run["items"])
+        self.assertEqual(run["errors"], ["Assigned by rules: RuntimeError: boom"])
+        self.assertEqual(job["settingLink"], {"view": "admin", "sub": "emails:kb-reminders"})
+
 
 if __name__ == "__main__":
     unittest.main()

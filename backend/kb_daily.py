@@ -311,9 +311,18 @@ def run_owner_digests(db) -> int:
         if who:
             owners.setdefault(who, []).append(f"{d.title} - a reader reported: {f.text[:80]}")
     for r in db.query(models.KbPageRequest).filter(models.KbPageRequest.status == "open").all():
-        who = kb_access.collection_owner(db, r.collection_id) if r.collection_id else ""
+        # An assigned request goes to its writer (WP 4.3), else the collection owner, else Manage.
+        who = (r.assigned_to or "").lower() or (kb_access.collection_owner(db, r.collection_id) if r.collection_id else "")
         for m in ([who] if who else kb_access.kb_managers(db)):
             owners.setdefault(m, []).append(f"Page requested: \"{r.query}\"")
+    # The first Monday of the month: the searches that found nothing good, to
+    # each collection owner (else Manage), only their own company's (WP 4.4).
+    if datetime.now(timezone.utc).day <= 7:
+        import kb_search
+        heads = {(c.owner_email or "").lower() for c in db.query(models.KbCollection).filter(models.KbCollection.active.is_(True)).all()} - {""}
+        for m in sorted(heads or set(kb_access.kb_managers(db))):
+            for x in kb_search.misses(db, days=30, limit=5, scope=kb_access.scope_of_email(db, m)):
+                owners.setdefault(m, []).append(f"Searched {x['count']} time{'s' if x['count'] != 1 else ''} with no good answer: \"{x['query']}\"")
     for who, lines in owners.items():
         if _sent(db, "owner_digest", "", who):
             continue
@@ -327,14 +336,34 @@ def run_owner_digests(db) -> int:
     return sent
 
 
+# What each pass is called on Workflows > Automations (WP 4.1).
+PASS_LABELS = {"rules": "Assigned by rules", "renewals": "Renewals", "policy_envelopes": "Signing requests sent",
+               "learners": "Training reminders", "managers": "Manager digests", "owners": "Owner digests"}
+
+
 def run_daily() -> dict:
+    """Every pass runs even when one before it fails; the run's counts and
+    errors are kept for Workflows > Automations (job_switch.record_run)."""
+    import kb_policy_sign
     db = SessionLocal()
+    out: dict = {}
+    errors: list[str] = []
+    passes = [("rules", run_rules), ("renewals", run_renewals),
+              # Policies signed through Nexus Sign: envelopes owed, in batches (an
+              # envelope is the requirement itself, not a reminder, so it ignores the switch).
+              ("policy_envelopes", kb_policy_sign.run)]
+    if not job_switch.off("kb_daily"):   # Workflows > Automations switch: the reminders and digests only
+        passes += [("learners", run_learner_reminders), ("managers", run_manager_digests), ("owners", run_owner_digests)]
     try:
-        out = {"rules": run_rules(db), "renewals": run_renewals(db)}
-        if not job_switch.off("kb_daily"):   # Workflows > Automations switch: the reminders and digests only
-            out.update({"learners": run_learner_reminders(db), "managers": run_manager_digests(db),
-                        "owners": run_owner_digests(db)})
-        print(f"[kb] daily scan: {out}")
+        for key, fn in passes:
+            try:
+                out[key] = fn(db)
+            except Exception as e:  # noqa: BLE001 - one pass never stops the others
+                db.rollback()
+                errors.append(f"{PASS_LABELS[key]}: {type(e).__name__}: {e}")
+                print(f"[kb] daily scan: {key} failed: {type(e).__name__}: {e}")
+        print(f"[kb] daily scan: {out}" + (f" errors: {errors}" if errors else ""))
+        job_switch.record_run("kb_daily", [{"label": PASS_LABELS[k], "count": v} for k, v in out.items()], errors)
         return out
     finally:
         db.close()
