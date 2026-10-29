@@ -32,6 +32,7 @@ import { searchDocs, sectionDomId, walkthroughAnchor, featureAnchor, TIPS_ANCHOR
 import { DOCS_OPEN_EVENT, PENDING_DOCS_KIND, decodeDocTarget } from './openDoc';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { SkeletonBlocks } from '../components/AsyncState';
+import { useRole } from '../contexts/RoleContext';
 
 // The Implementation Guide is part of Documentation (Neil, Oct 13 2026:
 // "technically it is all of documentation"). Administrators get a
@@ -115,7 +116,7 @@ function HowTo({ w, id, open, onToggle }) {
   );
 }
 
-function Article({ doc, prev, next, onPrev, onNext, isOpen, onToggle, onSetAll }) {
+function Article({ doc, prev, next, onPrev, onNext, isOpen, onToggle, onSetAll, showManager = true }) {
   const Icon = ICONS[doc.icon] || BookOpen;
   const legend = shotLegend(doc.shot);
   const openModule = () => window.dispatchEvent(new CustomEvent('nexus:navigate', {
@@ -233,7 +234,7 @@ function Article({ doc, prev, next, onPrev, onNext, isOpen, onToggle, onSetAll }
         </section>
       )}
 
-      {doc.manager?.points?.length > 0 && (
+      {showManager && doc.manager?.points?.length > 0 && (
         <section className="docs-sec">
           <div id={sectionDomId(doc.id, MANAGER_ANCHOR)} className="docs-callout">
             <div className="docs-callout-head"><ShieldCheck size={16} aria-hidden="true" /><h3 className="docs-h3">{doc.manager.title}</h3></div>
@@ -312,6 +313,11 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
   // Only the modules this person can actually open - the same rule as the
   // left menu (see docsAccess.js). Nobody reads up on a module they cannot see.
   const { allowed } = useDocAccess();
+  // The "For Managers" / "Managers & Admins" callouts describe approving,
+  // settings and team tools: shown from Supervisor up (the first tier that
+  // approves anything), not to everyone who can read the page (Oct 28 2026).
+  const { can = () => false } = useRole() || {};
+  const showManager = can('supervisor');
   const [query, setQuery] = useState('');
   const topRef = useRef(null);
 
@@ -406,7 +412,7 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
     doc.walkthroughs?.length && ['How-To Guides', 'sec-steps'],
     doc.features?.length && ['Features', 'sec-features'],
     doc.id === 'getting-started' && ['Roles in Nexus', 'sec-roles'],
-    doc.manager?.points?.length && [doc.manager.title, MANAGER_ANCHOR],
+    showManager && doc.manager?.points?.length && [doc.manager.title, MANAGER_ANCHOR],
     doc.tips?.length && ['Good To Know', TIPS_ANCHOR],
   ].filter(Boolean) : [];
   const outlineKey = outline.map((o) => o[1]).join('|');
@@ -427,7 +433,9 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
           const el = document.getElementById(sectionDomId(doc.id, a));
           if (el && el.getBoundingClientRect().top < 140) at = a;
         }
-        setLit({ docId: doc.id, anchor: at });
+        // Every frame would otherwise re-render the article and its drawn
+        // screenshots; only a section actually changing does now.
+        setLit((p) => (p.docId === doc.id && p.anchor === at ? p : { docId: doc.id, anchor: at }));
       });
     };
     document.addEventListener('scroll', onScroll, { capture: true, passive: true });
@@ -524,6 +532,7 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
               isOpen={isOpen}
               onToggle={toggle}
               onSetAll={setAll}
+              showManager={showManager}
             />
           </div>
 
