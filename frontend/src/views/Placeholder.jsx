@@ -1,30 +1,30 @@
-import { Layers, ArrowLeft } from "lucide-react";
+import { SearchX, ArrowLeft, LifeBuoy } from "lucide-react";
 
+// What an address Nexus does not know shows (Oct 29 2026). It used to be a
+// mock "Sub-Application ... Micro-App Handshake Established ... Awaiting
+// final UI build pipelines" screen that looked like a half-built module;
+// a mistyped or retired address is simply not a page.
 export default function Placeholder({ viewName, onBack }) {
-  const title = viewName
-    .split("-")
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-
+  const help = () => window.dispatchEvent(new CustomEvent("nexus:navigate", { detail: { view: "support" } }));
   return (
-    <div style={{ maxWidth: 800, margin: "60px auto", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 24 }}>
-      <div style={{ width: 80, height: 80, borderRadius: 20, backgroundColor: "hsla(var(--color-blue), 0.1)", color: "hsl(var(--color-blue))", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <Layers style={{ width: 40, height: 40 }} />
+    <div role="status" style={{ maxWidth: 560, margin: "64px auto", padding: "0 16px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+      <div style={{ width: 64, height: 64, borderRadius: 16, background: "var(--mist, rgba(100,116,139,0.1))", color: "var(--muted)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <SearchX style={{ width: 30, height: 30 }} aria-hidden="true" />
       </div>
       <div>
-        <h2 style={{ fontSize: "2rem", marginBottom: 8 }}>{title} Sub-Application</h2>
-        <p style={{ color: "var(--text-secondary)", maxWidth: 500, margin: "0 auto" }}>
-          This micro-application is registered in Nexus. The sub-application sandbox container is loaded and ready for integration.
+        <h2 style={{ fontSize: 22, margin: "0 0 6px" }}>Page Not Found</h2>
+        <p style={{ color: "var(--muted)", margin: 0, lineHeight: 1.5 }}>
+          There is no page at this address{viewName ? ` ("/${viewName}")` : ""}. The link may be old or mistyped.
         </p>
       </div>
-      <div style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border-color)", borderRadius: 8, padding: "16px 24px", fontFamily: "monospace", fontSize: "0.85rem", color: "var(--text-secondary)", textAlign: "left", width: "100%" }}>
-        <div style={{ display: "flex", gap: 8, marginBottom: 6 }}><span style={{ color: "hsl(var(--color-green))" }}>✓</span> Micro-App Handshake Established</div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 6 }}><span style={{ color: "hsl(var(--color-green))" }}>✓</span> Context tokens injected successfully</div>
-        <div style={{ display: "flex", gap: 8 }}><span style={{ color: "hsl(var(--color-orange))" }}>•</span> Awaiting final UI build pipelines for production release...</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+        <button type="button" className="primary-btn" onClick={onBack}>
+          <ArrowLeft style={{ width: 16, height: 16 }} /> Go to Dashboard
+        </button>
+        <button type="button" className="secondary-btn" onClick={help}>
+          <LifeBuoy style={{ width: 16, height: 16 }} /> Help Center
+        </button>
       </div>
-      <button className="primary-btn" onClick={onBack}>
-        <ArrowLeft style={{ width: 16, height: 16 }} /> Return to Dashboard
-      </button>
     </div>
   );
 }
