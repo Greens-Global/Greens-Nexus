@@ -10,6 +10,9 @@ import { Chip, SectionHead, Stat, Av, TypeChip, Banner } from '../components/Chi
 import PageRow from '../components/PageCard';
 import { useToast, errText } from '../components/Toast';
 import { goKb, fmtDate, fmtDateTime, plural } from '../lib';
+import { useRole } from '../../contexts/RoleContext';
+import HelpSignals from '../../support/HelpSignals';
+import { SOURCE_NAMES } from '../../support/helpLog';
 
 const KIND_WORDS = { created: 'created', submitted: 'submitted for review', published: 'published', changes_requested: 'asked for changes on', archived: 'archived', restored: 'restored', verified: 'verified', flagged: 'reported a problem with', signed: 'signed', translated: 'translated', revision_opened: 'started a revision of', revision_submitted: 'submitted a revision of', revision_discarded: 'discarded a revision of', task_started: 'started a task from', flag_resolved: 'resolved a report on', withdrawn: 'withdrew', course_created: 'created course', course_published: 'published course', course_completed: 'completed course', quiz_unlocked: 'unlocked the quiz on', migrated: 'ran the migration', edited: 'edited' };
 
@@ -57,6 +60,8 @@ function MigrationModal({ onClose, onApplied }) {
 
 export default function Health({ me }) {
   const toast = useToast();
+  const { can } = useRole() || {};
+  const isAdmin = !!can?.('administrator');
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   const [migrate, setMigrate] = useState(false);
@@ -152,9 +157,12 @@ export default function Health({ me }) {
                 {data.misses.length > 0 && (
                   <section className="kb-card">
                     <SectionHead title="Searches With No Good Answer" sub="last 30 days" />
-                    {data.misses.map((m) => <div key={m.query} className="kb-row"><div className="kb-grow"><div className="kb-title">"{m.query}"</div><div className="kb-meta">{plural(m.count, 'search', 'searches')} · last {fmtDate(m.last_day)}</div></div><button type="button" className="kb-btn sm ghost" onClick={() => goKb('editor', 'new')}>Write</button></div>)}
+                    {data.misses.map((m) => <div key={`${m.source || 'kb'}:${m.query}`} className="kb-row"><div className="kb-grow"><div className="kb-title">"{m.query}"</div><div className="kb-meta">{SOURCE_NAMES[m.source || 'kb'] || m.source} · {plural(m.count, 'search', 'searches')} · last {fmtDate(m.last_day)}</div></div><button type="button" className="kb-btn sm ghost" onClick={() => goKb('editor', 'new')}>Write</button></div>)}
                   </section>
                 )}
+                {/* Help Signals (Help Center, Oct 2026): what the Help panel, Ask
+                    Nexus and the ticket form could not answer - administrators. */}
+                {isAdmin && <HelpSignals />}
                 <section className="kb-card">
                   <SectionHead title="Activity" />
                   {data.activity.length === 0 && <div className="kb-empty">Nothing yet.</div>}

@@ -62,7 +62,7 @@ describe('CreateTicketModal suggested articles', () => {
     expect(screen.getByText('Click the Time Off tab.')).toBeTruthy();
     const link = screen.getByRole('link', { name: /Open Full Article/ });
     expect(link.getAttribute('target')).toBe('_blank');
-    expect(link.getAttribute('href')).toContain('/support/documentation?doc=workday');
+    expect(link.getAttribute('href')).toContain('/help-center/documentation?doc=workday');
     expect(title.value).toBe('Need PTO next week');
   });
 

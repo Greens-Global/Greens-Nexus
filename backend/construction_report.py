@@ -247,7 +247,7 @@ def configured() -> bool:
 def draft_offline(project, data: dict) -> dict:
     """The report without a model. Same return shape as draft().
 
-    Follows routers/help.py, which returns `_fallback()` and tags the result
+    Follows the old per-page help (routers/help.py, removed Oct 2026), which returned `_fallback()` and tagged the result
     `source='fallback'` rather than failing when no key is set. Before this,
     generate_report answered 502 with no key at all - so the module could not be
     exercised on a laptop, and a manager could not produce the week's report if

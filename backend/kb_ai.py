@@ -230,6 +230,43 @@ def answer(question: str, pages: list[dict]) -> dict:
     return {"answer": str(out.get("answer") or "").strip(), "sources": used, "grounded": bool(out.get("grounded")) and bool(used)}
 
 
+def answer_help(question: str, sources: list[dict]) -> dict:
+    """Ask Nexus in the Help Center (Oct 2026): one answer from the written
+    Nexus guide sections the asker's browser picked (only what their role can
+    read) and the Knowledge Base pages they may see. Docs only - nothing about
+    the person's own data ever reaches it. sources: [{kind: 'guide'|'kb', id,
+    title, text}] in the order they are numbered. Returns {answer, sources:
+    [indexes into `sources`], grounded}."""
+    question = (question or "")[:1000]
+    if not sources:
+        return {"answer": "", "sources": [], "grounded": False}
+    numbered = sources[:10]
+    ctx = "\n\n".join(
+        f"[{i + 1}] ({'Nexus guide' if s.get('kind') == 'guide' else 'Knowledge Base page'}) {s.get('title') or ''}\n{(s.get('text') or '')[:4000]}"
+        for i, s in enumerate(numbered))
+    system = ("You are Nexus, the help assistant inside Greens Nexus, the Greens Global staff portal. Answer the question using ONLY "
+              "the numbered sources given: sections of the written Nexus guide (how the app works) and Knowledge Base pages (company "
+              "SOPs and how-tos). Cite the sources you used as [1], [2] after the sentence they support. If the sources do not answer "
+              "the question, say so plainly in one sentence, do not guess, and suggest asking the support team. You cannot see the "
+              "person's own records, so never claim to. Be brief: a short paragraph or a short numbered list of steps, naming buttons "
+              "and tabs exactly as the sources do. Reply in the language the question is written in. In English use American spelling. "
+              "Write dates as MM/DD/YYYY and times as 12-hour with AM/PM. Never use em dashes; use a plain hyphen. "
+              'Return ONLY JSON: {"answer": str, "sources": [source numbers used], "grounded": bool}.')
+    out = _json(_call(system, f"QUESTION: {question}\n\nSOURCES:\n{ctx}", max_tokens=800, timeout=45))
+    if not isinstance(out, dict):
+        raise AiError("No answer")
+    used: list[int] = []
+    for n in out.get("sources") or []:
+        try:
+            i = int(n) - 1
+        except (TypeError, ValueError):
+            continue
+        if 0 <= i < len(numbered) and i not in used:
+            used.append(i)
+    text = str(out.get("answer") or "").strip().replace("—", " - ")
+    return {"answer": text, "sources": used, "grounded": bool(out.get("grounded")) and bool(used)}
+
+
 def course(pages: list[dict], *, title_hint: str = "", questions: int = 15) -> dict:
     """pages: [{id, title, version, text}] -> {title, description, overview,
     est_minutes, lessons:[{title, docId?, blocks?}], questions:[...]}. Runs

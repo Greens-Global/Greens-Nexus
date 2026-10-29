@@ -892,7 +892,6 @@ export const api = {
   unarchiveKbDoc:(id)       => req(`/knowledge-base/documents/${id}/unarchive`, { method: "POST" }),
   aiFormatKbDoc: (data)     => req("/knowledge-base/ai-format", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   askKb:         (data)     => req("/knowledge-base/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
-  getPageHelp:        (key, label = '') => req(`/help/page?key=${encodeURIComponent(key)}&label=${encodeURIComponent(label)}`, { timeoutMs: AI_TIMEOUT_MS }),
   getKbAcks:        (id)        => req(`/knowledge-base/documents/${id}/acknowledgements`),
   acknowledgeKbDoc: (id)        => req(`/knowledge-base/documents/${id}/acknowledge`, { method: "POST" }),
   setKbAckRequired: (id, value) => req(`/knowledge-base/documents/${id}/ack-required`, { method: "POST", body: JSON.stringify({ value }) }),
@@ -3256,6 +3255,14 @@ export const api = {
   // Salary advance from the person's Time Sheet (Neil, Oct 29 2026): their
   // direct manager or HR asks - the server grants or requests by who asks.
   askSalaryAdvanceFor: (email, body) => req(`/salary-advances/for/${encodeURIComponent(email)}`, { method: "POST", body: JSON.stringify(body) }),
+  // Help Center (Oct 2026) - backend/routers/help_center.py. Ask Nexus answers
+  // from the guide sections sent here and the Knowledge Base, docs only.
+  helpAsk: (question, guide) => req("/help-center/ask", { method: "POST", body: JSON.stringify({ question, guide }), timeoutMs: AI_TIMEOUT_MS }),
+  helpSearchLog: (q, results, source) => req("/help-center/search-log", { method: "POST", body: JSON.stringify({ q, results, source }) }),
+  helpFeedback: (data) => req("/help-center/feedback", { method: "POST", body: JSON.stringify(data) }),
+  helpSignals: () => req("/help-center/signals"),
+  helpKnownIssues: () => req("/help-center/known-issues"),
+  helpSaveKnownIssues: (issues) => req("/help-center/known-issues", { method: "PUT", body: JSON.stringify({ issues }) }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with

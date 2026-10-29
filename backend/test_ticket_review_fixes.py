@@ -194,6 +194,43 @@ class IdsAndConversationTests(_Base):
         self.assertEqual(c.post(f"/task-tickets/{t['id']}/attachments", json={"name": "y.mov", "url": ""}).status_code, 201)
 
 
+class InternalNoteTimingTests(_Base):
+    """An internal note stamps last_comment_at (the desk's staleness clock);
+    a requester must not learn from it WHEN a note was added (Oct 28 2026)."""
+
+    def _thread(self):
+        t = self.file()
+        self.db.add(models.TaskComment(id=gen_id(), task_id=t["id"], author_email=AGENT, body="<p>On my way</p>",
+                                       internal=False, created_at="2026-10-20T10:00:00"))
+        self.db.add(models.TaskComment(id=gen_id(), task_id=t["id"], author_email=AGENT, body="<p>desk only</p>",
+                                       internal=True, created_at="2026-10-21T09:00:00"))
+        row = self.row(t["id"])
+        row.last_comment_at = "2026-10-21T09:00:00"
+        self.db.commit()
+        return t
+
+    def test_the_requester_sees_the_time_of_the_newest_reply_they_can_read(self):
+        t = self._thread()
+        mine = next(x for x in self.as_(REQ).get("/task-tickets?mine=true").json() if x["id"] == t["id"])
+        self.assertEqual(mine["lastCommentAt"], "2026-10-20T10:00:00")
+        self.assertEqual(mine["latestComment"]["createdAt"], "2026-10-20T10:00:00")
+
+    def test_the_desk_keeps_the_real_clock(self):
+        t = self._thread()
+        desk = next(x for x in self.as_(AGENT).get("/task-tickets").json() if x["id"] == t["id"])
+        self.assertEqual(desk["lastCommentAt"], "2026-10-21T09:00:00")
+
+    def test_no_public_reply_yet_means_no_time(self):
+        t = self.file()
+        self.db.add(models.TaskComment(id=gen_id(), task_id=t["id"], author_email=AGENT, body="<p>desk only</p>",
+                                       internal=True, created_at="2026-10-21T09:00:00"))
+        row = self.row(t["id"])
+        row.last_comment_at = "2026-10-21T09:00:00"
+        self.db.commit()
+        mine = next(x for x in self.as_(REQ).get("/task-tickets?mine=true").json() if x["id"] == t["id"])
+        self.assertEqual(mine["lastCommentAt"], "")
+
+
 class IntakeTests(_Base):
     def test_a_requester_cannot_file_it_closed(self):
         out = self.file(status="closed")
@@ -537,7 +574,7 @@ class FollowUpReviewTests(_Base):
                     if n.recipient == APPROVER and n.type == "task_ticket_needs_approval")
         self.assertEqual(json.loads(bell.action)["view"], "support")
         mail = next(kw for kw in sent if kw["to"] == [APPROVER])
-        self.assertIn(f"/support?ticket={t['id']}", mail["html"])
+        self.assertIn(f"/help-center?ticket={t['id']}", mail["html"])
 
     def test_a_desk_approver_keeps_the_tickets_link(self):
         t = self.file(type="access_request")
