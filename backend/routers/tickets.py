@@ -379,7 +379,17 @@ def _with_latest_comment(db: Session, t: models.TaskTicket, user: dict, d: dict)
     which replaces the row in the list (it would otherwise blank the column)."""
     internal_ok = _sees_internal(db, t, user, _has_desk_grant(user, db))
     d["latestComment"] = _latest_comments(db, internal_ok, ticket_id=t.id).get(t.id)
+    if not internal_ok:
+        _public_last_comment(d)
     return _for_viewer(db, t, user, d)
+
+
+def _public_last_comment(d: dict) -> None:
+    """An internal note stamps last_comment_at (the desk's "nobody has said
+    anything" clock), so for someone who may not read internal notes the
+    field is the time of the newest reply they CAN see - the dict's own
+    latestComment, already the public one for them - never a note's time."""
+    d["lastCommentAt"] = (d.get("latestComment") or {}).get("createdAt") or ""
 
 
 def _for_viewer(db: Session, t: models.TaskTicket, user: dict, d: dict) -> dict:
@@ -1008,7 +1018,10 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     out = []
     for t in rows:
         d = ticket_to_dict(t)
-        d["latestComment"] = (any_latest if _sees_internal(db, t, user, desk) else public_latest).get(t.id)
+        sees = _sees_internal(db, t, user, desk)
+        d["latestComment"] = (any_latest if sees else public_latest).get(t.id)
+        if not sees:
+            _public_last_comment(d)
         out.append(_for_viewer(db, t, user, d))
     return out
 
