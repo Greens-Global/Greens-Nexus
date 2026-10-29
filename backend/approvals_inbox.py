@@ -150,20 +150,55 @@ def _iso(v) -> str:
 
 def row(kind: str, rid: str, *, person_email: str = "", person_name: str = "", title: str, detail: str = "",
         created_at="", actions=(), link: dict | None = None, count: int = 1, for_name: str = "",
-        facts=()) -> dict:
+        facts=(), priority: str = "", due: str = "") -> dict:
     """One inbox line, the same shape for every source.
 
     `facts` (Neil, 10/28/2026: Review "gives them additional detail") are
     ("Label", "value") pairs the row's Review panel lists in full - the
     reason, the amount, the dates - where `detail` is one shortened line.
-    Empty values are dropped, so a source can pass what it has."""
+    Empty values are dropped, so a source can pass what it has.
+
+    `priority` (Neil, 10/28/2026: "allow a sort by priority") is the
+    module's own urgent / high / medium / low where it has one (a task, a
+    ticket); `due` is the day the decision matters by (leave starts, a
+    document expires, a letter is needed). collect() turns what is missing
+    into one priority for every row - see _priority."""
     return {"key": f"{kind}:{rid}", "kind": kind, "id": rid,
+            "priority": (priority or "").strip().lower(), "due": (due or "")[:10],
             "person": {"email": (person_email or "").lower(), "name": person_name or person_email or ""},
             "title": title, "detail": detail or "", "createdAt": _iso(created_at),
             "actions": [dict(a) for a in actions], "link": link or {}, "count": max(1, int(count or 1)),
             "forName": for_name or "",
             "facts": [{"label": str(k), "value": str(v).strip()} for k, v in facts
                       if v not in (None, "") and str(v).strip()]}
+
+
+PRIORITIES = ("urgent", "high", "medium", "low")   # the Tasks scale, most pressing first
+
+
+def _priority(r: dict, today: date | None = None) -> str:
+    """One priority per row: the higher of the module's own (a task's, a
+    ticket's) and what the dates say - the day it matters by passed or is
+    tomorrow = Urgent, within 3 days = High; waiting a week or more = High.
+    Everything else is Medium; a module's Low stays Low unless a date
+    raises it."""
+    today = today or datetime.now(timezone.utc).date()
+    own = r.get("priority") if r.get("priority") in PRIORITIES else ""
+    rank = {p: i for i, p in enumerate(PRIORITIES)}
+    best = rank.get(own, rank["medium"])
+    try:
+        left = (date.fromisoformat(r.get("due") or "") - today).days
+    except ValueError:
+        left = None
+    if left is not None:
+        best = min(best, rank["urgent"] if left <= 1 else rank["high"] if left <= 3 else best)
+    try:
+        waited = (today - datetime.fromisoformat(r["createdAt"]).date()).days if r.get("createdAt") else 0
+    except ValueError:
+        waited = 0
+    if waited >= 7:
+        best = min(best, rank["high"])
+    return PRIORITIES[best]
 
 
 def collect(db: Session, user: dict, only=None) -> dict:
@@ -193,6 +228,7 @@ def collect(db: Session, user: dict, only=None) -> dict:
             continue
         for r in got:
             r["source"], r["group"] = s.key, s.group
+            r["priority"] = _priority(r)
         counts[s.key] = sum(r["count"] for r in got)
         rows += got
     # Oldest waiting first: an approval queue is first come, first served, and
@@ -296,7 +332,7 @@ def _time_off_row(kind_key: str, t: dict) -> dict:
                # HR's wait starts when the manager said yes.
                created_at=(t.get("firstDecidedAt") if hr else "") or t.get("createdAt"),
                actions=(A_APPROVE, A_REJECT), link={"view": "hr", "sub": "hr-time-off" if hr else "hr-time"},
-               for_name=t.get("forName") or "",
+               for_name=t.get("forName") or "", due=t.get("startDate") or "",
                facts=(("Type", kind), ("Dates", span), ("Days", str(days) if days else ""),
                       ("Note", "" if t.get("redacted") else t.get("note") or ""),
                       ("First Approval", (t.get("firstApproverName") or t.get("firstApprover") or "") if hr else "")))
@@ -464,7 +500,7 @@ def _documents_to_sign(db: Session, user: dict, ctx: dict) -> list:
                        title=r.get("title") or "Document To Sign",
                        detail=f"Expires {_us_day(r['expiresOn'])}." if r.get("expiresOn") else "",
                        created_at=r.get("createdAt"), actions=(a_open("Review & Sign"),),
-                       link={"view": "myhr", "sub": f"sign:{r['partyId']}"},
+                       link={"view": "myhr", "sub": f"sign:{r['partyId']}"}, due=r.get("expiresOn") or "",
                        facts=(("Document", r.get("title") or ""),
                               ("Sent By", _name(db, ctx, sender) if sender else ""),
                               ("Expires", _us_day(r["expiresOn"]) if r.get("expiresOn") else ""))))
@@ -785,7 +821,7 @@ def _hr_letters(db: Session, user: dict, ctx: dict) -> list:
                        person_name=r.employee_name or _name(db, ctx, r.employee_email),
                        title=f"HR Letter - {hl.type_label(r.letter_type)}", detail=" - ".join(bits),
                        created_at=r.created_at, actions=(a_open("Review"), A_DECLINE_WHY),
-                       link=dict(hl._HR_ACTION),
+                       link=hl._hr_action_for(r), due=r.needed_by or "",
                        facts=(("Letter", hl.type_label(r.letter_type)),
                               ("Needed By", _us_day(r.needed_by) if r.needed_by else ""), ("Purpose", r.purpose or ""))))
     return out
@@ -895,6 +931,7 @@ def _task_approvals(db: Session, user: dict, ctx: dict) -> list:
                        title=f"Task Approval - {t.title or 'Untitled Task'}",
                        detail=_short(_text(t.description)) or (f"Due {_us_day(t.due_on)}." if t.due_on else ""),
                        created_at=t.created_at, actions=(A_APPROVE, A_CHANGES, A_REJECT_PLAIN),
+                       priority=t.priority or "", due=t.due_on or "",
                        link={"view": "tasks", "sub": "mine", "taskId": t.id},
                        facts=(("Task", t.title or ""), ("Due", _us_day(t.due_on) if t.due_on else ""),
                               ("Created By", _name(db, ctx, asker) if asker else ""),
@@ -951,6 +988,7 @@ def _task_date_asks(db: Session, user: dict, ctx: dict) -> list:
                        title=(f"Due Date Extension - {t.title or 'Task'}" if ext else f"New Due Date - {t.title or 'Task'}"),
                        detail=f"{now or 'No date'} to {wanted}" + (f" - {_short(p.get('note'), 100)}" if p.get("note") else ""),
                        created_at=p.get("at") or t.modified_at, actions=(A_APPROVE, A_DECLINE),
+                       priority=t.priority or "", due=t.due_on or "",
                        link={"view": "tasks", "sub": "mine", "taskId": t.id},
                        facts=(("Task", t.title or ""), ("Current Due Date", now or "None"), ("Asked For", wanted),
                               ("Asked By", _name(db, ctx, asker) if asker else ""),
@@ -989,7 +1027,7 @@ def _ticket_approvals(db: Session, user: dict, ctx: dict) -> list:
         out.append(row("ticket_approval", t.id, person_email=who, person_name=_name(db, ctx, who) if who else "",
                        title=f"Ticket Approval - {'#' + num + ' ' if num else ''}{t.subject or 'Ticket'}",
                        detail=_short(_text(t.description)), created_at=t.created_at,
-                       actions=(A_APPROVE, A_REJECT_WHY),
+                       actions=(A_APPROVE, A_REJECT_WHY), priority=t.priority or "",
                        link={"view": view, "ticketId": t.id},
                        facts=(("Ticket", f"#{num}" if num else ""), ("Subject", t.subject or ""),
                               ("Type", (t.type or "").replace("_", " ").title()),

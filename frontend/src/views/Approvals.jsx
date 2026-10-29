@@ -9,8 +9,11 @@
 // that needs more than one click opens the item in its module. Nothing here
 // is a second approval path.
 //
-// Oldest waiting first: an approval queue is first come, first served, and
-// the one waiting longest is the one most likely to be late.
+// Oldest waiting first by default: an approval queue is first come, first
+// served, and the one waiting longest is the one most likely to be late. The
+// person can sort by priority, newest, name or kind and filter by priority or
+// a search (Neil, 10/28/2026); `priority` is the server's (approvals_inbox
+// `_priority`: the module's own, raised by a close date or a long wait).
 //
 // A decision leaves the list at once and is sent after a short Undo window
 // (UNDO_MS) - the module endpoints cannot be undone once called, so the undo
@@ -24,7 +27,9 @@
 // <module> for the item itself), and a checkbox: rows whose yes is one click
 // can be approved together, with the same single Undo.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Inbox, RefreshCw, CheckCircle2, ChevronRight, ArrowUpRight, Users } from 'lucide-react';
+import { Inbox, RefreshCw, CheckCircle2, ChevronRight, ArrowUpRight, Users, Search } from 'lucide-react';
+import { PrioritySignal } from '../components/StatusLabel';
+import { useTableValue } from '../tasks/tableCols';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { ForChip } from '../components/DelegateApprovals';
@@ -34,7 +39,7 @@ import { dialog } from '../ui/dialog';
 import { formatDateTime } from '../lib/datetime';
 import { openNotificationTarget } from '../lib/openTarget';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
-import { UNDO_MS, bulkAction, doneWord, runApproval, runsInline, shortName, waited } from '../lib/approvalActions';
+import { UNDO_MS, bulkAction, doneWord, runApproval, runsInline, waited } from '../lib/approvalActions';
 
 const FONT = 'Inter, sans-serif';
 const POLL_MS = 60000;
@@ -62,6 +67,41 @@ function go(link) {
   openNotificationTarget(link);
 }
 
+// Sorts and filters (Neil, 10/28/2026: "allow a sort by priority ... add
+// sorts and filters"). The person's choice follows them (their table prefs).
+const PRIORITY_RANK = { urgent: 0, high: 1, medium: 2, low: 3 };
+const SORTS = [
+  { key: 'oldest', label: 'Oldest First' },
+  { key: 'newest', label: 'Newest First' },
+  { key: 'priority', label: 'Priority' },
+  { key: 'person', label: 'Name (A-Z)' },
+  { key: 'kind', label: 'Kind' },
+];
+const PRIORITY_FILTERS = [
+  { key: 'all', label: 'All Priorities' },
+  { key: 'urgent', label: 'Urgent' },
+  { key: 'high', label: 'High And Up' },
+  { key: 'medium', label: 'Medium' },
+  { key: 'low', label: 'Low' },
+];
+const when = (r) => r.createdAt || '9999';
+const SORTERS = {
+  oldest: (a, b) => when(a).localeCompare(when(b)),
+  newest: (a, b) => when(b).localeCompare(when(a)),
+  priority: (a, b) => ((PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2)) || when(a).localeCompare(when(b)),
+  person: (a, b) => (a.person?.name || '~').localeCompare(b.person?.name || '~') || when(a).localeCompare(when(b)),
+  kind: (a, b) => (a.group || '').localeCompare(b.group || '') || when(a).localeCompare(when(b)),
+};
+const matchesPriority = (r, f) => f === 'all' || (f === 'high'
+  ? (PRIORITY_RANK[r.priority] ?? 2) <= 1 : (r.priority || 'medium') === f);
+
+// The whole name (Neil, 10/28/2026) - never "Priya S."; a bare address reads
+// as the name in it.
+const fullName = (person) => {
+  const name = String(person?.name || '').trim();
+  return name.includes('@') ? name.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : name;
+};
+
 // "Open In Team" - the module's name as the left menu shows it.
 const moduleName = (link) => NAV.find((n) => n.view === link?.view)?.label || '';
 
@@ -73,6 +113,9 @@ export default function Approvals({ activeSub, onSubChange }) {
   const [toast, setToast] = useState(null);                 // { kind: 'undo' | 'ok' | 'error', msg, keys?, link? }
   const [selected, setSelected] = useState(() => new Set()); // keys checked for Approve Selected
   const [reviewing, setReviewing] = useState(null);         // the row whose Review panel is open
+  const [sortKey, setSortKey] = useTableValue('approvals-inbox', 'sort', 'oldest');
+  const [prioFilter, setPrioFilter] = useState('all');
+  const [query, setQuery] = useState('');
   const pending = useRef(new Map());                        // key -> { row, action, note, timer }
   const settled = useRef(new Map());                        // key -> when it was sent; un-hidden by a load begun after that (a claim can come back for HR)
   const toastTimer = useRef(null);
@@ -184,18 +227,19 @@ export default function Approvals({ activeSub, onSubChange }) {
     queue(row, action, note);
     setReviewing((cur) => (cur?.key === row.key ? null : cur));
     setSelected((s) => { if (!s.has(row.key)) return s; const n = new Set(s); n.delete(row.key); return n; });
-    const who = shortName(row.person);
+    const who = fullName(row.person);
     say({ kind: 'undo', keys: [row.key], msg: `${doneWord(action.key)}: ${who ? `${who} - ` : ''}${row.title}` });
   }
 
   // Approve Selected: every checked row's one-click yes, one Undo for all.
   function decideSelected() {
-    const picked = rows.filter((r) => selected.has(r.key) && bulkAction(r));
-    if (!picked.length) return;
-    picked.forEach((r) => queue(r, bulkAction(r), ''));
+    // Only what is on screen: a row a filter hides is never approved unseen.
+    const batch = picked.slice();
+    if (!batch.length) return;
+    batch.forEach((r) => queue(r, bulkAction(r), ''));
     setSelected(new Set());
-    say({ kind: 'undo', keys: picked.map((r) => r.key),
-      msg: `Approved ${picked.length} ${picked.length === 1 ? 'request' : 'requests'}` });
+    say({ kind: 'undo', keys: batch.map((r) => r.key),
+      msg: `Approved ${batch.length} ${batch.length === 1 ? 'request' : 'requests'}` });
   }
 
   function undo(keys) {
@@ -218,7 +262,14 @@ export default function Approvals({ activeSub, onSubChange }) {
     rows.forEach((r) => { const n = r.count || 1; c.all += n; c[r.group] = (c[r.group] || 0) + n; });
     return c;
   }, [rows]);
-  const shown = group === 'all' ? rows : rows.filter((r) => r.group === group);
+  const q = query.trim().toLowerCase();
+  const shown = useMemo(() => rows
+    .filter((r) => group === 'all' || r.group === group)
+    .filter((r) => matchesPriority(r, prioFilter))
+    .filter((r) => !q || [r.person?.name, r.title, r.detail, r.forName].some((s) => (s || '').toLowerCase().includes(q)))
+    .sort(SORTERS[sortKey] || SORTERS.oldest), [rows, group, prioFilter, q, sortKey]);
+  const filtering = prioFilter !== 'all' || !!q;
+  const clearFilters = () => { setPrioFilter('all'); setQuery(''); };
   const chips = [{ key: 'all', label: 'All' }, ...groupLabels.filter((g) => counts[g.key] || g.key === group)];
   const errors = data?.errors || [];
   const groupName = groupLabels.find((g) => g.key === group)?.label || '';
@@ -234,9 +285,17 @@ export default function Approvals({ activeSub, onSubChange }) {
   return (
     <div style={{ fontFamily: FONT, color: 'var(--ink)', maxWidth: 1080, margin: '0 auto', padding: '4px 0 48px' }}>
       <style>{`
-        .apv-row { display: grid; grid-template-columns: 20px 190px minmax(0, 1fr) 76px auto; grid-template-areas: "pick who what age act";
-          gap: 6px 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); }
+        .apv-row { display: grid; grid-template-columns: 20px minmax(150px, 220px) minmax(0, 1fr) 92px 76px auto; grid-template-areas: "pick who what prio age act";
+          gap: 6px 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--card); }
         .apv-row:first-child { border-top: none; }
+        .apv-list > .apv-row:nth-child(even) { background: var(--nx-zebra); }
+        .apv-prio { grid-area: prio; font-size: 12.5px; }
+        .apv-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+        .apv-search { position: relative; flex: 1 1 260px; min-width: 200px; }
+        .apv-search input { width: 100%; padding-left: 32px; }
+        .apv-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+        .apv-tools label { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+        .apv-tools select { width: auto; min-width: 150px; }
         .apv-pick { grid-area: pick; display: flex; align-items: center; }
         .apv-pick input, .apv-bar input { width: 16px; height: 16px; margin: 0; accent-color: var(--wk-brand); cursor: pointer; }
         .apv-who { grid-area: who; min-width: 0; display: flex; align-items: center; gap: 10px; }
@@ -252,7 +311,9 @@ export default function Approvals({ activeSub, onSubChange }) {
         .apv-title:hover { text-decoration: underline; }
         .apv-act button { font-size: 12.5px; padding: 6px 12px; white-space: nowrap; }
         @media (max-width: 720px) {
-          .apv-row { grid-template-columns: 20px minmax(0, 1fr) auto; grid-template-areas: "pick who age" ". what what" ". act act"; padding: 12px 14px; }
+          .apv-row { grid-template-columns: 20px minmax(0, 1fr) auto; grid-template-areas: "pick who age" ". what what" ". prio prio" ". act act"; padding: 12px 14px; }
+          .apv-tools label { flex: 1 1 140px; }
+          .apv-tools select { flex: 1; min-width: 0; }
           .apv-facts { grid-template-columns: minmax(0, 1fr); }
           .apv-facts > div:nth-child(odd) { border-bottom: none; padding-bottom: 0; }
           .apv-act { justify-content: flex-start; }
@@ -267,7 +328,7 @@ export default function Approvals({ activeSub, onSubChange }) {
           </span>
           <div className="view-title-group">
             <h2>Approvals</h2>
-            <p>Everything waiting on your decision, across Nexus - oldest first.</p>
+            <p>Everything waiting on your decision, across Nexus.</p>
           </div>
         </div>
         <button type="button" className="secondary-btn" onClick={() => { setLoading(!data); load(); }}
@@ -294,6 +355,28 @@ export default function Approvals({ activeSub, onSubChange }) {
         })}
       </div>
 
+      {(rows.length > 0 || filtering) && (
+        <div className="apv-tools">
+          <div className="apv-search">
+            <Search size={14} aria-hidden="true" />
+            <input type="search" className="form-input" value={query} onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by name, request or detail" aria-label="Search approvals" />
+          </div>
+          <label>
+            Priority
+            <select className="form-select" value={prioFilter} onChange={(e) => setPrioFilter(e.target.value)} aria-label="Filter by priority">
+              {PRIORITY_FILTERS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+            </select>
+          </label>
+          <label>
+            Sort
+            <select className="form-select" value={sortKey} onChange={(e) => setSortKey(e.target.value)} aria-label="Sort approvals">
+              {SORTS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
+
       {errors.length > 0 && (
         <div role="status" style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           {errors.map((e) => <span key={e.source}>{`Couldn't load ${e.label}.`}</span>)}
@@ -314,11 +397,16 @@ export default function Approvals({ activeSub, onSubChange }) {
           <div style={{ padding: '48px 20px', textAlign: 'center', border: '1px dashed var(--line)', borderRadius: 12, background: 'var(--card)' }}>
             <CheckCircle2 size={30} style={{ color: 'hsl(var(--color-green))' }} />
             <div style={{ fontSize: 16, fontWeight: 700, marginTop: 10 }}>
-              {group === 'all' ? 'Nothing waiting on you' : `Nothing in ${groupName} waiting on you`}
+              {filtering ? 'No approvals match your filters' : group === 'all' ? 'Nothing waiting on you' : `Nothing in ${groupName} waiting on you`}
             </div>
             <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
-              Every approval in Nexus that needs your decision shows up here - time off, time sheets, money, tasks, tickets, equipment, hiring and documents.
+              {filtering
+                ? 'Clear the search or the priority filter to see everything waiting on you.'
+                : 'Every approval in Nexus that needs your decision shows up here - time off, time sheets, money, tasks, tickets, equipment, hiring and documents.'}
             </div>
+            {filtering && (
+              <button type="button" className="secondary-btn" onClick={clearFilters} style={{ marginTop: 14 }}>Clear Filters</button>
+            )}
           </div>
         }
       >
@@ -336,10 +424,12 @@ export default function Approvals({ activeSub, onSubChange }) {
               </button>
             </div>
           )}
-          {shown.map((r) => (
-            <Row key={r.key} row={r} onAct={decide} onReview={() => setReviewing(r)}
-              selectable={!!bulkAction(r)} selected={selected.has(r.key)} onToggle={() => toggle(r.key)} />
-          ))}
+          <div className="apv-list">
+            {shown.map((r) => (
+              <Row key={r.key} row={r} onAct={decide} onReview={() => setReviewing(r)}
+                selectable={!!bulkAction(r)} selected={selected.has(r.key)} onToggle={() => toggle(r.key)} />
+            ))}
+          </div>
         </div>
       </AsyncSection>
 
@@ -387,12 +477,12 @@ function PersonMark({ person, size }) {
 }
 
 function Row({ row, onAct, onReview, selectable, selected, onToggle }) {
-  const who = shortName(row.person);
+  const who = fullName(row.person);
   // Decisions run here; a step that opens the module lives in Review, so a
   // row never shows two buttons that both read "Review".
   const inline = (row.actions || []).filter((a) => a.key !== 'open' && runsInline(row, a.key));
   return (
-    <div className="apv-row" data-kind={row.kind}>
+    <div className="apv-row nx-row-hover" data-kind={row.kind} data-priority={row.priority || undefined}>
       <div className="apv-pick">
         {selectable && (
           <input type="checkbox" checked={selected} onChange={onToggle}
@@ -417,6 +507,9 @@ function Row({ row, onAct, onReview, selectable, selected, onToggle }) {
             {row.forName && <ForChip name={row.forName} />}
           </div>
         )}
+      </div>
+      <div className="apv-prio">
+        {row.priority && <PrioritySignal priority={row.priority} />}
       </div>
       <div className="apv-age" title={row.createdAt ? formatDateTime(row.createdAt) : ''}
         style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>

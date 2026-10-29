@@ -4,6 +4,7 @@ import {
   FileText, Download, CalendarOff, Pencil, Check, X, BadgeCheck,
   Clock, Banknote, MessageSquarePlus, Package, ArrowRight, Hourglass,
   HardDrive, Folder, FolderOpen, ChevronRight, ChevronLeft, Eye,
+  FileSignature, CircleHelp, MessageSquare, UserPen,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner, LoadingState } from '../components/AsyncState';
@@ -16,7 +17,7 @@ import ReimbursementsTile from '../components/Reimbursements';
 import { usePopupNudge } from '../lib/usePopupNudge';
 import { PurchaseRequestTile } from '../components/PurchaseRequests';
 import { MyMoreDetails } from '../components/EmployeeCustomFields';
-import { MyLettersCard } from '../components/HrLetters';
+import { useHrLetters, LetterRequestForm, MyLetterRow, HrLetterQueue, letterIsOpen, letterMark } from '../components/HrLetters';
 import { StatusLabel } from '../components/StatusLabel';
 import { TICKET_STATUS_META, CLOSED_STATES } from '../tickets/ticketMeta';
 import { uploadTicketEvidence } from '../tickets/evidenceUpload';
@@ -50,6 +51,16 @@ const STATUS_META = {
 const ASK_TYPES = [
   ['document', 'Update a document'], ['profile', 'Profile change'],
   ['question', 'Question for HR'], ['other', 'Something else'],
+];
+// What New Request offers (Neil, Oct 28 2026: HR letters joined Ask HR). A
+// pick shows its form: "letter" is an HR Letters request (only when the
+// company offers letters), the rest file a confidential HR ticket.
+const ASK_CHOICES = [
+  { key: 'letter', label: 'Request a Letter', hint: 'Employment verification, salary, visa and more', Icon: FileSignature },
+  { key: 'document', label: 'Update a Document', hint: 'A renewed ID, visa or certificate', Icon: FileText },
+  { key: 'profile', label: 'Profile Change', hint: 'Name, job, department or bank details', Icon: UserPen },
+  { key: 'question', label: 'Question for HR', hint: 'Policies, pay, benefits or leave', Icon: CircleHelp },
+  { key: 'other', label: 'Something Else', hint: 'Anything else for HR', Icon: MessageSquare },
 ];
 // What each kind is called on the ticket (hr_tickets.KIND_LABEL) - the row title.
 const ASK_KIND_LABEL = { document: 'Document Update', profile: 'Profile Change', question: 'HR Question', other: 'Other HR Request' };
@@ -142,7 +153,7 @@ function Stat({ label, value, hint, color, Icon, hero, title, onClick }) {
     : <div className={cls} style={{ cursor: 'default' }} title={title}>{body}</div>;
 }
 
-export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false }) {
+export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false, askFocus = null }) {
   // A "confirm your schedule" bell or email (Shifts Phase 3a) lands here:
   // My Schedule shows that share's banner - bring the card into view.
   useEffect(() => {
@@ -162,7 +173,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [busy, setBusy] = useState({});
-  const [askForm, setAskForm] = useState({ type: 'document', message: '' });
+  const [askForm, setAskForm] = useState({ type: '', message: '' });   // type '' = nothing picked yet
   const [askFile, setAskFile] = useState(null);
   const askFileRef = useRef(null);
   const [askBusy, setAskBusy] = useState(false);
@@ -188,23 +199,53 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
   useEffect(() => { if (!askPanel) resetAskNudge(); }, [askPanel, resetAskNudge]);
   const [askSeen, setAskSeen] = useState(readAskSeen);
   const [askFresh, setAskFresh] = useState(() => new Set());
+  // HR letters live in Ask HR (Neil, Oct 28 2026): mine are in My Requests
+  // beside the tickets (seen-marks keyed `l:<id>`), and the ones waiting on
+  // me as HR head the panel - `letterOpen` is the one under review.
+  const letters = useHrLetters();
+  const [letterOpen, setLetterOpen] = useState('');
   const isAskUnseen = (a) => { const m = askMark(a); return !!m && askSeen[a.id] !== m; };
-  const askUnseen = asks.filter(isAskUnseen).length;
-  const askOpenCount = asks.filter(askIsOpen).length;
+  const isLetterUnseen = (r) => { const m = letterMark(r); return !!m && askSeen[`l:${r.id}`] !== m; };
+  const askUnseen = asks.filter(isAskUnseen).length + letters.rows.filter(isLetterUnseen).length;
+  const askOpenCount = asks.filter(askIsOpen).length + letters.rows.filter(letterIsOpen).length;
+  const letterQueue = letters.queue.length;
   const openAskPanel = () => {
-    setAskFresh(new Set(asks.filter(isAskUnseen).map((a) => a.id)));
+    setAskFresh(new Set([...asks.filter(isAskUnseen).map((a) => a.id), ...letters.rows.filter(isLetterUnseen).map((r) => `l:${r.id}`)]));
     const next = { ...askSeen };
     asks.forEach((a) => { const m = askMark(a); if (m) next[a.id] = m; });
+    letters.rows.forEach((r) => { const m = letterMark(r); if (m) next[`l:${r.id}`] = m; });
     setAskSeen(next);
     writeAskSeen(next);
     setAskPanel(true);
   };
+  // An Ask HR link (a letter bell, an Approvals row) opens the panel; one
+  // naming a letter request opens it for review on top.
+  useEffect(() => {
+    if (!askFocus?.n) return;
+    openAskPanel();
+    if (askFocus.letter) setLetterOpen(askFocus.letter);
+  }, [askFocus?.n]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // What arrives while the panel is open (a link opens it before the lists
+  // load) is marked and seen there too, so the dot does not come back.
+  useEffect(() => {
+    if (!askPanel) return;
+    const newAsks = asks.filter(isAskUnseen);
+    const newLetters = letters.rows.filter(isLetterUnseen);
+    if (!newAsks.length && !newLetters.length) return;
+    setAskFresh((f) => new Set([...f, ...newAsks.map((a) => a.id), ...newLetters.map((r) => `l:${r.id}`)]));
+    const next = { ...askSeen };
+    newAsks.forEach((a) => { next[a.id] = askMark(a); });
+    newLetters.forEach((r) => { next[`l:${r.id}`] = letterMark(r); });
+    setAskSeen(next);
+    writeAskSeen(next);
+  }, [askPanel, asks, letters.rows]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!askPanel) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') { setAskPanel(false); setAskOpen(false); } };
+    // Escape inside the letter review closes the review, not the panel.
+    const onKey = (e) => { if (e.key === 'Escape' && !letterOpen) { setAskPanel(false); setAskOpen(false); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [askPanel]);
+  }, [askPanel, letterOpen]);
   const [sheet, setSheet] = useState(null);
   // The Hours tile counts this week; the clock card above switches between
   // Today / This Week / Pay Period.
@@ -398,7 +439,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
         } catch { fileNote = ' - the file did not upload, add it on the request'; }
       }
       setAsks(a => [created, ...a]);
-      setAskForm({ type: 'document', message: '' });
+      setAskForm({ type: '', message: '' });
       setAskFile(null);
       if (askFileRef.current) askFileRef.current.value = '';
       setAskOpen(false);
@@ -504,19 +545,22 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
             {/* Ask HR, Reimbursements and Purchase Request share the last cell as compact rows (Oct 18 / Oct 22 2026). */}
             <div className="wd-actions">
             <button type="button" className="dk-stat wd-stat wd-askhr" onClick={openAskPanel}
-              aria-label={askUnseen ? `Ask HR, ${askUnseen} update${askUnseen === 1 ? '' : 's'} from HR` : 'Ask HR'}>
+              aria-label={askUnseen ? `Ask HR, ${askUnseen} update${askUnseen === 1 ? '' : 's'} from HR`
+                : letterQueue ? `Ask HR, ${letterQueue} letter${letterQueue === 1 ? '' : 's'} to prepare` : 'Ask HR'}>
               <span className="wd-askhr-badge" aria-hidden="true">
                 <MessageSquarePlus size={18} />
-                {askUnseen > 0 && <span data-askhr-dot className="wd-askhr-dot" />}
+                {(askUnseen > 0 || letterQueue > 0) && <span data-askhr-dot className="wd-askhr-dot" />}
               </span>
               <span className="wd-stat-text">
                 <span className="wd-askhr-title">Ask HR</span>
-                <span className={`wd-askhr-sub${askUnseen ? ' wd-askhr-sub--new' : ''}`}>
+                <span className={`wd-askhr-sub${askUnseen || letterQueue ? ' wd-askhr-sub--new' : ''}`}>
                   {askUnseen ? `${askUnseen} update${askUnseen === 1 ? '' : 's'} from HR`
-                    : askOpenCount ? `${askOpenCount} open request${askOpenCount === 1 ? '' : 's'}` : 'Documents, changes, questions'}
+                    : letterQueue ? `${letterQueue} letter${letterQueue === 1 ? '' : 's'} to prepare`
+                      : askOpenCount ? `${askOpenCount} open request${askOpenCount === 1 ? '' : 's'}`
+                        : letters.types.length ? 'Letters, documents, questions' : 'Documents, changes, questions'}
                 </span>
               </span>
-              <span className="wd-askhr-cta" aria-hidden="true">{askUnseen ? 'View' : 'Ask a Question'} <ArrowRight size={13} /></span>
+              <span className="wd-askhr-cta" aria-hidden="true">{askUnseen ? 'View' : letterQueue ? 'Review' : 'Ask a Question'} <ArrowRight size={13} /></span>
               <ArrowRight className="wd-askhr-go" size={15} aria-hidden="true" />
             </button>
             {/* Reimbursements (Neil, Oct 18 2026): beside Ask HR, a panel - not a new tab. */}
@@ -743,11 +787,6 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                   });
                 })()}
               </div>
-              {/* HR Letters (Neil, Oct 27 2026): request an employment
-                  verification, salary certificate, visa NOC...; HR prepares
-                  it and the company signs it. Issued ones download here and
-                  sit in My Documents above. */}
-              <MyLettersCard flash={flash} />
               {previewFile && (
                 <EgnytePreview file={previewFile} onClose={() => setPreviewFile(null)}
                   fetchPreview={myhrFetchPreview} downloadFile={myhrDownloadFile} />
@@ -769,7 +808,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
             <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--line)' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Ask HR</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>A document update, a profile change or anything else</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{letters.types.length ? 'A letter, a document update, a profile change or anything else' : 'A document update, a profile change or anything else'}</div>
               </div>
               {!askOpen && (
                 <button className="primary-btn" aria-label="New Request" onClick={() => setAskOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
@@ -781,12 +820,45 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
             </div>
             <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '14px 18px 18px', display: 'flex', flexDirection: 'column' }}>
                     <div className="nx-fill" style={{ gap: 16 }}>
+                      <HrLetterQueue queue={letters.queue} openId={letterOpen} onOpen={setLetterOpen} onChanged={letters.reloadQueue} flash={flash} />
                       {askOpen && (
                       <div>
-                        <label style={{ ...lbl, marginTop: 0 }}>What do you need?</label>
-                        <select className="form-input" style={input} value={askForm.type} onChange={e => setAskForm(f => ({ ...f, type: e.target.value }))}>
-                          {ASK_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                        </select>
+                        <span id="ask-what" style={{ ...lbl, marginTop: 0 }}>What Do You Need?</span>
+                        <div role="radiogroup" aria-labelledby="ask-what" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 8 }}>
+                          {ASK_CHOICES.filter(c => c.key !== 'letter' || letters.types.length > 0).map(({ key, label, hint, Icon }) => {
+                            const on = askForm.type === key;
+                            return (
+                              <button key={key} type="button" role="radio" aria-checked={on} onClick={() => setAskForm(f => ({ ...f, type: key }))}
+                                style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: '10px 12px', borderRadius: 10, cursor: 'pointer', font: 'inherit',
+                                  background: 'var(--card)', border: '1px solid', borderColor: on ? 'hsl(var(--color-blue))' : 'var(--line)',
+                                  boxShadow: on ? 'inset 0 0 0 1px hsl(var(--color-blue))' : 'none' }}>
+                                <Icon size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1, color: on ? 'hsl(var(--color-blue))' : 'var(--muted)' }} />
+                                <span style={{ minWidth: 0 }}>
+                                  <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{label}</span>
+                                  <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>{hint}</span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {!askForm.type && (
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+                            <button className="secondary-btn" onClick={() => setAskOpen(false)}>Cancel</button>
+                          </div>
+                        )}
+                        {askForm.type === 'letter' && (
+                          <LetterRequestForm types={letters.types} onCancel={() => setAskOpen(false)}
+                            onCreated={(r) => {
+                              letters.add(r);
+                              setAskForm(f => ({ ...f, type: '' }));
+                              setAskOpen(false);
+                              flash('Sent to HR - you will hear back here when your letter is ready');
+                            }} />
+                        )}
+                      </div>
+                      )}
+                      {askOpen && askForm.type && askForm.type !== 'letter' && (
+                      <div style={{ marginTop: -4 }}>
                         <label style={lbl}>Details</label>
                         <textarea className="form-input" rows={3} style={{ ...input, resize: 'vertical' }} value={askForm.message} autoFocus
                           placeholder='e.g. "My visa was renewed - please update my right-to-work document."'
@@ -821,19 +893,23 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                       <div className="nx-fill">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                           <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>My Requests</span>
-                          {asks.some(askIsTicket) && (
+                          {(asks.some(askIsTicket) || letters.rows.length > 0) && (
                             <select className="form-input" value={askFilter} onChange={e => setAskFilter(e.target.value)} aria-label="Filter my requests"
-                              style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 22px 3px 8px', height: 'auto' }}>
+                              style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 28px 4px 10px', height: 'auto', width: 'auto', flex: 'none' }}>
                               <option value="all">All</option>
                               <option value="open">Open</option>
                               <option value="resolved">Resolved</option>
                             </select>
                           )}
                         </div>
-                        {!asks.some(askIsTicket) && (
+                        {!asks.some(askIsTicket) && letters.rows.length === 0 && (
                           <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0 4px' }}>Nothing sent yet - HR answers here.</div>
                         )}
-                        {asks.filter(askIsTicket).filter(a => askFilter === 'all' || (askFilter === 'open' ? askIsOpen(a) : !askIsOpen(a))).map(a => (
+                        {/* Tickets and letters in one list, newest first. */}
+                        {[...asks.filter(askIsTicket).map(a => ({ at: a.createdAt, a })), ...letters.rows.map(r => ({ at: r.createdAt, r }))]
+                          .sort((x, y) => (Date.parse(y.at || '') || 0) - (Date.parse(x.at || '') || 0))
+                          .filter(({ a, r }) => askFilter === 'all' || (askFilter === 'open') === (a ? askIsOpen(a) : letterIsOpen(r)))
+                          .map(({ a, r }) => r ? <MyLetterRow key={`l:${r.id}`} r={r} fresh={askFresh.has(`l:${r.id}`)} flash={flash} /> : (
                           <button type="button" key={a.id} data-ask-fresh={askFresh.has(a.id) || undefined} onClick={() => openAskTicket(a.id)}
                             title="Open the request - the whole conversation with HR"
                             style={{ display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', font: 'inherit', border: 'none', borderBottom: '1px solid var(--line)',

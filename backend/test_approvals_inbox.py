@@ -432,6 +432,8 @@ class InboxCase(unittest.TestCase):
         row = out["rows"][0]
         self.assertEqual(row["title"], "HR Letter - Employment Verification")
         self.assertEqual([(a["key"], a["note"]) for a in row["actions"]], [("open", "none"), ("decline", "required")])
+        # Review opens that request in Ask HR, where letters live (Oct 28 2026).
+        self.assertEqual(row["link"], {"view": "myhr", "sub": "ask-hr:letter:l1"})
         self.assertEqual(self._counts(HRC)["myhr"]["overview"], 2)
         self.assertEqual(self._inbox(MGR)["rows"], [])
         self.assertEqual(self._inbox(EMP)["rows"], [])
@@ -773,6 +775,35 @@ class InboxCase(unittest.TestCase):
             vrole = (ev.inputs or {}).get("verifier_role") or st.verify_role or "hr"
             self.assertEqual(approvals_inbox._packet_verifier(self.db, ev, st, {}),
                              hpd.resolve_role(self.db, vrole, hpd.event_ctx(self.db, ev, st, ev.created_by)))
+
+
+class PriorityCase(unittest.TestCase):
+    """Neil, 10/28/2026: "allow a sort by priority". The module's own priority
+    leads; a close date or a long wait raises it, never lowers it."""
+
+    TODAY = date(2026, 10, 28)
+
+    def p(self, **r):
+        r.setdefault("createdAt", "2026-10-27T09:00:00+00:00")
+        return approvals_inbox._priority(r, self.TODAY)
+
+    def test_the_modules_own_priority_leads(self):
+        self.assertEqual(self.p(priority="low"), "low")
+        self.assertEqual(self.p(priority="urgent"), "urgent")
+        self.assertEqual(self.p(), "medium")                       # nothing said = medium
+        self.assertEqual(self.p(priority="whenever"), "medium")    # an unknown word = medium
+
+    def test_a_close_date_or_a_long_wait_raises_it(self):
+        self.assertEqual(self.p(priority="low", due="2026-10-29"), "urgent")   # tomorrow
+        self.assertEqual(self.p(priority="low", due="2026-10-31"), "high")     # three days out
+        self.assertEqual(self.p(priority="low", due="2026-11-20"), "low")      # far off
+        self.assertEqual(self.p(priority="urgent", due="2026-11-20"), "urgent")  # never lowered
+        self.assertEqual(self.p(priority="low", createdAt="2026-10-20T09:00:00+00:00"), "high")
+        self.assertEqual(self.p(due="not a date", createdAt="garbage"), "medium")
+
+    def test_row_carries_priority_and_due(self):
+        r = approvals_inbox.row("x", "1", title="T", priority=" High ", due="2026-11-02T00:00:00")
+        self.assertEqual((r["priority"], r["due"]), ("high", "2026-11-02"))
 
 
 if __name__ == "__main__":
