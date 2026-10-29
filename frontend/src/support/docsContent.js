@@ -1053,7 +1053,7 @@ export const DOCS = [
         title: 'Turn Things Off',
         steps: [
           'One workflow: Pause on its row or page; Resume brings it back.',
-          'Every Tasks automation rule and every workflow in the company: the Automations tab, one switch per rule.',
+          'Every Tasks automation rule and every workflow in the company: the Automations tab, one switch per rule. Built-In Automations (the background jobs) are listed there too, each with what it does and the setting that controls it; a Global Admin can switch any one off.',
           'Everything at once: Settings > Workflows > Pause All (Global Admins). Every screen in the module shows who paused it and when; events still queue for 7 days so nothing recent is lost.',
         ],
       },

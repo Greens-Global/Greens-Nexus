@@ -13,14 +13,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, ArrowRight, ArrowUpRight, BadgeCheck, Bell, BookOpen, Building2, CalendarClock, Check, CheckSquare, ChevronRight,
   Clock, ClipboardList, Cloud, Compass, HelpCircle, ListChecks, Package, Palette,
-  RefreshCw, Rocket, ShieldCheck, Target, TriangleAlert, Users, Waypoints,
+  RefreshCw, Rocket, ShieldCheck, Target, TriangleAlert, Users, Waypoints, Workflow,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { useNameResolver } from '../lib/useNameResolver';
 import { IMPL_INTRO, IMPL_CONCEPTS, IMPL_DISCOVERY, IMPL_PHASES, IMPL_CHECK_IDS } from './implementationContent';
 
-const ICONS = { ClipboardList, Cloud, Palette, Building2, ShieldCheck, Users, Clock, CalendarClock, ListChecks, CheckSquare, Package, Bell, BadgeCheck, Rocket, RefreshCw };
+const ICONS = { ClipboardList, Cloud, Palette, Building2, ShieldCheck, Users, Clock, CalendarClock, ListChecks, CheckSquare, Package, Bell, BadgeCheck, Rocket, RefreshCw, Workflow };
 const LAST_KEY = 'nexus-impl-guide-last';
 
 const PAGES = [
