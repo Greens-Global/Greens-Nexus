@@ -29,9 +29,10 @@ import { SessionChip } from './SessionChip';
 import { deriveMyTime } from './essentials/usePunchClock.jsx';
 import { useWorldClockPicks, headerClocks } from '../lib/worldClockZones';
 import { formatDate, formatMonthDay, formatTimeIn, formatWeekday, greetingFor } from '../lib/datetime';
-import { ModalLoading } from '../components/AsyncState';
+import { ModalLoading, LoadingState } from '../components/AsyncState';
 import { useNotifications } from '../contexts/NotificationContext.jsx';
 import { MoreRow } from './listParts.jsx';
+import { useFavoriteLinks, openFavorite, FavoriteTileGrid } from './favoriteLinks.jsx';
 // The same composer the customizable dashboard's Quick Actions widget uses -
 // it brings its own TasksProvider, so the modal works outside the Tasks view.
 const QuickActionModal = lazy(() => import('./QuickActionModals.jsx'));
@@ -189,8 +190,32 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
   );
 }
 
+// Favorites (Neil, Oct 28 2026: "a widget that has all the favorite links in
+// it from the links tab") - every bookmark from the Links tab, the same grid
+// as the custom dashboard's Favorites widget (favoriteLinks.jsx). A long list
+// scrolls inside the card so the rail keeps its shape.
+function FavoritesCard({ myEmail }) {
+  const { loading, favorites } = useFavoriteLinks();
+  const openLinks = () => navTo('dashboard', 'links');
+  return (
+    <div className="dk-card dk-rise" style={{ '--i': 9 }}>
+      <div className="dk-pane-head">
+        Favorites
+        <button type="button" className="dk-fav-open" onClick={openLinks}>{favorites.length ? `${favorites.length} in Links` : 'Open Links'}</button>
+      </div>
+      <div className="dk-fav-body">
+        {loading ? <LoadingState compact /> : favorites.length ? (
+          <FavoriteTileGrid links={favorites} onOpen={(l) => openFavorite(l, myEmail)} />
+        ) : (
+          <p className="dk-fav-empty">Bookmark an app in Links and it shows up here.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function DeskHome({ kpis = {}, notifications = [], markRead, headerRight = null, headerMenu = null }) {
-  const { can } = useRole();
+  const { can, myEmail } = useRole();
   const now = useNow();
   // `|| {}`: null outside NotificationProvider (render tests).
   const { openPanel } = useNotifications() || {};
@@ -388,6 +413,8 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
             </button>
             <div className="dk-hint">Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to search everything</div>
           </div>
+
+          <FavoritesCard myEmail={myEmail} />
         </div>
       </div>
 

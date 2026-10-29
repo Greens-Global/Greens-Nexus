@@ -205,7 +205,9 @@ describe('intake types', () => {
   it('asks at most four questions per type, and at most two required', () => {
     TICKET_TYPE_ORDER.forEach((t) => {
       const f = intakeFields(t);
-      expect(f.length, `${t} question count`).toBeLessThanOrEqual(t === 'access_request' ? 5 : 4);
+      // Incident takes a fifth, optional one (Neil, Oct 28 2026: "Can you
+      // keep working?" - with Who is affected? it sets the priority).
+      expect(f.length, `${t} question count`).toBeLessThanOrEqual(t === 'access_request' || t === 'incident' ? 5 : 4);
       expect(f.filter((x) => x.req).length, `${t} required count`).toBeLessThanOrEqual(2);
     });
   });
@@ -254,7 +256,7 @@ describe('intake types', () => {
 
   it('asks each type the question that defines it', () => {
     expect(intakeFields('incident').map((f) => f.key)).toEqual(
-      ['impact', 'occurredAt', 'workedBefore', 'errorMessage']);
+      ['impact', 'blocking', 'occurredAt', 'workedBefore', 'errorMessage']);
     expect(intakeFields('bug').map((f) => f.key)).toEqual(
       ['stepsToReproduce', 'expectedResult', 'reproducibility', 'errorMessage']);
     expect(intakeFields('service_request').map((f) => f.key)).toEqual(

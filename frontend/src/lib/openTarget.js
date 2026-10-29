@@ -1,5 +1,11 @@
 import { setPendingOpen } from './pendingOpen';
 
+// Who is looking (RoleContext sets it, Act As included - the same `myEmail`
+// every "mine" derivation keys on). Read only to send a link to my OWN
+// card in People > Time to my own Time Sheet.
+let viewerEmail = '';
+export function setOpenTargetViewer(email) { viewerEmail = (email || '').trim().toLowerCase(); }
+
 // A notification's action names WHAT it is about beside where to go: a task
 // (taskId), a ticket (ticketId), or a person's timecard (timecard + start +
 // payType, from timesheet_review._notify). Every place that acts on a
@@ -24,6 +30,21 @@ export function openNotificationTarget(action) {
   if (action.punchRequestId) {
     setPendingOpen('punchRequest', action.punchRequestId);
     fire('nexus:open-punch-request', { id: action.punchRequestId });
+    return;
+  }
+  // A link to MY OWN card in People > Time - a workflow notice (one link
+  // for everyone on the salary_advance entity) or a bell stored before
+  // its recipient got their own link - lands on my own Time Sheet (Oct 29
+  // 2026 review). Dispatched now, not after a tick: the caller's own
+  // navigate to People > Time came first in the same handler, so the two
+  // batch and People > Time never draws.
+  if (action.timecard && viewerEmail && String(action.timecard).trim().toLowerCase() === viewerEmail) {
+    if (action.start) {
+      const own = { start: action.start, payType: action.payType || '' };
+      setPendingOpen('myTimecard', own);
+      fire('nexus:open-my-timecard', own);
+    }
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock', sub: 'timesheet' } }));
     return;
   }
   if (action.timecard) {

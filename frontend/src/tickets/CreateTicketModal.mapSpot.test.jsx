@@ -49,7 +49,7 @@ describe('Mark an Issue: the ticket form', () => {
     expect(screen.getByAltText('Map of Near C179, Building C').getAttribute('src')).toBe(PIXEL);
     fireEvent.change(title, { target: { value: 'Pole light out' } });
     fireEvent.click(screen.getByText('Select one'));
-    fireEvent.click(await screen.findByText('Lights or Electrical'));
+    fireEvent.click((await screen.findAllByText('Lights or Electrical')).at(-1));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create Ticket' })); });
     expect(confirm).toHaveBeenCalledTimes(1);   // no photo yet: asked, not blocked
     expect(createTicket).toHaveBeenCalledTimes(1);
@@ -57,6 +57,10 @@ describe('Mark an Issue: the ticket form', () => {
     expect(body).toMatchObject({ propertyAssetId: 'esc', propertyUnit: 'Common Area' });
     expect(body.map_spot).toEqual({ modelId: 'greens-storage-escondido', u: 12.5, v: -40, y: 0, r: 7.3, outline: [], unit: '', building: 'C', place: 'Near C179, Building C' });
     expect(addTicketAttachment).toHaveBeenCalledWith('tk1', expect.objectContaining({ kind: 'image', name: expect.stringMatching(/^Map Location - Near C179, Building C\.jpg$/) }));
+    // The finish screen: one photo (the map) uploaded, no Create Another for a spot.
+    expect(await screen.findByText('1 uploaded')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Create Another' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Open Ticket' }));
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -68,7 +72,7 @@ describe('Mark an Issue: the ticket form', () => {
     expect(await screen.findByText(/Photo added/)).toBeTruthy();
     fireEvent.change(title, { target: { value: 'Pole light out' } });
     fireEvent.click(screen.getByText('Select one'));
-    fireEvent.click(await screen.findByText('Lights or Electrical'));
+    fireEvent.click((await screen.findAllByText('Lights or Electrical')).at(-1));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create Ticket' })); });
     expect(confirm).not.toHaveBeenCalled();
     expect(createTicket).toHaveBeenCalledTimes(1);

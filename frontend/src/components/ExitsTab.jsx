@@ -15,7 +15,7 @@ import { SkeletonBlocks, Spinner } from './AsyncState';
 import { StatusLabel } from './StatusLabel';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { openNotificationTarget } from '../lib/openTarget';
-import { Modal } from '../tasks/components';
+import { Modal, AvatarName } from '../tasks/components';
 
 const STATUS_COLOR = { open: '#b45309', reviewed: '#2563eb', filed: '#16a34a', closed: '#64748b' };
 const day = (iso) => (iso ? formatDate(`${iso.slice(0, 10)}T12:00:00`) : '-');
@@ -106,7 +106,7 @@ function StatementModal({ exit, onClose, onChanged, toastOk, toastErr }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <StatusLabel label={rv.statusLabel} color={STATUS_COLOR[rv.status]} />
                 {rv.reviewStale && <span style={{ fontSize: 12, color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}><AlertTriangle size={13} /> Figures changed since the review</span>}
-                {rv.reviewedByName && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Reviewed by {rv.reviewedByName} · {formatDateTime(rv.reviewedAt)}</span>}
+                {rv.reviewedByName && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Reviewed by <AvatarName email={rv.reviewedBy} name={rv.reviewedByName} size={18} /> · {formatDateTime(rv.reviewedAt)}</span>}
                 {rv.egnytePath && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Filed to Egnyte</span>}
               </div>
               <div style={{ fontSize: 12.5, color: 'var(--muted)', margin: '8px 0 0' }}>

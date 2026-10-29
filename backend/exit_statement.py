@@ -399,6 +399,7 @@ def ser_row(db: Session, row: ExitStatement | None, live_fp: str, show_money: bo
     stale = row.status in ("reviewed", "filed") and bool(row.fingerprint) and row.fingerprint != live_fp
     return {"id": row.id, "status": row.status, "statusLabel": STATUS_LABEL.get(row.status, row.status.title()),
             "reviewedByName": name_of(db, row.reviewed_by) if row.reviewed_by else "", "reviewedAt": row.reviewed_at or "",
+            "reviewedBy": row.reviewed_by or "",
             "reviewStale": stale, "documentId": (row.document_id or "") if show_money else "",
             "generatedAt": row.generated_at or "", "egnytePath": row.egnyte_path or "",
             "closedAt": row.closed_at or "",

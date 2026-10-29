@@ -6,6 +6,7 @@ import { formatDate, formatHHMM, formatDateTime, formatWeekday } from '../../lib
 import { ErrorBanner, Spinner, SkeletonBlocks } from '../AsyncState';
 import { MODAL_BACK, MODAL_CARD, LBL } from './ScheduleToolbar';
 import { BAND_LABEL } from './WeatherChip';
+import { AvatarName } from '../../tasks/components';
 
 // The Weather Call (Weather Call, Oct 2026): one group, one day. The top is
 // the forecast for the scheduled hours; the bottom is the roster with a
@@ -158,7 +159,7 @@ export default function WeatherCallDialog({ groupId, date, onClose, onChanged, t
               <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', background: 'var(--card)' }}>
                 <div style={{ fontSize: 13, fontWeight: 800 }}>{decision.kind === 'proceed' ? 'Going Ahead as Planned' : decision.kind === 'cancel' ? 'Day Canceled for Weather (Unpaid)'
                   : decision.kind === 'delay' ? `Start Delayed to ${formatHHMM(decision.newStart)}` : decision.kind === 'end_early' ? `Ending Early at ${formatHHMM(decision.newEnd)}` : `Moved to ${/^\d{4}-\d{2}-\d{2}$/.test(decision.moveTo || '') ? formatDate(decision.moveTo) : decision.moveTo}`}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{decision.decidedByName} · {formatDateTime(decision.decidedAt)} · {decision.reason}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}><AvatarName email={decision.decidedBy} name={decision.decidedByName} size={18} /> · {formatDateTime(decision.decidedAt)} · {decision.reason}</div>
                 <div style={{ fontSize: 12.5, marginTop: 8, fontWeight: 700 }}>
                   {decision.ackedCount} of {decision.selectedCount} acknowledged{decision.pendingCount ? ` · ${decision.pendingCount} waiting` : ''}
                 </div>
@@ -171,7 +172,7 @@ export default function WeatherCallDialog({ groupId, date, onClose, onChanged, t
                         const told = p.selected ? ['bell', ch.sms === 'ok' ? 'text' : '', ch.email === 'ok' ? 'email' : '', ch.teams === 'ok' ? 'Teams' : ''].filter(Boolean).join(', ') : 'bell';
                         return (
                           <tr key={p.email} data-ack-row={p.email} style={{ opacity: p.selected ? 1 : 0.6 }}>
-                            <td style={CELL}><b>{p.name}</b>{p.selected && !p.ackAt && p.phoneNumber && <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--muted)' }}><Phone size={10} /> <span style={{ userSelect: 'all' }}>{p.phoneNumber}</span></div>}</td>
+                            <td style={CELL}><AvatarName email={p.email} name={p.name} size={20}><b>{p.name}</b></AvatarName>{p.selected && !p.ackAt && p.phoneNumber && <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--muted)' }}><Phone size={10} /> <span style={{ userSelect: 'all' }}>{p.phoneNumber}</span></div>}</td>
                             <td style={CELL}>{OUTCOME_TEXT[p.outcome] || p.outcome}</td>
                             <td style={{ ...CELL, color: 'var(--muted)' }}>{told}{p.selected && ch.sms && ch.sms !== 'ok' ? ` · text: ${ch.sms}` : ''}</td>
                             <td style={CELL}>{!p.selected ? <span style={{ color: 'var(--muted)' }}>-</span> : p.ackAt ? <span style={{ color: 'hsl(var(--color-green))', fontWeight: 700 }}>{formatDateTime(p.ackAt)}</span>

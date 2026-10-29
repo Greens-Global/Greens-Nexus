@@ -24,8 +24,8 @@ const config = { companies: { ent1: true }, majorChance: 70, majorInches: 0.5, a
 const payload = (over = {}) => ({
   config: { ...config, ...over.config },
   companies: [
-    { id: 'ent1', name: 'Greens', enabled: true, groupsReady: ['Yard Crew'], groupsNotReady: ['Office'] },
-    { id: 'ent2', name: 'Sacred Natural', enabled: false, groupsReady: [], groupsNotReady: [] },
+    { id: 'ent1', name: 'Greens', enabled: true, groupsReady: ['Yard Crew'], groupsNotReady: ['Office'], weatherDepartments: ['Construction'] },
+    { id: 'ent2', name: 'Sacred Natural', enabled: false, groupsReady: [], groupsNotReady: [], weatherDepartments: [] },
   ],
   lastAdvisoryAt: '', untaggedGroups: [],
   ...over,
@@ -46,6 +46,9 @@ describe('Weather Alerts settings', () => {
     expect(await screen.findByText('Greens')).toBeTruthy();
     expect(screen.getByText(/1 group ready: Yard Crew/).textContent).toContain('not ready (no located site or alerts off): Office');
     expect(screen.getByText('No group ready')).toBeTruthy();
+    // Who the weather applies to (weather by department, 10/29/2026).
+    expect(document.querySelector('[data-weather-departments]').textContent)
+      .toContain('Applies to people in departments with Weather Calls on: Greens: Construction; Sacred Natural: none.');
     const greens = screen.getByLabelText('Watch the weather for Greens');
     const sacred = screen.getByLabelText('Watch the weather for Sacred Natural');
     expect(greens.checked).toBe(true);

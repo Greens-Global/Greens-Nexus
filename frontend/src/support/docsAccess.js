@@ -32,6 +32,9 @@ export function useDocAccess() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const allowed = useMemo(() => computed, [key]);
   const ids = useMemo(() => new Set(key.split('|')), [key]);
-  const allow = useCallback((docId) => ids.has(docId), [ids]);
+  // A Managers & Admins block shows from supervisor up (SupportDocs), so
+  // search, suggestions and Ask Nexus leave it out below that too.
+  const seesManager = !isExternal && !!can?.('supervisor');
+  const allow = useCallback((docId, kind) => ids.has(docId) && (kind !== 'manager' || seesManager), [ids, seesManager]);
   return { allowed, allow };
 }

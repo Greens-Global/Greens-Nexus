@@ -67,14 +67,14 @@ const selectWith = (value) => screen.getAllByRole('combobox')
 describe('Submit a Ticket - departments and Which One?', () => {
   it('offers only the departments turned on for tickets', async () => {
     render(<CreateTicketModal onClose={vi.fn()} />);
-    await waitFor(() => expect(selectWith('d1')).toBeTruthy());
-    expect([...selectWith('d1').options].map((o) => o.textContent)).not.toContain('Construction');
+    // Teams are tiles since Oct 28 2026 (Neil).
+    expect(await screen.findByRole('radio', { name: /^IT/ })).toBeTruthy();
+    expect(screen.queryByRole('radio', { name: /Construction/ })).toBeNull();
   });
 
   it('asks Which One? for a topic that has sub-options and saves the answer', async () => {
     render(<CreateTicketModal onClose={vi.fn()} />);
-    await waitFor(() => expect(selectWith('d1')).toBeTruthy());
-    fireEvent.change(selectWith('d1'), { target: { value: 'd1' } });
+    fireEvent.click(await screen.findByRole('radio', { name: /^IT/ }));
     // Egnyte has no sub-options - nothing more is asked.
     fireEvent.change(selectWith('Egnyte'), { target: { value: 'Egnyte' } });
     expect(screen.queryByText('Which One?')).toBeNull();
@@ -93,8 +93,7 @@ describe('Submit a Ticket - departments and Which One?', () => {
 
   it('clears the answer when a different topic is picked', async () => {
     render(<CreateTicketModal onClose={vi.fn()} />);
-    await waitFor(() => expect(selectWith('d1')).toBeTruthy());
-    fireEvent.change(selectWith('d1'), { target: { value: 'd1' } });
+    fireEvent.click(await screen.findByRole('radio', { name: /^IT/ }));
     fireEvent.change(selectWith(MS), { target: { value: MS } });
     fireEvent.change(selectWith('Outlook'), { target: { value: 'Outlook' } });
     fireEvent.change(selectWith('Egnyte'), { target: { value: 'Egnyte' } });

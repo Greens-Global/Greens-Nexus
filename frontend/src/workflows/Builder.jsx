@@ -3,7 +3,7 @@
 // open, so the workflow reads top to bottom as prose. Right, a rail with
 // Settings, Test and Versions. Top: the name, the status, Save Draft, Test,
 // Publish (disabled with the reason until the draft is clean and tested),
-// Pause / Resume, Duplicate, Archive, Run for a manual trigger, and Save As
+// Pause / Resume, Duplicate, Archive, Delete, Run for a manual trigger, and Save As
 // Template (full level, once published). A workflow just made from a
 // template opens with its blanks named above the recipe and the steps they
 // sit in outlined (lib/blanks.js).
@@ -12,7 +12,7 @@
 // The builder renders only what the catalog serves - nothing about a
 // trigger, field or action is hard-coded here.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowLeft, Copy, FlaskConical, History, LayoutTemplate, Pause, Play, Save, Settings, Upload } from 'lucide-react';
+import { Archive, ArrowLeft, Copy, FlaskConical, History, LayoutTemplate, Pause, Play, Save, Settings, Trash2, Upload } from 'lucide-react';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
@@ -207,6 +207,19 @@ export default function Builder({ id, go }) {
     if (ok) setStatus('archived');
   };
 
+  const remove = async () => {
+    const ok = await dialog.confirm(`Delete "${meta.name || 'this workflow'}" for good? It stops running and cannot be brought back. Runs still waiting are cancelled; its past runs stay in Runs.`, { title: 'Delete Workflow', confirmText: 'Delete', danger: true });
+    if (!ok) return;
+    setBusy('delete');
+    try {
+      await api.wfDelete(id);
+      go('list');
+    } catch (e) {
+      await dialog.alert(errorText(e, 'The workflow could not be deleted.'));
+      setBusy('');
+    }
+  };
+
   const duplicate = async () => {
     setBusy('duplicate');
     try {
@@ -276,6 +289,7 @@ export default function Builder({ id, go }) {
             <button type="button" onClick={() => setTemplateOpen(true)} disabled={!!busy} style={btn('outline')}><LayoutTemplate size={14} /> Save As Template</button>
           )}
           {canEdit && <button type="button" onClick={archive} disabled={!!busy || !workflow} style={btn('outline')}><Archive size={14} /> Archive</button>}
+          <button type="button" onClick={remove} disabled={!!busy || !workflow} style={btn('outline')}><Trash2 size={14} /> {busy === 'delete' ? 'Deleting...' : 'Delete'}</button>
           <button type="button" onClick={saveDraft} disabled={!!busy || !definition || !canEdit} style={btn('outline')}><Save size={14} /> {busy === 'save' ? 'Saving...' : 'Save Draft'}</button>
           <button type="button" onClick={() => setRail('test')} disabled={!definition || !canEdit} style={btn('outline')}><FlaskConical size={14} /> Test</button>
           <button type="button" onClick={publish} disabled={!!publishReason || !!busy} title={publishReason || 'Publish this draft as a new version'}

@@ -12,7 +12,11 @@ let _photoPromise = null;
 const _photoSubs = new Set();
 
 function _load() {
-  _photoPromise = api.getPeopleDirectory().then((rows) => {
+  // A throw (an api without the call, as in a test's partial mock) lands in
+  // the catch below instead of the render.
+  let req;
+  try { req = api.getPeopleDirectory(); } catch (e) { req = Promise.reject(e); }
+  _photoPromise = Promise.resolve(req).then((rows) => {
     _photoMap = {};
     for (const r of rows || []) if (r.email) _photoMap[r.email.toLowerCase()] = r.photoUrl || '';
     _photoSubs.forEach((f) => f((x) => x + 1));

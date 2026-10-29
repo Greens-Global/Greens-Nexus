@@ -1,8 +1,20 @@
 import { useRef, useState } from 'react';
-import { Search, ChevronDown } from 'lucide-react';
+import { Search, ChevronDown, User } from 'lucide-react';
 import AnchoredMenu from './AnchoredMenu';
 import { matchPeople } from '../lib/peopleSearch';
 import { recentRows, noteRecentPerson } from '../lib/recentPeople';
+import { usePhotoMap } from '../lib/peoplePhotos';
+
+// A face beside each name (Neil, Oct 28 2026): the row's own photoUrl, else
+// the People photo for that email, else a person glyph.
+function Face({ p, photos }) {
+  const [broken, setBroken] = useState(false);
+  const url = p.photoUrl || photos[(p.email || '').toLowerCase()] || '';
+  const base = { width: 22, height: 22, borderRadius: '50%', flexShrink: 0, alignSelf: 'center' };
+  if (url && !broken) return <img src={url} alt="" onError={() => setBroken(true)} style={{ ...base, objectFit: 'cover', border: '1px solid var(--line)' }} />;
+  // No photo: a plain person glyph, so the option's text stays the name alone.
+  return <span aria-hidden="true" style={{ ...base, background: 'var(--bg)', border: '1px solid var(--line)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}><User size={12} /></span>;
+}
 
 // A searchable people dropdown (Sep 29): click to browse the whole list, or type
 // to narrow it by name or email. `groups` = [{ label, people: [{ email, name }] }];
@@ -16,6 +28,7 @@ export default function PersonSearchSelect({ groups, onPick, placeholder = 'Sear
   const [hi, setHi] = useState(0);
   const boxRef = useRef(null);
   const inputRef = useRef(null);
+  const photos = usePhotoMap();
   const [boxWidth, setBoxWidth] = useState();
   // Read when the list opens, so a pick never reshuffles an open list.
   const [recent, setRecent] = useState([]);
@@ -30,7 +43,7 @@ export default function PersonSearchSelect({ groups, onPick, placeholder = 'Sear
   const openList = () => { setBoxWidth(boxRef.current?.offsetWidth); if (!open) setRecent(recentRows(everyone)); setOpen(true); };
   const close = () => { setOpen(false); setQ(''); setHi(0); };
   const pick = (p) => { noteRecentPerson(p.email); onPick(p.email); close(); inputRef.current?.blur(); };
-  const optionStyle = (on) => ({ display: 'flex', alignItems: 'baseline', gap: 6, width: '100%', textAlign: 'left', padding: '7px 12px', border: 'none',
+  const optionStyle = (on) => ({ display: 'flex', alignItems: 'baseline', gap: 8, width: '100%', textAlign: 'left', padding: '7px 12px', border: 'none',
     background: on ? 'var(--mist)' : 'none', cursor: 'pointer', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)' });
   let idx = -1;
   return (
@@ -65,6 +78,7 @@ export default function PersonSearchSelect({ groups, onPick, placeholder = 'Sear
               return (
                 <button key={p.email} type="button" role="option" aria-selected={i === hi}
                   onMouseDown={ev => { ev.preventDefault(); pick(p); }} onMouseEnter={() => setHi(i)} style={optionStyle(i === hi)}>
+                  <Face p={p} photos={photos} />
                   <span style={{ fontWeight: 600 }}>{p.name || p.email}</span>
                   {/* Their job title next to the name (Neil, Oct 19), then the email. */}
                   <span style={{ color: 'var(--muted)', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[p.title, p.email].filter(Boolean).join(' · ')}</span>

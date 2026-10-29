@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { CheckCircle2, Send, X, ShieldAlert } from 'lucide-react';
 import { api } from '../api';
 import { NX, chip, btn, input as inputStyle } from '../tasks/theme';
-import { PersonSelect, usePeople } from '../tasks/components';
+import { PersonSelect, usePeople, AvatarName } from '../tasks/components';
 import { fmtDate, APPROVAL_META } from './ticketMeta';
 
 // ── Approvals ────────────────────────────────────────────────────────────────
@@ -71,7 +71,7 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
         <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{meta.label}</span>
         {t.approverId && (
           <span style={{ fontSize: 12.5, color: NX.dim }}>
-            {status === 'pending' ? 'waiting on ' : 'by '}{mine ? 'you' : nameOf(t.approverId)}
+            {status === 'pending' ? 'waiting on ' : 'by '}<AvatarName email={t.approverId} name={nameOf(t.approverId)} size={18}>{mine ? 'you' : nameOf(t.approverId)}</AvatarName>
           </span>
         )}
         {t.approvalDecidedAt && <span style={{ fontSize: 11.5, color: NX.faint, marginLeft: 'auto' }}>{fmtDate(t.approvalDecidedAt)}</span>}

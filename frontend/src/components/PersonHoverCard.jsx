@@ -36,7 +36,9 @@ const CLOSE_DELAY = 140;  // grace to move the pointer from avatar into the card
 const CARD_W = 268;
 
 export default function PersonHover({ email, name = '', children, disabled = false }) {
-  const { can, myGrantedModules } = useRole();
+  // `|| {}`: an avatar rendered outside the RoleProvider (a test, a portal
+  // mounted early) just has no click-through, instead of crashing the screen.
+  const { can, myGrantedModules } = useRole() || {};
   const [card, setCard] = useState(null);
   const [pos, setPos] = useState(null);      // non-null while the card is shown
   const anchorRef = useRef(null);
