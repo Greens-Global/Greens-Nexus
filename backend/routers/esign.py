@@ -3102,6 +3102,13 @@ def _link_hook(event: str, db: Session, req: HrSignRequest, *args) -> None:
               "completed": perf_reviews.on_completed}.get(event)
         if fn:
             perf_reviews.safe(fn, db, req, *args)
+    elif kind == "kb_policy":
+        # A Knowledge Base policy signed through Nexus Sign (kb_policy_sign.py, Oct 29 2026).
+        import kb_policy_sign
+        fn = {"declined": kb_policy_sign.on_declined, "voided": kb_policy_sign.on_voided,
+              "completed": kb_policy_sign.on_completed, "expired": kb_policy_sign.on_expired}.get(event)
+        if fn:
+            kb_policy_sign.safe(fn, db, req, *args)
 
 
 def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:

@@ -37,6 +37,26 @@ function SignBlock({ page, onSigned }) {
     );
   }
   if (!so.required) return null;
+  if (so.nexus_sign) {
+    // Signed through Nexus Sign (kb_policy_sign.py): one envelope per person per version.
+    const ns = so.nexus_sign;
+    return (
+      <div id="sign" className="kb-card soft" style={{ background: 'var(--kb-paper)' }}>
+        <div className="kb-title" style={{ marginBottom: 4 }}>Sign v{page.version} in Nexus Sign</div>
+        {ns.status === 'pending' ? (
+          <>
+            <div className="kb-meta" style={{ marginBottom: 10 }}>Your signing request is ready. Read the page, then sign it in Nexus Sign. Nexus stores the version and the exact text you signed.</div>
+            <a className="kb-btn pri lg" style={{ width: '100%', justifyContent: 'center' }} href={ns.sign_url}><PenLine />Open in Nexus Sign</a>
+          </>
+        ) : ns.status === 'declined' ? (
+          <Banner kind="amber" icon={AlertTriangle}>You declined to sign this version. The page&apos;s owner can send you a new signing request.</Banner>
+        ) : (
+          <div className="kb-meta">Your signing request arrives by email and in Workday &gt; Documents to Sign within a day.</div>
+        )}
+        {so.due && <div className="kb-meta" style={{ marginTop: 8, textAlign: 'center' }}>Due {fmtDate(so.due)}{so.overdue_days ? ` · ${so.overdue_days} days overdue` : ''}</div>}
+      </div>
+    );
+  }
   const sign = async () => {
     setBusy(true);
     try { onSigned(await api.kbSign(page.id, name)); toast('Signed. Thank you.'); } catch (e) { toast(errText(e), 'err'); } finally { setBusy(false); }

@@ -75,6 +75,7 @@ const TYPE_META = {
   kb_owner_digest:      { icon: BookOpen,    label: 'Pages Need You',         color: 'var(--color-orange)' },
   kb_page_request:      { icon: HelpCircle,  label: 'Page Requested',         color: 'var(--color-blue)'   },
   kb_request_done:      { icon: CheckCircle, label: 'Page Request Done',      color: 'var(--color-green)'  },
+  kb_sign_declined:     { icon: XCircle,     label: 'Policy Signature Declined', color: 'var(--color-red)'  },
   time_missed_out:      { icon: Clock,       label: 'Missing clock-out',    color: 'var(--color-orange)' },
   time_overtime:        { icon: Clock,       label: 'Overtime',             color: 'var(--color-orange)' },
   // The week's What's New, kept here for anyone who dismissed the bar (Oct 12).

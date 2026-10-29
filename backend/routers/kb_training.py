@@ -1217,10 +1217,14 @@ def compliance(scope: str = "direct", company: str = "", department: str = "", m
                 continue
             used_policy.add(d.id)
             st = kb_core.signoff_state(db, d, email)
-            color = "green" if st["signed"] else ("red" if st["overdue_days"] > 0 else "amber")
+            env = (st.get("nexus_sign") or {}).get("status", "")   # a Nexus Sign envelope (kb_policy_sign.py)
+            declined = env == "declined"
+            color = "green" if st["signed"] else ("red" if st["overdue_days"] > 0 or declined else "amber")
             counts[color] += 1
-            cells[f"policy:{d.id}"] = {"status": "Signed" if st["signed"] else ("Overdue" if st["overdue_days"] else "To Sign"), "color": color, "due": st["due"],
-                                      "days_overdue": st["overdue_days"], "signed_at": st["signed_at"]}
+            status = "Signed" if st["signed"] else "Declined" if declined else "Overdue" if st["overdue_days"] else "Sent" if env == "pending" else "To Sign"
+            cells[f"policy:{d.id}"] = {"status": status, "color": color, "due": st["due"],
+                                      "days_overdue": st["overdue_days"], "signed_at": st["signed_at"],
+                                      "method": "nexus_sign" if st.get("nexus_sign") is not None else "in_page"}
         rows.append({"email": email, "name": (p.display_name or f"{p.first_name or ''} {p.last_name or ''}").strip(), "department": p.department or "",
                      "job_title": p.job_title or "", "company": p.company or "", "manager_email": (p.manager_email or "").lower(), "cells": cells,
                      "counts": counts, "compliant": counts["red"] == 0 and counts["amber"] == 0 and bool(cells)})

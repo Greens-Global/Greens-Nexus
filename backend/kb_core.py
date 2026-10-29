@@ -41,6 +41,11 @@ def now() -> str:
 # (the UTC day had flipped). today() is the organization's day, for stamps and
 # page review dates; today_for() is one person's. utc_day() is only for the
 # once-a-day dedupe keys, which compare against UTC timestamps.
+# Policies may be signed through Nexus Sign (Release 3, Oct 29 2026,
+# kb_policy_sign.py). False hides the editor option and makes every page sign
+# in-page, keeping each page's stored choice.
+NEXUS_SIGN_FOR_POLICIES = True
+
 ORG_TZ = "America/Los_Angeles"
 _ZONE_TTL_S = 600
 _zones: dict[str, tuple[float, str]] = {}
@@ -400,7 +405,17 @@ def signoff_state(db: Session, d: models.KbDocument, email: str) -> dict:
         "required": required, "signed": bool(sig), "signed_at": sig.signed_at if sig else "",
         "due": due, "overdue_days": max(0, days_between(due, today_for(db, email))) if required and not sig and due else 0,
         "version_signed": (sig.version if sig else (older.version if older else "")),
+        "nexus_sign": _envelope_state(db, d, email) if required and not sig else None,
     }
+
+
+def _envelope_state(db: Session, d: models.KbDocument, email: str):
+    """Where the person's Nexus Sign envelope stands (kb_policy_sign.py), or
+    None when the page signs in-page."""
+    if not (NEXUS_SIGN_FOR_POLICIES and d.signing == "nexus_sign"):
+        return None
+    import kb_policy_sign
+    return kb_policy_sign.state_for(db, d, email)
 
 
 # ----------------------------------------------------------------- training

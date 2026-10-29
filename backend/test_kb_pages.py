@@ -257,6 +257,34 @@ class KbPagesCase(unittest.TestCase):
         eve = next(u for u in sigs["unsigned"] if u["email"] == EMP)
         self.assertEqual(eve["signed_older"], "1.0")
 
+    def test_the_nexus_sign_switch(self):
+        # Off (WP 1.4): nothing sends envelopes, so a page saved with Nexus Sign
+        # signs in-page and the option is hidden. On (Release 3): the page says
+        # Nexus Sign and the in-page signature is refused.
+        import kb_core
+        from unittest import mock
+        page = self._published(page_type="policy", title="Key Handling Policy")
+        db = database.SessionLocal()
+        try:
+            d = db.query(models.KbDocument).filter(models.KbDocument.id == page["id"]).first()
+            d.signing = "nexus_sign"
+            db.commit()
+        finally:
+            db.close()
+        with mock.patch.object(kb_core, "NEXUS_SIGN_FOR_POLICIES", False):
+            self._as(AUT)
+            draft = self._create(page_type="how_to", title="Badge Policy")
+            r = self.client.patch(f"/kb/pages/{draft['id']}", json={"signing": "nexus_sign"})
+            self.assertEqual((r.json()["signing"], r.json()["nexus_sign_available"]), ("in_page", False))
+            self._as(EMP)
+            self.assertEqual(self.client.get(f"/kb/pages/{page['id']}").json()["signing"], "in_page")
+        with mock.patch.object(kb_core, "NEXUS_SIGN_FOR_POLICIES", True):
+            self._as(EMP)
+            got = self.client.get(f"/kb/pages/{page['id']}").json()
+            self.assertEqual((got["signing"], got["nexus_sign_available"]), ("nexus_sign", True))
+            self.assertEqual(got["signoff"]["nexus_sign"]["status"], "")      # the daily run has not sent it yet
+            self.assertEqual(self.client.post(f"/kb/pages/{page['id']}/sign", json={"typed_name": "Eve Test"}).status_code, 409)
+
     # ── Neil's rebuild rules (PR #743) that had no test yet (WP 2.1/2.2, Oct 29 2026) ──
     def test_a_policy_needs_a_second_person_and_a_reference_publishes_directly(self):
         pol = self._create(page_type="policy", title="Visitor Policy")

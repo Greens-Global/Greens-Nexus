@@ -34,6 +34,15 @@ from kb_access import require_author, require_manage
 router = APIRouter(prefix="/kb", tags=["Knowledge Base"], dependencies=[Depends(get_current_user)])
 
 PAGE_TYPES = kb_core.PAGE_TYPES
+
+# Policies signed through Nexus Sign: the switch is kb_core.NEXUS_SIGN_FOR_POLICIES
+# (kb_policy_sign.py sends the envelopes). Off = every page signs in-page and
+# the stored `signing` choice is kept untouched.
+def _signing(d) -> str:
+    """How people sign this page today."""
+    if kb_core.NEXUS_SIGN_FOR_POLICIES and d.signing == "nexus_sign":
+        return "nexus_sign"
+    return "in_page"
 _IMG_MARK = re.compile(r"\[\[IMG(\d+)\]\]")
 
 
@@ -283,7 +292,7 @@ def _page_full(db: Session, d: models.KbDocument, user: dict) -> dict:
     card.update({
         "blocks": blocks, "headings": kb_blocks.headings(blocks), "legacy_only": legacy_only,
         "effective_date": d.effective_date or "", "review_every_months": kb_core.review_months(db, d),
-        "review": kb_core.review_state(db, d), "signing": d.signing or "in_page",
+        "review": kb_core.review_state(db, d), "signing": _signing(d), "nexus_sign_available": kb_core.NEXUS_SIGN_FOR_POLICIES,
         "audience": kb_audience.loads(d.audience) if d.audience else {"everyone": True},
         "audience_text": kb_audience.describe(kb_audience.loads(d.audience), db) if d.audience else "Everyone",
         "signoff": kb_core.signoff_state(db, d, me),
@@ -748,8 +757,8 @@ def update_page(doc_id: str, body: PageUpdate, user: dict = Depends(get_current_
             a["due_days"] = int(raw.get("due_days") or 14)
             a["renew_months"] = int(raw.get("renew_months") or 0)
             d.audience = json.dumps(a, separators=(",", ":"))
-    if body.signing in ("in_page", "nexus_sign"):
-        d.signing = body.signing
+    if kb_core.NEXUS_SIGN_FOR_POLICIES and body.signing in ("in_page", "nexus_sign"):
+        d.signing = body.signing   # while it is off, the stored choice stays untouched
     if body.related_ids is not None:
         d.related_ids = ",".join(str(x) for x in body.related_ids if str(x) and str(x) != d.id)[:2000]
     if body.effective_date is not None:
@@ -1179,7 +1188,7 @@ def sign_page(doc_id: str, body: SignIn, user: dict = Depends(get_current_user),
     d = kb_access.get_page(db, doc_id, user)
     if d.status != "approved" or not d.require_ack:
         raise HTTPException(409, "This page does not take signatures")
-    if d.signing == "nexus_sign":
+    if _signing(d) == "nexus_sign":
         raise HTTPException(409, "This policy is signed through Nexus Sign")
     me_ = user["email"].lower()
     real = _name(db, me_)
@@ -1212,16 +1221,20 @@ def list_signatures(doc_id: str, user: dict = Depends(get_current_user), db: Ses
             older.setdefault(s.user_email, s)
     emps = {(e.work_email or "").lower(): e for e in db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email != "").all()}
     unsigned = []
+    via_sign = _signing(d) == "nexus_sign"
+    import kb_policy_sign
     for e in sorted(audience):
         if e in current:
             continue
         emp = emps.get(e)
         due = kb_core.signature_due(db, d, emp)
-        unsigned.append({"email": e, "name": _name(db, e), "due": due, "overdue_days": max(0, kb_core.days_between(due, kb_core.today())),
+        env = kb_policy_sign.state_for(db, d, e) if via_sign else {"status": "", "reason": ""}
+        unsigned.append({"email": e, "name": _name(db, e), "due": due, "overdue_days": max(0, kb_core.days_between(due, kb_core.today_for(db, e))),
                          "signed_older": older[e].version if e in older else "", "department": emp.department if emp else "",
-                         "manager_email": (emp.manager_email or "").lower() if emp else ""})
+                         "manager_email": (emp.manager_email or "").lower() if emp else "",
+                         "envelope": env["status"], "declined_reason": env["reason"]})
     unsigned.sort(key=lambda x: (-x["overdue_days"], x["name"]))
-    return {"version": d.version, "major": d.major, "audience_count": len(audience), "audience_text": kb_audience.describe(kb_audience.loads(d.audience), db) if d.audience else "Everyone",
+    return {"version": d.version, "major": d.major, "signing": _signing(d), "audience_count": len(audience), "audience_text": kb_audience.describe(kb_audience.loads(d.audience), db) if d.audience else "Everyone",
             "signed": [{"email": s.user_email, "name": s.user_name or _name(db, s.user_email), "typed_name": s.typed_name, "signed_at": s.signed_at,
                         "version": s.version, "method": s.method} for s in sorted(current.values(), key=lambda s: s.signed_at or "", reverse=True)],
             "unsigned": unsigned, "signed_count": len([e for e in audience if e in current]),
@@ -1234,7 +1247,14 @@ def nudge_signers(doc_id: str, body: NudgeIn, user: dict = Depends(get_current_u
     if not kb_access.can_edit_page(d, user, db):
         raise HTTPException(403, "Only the page's editors can nudge")
     me_ = user["email"].lower()
-    targets = {e.lower() for e in (body.emails or [])} or kb_core.policy_audience_emails(db, d)
+    audience = kb_core.policy_audience_emails(db, d)
+    named = {e.lower() for e in (body.emails or [])}
+    targets = (named & audience) if named else audience   # never anyone outside the page's audience
+    if _signing(d) == "nexus_sign" and d.status == "approved":
+        # Resend: a fresh envelope to everyone named who has none open,
+        # declined, expired and voided ones included (kb_policy_sign.py).
+        import kb_policy_sign
+        return {"nudged": kb_policy_sign.resend(db, d, targets, actor=me_), "resent": True}
     n = 0
     for e in targets:
         if kb_core.signature_for(db, d, e):
