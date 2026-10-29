@@ -71,7 +71,7 @@ const SHORTCUTS = [
   ['Left / Right', 'Previous or next week (outside the grid)'], ['T', 'Today'], ['1 - 9', 'Switch to that team'],
   ['Arrow keys', 'Move the selection between days'], ['Enter', 'Open the day or shift'], ['Shift + Click', 'Open the editor on an empty day'],
   ['Click', 'Select a day or a shift'], ['Double-click', 'Add to the day, or open the shift'],
-  ['Delete', 'Remove a draft'], ['Ctrl + C / Ctrl + X', 'Copy or cut the selected shift'], ['Ctrl + V', 'Paste it on the selected day'], ['Esc', 'Clear the selection and the clipboard'],
+  ['Delete', 'Remove a draft'], ['Ctrl + C / Ctrl + X', 'Copy or cut the selected shift'], ['Ctrl + Click', 'Add a day to the selection'], ['Ctrl + V', 'Paste it on the selected day (or every selected day)'], ['Esc', 'Clear the selection and the clipboard'],
 ];
 
 export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus = null }) {
@@ -541,10 +541,20 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     }, fail: 'Could not share the schedule.', after: () => setOpen('') });
     return r ?? (failed ? { error: failed?.message || 'Could not share the schedule.' } : null);
   };
-  const pasteInto = (email, date, groupId = '') => copied && (cut ? pasteCut(email, date) : run(() => api.timeSchedCreate({ employee_email: email, work_date: date, shift_id: copied.shiftId,
+  const pastePayload = (email, date, groupId = '') => ({ employee_email: email, work_date: date, shift_id: copied.shiftId,
     start_hhmm: copied.start, end_hhmm: copied.end, label: copied.label, note: copied.note, break_min: copied.breakMin ?? 0, color: copied.ownColor || '',
-    activities: copied.activities || [], group_id: email ? (copied.groupId || '') : (groupId || copied.groupId || ''), ...(email ? {} : { open_slots: 1 }) }),
+    activities: copied.activities || [], group_id: email ? (copied.groupId || '') : (groupId || copied.groupId || ''), ...(email ? {} : { open_slots: 1 }) });
+  const pasteInto = (email, date, groupId = '') => copied && (cut ? pasteCut(email, date) : run(() => api.timeSchedCreate(pastePayload(email, date, groupId)),
   { ok: 'Shift copied here.', fail: 'Could not paste the shift.', undo: (r) => (r?.id ? () => api.timeSchedDelete(r.id) : null) }));
+  // Ctrl+click several days, then Ctrl+V (Pranshu, Oct 29 2026): one copy in
+  // each selected day the user may edit, with one Undo for all of them.
+  const pasteMany = (cells) => {
+    const at = cells.map((c) => ({ email: c.key.split('|')[0], date: c.key.split('|')[1], groupId: c.groupId })).filter((c) => rowEditable(c.email));
+    if (!copied || !at.length) return null;
+    return run(() => Promise.all(at.map((c) => api.timeSchedCreate(pastePayload(c.email, c.date, c.groupId)))),
+      { ok: `Shift copied into ${at.length} day${at.length === 1 ? '' : 's'}.`, fail: 'Could not paste the shift into every day.',
+        undo: (rs) => { const ids = (rs || []).map((r) => r?.id).filter(Boolean); return ids.length ? () => Promise.all(ids.map((id) => api.timeSchedDelete(id))) : null; } });
+  };
   // A cut shift moves on its first paste; the clipboard is then empty.
   const pasteCut = (email, date) => { const s0 = copied; setCopied(null); setCut(false); moveShift(s0, email, date, false); };
   const saveCell = (payload) => run(() => (payload.id ? api.timeSchedUpdate(payload.id, payload) : api.timeSchedCreate(payload)),
@@ -741,7 +751,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     pressRef.current = { timer };
   };
   const keysRef = useRef(null);
-  useEffect(() => { keysRef.current = { copied, canManage, copyShift, pasteInto, sel, setSel, setCopied, setCut, byCell, scheduled: data?.scheduled || [] }; });
+  useEffect(() => { keysRef.current = { copied, cut, canManage, copyShift, pasteInto, pasteMany, sel, setSel, setCopied, setCut, byCell, scheduled: data?.scheduled || [] }; });
   useEffect(() => {
     const onKey = (e) => {
       const k = keysRef.current;
@@ -758,6 +768,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       const shift = selShift || (!k.sel ? hover.shift : null);
       const at = k.sel ? { email: k.sel.key.split('|')[0], date: k.sel.key.split('|')[1], groupId: k.sel.groupId || '' } : hover.cell;
       if ((key === 'c' || key === 'x') && shift && !shift.pendingDelete) { e.preventDefault(); k.copyShift(shift, key === 'x'); }
+      else if (key === 'v' && k.copied && k.sel?.cells?.length > 1 && !k.cut) { e.preventDefault(); k.pasteMany(k.sel.cells); }
       else if (key === 'v' && at && k.copied) { e.preventDefault(); k.pasteInto(at.email, at.date, at.groupId); }
     };
     window.addEventListener('keydown', onKey);
@@ -934,7 +945,16 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   };
   const weekOn = {
     ...gridOn,
-    selectCell: (email, ds, groupId) => setSel({ key: `${email}|${ds}`, groupId: groupId || '' }),
+    // `add` (Ctrl/Cmd+click) toggles a day in or out of a multi-day selection.
+    selectCell: (email, ds, groupId, add = false) => {
+      const cell = { key: `${email}|${ds}`, groupId: groupId || '' };
+      if (!add) { setSel(cell); return; }
+      setSel((cur) => {
+        const base = cur && !cur.shiftId ? (cur.cells || [{ key: cur.key, groupId: cur.groupId || '' }]) : [];
+        const cells = base.some((c) => c.key === cell.key) ? base.filter((c) => c.key !== cell.key) : [...base, cell];
+        return cells.length ? { ...cells[cells.length - 1], cells } : null;
+      });
+    },
     selectShift: (s, email, ds) => setSel({ key: `${email}|${ds}`, groupId: s.groupId || '', shiftId: s.id }),
   };
   const ready = !!data;
@@ -1168,7 +1188,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       {copied && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '8px 12px', background: 'var(--wk-brand-tint)', border: '1px dashed var(--wk-brand)', borderRadius: 10, fontSize: 12.5 }}>
           <span style={{ fontWeight: 700 }}>{cut ? 'Cut' : 'Copied'} {copied.shiftName || copied.label || 'shift'} ({shiftTimeText(copied)})</span>
-          <span style={{ color: 'var(--muted)' }}>- select a day and press Ctrl+V{cut ? ' to move it there' : ', or double-click an empty day'}.</span>
+          <span style={{ color: 'var(--muted)' }}>- select a day and press Ctrl+V{cut ? ' to move it there' : ' (Ctrl+click to pick several days), or double-click an empty day'}.</span>
           <div style={{ flex: 1 }} />
           <button type="button" className="secondary-btn" onClick={() => { setCopied(null); setCut(false); }} style={{ fontSize: 12 }}>Cancel</button>
         </div>

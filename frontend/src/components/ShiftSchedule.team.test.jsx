@@ -389,6 +389,30 @@ describe('Excel-style selection and the conflicts list (Neil and Charmi, Oct 28 
     expect(document.querySelector('[data-selected]')).toBeNull();
   });
 
+  it('Ctrl+click picks several days, and one Ctrl+V pastes the copied shift into each (Oct 29 2026)', async () => {
+    api.timeSchedule.mockResolvedValue(data([shift()]));
+    api.timeSchedCreate.mockImplementation(async (p) => ({ id: `n-${p.work_date}` }));
+    render(<ShiftSchedule toastOk={vi.fn()} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.click(document.querySelector('[data-shift="s1"]'));
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    const days = [1, 2, 3].map((n) => cellOf(B, plusDays(monday, n)));
+    fireEvent.click(days[0]);
+    fireEvent.click(days[1], { ctrlKey: true });
+    fireEvent.click(days[2], { ctrlKey: true });
+    fireEvent.click(days[1], { ctrlKey: true });                              // a second Ctrl+click takes it out again
+    expect(days.map((d) => d.hasAttribute('data-selected'))).toEqual([true, false, true]);
+    fireEvent.click(days[1], { ctrlKey: true });
+    expect(document.querySelectorAll('[data-selected]')).toHaveLength(3);
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    await waitFor(() => expect(api.timeSchedCreate).toHaveBeenCalledTimes(3));
+    expect(api.timeSchedCreate.mock.calls.map(([p]) => p.work_date).sort()).toEqual([1, 2, 3].map((n) => plusDays(monday, n)));
+    expect(api.timeSchedCreate.mock.calls.every(([p]) => p.employee_email === B && p.shift_id === 'p1')).toBe(true);
+    expect(await screen.findByText('Shift copied into 3 days.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(api.timeSchedDelete).toHaveBeenCalledTimes(3));
+  });
+
   it('lists every conflict under the schedule in plain words, and a click shows the shift', async () => {
     api.timeSchedule.mockResolvedValue({ ...data([shift()]),
       availability: { [A]: [{ weekday: 0, kind: 'unavailable', start: '', end: '', note: '' }] } });
