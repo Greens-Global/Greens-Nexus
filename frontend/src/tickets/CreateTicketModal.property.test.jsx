@@ -39,8 +39,7 @@ HELP_TOPICS.push(
 afterEach(() => { cleanup(); createTicket.mockClear(); });
 
 const pickDept = async (name) => {
-  fireEvent.click(await screen.findByText('Select department'));
-  fireEvent.click(await screen.findByText(name));
+  fireEvent.click(await screen.findByRole('radio', { name: new RegExp(name) }));
 };
 
 describe('Property on a ticket', () => {
@@ -50,10 +49,10 @@ describe('Property on a ticket', () => {
     expect(screen.queryByText('Property')).toBeNull();
     await pickDept('Human Resources');
     expect(screen.queryByText('Property')).toBeNull();
-    fireEvent.click(screen.getByText('Human Resources'));
-    fireEvent.click(await screen.findByText('Facilities'));
-    expect(await screen.findByText('Property')).toBeTruthy();
-    expect(screen.getByText(/shows on that property in Asset Management/)).toBeTruthy();
+    await pickDept('Facilities');
+    expect((await screen.findAllByText('Property')).length).toBeGreaterThan(0);
+    // Required as soon as a building team is picked (Neil, Oct 28 2026).
+    expect(screen.getByText(/Required for building and maintenance tickets/)).toBeTruthy();
   });
 
   it('raised from a property: starts on the building team and links the ticket', async () => {
@@ -63,15 +62,31 @@ describe('Property on a ticket', () => {
     expect(await screen.findByText(/Shows on Greens Storage Temecula's Maintenance/)).toBeTruthy();
     // Fixed, not a picker - and only building or site teams are offered.
     expect(screen.queryByText('Select property')).toBeNull();
-    fireEvent.click(screen.getByText('Facilities'));
-    expect(screen.queryByText('Human Resources')).toBeNull();
-    fireEvent.click(screen.getAllByText('Facilities').at(-1));
+    expect((await screen.findByRole('radio', { name: /Facilities/ })).getAttribute('aria-checked')).toBe('true');
+    expect(screen.queryByRole('radio', { name: /Human Resources/ })).toBeNull();
     fireEvent.change(title, { target: { value: 'Broken handrail' } });
     fireEvent.click(screen.getByText('Select one'));
-    fireEvent.click(await screen.findByText('Painting'));
+    fireEvent.click((await screen.findAllByText('Painting')).at(-1));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create Ticket' })); });
     expect(createTicket).toHaveBeenCalledTimes(1);
     expect(createTicket.mock.calls[0][0]).toMatchObject({ hrDepartmentId: 'd-fac', propertyAssetId: 'gst' });
+  });
+  it('a building ticket names its property or says None / Other (Neil, Oct 28 2026)', async () => {
+    render(<CreateTicketModal onClose={vi.fn()} />);
+    const title = await screen.findByPlaceholderText(/What is the issue\?/);
+    await pickDept('Facilities');
+    fireEvent.change(title, { target: { value: 'Fence down at the yard' } });
+    fireEvent.click(screen.getByText('Select one'));
+    fireEvent.click((await screen.findAllByText('Painting')).at(-1));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create Ticket' })); });
+    expect(createTicket).not.toHaveBeenCalled();
+    expect(screen.getByText('Pick the property, or None / Other')).toBeTruthy();
+    fireEvent.click(screen.getByText('Select property'));
+    fireEvent.click(await screen.findByText('None / Other'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create Ticket' })); });
+    expect(createTicket).toHaveBeenCalledTimes(1);
+    expect(createTicket.mock.calls[0][0]).toMatchObject({ hrDepartmentId: 'd-fac', propertyNone: true });
+    expect(createTicket.mock.calls[0][0].propertyAssetId).toBeUndefined();
   });
 });
 

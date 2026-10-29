@@ -15,7 +15,9 @@ import AnchoredMenu from '../components/AnchoredMenu';
 // `compact` (the Create a Ticket form, Oct 1): a slimmer pair that sits in a
 // row directly under the description editor instead of a featured red button
 // at the foot of the form - same actions, same recording flow.
-function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange, compact = false }) {
+// `quiet` (the Create a Ticket form, Oct 28 2026 - Neil: calm intake): plain
+// text buttons in the bar under the description, the record dot the only red.
+function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange, compact = false, quiet = false }) {
   const fileRef = useRef(null);
   const [menu, setMenu] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -70,7 +72,10 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
               likely getting reflexively dismissed. That's the "come back"
               cue this button promises. */}
           <button ref={recordBtnRef} type="button" disabled={disabled || recording} onClick={() => { primeReturnCue(); setMenu((m) => !m); }}
-            style={compact ? {
+            style={quiet ? {
+              ...btn('ghost'), fontSize: 12.5, fontWeight: 600, color: NX.ink, padding: '5px 8px',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+            } : compact ? {
               ...btn('outline'), fontSize: 12.5, fontWeight: 600, color: NX.red,
               borderColor: 'rgba(220,38,38,0.45)', display: 'inline-flex', alignItems: 'center', gap: 6,
             } : {
@@ -79,7 +84,7 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
               boxShadow: recording ? 'none' : '0 2px 8px rgba(220,38,38,0.28)',
               display: 'inline-flex', alignItems: 'center', gap: 8,
             }}>
-            {recording ? <Spinner size="inline" /> : <CircleDot size={compact ? 14 : 17} />}
+            {recording ? <Spinner size="inline" /> : <CircleDot size={compact || quiet ? 14 : 17} style={quiet ? { color: NX.red } : undefined} />}
             {recording ? 'Recording…' : 'Record Screen'}
           </button>
           <AnchoredMenu anchorRef={recordBtnRef} open={menu} onClose={() => setMenu(false)}
@@ -94,33 +99,13 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
         </div>
       )}
       <button type="button" disabled={disabled} onClick={() => fileRef.current?.click()}
-        style={{ ...btn('outline'), fontSize: compact ? 12.5 : 12, fontWeight: compact ? 600 : undefined, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <UploadIcon size={13} /> Upload Attachment
+        style={quiet
+          ? { ...btn('ghost'), fontSize: 12.5, fontWeight: 600, color: NX.ink, padding: '5px 8px', display: 'inline-flex', alignItems: 'center', gap: 6 }
+          : { ...btn('outline'), fontSize: compact ? 12.5 : 12, fontWeight: compact ? 600 : undefined, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        {quiet ? <Paperclip size={14} /> : <UploadIcon size={13} />} {quiet ? 'Attach File' : 'Upload Attachment'}
       </button>
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
         onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ''; files.forEach(onFile); }} />
-    </div>
-  );
-}
-
-// The Create a Ticket evidence card (Oct 6): a recording (where the type takes
-// one) or a file, made impossible to miss.
-function EvidenceCard({ canRecord, children }) {
-  return (
-    <div style={{ marginTop: 10, borderRadius: 12, padding: '14px 16px',
-      border: `1.5px dashed ${canRecord ? 'rgba(220,38,38,0.45)' : NX.border}`,
-      background: canRecord ? 'rgba(220,38,38,0.04)' : NX.surface2 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-        {canRecord ? <Video size={16} style={{ color: NX.red }} /> : <Paperclip size={16} style={{ color: NX.dim }} />}
-        <span style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>{canRecord ? 'Show Us the Problem' : 'Attach Files'}</span>
-      </div>
-      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 12, lineHeight: 1.45 }}>
-        {canRecord
-          ? 'A short screen recording is the fastest way to get this fixed - record what happens (add your voice if it helps), or attach a screenshot or file.'
-          : 'Attach a screenshot or a document if it helps explain the request.'}
-      </div>
-      {children}
-      <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 10 }}>or press Ctrl+V to paste a screenshot</div>
     </div>
   );
 }
@@ -138,4 +123,4 @@ function PendingFileChip({ file, onRemove }) {
   );
 }
 
-export { RecordUploadButtons, EvidenceCard, PendingFileChip };
+export { RecordUploadButtons, PendingFileChip };
