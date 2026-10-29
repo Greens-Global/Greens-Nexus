@@ -2,8 +2,8 @@
 // flags, page requests, searches with no good answer, drafts, activity,
 // and the migration (managers).
 import { useEffect, useState } from 'react';
-import { ShieldCheck, Pencil, Check, Flag, Search, History, Database, AlertTriangle, Loader2, UserPlus, X } from 'lucide-react';
-import { api } from '../../api';
+import { ShieldCheck, Pencil, Check, Flag, Search, History, Database, AlertTriangle, Loader2, UserPlus, X, Download } from 'lucide-react';
+import { api, saveBlob } from '../../api';
 import AsyncSection from '../../components/AsyncState';
 import { Modal } from '../../tasks/components';
 import { Chip, SectionHead, Stat, Av, TypeChip, Banner } from '../components/Chips';
@@ -14,6 +14,8 @@ import { useRole } from '../../contexts/RoleContext';
 import HelpSignals from '../../support/HelpSignals';
 import { SOURCE_NAMES } from '../../support/helpLog';
 import PeoplePick from '../components/PeoplePick';
+import ReadingReport from './ReadingReport';
+import PhotoReviews from './PhotoReviews';
 
 const KIND_WORDS = { created: 'created', submitted: 'submitted for review', published: 'published', changes_requested: 'asked for changes on', archived: 'archived', restored: 'restored', verified: 'verified', flagged: 'reported a problem with', signed: 'signed', translated: 'translated', revision_opened: 'started a revision of', revision_submitted: 'submitted a revision of', revision_discarded: 'discarded a revision of', task_started: 'started a task from', flag_resolved: 'resolved a report on', withdrawn: 'withdrew',
   request_assigned: 'assigned a page request:', request_closed: 'closed a page request:', sign_sent: 'sent a signing request for', sign_declined: 'declined to sign',
@@ -27,7 +29,7 @@ function NoteModal({ title, about, label, initial = '', confirm, onSave, onClose
   const save = async () => { setBusy(true); try { await onSave(note.trim()); onClose(); } catch { /* the toast said why */ } finally { setBusy(false); } };
   return (
     <Modal title={title} onClose={onClose}
-           footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+           footer={<div className="kb" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
              <button type="button" className="kb-btn" onClick={onClose}>Cancel</button>
              <button type="button" className="kb-btn pri" disabled={busy} onClick={save}><Check />{confirm}</button></div>}>
       <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
@@ -50,7 +52,7 @@ function AssignModal({ request, onSave, onClose }) {
   const save = async () => { setBusy(true); try { await onSave(who); onClose(); } catch { /* the toast said why */ } finally { setBusy(false); } };
   return (
     <Modal title="Assign Page Request" onClose={onClose}
-           footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+           footer={<div className="kb" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
              <button type="button" className="kb-btn" onClick={onClose}>Cancel</button>
              <button type="button" className="kb-btn pri" disabled={busy || !who} onClick={save}><UserPlus />Assign</button></div>}>
       <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -71,7 +73,7 @@ function SynonymModal({ query, onSave, onClose }) {
   const save = async () => { setBusy(true); try { await onSave([query, ...list]); onClose(); } catch { /* the toast said why */ } finally { setBusy(false); } };
   return (
     <Modal title="Add Synonym" onClose={onClose}
-           footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+           footer={<div className="kb" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
              <button type="button" className="kb-btn" onClick={onClose}>Cancel</button>
              <button type="button" className="kb-btn pri" disabled={busy || !list.length} onClick={save}><Check />Add Synonym</button></div>}>
       <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -98,7 +100,7 @@ function MigrationModal({ onClose, onApplied }) {
   const rows = rep?.rows || [];
   const look = rows.filter((r) => r.action === 'needs a look' || (r.notes || []).length);
   return (
-    <Modal title="Bring the Old Library In" onClose={onClose} footer={<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span className="kb-meta kb-grow">{rep ? (rep.dry_run ? 'Dry run: nothing has changed yet.' : 'Applied.') : ''}{rep && !rep.storage ? ' Image storage is not configured here, so inline images stay as they are.' : ''}</span><button type="button" className="kb-btn" onClick={onClose}>Close</button>{rep?.dry_run && <button type="button" className="kb-btn pri" disabled={busy} onClick={apply}>{applying ? <><Loader2 className="kb-spin" />Converting</> : <><Database />Convert Everything</>}</button>}</div>}>
+    <Modal title="Bring the Old Library In" onClose={onClose} footer={<div className="kb" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span className="kb-meta kb-grow">{rep ? (rep.dry_run ? 'Dry run: nothing has changed yet.' : 'Applied.') : ''}{rep && !rep.storage ? ' Image storage is not configured here, so inline images stay as they are.' : ''}</span><button type="button" className="kb-btn" onClick={onClose}>Close</button>{rep?.dry_run && <button type="button" className="kb-btn pri" disabled={busy} onClick={apply}>{applying ? <><Loader2 className="kb-spin" />Converting</> : <><Database />Convert Everything</>}</button>}</div>}>
       <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {!rep && <div className="kb-empty"><Loader2 className="kb-spin" /> Reading every old record...</div>}
         {rep && (
@@ -152,7 +154,17 @@ export default function Health({ me }) {
           <button type="button" onClick={() => goKb('collections')}>Collections</button>
           <button type="button" onClick={() => goKb('plans')}>Plans and Rules</button>
         </div>
-        {me?.can_manage && <button type="button" className="kb-btn" style={{ marginLeft: 'auto' }} onClick={() => setMigrate(true)}><Database />{data?.stats?.unmigrated ? `Bring In ${data.stats.unmigrated} Old Pages` : 'Migration'}</button>}
+        {me?.can_manage && (
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            {/* Export everything (WP 5.11): for audit and backup */}
+            {['pdf', 'docx'].map((f) => (
+              <button key={f} type="button" className="kb-btn" onClick={() => api.kbExport(f).then((b) => saveBlob(b, `Knowledge Base.${f}`)).catch((e) => toast(errText(e), 'err'))}>
+                <Download />{f === 'pdf' ? 'Export PDF' : 'Export Word'}
+              </button>
+            ))}
+          </span>
+        )}
+        {me?.can_manage && <button type="button" className="kb-btn" onClick={() => setMigrate(true)}><Database />{data?.stats?.unmigrated ? `Bring In ${data.stats.unmigrated} Old Pages` : 'Migration'}</button>}
       </div>
       <AsyncSection loading={!data && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
         {data && (
@@ -180,6 +192,7 @@ export default function Health({ me }) {
                     ))}
                   </section>
                 )}
+                <PhotoReviews />
                 <section className="kb-card">
                   <SectionHead title="Past Review Date" count={data.stale.length} sub="Still true? One click. Changed? Revise it." />
                   {data.stale.length === 0 && <div className="kb-empty">Every page you own is within its review cycle.</div>}
@@ -231,7 +244,7 @@ export default function Health({ me }) {
                 {data.misses.length > 0 && (
                   <section className="kb-card">
                     <SectionHead title="Searches With No Good Answer" sub="last 30 days" />
-                    {data.misses.map((m) => <div key={`${m.source || 'kb'}:${m.query}`} className="kb-row"><div className="kb-grow"><div className="kb-title">"{m.query}"</div><div className="kb-meta">{SOURCE_NAMES[m.source || 'kb'] || m.source} · {plural(m.count, 'search', 'searches')} · last {fmtDate(m.last_day)}</div></div>{me?.can_manage && <button type="button" className="kb-btn sm ghost" onClick={() => setSynFor(m.query)}>Add Synonym</button>}<button type="button" className="kb-btn sm ghost" onClick={() => goKb('editor', 'new')}>Write</button></div>)}
+                    {data.misses.map((m) => <div key={`${m.source || 'kb'}:${m.query}`} className="kb-row" style={{ flexWrap: 'wrap' }}><div className="kb-grow" style={{ flexBasis: '100%' }}><div className="kb-title">"{m.query}"</div><div className="kb-meta">{SOURCE_NAMES[m.source || 'kb'] || m.source} · {plural(m.count, 'search', 'searches')} · last {fmtDate(m.last_day)}</div></div>{me?.can_manage && <button type="button" className="kb-btn sm ghost" onClick={() => setSynFor(m.query)}>Add Synonym</button>}<button type="button" className="kb-btn sm ghost" onClick={() => goKb('editor', 'new')}>Write</button></div>)}
                   </section>
                 )}
                 {me?.can_manage && (data.synonyms || []).length > 0 && (
@@ -246,6 +259,7 @@ export default function Health({ me }) {
                 {/* Help Signals (Help Center, Oct 2026): what the Help panel, Ask
                     Nexus and the ticket form could not answer - administrators. */}
                 {isAdmin && <HelpSignals />}
+                <ReadingReport />
                 <section className="kb-card">
                   <SectionHead title="Activity" />
                   {data.activity.length === 0 && <div className="kb-empty">Nothing yet.</div>}

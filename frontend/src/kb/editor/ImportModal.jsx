@@ -1,6 +1,8 @@
-// Import a Word file, a PDF, pasted text or screenshots. Long sources are
-// read in sections by the server; a section that fails says so and its
-// text is kept. The result opens in the editor; nothing is published here.
+// Import a Word file, a PDF, pasted text or screenshots. A Word or PDF file
+// imports As Is with no AI (importFile.js: headings, lists, tables, bold and
+// pictures in place, the original attached). With AI on, Read with Nexus
+// also reads it in sections; a section that fails says so and its text is
+// kept. The result opens in the editor; nothing is published here.
 import { useEffect, useRef, useState } from 'react';
 import { FileText, ClipboardPaste, Image as ImageIcon, Upload, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import { Modal } from '../../tasks/components';
@@ -8,6 +10,8 @@ import { api } from '../../api';
 import Blocks from '../components/Blocks';
 import { useToast, errText } from '../components/Toast';
 import { PAGE_TYPES, readAsDataUrl } from '../lib';
+import { importFileAsIs, importKind, baseTitle } from './importFile';
+import { fileSize } from './extensions.jsx';
 
 const MAX_FILE = 15 * 1024 * 1024;
 
@@ -52,11 +56,15 @@ async function extractPdf(file) {
   return { text, images: {}, warnings: text.length < 50 * doc.numPages ? ['This PDF has little selectable text. If it is a scan, import it as screenshots instead.'] : [] };
 }
 
-export default function ImportModal({ onClose, onOpenInEditor, defaultCollection = '' }) {
+export default function ImportModal({ onClose, onOpenInEditor, defaultCollection = '', ai = false }) {
   const toast = useToast();
   const [mode, setMode] = useState('');          // file | paste | shots
   const [title, setTitle] = useState('');
-  const [pageType, setPageType] = useState('');
+  const [pageType, setPageType] = useState(ai ? '' : 'how_to');
+  const [fileObj, setFileObj] = useState(null);
+  const [keepOriginal, setKeepOriginal] = useState(true);
+  const [asIs, setAsIs] = useState(null);        // the Import As Is result
+  const [step, setStep] = useState('');
   const [text, setText] = useState('');
   const [images, setImages] = useState({});     // {n: dataUrl}
   const [fileName, setFileName] = useState('');
@@ -70,7 +78,11 @@ export default function ImportModal({ onClose, onOpenInEditor, defaultCollection
   const takeFile = async (file) => {
     if (!file) return;
     if (file.size > MAX_FILE) { toast('That file is larger than 15 MB', 'err'); return; }
-    setExtracting(true); setFileName(file.name); setMode('file');
+    if (importKind(file.name) === 'doc') { toast('Old .doc files are not supported. Save it as .docx in Word first.', 'err'); return; }
+    setFileObj(file); setFileName(file.name); setMode('file'); setWarnings([]);
+    if (!title) setTitle(baseTitle(file.name));
+    if (!ai) { setText(''); setImages({}); return; }   // As Is reads the file itself
+    setExtracting(true);
     try {
       const name = file.name.toLowerCase();
       let out;
@@ -95,6 +107,15 @@ export default function ImportModal({ onClose, onOpenInEditor, defaultCollection
     if (files.length) { e.preventDefault(); takeShots(files); }
   };
 
+  const startAsIs = async () => {
+    if (!fileObj) return;
+    setExtracting(true);
+    try {
+      const out = await importFileAsIs(fileObj, { keepOriginal, onStep: setStep });
+      setAsIs(out);
+      if (out.title && (!title || title === baseTitle(fileObj.name))) setTitle(out.title);
+    } catch (e) { toast(errText(e, 'Could not import the file'), 'err'); } finally { setExtracting(false); setStep(''); }
+  };
   const start = async () => {
     const body = mode === 'shots' ? (text.trim() || 'Screenshots of a procedure. Read the images in order.') : text.trim();
     if (!body && !Object.keys(images).length) { toast('Nothing to import yet', 'err'); return; }
@@ -111,8 +132,19 @@ export default function ImportModal({ onClose, onOpenInEditor, defaultCollection
 
   const result = job?.status === 'done' ? job.result : null;
   const canStart = (mode === 'paste' && text.trim().length > 20) || (mode === 'file' && text.trim().length > 0) || (mode === 'shots' && Object.keys(images).length > 0);
+  const isFile = mode === 'file' && ['docx', 'pdf'].includes(importKind(fileName));
 
-  const footer = result ? (
+  const footer = asIs ? (
+    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
+      <span className="kb-meta kb-grow">{(asIs.words || 0).toLocaleString()} words{asIs.tables ? `, ${asIs.tables} table${asIs.tables === 1 ? '' : 's'}` : ''}{asIs.images ? `, ${asIs.images} picture${asIs.images === 1 ? '' : 's'}` : ''}. Nothing is published until you say so.</span>
+      <button type="button" className="kb-btn" onClick={() => setAsIs(null)}>Back</button>
+      <button type="button" className="kb-btn pri" onClick={() => onOpenInEditor({
+        title: title.trim() || asIs.title || baseTitle(fileName) || 'Imported Page', summary: '',
+        page_type: pageType || 'how_to', collection_id: defaultCollection, tags: [], blocks: asIs.blocks,
+        original_content: '', original_title: fileName,
+      })}>Open in Editor</button>
+    </div>
+  ) : result ? (
     <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
       <span className="kb-meta kb-grow">{result.sections} section{result.sections === 1 ? '' : 's'} read{result.images ? `, ${result.images} images stored` : ''}. Nothing is published until you say so.</span>
       <button type="button" className="kb-btn" onClick={onClose}>Cancel</button>
@@ -125,20 +157,21 @@ export default function ImportModal({ onClose, onOpenInEditor, defaultCollection
   ) : job ? null : (
     <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
       <button type="button" className="kb-btn" onClick={onClose}>Cancel</button>
-      <button type="button" className="kb-btn pri" disabled={!canStart || extracting} onClick={start}>Read with Nexus</button>
+      {isFile && <button type="button" className={`kb-btn${ai ? '' : ' pri'}`} disabled={extracting} onClick={startAsIs}>Import As Is</button>}
+      {(ai || !isFile) && <button type="button" className="kb-btn pri" disabled={!canStart || extracting} onClick={start}>{ai ? 'Read with Nexus' : 'Import'}</button>}
     </div>
   );
 
   return (
-    <Modal title="Import" onClose={onClose} footer={footer}>
-      <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 16 }} onPaste={onPaste}>
-        {!job && (
+    <Modal title="Import" onClose={onClose} footer={footer && <div className="kb">{footer}</div>}>
+      <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }} onPaste={onPaste}>
+        {!job && !asIs && (
           <>
             <div className="kb-grid3">
               {[
-                ['file', FileText, 'Word or PDF', 'A .docx or .pdf up to 15 MB. Images come along.'],
+                ['file', FileText, 'Word or PDF', 'A .docx or .pdf up to 15 MB. Headings, lists, tables and pictures come along.'],
                 ['paste', ClipboardPaste, 'Paste Text', 'From an email, a chat, a Google Doc.'],
-                ['shots', ImageIcon, 'Screenshots', 'Photos of a printed SOP or a whiteboard. Nexus reads them.'],
+                ...(ai ? [['shots', ImageIcon, 'Screenshots', 'Photos of a printed SOP or a whiteboard. Nexus reads them.']] : []),
               ].map(([k, Icon, h, d]) => (
                 <button key={k} type="button" className="kb-coll" style={mode === k ? { borderColor: 'var(--kb-green)', background: 'var(--kb-green-soft)' } : {}}
                         onClick={() => { setMode(k); if (k === 'file') fileRef.current?.click(); if (k === 'shots') shotRef.current?.click(); }}>
@@ -151,8 +184,8 @@ export default function ImportModal({ onClose, onOpenInEditor, defaultCollection
             <input ref={shotRef} type="file" accept="image/*" multiple hidden onChange={(e) => { takeShots(e.target.files); e.target.value = ''; }} />
             {mode === 'file' && (
               <div className={`kb-dropzone${drag ? ' on' : ''}`} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); takeFile(e.dataTransfer.files?.[0]); }} onClick={() => fileRef.current?.click()}>
-                {extracting ? <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><Loader2 size={16} className="kb-spin" />Reading {fileName}...</span>
-                  : fileName ? <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', color: 'var(--kb-ink)' }}><CheckCircle2 size={16} style={{ color: 'var(--kb-green)' }} />{fileName} · {text.length.toLocaleString()} characters{Object.keys(images).length ? `, ${Object.keys(images).length} images` : ''}</span>
+                {extracting ? <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><Loader2 size={16} className="kb-spin" />{step || 'Reading'}: {fileName}...</span>
+                  : fileName ? <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', color: 'var(--kb-ink)' }}><CheckCircle2 size={16} style={{ color: 'var(--kb-green)' }} />{fileName}{ai ? ` · ${text.length.toLocaleString()} characters${Object.keys(images).length ? `, ${Object.keys(images).length} images` : ''}` : fileObj ? ` · ${fileSize(fileObj.size)}` : ''}</span>
                   : <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><Upload size={16} />Drop a file here or click to choose</span>}
               </div>
             )}
@@ -168,14 +201,27 @@ export default function ImportModal({ onClose, onOpenInEditor, defaultCollection
                 <textarea className="kb-textarea" style={{ minHeight: 60 }} value={text} onChange={(e) => setText(e.target.value)} placeholder="Optional: what these are (helps Nexus name the page)" />
               </div>
             )}
+            {isFile && (
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13.5 }}>
+                <input type="checkbox" checked={keepOriginal} onChange={(e) => setKeepOriginal(e.target.checked)} />
+                Keep the original file attached to the page
+              </label>
+            )}
             {warnings.length > 0 && <div className="kb-banner amber"><AlertTriangle /><div>{warnings.map((w, i) => <div key={i}>{w}</div>)}</div></div>}
             {mode && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div className="kb-field"><label>Working Title</label><input className="kb-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Nexus suggests one if blank" /></div>
-                <div className="kb-field"><label>Page Type</label><select className="kb-select" value={pageType} onChange={(e) => setPageType(e.target.value)}><option value="">Let Nexus suggest</option>{Object.values(PAGE_TYPES).map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}</select></div>
+                <div className="kb-field"><label>Working Title</label><input className="kb-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={ai ? 'Nexus suggests one if blank' : 'The file name if blank'} /></div>
+                <div className="kb-field"><label>Page Type</label><select className="kb-select" value={pageType} onChange={(e) => setPageType(e.target.value)}>{ai && <option value="">Let Nexus suggest</option>}{Object.values(PAGE_TYPES).map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}</select></div>
               </div>
             )}
           </>
+        )}
+        {asIs && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+            {asIs.warnings?.length > 0 && <div className="kb-banner amber"><AlertTriangle /><div><b>Check these.</b> {asIs.warnings.map((w, i) => <div key={i}>{w}</div>)}</div></div>}
+            <div className="kb-meta">Fonts, colors and page layout are not copied; the page takes the Knowledge Base style. Check the preview, then tidy it up in the editor (for example turn a numbered list into Steps).</div>
+            <div className="kb-card soft nx-fill" style={{ overflow: 'auto', padding: 18 }}><Blocks doc={asIs.blocks} /></div>
+          </div>
         )}
         {job && !result && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '20px 0' }}>

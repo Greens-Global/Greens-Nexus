@@ -73,7 +73,7 @@ export function subFor(screen, id) {
 
 export const TAB_OF = {
   home: 'library', search: 'library', page: 'library', collection: 'library', editor: 'library', revision: 'library', review: 'library', signatures: 'library', tasks: 'library',
-  training: 'training', course: 'training', builder: 'training', certificates: 'training',
+  training: 'training', courses: 'training', 'training-compliance': 'training', course: 'training', builder: 'training', certificates: 'training',
   health: 'manage', compliance: 'manage', collections: 'manage', plans: 'manage', migrate: 'manage',
 };
 

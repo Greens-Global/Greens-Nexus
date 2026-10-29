@@ -2948,7 +2948,7 @@ export const api = {
   kbFeedback: (id, helpful) => req(`/kb/pages/${id}/feedback`, { method: "POST", body: JSON.stringify({ helpful }) }),
   kbFlagPage: (id, text) => req(`/kb/pages/${id}/flag`, { method: "POST", body: JSON.stringify({ text }) }),
   kbComments: (id) => req(`/kb/pages/${id}/comments`),
-  kbAddComment: (id, text) => req(`/kb/pages/${id}/comments`, { method: "POST", body: JSON.stringify({ text }) }),
+  kbAddComment: (id, text, mentions = []) => req(`/kb/pages/${id}/comments`, { method: "POST", body: JSON.stringify({ text, mentions }) }),
   kbOpenRevision: (id) => req(`/kb/pages/${id}/revisions`, { method: "POST" }),
   kbRevision: (rid) => req(`/kb/revisions/${rid}`),
   kbUpdateRevision: (rid, data) => req(`/kb/revisions/${rid}`, { method: "PATCH", body: JSON.stringify(data) }),
@@ -2962,6 +2962,7 @@ export const api = {
   kbPageTasks: (id) => req(`/kb/pages/${id}/tasks`),
   kbUploadMedia: (data, folder = "pages") => req("/kb/media", { method: "POST", body: JSON.stringify({ data, folder }), timeoutMs: 90_000 }),
   kbImport: (data) => req("/kb/import", { method: "POST", body: JSON.stringify(data), timeoutMs: 90_000 }),
+  kbImportConvert: (data) => req("/kb/import/convert", { method: "POST", body: JSON.stringify(data), timeoutMs: 90_000 }),   // Import As Is (no AI)
   kbJob: (id) => req(`/kb/jobs/${id}`),
   kbSuggest: (id, data) => req(`/kb/pages/${id}/suggest`, { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   kbTranslate: (id, lang) => req(`/kb/pages/${id}/translate`, { method: "POST", body: JSON.stringify({ lang }) }),
@@ -2997,6 +2998,19 @@ export const api = {
   kbCheckpointSubmit: (aid, answers) => req(`/kb/checkpoint/${aid}/submit`, { method: "POST", body: JSON.stringify({ answers }) }),
   kbUnlockQuiz: (cid, email, note = "") => req(`/kb/courses/${cid}/unlock`, { method: "POST", body: JSON.stringify({ email, note }) }),
   kbCourseReport: (cid) => req(`/kb/courses/${cid}/report`),
+  // In-person training (WP 5.1): sessions, attendance, hands-on sign-off.
+  kbSessions: (cid) => req(`/kb/courses/${cid}/sessions`),
+  kbReadingReport: (days = 30) => req(`/kb/reports/reading?days=${days}`),   // WP 5.4
+  kbPhotoReviews: () => req("/kb/photo-reviews"),   // WP 5.5 photo proof
+  kbDecidePhoto: (id, decision, note = "") => req(`/kb/photo-reviews/${id}/decide`, { method: "POST", body: JSON.stringify({ decision, note }) }),
+  kbVideoUploadLink: (content_type, size) => req("/kb/media/video-upload", { method: "POST", body: JSON.stringify({ content_type, size }) }),   // WP 5.10
+  kbExport: (format = "pdf", collection = "") => reqBlob(`/kb/export?format=${format}${collection ? `&collection=${encodeURIComponent(collection)}` : ""}`),   // WP 5.11
+  kbTrainingReport: (months = 6) => req(`/kb/reports/training?months=${months}`),   // WP 5.6
+  kbCourseFeedback: (cid, rating, comment = "") => req(`/kb/courses/${cid}/feedback`, { method: "POST", body: JSON.stringify({ rating, comment }) }),   // WP 5.7
+  kbCreateSession: (cid, data) => req(`/kb/courses/${cid}/sessions`, { method: "POST", body: JSON.stringify(data) }),
+  kbUpdateSession: (sid, data) => req(`/kb/sessions/${sid}`, { method: "PATCH", body: JSON.stringify(data) }),
+  kbMarkAttendance: (sid, email, status, note = "") => req(`/kb/sessions/${sid}/attendance`, { method: "POST", body: JSON.stringify({ email, status, note }) }),
+  kbSignOff: (cid, email, note = "") => req(`/kb/courses/${cid}/sign-off`, { method: "POST", body: JSON.stringify({ email, note }) }),
   kbAssignCourse: (cid, emails, due_date = "") => req(`/kb/courses/${cid}/assign`, { method: "POST", body: JSON.stringify({ emails, due_date }) }),
   kbCourseAssignments: (cid) => req(`/kb/courses/${cid}/assignments`),
   kbRemoveAssignment: (aid) => req(`/kb/assignments/${aid}`, { method: "DELETE" }),

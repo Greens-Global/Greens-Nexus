@@ -1226,6 +1226,15 @@ class KbDocument(Base):
     signing          = Column(String, default="in_page")       # in_page | nexus_sign
     translations     = Column(Text, default="")                # JSON {lang: {title, blocks, version, at}} - version != current = outdated
     migrated_at      = Column(String, default="")              # set once by kb_migrate.apply; "" = still only the old body
+    # Who may read it (WP 5.3, Oct 29 2026): an audience (kb_audience JSON);
+    # '' = everyone in its company. Owner, reviewer, collection owner,
+    # Knowledge Base Manage and a policy's signers always read it.
+    # Enforced in kb_access.may_read. ALTER lines in main.py.
+    readers          = Column(Text, default="")
+    # Goes live on (WP 5.8, Oct 29 2026): YYYY-MM-DD, '' = live once approved.
+    # Before it only the page's editors see it (kb_access.may_read) and a
+    # policy asks nobody to sign (kb_core.is_live). ALTER lines in main.py.
+    live_from        = Column(String, default="")
 
 
 class KbService(Base):
@@ -1354,6 +1363,10 @@ class KbCourse(Base):
     draft        = Column(Text, default="")            # JSON {title, description, overview, est_minutes, lessons, quiz, recert_months, departments}
     published_at = Column(String, default="")
     published_by = Column(String, default="")
+    # How it is taken (WP 5.1, Oct 29 2026): 'online' (lessons and quiz) or
+    # 'in_person' (completed only when a trainer or the person's manager signs
+    # them off - a session's attendance or a hands-on check). ALTER lines in main.py.
+    delivery     = Column(String, default="online")
 
 
 class KbCourseProgress(Base):
@@ -9253,3 +9266,74 @@ class HelpFeedback(Base):
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
     __table_args__ = (UniqueConstraint("user_email", "target_kind", "target_id", name="ux_help_feedback_vote"),)
+
+
+class KbSession(Base):
+    """A scheduled in-person training session for a course (WP 5.1, Oct 29
+    2026): when, where, who trains. Attendance lives in KbSessionAttendee.
+    New table - create_all builds it; RLS line in main.py's Postgres list."""
+    __tablename__ = "kb_sessions"
+    id            = Column(String, primary_key=True)   # ses_ + hex
+    course_id     = Column(String, nullable=False, index=True)
+    starts_at     = Column(String, default="")         # "YYYY-MM-DDTHH:MM", the trainer's local wall time
+    ends_at       = Column(String, default="")
+    location      = Column(String, default="")
+    trainer_email = Column(String, default="")
+    capacity      = Column(Integer, default=0)          # 0 = no limit
+    notes         = Column(Text, default="")
+    status        = Column(String, default="scheduled")  # scheduled | done | canceled
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class KbSessionAttendee(Base):
+    """One person on a session, or a hands-on sign-off with no session
+    (session_id ''). status: invited | attended | no_show. Attended = signed
+    off: the course is completed and the certificate issued (WP 5.1)."""
+    __tablename__ = "kb_session_attendees"
+    id            = Column(String, primary_key=True)   # att_ + hex
+    session_id    = Column(String, default="", index=True)
+    course_id     = Column(String, nullable=False, index=True)
+    user_email    = Column(String, nullable=False, index=True)
+    user_name     = Column(String, default="")
+    status        = Column(String, default="invited")
+    signed_off_by = Column(String, default="")
+    signed_off_at = Column(String, default="")
+    note          = Column(String, default="")
+    created_at    = Column(String, default="")
+
+
+class KbCourseFeedback(Base):
+    """A learner's rating of a course they completed (WP 5.7, Oct 29 2026):
+    1-5 stars and an optional comment, once per course version. The course
+    owner sees the average and the comments without names. New table -
+    create_all builds it; RLS line in main.py's Postgres list."""
+    __tablename__ = "kb_course_feedback"
+    id           = Column(String, primary_key=True)   # cfb_ + hex
+    course_id    = Column(String, nullable=False, index=True)
+    course_major = Column(Integer, default=0)
+    user_email   = Column(String, nullable=False)
+    rating       = Column(Integer, default=0)          # 1..5
+    comment      = Column(Text, default="")
+    created_at   = Column(String, default="")
+    __table_args__ = (UniqueConstraint("course_id", "course_major", "user_email", name="ux_kb_course_feedback_once"),)
+
+
+class KbPhotoReview(Base):
+    """A photo a learner gave as a quiz answer, waiting for a person to judge it
+    (WP 5.5 photo proof, Oct 29 2026). The attempt stays in 'review' until
+    every photo on it is approved or sent back. New table - create_all builds
+    it; RLS line in main.py's Postgres list."""
+    __tablename__ = "kb_photo_reviews"
+    id           = Column(String, primary_key=True)   # phr_ + hex
+    attempt_id   = Column(String, nullable=False, index=True)
+    course_id    = Column(String, nullable=False, index=True)
+    question_id  = Column(String, default="")
+    user_email   = Column(String, nullable=False, index=True)
+    photo_url    = Column(Text, default="")
+    status       = Column(String, default="pending")   # pending | approved | rejected
+    decided_by   = Column(String, default="")
+    decided_at   = Column(String, default="")
+    note         = Column(String, default="")
+    created_at   = Column(String, default="")

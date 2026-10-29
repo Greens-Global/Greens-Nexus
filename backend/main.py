@@ -1378,6 +1378,11 @@ def _run_migrations():
             "ALTER TABLE kb_page_requests ADD COLUMN close_note VARCHAR DEFAULT ''",
             # Search misses by company (Oct 29) - see the Postgres list. models.KbSearchLog.
             "ALTER TABLE kb_search_log ADD COLUMN company VARCHAR DEFAULT ''",
+            # In-person training (Oct 29) - see the Postgres list. models.KbCourse.
+            "ALTER TABLE kb_courses ADD COLUMN delivery VARCHAR DEFAULT 'online'",
+            # Page readers (Oct 29) - see the Postgres list. models.KbDocument.
+            "ALTER TABLE kb_documents ADD COLUMN readers TEXT DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN live_from VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3262,6 +3267,24 @@ def _run_migrations():
         # 10/29/2026). Older rows stay '' and read as shared. models.KbSearchLog.
         "ALTER TABLE kb_search_log ADD COLUMN IF NOT EXISTS company VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_kb_search_log_company ON kb_search_log (company)",
+        # Knowledge Base in-person training (WP 5.1, 10/29/2026): how a course is
+        # taken, and two new tables (sessions, attendance) - explicit RLS.
+        # models.KbCourse / KbSession / KbSessionAttendee.
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS delivery VARCHAR DEFAULT 'online'",
+        "ALTER TABLE kb_sessions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_session_attendees ENABLE ROW LEVEL SECURITY",
+        # Knowledge Base page readers (WP 5.3, 10/29/2026): who may read a
+        # page, '' = everyone in its company. models.KbDocument.
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS readers TEXT DEFAULT ''",
+        # Knowledge Base course feedback (WP 5.7, 10/29/2026) - a new table,
+        # explicit RLS. models.KbCourseFeedback.
+        "ALTER TABLE kb_course_feedback ENABLE ROW LEVEL SECURITY",
+        # Knowledge Base scheduled publishing (WP 5.8, 10/29/2026): the day a
+        # page goes live. models.KbDocument.
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS live_from VARCHAR DEFAULT ''",
+        # Knowledge Base photo-proof quiz answers (WP 5.5, 10/29/2026) - a new
+        # table, explicit RLS. models.KbPhotoReview.
+        "ALTER TABLE kb_photo_reviews ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -21,7 +21,7 @@ export default function RequestPageModal({ collections = [], initialQuery = '', 
   const tops = collections.filter((c) => !c.parent_id);
   return (
     <Modal title="Request a Page" onClose={onClose} minHeight="40vh"
-           footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><button type="button" className="kb-btn" onClick={onClose}>Cancel</button><button type="button" className="kb-btn pri" disabled={busy || !q.trim()} onClick={send}>Send Request</button></div>}>
+           footer={<div className="kb" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><button type="button" className="kb-btn" onClick={onClose}>Cancel</button><button type="button" className="kb-btn pri" disabled={busy || !q.trim()} onClick={send}>Send Request</button></div>}>
       <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div className="kb-field"><label>What were you looking for?</label><input className="kb-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="How to issue a refund for a double charge" autoFocus /></div>
         <div className="kb-field"><label>Which collection should it live in?</label>

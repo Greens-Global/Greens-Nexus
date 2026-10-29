@@ -7,6 +7,7 @@ import AsyncSection from '../../components/AsyncState';
 import { Chip, SectionHead, Stat, TrainingChip } from '../components/Chips';
 import { useToast, errText } from '../components/Toast';
 import { goKb, fmtDate, trainingColor, plural } from '../lib';
+import Compliance from '../manage/Compliance';
 
 export function CourseRow({ c, onOpen }) {
   const open = () => (onOpen ? onOpen(c) : goKb('course', c.id));
@@ -56,12 +57,13 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
           <div className="kb-seg">
             <button type="button" className={seg === 'me' ? 'on' : ''} onClick={() => setSeg('me')}>My Training</button>
             <button type="button" className={seg === 'courses' ? 'on' : ''} onClick={() => setSeg('courses')}>Courses</button>
-            <button type="button" onClick={() => goKb('compliance')}>Compliance</button>
+            <button type="button" className={seg === 'compliance' ? 'on' : ''} onClick={() => setSeg('compliance')}>Compliance</button>
           </div>
         )}
         {seg === 'courses' && me?.can_author && <button type="button" className="kb-btn pri" style={{ marginLeft: 'auto' }} onClick={() => goKb('builder', 'new')}><Plus />New Course</button>}
       </div>
 
+      {seg === 'compliance' && <Compliance me={me} inTraining />}
       {seg === 'me' && (
         <AsyncSection loading={!data && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
           {data && (

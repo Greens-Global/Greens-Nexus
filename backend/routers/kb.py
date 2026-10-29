@@ -77,6 +77,8 @@ class PageUpdate(BaseModel):
     require_ack: Optional[bool] = None
     audience: Optional[dict] = None
     signing: Optional[str] = None
+    readers: Optional[dict] = None       # WP 5.3: {} = everyone in the company
+    live_from: Optional[str] = None      # WP 5.8: YYYY-MM-DD in the future, or '' = live once approved
     related_ids: Optional[list] = None
     effective_date: Optional[str] = None
 
@@ -104,6 +106,7 @@ class SubmitIn(BaseModel):
 
 class CommentIn(BaseModel):
     text: str
+    mentions: list = []    # WP 5.9: emails the writer @mentioned
 
 
 class FlagIn(BaseModel):
@@ -282,16 +285,19 @@ def _page_full(db: Session, d: models.KbDocument, user: dict) -> dict:
     related = []
     for rid in [r.strip() for r in (d.related_ids or "").split(",") if r.strip()]:
         r = db.query(models.KbDocument).filter(models.KbDocument.id == rid, models.KbDocument.status == "approved").first()
-        if r:
+        if r and kb_access.readable([r], user, db):   # never a title the reader may not see
             related.append({"id": r.id, "title": r.title, "code": r.doc_code or "", "page_type": r.page_type or ""})
     embeds = {}
     for eid in kb_blocks.embedded_page_ids(blocks):
         e = db.query(models.KbDocument).filter(models.KbDocument.id == eid).first()
-        if e and e.status == "approved":
+        if e and e.status == "approved" and kb_access.readable([e], user, db):
             embeds[eid] = {"id": e.id, "title": e.title, "code": e.doc_code or "", "summary": e.summary or ""}
     card.update({
         "blocks": blocks, "headings": kb_blocks.headings(blocks), "legacy_only": legacy_only,
         "effective_date": d.effective_date or "", "review_every_months": kb_core.review_months(db, d),
+        "live_from": d.live_from or "", "is_live": kb_core.is_live(d),
+        "readers": kb_audience.loads(d.readers) if d.readers else {"everyone": True},
+        "readers_text": kb_audience.describe(kb_audience.loads(d.readers), db) if d.readers else "Everyone in the company",
         "review": kb_core.review_state(db, d), "signing": _signing(d), "nexus_sign_available": kb_core.NEXUS_SIGN_FOR_POLICIES,
         "audience": kb_audience.loads(d.audience) if d.audience else {"everyone": True},
         "audience_text": kb_audience.describe(kb_audience.loads(d.audience), db) if d.audience else "Everyone",
@@ -331,8 +337,10 @@ def _record_view(db: Session, d: models.KbDocument, email: str) -> None:
 
 
 def _published(db: Session, user: dict) -> list[models.KbDocument]:
+    """Every published page the caller may read: search, Ask Nexus, Home,
+    collections, Health and the Help Center all start here."""
     rows = db.query(models.KbDocument).filter(models.KbDocument.status == "approved").all()
-    return kb_access.wall_rows(rows, user, db)
+    return kb_access.readable(rows, user, db)   # the company wall, then each page's readers (WP 5.3)
 
 
 def _check_rev(row, rev: Optional[str]) -> None:
@@ -752,6 +760,15 @@ def update_page(doc_id: str, body: PageUpdate, user: dict = Depends(get_current_
         d.review_every_months = max(0, int(body.review_every_months))
     if body.require_ack is not None:
         d.require_ack = bool(body.require_ack)
+    if body.live_from is not None:   # WP 5.8
+        v = body.live_from.strip()[:10]
+        if v and (not re.match(r"^\d{4}-\d{2}-\d{2}$", v) or v <= kb_core.today()):
+            raise HTTPException(422, "Pick a day after today, or clear it to go live once approved")
+        d.live_from = v
+        if v and d.status == "approved":
+            d.effective_date = v
+    if body.readers is not None:   # WP 5.3
+        d.readers = "" if kb_audience.is_everyone(kb_audience.loads(body.readers)) else kb_audience.dumps(body.readers)
     if body.audience is not None:
         d.audience = kb_audience.dumps(body.audience) if body.audience else ""
         raw = dict(body.audience or {})
@@ -985,6 +1002,18 @@ def add_comment(doc_id: str, body: CommentIn, user: dict = Depends(get_current_u
         else:
             kb_core.notify(db, recipient=r, ntype="kb_comment", title="New Comment on a Page", body=f"{d.title}: {text[:160]}",
                            ref_id=d.id, item_name=d.title, sub=f"page:{d.id}", requested_by=me_)
+    # @mentions (WP 5.9): a bell to each person named - only people in the
+    # writer's company who may read this page, so a mention never leaks a page.
+    sc = kb_access.scope(user, db)
+    for e in list(dict.fromkeys(str(x).lower().strip() for x in (body.mentions or []) if str(x).strip()))[:10]:
+        if e == me_ or not kb_access.in_scope(db, e, sc):
+            continue
+        if not db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == e).first():
+            continue
+        if not kb_access.may_read(d, {"email": e, "level": auth.level_for(e, db)}, db):
+            continue
+        kb_core.notify(db, recipient=e, ntype="kb_comment", title="You Were Mentioned", body=f"{_name(db, me_)} on {d.title}: {text[:160]}",
+                       ref_id=d.id, item_name=d.title, sub=f"page:{d.id}", requested_by=me_)
     db.commit()
     return _comments(db, d)
 
@@ -1336,6 +1365,23 @@ def upload_media(body: MediaIn, user: dict = Depends(require_author)):
     return {"url": url}
 
 
+class VideoUploadIn(BaseModel):
+    content_type: str
+    size: int
+
+
+@router.post("/media/video-upload")
+def video_upload_link(body: VideoUploadIn, user: dict = Depends(require_author)):
+    """A one-time signed link to upload a training video straight to the
+    private kb-media bucket (WP 5.10); the page keeps the returned URL."""
+    try:
+        return kb_media.signed_video_upload(body.content_type, int(body.size or 0))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+
+
 # ----------------------------------------------------------------- import / jobs
 
 def _job_out(j: models.KbJob) -> dict:
@@ -1388,10 +1434,17 @@ def _run_import(job_id: str) -> None:
     failed: list[dict] = []
     for i, sec in enumerate(sections, start=1):
         pos = f"section {i} of {len(sections)}" if len(sections) > 1 else "the whole"
+        if not kb_ai.available():
+            # AI off (the default): plain structure from the text, no per-section
+            # "not available" warning - nothing failed, it just was not asked.
+            blocks = kb_blocks.from_plain_text(sec["text"])
+            if sec["title"]:
+                blocks["content"].insert(0, kb_blocks.heading(sec["title"], 2))
+            content.extend(blocks.get("content") or [])
+            _update_job(job_id, progress=i)
+            continue
         try:
-            if not kb_ai.available():
-                raise kb_ai.AiError("Nexus is not available on this server")
-            shots = [v for v in images.values()] if (i == 1 and len(text) < 400 and images) else []
+            shots =[v for v in images.values()] if (i == 1 and len(text) < 400 and images) else []
             blocks = kb_ai.format_text(sec["text"], title=inp.get("title") or "", page_type=inp.get("page_type") or "", position=pos, images=shots)
             blocks = kb_blocks.sanitize(blocks, image_ok=lambda u: True)
         except kb_ai.AiError as e:
@@ -1446,6 +1499,43 @@ def _run_import(job_id: str) -> None:
     _update_job(job_id, status="done", progress=len(sections) + 1,
                 result=json.dumps({"blocks": docd, "warnings": warnings, "failed_sections": failed, "sections": len(sections),
                                    "suggested": meta, "possible_match": match, "images": len([u for u in img_urls.values() if u])}))
+
+
+class ConvertIn(BaseModel):
+    body: dict                       # the browser's reading of the Word / PDF file (TipTap JSON)
+    title: str = ""
+    original: Optional[dict] = None  # {"url", "name", "size", "mime"}: the file itself, kept on the page
+
+
+@router.post("/import/convert")
+def convert_import(body: ConvertIn, user: dict = Depends(require_author)):
+    """Import As Is (Oct 29 2026): a Word or PDF file becomes page blocks with
+    no AI. The browser reads the file (lib/docxToTiptap.js for Word, the PDF
+    text reader for PDF) and uploads its pictures to kb-media; this turns
+    that into the page's own block shape. Headings, lists, tables, bold and
+    pictures keep their place; fonts, colors and page layout do not. The
+    original file is attached at the end so nothing is lost. Nothing is
+    saved here - the result opens in the editor as a draft."""
+    raw = json.dumps(body.body)
+    if len(raw) > 3_000_000:
+        raise HTTPException(413, "That file is too long to import in one page. Split it into smaller files.")
+    blocks, _ = kb_blocks.from_tiptap_document({"body": body.body}, image_ok=kb_media.is_storage_url)
+    content = [n for n in blocks.get("content") or [] if not (n.get("type") == "paragraph" and not n.get("content"))]
+    title = (body.title or "").strip()
+    # a Word file that opens with its own title: that line becomes the page title
+    if content and content[0].get("type") == "heading" and (content[0].get("attrs") or {}).get("level") == 1:
+        first = kb_blocks.node_text(content[0]).strip()
+        if first and len(first) <= 120:
+            title, content = first, content[1:]
+    o = body.original or {}
+    url = str(o.get("url") or "")
+    if url and kb_media.is_storage_url(url) and url.startswith(kb_media.storage_prefix() or "\0"):
+        content.append(kb_blocks.heading("Original File", 2))
+        content.append(kb_blocks.file_block(url, str(o.get("name") or "Original file")[:200], int(o.get("size") or 0), str(o.get("mime") or "")[:100]))
+    out = kb_blocks.sanitize(kb_blocks.doc(content or None), image_ok=kb_media.is_storage_url)
+    words = kb_blocks.word_count(out)
+    return {"blocks": out, "title": title[:300], "words": words, "images": len(kb_blocks.image_urls(out)),
+            "tables": sum(1 for n in out.get("content") or [] if n.get("type") == "table")}
 
 
 @router.post("/import", status_code=202)
@@ -1581,6 +1671,142 @@ def request_page(body: RequestIn, user: dict = Depends(get_current_user), db: Se
 # only, in Help Signals - collection owners at any company read this list,
 # and free text typed for help is not theirs to read.
 _HEALTH_MISS_SOURCES = ("kb",)
+
+
+@router.get("/export")
+def export_kb(format: str = Query("pdf"), collection: str = "", user: dict = Depends(require_author), db: Session = Depends(get_db)):
+    """Export the Knowledge Base for audit or backup (WP 5.11, Oct 29 2026):
+    every published page the caller may read, or one collection, as a PDF or
+    a Word file. Manage exports anything; a collection owner their collection."""
+    import io
+    from fastapi.responses import StreamingResponse
+    me_ = user["email"].lower()
+    manage = kb_access.is_manage(user, db)
+    if collection:
+        col = _collection(db, collection)
+        if not col:
+            raise HTTPException(404, "Collection not found")
+        if not (manage or kb_access.owns_collection(user, db, collection)):
+            raise HTTPException(403, "The collection owner or a Knowledge Base manager exports it")
+        kids = {c.id for c in db.query(models.KbCollection).filter(models.KbCollection.parent_id == collection).all()}
+        pages = [d for d in _published(db, user) if d.collection_id in kids | {collection}]
+        label = col.name
+    else:
+        if not manage:
+            raise HTTPException(403, "A Knowledge Base manager exports everything")
+        pages = _published(db, user)
+        label = "All Pages"
+    if format not in ("pdf", "docx"):
+        raise HTTPException(422, "PDF or Word")
+    pages.sort(key=lambda d: ((d.doc_code or "~"), (d.title or "").lower()))
+    today = kb_core.today()
+    us = f"{today[5:7]}/{today[8:10]}/{today[:4]}"
+
+    def meta(d) -> str:
+        v = d.verified_at or ""
+        return " · ".join(x for x in (d.doc_code or "", f"Version {d.version}", f"Verified {v[5:7]}/{v[8:10]}/{v[:4]}" if len(v) >= 10 else "") if x)
+
+    def text_of(d) -> str:
+        return d.content_text or kb_blocks.plain_text(kb_blocks.loads(d.blocks))
+    buf = io.BytesIO()
+    if format == "docx":
+        import docx
+        doc = docx.Document()
+        doc.add_heading(f"Greens Global Knowledge Base - {label}", 0)
+        doc.add_paragraph(f"Exported {us} by {_name(db, me_)} · {len(pages)} pages")
+        for d in pages:
+            doc.add_page_break()
+            doc.add_heading(d.title or "Untitled", 1)
+            doc.add_paragraph(meta(d)).italic = True
+            for para in text_of(d).splitlines():
+                if para.strip():
+                    doc.add_paragraph(para.strip())
+        doc.save(buf)
+        mime, ext = "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"
+    else:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.utils import simpleSplit
+        from reportlab.pdfgen import canvas as rl_canvas
+        W, H = letter
+        m = 0.08 * W
+        cv = rl_canvas.Canvas(buf, pagesize=letter)
+        cv.setTitle(f"Knowledge Base - {label}")
+        y = [H - m]
+
+        def line(s: str, font="Helvetica", size=10.0, gap=13.0):
+            for part in simpleSplit(s, font, size, W - 2 * m) or [""]:
+                if y[0] - gap < m:
+                    cv.showPage()
+                    y[0] = H - m
+                cv.setFont(font, size)
+                cv.drawString(m, y[0], part)
+                y[0] -= gap
+        line(f"Greens Global Knowledge Base - {label}", "Helvetica-Bold", 18, 24)
+        line(f"Exported {us} by {_name(db, me_)} · {len(pages)} pages", size=10)
+        for d in pages:
+            cv.showPage()
+            y[0] = H - m
+            line(d.title or "Untitled", "Helvetica-Bold", 15, 20)
+            line(meta(d), "Helvetica-Oblique", 9, 14)
+            y[0] -= 6
+            for para in text_of(d).splitlines():
+                line(para.strip())
+        cv.save()
+        mime, ext = "application/pdf", "pdf"
+    kb_core.event(db, kind="exported", actor=me_, note=f"{label}: {len(pages)} pages ({ext})", actor_name=_name(db, me_))
+    db.commit()
+    name = re.sub(r"[^A-Za-z0-9 -]", "", f"Knowledge Base - {label} - {today[5:7]}-{today[8:10]}-{today[:4]}")
+    buf.seek(0)
+    return StreamingResponse(buf, media_type=mime, headers={"Content-Disposition": f'attachment; filename="{name}.{ext}"'})
+
+
+@router.get("/reports/reading")
+def reading_report(days: int = Query(30, ge=7, le=365), user: dict = Depends(require_author), db: Session = Depends(get_db)):
+    """Page view report (WP 5.4, Oct 29 2026): most read, never opened and
+    reading by team, over the pages the caller looks after (Manage: every page
+    they may read; an owner: their pages and collections - Health's rule).
+    Counts and department names only - never who read what."""
+    from datetime import datetime, timedelta, timezone
+    me_ = user["email"].lower()
+    manage = kb_access.is_manage(user, db)
+    owned = {c.id for c in db.query(models.KbCollection).filter(models.KbCollection.owner_email == me_).all()}
+    pages = [d for d in _published(db, user) if manage or (d.owner_email or "").lower() == me_ or d.collection_id in owned]
+    ids = {d.id for d in pages}
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    rows = [v for v in db.query(models.KbView).filter(models.KbView.day >= since).all() if v.doc_id in ids] if ids else []
+    sc = kb_access.scope(user, db)
+    emps = {(e.work_email or "").lower(): e for e in db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email != "").all()}
+    per: dict[str, dict] = {}
+    teams: dict[str, dict] = {}
+    for v in rows:
+        p = per.setdefault(v.doc_id, {"views": 0, "readers": set(), "last_day": ""})
+        p["views"] += v.count or 0
+        p["readers"].add((v.user_email or "").lower())
+        p["last_day"] = max(p["last_day"], v.day or "")
+        emp = emps.get((v.user_email or "").lower())
+        if emp is None or (sc is not None and not auth.company_ok(emp.company or "", sc, shared_when_blank=True)):
+            continue
+        t = teams.setdefault(emp.department or "No Department", {"views": 0, "readers": set()})
+        t["views"] += v.count or 0
+        t["readers"].add((v.user_email or "").lower())
+    by_id = {d.id: d for d in pages}
+
+    def card(did: str, p: dict) -> dict:
+        d = by_id[did]
+        return {"id": d.id, "title": d.title, "code": d.doc_code or "", "page_type": d.page_type or "", "views": p["views"],
+                "readers": len(p["readers"]), "last_day": p["last_day"]}
+    top = sorted(per.items(), key=lambda kv: (-kv[1]["views"], by_id[kv[0]].title.lower()))[:20]
+    never = sorted((d for d in pages if d.id not in per), key=lambda d: (d.published_at or ""))
+    return {
+        "days": days,
+        "totals": {"pages": len(pages), "views": sum(p["views"] for p in per.values()),
+                   "readers": len({r for p in per.values() for r in p["readers"]}), "never_opened": len(never)},
+        "most_read": [card(did, p) for did, p in top],
+        "never_opened": [{"id": d.id, "title": d.title, "code": d.doc_code or "", "page_type": d.page_type or "",
+                          "published_at": d.published_at or ""} for d in never[:40]],
+        "by_team": sorted(({"department": k, "views": t["views"], "readers": len(t["readers"])} for k, t in teams.items()),
+                          key=lambda x: -x["views"]),
+    }
 
 
 @router.get("/health")
