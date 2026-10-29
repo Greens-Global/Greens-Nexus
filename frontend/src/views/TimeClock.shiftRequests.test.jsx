@@ -81,4 +81,45 @@ describe('Shift Requests on Workday > Time Off', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('No shift requests yet.')).toBeTruthy();
   }, SLOW);
+
+  // Neil, 10/28/2026: off by default, and off means no card - not a disabled
+  // New Request under a description of features the company does not have.
+  const OFF = { openShifts: false, swaps: false, offers: false, releaseShifts: false, timeOffRequests: true };
+
+  it('has no Shift Requests card when the company has every kind off', async () => {
+    shiftRequestsMine.mockResolvedValue(reqs({ settings: OFF }));
+    await renderTimeOff();
+    expect(await screen.findByText('Request Time Off')).toBeTruthy();
+    await waitFor(() => expect(shiftRequestsMine).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('Shift Requests')).toBeNull();
+    expect(screen.queryByRole('button', { name: /New Request/ })).toBeNull();
+  }, SLOW);
+
+  it('reads a missing setting as off', async () => {
+    shiftRequestsMine.mockResolvedValue(reqs({ settings: {} }));
+    await renderTimeOff();
+    expect(await screen.findByText('Request Time Off')).toBeTruthy();
+    await waitFor(() => expect(shiftRequestsMine).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('Shift Requests')).toBeNull();
+  }, SLOW);
+
+  it('still shows a request left waiting on me after the switch went off, with no New Request', async () => {
+    shiftRequestsMine.mockResolvedValue(reqs({ settings: OFF, incoming: [
+      { id: 'in1', kind: 'swap', status: 'pending_peer', summary: 'Bob Brown asked to swap', shift: theirs, targetShift: mine, requester: { email: 'bob@x.com', name: 'Bob Brown' } },
+    ] }));
+    await renderTimeOff();
+    expect(await screen.findByText('Shift Requests')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Accept' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /New Request/ })).toBeNull();
+    expect(screen.queryByText(/Swap a shift/)).toBeNull();
+  }, SLOW);
+
+  it('describes only the kinds the company turned on', async () => {
+    shiftRequestsMine.mockResolvedValue(reqs({ settings: { ...OFF, openShifts: true } }));
+    await renderTimeOff();
+    expect(await screen.findByText('Ask for an open shift.')).toBeTruthy();
+    expect(screen.queryByText(/teammate first/)).toBeNull();
+  }, SLOW);
 });
