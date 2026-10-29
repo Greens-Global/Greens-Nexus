@@ -776,7 +776,13 @@ def _timecard_rows(db: Session, email: str) -> list:
     (routers/timeclock.py). Auto-drafting an actual contractor invoice (Neil's
     India idea) is a separate feature with no existing hook to build on - out
     of scope here; this is the reminder half only."""
-    from routers.timeclock import _pay_type, _pay_period, _month_bounds, _signoff_state, _employee_today
+    from routers.timeclock import _pay_type, _pay_period, _month_bounds, _signoff_state, _employee_today, is_time_tracking_exempt
+    # Time-tracking exempt (salaried leadership - a group flagged in Settings >
+    # Access) has no time sheet, so nothing to confirm or submit (Oct 30 2026:
+    # Neil was asked to confirm one). Their review rows for OTHER people's
+    # time sheets are separate (_timesheet_review_rows) and stay.
+    if is_time_tracking_exempt(db, email):
+        return []
     today = _employee_today(db, email)
     start, end = (_month_bounds(today) if _pay_type(db, email) == "fixed" else _pay_period(today))
     end_d = datetime.strptime(end, "%Y-%m-%d").date()
