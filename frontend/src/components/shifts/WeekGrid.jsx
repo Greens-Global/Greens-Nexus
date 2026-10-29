@@ -453,7 +453,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
     const hasShifts = hasOpen || g.members.some((m) => days.some((d) => (byCell[`${m.email}|${isoDate(d)}`] || []).length));
     const people = `${g.members.length} ${g.members.length === 1 ? 'person' : 'people'}`;
     if (single) {
-      if (g.isGroup && prefs.open !== false && (hasOpen || canManage)) out.push(openRow(g));
+      if (g.isGroup && prefs.open !== false && (hasOpen || (canManage && g.openShifts))) out.push(openRow(g));
     } else {
     const gr = addRow(`minmax(${SLIM}px, auto)`);
     out.push(
@@ -499,7 +499,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
         </div>,
       );
     }
-    if (g.isGroup && prefs.open !== false && (hasOpen || canManage)) out.push(openRow(g));
+    if (g.isGroup && prefs.open !== false && (hasOpen || (canManage && g.openShifts))) out.push(openRow(g));
     }
     if (!g.members.length) {
       const er = addRow('auto');

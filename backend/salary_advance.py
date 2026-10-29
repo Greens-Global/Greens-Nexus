@@ -1,16 +1,43 @@
-"""Salary advances (Neil, Oct 27 2026) - the rules, the schedule and the
-pay card line. The routes are routers/salary_advances.py.
+"""Salary advances (Neil, Oct 27 2026; who and where, Oct 29 2026) - the
+rules, the schedule and the pay card line. The routes are
+routers/salary_advances.py.
 
-Who asks: a person whose role tier is manager or above (auth._LEVELS:
-manager 3, administrator 4, owner 5), for themself. Everyone else does not
-see the option.
+Neil, 10/29/2026: "I don't want there to be an option for even managers or
+HR to ask for an advance (for themselves) from workday. That should be
+limited to them as it relates to their direct reports (for managers) and
+should be available in the time sheet for that direct reports to them and
+to HR. Workday is not the right place for this."
+
+1. Nobody requests an advance for themselves, anywhere - not an employee, a
+   manager, HR or a Global Admin. HR's direct grant refuses your own too.
+2. Who can ask for someone, and where: from that person's Time Sheet
+   (can_request_for - the one rule the routes and the Time Sheet both read).
+   - Their DIRECT manager (the person's NexusEmployee.manager_email is the
+     caller) at manager tier or above (auth._LEVELS["manager"]) creates a
+     `requested` advance (source `request`, requested_by = the manager);
+     HR decides.
+   - HR for that person (is_hr_for) WITH the pay grant (can_decide) grants
+     it directly: approved at once.
+   - HR for that person WITHOUT the pay grant creates a `requested` advance
+     for an HR person with the pay grant to decide (they never see the
+     amount afterwards).
+   - Anyone else - a skip-level manager, a backup manager - cannot.
+   Never for someone who has left; one open `requested` advance per person
+   at a time.
+3. What each viewer sees (view_of / serialize): the employee sees their own
+   advances in full; HR with the pay grant sees everything; HR without it
+   sees that an advance exists and its status, never the amount or the
+   schedule; the requesting manager sees the advances THEY requested for
+   that person (amount, status, decision, paid-out date) but not the
+   repayment schedule; anyone else sees nothing.
 Who decides: HR for the person by the ONE scoped HR rule (hr_access.is_hr_for:
 the company's HR contact, an administrator or owner, a Full HR grant, inside
 their People scope / company walls) who ALSO holds the pay grant (an owner,
-or hr_comp Editor) - an advance is pay (release review, Oct 27 2026). HR
-without the pay grant sees that a request exists, never the amount, and
-cannot decide. HR approves or declines a request and can grant an advance to
-anyone directly. Nobody decides their own (the own-pay rule).
+or hr_comp Editor) - an advance is pay. HR approves or declines a request,
+marks it Paid Out and changes how it is repaid. Nobody decides their own.
+Where: the person's Time Sheet (its Salary Advances panel) and the Approvals
+inbox - every bell links to the Time Sheet (timesheet_link). Workday has no
+salary advance card.
 
 Repayment: when HR marks an advance Paid Out (with the date), it is split
 into its installments (default 1) and the first comes out of the NEXT pay
@@ -51,7 +78,21 @@ PAY_CLASS = "advanceRepayment"            # payroll_codes.PAY_CLASSES key
 MAX_AMOUNT = 1_000_000                    # a typo guard, not a policy limit
 MAX_INSTALLMENTS = 24
 PAY_METHODS = ("payroll", "ach", "check", "other")
-ACTION = {"view": "myhr", "sub": "salary-advances"}
+# Where an advance lives (Oct 29 2026): the person's Time Sheet. The
+# employee opens their own (Workday > Time Sheet); HR and the requesting
+# manager open the person's in People > Time (timesheet_review._notify's
+# shapes).
+OWN_TIMESHEET = {"view": "timeclock", "sub": "timesheet"}
+
+
+def timesheet_link(email: str, recipient: str = "") -> dict:
+    """The Time Sheet link for a bell or a row about `email`'s advance, as
+    `recipient` opens it."""
+    if recipient and norm(recipient) == norm(email):
+        return dict(OWN_TIMESHEET)
+    return {"view": "hr", "sub": "hr-time", "timecard": norm(email)}
+
+
 STATUS_LABEL = {"requested": "Requested", "approved": "Approved", "declined": "Declined",
                 "paid_out": "Paid Out", "repaying": "Repaying", "repaid": "Repaid", "canceled": "Canceled"}
 ACTION_WORD = {"requested": "Requested", "granted": "Granted by HR", "approved": "Approved", "declined": "Declined",
@@ -123,10 +164,6 @@ def local_today(db: Session, hr_email: str, adv: SalaryAdvance) -> str:
     return max(days)
 
 
-def can_request(user: dict) -> bool:
-    """Manager tier and up ask for their own advance (Neil, Oct 27)."""
-    from auth import _LEVELS
-    return int(user.get("level") or 0) >= _LEVELS["manager"]
 
 
 def pay_currency(db: Session, email: str) -> str:
@@ -151,12 +188,6 @@ def is_hr_for(db: Session, user, email: str) -> bool:
     sees that an advance exists; the amounts are pay (sees_pay)."""
     import hr_access
     return hr_access.is_hr_for(db, user, email)
-
-
-def hr_anywhere(db: Session, email: str) -> bool:
-    """Could this person be HR for anyone - so the HR side is worth showing."""
-    import hr_access
-    return hr_access.hr_anywhere(db, email)
 
 
 def _who(db: Session, user_or_email) -> dict:
@@ -198,6 +229,66 @@ def can_decide(db: Session, user_or_email, email: str) -> bool:
     Never on your own advance."""
     user = _who(db, user_or_email)
     return has_comp(db, user, write=True) and is_hr_for(db, user, email)
+
+
+LEFT = ("inactive", "offboarded", "terminated")
+
+
+def has_left(emp) -> bool:
+    return emp is not None and (emp.status or "active").lower() in LEFT
+
+
+def is_direct_manager(db: Session, user: dict, email: str) -> bool:
+    """The person's DIRECT manager (their manager_email is the caller) at the
+    manager tier or above - never a skip-level or a backup manager."""
+    from auth import _LEVELS
+    me = norm(user.get("email"))
+    if not me or user.get("external") or int(user.get("level") or 0) < _LEVELS["manager"]:
+        return False
+    emp = person(db, email)
+    return emp is not None and norm(emp.manager_email) == me and norm(email) != me
+
+
+def can_request_for(db: Session, user_or_email, email: str) -> str:
+    """Rule 2 (Oct 29 2026): what the caller may do from `email`'s Time
+    Sheet - "grant" (HR for them with the pay grant: approved at once),
+    "request" (their direct manager, or HR without the pay grant: a request
+    for HR to decide) or "" (anyone else, yourself, someone who has left)."""
+    user = _who(db, user_or_email)
+    me, em = norm(user.get("email")), norm(email)
+    if not me or not em or me == em or user.get("external"):
+        return ""
+    emp = person(db, em)
+    if emp is None or has_left(emp):
+        return ""
+    if is_hr_for(db, user, em):
+        return "grant" if can_decide(db, user, em) else "request"
+    return "request" if is_direct_manager(db, user, em) else ""
+
+
+def view_of(db: Session, viewer: dict | None, adv: SalaryAdvance) -> str:
+    """Rule 3 (Oct 29 2026): "full" (internal callers, the person, HR with
+    the pay grant), "exists" (HR without it: that it exists and its status),
+    "requester" (the manager who asked for it: amount, status, decision,
+    paid-out date - no repayment schedule) or "" (nothing)."""
+    if viewer is None:
+        return "full"
+    user = _who(db, viewer)
+    me, em = norm(user.get("email")), norm(adv.employee_email)
+    if me and me == em:
+        return "full"
+    hr = is_hr_for(db, user, em)
+    if hr and has_comp(db, user):
+        return "full"
+    asker = bool(me) and (adv.source or "request") == "request" and norm(adv.requested_by) == me \
+        and not user.get("external")
+    # The direct manager who asked keeps the requester view of what they
+    # asked for even when they are also HR without the pay grant (Oct 29
+    # 2026 review). HR without the pay grant who is NOT the person's manager
+    # still sees only that it exists - it never sees the amount again.
+    if asker and (not hr or is_direct_manager(db, user, em)):
+        return "requester"
+    return "exists" if hr else ""
 
 
 def log(adv: SalaryAdvance, by: str, action: str, note: str = "", detail: dict | None = None) -> None:
@@ -307,12 +398,17 @@ def pending_for_hr(db: Session, user: dict) -> list[SalaryAdvance]:
 def serialize(db: Session, adv: SalaryAdvance, rows: list | None = None, names: dict | None = None,
               viewer: dict | None = None) -> dict:
     """The advance as `viewer` may see it (None = everything - internal
-    callers). Without sees_pay the amounts, balances, schedule amounts and
-    the history's notes (they quote amounts) are left out: HR without the pay
-    grant sees that a request exists, no more, and cannot decide."""
+    callers), by view_of (rule 3). "exists" (HR without the pay grant): the
+    amounts, balances, the schedule and the history's notes (they quote
+    amounts) are left out, and the reason and decision note are blank (they
+    can quote it) - that it exists and its status, no more, and it cannot
+    decide. "requester" (the manager who asked): the amount, status,
+    decision and paid-out date - no repayment schedule, balance or payment
+    reference, and Repaying / Repaid read Paid Out. Callers filter out the advances view_of says "" for."""
     rows = installments(db, adv.id) if rows is None else rows
     names = {} if names is None else names
-    pay = True if viewer is None else sees_pay(db, viewer, adv.employee_email)
+    view = view_of(db, viewer, adv)
+    pay = view in ("full", "requester")
     decide = False if viewer is None else can_decide(db, viewer, adv.employee_email)
 
     def nm(e: str) -> str:
@@ -347,15 +443,27 @@ def serialize(db: Session, adv: SalaryAdvance, rows: list | None = None, names: 
                         for h in (adv.history or [])],
             "createdAt": adv.created_at or "", "updatedAt": adv.updated_at or "",
             "payVisible": pay, "canDecide": decide}
-    if not pay:
-        for k in ("amount", "repaid", "balance", "scheduled", "paymentRef"):
+    if view in ("exists", "requester"):
+        for k in ("repaid", "balance", "scheduled", "paymentRef", "paymentMethod"):
             out.pop(k, None)
-        for row in out["schedule"]:
-            row.pop("amount", None)
-            row.pop("deductedAmount", None)
-        out["history"] = [{k: h.get(k) for k in ("at", "by", "byName", "action", "label") if k in h}
-                          for h in out["history"]]
+        out["schedule"] = []
+        keep = ("at", "by", "byName", "action", "label")
+        hist = [{k: h.get(k) for k in keep if k in h} for h in out["history"]]
+        if view == "requester":   # the decision, not how it is repaid
+            hist = [h for h in hist if h.get("action") in _REQUESTER_ACTIONS]
+            # Repaying / Repaid would hint at the schedule: to the one who
+            # asked it reads Paid Out (Oct 29 2026 review).
+            if out["status"] in ("repaying", "repaid"):
+                out["status"], out["statusLabel"] = "paid_out", STATUS_LABEL["paid_out"]
+        out["history"] = hist
+    if view == "exists":
+        out.pop("amount", None)
+        out["decisionNote"] = ""      # a decision note may quote the amount
+        out["reason"] = ""            # so may the reason the manager gave
     return out
+
+
+_REQUESTER_ACTIONS = ("requested", "granted", "approved", "declined", "canceled", "paid_out")
 
 
 # ── Notices: one per advance for HR, one per advance for the person ──────────
@@ -388,8 +496,9 @@ def tell_hr(db: Session, adv: SalaryAdvance, title: str, line: str, actor: str =
     for who in hr_people(db, adv):
         if who == norm(actor):
             continue
-        upsert_rollup(db, recipient=who, key=_hr_key(adv), title=title, line=line, action=ACTION,
-                      company=adv.company or "", requested_by=actor, replace=True, priority=1)
+        upsert_rollup(db, recipient=who, key=_hr_key(adv), title=title, line=line,
+                      action=timesheet_link(adv.employee_email, who), company=adv.company or "",
+                      requested_by=actor, replace=True, priority=1)
 
 
 def settle_hr(db: Session, adv: SalaryAdvance, title: str, line: str) -> None:
@@ -408,8 +517,21 @@ def tell_person(db: Session, adv: SalaryAdvance, title: str, line: str, actor: s
     em = norm(adv.employee_email)
     if not em or em == norm(actor):
         return
-    upsert_rollup(db, recipient=em, key=_person_key(adv), title=title, line=line, action=ACTION,
-                  company=adv.company or "", requested_by=actor)
+    upsert_rollup(db, recipient=em, key=_person_key(adv), title=title, line=line,
+                  action=timesheet_link(em, em), company=adv.company or "", requested_by=actor)
+
+
+def tell_requester(db: Session, adv: SalaryAdvance, title: str, line: str, actor: str = "") -> None:
+    """The manager (or HR without the pay grant) who asked for someone's
+    advance hears the answer - one notice per advance, opening the person's
+    Time Sheet. Never the amount: HR without the pay grant may have asked.
+    Nothing for a grant, or an old request the person made themself."""
+    from notify_rollup import upsert_rollup
+    by, em = norm(adv.requested_by), norm(adv.employee_email)
+    if (adv.source or "request") != "request" or not by or by in (em, norm(actor)):
+        return
+    upsert_rollup(db, recipient=by, key=f"salary-advance:{adv.id}:requester", title=title, line=line,
+                  action=timesheet_link(em, by), company=adv.company or "", requested_by=actor)
 
 
 # ── The schedule ─────────────────────────────────────────────────────────────

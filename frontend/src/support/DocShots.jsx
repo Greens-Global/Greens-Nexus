@@ -160,7 +160,7 @@ const SHOTS = {
   clock: {
     legend: ['Time Clock, at the top of Overview', 'Punch In (becomes Punch Out once you are in)', 'Start Break / End Break', 'Where the punch was recorded'],
     render: () => (
-      <Frame title="Workday" tabs={['Overview', 'Time Sheet', 'Time Off']} active="Overview" activeRail={1} tabMark={1}>
+      <Frame title="Workday" tabs={['Overview', 'Time Sheet', 'Time Off', 'Performance']} active="Overview" activeRail={1} tabMark={1}>
         <Row style={{ alignItems: 'stretch' }}>
           <Card style={{ flex: 1.2 }}>
             <Col gap={9} style={{ alignItems: 'center', padding: '4px 0' }}>
@@ -233,9 +233,9 @@ const SHOTS = {
     ),
   },
   kb: {
-    legend: ['Playbook tab - the whole library', 'Search box - filters as you type (or press /)', 'Ask AI - answers from approved SOPs, with sources', 'Verified or Needs Verification - is it current?'],
+    legend: ['Library tab - every published page', 'Search box - press Enter to search', 'Ask - Nexus answers from the pages, with its sources', 'Each page\'s owner keeps it current - Review due means it needs a look'],
     render: () => (
-      <Frame title="Knowledge Base" tabs={['Playbook', 'Learn']} active="Playbook" activeRail={3} tabMark={1}>
+      <Frame title="Knowledge Base" tabs={['Library', 'Training']} active="Library" activeRail={3} tabMark={1}>
         <Col gap={9}>
           <Row gap={14}>
             <Mark n={2} style={{ flex: 1, minWidth: 0 }}>
@@ -243,10 +243,10 @@ const SHOTS = {
                 <Search size={12} /> How do I process a move-out?
               </div>
             </Mark>
-            <Mark n={3}><Btn primary icon={Sparkles}>Ask AI</Btn></Mark>
+            <Mark n={3}><Btn primary icon={Sparkles}>Ask</Btn></Mark>
           </Row>
           {[['Move-Out Inspection SOP', true], ['Gate Code Reset Procedure', true], ['Lock Cut Policy', false]].map(([t, ok], i) => {
-            const chip = <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: soft(ok ? 'green' : 'orange'), color: solid(ok ? 'green' : 'orange'), whiteSpace: 'nowrap' }}>{ok ? 'Verified' : 'Needs Verification'}</span>;
+            const chip = <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: soft(ok ? 'green' : 'orange'), color: solid(ok ? 'green' : 'orange'), whiteSpace: 'nowrap' }}>{ok ? 'Up to Date' : 'Review Due'}</span>;
             return (
               <Card key={t} style={{ padding: '7px 16px 7px 10px' }}>
                 <Row>
@@ -309,7 +309,7 @@ const SHOTS = {
   people: {
     legend: ['People tab - the employee directory', 'Add Person', 'Fill in their details and manager', 'Choose a Job Role - it decides their Nexus access'],
     render: () => (
-      <Frame title="People" tabs={['People', 'Hiring', 'Org Chart', 'Leave', 'Time']} active="People" activeRail={-1} tabMark={1}
+      <Frame title="People" tabs={['People', 'Hiring', 'Org Chart', 'Time', 'Checklists']} active="People" activeRail={-1} tabMark={1}
         headerMark={<Mark n={2}><Btn primary icon={Plus}>Add Person</Btn></Mark>}>
         <Row style={{ alignItems: 'stretch' }} gap={12}>
           <Card style={{ flex: 1, minWidth: 0, padding: 0 }}>
@@ -331,11 +331,11 @@ const SHOTS = {
     ),
   },
   support: {
-    legend: ['Submit a Ticket - help from any team', 'Open Tickets - click a row to follow up', 'Documentation tab - this guide'],
+    legend: ['Submit a Ticket - help from any team', 'Open Tickets - click a row to follow up', 'Documentation - this guide'],
     render: () => (
-      <Frame title="Help Center" tabs={['Help Center', 'Documentation']} active="Help Center" activeRail={5} tabMark={3} markedTab="Documentation">
+      <Frame title="Help Center" tabs={['Help Center']} active="Help Center" activeRail={5}>
         <Row style={{ alignItems: 'stretch' }} gap={10}>
-          {[[Ticket, 'Submit a Ticket'], [CircleHelp, 'Assistant'], [BookOpen, 'Documentation'], [GraduationCap, 'Knowledge Base & Training']].map(([I, t], i) => {
+          {[[Ticket, 'Submit a Ticket'], [CircleHelp, 'Ask Nexus'], [BookOpen, 'Documentation'], [GraduationCap, 'Knowledge Base & Training']].map(([I, t], i) => {
             const card = (
               <Card style={{ padding: 8, width: '100%', boxSizing: 'border-box' }}>
                 <span style={{ width: 22, height: 22, borderRadius: 6, background: 'var(--mist)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 6 }}><I size={12} style={{ color: 'var(--ink)' }} /></span>
@@ -343,8 +343,8 @@ const SHOTS = {
                 <div style={{ marginTop: 5 }}><Line w="85%" o={0.6} /></div>
               </Card>
             );
-            return i === 0
-              ? <Mark key={t} n={1} style={{ flex: 1, minWidth: 0 }}>{card}</Mark>
+            return i === 0 || i === 2
+              ? <Mark key={t} n={i === 0 ? 1 : 3} style={{ flex: 1, minWidth: 0 }}>{card}</Mark>
               : <div key={t} style={{ flex: 1, minWidth: 0, display: 'flex' }}>{card}</div>;
           })}
         </Row>

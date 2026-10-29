@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Send, CheckCircle, XCircle, Pencil, Briefcase } from 'lucide-react';
 import { api } from '../../api';
-import { Modal, DateField } from '../../tasks/components';
+import { Modal, DateField, AvatarName } from '../../tasks/components';
 import { StatusLabel } from '../StatusLabel';
 import { SkeletonBlocks, ErrorBanner, Spinner } from '../AsyncState';
 import { formatDate, formatDateTime } from '../../lib/datetime';
@@ -40,9 +40,15 @@ function salaryText(r) {
   return `${lo != null && hi != null && lo !== hi ? `${f(lo)} - ${f(hi)}` : f(lo ?? hi)} ${PERIOD[r.salaryPeriod] || 'per year'}`;
 }
 
-function stepText(r) {
+// The approvers it waits on, each with their face. `card` is false inside the
+// list row, which is itself a button.
+function approverNames(list, card = true) {
+  return list.map((a, i) => <span key={a.email || i}>{i ? ', ' : ''}<AvatarName email={a.email} name={a.name} size={16} card={card} /></span>);
+}
+
+function stepText(r, card = true) {
   if (r.status === 'awaiting_approval') {
-    if (r.step === 'department') return `Waiting on the department (${r.deptApprovers.map(a => a.name).join(', ') || 'Global Admins'})`;
+    if (r.step === 'department') return r.deptApprovers.length ? <>Waiting on the department ({approverNames(r.deptApprovers, card)})</> : 'Waiting on the department (Global Admins)';
     return 'Waiting on HR';
   }
   if (r.status === 'approved') return r.openingId ? 'Approved - the job opening is with HR' : 'Approved';
@@ -107,9 +113,9 @@ export default function HeadcountRequests({ toastOk, toastErr }) {
                   <span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: 12 }}> · {r.code}</span>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                  {[r.companyName, r.department, r.location].filter(Boolean).join(' · ')} - raised by {r.requestedByName} {r.submittedAt ? `on ${formatDate(r.submittedAt)}` : ''}
+                  {[r.companyName, r.department, r.location].filter(Boolean).join(' · ')} - raised by <AvatarName email={r.requestedBy} name={r.requestedByName} size={18} card={false} /> {r.submittedAt ? `on ${formatDate(r.submittedAt)}` : ''}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{stepText(r)}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{stepText(r, false)}</div>
               </div>
               {r.canDecide && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--wk-brand, #2b45e1)' }} title="Waiting on you" />}
               <StatusLabel label={STATUS[r.status]?.label || r.status} color={STATUS[r.status]?.color} />
@@ -177,10 +183,10 @@ function RequestDetail({ r, meta, onClose, onChanged, onEdit, toastOk, toastErr 
         <Fact label="Location">{r.location || '-'}</Fact>
         <Fact label="Target Start">{r.targetStart ? formatDate(r.targetStart) : '-'}</Fact>
         <Fact label="Salary Range">{r.canSeePay ? (salaryText(r) || 'Not given') : r.hasSalary ? 'Set - shown to Pay & Benefits only' : 'Not given'}</Fact>
-        <Fact label="Raised By">{r.requestedByName}</Fact>
+        <Fact label="Raised By">{r.requestedByName ? <AvatarName email={r.requestedBy} name={r.requestedByName} size={22} /> : '-'}</Fact>
         <Fact label="Approvals">
-          {`Department: ${r.deptDecidedByName ? `${r.deptDecidedByName}` : r.deptApprovers.map(a => a.name).join(', ') || '-'}`}
-          {`\nHR: ${r.hrDecidedByName || (r.step === 'hr' ? 'waiting' : '-')}`}
+          <div>Department: {r.deptDecidedByName ? <AvatarName email={r.deptDecidedBy} name={r.deptDecidedByName} size={18} /> : r.deptApprovers.length ? approverNames(r.deptApprovers) : '-'}</div>
+          <div>HR: {r.hrDecidedByName ? <AvatarName email={r.hrDecidedBy} name={r.hrDecidedByName} size={18} /> : (r.step === 'hr' ? 'waiting' : '-')}</div>
         </Fact>
       </div>
       <Fact label="Justification">{r.justification || '-'}</Fact>
@@ -197,7 +203,7 @@ function RequestDetail({ r, meta, onClose, onChanged, onEdit, toastOk, toastErr 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {r.history.map((h, i) => (
               <div key={i} style={{ fontSize: 12.5, color: 'var(--ink)' }}>
-                <b>{ACTIONS[h.action] || h.action}</b> - {h.byName || 'Nexus'} · {formatDateTime(h.at)}
+                <b>{ACTIONS[h.action] || h.action}</b> - {h.byName ? <AvatarName email={h.by} name={h.byName} size={16} /> : 'Nexus'} · {formatDateTime(h.at)}
                 {h.note && <div style={{ color: 'var(--muted)', marginTop: 1 }}>{h.note}</div>}
               </div>
             ))}

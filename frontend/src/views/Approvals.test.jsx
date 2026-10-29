@@ -19,11 +19,21 @@ vi.mock('../api', () => ({
     timeOffDecide: (...a) => timeOffDecide(...a),
     decideReimbursement: (...a) => decideReimbursement(...a),
     addTaskComment: (...a) => addTaskComment(...a),
+    // The profile pictures' directory (lib/peoplePhotos.js).
+    getPeopleDirectory: () => Promise.resolve([{ email: 'priya.s@greensglobal.com', photoUrl: '' }]),
+    // The sort the person picked follows them (tasks/tableCols.jsx).
+    getTaskTablePrefs: () => Promise.resolve({ prefs: {} }),
+    saveTaskTablePrefs: () => Promise.resolve({}),
     ...Object.fromEntries(Object.keys(hrApi).map((k) => [k, (...a) => hrApi[k](...a)])),
   },
 }));
 const prompt = vi.fn();
 vi.mock('../ui/dialog', () => ({ dialog: { prompt: (...a) => prompt(...a), confirm: vi.fn() } }));
+// The rows' profile pictures carry the person hover card, which reads the role.
+vi.mock('../contexts/RoleContext', async (importOriginal) => ({
+  ...(await importOriginal()),
+  useRole: () => ({ isExternal: false, can: () => false, myGrantedModules: new Set(), myEmail: 'me@greensglobal.com' }),
+}));
 
 const { default: Approvals } = await import('./Approvals');
 const { UNDO_MS, shortName, waited, runApproval, runsInline } = await import('../lib/approvalActions');
@@ -36,15 +46,15 @@ const INBOX = {
       person: { email: 'priya.s@greensglobal.com', name: 'Priya Sharma' },
       title: 'Time Off - 11/03/2026 to 11/05/2026 (3 days)', detail: 'Vacation', createdAt: iso(26),
       actions: [A('approve', 'Approve', 'primary'), A('reject', 'Reject', 'plain', 'optional')],
-      link: { view: 'hr', sub: 'hr-time' }, forName: 'Max Test' },
+      link: { view: 'hr', sub: 'hr-time' }, forName: 'Max Test', priority: 'medium' },
     { key: 'reimbursement:r1', kind: 'reimbursement', id: 'r1', group: 'money', source: 'reimbursement', count: 1,
       person: { email: 'ankit.p@greensglobal.com', name: 'Ankit Patel' },
       title: 'Reimbursement - $142.50 (2 receipts)', detail: 'Monitor', createdAt: iso(5),
       actions: [A('approve', 'Approve', 'primary'), A('send_back', 'Send Back', 'plain', 'required')],
-      link: { view: 'myhr', sub: 'reimbursements' }, forName: '' },
+      link: { view: 'myhr', sub: 'reimbursements' }, forName: '', priority: 'urgent' },
     { key: 'timesheet_review:a|b', kind: 'timesheet_review', id: 'a|b', group: 'timesheets', source: 'timesheet_review', count: 4,
       person: { email: '', name: 'Austin' }, title: 'Time Sheet Review - 10/12/2026 to 10/25/2026 (4 people)',
-      detail: '', createdAt: iso(2), actions: [A('open', 'Review')], link: { view: 'hr', sub: 'hr-time' }, forName: '' },
+      detail: '', createdAt: iso(2), actions: [A('open', 'Review')], link: { view: 'hr', sub: 'hr-time' }, forName: '', priority: 'low' },
   ],
   counts: { time_off: 1, reimbursement: 1, timesheet_review: 4 },
   groups: { timeoff: 1, money: 1, timesheets: 4 },
@@ -68,7 +78,7 @@ describe('Approvals', () => {
     const onSubChange = vi.fn();
     const { rerender } = render(<Approvals activeSub={null} onSubChange={onSubChange} />);
     expect(await screen.findByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)')).toBeTruthy();
-    expect(screen.getByText('Priya S.')).toBeTruthy();
+    expect(screen.getByText('Priya Sharma')).toBeTruthy();      // the whole name, never "Priya S."
     expect(screen.getByText('Austin')).toBeTruthy();
     expect(screen.getByText('For Max Test')).toBeTruthy();
     expect(screen.getByText('1d ago')).toBeTruthy();
@@ -148,16 +158,109 @@ describe('Approvals', () => {
     expect(screen.queryByText('Undo')).toBeNull();
   });
 
-  it('opens a row that needs more than one click in its module', async () => {
+  it('opens a row that needs more than one click in its module, through Review', async () => {
     approvalsInbox.mockResolvedValue(INBOX);
     const seen = [];
     const on = (e) => seen.push(e.detail);
     window.addEventListener('nexus:navigate', on);
     render(<Approvals />);
     const row = (await screen.findByText(/Time Sheet Review/)).closest('.apv-row');
+    // One Review button on the row, never a second one from the row's own Open.
+    expect(within(row).getAllByRole('button', { name: /^Review:/ })).toHaveLength(1);
     fireEvent.click(within(row).getByRole('button', { name: /^Review:/ }));
+    expect(seen).toEqual([]);                                   // Review shows the detail first
+    fireEvent.click(await screen.findByRole('button', { name: /^Open In / }));
     window.removeEventListener('nexus:navigate', on);
     expect(seen).toEqual([{ view: 'hr', sub: 'hr-time' }]);
+  });
+
+  // Neil, 10/28/2026: Review gives the detail, a photo by every name, and
+  // the approvals are easy to clear.
+  it('Review lists every detail and decides from there', async () => {
+    approvalsInbox.mockResolvedValue({ ...INBOX, rows: INBOX.rows.map((r) => (r.kind === 'time_off'
+      ? { ...r, facts: [{ label: 'Type', value: 'Vacation' }, { label: 'Note', value: 'Family wedding in Pune' }] } : r)) });
+    timeOffDecide.mockResolvedValue({ conflicts: [] });
+    render(<Approvals />);
+    const row = (await screen.findByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)')).closest('.apv-row');
+    expect(row.querySelector('img, [title], div')).toBeTruthy();   // the avatar sits in the row
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fireEvent.click(within(row).getByRole('button', { name: /^Review:/ }));
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).getByText('Priya Sharma')).toBeTruthy();
+    expect(within(dlg).getByText('Family wedding in Pune')).toBeTruthy();
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Approve' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(UNDO_MS + 100); });
+    expect(timeOffDecide).toHaveBeenCalledWith('t1', { status: 'approved', note: '' });
+  });
+
+  it('approves the selected rows together, with one Undo', async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    timeOffDecide.mockResolvedValue({ conflicts: [] });
+    decideReimbursement.mockResolvedValue({});
+    render(<Approvals />);
+    await screen.findByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)');
+    // A row whose next step is in its module has no checkbox.
+    const review = screen.getByText(/Time Sheet Review/).closest('.apv-row');
+    expect(within(review).queryByRole('checkbox')).toBeNull();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fireEvent.click(screen.getByRole('checkbox', { name: /^Select every request/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }));
+    expect(screen.queryByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)')).toBeNull();
+    expect(screen.queryByText('Reimbursement - $142.50 (2 receipts)')).toBeNull();
+    fireEvent.click(screen.getByText('Undo'));
+    expect(screen.getByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)')).toBeTruthy();
+    expect(screen.getByText('Reimbursement - $142.50 (2 receipts)')).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox', { name: /^Select every request/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }));
+    await act(async () => { vi.advanceTimersByTime(UNDO_MS + 100); });
+    expect(timeOffDecide).toHaveBeenCalledWith('t1', { status: 'approved', note: '' });
+    expect(decideReimbursement).toHaveBeenCalledWith('r1', { action: 'approve', note: '' });
+  });
+});
+
+// Neil, 10/28/2026: sort by priority, banding and a hover, sorts and filters.
+describe('Approvals sorts and filters', () => {
+  const titles = () => [...document.querySelectorAll('.apv-row .apv-title')].map((b) => b.textContent);
+
+  it('sorts oldest first by default, and by priority, newest or name on request', async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    render(<Approvals />);
+    await screen.findByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)');
+    expect(titles()[0]).toMatch(/^Time Off/);
+    expect(document.querySelector('.apv-list .apv-row').className).toContain('nx-row-hover');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort approvals' }), { target: { value: 'priority' } });
+    expect(titles().map((t) => t.split(' ')[0])).toEqual(['Reimbursement', 'Time', 'Time']);
+    expect(titles()[2]).toMatch(/^Time Sheet Review/);
+    expect(document.querySelector('.apv-row .apv-prio').textContent).toBe('Urgent');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort approvals' }), { target: { value: 'newest' } });
+    expect(titles()[0]).toMatch(/^Time Sheet Review/);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort approvals' }), { target: { value: 'person' } });
+    expect(titles()[0]).toMatch(/^Reimbursement/);              // Ankit, Austin, Priya
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort approvals' }), { target: { value: 'oldest' } });
+  });
+
+  it('filters by priority and a search, and Approve Selected takes only what is shown', async () => {
+    approvalsInbox.mockResolvedValue(INBOX);
+    timeOffDecide.mockResolvedValue({ conflicts: [] });
+    decideReimbursement.mockResolvedValue({});
+    render(<Approvals />);
+    await screen.findByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter by priority' }), { target: { value: 'high' } });
+    expect(titles()).toEqual(['Reimbursement - $142.50 (2 receipts)']);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter by priority' }), { target: { value: 'all' } });
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search approvals' }), { target: { value: 'priya' } });
+    expect(titles()).toEqual(['Time Off - 11/03/2026 to 11/05/2026 (3 days)']);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fireEvent.click(screen.getByRole('checkbox', { name: /^Select every request/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (1)' }));
+    await act(async () => { vi.advanceTimersByTime(UNDO_MS + 100); });
+    expect(timeOffDecide).toHaveBeenCalledTimes(1);
+    expect(decideReimbursement).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search approvals' }), { target: { value: 'nobody' } });
+    expect(screen.getByText('No approvals match your filters')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Filters' }));
+    expect(screen.getByText('Reimbursement - $142.50 (2 receipts)')).toBeTruthy();
   });
 });
 

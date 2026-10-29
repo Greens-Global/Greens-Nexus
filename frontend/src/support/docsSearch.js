@@ -49,8 +49,10 @@ const Q_FUZZY = 0.75;   // one typo
 // docsSearch.test.js: real questions land well above it, junk far below.
 // Every new guide entry lowers every score a little (rarity is relative to
 // the guide's size), so the edge pair the tests pin drifts: Oct 21 "vacat"
-// measured 3.495 and the junk "movie times" 3.401, so the floor sits between.
-export const MIN_SCORE = 3.45;
+// measured 3.495 and the junk "movie times" 3.401; after the Oct 29 2026
+// guide refresh "vacat" measures 3.433 and "movie times" 3.357, so the floor
+// sits between them.
+export const MIN_SCORE = 3.4;
 // Ticket suggestions sit inside a form, so they need to be surer.
 export const TICKET_MIN_SCORE = 4;
 // Results under this share of the best result's score are dropped as noise.
@@ -623,7 +625,7 @@ function enoughCoverage(matched, n) {
  * @param {string} text what the person typed
  * @param {object} [opts]
  * @param {number} [opts.limit=8] most results to return
- * @param {(docId: string) => boolean} [opts.allow] keep only docs the person can open
+ * @param {(docId: string, kind?: string) => boolean} [opts.allow] keep only docs (and sections) the person can open
  * @param {number} [opts.perDoc=3] most results from any one module
  * @param {number} [opts.minScore=MIN_SCORE] relevance floor
  * @returns {Array<{id, docId, docName, kind, title, anchor, snippet, body, view, sub, score}>}
@@ -639,7 +641,9 @@ export function searchDocs(text, opts = {}) {
     if (sources && !sources.includes(s.source)) continue;
     // Guide pages follow the left menu's access rule; Knowledge Base rows were
     // already scoped by the server to what this person may read.
-    if (allow && s.source === 'guide' && !allow(s.docId)) continue;
+    // `allow` also takes the section's kind: a Managers & Admins block is
+    // only for people who see it in Documentation (supervisor and up).
+    if (allow && s.source === 'guide' && !allow(s.docId, s.kind)) continue;
     const r = scoreSection(s, concepts, index, coverageWeight);
     if (!r || r.score < minScore || !coverage(r.matched, concepts.length)) continue;
     scored.push({ s, score: r.score });
@@ -705,7 +709,7 @@ export function suggestForTicket(subject, description, opts = {}) {
 /** The guide entry for an app view id (e.g. "myhr" -> Workday), or null. */
 export function docForView(view) {
   if (!view) return null;
-  return DOCS.find((d) => d.view === view) || null;
+  return DOCS.find((d) => d.view === view) || DOCS.find((d) => d.alsoViews?.includes(view)) || null;
 }
 
 /** Label for where a result comes from. */

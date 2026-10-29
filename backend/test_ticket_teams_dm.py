@@ -88,8 +88,17 @@ class QueueingTests(unittest.TestCase):
         _queue_requester_teams_dm(self.db, t, AGENT, comment="hi")
         self.db.commit()
         row = self.db.query(models.TicketTeamsMessage).filter_by(ticket_id=t.id).first()
-        self.assertIn("/support?ticket=", row.html)
+        self.assertIn("/help-center?ticket=", row.html)
         self.assertNotIn("/tickets?ticket=", row.html)
+
+    def test_ticket_url_reads_help_center_for_requesters_and_tickets_for_the_desk(self):
+        # The Help Center's own address (Oct 2026); /support was rewritten on
+        # load and the ?ticket= was lost on the way (fixed in lib/routes.js too).
+        import ticket_mail_templates as tmpl
+        self.assertEqual(tmpl._ticket_url("https://nexus.test/", "t1", for_requester=True),
+                         "https://nexus.test/help-center?ticket=t1")
+        self.assertEqual(tmpl._ticket_url("https://nexus.test", "t1"), "https://nexus.test/tickets?ticket=t1")
+        self.assertEqual(tmpl._ticket_url("", "t1", for_requester=True), "#")
 
     def test_the_requester_editing_their_own_ticket_gets_no_dm(self):
         t = _ticket()

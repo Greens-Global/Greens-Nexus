@@ -65,9 +65,15 @@ import job_switch
 SETTINGS_BASE = "hr_letters"
 LINK_KIND = "hr_letter"
 BELL_SOURCE = "hr-letters"            # NexusNotification.requested_by - finds this flow's bells
-# Where HR's bells open: My HR, whose HR Letters card lists the requests
-# waiting on them - every HR contact can open it, People access or not.
-_HR_ACTION = {"view": "myhr", "sub": "overview"}
+# Where the bells open (Neil, Oct 28 2026): Ask HR on My HR, where letters
+# live beside the other HR requests and the ones waiting on HR head the
+# panel - every HR contact can open it, People access or not. A bell about
+# one request still waiting on HR opens that request (`_hr_action_for`).
+_HR_ACTION = {"view": "myhr", "sub": "ask-hr"}
+
+
+def _hr_action_for(req) -> dict:
+    return {"view": "myhr", "sub": f"ask-hr:letter:{req.id}"}
 EGNYTE_SUBFOLDER = "HR Letters"
 FILING_BACKOFF_MIN = (1, 5, 15, 60, 180, 360)
 
@@ -638,7 +644,7 @@ def _bell(db: Session, to: str, title: str, body: str, req: HrLetterRequest, act
 
 
 def _tell_employee(db: Session, req: HrLetterRequest, title: str, body: str) -> None:
-    _bell(db, req.employee_email, title, body, req, {"view": "myhr", "sub": "overview"})
+    _bell(db, req.employee_email, title, body, req, dict(_HR_ACTION))
 
 
 def _hr_audience(db: Session, req: HrLetterRequest) -> list:
@@ -705,7 +711,7 @@ def create(db: Session, emp: NexusEmployee, body: dict) -> HrLetterRequest:
     for to in _hr_audience(db, req):
         _bell(db, to, f"New Letter Request - {name}",
               f"{name} asked for a {letter_noun(key)}{when}: {purpose[:200]}", req,
-              _HR_ACTION)
+              _hr_action_for(req))
     return req
 
 
@@ -893,7 +899,7 @@ def _back_to_review(db: Session, env: HrSignRequest, note: str) -> None:
     req.status, req.note, req.sign_request_id, req.updated_at = "in_review", note[:1000], "", _now()
     _bell(db, req.issued_by, f"Letter Not Signed - {req.employee_name}",
           f"{note} The {letter_noun(req.letter_type)} is back In Review - fix it and issue it again, or decline it.",
-          req, _HR_ACTION)
+          req, _hr_action_for(req))
     _tell_employee(db, req, f"{letter_noun(req.letter_type)} - In Review",
                    f"Your {letter_noun(req.letter_type)} needs another look from HR before it is issued.")
 

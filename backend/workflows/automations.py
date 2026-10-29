@@ -101,7 +101,9 @@ def jobs() -> list[dict]:
         _job("hr_checklists", "Checklist Reminders",
              "The day's onboarding and offboarding checklist reminders; the checklist sync itself keeps running.",
              "Daily", "hiring"),
-        _job("hr_probation", "Probation Ending", "One bell and email per manager or HR contact, once per end date.",
+        _job("hr_probation", "Probation",
+             "Passes probation automatically at the end date when nothing was decided, and sends the reminder "
+             "before it. Off: neither happens.",
              "Daily", "hiring"),
         _job("hr_record_audit", "Records Audit", "Missing details and expired documents, one bell per company.",
              "Daily"),

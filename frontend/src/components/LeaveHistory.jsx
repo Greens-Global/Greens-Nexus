@@ -8,6 +8,7 @@ import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { ErrorBanner, SkeletonBlocks } from './AsyncState';
 import { StatusLabel } from './StatusLabel';
+import { AvatarName } from '../tasks/components';
 
 const TYPE = { annual: 'Annual', sick: 'Sick', unpaid: 'Unpaid' };
 const STATUS = {
@@ -18,6 +19,7 @@ export default function LeaveHistory() {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState(null);
   const [names, setNames] = useState({});
+  const [emails, setEmails] = useState({});   // employeeId -> work email, for the face
   const [err, setErr] = useState('');
   const [hidden, setHidden] = useState(false);
   const [tick, setTick] = useState(0);
@@ -29,6 +31,7 @@ export default function LeaveHistory() {
       .then(([leave, emps]) => {
         if (!live) return;
         setNames(Object.fromEntries((emps || []).map((e) => [e.id, `${e.firstName || ''} ${e.lastName || ''}`.trim() || e.workEmail || e.id])));
+        setEmails(Object.fromEntries((emps || []).map((e) => [e.id, e.workEmail || ''])));
         setRows(Array.isArray(leave) ? leave : []);
       })
       .catch((e) => { if (!live) return; if (e?.status === 403) setHidden(true); else setErr(e?.message || 'Could not load the leave history.'); });
@@ -57,7 +60,9 @@ export default function LeaveHistory() {
                   const [label, color] = STATUS[r.status] || [r.status, '#64748b'];
                   return (
                     <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 12px', borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
-                      <span style={{ fontWeight: 700, color: 'var(--ink)', minWidth: 140, flex: '1 1 160px' }}>{names[r.employeeId] || 'Unknown'}</span>
+                      <span style={{ fontWeight: 700, color: 'var(--ink)', minWidth: 140, flex: '1 1 160px' }}>{names[r.employeeId]
+                        ? <AvatarName email={emails[r.employeeId]} name={names[r.employeeId]} size={22} />
+                        : 'Unknown'}</span>
                       <span style={{ color: 'var(--muted)', flex: '2 1 220px', minWidth: 0 }}>
                         {TYPE[r.leaveType] || r.leaveType} · {r.days} day{r.days === 1 ? '' : 's'} · {formatDate(r.startDate, r.startDate)}
                         {r.endDate && r.endDate !== r.startDate ? ` - ${formatDate(r.endDate, r.endDate)}` : ''}

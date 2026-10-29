@@ -83,6 +83,8 @@ const CAMEL_TO_SNAKE = {
   slaDueAt: 'sla_due_at',
   // The ticket's Unit at its property (Ops review, Oct 20).
   propertyUnit: 'property_unit',
+  // "None / Other" picked for a maintenance ticket (Oct 28 2026).
+  propertyNone: 'property_none',
   // Board card previews + a saved Board view's columns (Oct 22 2026).
   cardPreviewMode: 'card_preview', boardColumns: 'board_columns',
   // Sharing a private task again, keeping its subtasks private (Oct 23 2026).

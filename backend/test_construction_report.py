@@ -122,7 +122,7 @@ class MilestoneLineTests(unittest.TestCase):
 
 
 class OfflineDraftTests(unittest.TestCase):
-    """No API key is a first-class state - see routers/help.py's _fallback."""
+    """No API key is a first-class state - the same rule the old per-page help (routers/help.py) followed."""
 
     def test_returns_the_same_shape_as_draft(self):
         out = cr.draft_offline(types.SimpleNamespace(name="P"),

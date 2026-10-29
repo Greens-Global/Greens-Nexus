@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-// HR letters (Oct 27 2026): the employee's card (requests, statuses, the
-// download of an issued one), the HR queue panel and the Settings panel all
+// HR letters (Oct 27 2026): the Ask HR pieces (Oct 28 - a letter in My
+// Requests, the request form, the queue waiting on HR), the People queue panel and the Settings panel all
 // render, and the request form sends what was picked.
 
 const calls = {};
@@ -22,7 +22,7 @@ vi.mock('../api', () => ({
   },
 }));
 
-const { MyLettersCard, LetterRequestsPanel, HrLettersSettings } = await import('./HrLetters');
+const { MyLetterRow, LetterRequestForm, HrLetterQueue, letterMark, letterIsOpen, LetterRequestsPanel, HrLettersSettings } = await import('./HrLetters');
 
 const TYPES = [
   { key: 'employment_verification', label: 'Employment Verification', desc: 'Confirms you work here.', printsPay: false },
@@ -40,31 +40,29 @@ beforeEach(() => {
   if (typeof URL.revokeObjectURL !== 'function') URL.revokeObjectURL = () => {};
 });
 
-describe('MyLettersCard', () => {
-  it('lists my letters with US dates and soft status labels, and downloads an issued one', async () => {
-    calls.hrLettersMine.mockResolvedValueOnce([
-      row(), row({ id: 'r2', status: 'issued', statusLabel: 'Issued', documentId: 'env-1' }),
-      row({ id: 'r3', status: 'declined', statusLabel: 'Declined', declineReason: 'Need your new address first.' }),
-    ]);
-    calls.hrLetterTypes.mockResolvedValueOnce(TYPES);
+describe('Ask HR letter pieces', () => {
+  it('shows a letter in My Requests with US dates, where it stands, and downloads an issued one', async () => {
     const flash = vi.fn();
-    render(<MyLettersCard flash={flash} />);
-    expect(await screen.findByText('Requested')).toBeInTheDocument();
-    expect(screen.getByText('Issued')).toBeInTheDocument();
-    expect(screen.getByText('Need your new address first.')).toBeInTheDocument();
-    expect(screen.getAllByText(/Needed by 11\/02\/2026/).length).toBeGreaterThan(0);
+    const { rerender } = render(<MyLetterRow r={row({ status: 'awaiting_signature', statusLabel: 'Awaiting Signature' })} flash={flash} />);
+    expect(screen.getByText('Awaiting Signature')).toBeInTheDocument();
+    expect(screen.getByText(/Needed by 11\/02\/2026/)).toBeInTheDocument();
+    expect(screen.getByText(/waiting for the company signature/)).toBeInTheDocument();
     expect(screen.queryByText(/2026-11-02/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Download Letter/ })).toBeNull();
+    rerender(<MyLetterRow r={row({ status: 'declined', statusLabel: 'Declined', declineReason: 'Need your new address first.' })} flash={flash} />);
+    expect(screen.getByText('Need your new address first.')).toBeInTheDocument();
+    rerender(<MyLetterRow r={row({ status: 'issued', statusLabel: 'Issued', documentId: 'env-1' })} fresh flash={flash} />);
+    expect(screen.getByText('Updated by HR')).toBeInTheDocument();
     const open = vi.spyOn(window, 'open').mockImplementation(() => null);
-    fireEvent.click(screen.getByRole('button', { name: /PDF/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Download Letter/ }));
     await waitFor(() => expect(calls.myHrDocDownload).toHaveBeenCalledWith('env-1'));
     open.mockRestore();
   });
 
   it('sends a request with the letter picked and its purpose', async () => {
-    calls.hrLetterTypes.mockResolvedValueOnce(TYPES);
     calls.hrLetterRequest.mockResolvedValueOnce(row({ id: 'new', type: 'salary_certificate', typeLabel: 'Salary Certificate' }));
-    render(<MyLettersCard flash={vi.fn()} />);
-    fireEvent.click(await screen.findByRole('button', { name: /Request a Letter/ }));
+    const onCreated = vi.fn();
+    render(<LetterRequestForm types={TYPES} onCancel={vi.fn()} onCreated={onCreated} />);
     fireEvent.click(screen.getByRole('radio', { name: /Salary Certificate/ }));
     expect(screen.getByText(/shows your pay/)).toBeInTheDocument();
     const send = screen.getByRole('button', { name: /Send Request/ });
@@ -73,13 +71,27 @@ describe('MyLettersCard', () => {
     fireEvent.click(send);
     await waitFor(() => expect(calls.hrLetterRequest).toHaveBeenCalledWith(
       expect.objectContaining({ letter_type: 'salary_certificate', purpose: 'Car loan' })));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ id: 'new' })));
   });
 
-  it('shows the requests waiting on me as HR', async () => {
-    calls.hrLetterQueue.mockResolvedValueOnce({ canReview: true, requests: [row({ employeeName: 'Pat Peer' })] });
-    render(<MyLettersCard flash={vi.fn()} />);
-    expect(await screen.findByText(/Waiting on You as HR/)).toBeInTheDocument();
+  it('shows the requests waiting on me as HR, and nothing when there are none', () => {
+    const { container, rerender } = render(<HrLetterQueue queue={[]} onOpen={vi.fn()} />);
+    expect(container).toBeEmptyDOMElement();
+    const onOpen = vi.fn();
+    rerender(<HrLetterQueue queue={[row({ employeeName: 'Pat Peer' })]} onOpen={onOpen} />);
+    expect(screen.getByText('Waiting on You as HR')).toBeInTheDocument();
+    expect(screen.getByText('1 letter to prepare')).toBeInTheDocument();
     expect(screen.getByText('Pat Peer')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Review/ }));
+    expect(onOpen).toHaveBeenCalledWith('r1');
+  });
+
+  it('counts only a finished or declined letter as news', () => {
+    expect(letterMark(row())).toBe('');
+    expect(letterMark(row({ status: 'in_review' }))).toBe('');
+    expect(letterMark(row({ status: 'issued', updatedAt: 'x' }))).toBe('issued|x');
+    expect(letterIsOpen(row({ status: 'awaiting_signature' }))).toBe(true);
+    expect(letterIsOpen(row({ status: 'declined' }))).toBe(false);
   });
 });
 

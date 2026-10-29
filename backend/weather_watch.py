@@ -3,10 +3,12 @@ Phase 1; Neil, Oct 10 2026).
 
 Every WEATHER_SCAN_SEC the leader instance looks two days ahead at every
 watched shift group: a group with weather alerts on, a work site that has
-coordinates, and a company that is switched on in Settings > Shifts >
-Weather Alerts (the feature ships behind a per-company switch). For each
-day the group has published shifts, the forecast for the SCHEDULED HOURS
-is banded:
+coordinates, a company that is switched on in Settings > Shifts >
+Weather Alerts (the feature ships behind a per-company switch), and at
+least one member in a department with Weather Calls on (weather_scope.py,
+Neil 10/29/2026 - Construction by default). For each day the group has
+published shifts for its weather people, the forecast for the SCHEDULED
+HOURS is banded:
 
     quiet     nothing
     heads_up  rain likely enough to glance at - an icon on the schedule and,
@@ -640,25 +642,13 @@ def _eased(db: Session, g, company_id: str, day: str, o: dict, hours: list, now_
     return channels
 
 
-def watched_groups(db: Session, cfg: dict) -> list:
-    """[(group, site, company_id, member_emails)] for every group the watch covers."""
-    people = _people(db)
-    members: dict = {}
-    for m in db.query(models.ShiftGroupMember).all():
-        members.setdefault(m.group_id, []).append((m.employee_email or "").lower())
-    sites = {s.id: s for s in db.query(models.HrWorkSite).all()}
-    out = []
-    for g in db.query(models.ShiftGroup).all():
-        if getattr(g, "archived", 0) or not int(getattr(g, "weather_alerts", 1) if getattr(g, "weather_alerts", 1) is not None else 1):
-            continue
-        site = sites.get(getattr(g, "work_site_id", "") or "")
-        if not site or not (site.latitude or "").strip() or not (site.longitude or "").strip():
-            continue
-        cid = group_company(db, g, members.get(g.id, []), people)
-        if not company_enabled(cfg, cid):
-            continue
-        out.append((g, site, cid, members.get(g.id, [])))
-    return out
+def watched_groups(db: Session, cfg: dict, sc=None) -> list:
+    """[(group, site, company_id, member_emails)] for every group the watch
+    covers - weather_scope's one rule (alerts on, a located site, a company
+    switched on, a member in a weather department)."""
+    import weather_scope
+    sc = sc or weather_scope.WeatherScope(db, cfg)
+    return [(g, sc.site(g), sc.company_of(g), sc.members(g.id)) for g in sc.groups if sc.watched(g)]
 
 
 def _lock_group_day(db: Session, group_id: str, day: str) -> None:
@@ -698,14 +688,21 @@ def scan_once(db: Session, now_utc: datetime = None) -> dict:
     cfg = get_config(db)
     summary = {"groups": 0, "days": 0, "advisories": 0, "headsUp": 0, "eased": 0, "held": 0, "providerDown": 0,
                "bands": {}}
-    if not any(cfg["companies"].values()):
-        return summary
-    groups = watched_groups(db, cfg)
+    import weather_scope
+    sc = weather_scope.WeatherScope(db, cfg)
+    groups = watched_groups(db, cfg, sc) if any(cfg["companies"].values()) else []
     summary["groups"] = len(groups)
     # The outlook is a rolling window (the grid's icons); the record of what
-    # was sent is weather_advisories. Old bands go.
+    # was sent is weather_advisories. Old bands go - and so does every band
+    # of a group the watch no longer covers (its company switched off, or no
+    # member left in a weather department - 10/29/2026), so the grid shows
+    # no chip for it. History lives in weather_advisories / weather_decisions.
     gone = (now_utc.date() - timedelta(days=OUTLOOK_KEEP_DAYS)).isoformat()
     db.query(models.WeatherOutlook).filter(models.WeatherOutlook.work_date < gone).delete(synchronize_session=False)
+    stale = db.query(models.WeatherOutlook)
+    if groups:
+        stale = stale.filter(~models.WeatherOutlook.group_id.in_([g.id for g, *_ in groups]))
+    stale.delete(synchronize_session=False)
     db.commit()
     if not groups:
         return summary
@@ -723,8 +720,12 @@ def scan_once(db: Session, now_utc: datetime = None) -> dict:
         q = (db.query(models.ScheduledShift)
              .filter(models.ScheduledShift.published == 1, models.ScheduledShift.pending_delete == 0,
                      models.ScheduledShift.work_date.in_(days)))
+        # Only the shifts of people in a weather department (and open slots)
+        # set the window and the counts: an office member's 9-to-5 on a mixed
+        # team is not what the crew's forecast is about (10/29/2026).
         rows = [r for r in q.all()
-                if (r.group_id or "") == g.id or (not (r.group_id or "") and (r.employee_email or "").lower() in member_emails)]
+                if ((r.group_id or "") == g.id or (not (r.group_id or "") and (r.employee_email or "").lower() in member_emails))
+                and (not r.employee_email or sc.person_on(r.employee_email))]
         by_day: dict = {}
         for r in rows:
             by_day.setdefault(r.work_date, []).append(r)
@@ -773,7 +774,10 @@ def scan_once(db: Session, now_utc: datetime = None) -> dict:
 
 def outlook_rows(db: Session, start: str, end: str, group_ids: list = None) -> list:
     """What the schedule grid shows: the band per group and day in a range
-    (no hourly detail here)."""
+    (no hourly detail here) - for watched groups only (weather_scope), so a
+    department switched off loses its chips at once, not at the next scan."""
+    import weather_scope
+    watched = weather_scope.scope(db).watched_ids()
     q = (db.query(models.WeatherOutlook)
          .filter(models.WeatherOutlook.work_date >= start, models.WeatherOutlook.work_date <= end))
     if group_ids is not None:
@@ -782,7 +786,7 @@ def outlook_rows(db: Session, start: str, end: str, group_ids: list = None) -> l
         q = q.filter(models.WeatherOutlook.group_id.in_(list(group_ids)))
     out = []
     for r in q.all():
-        if r.band == "quiet":
+        if r.band == "quiet" or r.group_id not in watched:
             continue
         try:
             alerts = json.loads(r.alerts_json or "[]")

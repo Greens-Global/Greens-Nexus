@@ -86,6 +86,10 @@ describe('index', () => {
   it('maps a view id to its guide page', () => {
     expect(docForView('myhr').id).toBe('workday');
     expect(docForView('inventory').id).toBe('item-management');
+    // The Time Clock alias opens Workday; screens added Oct 2026 have their own page.
+    expect(docForView('timeclock').id).toBe('workday');
+    expect(docForView('approvals').id).toBe('approvals');
+    expect(docForView('whats-new').id).toBe('whats-new');
     expect(docForView('nope')).toBeNull();
     expect(docForView(undefined)).toBeNull();
   });
@@ -122,7 +126,7 @@ describe('real questions land on the right answer', () => {
 
   it('finds walkthroughs and tips, not just modules', () => {
     expect(top('add a new employee')[0]).toBe('People > Add a New Employee');
-    expect(top('how to approve leave')[0]).toBe('People > Approve Leave');
+    expect(top('how to approve leave')[0]).toBe('People > Approve Time Off');
     expect(top('report a bug')[0]).toBe('Help Center > Report a Bug in Nexus');
     expect(top('how do i change my photo')[0]).toBe('Getting Started > Set Up Your Profile');
     expect(top('my punch did not record')[0]).toBe('Workday > Good To Know');
