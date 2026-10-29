@@ -47,7 +47,7 @@ export default function HelpCenterSearch({ onFileTicket }) {
           onFocus={() => { loadResults(); if (q) setOpen(true); }}
           onChange={(e) => { setQuery(e.target.value); setOpen(!!e.target.value.trim()); }}
           onKeyDown={(e) => { if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false); } }}
-          style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', color: 'var(--ink)', fontSize: 15,
+          style={{ flex: 1, minWidth: 0, border: 'none', background: 'transparent', color: 'var(--ink)', fontSize: 15,
             fontFamily: 'inherit', padding: '6px 0' }} />
         {query && (
           <button type="button" aria-label="Clear search" onClick={() => { setQuery(''); setOpen(false); setAsked(''); inputRef.current?.focus(); }}
