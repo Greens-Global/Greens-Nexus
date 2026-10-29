@@ -235,7 +235,7 @@ export default function ReportBuilder({ canPublish = true }) {
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
         <FiltersButton dims={config.dims} onChange={(dims) => patch({ dims })} showHistorical={!!prefs.showHistoricalAccounts} kinds={kinds} />
         <AccountsPicker accounts={chart || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} showHistorical={!!prefs.showHistoricalAccounts}
-          allLabel={groups.some((g) => g.accounts.length) ? 'No other accounts' : 'All accounts'} ariaLabel="GL Accounts" />
+          allLabel={groups.some((g) => g.accounts.length) ? 'No Other Accounts' : 'All Accounts'} ariaLabel="GL Accounts" />
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
           <input type="checkbox" checked={config.showZero} onChange={(e) => patch({ showZero: e.target.checked })} /> Show zero balances
         </label>

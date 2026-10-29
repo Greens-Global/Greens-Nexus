@@ -75,7 +75,7 @@ describe('LedgerSearch grid', () => {
       { ...line, line_id: 'f1', entry_id: 'e1', entry_no: 'GJ-2202', entry_date: '2026-01-05', description: 'Pala Vista Gas', debit: 20 },
     ];
     api.searchAccountingLedger.mockResolvedValue({ rows: fuel, total: 3, debit: 162.07, credit: 0, facets: {} });
-    render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+    render(<LedgerSearch term="" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}}
       drill={{ account: '63203', accountName: 'Fuel', from: '2026-01-01', to: '2026-12-31', book: 'accrual', party: { kind: 'employee', code: 'E-0084', name: 'Valinda Cranfill' } }} />);
     await screen.findByText('Pala Vista Gas');
     expect(headers().at(-1)).toBe('Balance');
@@ -109,7 +109,7 @@ describe('LedgerSearch grid', () => {
   it('keeps a layout chosen before views existed as the built-in default', async () => {
     localStorage.setItem('nexus-accounting-prefs', JSON.stringify({ lines: { visible: { doc: true, vendor: false }, widths: { description: 420 } } }));
     resetAccountingPrefs();
-    render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+    render(<LedgerSearch term="amazon" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}} />);
     await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
     expect(headers()).toContain('Doc No');
     expect(headers()).not.toContain('Vendor');
@@ -117,7 +117,7 @@ describe('LedgerSearch grid', () => {
   });
 
   it('sends what is typed under a column to the server, stacked', async () => {
-    render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+    render(<LedgerSearch term="amazon" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}} />);
     await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
     fireEvent.change(screen.getByLabelText('Filter Description'), { target: { value: '%mop' } });
     fireEvent.change(screen.getByLabelText('Filter Date'), { target: { value: '08/19/2026' } });
@@ -132,7 +132,7 @@ describe('LedgerSearch grid', () => {
     const other = { ...line, line_id: 'l2', entry_no: 'IA-2', description: 'Roof repair', memo: 'Roofing supplies', project_id: 'C-11', project_name: 'Escondido', debit: 600 };
     api.searchAccountingLedger.mockResolvedValue({ rows: [line, other], total: 2, debit: 622.46, credit: 0, facets: {} });
     let exporter = null;
-    render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} onExport={(x) => { exporter = x; }} />);
+    render(<LedgerSearch term="amazon" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}} onExport={(x) => { exporter = x; }} />);
     await screen.findByText('Roof repair');
     // Every column shown has its box, the Ask column an empty cell, all inside the pinned head.
     const head = document.querySelector('.acct-lines thead');
@@ -183,13 +183,13 @@ describe('LedgerSearch grid', () => {
   });
 
   it('a drill-down from a vendor or a department column stays on that vendor or department', async () => {
-    const { unmount } = render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+    const { unmount } = render(<LedgerSearch term="" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}}
       drill={{ account: '62101', accountName: 'Repairs', from: '2026-01-01', to: '2026-09-28', book: 'accrual', party: { kind: 'vendor', code: 'V00412', name: 'Home Depot' } }} />);
     await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
     expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toMatchObject({ account: '62101', party_kind: 'vendor', party: 'V00412' });
     expect(screen.getByText('Vendor: V00412 Home Depot')).toBeTruthy();
     unmount();
-    render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+    render(<LedgerSearch term="" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}}
       drill={{ account: '62101', accountName: 'Repairs', from: '2026-01-01', to: '2026-09-28', book: 'accrual', department: '9100' }} />);
     await waitFor(() => expect(JSON.parse(api.searchAccountingLedger.mock.calls.at(-1)[0].cols || '{}')).toEqual({ department: '9100' }), { timeout: 2000 });
   });
@@ -201,7 +201,7 @@ describe('LedgerSearch grid', () => {
       customer_id: i % 3 === 0 ? 'C00127' : 'C00142', customer_name: i % 3 === 0 ? 'Greens Austin' : 'Greens Sachse', debit: 0, credit: 100,
     }));
     api.searchAccountingLedger.mockImplementation(async (p) => ({ rows: all.slice(p.offset || 0, (p.offset || 0) + (p.limit || 100)), total: 150, debit: 0, credit: 15000, facets: {} }));
-    render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+    render(<LedgerSearch term="" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}}
       drill={{ account: '40005', accountName: 'Property Management Fee', from: '2026-01-01', to: '2026-10-23', book: 'accrual' }} />);
     await screen.findByText('Sales Invoice 0');
     expect(screen.queryByText('Narrow by')).toBeNull();
@@ -225,7 +225,7 @@ describe('LedgerSearch grid', () => {
     const cr = { ...line, line_id: 'l3', entry_no: 'IA-3', description: 'Refund', debit: 0, credit: 150 };
     api.searchAccountingLedger.mockResolvedValue({ rows: [line, big, cr], total: 3, debit: 622.46, credit: 150, facets: {} });
     let exporter = null;
-    render(<LedgerSearch term="repairs" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} onExport={(x) => { exporter = x; }} />);
+    render(<LedgerSearch term="repairs" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}} onExport={(x) => { exporter = x; }} />);
     await screen.findByText('Roof repair');
     fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
     const panel = await screen.findByRole('dialog', { name: 'Filters' });
@@ -250,7 +250,7 @@ describe('LedgerSearch grid', () => {
   });
 
   it('scrolls inside its own box with the headings pinned, the page staying put (Viral, 10/22, item 18)', async () => {
-    const { unmount } = render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+    const { unmount } = render(<LedgerSearch term="" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}}
       drill={{ account: '11261', accountName: 'Gr FLP- CNB - 6766', from: '2026-01-01', to: '2026-10-22', book: 'accrual' }} />);
     await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
     const box = screen.getByTestId('ledger-lines-box');
@@ -282,7 +282,7 @@ describe('LedgerSearch grid', () => {
     expect(box.querySelector('thead .acct-filter-row')).toBeTruthy();
     unmount();
     // Full screen keeps its own taller scroller.
-    render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} full />);
+    render(<LedgerSearch term="amazon" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}} full />);
     await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
     expect(screen.getByTestId('ledger-lines-box').className).not.toContain('acct-scroll-box');
   });
@@ -324,7 +324,7 @@ describe('LedgerSearch grid', () => {
     unmount();
 
     // A drill from another tab (requestReportDrill) brings its own filters.
-    render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+    render(<LedgerSearch term="" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}}
       drill={{ account: '40100', accountName: 'Rent', from: '2026-01-01', to: '2026-01-31', book: 'accrual', dims: { customer: ['C1'], departments: ['9500'] } }} />);
     await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
     expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toMatchObject({ account: '40100', customer: 'C1', departments: '9500', party_kind: 'customer', party: 'C1' });
@@ -333,7 +333,7 @@ describe('LedgerSearch grid', () => {
 
   it('leaves out lines the ledger did not narrow by the report filters, and says so', async () => {
     api.searchAccountingLedger.mockResolvedValue({ rows: [line, { ...line, line_id: 'l2', description: 'Someone else', vendor_id: 'V99999', vendor_name: 'Other' }], total: 2, debit: 40, credit: 0, facets: {} });
-    render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+    render(<LedgerSearch term="" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}}
       dims={{ vendor: ['V00225', 'V00412'] }} drill={{ account: '71100', accountName: 'General', from: '2026-08-01', to: '2026-08-31', book: 'accrual' }} />);
     await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
     expect(screen.queryByText('Someone else')).toBeNull();
@@ -344,7 +344,7 @@ describe('LedgerSearch grid', () => {
     const big = { ...line, line_id: 'l2', entry_no: 'IA-2', description: 'Roof repair', debit: 600, credit: 0 };
     const cr = { ...line, line_id: 'l3', entry_no: 'IA-3', description: 'Refund', debit: 0, credit: 150 };
     api.searchAccountingLedger.mockResolvedValue({ rows: [line, big, cr], total: 3, debit: 622.46, credit: 150, facets: {} });
-    render(<LedgerSearch term="repairs" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+    render(<LedgerSearch term="repairs" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}} />);
     await screen.findByText('Roof repair');
     const before = api.searchAccountingLedger.mock.calls.length;
     expect([...screen.getByLabelText('Operator for Debit').options].map((o) => o.textContent)).toEqual(['=', '>', '<', '>=', '<=', 'Between']);
@@ -379,7 +379,7 @@ describe('LedgerSearch grid', () => {
     api.searchAccountingLedger.mockImplementation(async (p) => (p.credit_op
       ? { rows: [big], total: 1, debit: 600, credit: 0, cols: { credit_cmp: 'between:100:200' }, facets: {} }
       : { rows: [line, big], total: 2, debit: 622.46, credit: 0, facets: {} }));
-    render(<LedgerSearch term="repairs" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+    render(<LedgerSearch term="repairs" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}} />);
     await screen.findByText('Roof repair');
     fireEvent.change(screen.getByLabelText('Operator for Credit'), { target: { value: 'between' } });
     fireEvent.change(screen.getByLabelText('Filter Credit'), { target: { value: '100' } });
@@ -394,7 +394,7 @@ describe('LedgerSearch grid', () => {
   });
 
   it('opens the journal entry with every dimension as a column', async () => {
-    render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+    render(<LedgerSearch term="amazon" entities={[]} entityName="All Entities" onClose={() => {}} onClearDrill={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: 'IA-1293173' }));
     const dialog = await screen.findByRole('dialog', { name: /Journal entry/ });
     await within(dialog).findByText('Supplies');

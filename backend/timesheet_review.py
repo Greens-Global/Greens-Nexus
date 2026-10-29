@@ -1154,8 +1154,14 @@ def close_out_outside_nexus(db: Session, email: str, start: str, actor: str,
         return None
     r = active_review(db, email, s)
     sign_id = (r.sign_request_id if r is not None else "") or ""
-    r = _finalize_without_signature(db, email, s, e, pay_type, actor, reason, notify_manager=False)
-    _settle_period_notices(db, email, s, sign_id)
+    # Housekeeping, not news: no Workflows event for the old periods (Charmi
+    # 10/28 review - "time sheet changed" would fire once per period). The
+    # review's rounds, the approval note and the voided envelope's log stay.
+    import workflows
+    with workflows.quiet():
+        r = _finalize_without_signature(db, email, s, e, pay_type, actor, reason, notify_manager=False)
+        _settle_period_notices(db, email, s, sign_id)
+        db.flush()
     return r
 
 

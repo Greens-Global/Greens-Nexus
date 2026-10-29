@@ -134,7 +134,7 @@ export default function ManualJournalEntries() {
     try {
       const table = viewTable(rows, view.columns, {
         title: 'Manual Journal Entries', period: `${config.from}_${config.to}`,
-        subtitle: [`${formatDate(config.from)} - ${formatDate(config.to)}`, config.entities.length ? config.entities.join(', ') : 'All entities', `${rows.length} entries`].join(' · '),
+        subtitle: [`${formatDate(config.from)} - ${formatDate(config.to)}`, config.entities.length ? config.entities.join(', ') : 'All Entities', `${rows.length} entries`].join(' · '),
         totalLabel: 'Totals',
       });
       const file = await linesFile(table, format);

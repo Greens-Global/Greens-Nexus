@@ -87,7 +87,7 @@ export default function ProfitabilityReport({ limited = false }) {
   const rows = useMemo(() => orderedRows(data), [data]);
   const withPrior = !!data?.totals?.prior;
   const cmp = COMPARE_ON.find((c) => c.key === compareOn) || COMPARE_ON[0];
-  const entityLabel = !picked.length ? (limited ? 'All my entities' : 'All entities') : picked.length === 1 ? (entities.find((e) => e.code === picked[0])?.name || picked[0]) : `${picked.length} entities`;
+  const entityLabel = !picked.length ? (limited ? 'All My Entities' : 'All Entities') : picked.length === 1 ? (entities.find((e) => e.code === picked[0])?.name || picked[0]) : `${picked.length} entities`;
 
   const openRow = open && rows.find((r) => r.code === open.code);
   const openCol = open && PROFIT_COLUMNS.find((c) => c.key === open.key);

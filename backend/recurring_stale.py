@@ -16,8 +16,10 @@ A line in force for the whole window that had NOTHING post in any month of
 the window is flagged Possibly Ended (stale_since, stale_last_paid). The
 window is the last N complete months (N = staleMonths, default 3,
 configurable in the settings below), never shorter than one cycle of the
-line's frequency - a quarterly bill gets three months, an annual one twelve,
-so a line that is simply not due yet is never flagged.
+line's frequency, so a line that is simply not due yet is never flagged. MRI:
+the setting or one cycle, whichever is longer (a quarterly rent three months,
+an annual one twelve). MRE: one cycle and a month (quarterly 4, annual 13 -
+see 10/28 below).
 
 A flagged line gets ONE accounting task (models.Task, stale_task_id),
 assigned to the entity's accountants from Ask My Accountant's settings (the

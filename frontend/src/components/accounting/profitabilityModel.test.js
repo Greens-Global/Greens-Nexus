@@ -41,7 +41,7 @@ describe('profitabilityModel', () => {
   });
 
   it('builds the export with the prior-year comparison and live totals', () => {
-    const t = profitTable(data, { compareOn: 'netIncome', entityLabel: 'All entities' });
+    const t = profitTable(data, { compareOn: 'netIncome', entityLabel: 'All Entities' });
     expect(t.title).toBe('Profitability Sheet');
     expect(t.columns.map((c) => c.label).slice(-3)).toEqual(['Prior Year Net Income', 'Change $', 'Change %']);
     expect(t.rows[0][0]).toBe('Sunset Plaza (15000)');

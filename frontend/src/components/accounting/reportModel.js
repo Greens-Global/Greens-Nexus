@@ -432,7 +432,7 @@ export const periodText = (config) => {
 };
 
 export function entityText(config, entities = []) {
-  if (!config.entities.length) return 'All entities';
+  if (!config.entities.length) return 'All Entities';
   if (config.entities.length > 1) return `${config.entities.length} entities`;
   const e = entities.find((x) => x.code === config.entities[0]);
   return e?.name ? `${e.name} (${e.code})` : config.entities[0];

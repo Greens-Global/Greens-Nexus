@@ -624,7 +624,7 @@ describe('LoansTab', () => {
   });
 
   it('exports the loans shown as a table', () => {
-    const t = _test.loansTable(_test.visibleLoans(review.loans), { from: '2026-10-01', to: '2026-10-06', entityLabel: 'All entities' });
+    const t = _test.loansTable(_test.visibleLoans(review.loans), { from: '2026-10-01', to: '2026-10-06', entityLabel: 'All Entities' });
     expect(t.rows).toHaveLength(4);
     expect(t.columns.map((c) => c.label).slice(0, 5)).toEqual(['Lender', 'Loan #', 'GL Code', 'Entity', 'Monthly Payment']);
     expect(t.totals[6]).toBe(1252000 + 400000 + 20000 + 14500000);
@@ -662,7 +662,7 @@ describe('LoansTab shared controls', () => {
     await screen.findByText(/Page 2 of 2/);
     expect(container.querySelectorAll('tbody.loan')).toHaveLength(2);
     // The export table is built from every loan shown by the filters.
-    expect(_test.loansTable(_test.visibleLoans(review.loans), { from: '2026-10-01', to: '2026-10-06', entityLabel: 'All entities' }).rows).toHaveLength(4);
+    expect(_test.loansTable(_test.visibleLoans(review.loans), { from: '2026-10-01', to: '2026-10-06', entityLabel: 'All Entities' }).rows).toHaveLength(4);
   });
 
   it('has a resize handle on every column, and + Add is the shared menu', async () => {

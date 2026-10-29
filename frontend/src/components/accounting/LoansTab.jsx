@@ -492,7 +492,7 @@ export default function LoansTab({ canEdit = false }) {
   const unavailable = error && notAvailable(error);
   const to = review?.to || period.to;
   const from = review?.from || period.from;
-  const entityLabel = !picked.length ? (limited ? 'All my entities' : 'All entities')
+  const entityLabel = !picked.length ? (limited ? 'All My Entities' : 'All Entities')
     : picked.length === 1 ? `${entities.find((o) => o.code === picked[0])?.name || 'Unnamed'} (${picked[0]})` : `${picked.length} entities`;
   // Rows per Page (Customize): the page shown; totals and exports keep every row.
   const paged = usePaged(rows, custom.pageSize, [period.from, period.to, picked, type, text, showClosed, tv.state, JSON.stringify(boxes.typed)]);
