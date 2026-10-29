@@ -25,6 +25,7 @@ import {
   Link2, Maximize2, Minimize2, Pencil, Send, Bug, Flame, ShieldAlert, TrendingUp,
   Wrench, ArrowUpCircle, Upload, Eye, GitPullRequest, Trash2, AlertTriangle,
   ArrowLeft, RefreshCw, MessageSquare, Pin, Copy, Lightbulb, Server,
+  SlidersHorizontal, MoreHorizontal, ChevronLeft, Bell, BellRing,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -32,6 +33,8 @@ import { useNameResolver } from '../lib/useNameResolver';
 import { filesFromPaste } from './lib';
 import { localDayKey, formatFullDate, formatTime, formatDateTime, relativeDayLabel, isWithinDays } from './changelogDates';
 import { useBackToClose } from '../lib/useBackToClose';
+import { useVisualViewport } from '../lib/useVisualViewport';
+import { BottomSheet } from './MobileTaskBar';
 import { canEditWhatsNew } from '../lib/whatsNewAccess';
 import { NX, FONT, chip, card, btn, input as inputStyle } from './theme';
 import { Avatar, Modal, usePeople, PersonSelect, useClickOutside, useIsMobile, DateField, TimeField, localTodayISO } from './components';
@@ -206,7 +209,9 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
   const [editing, setEditing] = useState(null); // entry being edited
   const [toast, setToast] = useState(null);   // { text, error }
 
-  const reload = () => api.getTaskChangelog().then((r) => setEntries(r || [])).catch(() => {});
+  // Loaded once: until then the Timeline shows a skeleton, not "no updates".
+  const [loaded, setLoaded] = useState(false);
+  const reload = () => api.getTaskChangelog().then((r) => setEntries(r || [])).catch(() => {}).finally(() => setLoaded(true));
   useEffect(() => { reload(); }, []);
 
   // An error stays red and up longer: it usually needs reading (a server
@@ -393,7 +398,11 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
           </button>
         </div>
       ) : (
-        <div className="scroll-tabs" role="tablist" style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 2, overflowX: 'auto', whiteSpace: 'nowrap', borderBottom: `1px solid ${NX.border}`, background: NX.surface, padding: isMobile ? '0 4px' : '0 16px' }}>
+        // Phones (Oct 28 2026): Feature Request and Follow sit at the end of
+        // the tab strip as icons - their own row above the content pushed
+        // every update a row further down the screen.
+        <div style={{ display: 'flex', alignItems: 'center', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
+        <div className="scroll-tabs" role="tablist" style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 2, overflowX: 'auto', whiteSpace: 'nowrap', flex: 1, minWidth: 0, padding: isMobile ? '0 4px' : '0 16px' }}>
           {TABS.map((t) => {
             const active = tab === t.key;
             const Icon = t.icon;
@@ -411,19 +420,29 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
             );
           })}
         </div>
+        {isMobile && (() => {
+          const followingOn = (me.subscription?.modules?.length || 0) + (me.subscription?.categories?.length || 0) > 0 || !!me.subscription?.digest;
+          const iconBtn = { ...btn('ghost'), width: 44, height: 44, padding: 0, justifyContent: 'center', flexShrink: 0 };
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', paddingRight: 4, flexShrink: 0 }}>
+              <button type="button" onClick={() => setRequesting(true)} aria-label="Feature Request" title="Feature Request" style={{ ...iconBtn, color: NX.dim }}>
+                <Lightbulb size={19} />
+              </button>
+              <button type="button" onClick={() => setFollowing(true)} aria-label="Follow" aria-pressed={followingOn} title={followingOn ? 'Following' : 'Follow'}
+                style={{ ...iconBtn, color: followingOn ? NX.blue : NX.dim }}>
+                {followingOn ? <BellRing size={19} /> : <Bell size={19} />}
+              </button>
+            </div>
+          );
+        })()}
+        </div>
       )}
 
       {/* Body */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, paddingBottom: isMobile ? 'env(safe-area-inset-bottom)' : undefined, display: 'flex', flexDirection: 'column' }}>
         <div style={{ flex: 1, minHeight: 0 }}>
-          {!managing && isMobile && (
-            <div style={{ padding: '10px 12px 0', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button type="button" onClick={() => setRequesting(true)} style={btn('outline')}><Lightbulb size={15} />Feature Request</button>
-              <FollowButton onClick={() => setFollowing(true)} following={(me.subscription?.modules?.length || 0) + (me.subscription?.categories?.length || 0) > 0 || me.subscription?.digest} />
-            </div>
-          )}
           {!managing && tab === 'whats-new' && <WhatsNewTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} />}
-          {!managing && tab === 'timeline' && <TimelineTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} />}
+          {!managing && tab === 'timeline' && <TimelineTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} loading={!loaded} />}
           {managing && (
             <ManageTab entries={sorted} nameOf={nameOf} myEmail={myEmail} onSetStatus={setStatus} onEdit={setEditing} flash={flash}
               onAdd={() => setAdding(true)} onGenerate={handleGenerate} onPublish={publishEntry} onPublishAll={publishAll} onBulk={bulk}
@@ -837,13 +856,15 @@ function EntryCard({ entry, nameOf, onViewDetails, onEdit }) {
 // Timeline tab - searchable/filterable, grouped by day, master + detail
 // ═══════════════════════════════════════════════════════════════════════════
 const ALL = 'all';
+// How an environment reads in a filter.
+const envLabel = (e2) => (e2 === 'Production' ? 'In Production' : e2 === 'Staging' ? 'Dev Only / Staging' : e2);
 // A filter whose value starts from, and is written back to, the address bar.
 function useLinkedState(key, fallback = ALL) {
   const [v, set] = useState(() => readQuery().get(key) ?? fallback);
   return [v, (next) => { set(next); writeQuery({ [key]: next }); }];
 }
 
-function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit }) {
+function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, loading = false }) {
   const { forYou, flash } = useContext(ChangelogActions);
   // Every filter starts from the address bar and writes back to it, so a
   // filtered Timeline is a link you can share (Oct 16 2026).
@@ -932,6 +953,143 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
   // two-line row too - the detail pane stays beside it on a tablet.
   const compactRows = useIsMobile('(max-width: 1100px)');
   const selStyle = { ...inputStyle, width: 'auto', minWidth: isMobile ? 0 : 150, cursor: 'pointer', flexShrink: 0 };
+  const narrow = useIsMobile('(max-width: 1024px)');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Phones and tablets (Neil, Oct 28 2026: "the mobile UI and UX on that
+  // sucks"). Below 1024px the Timeline is ONE column: a search box and a
+  // Filter button stay pinned at the top, the chosen filters sit under them
+  // as chips you can take off one at a time, the days scroll underneath with
+  // their date pinned while you are in them, and a tapped update opens as a
+  // screen of its own. The two side-by-side panes left a tablet each half
+  // too narrow, and the eleven inline filter controls pushed the first update
+  // most of a phone screen down.
+  if (narrow) {
+    const chips = [
+      mineOnly && { key: 'for', label: 'For You', clear: () => setMineOnly('') },
+      breakingOnly && { key: 'breaking', label: 'Breaking / Action Required', clear: () => setBreakingOnly('') },
+      moduleFilter !== ALL && { key: 'module', label: moduleFilter, clear: () => setModuleFilter(ALL) },
+      typeFilter !== ALL && { key: 'category', label: typeMeta(typeFilter).label, clear: () => setTypeFilter(ALL) },
+      envFilter !== ALL && { key: 'env', label: envLabel(envFilter), clear: () => setEnvFilter(ALL) },
+      versionFilter !== ALL && { key: 'version', label: `Version ${versionFilter}`, clear: () => setVersionFilter(ALL) },
+      fromDate && { key: 'from', label: `From ${formatFullDate(fromDate)}`, clear: () => setFromDate('') },
+      toDate && { key: 'to', label: `To ${formatFullDate(toDate)}`, clear: () => setToDate('') },
+      comparing && (compareFrom || compareTo) && {
+        key: 'compare',
+        label: `${compareFrom ? `After ${compareFrom}` : 'From the Start'} to ${compareTo || 'Now'}`,
+        clear: () => { setCompareFrom(''); setCompareTo(''); setComparing(false); },
+      },
+    ].filter(Boolean);
+    const filterState = {
+      modules, versions, moduleFilter, setModuleFilter, typeFilter, setTypeFilter, envFilter, setEnvFilter,
+      versionFilter, setVersionFilter, fromDate, setFromDate, toDate, setToDate, comparing, setComparing,
+      compareFrom, setCompareFrom, compareTo, setCompareTo, breakingOnly, setBreakingOnly, mineOnly, setMineOnly,
+    };
+    return (
+      <div data-timeline-narrow style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+        {/* Search and Filter: pinned above the list, never scrolled away. */}
+        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', background: NX.surface, borderBottom: `1px solid ${NX.border}` }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+              <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: NX.faint, pointerEvents: 'none' }} />
+              {/* 16px text: iOS zooms the whole page into a smaller field. */}
+              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search updates"
+                aria-label="Search updates" enterKeyHint="search"
+                style={{ ...inputStyle, height: 44, paddingLeft: 36, paddingRight: query ? 40 : 12, fontSize: 16, borderRadius: 10 }} />
+              {query && (
+                <button type="button" onClick={() => setQuery('')} aria-label="Clear search"
+                  style={{ position: 'absolute', right: 2, top: 2, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'transparent', color: NX.faint, cursor: 'pointer' }}>
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+            <button type="button" onClick={() => setFiltersOpen(true)} aria-label={chips.length ? `Filter (${chips.length} on)` : 'Filter'}
+              aria-haspopup="dialog" data-timeline-filter
+              style={{ ...btn('outline'), minHeight: 44, padding: '0 14px', borderRadius: 10, fontSize: 14, flexShrink: 0,
+                ...(chips.length ? { borderColor: NX.blue, color: NX.blue } : null) }}>
+              <SlidersHorizontal size={16} />Filter
+              {chips.length > 0 && (
+                <span style={{ minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: NX.blue, color: '#fff', fontSize: 11.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{chips.length}</span>
+              )}
+            </button>
+          </div>
+          {chips.length > 0 && (
+            <div className="scroll-tabs" aria-label="Filters on" style={{ display: 'flex', gap: 6, overflowX: 'auto', margin: '0 -12px', padding: '0 12px' }}>
+              {chips.map((c) => (
+                <button key={c.key} type="button" onClick={c.clear} aria-label={`Remove filter: ${c.label}`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, minHeight: 34, padding: '0 8px 0 12px', borderRadius: 999,
+                    border: `1px solid ${NX.border}`, background: NX.surface2, color: NX.ink, fontSize: 13, fontWeight: 600, fontFamily: FONT, cursor: 'pointer' }}>
+                  {c.label}<X size={14} style={{ color: NX.dim }} />
+                </button>
+              ))}
+              <button type="button" onClick={clearAll}
+                style={{ flexShrink: 0, minHeight: 34, padding: '0 10px', border: 'none', background: 'transparent', color: NX.blue, fontSize: 13, fontWeight: 600, fontFamily: FONT, cursor: 'pointer' }}>
+                Clear All
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* The days. Room at the foot so the last update clears the Time
+            Clock capsule and the browser's bottom bar. */}
+        <div className="nx-scroll" data-timeline-list style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', padding: '0 12px calc(96px + env(safe-area-inset-bottom))' }}>
+          {loading ? (
+            <div style={{ paddingTop: 14 }} aria-busy="true" aria-label="Loading updates">
+              {[0, 1].map((i) => (
+                <div key={i} style={{ marginBottom: 18 }}>
+                  <div style={{ width: 120, height: 14, borderRadius: 6, marginBottom: 10, background: NX.border2 }} />
+                  <div style={{ ...card, overflow: 'hidden' }}>
+                    {[0, 1, 2].map((j) => (
+                      <div key={j} style={{ padding: 14, borderBottom: `1px solid ${NX.border}` }}>
+                        <div style={{ height: 14, width: '80%', borderRadius: 6, background: NX.border2 }} />
+                        <div style={{ height: 11, width: '45%', borderRadius: 6, marginTop: 8, background: NX.border2 }} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (<>
+            {anyFilter && filtered.length > 0 && (
+              <div style={{ padding: '12px 2px 0', fontSize: 12.5, fontWeight: 600, color: NX.dim }}>{plural(filtered.length, 'update')} match</div>
+            )}
+            {groups.map(([k, group]) => (
+              <section key={k} aria-label={formatFullDate(releasedKey(group[0]))}>
+                <StickyDayHeader group={group} />
+                <div style={{ ...card, overflow: 'hidden' }}>
+                  {group.map((entry) => (
+                    <TimelineRow key={entry.id} entry={entry} compact onClick={() => setSheet(entry)} />
+                  ))}
+                </div>
+              </section>
+            ))}
+            {filtered.length === 0 && (
+              <div style={{ margin: '24px 0', borderRadius: 12, border: `1px dashed ${NX.border}`, padding: '40px 16px', textAlign: 'center', fontSize: 14, color: NX.dim }}>
+                {anyFilter ? (<>
+                  <div style={{ fontWeight: 700, color: NX.ink, marginBottom: 4 }}>No Matching Updates</div>
+                  <div>Nothing matches these filters.</div>
+                  <button type="button" onClick={clearAll} style={{ ...btn('outline'), minHeight: 44, marginTop: 14 }}>Clear All Filters</button>
+                </>) : (<>
+                  <div style={{ fontWeight: 700, color: NX.ink, marginBottom: 4 }}>No Updates Yet</div>
+                  <div>Published updates will show up here.</div>
+                </>)}
+              </div>
+            )}
+          </>)}
+        </div>
+
+        {filtersOpen && (
+          <TimelineFilterSheet f={filterState} count={filtered.length} anyFilter={!!anyFilter}
+            onClearAll={clearAll} onClose={() => setFiltersOpen(false)} flash={flash} />
+        )}
+        {sheet && (
+          <SlideOver entry={entries.find((x) => x.id === sheet.id) || sheet} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin}
+            onClose={() => setSheet(null)} onSetStatus={onSetStatus}
+            onEdit={isAdmin ? () => { onEdit(sheet); setSheet(null); } : undefined} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', padding: isMobile ? '14px 12px' : '20px 16px', height: isMobile ? 'auto' : '100%' }}>
@@ -954,7 +1112,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
           <select value={envFilter} onChange={(e) => setEnvFilter(e.target.value)} style={selStyle} aria-label="Environment">
             <option value={ALL}>All Environments</option>
             {/* Live in Production (Oct 18 2026): a merge on the dev site counts as Staging until it reaches main. */}
-            {ENVIRONMENTS.map((e2) => <option key={e2} value={e2}>{e2 === 'Production' ? 'In Production' : e2 === 'Staging' ? 'Dev Only / Staging' : e2}</option>)}
+            {ENVIRONMENTS.map((e2) => <option key={e2} value={e2}>{envLabel(e2)}</option>)}
           </select>
           <select value={versionFilter} onChange={(e) => setVersionFilter(e.target.value)} style={selStyle} aria-label="Version">
             <option value={ALL}>All Versions</option>
@@ -1159,6 +1317,153 @@ function DayHeader({ group }) {
         return <Badge key={type} label={`${n} ${meta.label}`} color={meta.color} tint={meta.tint} />;
       })}
     </div>
+  );
+}
+
+// A day on the phone and tablet Timeline: pinned to the top of the list while
+// you scroll through it, its date said the way people say it (Today,
+// Yesterday, then the date), and its categories as colored dots rather than
+// a second row of pills.
+function StickyDayHeader({ group }) {
+  const iso = releasedKey(group[0]);
+  const date = formatFullDate(iso);
+  const rel = relativeDayLabel(iso);
+  // A merge's version is its release day (MM/DD/YYYY); only a typed one adds anything.
+  const versions = Array.from(new Set(group.map((e) => e.version).filter((v) => v && !/^\d{2}\/\d{2}\/\d{4}$/.test(v))));
+  const counts = new Map();
+  for (const e of group) counts.set(e.type, (counts.get(e.type) || 0) + 1);
+  const summary = [...counts.entries()].map(([t, n]) => `${n} ${typeMeta(t).label}`).join(', ');
+  return (
+    <div data-day-header style={{ position: 'sticky', top: 0, zIndex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '14px 2px 8px', background: NX.canvas }}>
+      <span style={{ fontSize: 14, fontWeight: 700, color: NX.ink, whiteSpace: 'nowrap' }}>{rel || date}</span>
+      {rel && rel !== date && <span style={{ fontSize: 12.5, color: NX.dim, whiteSpace: 'nowrap' }}>{date}</span>}
+      {versions.map((v) => (
+        <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: NX.dim }}>
+          <GitBranch size={12} style={{ flexShrink: 0 }} />{v}
+        </span>
+      ))}
+      <span title={summary} aria-label={`${plural(group.length, 'update')}: ${summary}`}
+        style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, fontSize: 12, fontWeight: 600, color: NX.dim }}>
+        <span aria-hidden="true" style={{ display: 'inline-flex', gap: 3 }}>
+          {[...counts.keys()].map((t) => <span key={t} style={{ width: 7, height: 7, borderRadius: '50%', background: typeMeta(t).color }} />)}
+        </span>
+        {group.length} {group.length === 1 ? 'Update' : 'Updates'}
+      </span>
+    </div>
+  );
+}
+
+// The phone and tablet Timeline's filters, in one bottom sheet behind the
+// Filter button. Every control is the desktop bar's own state, so the address
+// bar still carries them and a filtered Timeline is still a link to share.
+function TimelineFilterSheet({ f, count, anyFilter, onClearAll, onClose, flash }) {
+  const lab = { display: 'block', fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint, marginBottom: 6 };
+  const sel = { ...inputStyle, height: 44, fontSize: 16, width: '100%', cursor: 'pointer' };
+  // A select that reads as one on every phone: its own chevron, not the
+  // browser's (the app's select styling hides that one in some browsers).
+  const pick = (value, onChange, label, children) => (
+    <div style={{ position: 'relative' }}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}
+        style={{ ...sel, appearance: 'none', WebkitAppearance: 'none', paddingRight: 36 }}>{children}</select>
+      <ChevronDown size={16} aria-hidden="true" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: NX.dim, pointerEvents: 'none' }} />
+    </div>
+  );
+  const field = { marginBottom: 16 };
+  const toggle = (checked, onChange, title, hint) => (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 52, padding: '6px 0', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer' }}>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 15, fontWeight: 600, color: NX.ink }}>{title}</span>
+        {hint && <span style={{ display: 'block', fontSize: 12.5, color: NX.dim, marginTop: 2 }}>{hint}</span>}
+      </span>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ width: 22, height: 22, accentColor: NX.blue, flexShrink: 0, cursor: 'pointer' }} />
+    </label>
+  );
+  const copyLink = async () => {
+    let ok = true;
+    try { await navigator.clipboard.writeText(window.location.href); } catch { ok = false; }
+    flash?.(ok ? 'Link to this view copied.' : 'Could not copy the link.', !ok);
+  };
+  return (
+    <BottomSheet title="Filter Updates" onClose={onClose}>
+      <div style={{ marginTop: -8, marginBottom: 16 }}>
+        {toggle(!!f.mineOnly, (on) => f.setMineOnly(on ? 'me' : ''), 'For You', 'Only updates about the modules you use')}
+        {toggle(!!f.breakingOnly, (on) => f.setBreakingOnly(on ? '1' : ''), 'Breaking / Action Required', 'Changes you may need to act on')}
+      </div>
+      <div style={field}>
+        <span style={lab}>Module</span>
+        {pick(f.moduleFilter, f.setModuleFilter, 'Module', <>
+          <option value={ALL}>All Modules</option>
+          {f.modules.map((m) => <option key={m} value={m}>{m}</option>)}
+        </>)}
+      </div>
+      <div style={field}>
+        <span style={lab}>Category</span>
+        {pick(f.typeFilter, f.setTypeFilter, 'Category', <>
+          <option value={ALL}>All Categories</option>
+          {CHANGE_TYPES.map((t) => <option key={t} value={t}>{CHANGE_TYPE_META[t].label}</option>)}
+        </>)}
+      </div>
+      <div style={{ ...field, display: 'flex', gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={lab}>Environment</span>
+          {pick(f.envFilter, f.setEnvFilter, 'Environment', <>
+            <option value={ALL}>All</option>
+            {ENVIRONMENTS.map((e2) => <option key={e2} value={e2}>{envLabel(e2)}</option>)}
+          </>)}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={lab}>Version</span>
+          {pick(f.versionFilter, f.setVersionFilter, 'Version', <>
+            <option value={ALL}>All</option>
+            {f.versions.map((v) => <option key={v} value={v}>{v}</option>)}
+          </>)}
+        </div>
+      </div>
+      <div style={field}>
+        <span style={lab}>Released</span>
+        <div style={{ display: 'flex', gap: 10 }}>
+          {/* The app's own calendar, MM/DD/YYYY whatever the phone's region. */}
+          <DateField value={f.fromDate || null} onChange={(v) => f.setFromDate(v || '')} placeholder="From" title="From date"
+            style={{ ...inputStyle, height: 44, flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'center' }} />
+          <DateField value={f.toDate || null} onChange={(v) => f.setToDate(v || '')} placeholder="To" title="To date"
+            style={{ ...inputStyle, height: 44, flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'center' }} />
+        </div>
+      </div>
+      <div style={field}>
+        {toggle(f.comparing, (on) => { if (!on) { f.setCompareFrom(''); f.setCompareTo(''); } f.setComparing(on); },
+          'Compare Versions', 'Everything released after one version, up to another')}
+        {f.comparing && (
+          <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+            {pick(f.compareFrom, f.setCompareFrom, 'Compare from version', <>
+              <option value="">From the start</option>
+              {f.versions.map((v) => <option key={v} value={v}>after {v}</option>)}
+            </>)}
+            {pick(f.compareTo, f.setCompareTo, 'Compare to version', <>
+              <option value="">Up to now</option>
+              {f.versions.map((v) => <option key={v} value={v}>up to {v}</option>)}
+            </>)}
+          </div>
+        )}
+      </div>
+      <button type="button" onClick={copyLink} style={{ ...btn('outline'), width: '100%', justifyContent: 'center', minHeight: 44, marginBottom: 6 }}>
+        <Copy size={15} />Copy Link to This View
+      </button>
+      {/* The sheet's own padding is 16px plus the safe area; the bar cancels
+          both so it reaches the sheet's edges with nothing scrolling under it. */}
+      <div style={{
+        position: 'sticky', bottom: 'calc(-16px - env(safe-area-inset-bottom))', zIndex: 2, background: NX.surface,
+        borderTop: `1px solid ${NX.border2}`, marginTop: 10,
+        marginLeft: -16, marginRight: -16, marginBottom: 'calc(-16px - env(safe-area-inset-bottom))',
+        padding: '12px 16px calc(12px + env(safe-area-inset-bottom))', display: 'flex', alignItems: 'center', gap: 8,
+      }}>
+        {anyFilter && (
+          <button type="button" onClick={onClearAll} style={{ ...btn('outline'), justifyContent: 'center', minHeight: 46, padding: '0 16px', fontSize: 15 }}>Clear All</button>
+        )}
+        <button type="button" onClick={onClose} style={{ ...btn('primary'), flex: 1, justifyContent: 'center', minHeight: 46, fontSize: 15 }}>
+          {count === 0 ? 'No Matching Updates' : `Show ${count} ${count === 1 ? 'Update' : 'Updates'}`}
+        </button>
+      </div>
+    </BottomSheet>
   );
 }
 
@@ -1468,6 +1773,8 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
 // + Analytics for admins)
 // ═══════════════════════════════════════════════════════════════════════════
 const DETAIL_TABS = ['Overview', 'Technical Details', 'Media', 'Related Links', 'Comments'];
+// What a phone's narrower sub-tab strip calls them.
+const SHORT_DETAIL_TAB = { 'Technical Details': 'Technical', 'Related Links': 'Links' };
 
 function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onToggleExpand, onEdit, onSetStatus }) {
   const [tab, setTab] = useState('Overview');
@@ -1501,15 +1808,62 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
   const label11 = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint };
   const isMobile = useIsMobile();
   const padX = isMobile ? 16 : 24;
+  // Phones: the admin actions live in one sheet behind More.
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const phoneActions = isMobile && !!(isAdmin || onEdit || onPin);
   // Phones: one column - two side by side left each half too narrow to read.
   const twoCol = isMobile ? '1fr' : '1fr 1fr';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: NX.surface, fontFamily: FONT }}>
-      {/* Top bar */}
+      {/* Top bar. A phone gets a pushed screen's bar (Oct 28 2026): Back on
+          the left, everything an admin can do behind one More button - the
+          row of Pin / Report Issue / Edit / status ran off the right edge
+          and took the close button with it. */}
+      {isMobile ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 'calc(4px + env(safe-area-inset-top)) 8px 0' }}>
+          {onClose && (
+            <button type="button" onClick={onClose} aria-label="Back"
+              style={{ ...btn('ghost'), minHeight: 44, padding: '0 12px 0 4px', gap: 2, color: NX.blue, fontSize: 16, fontWeight: 600 }}>
+              <ChevronLeft size={24} />Back
+            </button>
+          )}
+          {phoneActions && (
+            <button type="button" onClick={() => setActionsOpen(true)} aria-label="More Actions" aria-haspopup="dialog"
+              style={{ ...btn('ghost'), marginLeft: 'auto', width: 44, height: 44, padding: 0, justifyContent: 'center', color: NX.ink }}>
+              <MoreHorizontal size={22} />
+            </button>
+          )}
+          {actionsOpen && (() => {
+            const row = (Icon, label, run, on = false) => (
+              <button key={label} type="button" onClick={() => { setActionsOpen(false); run(); }} aria-pressed={on || undefined}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', minHeight: 52, padding: '0 4px', border: 'none',
+                  borderBottom: `1px solid ${NX.border2}`, background: 'transparent', cursor: 'pointer', fontFamily: FONT, fontSize: 15,
+                  fontWeight: on ? 700 : 500, color: NX.ink, textAlign: 'left' }}>
+                {Icon ? <Icon size={18} style={{ color: NX.dim, flexShrink: 0 }} /> : <span style={{ width: 18, flexShrink: 0 }} />}
+                <span style={{ flex: 1 }}>{label}</span>
+                {on && <CheckCircle2 size={18} style={{ color: NX.blue, flexShrink: 0 }} />}
+              </button>
+            );
+            return (
+              <BottomSheet title="Update Actions" onClose={() => setActionsOpen(false)}>
+                <div style={{ display: 'flex', flexDirection: 'column', marginTop: -8 }}>
+                  {onPin && status === 'Released' && row(Pin, entry.pinned ? 'Unpin' : 'Pin to Top', () => onPin(entry))}
+                  {isAdmin && status === 'Released' && row(AlertTriangle, issueOf(entry)?.active ? 'Known Issue' : 'Report Issue', () => setIssueOpen(true))}
+                  {onEdit && row(Pencil, 'Edit', onEdit)}
+                </div>
+                {isAdmin && (<>
+                  <div style={{ ...label11, margin: '18px 0 4px' }}>Status</div>
+                  {STATUSES.map((st) => row(null, st, () => changeStatus(st), st === status))}
+                </>)}
+              </BottomSheet>
+            );
+          })()}
+        </div>
+      ) : (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: isMobile ? `calc(12px + env(safe-area-inset-top)) ${padX}px 0` : `18px ${padX}px 0` }}>
         <span style={chip(meta.color, meta.tint)}>{meta.label}</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }}>
           {onPin && status === 'Released' && (
             <button type="button" onClick={() => onPin(entry)} aria-pressed={!!entry.pinned} style={{ ...btn('outline'), ...(entry.pinned ? { color: NX.blue, borderColor: NX.blue } : null) }}>
               <Pin size={13} />{entry.pinned ? 'Unpin' : 'Pin'}
@@ -1545,10 +1899,18 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
           {onClose && <button onClick={onClose} aria-label="Close" style={{ ...btn('ghost'), padding: 6, color: NX.dim, ...(isMobile ? { width: 40, height: 40, justifyContent: 'center' } : null) }}><X size={isMobile ? 20 : 16} /></button>}
         </div>
       </div>
+      )}
 
       {/* Title + meta */}
       <div style={{ padding: `8px ${padX}px ${isMobile ? 12 : 16}px` }}>
-        <h2 style={{ margin: 0, fontSize: isMobile ? 19 : 22, lineHeight: 1.3, fontWeight: 700, color: NX.ink }}>{entry.title}</h2>
+        {isMobile && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <span style={chip(meta.color, meta.tint)}>{meta.label}</span>
+            {status !== 'Released' && <span style={chip(statusMeta.color, statusMeta.tint)}>{status}</span>}
+            {entry.pinned && <span style={chip(NX.blue, 'rgba(37,99,235,0.10)')}><Pin size={11} />Pinned</span>}
+          </div>
+        )}
+        <h2 style={{ margin: 0, fontSize: isMobile ? 21 : 22, lineHeight: 1.3, fontWeight: 700, color: NX.ink }}>{entry.title}</h2>
         <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: isMobile ? '6px 12px' : 12, fontSize: 13, color: NX.dim }}>
           {entry.module && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Layers size={13} style={{ color: NX.faint }} />{entry.module}</span>}
           {entry.version && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><GitBranch size={13} style={{ color: NX.faint }} /><span style={{ fontFamily: 'monospace' }}>{entry.version}</span></span>}
@@ -1571,11 +1933,11 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
           const active = tab === t;
           const suffix = t === 'Media' ? ` (${media.length + files.length})` : t === 'Comments' ? ` (${entry.commentCount || 0})` : '';
           return (
-            <button key={t} onClick={() => setTab(t)} style={{
+            <button key={t} onClick={() => setTab(t)} aria-label={`${t}${suffix}`} style={{
               flexShrink: 0, cursor: 'pointer', border: 'none', borderBottom: `2px solid ${active ? NX.primary : 'transparent'}`,
-              background: 'transparent', padding: '10px 10px', fontSize: 13, fontWeight: 600, fontFamily: FONT,
+              background: 'transparent', padding: isMobile ? '13px 11px' : '10px 10px', fontSize: isMobile ? 14 : 13, fontWeight: 600, fontFamily: FONT,
               color: active ? NX.ink : NX.dim,
-            }}>{t}{suffix}</button>
+            }}>{isMobile ? (SHORT_DETAIL_TAB[t] || t) : t}{suffix}</button>
           );
         })}
       </div>
@@ -1843,6 +2205,27 @@ function SlideOver({ entry, nameOf, myEmail, isAdmin, onClose, onSetStatus, onEd
   // On a phone this is a screen of its own, so the phone's Back closes it
   // rather than leaving What's New (the same hook the task sheets use).
   useBackToClose(isMobile, onClose);
+  // Phones (Oct 28 2026): pinned to the part of the screen you can see, so
+  // with the keyboard up the comment box sits above it, not behind it; it
+  // slides in like a pushed screen, and a swipe in from the left edge goes
+  // back, the way every other phone screen does.
+  const vv = useVisualViewport(isMobile);
+  const swipe = useRef(null);
+  if (isMobile) {
+    return (
+      <div className="nx-wn-push" role="dialog" aria-modal="true" aria-label={entry.title}
+        onTouchStart={(e) => { const t = e.touches[0]; swipe.current = t && t.clientX < 28 ? { x: t.clientX, y: t.clientY } : null; }}
+        onTouchEnd={(e) => {
+          const s0 = swipe.current; swipe.current = null;
+          const t = e.changedTouches[0];
+          if (s0 && t && t.clientX - s0.x > 80 && Math.abs(t.clientY - s0.y) < 60) onClose();
+        }}
+        style={{ position: 'fixed', left: 0, right: 0, zIndex: 3200, background: NX.surface, ...(vv ? { top: vv.top, height: vv.height } : { top: 0, bottom: 0 }) }}>
+        <DetailCard entry={entry} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin}
+          onClose={onClose} expanded onSetStatus={onSetStatus} onEdit={onEdit} />
+      </div>
+    );
+  }
   return (
     <div onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, zIndex: 3200, display: 'flex', justifyContent: 'flex-end', background: 'rgba(0,0,0,0.4)' }}>
       <div style={{ height: '100%', width: expanded || isMobile ? '100%' : 'min(760px, 92vw)', transition: 'width 0.18s ease', boxShadow: isMobile ? 'none' : '-8px 0 40px rgba(0,0,0,0.28)' }}>
