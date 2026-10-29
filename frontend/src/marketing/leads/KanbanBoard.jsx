@@ -16,7 +16,7 @@ export default function KanbanBoard({ leads, onSelectLead, onChangeStage }) {
   const [dragOverStage, setDragOverStage] = useState(null)
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gap: 12 }}>
+    <div className="mktg-swipe" style={{ display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gap: 12 }}>
       {STAGE_ORDER.map((stage) => {
         const over = dragOverStage === stage
         return (

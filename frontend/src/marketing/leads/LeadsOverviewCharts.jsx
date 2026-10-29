@@ -34,7 +34,7 @@ export default function LeadsOverviewCharts({ leads }) {
   if (total === 0) return null
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, marginBottom: 16, alignItems: 'stretch' }}>
+    <div className="mktg-stack" style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, marginBottom: 16, alignItems: 'stretch' }}>
       <div style={{ gridColumn: 'span 6' }}>
         <DonutCard title="Lead Source Mix" data={sourceData} centerValue={String(total)} centerLabel="Total Leads" />
       </div>

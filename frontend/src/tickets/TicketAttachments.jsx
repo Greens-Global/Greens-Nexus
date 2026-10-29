@@ -67,7 +67,10 @@ function TicketAttachments({ ticketId, ticketType, canDelete = false }) {
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState(null);   // attachment open in the in-app viewer
   const [hoverId, setHoverId] = useState(null);
-  const isMobile = useIsMobile();   // no hover on touch - actions stay visible instead
+  const isMobile = useIsMobile();
+  // No hover on touch - actions stay visible instead. A tablet or a phone on
+  // its side is wider than the phone breakpoint, so ask about hover itself.
+  const noHover = useIsMobile('(hover: none)');
   const reload = () => api.getTicketAttachments(ticketId).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
@@ -130,7 +133,7 @@ function TicketAttachments({ ticketId, ticketType, canDelete = false }) {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           {rows.map((a) => {
             const failed = !a.url;
-            const showActions = isMobile || hoverId === a.id;
+            const showActions = isMobile || noHover || hoverId === a.id;
             const actionBtn = { width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15,23,42,0.62)', color: '#fff', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'none' };
             return (
               <div key={a.id} onMouseEnter={() => setHoverId(a.id)} onMouseLeave={() => setHoverId((h) => (h === a.id ? null : h))}

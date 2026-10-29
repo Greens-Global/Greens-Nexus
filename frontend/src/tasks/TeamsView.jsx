@@ -738,6 +738,7 @@ function MemberStack({ members, nameOf }) {
 }
 
 function TeamOverviewTab({ team, teamProjects, onSeeMembers, onNavigate }) {
+  const isMobile = useIsMobile();
   const { tasks, nameOf } = useTasks();
   const members = team.memberIds || [];
   const shown = members.slice(0, 8);
@@ -752,7 +753,8 @@ function TeamOverviewTab({ team, teamProjects, onSeeMembers, onNavigate }) {
       {/* No hero banner here: the team's icon, color, name and counts are all
           in the header right above the tabs, so a 112px tinted band added
           nothing and read as a panel that had failed to load (Sagar, Aug 26). */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16 }}>
+      {/* A phone stacks the two cards - the side column crushed Projects to a sliver. */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : '1fr 320px', gap: 16 }}>
         {/* Projects - a team can serve several; change the set via Edit Team. */}
         <div style={{ border: `1px solid ${NX.border}`, borderRadius: 16, background: NX.surface, padding: 16, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 700, marginBottom: 12 }}>

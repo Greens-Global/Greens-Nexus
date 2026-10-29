@@ -34,7 +34,7 @@ export default function SeoDistributionCharts({ keywords }) {
     .filter((d) => d.value > 0)
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, marginBottom: 16, alignItems: 'stretch' }}>
+    <div className="mktg-stack" style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, marginBottom: 16, alignItems: 'stretch' }}>
       <div style={{ gridColumn: 'span 6' }}>
         <DonutCard title="Search Intent Mix" data={intentData} centerValue={String(total)} centerLabel="Keywords" />
       </div>

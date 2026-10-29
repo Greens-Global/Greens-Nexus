@@ -40,7 +40,7 @@ function Card({ icon: Icon, color, label, value, caption }) {
 
 export default function SeoStatCards({ stats, totalKeywordUniverse }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
+    <div className="mktg-cols-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
       <Card
         icon={Target}
         color={{ color: C.blue600, background: C.blue50 }}

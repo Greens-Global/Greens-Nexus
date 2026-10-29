@@ -30,7 +30,7 @@ export default function LeadsHeader({
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <div className="mktg-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <button
             onClick={onDownload}
             onMouseEnter={(e) => { e.currentTarget.style.background = C.gray50 }}
