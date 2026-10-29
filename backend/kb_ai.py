@@ -81,7 +81,18 @@ def _call(system: str, user: str, *, max_tokens: int = 4000, timeout: float = 11
     except httpx.HTTPError as e:
         raise AiError(f"Nexus could not be reached: {e.__class__.__name__}") from e
     if r.status_code >= 300:
-        raise AiError(f"Nexus answered {r.status_code}")
+        # Say WHY (Oct 29 2026: every call on dev came back "400" with no
+        # reason - a spent credit balance, a model the key cannot use and a
+        # bad request all look the same without it). The provider's error
+        # type and message only, never the request or the key.
+        why = ""
+        try:
+            err = (r.json() or {}).get("error") or {}
+            why = f"{err.get('type', '')}: {err.get('message', '')}".strip(": ")[:200]
+        except ValueError:
+            why = (r.text or "")[:200]
+        print(f"[kb_ai] {body['model']} answered {r.status_code}: {why}")
+        raise AiError(f"Nexus answered {r.status_code}" + (f" ({why})" if why else ""))
     data = r.json()
     return "".join(p.get("text", "") for p in data.get("content", []) if p.get("type") == "text")
 
