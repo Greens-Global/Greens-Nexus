@@ -1512,3 +1512,64 @@ def _hr_packets_to_verify(db: Session, user: dict, ctx: dict) -> list:
 # (workflows/approvals.py) and registers itself on import.
 GROUPS.append(("workflows", "Workflows"))
 import workflows.approvals  # noqa: E402,F401 - registers the "workflow" source
+
+
+
+# Performance (Oct 29 2026, performance-simple-design.md): reviews waiting on
+# the caller - their own self review or acknowledgement, the reviews they
+# write, and, as HR, the ones ready to share (perf_reviews.waiting_on) - and
+# goals the caller's direct reports proposed for themselves.
+
+_PERF_REVIEW_WORDS = {
+    "self": ("Write Your Self Review", "Three short questions - your manager reads them before writing theirs.", "Write It"),
+    "write": ("Write a Review", "Their numbers and goals are on the form beside the questions.", "Write It"),
+    "share": ("Review Ready to Share", "Read it, then Share it with them - or send it back to the manager.", "Open"),
+    "acknowledge": ("Acknowledge Your Review", "Read your review, add your comments if you wish, and sign to say you received it.", "Read It"),
+}
+
+
+@source("perf_review", "Performance Reviews", "people")
+def _perf_reviews(db: Session, user: dict, ctx: dict) -> list:
+    import perf_reviews as pr
+    if user.get("external"):
+        return []
+    out = []
+    for kind, r, c in pr.waiting_on(db, user):
+        title, detail, label = _PERF_REVIEW_WORDS[kind]
+        due = c.self_due if kind == "self" else c.manager_due if kind == "write" else ""
+        mine = kind in ("self", "acknowledge")
+        created = r.shared_at if kind == "acknowledge" else r.manager_submitted_at if kind == "share" else r.created_at
+        out.append(row("perf_review", f"{r.id}:{kind}", person_email="" if mine else r.employee_email,
+                       person_name="" if mine else _name(db, ctx, r.employee_email),
+                       title=f"{title} - {c.name}", detail=detail, created_at=created,
+                       actions=(a_open(label),), link={"view": "myhr", "sub": f"performance:review:{r.id}"},
+                       due=due, facts=(("Review", c.name), ("Due", _us_day(due) if due else ""))))
+    return out
+
+
+@source("perf_goal", "Goals to Approve", "people")
+def _perf_goals(db: Session, user: dict, ctx: dict) -> list:
+    """Personal goals a direct report proposed for themselves, waiting on the
+    caller's Approve (performance.can_approve_goal - the same rule the
+    Approve button and POST /performance/goals/{id}/approve use)."""
+    import performance as perf
+    if user.get("external"):
+        return []
+    me = (user.get("email") or "").lower()
+    reports = {(e.work_email or "").lower() for e in perf.direct_reports(db, me)}
+    if not reports:
+        return []
+    rows = (db.query(models.PerfGoal).filter(models.PerfGoal.owner_email.in_(sorted(reports)),
+                                             models.PerfGoal.level == "personal", models.PerfGoal.archived_at == "",
+                                             models.PerfGoal.approved_at == "").all())
+    out = []
+    for g in rows:
+        if not perf.can_approve_goal(db, user, g):
+            continue
+        due = g.period_end or g.due_on or ""
+        out.append(row("perf_goal", g.id, person_email=g.owner_email, person_name=_name(db, ctx, g.owner_email),
+                       title=f"Goal to Approve - {g.title}", detail=_short(g.description or ""),
+                       created_at=g.created_at, actions=(A_APPROVE, a_open("Open")),
+                       link={"view": "myhr", "sub": f"performance:goal:{g.id}"}, due=due,
+                       facts=(("Goal", g.title), ("Due", _us_day(due) if due else ""))))
+    return out
