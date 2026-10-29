@@ -328,7 +328,7 @@ export const DOCS = [
       'If you see "Your Punch Did Not Record", try again from a phone or a stable connection. Nothing was saved.',
       'If Nexus asks you to sign in again right after you press a punch button, your punch and your message are kept on the device and record by themselves once you are signed back in, at the time you pressed the button.',
       'Approved time off is not punched in for you automatically - to be paid for it, add it on your Time Sheet (Add on the day, Type Sick or Vacation). The one exception is India contractors on the India Contractor Policy: an approved Vacation or Sick request is paid leave with no punch, drawn only from its own balance.',
-      'If Workday shows no clock and no Time Sheet tab, you are on a salaried, time-tracking-exempt setup - Nexus does not record punches or hours for you. Raise a ticket if that is wrong.',
+      'If Workday shows no clock and no Time Sheet tab, you are on a salaried, time-tracking-exempt setup - Nexus does not record punches or hours for you. (The Time Sheet tab still appears when there is something to sign or a salary advance to show you.) Raise a ticket if that is wrong.',
     ],
   },
   {
