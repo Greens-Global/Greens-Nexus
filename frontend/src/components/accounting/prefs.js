@@ -185,9 +185,9 @@ function failureOf(e) {
   return { reason: 'refused' };
 }
 const FAILURE_TEXT = {
-  'too-large': "Couldn't save your view to your account. It's kept on this computer only. Try removing some saved views.",
-  offline: "Couldn't save your view to your account - the server could not be reached. It's kept on this computer only and is saved again with your next change.",
-  refused: "Couldn't save your view to your account. It's kept on this computer only.",
+  'too-large': "Couldn't save your view to your account. It may be lost when you reload the page. Remove some saved views, then try again.",
+  offline: "Couldn't save your view to your account - the server could not be reached. It is saved again with your next change.",
+  refused: "Couldn't save your view to your account. It may be lost when you reload the page.",
 };
 export const saveFailureText = (f) => (f ? FAILURE_TEXT[f.reason] || FAILURE_TEXT.refused : '');
 
