@@ -8783,6 +8783,15 @@ class PerfGoal(Base):
     created_by       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")
+    # Performance, made simple (Neil, Oct 29 2026): a goal can be measured BY
+    # one of the person's Nexus numbers (perf_metrics.METRICS key, '' = by
+    # hand) over its own period; status is computed, never picked; a goal an
+    # employee sets for themselves waits for their manager's Approve.
+    metric_key       = Column(String, default="")
+    period_start     = Column(String, default="")                      # YYYY-MM-DD
+    period_end       = Column(String, default="")                      # YYYY-MM-DD (due_on mirrors it)
+    approved_at      = Column(String, default="")                      # '' = Proposed
+    approved_by      = Column(String, default="")
 
 
 class PerfGoalCheckin(Base):
@@ -8912,7 +8921,7 @@ class PerfReview(Base):
     company_id           = Column(String, default="", index=True)
     employee_email       = Column(String, nullable=False, index=True)
     manager_email        = Column(String, default="", index=True)      # who writes the manager review ('' = HR)
-    stage                = Column(String, default="self_review", index=True)  # self_review | manager_review | hr_review | shared | complete
+    stage                = Column(String, default="self_review", index=True)  # self_review | manager_review | ready | shared | complete | removed
     self_answers         = Column(JSON, default=dict)                  # {question id: {rating, text}}
     self_values          = Column(JSON, default=dict)                  # {value id: rating}
     self_submitted_at    = Column(String, default="")
@@ -8934,6 +8943,17 @@ class PerfReview(Base):
     nudged_at            = Column(String, default="")
     created_at           = Column(String, default="")
     updated_at           = Column(String, default="")
+    # Performance, made simple (Oct 29 2026): one 4-word rating
+    # (exceeds | meets | partly | below), each goal scored (met | partly |
+    # not), Ready for Promotion, the employee's own comments printed on the
+    # signed copy, which automatic reminders went out, and removal from a
+    # cycle (stage "removed" - the row is kept).
+    rating               = Column(String, default="")
+    goal_scores          = Column(JSON, default=dict)                  # {goal id: met | partly | not}
+    promotion_ready      = Column(Boolean, default=False)
+    employee_comment     = Column(Text, default="")
+    reminded             = Column(JSON, default=dict)                  # {launch, soonSelf, dueSelf, soonMgr, dueMgr: ISO}
+    removed_at           = Column(String, default="")
 
 
 class ExtraTimeClaim(Base):

@@ -85,6 +85,8 @@ const JobOpenings = lazy(() => import('../components/hiring/JobOpenings'));
 const HeadcountRequests = lazy(() => import('../components/hiring/HeadcountRequests'));
 // Performance (Oct 27 2026): HR's review cycles and company goals - lazy.
 const PerformanceAdmin = lazy(() => import('../performance/PerformanceAdmin'));
+// A person's Performance on their profile (Oct 29 2026) - their numbers, goals and reviews.
+const PersonPerformanceSection = lazy(() => import('../performance/PersonPerformanceSection'));
 // People Analytics and Exits (Oct 27 2026) load with their tab - their own chunks.
 const HrAnalytics = lazy(() => import('../components/HrAnalytics'));
 const ExitsTab = lazy(() => import('../components/ExitsTab'));
@@ -2076,6 +2078,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               <ProbationCard employee={e} focus={focusProbation} toastOk={toastOk} toastErr={toastErr}
                 onChanged={() => onReload?.()}
                 onOffboard={init => { setOffboardInitial(init); setOffboardOpen(true); }} />
+            )}
+            {!isRemoved && e.work_email && (
+              <Suspense fallback={null}>
+                <PersonPerformanceSection email={e.work_email} name={[e.first_name, e.last_name].filter(Boolean).join(' ')} toastOk={toastOk} toastErr={toastErr} />
+              </Suspense>
             )}
             <div>
               {row(Mail, 'Work email', e.workEmail)}

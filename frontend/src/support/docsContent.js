@@ -295,6 +295,58 @@ export const DOCS = [
           'Click Sign & Submit and sign in Nexus Sign. Your signature finalizes the period for payroll, and the signed copy is filed in My Documents.',
         ],
       },
+      {
+        title: 'Set a Goal',
+        steps: [
+          'Open Workday > Performance and click Add Goal under My Goals.',
+          'Type the goal, then pick Measured By. A Nexus number (On-Time Arrival, Tasks On Time, Required Training Done and the rest) updates by itself - set the target, for example 95. I\'ll Update It is for anything else: Percent Done, A Number or Done or Not.',
+          'Pick a due date (six months from now if you leave it empty) and click Add Goal. You can have five open goals at a time.',
+          'A goal you add yourself is Proposed until your manager approves it. It still tracks while it waits.',
+        ],
+      },
+      {
+        title: 'Check In on a Goal',
+        steps: [
+          'Only goals you update yourself need this - a goal measured by a Nexus number keeps itself current.',
+          'Open the goal from My Goals. Under Update Progress, enter where it stands now (or tick Done) and add a note if you like.',
+          'Click Save Update. The status - On Track, At Risk, Behind or Done - is worked out from your progress and how much of the goal\'s time has passed. Nobody picks it.',
+        ],
+      },
+      {
+        title: 'Write Your Self Review',
+        steps: [
+          'When HR starts a review, you get a bell and the review shows under My Reviews in Workday > Performance.',
+          'Open it. Your numbers for the review period and your goals with their results are shown beside the three questions: What went well? What could be better? What should the focus be next?',
+          'Click Save Draft to finish later, or Submit. It is due a week before the review\'s due date.',
+          'Your manager writes their review once you submit, or once your due date passes.',
+        ],
+      },
+      {
+        title: 'Acknowledge Your Review',
+        steps: [
+          'When HR shares your review you get a bell. Open it from My Reviews: your manager\'s answers, the score on each goal and the Overall Rating (Exceeds, Meets, Partly Meets or Below).',
+          'Add Your Comments if you want to - they are printed on your copy.',
+          'Click Acknowledge, then Continue to Sign, and sign in Nexus Sign. Signing says you received and read it - it does not mean you agree with everything in it. The signed copy is in My Documents and under Past Reviews.',
+        ],
+      },
+      {
+        title: 'Approve or Give Goals to Your Team',
+        steps: [
+          'Open Workday > Performance > My Team. Each direct report shows their numbers this quarter, their goals by status and their review stage. "2 to Approve" means they proposed goals.',
+          'Click a person to open their page - the same page they see. Click Approve on a proposed goal, or Add Goal for Them to set one (a goal you add is approved at once).',
+          'To give one goal to several people, click Add Goal and tick each person under For. Each of them gets their own copy of the goal.',
+        ],
+      },
+      {
+        title: 'Write a Review (Managers)',
+        steps: [
+          'Reviews to Write lists the reviews waiting on you (Team Reviews shows them all). Open one.',
+          'Their numbers for the review period and their goals with results are on the page. Score each goal Met, Partly Met or Not Met, answer the same three questions, and pick one Overall Rating: Exceeds, Meets, Partly Meets or Below.',
+          'Tick Ready for Promotion if it fits, and add a private note for HR if you need to. Neither is ever shown to the employee or printed on their copy.',
+          'Under What should the focus be next?, Make This a Goal opens Add Goal for them with your answer as the title - nothing is saved until you click Add Goal.',
+          'Click Submit. HR shares it with the employee.',
+        ],
+      },
     ],
     features: [
       { name: 'Overview', desc: 'Opens with one row of tiles: Hours This Week, Time Off This Year (approved working days, Monday to Friday, a partial day counted as its share of 8 hours), Time With Us (from the start date on your HR record - ask HR if it is wrong) and Ask HR at the right end - the confidential HR desk: New Request offers Request a Letter (employment verification, salary, visa and more, when your company offers HR letters), Update a Document, Profile Change, Question for HR and Something Else. A request is a confidential HR ticket that only you, the people you add and HR can see. My Requests lists them with the answers from HR and your letters, and a red dot on Ask HR means HR has updated one you have not looked at yet (the request is marked Updated by HR). Then the Time Clock, then your profile, contact and emergency details, assigned equipment and checkouts, My Schedule and My Documents (signed documents, the files HR keeps for you and your paystubs, by folder). Only you see this page.' },
@@ -306,7 +358,11 @@ export const DOCS = [
       { name: 'My Paid Time Off', desc: 'On the Time Off tab: your vacation and sick balances, when your company has set up leave policies (Settings > Time & Pay > Leave Policies). Sick and Personal draw from one balance. The request form shows what a request would leave you with. At the end of the leave year the company\'s Leave Year-End rule decides what carries over - Use It Or Lose It unless your company says otherwise.' },
       { name: 'Team Leave Calendar', desc: 'On the Time Off tab: one month of who is out on your team, with company holidays marked. A confidential request shows only as Out. On a phone it lists just the days that have something.' },
       { name: 'Your Salary Advances', desc: 'On your Time Sheet, read-only, when you have one: what was advanced, how it is repaid and each repayment line on your card. You do not ask for an advance yourself - your manager or HR asks on your behalf from your Time Sheet in People > Time.' },
-      { name: 'Performance', desc: 'The Performance tab: your goals (Add Goal, then Check In to update progress) and your 1:1s with your manager - the agenda you both add to, shared notes and action items that become tasks. Company and Department Goals shows what your goals support. When people report to you, My Team shows their goals and their next 1:1. Review cycles HR launches show here too: write your Self Review, then read the manager\'s review once HR shares it and sign it in Nexus Sign.' },
+      { name: 'Performance', desc: 'One page: My Numbers, My Goals, My Reviews and My 1:1s. When people report to you, a My Team switch shows them. Only you, the people you report to and HR see your page.' },
+      { name: 'My Numbers', desc: 'On Workday > Performance: tiles from what Nexus already records, for This Month, This Quarter or This Review. Nobody types them, and a number that does not apply to you (tickets, if you do not work tickets) is not shown. On-Time Arrival: shifts started on time. No-Shows: shifts missed with no clock-in. Hours vs Expected: hours worked against the hours expected. Time Sheets Signed On Time: approved Time Sheets signed within 3 days. Tasks Completed, Tasks On Time (finished on or before the due date) and Overdue Tasks Now. Tickets Resolved and Replies Within Target (first replies within the ticket target). Required Training Done: assigned courses and policies complete. Time off, sick days, leave, pay and HR requests are never used.' },
+      { name: 'My Goals', desc: 'Up to five open goals. Each shows its progress, its target and its status - On Track, At Risk, Behind or Done, worked out by Nexus from progress and time, never picked. A goal measured by a Nexus number says so and needs no updates; until that number has something to show it reads No Data Yet. A goal you add is Proposed until your manager approves it. Archive a goal you no longer need - it stays in the history. Company and Department Goals shows the bigger goals yours can support (Add a Note or Link It to a Bigger Goal on the goal form).' },
+      { name: 'My Reviews', desc: 'The reviews HR starts, twice a year: your self review while it is open, the shared review to acknowledge, and Past Reviews with the signed copies.' },
+      { name: 'My 1:1s', desc: 'Your 1:1s with your manager: the agenda you both add to, shared notes and action items that become tasks. Your manager sets them up and they are in both your Teams calendars. Canceling one meeting cancels it in Teams too, and an ended 1:1 is read-only.' },
       { name: 'Location Tag', desc: 'Each punch shows the location you were at when you punched, judged by where the punch was made, even if you move between several locations in a day. A punch inside any of your company locations shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote and Hybrid staff can punch from anywhere (away from a site it shows Remote), and their location is still recorded. Click a location on the time sheet to see the punches of that shift on the map; a manager can also change the location of the punch from there.' },
       { name: 'Location Off at Clock-In', desc: 'A punch never waits for your location. If you clock in with location turned off, a red Needs Attention bar asks you to turn it on, with Turn On and Skip. Turn On asks your browser for your location (or shows the steps to allow it when it is blocked) and adds it to that clock-in. Skip keeps the clock-in as Location Off on your Time Sheet and lets your manager know. Works the same on a phone and a computer. People exempt from screen monitoring are never asked.' },
       { name: 'Clock in the Left Menu', desc: 'The time clock also sits in the left menu: Play punches in (or ends a break), Pause starts a break, Stop punches out. The dial fills toward 8 hours - green on the clock, amber on a break, red off - and clicking it opens the full clock.' },
@@ -627,7 +683,7 @@ export const DOCS = [
     tagline: 'Everything waiting on your decision, from every module, in one list.',
     where: 'Left menu > Approvals',
     access: 'Everyone. You only see what is waiting on you - an employee has shift swaps and signatures too.',
-    purpose: 'Approvals gathers every decision that is yours to make: time off, punch fixes, time sheets to review or sign, reimbursements, purchase requests, shift requests, hiring votes, Nexus Sign documents and workflow approvals. Each row uses the module\'s own approval, so deciding here is the same as deciding in the module. The number beside Approvals in the left menu is the same count.',
+    purpose: 'Approvals gathers every decision that is yours to make: time off, punch fixes, time sheets to review or sign, reimbursements, purchase requests, shift requests, hiring votes, Nexus Sign documents, workflow approvals, performance reviews to write, share or acknowledge, and goals your team proposed. Each row uses the module\'s own approval, so deciding here is the same as deciding in the module. The number beside Approvals in the left menu is the same count.',
     gains: [
       'Clear your approvals in one sitting instead of visiting each module.',
       'The request that has waited longest is at the top, so nothing is forgotten.',
@@ -1891,12 +1947,21 @@ export const DOCS = [
         ],
       },
       {
-        title: 'Run a Review Cycle',
+        title: 'Start a Review Cycle',
         steps: [
-          'Open People > Performance > Review Cycles and click New Review Cycle: the company, who is in it (departments, employment types), the deadlines and the questions. Click Create Cycle.',
-          'Click Launch. Everyone in it gets their Self Review in Workday > Performance.',
-          'Each review moves Self Review, then Manager Review, then HR Finalize, then Shared With Employee - the employee signs it in Nexus Sign as its only signer - then Complete.',
-          'The cycle\'s dashboard counts each stage and who is overdue; Nudge reminds whoever it waits on. Close Cycle when it is done.',
+          'Open People > Performance and click New Review Cycle under Review Cycles.',
+          'Give it a Name (for example 2026 Year-End Review), pick the Company and the Due Date. The period is the last six months unless you change it. Click Start Review.',
+          'Everyone active at that company who is past probation is in it - contractors, externals and guests are not. Anyone who joins the company before it closes is added by themselves.',
+          'Everyone is told at once. Reminders go out by themselves: 3 days before each due date and on the day. The self review is due a week before the Due Date.',
+        ],
+      },
+      {
+        title: 'Share Reviews',
+        steps: [
+          'Open the cycle. The table lists each person, their manager, the stage (Self Review, Manager Review, Ready to Share, Shared, Acknowledged) and the rating, with a count of each rating at the top.',
+          'Click Share All Ready to share every finished review at once, or open one and click Share With <name>. The employee gets a bell and acknowledges it in Nexus Sign.',
+          'On a review you can also Send It Back to the Manager with a note, change who it is Written By (they are told), Recall a shared one or Remove From Review.',
+          'Close Cycle when it is done. If reviews are still unfinished, Nexus asks first - Close Anyway or Keep It Open.',
         ],
       },
       {
@@ -1934,7 +1999,9 @@ export const DOCS = [
       { name: 'Extra Time', desc: 'People > Time > Extra Time, HR only: India contractors\' Extra Time claims waiting on a decision, oldest first, and the last 60 days of decisions. Approved Extra Time pays 1.35 times the daily rate divided by 9 per hour.' },
       { name: 'Analytics', desc: 'People Analytics: headcount over time, joiners and leavers (voluntary and involuntary), attrition, tenure, absence and leave liability, by company and for employees, contractors or everyone. Every count opens the people behind it.' },
       { name: 'Exits', desc: 'Everyone leaving, and each leaver\'s final settlement statement: Mark Reviewed, Generate PDF (filed to Egnyte), Close Exit.' },
-      { name: 'Performance', desc: 'HR\'s Review Cycles and the company\'s goals: Company and Department Goals (Add Department Goal) and Everyone\'s Goals, with Off Track and At Risk first. 1:1s are not here - they belong to the manager and the report, in Workday > Performance. The rating scale, the company values and the goal and 1:1 reminders are Settings > Performance.' },
+      { name: 'Performance', desc: 'For HR: Review Cycles (New Review Cycle is a name, a company and a due date), Company and Department Goals (Add Department Goal), and Everyone\'s Goals with Behind and At Risk first. 1:1s are not here - they belong to the manager and the report, in Workday > Performance. The goal update reminder and the 1:1 agenda reminder are Settings > Performance > Performance Reminders.' },
+      { name: 'Performance on the Profile', desc: 'On a person\'s Overview, for their reporting chain and HR only: their numbers this quarter, their current goals and their reviews, with the signed copies of past ones. Anyone else does not see the section at all.' },
+      { name: 'Who Sees a Review', desc: 'The employee sees their own self review, and the manager\'s review once HR shares it. Their manager reads the self review once it is submitted. Managers above read the manager\'s review once it is written and the self review once it is shared. HR sees everything. Ready for Promotion and the private note for HR are never shown to the employee or printed on their copy; the private note is seen only by HR and the person who wrote it.' },
       { name: 'Work Mode', desc: 'On an employee profile: On-Site, Remote (punch from anywhere) or Hybrid (their usual locations some days, remote on others - a punch at a company location counts at that site, anywhere else counts as Remote, never Out of Location). For On-Site and Hybrid, optionally click their usual locations - any number of them. A punch inside any company location counts as at that site; their usual sites only win where two sites overlap.' },
     ],
     manager: {
@@ -2331,7 +2398,7 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Subjects', desc: 'Companies: the list of companies, each company\'s profile, departments and holiday calendar, and Holiday Policies. Locations (the Location Library, and each company\'s sites). People & Access: people, Access Groups, each company\'s Roles and the More Details Fields. Security: Sign-In & Sessions and the Sign-In Policy. Branding & Email: Brand Color, Email Appearance, Letterheads and the Email Signature templates. Emails & Reminders: Task Notifications, the Daily Briefing, the Weekly Digest, the Workforce Scorecard, HR & Compliance Reminders and Equipment Reminders. Tickets: the Ticket Manager (routing, escalation and default assignees, ticket email and alerts, SLA & Ticket Types, Help Topics, Desk Access, Saved Replies and AI Features) and the Property Rules. Time & Pay: Pay Rules (punch rounding, auto-lunch and California paid rest breaks - a default, and each company\'s own), Payroll Export Codes, Shift Differentials & Call-Back Pay, the India Contractor Policy, Payroll Readiness, the California Minimum Wage, Leave Policies, Time-Off Reasons, Leave Year-End, Time-Off Approval (Second Approval By HR) and the Intacct Nightly Sync. Workforce Analytics: the App & Website Ratings, the Location Trail, and each company\'s policy. Shifts & Scheduling: Schedule Basics, Requests & Visibility, Attendance, Overtime Alerts, Rules and Sharing (each one a company can override), Shift Types, Groups and Weather Alerts. Hiring & Onboarding: Hiring Documents, Interview Questionnaires, the Checklist Library, Probation, each company\'s Checklists and HR Letters. Items & Equipment: Item Types & Custom Fields. Operations: Push to Cubby and the Unit Rules. Performance: Goal and 1:1 Reminders, the Review Rating Scale and Company Values. Workflows: Workflow Settings. The rail lists the groups of the subject on screen, a per-company setting at Every company lists the companies and where each stands, and with a company picked each subject says what is different for it.' },
+      { name: 'Subjects', desc: 'Companies: the list of companies, each company\'s profile, departments and holiday calendar, and Holiday Policies. Locations (the Location Library, and each company\'s sites). People & Access: people, Access Groups, each company\'s Roles and the More Details Fields. Security: Sign-In & Sessions and the Sign-In Policy. Branding & Email: Brand Color, Email Appearance, Letterheads and the Email Signature templates. Emails & Reminders: Task Notifications, the Daily Briefing, the Weekly Digest, the Workforce Scorecard, HR & Compliance Reminders and Equipment Reminders. Tickets: the Ticket Manager (routing, escalation and default assignees, ticket email and alerts, SLA & Ticket Types, Help Topics, Desk Access, Saved Replies and AI Features) and the Property Rules. Time & Pay: Pay Rules (punch rounding, auto-lunch and California paid rest breaks - a default, and each company\'s own), Payroll Export Codes, Shift Differentials & Call-Back Pay, the India Contractor Policy, Payroll Readiness, the California Minimum Wage, Leave Policies, Time-Off Reasons, Leave Year-End, Time-Off Approval (Second Approval By HR) and the Intacct Nightly Sync. Workforce Analytics: the App & Website Ratings, the Location Trail, and each company\'s policy. Shifts & Scheduling: Schedule Basics, Requests & Visibility, Attendance, Overtime Alerts, Rules and Sharing (each one a company can override), Shift Types, Groups and Weather Alerts. Hiring & Onboarding: Hiring Documents, Interview Questionnaires, the Checklist Library, Probation, each company\'s Checklists and HR Letters. Items & Equipment: Item Types & Custom Fields. Operations: Push to Cubby and the Unit Rules. Performance: Performance Reminders (the goal update reminder and the 1:1 agenda reminder). Workflows: Workflow Settings. The rail lists the groups of the subject on screen, a per-company setting at Every company lists the companies and where each stands, and with a company picked each subject says what is different for it.' },
       { name: 'Holiday Policies', desc: 'Settings > Companies with the scope on Every company: named sets of holidays, each applied to one or more companies (Applies To). New Holiday Policy: a name, who it is for, the country, then Add Holidays From - for the US, Federal Holidays (Presidents\' Day included), Common Company Holidays and Some States Only; for India, National Holidays, Gazetted Holidays and Restricted Holidays (Optional) - plus any day added by hand, each Mandatory, Optional or Half Day. When A Holiday Falls On A Weekend: Keep The Date (the default - nothing moves unless you choose), Friday Before Or Monday After (Federal Rule), Always The Friday Before, Always The Monday After, or No Day Off. Editing a policy updates every company it applies to. A company\'s own Holiday Calendar (pick it in the Scope box) can Skip For This Company, Change Date or Change Type on any policy holiday, Reset To Policy, or add its own days - its own change always wins.' },
       { name: 'Companies', desc: 'Every legal entity and the group manager above them all. Pick a company in the Scope box for its profile and logo, managers (Nexus People or external users) and HR contact, contractor invoice recipients, email domains, departments and holiday calendar.' },
       { name: 'Scope', desc: 'The box at the top of Settings. Every company shows what applies to all of Nexus; a company shows what is set for it alone - its profile, locations, roles, checklists and workforce analytics policy. Subjects with nothing to set for one company sit under For Every Company in the list and switch the scope back.' },
