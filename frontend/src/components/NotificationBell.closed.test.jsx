@@ -50,7 +50,7 @@ describe('NotificationBell - Closed', () => {
     expect(screen.getByText('Still open')).toBeTruthy();
     // Closed rows are out of the open list, folded under their own heading.
     expect(screen.queryByText('Cleared by mistake')).toBeNull();
-    const fold = screen.getByRole('button', { name: /Closed - 2/ });
+    const fold = screen.getByRole('button', { name: /^Closed 2/ });
     fireEvent.click(fold);
     expect(screen.getByText('Cleared by mistake')).toBeTruthy();
     expect(screen.getByText('Cleared on purpose')).toBeTruthy();

@@ -7709,3 +7709,35 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .dk-fav-open { margin-left: auto; border: none; background: none; padding: 0; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; color: var(--wk-brand); }
 .dk-fav-open:hover { text-decoration: underline; }
 .dk-fav-empty { margin: 0; padding: 14px 6px; font-size: 12.5px; color: var(--muted); text-align: center; line-height: 1.5; }
+/* Notifications panel (components/NotificationBell.jsx, Oct 28 2026 - Neil:
+   "still looks gimmicky and not professional"). Flat rows on white with
+   hairline dividers, the way the rest of Nexus reads: unread is a small brand
+   dot and a firmer title, the type is a bare 16px line icon, a row's kind
+   (Alert, Needs Action) is a small colored word - no tinted cards, colored
+   side bars or pill chips. The X shows on hover (always, faintly, on touch). */
+.nx-ntf-sec { display: flex; align-items: center; gap: 6px; padding: 16px 20px 6px 22px; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.nx-ntf-sec-n { font-weight: 600; letter-spacing: 0; color: var(--wk-faint, var(--muted)); font-variant-numeric: tabular-nums; }
+.nx-ntf-row, .nx-ntf-act { position: relative; border-bottom: 1px solid var(--line); transition: background var(--transition-fast); }
+.nx-ntf-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) 26px; column-gap: 12px; align-items: start; padding: 12px 12px 12px 22px; cursor: pointer; }
+.nx-ntf-act { padding: 14px 20px 14px 22px; }
+.nx-ntf-row:hover { background: var(--paper); }
+.nx-ntf-row.is-unread::before, .nx-ntf-act.is-unread::before { content: ''; position: absolute; left: 9px; top: 19px; width: 6px; height: 6px; border-radius: 50%; background: var(--wk-brand); }
+.nx-ntf-act.is-unread::before { top: 21px; }
+.nx-ntf-icon { flex-shrink: 0; margin-top: 2px; }
+.nx-ntf-head { display: flex; align-items: baseline; gap: 10px; }
+.nx-ntf-title { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; line-height: 1.35; color: var(--ink); }
+.nx-ntf-row.is-read .nx-ntf-title { font-weight: 500; color: var(--ink-2, var(--muted)); }
+.nx-ntf-time { flex-shrink: 0; font-size: 11.5px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.nx-ntf-kind { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; line-height: 1.3; margin-bottom: 2px; }
+.nx-ntf-kind-sep { margin: 0 6px; color: var(--muted); }
+.nx-ntf-facts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 3px; font-size: 12px; color: var(--muted); }
+.nx-ntf-facts strong { font-weight: 600; color: var(--ink); }
+.nx-ntf-trail { margin-top: 3px; font-size: 11.5px; color: var(--muted); }
+.nx-ntf-body { margin: 3px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.nx-ntf-body.is-ink { color: var(--ink); }
+.nx-ntf-link { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 0; border: none; background: none; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--wk-brand); }
+.nx-ntf-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.nx-ntf-x { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: none; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; opacity: 0; transition: opacity .15s, background .15s; }
+.nx-ntf-row:hover .nx-ntf-x, .nx-ntf-row:focus-within .nx-ntf-x, .nx-ntf-x:focus-visible { opacity: 1; }
+.nx-ntf-x:hover { background: var(--mist); color: var(--ink); }
+@media (hover: none) { .nx-ntf-x { opacity: .55; } }
