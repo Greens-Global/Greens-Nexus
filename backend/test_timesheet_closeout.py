@@ -97,6 +97,29 @@ class CloseOutTests(ReviewCase):
         self.assertEqual(ctx.exception.status_code, 403)
         self.assertFalse(timeclock._finalized_row(self.db, EMP, *OLD))
 
+    def _events(self):
+        self.db.expire_all()
+        return [ev.key for ev in self.db.query(models.WorkflowEvent).filter(models.WorkflowEvent.subject_id != "").all()]
+
+    def test_the_close_out_fires_no_workflow_event_but_a_normal_finalize_does(self):
+        # Reviewer, 10/29: HR's close-out of the SwipeClock periods would fire the
+        # "time sheet changed" workflows once per old period.
+        tsr.approve_period(self.db, EMP, OLD[0], MGR, "ok")
+        self.db.commit()
+        self.db.query(models.WorkflowEvent).delete()
+        self.db.commit()
+        out = tsr.close_out_outside_nexus(self.db, EMP, OLD[0], HR)
+        self.db.commit()
+        self.assertEqual(out.status, "completed")
+        self.assertEqual(self._events(), [])
+        # The review's own history still has the close-out.
+        self.assertEqual(out.rounds[-1]["action"], "finalized_unsigned")
+        # The same finalize steps outside the close-out still tell Workflows.
+        s, e, pay_type = tsr.period_for(self.db, EMP, NEW[0])
+        tsr._finalize_without_signature(self.db, EMP, s, e, pay_type, HR, "Left the company")
+        self.db.commit()
+        self.assertIn("timesheet.review_changed", self._events())
+
     def test_hrs_own_finalize_button_is_unchanged(self):
         # finalize_unsigned still refuses a period nobody approved (the manager reviews first).
         with self.assertRaises(HTTPException) as ctx:
