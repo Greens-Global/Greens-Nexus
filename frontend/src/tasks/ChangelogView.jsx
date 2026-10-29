@@ -18,6 +18,7 @@
 // The backend stores each entry as a free-form `payload` dict (task_changelog_entries),
 // so every field below lives inside that payload; the server owns only id/createdAt/updatedAt.
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useDialogFocus } from '../lib/useDialogFocus';
 import { LoadingState } from '../components/AsyncState';
 import {
   Sparkles, Clock, ClipboardCheck, Plus, X, ArrowRight, CheckCircle2, User,
@@ -953,7 +954,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
   // two-line row too - the detail pane stays beside it on a tablet.
   const compactRows = useIsMobile('(max-width: 1100px)');
   const selStyle = { ...inputStyle, width: 'auto', minWidth: isMobile ? 0 : 150, cursor: 'pointer', flexShrink: 0 };
-  const narrow = useIsMobile('(max-width: 1024px)');
+  const narrow = useIsMobile('(max-width: 1023px)');
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Phones and tablets (Neil, Oct 28 2026: "the mobile UI and UX on that
@@ -2199,6 +2200,20 @@ function GithubDevelopers({ developers }) {
 }
 
 // ── Slide-over wrapper (ported from ChangelogSlideOver) ───────────────────────
+
+// A left-edge swipe closes the phone update screen - unless it started on a
+// field, a code block, a sideways strip, or anything already scrolled sideways.
+function swipeBlocked(target, root) {
+  for (let el = target; el && el !== root; el = el.parentElement) {
+    if (el.matches?.('input, textarea, select, pre, [contenteditable="true"], .scroll-tabs')) return true;
+    if (el.scrollLeft > 0 || el.scrollWidth > el.clientWidth + 1) {
+      const ox = getComputedStyle(el).overflowX;
+      if (ox === 'auto' || ox === 'scroll') return true;
+    }
+  }
+  return !(root && root.contains(target));   // touches from a portaled sheet
+}
+
 function SlideOver({ entry, nameOf, myEmail, isAdmin, onClose, onSetStatus, onEdit }) {
   const [expanded, setExpanded] = useState(false);
   const isMobile = useIsMobile();
@@ -2211,10 +2226,18 @@ function SlideOver({ entry, nameOf, myEmail, isAdmin, onClose, onSetStatus, onEd
   // back, the way every other phone screen does.
   const vv = useVisualViewport(isMobile);
   const swipe = useRef(null);
+  // The phone screen takes focus when it opens and hands it back on close.
+  const pushRef = useRef(null);
+  useDialogFocus(pushRef);
   if (isMobile) {
     return (
-      <div className="nx-wn-push" role="dialog" aria-modal="true" aria-label={entry.title}
-        onTouchStart={(e) => { const t = e.touches[0]; swipe.current = t && t.clientX < 28 ? { x: t.clientX, y: t.clientY } : null; }}
+      <div ref={pushRef} tabIndex={-1} className="nx-wn-push" role="dialog" aria-modal="true" aria-label={entry.title}
+        onTouchStart={(e) => {
+          const t = e.touches[0];
+          // Not from something that scrolls or takes text - a drag there is
+          // scrolling the sub-tabs back or selecting, never Back.
+          swipe.current = t && t.clientX < 28 && !swipeBlocked(e.target, e.currentTarget) ? { x: t.clientX, y: t.clientY } : null;
+        }}
         onTouchEnd={(e) => {
           const s0 = swipe.current; swipe.current = null;
           const t = e.changedTouches[0];

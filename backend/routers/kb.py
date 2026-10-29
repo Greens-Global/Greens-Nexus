@@ -1549,11 +1549,12 @@ def request_page(body: RequestIn, user: dict = Depends(get_current_user), db: Se
 
 # ----------------------------------------------------------------- manage: health, activity, migration
 
-# What the Health screen lists as searches with no good answer. A ticket
-# title logged from the ticket form ("searched, then filed anyway") reaches
-# administrators only, in Help Signals - collection owners at any company
-# read this list, and a ticket title is not theirs to read.
-_HEALTH_MISS_SOURCES = ("kb", "help", "ask")
+# What the Health screen lists as searches with no good answer: the
+# Knowledge Base's own search only. What people type into the Help search
+# and Ask Nexus, and ticket titles from the ticket form, reach administrators
+# only, in Help Signals - collection owners at any company read this list,
+# and free text typed for help is not theirs to read.
+_HEALTH_MISS_SOURCES = ("kb",)
 
 
 @router.get("/health")

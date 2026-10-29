@@ -302,7 +302,7 @@ const PHONE_SORTS = [
   { value: 'title:asc', label: 'Title, A to Z' },
   { value: 'title:desc', label: 'Title, Z to A' },
 ];
-const PHONE_SORT_KEYS = new Set(PHONE_SORTS.map((o) => o.value.split(':')[0]));
+const PHONE_SORT_VALUES = new Set(PHONE_SORTS.map((o) => o.value));
 // Finger-sized (44px) buttons on a phone card.
 const phoneBtn = { ...rowBtn, minHeight: 44, padding: '0 14px', fontSize: 13.5, borderRadius: 10, gap: 6 };
 
@@ -543,7 +543,9 @@ export default function Support({ activeSub, onSubChange }) {
   // iPad the Created column is gone, so the default "newest first" would be
   // an order no header owns; the list sorts by Last Updated instead - the
   // date column that is always there - and its header shows it.
-  const effSort = (cardMode ? PHONE_SORT_KEYS.has(sort.key) : colKeys.has(sort.key)) ? sort : { key: 'updated', dir: 'desc' };
+  // Cards keep a sort only when the Sort box offers that exact key AND
+  // direction, so the box always names the order on screen.
+  const effSort = (cardMode ? PHONE_SORT_VALUES.has(`${sort.key}:${sort.dir}`) : colKeys.has(sort.key)) ? sort : { key: 'updated', dir: 'desc' };
   const sortCol = SUPPORT_TABLE_COLUMNS.find((c) => c.key === effSort.key);
   const sortCtx = { nameOf };
   const sorted = sortCol ? [...visible].sort((a, b) => {
@@ -746,7 +748,7 @@ export default function Support({ activeSub, onSubChange }) {
                     <div key={t.id} role="listitem">
                       <div role="button" tabIndex={0} data-testid="ticket-card"
                         aria-label={`Open ticket ${ticketNoShort(t.code) || ''} ${t.subject || ''}`.replace(/\s+/g, ' ').trim()}
-                        className={`hc-ticket-card nx-row-hover${needsYou ? ' nx-needs-you--row' : ''}`}
+                        className={`hc-ticket-card nx-row-hover${needsYou ? ' nx-needs-you--card' : ''}`}
                         onClick={() => setViewing({ id: t.id })}
                         onKeyDown={(e) => {
                           if (e.target !== e.currentTarget) return;
@@ -773,6 +775,9 @@ export default function Support({ activeSub, onSubChange }) {
                           )}
                           {forOther && (
                             <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>For {nameOf(t.requesterId) || t.requesterId}</span>
+                          )}
+                          {t.assigneeId && (
+                            <span style={{ fontSize: 12.5, color: NX.faint }}>Assigned To {nameOf(t.assigneeId) || t.assigneeId}</span>
                           )}
                           <ExpectReply t={t} style={{ fontSize: 12.5 }} />
                         </div>

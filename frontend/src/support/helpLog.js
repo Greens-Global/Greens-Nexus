@@ -1,9 +1,10 @@
 // What people looked for and did not find (Help Center, Oct 2026). Failed
 // Help searches, "searched in the ticket form, then filed the ticket anyway"
 // and Ask Nexus answers the sources did not cover go to the server's search
-// log (backend/routers/help_center.py), where Knowledge Base > Manage > Health
-// and Help Signals list them - the cheapest way to see what the guide and the
-// Knowledge Base are missing.
+// log (backend/routers/help_center.py), where Help Signals (administrators
+// only, in Knowledge Base > Manage > Health) lists them - the cheapest way to
+// see what the guide and the Knowledge Base are missing. The Health list that
+// collection owners read keeps the Knowledge Base's own searches only.
 //
 // A search is logged once the person stops typing (never per keystroke), and
 // the same words from the same box only once per session.

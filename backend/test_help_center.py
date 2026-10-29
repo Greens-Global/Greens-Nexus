@@ -156,7 +156,7 @@ class HelpCenterCase(unittest.TestCase):
         # The Help Center's own grant opens /help-center for an external.
         self.assertIn("/help-center", auth.MODULE_API_PREFIXES["support"])
 
-    def test_ticket_titles_never_reach_the_knowledge_base_health_list(self):
+    def test_help_text_and_ticket_titles_never_reach_the_knowledge_base_health_list(self):
         self._as(EMP)
         self.client.post("/help-center/search-log", json={"q": "paycheck short for march", "results": 2, "source": "ticket-form"})
         self.client.post("/help-center/search-log", json={"q": "keypad battery", "results": 0, "source": "help"})
@@ -169,7 +169,7 @@ class HelpCenterCase(unittest.TestCase):
         finally:
             db.close()
         self.assertNotIn("paycheck short for march", health)
-        self.assertIn("keypad battery", health)
+        self.assertNotIn("keypad battery", health)   # Help search text: administrators only
         self.assertIn("paycheck short for march", signals)
 
     def test_empty_question_is_refused(self):
