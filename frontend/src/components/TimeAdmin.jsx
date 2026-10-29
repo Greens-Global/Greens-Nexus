@@ -21,7 +21,7 @@ import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
 import { TIMEOFF_FILTERS, countByStatus, filterAndSortTimeoff, nextSort, yearsOf, inPeriod } from '../lib/timeOffFilter';
 import { takePendingOpen } from '../lib/pendingOpen';
 import TimesheetsToReview from './TimesheetsToReview';
-import { Avatar } from '../tasks/components';
+import { Avatar, AvatarName } from '../tasks/components';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { formatDistance, formatAccuracy } from '../lib/distance';
@@ -1179,25 +1179,37 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
             const partial = r.startTime && r.endTime;
             return (
               <div key={r.id} className={r.status === 'pending' && r.canDecide !== false ? 'nx-needs-you--row' : undefined} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}{r.forEmail && <ForChip name={r.forName} email={r.forEmail} />}</span>
+                <span style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <Avatar email={r.email} name={r.name || r.email} size={22} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{r.name || r.email}{r.forEmail && <ForChip name={r.forName} email={r.forEmail} />}</span>
+                </span>
                 <span style={{ fontSize: 12, textTransform: 'capitalize', display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
                   {timeoffLabel(r)}{r.confidential && <ConfidentialMark />}
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }} title={r.note || undefined}>
                   {formatDate(r.startDate, r.startDate)} - {formatDate(r.endDate, r.endDate)}{partial ? ` · ${hm12(r.startTime)} - ${hm12(r.endTime)}` : ''}{r.note ? ` · Reason: ${r.note}` : r.redacted ? '' : ' · No reason given'}
                   {r.requestedBy && r.requestedBy !== r.email && (
-                    <span style={{ fontStyle: 'italic' }}> · filed by {r.requestedByName || r.requestedBy.split('@')[0].replace(/\./g, ' ')}</span>
+                    <span style={{ fontStyle: 'italic' }}> · filed by <AvatarName email={r.requestedBy} name={r.requestedByName || r.requestedBy.split('@')[0].replace(/\./g, ' ')} size={16} /></span>
                   )}
                 </span>
                 <span style={{ fontSize: 12, fontWeight: 700 }} title="Working days (Mon-Fri)">{r.startDate ? fmtDays(days) : '-'}</span>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.approver || '-'}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }} title={r.approver || undefined}>
+                  {r.approver ? (<>
+                    <Avatar email={r.approver} name={r.approverName || r.approver.split('@')[0].replace(/\./g, ' ')} size={20} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{r.approverName || r.approver.split('@')[0].replace(/\./g, ' ')}</span>
+                  </>) : '-'}
+                </span>
                 <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
                   {r.status === 'pending' && r.canDecide === false ? (
                     // Your own request, or a confidential one that is not
                     // yours to decide (Sep 29): say who decides instead.
-                    <span style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'right' }}
+                    <span style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'right', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                       title={r.awaitingHr ? `Approved by ${r.firstApproverName || r.firstApprover || 'the manager'} - HR approves next` : r.confidential ? 'Confidential - only the approver can decide it' : undefined}>
-                      {r.awaitingHr ? 'Awaiting HR Approval' : r.reviewer ? `Pending - ${r.reviewer} decides` : 'Pending - your manager decides'}
+                      {r.awaitingHr ? 'Awaiting HR Approval' : r.reviewer ? (<>
+                        {/* One named decider gets a face; "HR" or a list of several stays words. */}
+                        {r.reviewer !== 'HR' && !/,| and others$/.test(r.reviewer) && <Avatar name={r.reviewer} size={18} card={false} />}
+                        {`Pending - ${r.reviewer} decides`}
+                      </>) : 'Pending - your manager decides'}
                     </span>
                   ) : r.status === 'pending' ? (<>
                     {r.awaitingHr && <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }} title={`Approved by ${r.firstApproverName || r.firstApprover || 'the manager'}`}>HR Approval</span>}
@@ -1243,9 +1255,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
             onClick={e => e.target === e.currentTarget && setPerson(null)}>
             <div className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
               <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--wk-brand)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
-                  {p.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()}
-                </span>
+                <Avatar email={p.email} name={p.name} size={36} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 800 }}>{p.name}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email} · {formatDate(start)} - {formatDate(end)}</div>

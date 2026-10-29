@@ -96,9 +96,10 @@ describe('Shifts > Requests (manager inbox)', () => {
     expect(document.querySelectorAll('[data-shift="s1"]').length).toBe(1);
     expect(document.querySelectorAll('[data-shift="s2"]').length).toBe(1);
     expect(screen.getByText('Amy Adams: “Doctor visit”')).toBeTruthy();
-    expect(screen.getByText('Bob Brown: “Fine by me”')).toBeTruthy();
+    // The teammate's line starts with their face, then the name.
+    expect(screen.getByText(/: “Fine by me”/).textContent).toMatch(/Bob Brown: “Fine by me”/);
     expect(screen.getAllByText('Waiting On Teammate').length).toBe(2);   // the section and its chip
-    expect(screen.getByText('Amy Adams has not answered yet. It reaches you once they accept.')).toBeTruthy();
+    expect(screen.getByText(/has not answered yet\. It reaches you once they accept/).textContent).toMatch(/Amy Adams has not answered yet/);
     expect(screen.queryByText(/offered/)).toBeNull();   // offers are on their own tab
     fireEvent.change(screen.getByLabelText('Note to the team'), { target: { value: 'OK this once' } });
     fireEvent.click(screen.getByText('Approve'));

@@ -6,6 +6,7 @@ import { offRangeProblem } from '../lib/delegationDays';
 import { SkeletonBlocks } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { StatusLabel } from './StatusLabel';
+import { Avatar, AvatarName } from '../tasks/components';
 
 // Delegate My Approvals (Neil, Oct 17 2026). Someone who approves things
 // names a stand-in for a date range (a vacation): while it is live, their
@@ -43,8 +44,15 @@ const rangeSpan = (r) => (r.start === r.end ? formatDate(r.start) : `${formatDat
 
 export function ForChip({ name, email }) {
   if (!name && !email) return null;
-  return <StatusLabel size="sm" label={`For ${name || email}`} color="#7c3aed"
-    title={`You see this because you cover ${name || email}'s approvals`} style={{ marginLeft: 6 }} />;
+  const chip = <StatusLabel size="sm" label={`For ${name || email}`} color="#7c3aed"
+    title={`You see this because you cover ${name || email}'s approvals`} style={email ? undefined : { marginLeft: 6 }} />;
+  if (!email) return chip;
+  // The person whose approvals these are, with their face before the chip.
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 6, verticalAlign: 'middle' }}>
+      <Avatar email={email} name={name || email} size={16} />{chip}
+    </span>
+  );
 }
 
 function usePeople() {
@@ -212,7 +220,7 @@ function DelegationRow({ d, who, onRevoke, busy, revokeLabel = 'Revoke' }) {
   return (
     <div data-delegation={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
       <div style={{ flex: 1, minWidth: 200 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{who}</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>{who}</div>
         <div style={{ fontSize: 12, color: 'var(--muted)' }}>
           {span(d)}{d.note ? ` · "${d.note}"` : ''}
         </div>
@@ -294,7 +302,7 @@ export default function DelegateApprovalsCard({ toastOk, toastErr }) {
               {mine.length > 0 && (
                 <div style={{ marginTop: 14 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 2 }}>Your Delegations</div>
-                  {mine.map(d => <DelegationRow key={d.id} d={d} who={d.delegateName || d.delegateEmail} onRevoke={revoke} busy={busy} />)}
+                  {mine.map(d => <DelegationRow key={d.id} d={d} who={<AvatarName email={d.delegateEmail} name={d.delegateName || d.delegateEmail} size={26} />} onRevoke={revoke} busy={busy} />)}
                 </div>
               )}
             </>
@@ -303,7 +311,7 @@ export default function DelegateApprovalsCard({ toastOk, toastErr }) {
             <div style={{ marginTop: data.canDelegate ? 14 : 0 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 2 }}>You Are Covering</div>
               {/* The stand-in may end it too - the delegator is told. */}
-              {covering.map(d => <DelegationRow key={d.id} d={d} who={d.delegatorName || d.delegatorEmail} onRevoke={revoke} busy={busy} revokeLabel="Stop Covering" />)}
+              {covering.map(d => <DelegationRow key={d.id} d={d} who={<AvatarName email={d.delegatorEmail} name={d.delegatorName || d.delegatorEmail} size={26} />} onRevoke={revoke} busy={busy} revokeLabel="Stop Covering" />)}
             </div>
           )}
         </div>
@@ -369,7 +377,11 @@ export function ApprovalDelegationsAdmin({ toastOk, toastErr }) {
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No delegations right now.</div>
         ) : rows.map(d => (
           <DelegationRow key={d.id} d={d} busy={busy} onRevoke={revoke}
-            who={`${d.delegatorName || d.delegatorEmail} - covered by ${d.delegateName || d.delegateEmail}`} />
+            who={<>
+              <AvatarName email={d.delegatorEmail} name={d.delegatorName || d.delegatorEmail} size={26} />
+              <span style={{ fontWeight: 500, color: 'var(--muted)' }}>- covered by</span>
+              <AvatarName email={d.delegateEmail} name={d.delegateName || d.delegateEmail} size={26} />
+            </>} />
         ))}
       </div>
     </div>

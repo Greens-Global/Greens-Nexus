@@ -40,6 +40,9 @@ beforeEach(() => {
   cancel.mockReset().mockImplementation(async () => adv({ status: 'canceled', statusLabel: 'Canceled' }));
 });
 
+// The words a reader sees, without the avatars' initials in between.
+const said = (el) => { const c = el.cloneNode(true); c.querySelectorAll('[data-avatar]').forEach((n) => n.remove()); return c.textContent.replace(/\s+/g, ' '); };
+
 describe('Time Sheet salary advances (Oct 29 2026 review)', () => {
   it('lets the person cancel the request they made for themselves, on their own sheet', async () => {
     person.mockResolvedValue({ ...base, advances: [adv()] });
@@ -72,6 +75,6 @@ describe('Time Sheet salary advances (Oct 29 2026 review)', () => {
     person.mockResolvedValue({ ...base, advances: [adv({ requestedBy: 'max@x.com', requestedByName: 'Max Test',
       requestedAt: '2026-10-28T03:30:00Z' })] });
     render(<Sheet email="amy@x.com" me="max@x.com" />);
-    expect(await screen.findByText('Requested 10/27/2026 by Max Test')).toBeTruthy();
+    expect(said(await screen.findByText(/Requested 10\/27\/2026 by/))).toBe('Requested 10/27/2026 by Max Test');
   });
 });

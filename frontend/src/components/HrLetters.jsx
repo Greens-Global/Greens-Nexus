@@ -17,7 +17,7 @@ import { SkeletonBlocks, Spinner } from './AsyncState';
 import { SettingCard, SettingRow, SwitchRow } from './settings/SettingsUI';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
-import { DateField, Modal } from '../tasks/components';
+import { DateField, Modal, AvatarName } from '../tasks/components';
 
 const STATUS_COLOR = {
   requested: '#64748b', in_review: '#2563eb', awaiting_signature: '#b45309', issued: '#15803d', declined: '#b91c1c',
@@ -215,7 +215,7 @@ function QueueRows({ rows, onOpen }) {
       {rows.map(r => (
         <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 200 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.employeeName}</span>
+            <AvatarName email={r.employeeEmail} name={r.employeeName} size={22} style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }} />
             <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {r.typeLabel}{r.companyName ? ` · ${r.companyName}` : ''}</span>
             <div style={{ fontSize: 12, color: soon(r) ? 'hsl(var(--color-orange))' : 'var(--muted)', marginTop: 2, fontWeight: soon(r) ? 600 : 400 }}>{whenLine(r)}</div>
             <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>{r.purpose}</div>
@@ -366,7 +366,7 @@ export function LetterReviewModal({ id, onClose, onChanged, toastOk, toastErr })
                 {req.note && <div style={{ fontSize: 12, color: 'hsl(var(--color-orange))', marginTop: 6 }}>{req.note}</div>}
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
                   {review.signer?.email
-                    ? <>Signed by <strong style={{ color: 'var(--ink)' }}>{review.signer.name}</strong>{review.signer.title ? `, ${review.signer.title}` : ''} ({review.signer.role}) - the only signer.</>
+                    ? <>Signed by <AvatarName email={review.signer.email} name={review.signer.name} size={18}><strong style={{ color: 'var(--ink)' }}>{review.signer.name}</strong></AvatarName>{review.signer.title ? `, ${review.signer.title}` : ''} ({review.signer.role}) - the only signer.</>
                     : 'Nobody can sign this letter yet.'}
                 </div>
                 {review.template && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>From the template &quot;{review.template.name}&quot; (version {review.template.version}).</div>}

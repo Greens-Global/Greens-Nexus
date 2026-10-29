@@ -27,6 +27,7 @@ import {
 import { api } from '../api';
 import { SkeletonBlocks, LoadingState } from '../components/AsyncState';
 import { navigate } from './widgets.jsx';
+import { NAV } from '../components/Sidebar';
 import { MoreRow } from './listParts.jsx';
 import { formatTime } from '../lib/datetime';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
@@ -58,6 +59,20 @@ function downloadCsv(name, rows) {
 
 // The server labels trend days "MM-DD"; show them the US way, "M/D".
 const dayLabel = (label) => String(label || '').replace(/^(\d{2})-(\d{2})$/, (_, m, d) => `${Number(m)}/${Number(d)}`);
+
+// A module's icon is the one the left menu draws for it (Neil, 10/28/2026:
+// "a matching icon ... so it's consistent"), looked up by the view the card
+// opens - never a second icon set. A module the menu does not list (the
+// Knowledge Base lives in the Help Center) keeps its own, else the gauge.
+function ModuleIcon({ moduleId, nav, size = 16 }) {
+  const item = nav ? NAV.find((n) => n.view === nav) : null;
+  const style = { width: size, height: size, flexShrink: 0 };
+  let glyph;
+  if (item?.icon) glyph = <item.icon style={style} />;
+  else if (item?.svgPath) glyph = <svg className="material-symbol-svg" viewBox="0 -960 960 960" style={style}><path d={item.svgPath} /></svg>;
+  else { const { Icon } = moduleMeta(moduleId); glyph = <Icon style={style} />; }
+  return <span className="bi-mod-icon" aria-hidden="true">{glyph}</span>;
+}
 
 // ── Needs Attention: every critical/warning count above zero ─────────────────
 function AttentionStrip({ rows, onDrill }) {
@@ -91,15 +106,19 @@ function AttentionStrip({ rows, onDrill }) {
       ) : (
         <div className="bi-attention">
           {shown.map((r) => (
+            // No colored edge bar (Neil, 10/28/2026): the module's own icon
+            // says where it comes from, the count's color and the dotted
+            // level word say how bad it is.
             <button key={`${r.moduleId}:${r.key}`} type="button" className={`bi-alert bi-alert--${r.tone}`}
               onClick={() => onDrill(r)} title={r.drill === false ? `Open ${r.moduleLabel}` : `See the breakdown of ${r.label}`}>
               <span className="bi-alert-top">
-                <span className="bi-alert-tone">{TONE_LABEL[r.tone]}</span>
+                <ModuleIcon moduleId={r.moduleId} nav={r.nav} size={14} />
+                <span className="bi-alert-mod">{r.moduleLabel}</span>
                 <ArrowUpRight size={14} className="bi-alert-arrow" />
               </span>
               <span className="bi-alert-num">{typeof r.value === 'number' ? count(r.value) : r.value}</span>
               <span className="bi-alert-label">{r.label}</span>
-              <span className="bi-alert-mod">{r.moduleLabel}</span>
+              <span className="bi-alert-tone"><i className="bi-dot" style={{ background: toneColor(r.tone) }} />{TONE_LABEL[r.tone]}</span>
             </button>
           ))}
         </div>
@@ -201,7 +220,6 @@ function SmallTable({ rows, onMore }) {
 
 // ── One module ───────────────────────────────────────────────────────────────
 function ModuleCard({ mod, stats, shapes, onDrill }) {
-  const { Icon, color } = moduleMeta(mod.id);
   const tone = worstTone(mod);
   const alerts = alertCount(mod);
   const open = () => mod.nav && navigate(mod.nav);
@@ -209,7 +227,7 @@ function ModuleCard({ mod, stats, shapes, onDrill }) {
     <section className="dash-card bi-card" aria-label={mod.label}>
       <div className="dash-card-head" style={{ marginBottom: 10, alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <span className={`dk-chip dk-chip--${color}`}><Icon /></span>
+          <ModuleIcon moduleId={mod.id} nav={mod.nav} size={17} />
           <div style={{ minWidth: 0 }}>
             <div className="dash-card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mod.label}</span>
@@ -229,6 +247,9 @@ function ModuleCard({ mod, stats, shapes, onDrill }) {
         </div>
       </div>
 
+      {/* Fixed-size card (style.css .bi-grid): the counts and shapes scroll
+          here if a module ever sends more than the card holds. */}
+      <div className="bi-card-body">
       {stats.length > 0 && (
         <div className="bi-stats">
           {stats.map((s) => {
@@ -258,6 +279,7 @@ function ModuleCard({ mod, stats, shapes, onDrill }) {
       {shapes && mod.trend?.length > 0 && <Trend rows={mod.trend} label="Clocked in, last 7 days" />}
       {shapes && mod.funnel?.length > 0 && <Stages rows={mod.funnel} label="Hiring pipeline by stage" />}
       {shapes && mod.table?.length > 0 && <SmallTable rows={mod.table} onMore={mod.nav ? open : undefined} />}
+      </div>
     </section>
   );
 }

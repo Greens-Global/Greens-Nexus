@@ -26,9 +26,15 @@ import { X, CalendarClock, CheckCircle2, Hourglass, LogOut, Eye, Send, Pencil, P
 import { api } from '../api';
 import { Spinner, SkeletonBlocks, ErrorBanner } from './AsyncState';
 import { StatusLabel } from './StatusLabel';
-import { DateField } from '../tasks/components';
+import { DateField, AvatarName } from '../tasks/components';
 import { formatDate, toDateInputValue } from '../lib/datetime';
 import { SettingCard, SettingRow, NumberBox } from './settings/SettingsUI';
+
+// A person in a probation line: their face, then their name. `by` is an email,
+// or 'system' for the automatic steps (no face then).
+const who = (by, name, bold = false) => (name
+  ? <AvatarName email={(by || '').includes('@') ? by : ''} name={name} size={18}>{bold ? <b>{name}</b> : name}</AvatarName>
+  : null);
 
 const COLORS = {
   in_probation: '#2563eb', extended: '#d97706', confirmed: '#16a34a', ended: '#dc2626', '': '#64748b',
@@ -170,7 +176,7 @@ export function ProbationDecisionModal({ employee: e, data, mode = 'decide', onC
         <>
           {pending && (
             <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)', fontSize: 12.5, lineHeight: 1.5 }}>
-              <b>{pending.byName}</b> recommends <b>{pending.label}</b>{pending.newEndDate ? ` to ${usDay(pending.newEndDate)}` : ''} ({usDay(pending.at)}). Adjust it below if needed, then approve or decline.
+              {who(pending.by, pending.byName, true)} recommends <b>{pending.label}</b>{pending.newEndDate ? ` to ${usDay(pending.newEndDate)}` : ''} ({usDay(pending.at)}). Adjust it below if needed, then approve or decline.
             </div>
           )}
           {!hr && (
@@ -424,12 +430,12 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
               {st === 'passed' ? (
                 d.automatic || d.by === 'system'
                   ? `Passed Probation on ${usDay(data.endDate)} - automatically, no decision was recorded`
-                  : `Passed Probation on ${usDay(data.endDate)}${d.byName ? ` by ${d.byName}` : ''}`
+                  : <>Passed Probation on {usDay(data.endDate)}{d.byName ? <> by {who(d.by, d.byName)}</> : ''}</>
               ) : st === 'removed' ? (
-                <>Removed From Probation on {usDay(d.at)}{d.byName ? ` by ${d.byName}` : ''}{d.reason ? `: ${d.reason}` : ''}</>
+                <>Removed From Probation on {usDay(d.at)}{d.byName ? <> by {who(d.by, d.byName)}</> : ''}{d.reason ? `: ${d.reason}` : ''}</>
               ) : (
                 <>
-                  {data.label} {d.byName ? `by ${d.byName} ` : ''}on {usDay(d.at)}
+                  {data.label} {d.byName ? <>by {who(d.by, d.byName)} </> : ''}on {usDay(d.at)}
                   {d.reason ? <span style={{ color: 'var(--muted)' }}> - {d.reason}</span> : null}
                 </>
               )}
@@ -454,7 +460,7 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
       {data.pending && (
         <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)', fontSize: 12.5, lineHeight: 1.5, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ flex: 1, minWidth: 200 }}>
-            <b>{data.pending.byName}</b> recommends <b>{data.pending.label}</b>{data.pending.newEndDate ? ` to ${usDay(data.pending.newEndDate)}` : ''}
+            {who(data.pending.by, data.pending.byName, true)} recommends <b>{data.pending.label}</b>{data.pending.newEndDate ? ` to ${usDay(data.pending.newEndDate)}` : ''}
             {data.pending.reason ? `: ${data.pending.reason}` : ''}. {data.canFinalize ? '' : 'Waiting for HR.'}
           </span>
           {data.canFinalize && <button className="primary-btn" style={btn} onClick={() => setModal('approve')}>Review Recommendation</button>}
@@ -480,7 +486,7 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
             <div key={`${h.at}-${i}`} style={{ fontSize: 12.5, padding: '4px 0', display: 'flex', gap: 8 }}>
               <span style={{ color: 'var(--muted)', width: 82, flexShrink: 0 }}>{usDay(h.at)}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
-                <b>{h.byName || 'Nexus'}</b> {(ACTIONS[h.action] || h.action).toLowerCase()}
+                {h.byName ? who(h.by, h.byName, true) : <b>Nexus</b>} {(ACTIONS[h.action] || h.action).toLowerCase()}
                 {h.note ? ` (${h.note})` : ''}{h.endDate && ['started', 'edited', 'extended'].includes(h.action) ? ` - ends ${usDay(h.endDate)}` : ''}
                 {h.reason ? <span style={{ color: 'var(--muted)' }}> - {h.reason}</span> : null}
               </span>

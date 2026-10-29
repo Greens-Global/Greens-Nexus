@@ -16,7 +16,7 @@ import { api } from '../api';
 import { Spinner } from './AsyncState';
 import { StatusLabel } from './StatusLabel';
 import { formatDate, formatDateTime } from '../lib/datetime';
-import { DateField, Modal } from '../tasks/components';
+import { DateField, Modal, AvatarName } from '../tasks/components';
 
 const STATUS_COLOR = {
   requested: '#b45309', approved: '#2563eb', declined: '#b91c1c', paid_out: '#2563eb',
@@ -225,7 +225,9 @@ function AdvanceRow({ a, mine, asker, onChanged, toastOk, toastErr }) {
         <StatusLabel label={a.statusLabel} color={STATUS_COLOR[a.status]} size="sm" />
       </div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <span>{a.source === 'grant' ? `Granted by ${a.requestedByName}` : `Requested ${formatDate(a.requestedAt)}${a.requestedByName ? ` by ${a.requestedByName}` : ''}`}</span>
+        <span>{a.source === 'grant'
+          ? <>Granted by {a.requestedByName ? <AvatarName email={a.requestedBy} name={a.requestedByName} size={18} /> : ''}</>
+          : <>Requested {formatDate(a.requestedAt)}{a.requestedByName ? <> by <AvatarName email={a.requestedBy} name={a.requestedByName} size={18} /></> : ''}</>}</span>
         <span>{a.installments} pay period{a.installments === 1 ? '' : 's'}</span>
         {a.paidOn && <span>Paid out {day(a.paidOn)}</span>}
         {balance && <span>Repaid {money(a.repaid, a.currency)} · Balance {money(a.balance, a.currency)}</span>}
@@ -296,7 +298,7 @@ function AdvanceRow({ a, mine, asker, onChanged, toastOk, toastErr }) {
       {showHistory && (
         <ol style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12, color: 'var(--muted)', display: 'grid', gap: 3 }}>
           {a.history.map((h, i) => (
-            <li key={i}><strong style={{ color: 'var(--ink)' }}>{h.label}</strong> · {h.byName || 'Nexus'} · {formatDateTime(h.at)}{h.note ? ` - "${h.note}"` : ''}</li>
+            <li key={i}><strong style={{ color: 'var(--ink)' }}>{h.label}</strong> · {h.byName ? <AvatarName email={h.by} name={h.byName} size={16} /> : 'Nexus'} · {formatDateTime(h.at)}{h.note ? ` - "${h.note}"` : ''}</li>
           ))}
         </ol>
       )}

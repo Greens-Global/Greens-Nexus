@@ -15,6 +15,7 @@ import { formatDateTime, formatDate, formatMonthDay } from '../lib/datetime';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useIsMobile }      from '../lib/useIsMobile';
 import { Spinner, LoadingState } from '../components/AsyncState';
+import { AvatarName } from '../tasks/components';
 
 const Card = ({ title, sub, action, children }) => (
   <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
@@ -103,7 +104,7 @@ export function ApprovalsPanel({ phone = false }) {
                     <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>× {req.quantity}</span>
                   </div>
                   <div style={{ marginTop: 4, fontSize: '0.8rem', color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    <span><strong>By:</strong> {req.employeeName}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><strong>By:</strong> <AvatarName email={req.employeeEmail} name={req.employeeName} size={20} /></span>
                     <span><strong>Dept:</strong> {req.employeeDept}</span>
                     <span><strong>Submitted:</strong> {fmtDate(req.createdAt)}</span>
                   </div>
@@ -171,7 +172,7 @@ export function ApprovalsPanel({ phone = false }) {
                     <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>× {req.quantity} · {req.days}d</span>
                   </div>
                   <div style={{ marginTop: 4, fontSize: '0.8rem', color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    <span><strong>By:</strong> {req.requestedBy}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><strong>By:</strong> <AvatarName email={req.requestedByEmail} name={req.requestedBy} size={20} /></span>
                     <span><strong>Dept:</strong> {req.department}</span>
                     <span><strong>Reason:</strong> {req.reason}</span>
                   </div>
