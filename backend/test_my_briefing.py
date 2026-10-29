@@ -112,7 +112,10 @@ class MyBriefingApiTests(_DBCase):
         self.assertNotIn("action_email", r.text)
 
     def test_nothing_new_is_an_empty_list(self):
-        r = self.client.get("/daily-briefing/me")
+        # The time sheet reminder reads the real date (routers.timeclock); a
+        # mid-period day keeps it out, as it would be on most days.
+        with mock.patch("routers.timeclock._employee_today", lambda db, email: "2026-09-10"):
+            r = self.client.get("/daily-briefing/me")
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["sections"], [])
 
