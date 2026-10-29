@@ -83,7 +83,7 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
   const [openGoal, setOpenGoal] = useState(initial.goal || '');
   const [openSeries, setOpenSeries] = useState(initial.oneOnOne || '');
   const [openReview, setOpenReview] = useState(initial.review || '');
-  const [newOneOnOne, setNewOneOnOne] = useState(null); // null | { reportEmail }
+  const [newOneOnOne, setNewOneOnOne] = useState(initial.newOneOnOne ? { reportEmail: '' } : null); // null | { reportEmail }
   const [person, setPerson] = useState(null);
 
   // A new bell while the tab is open opens what it points at.
@@ -94,6 +94,7 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
     if (p?.goal) setOpenGoal(p.goal);
     if (p?.oneOnOne) setOpenSeries(p.oneOnOne);
     if (p?.review) setOpenReview(p.review);
+    if (p?.newOneOnOne) setNewOneOnOne({ reportEmail: '' });
     if (p?.view === 'team') { setView('team'); setPerson(null); }
   }
   useEffect(() => { if (focus) onFocusUsed?.(); }, [focus, onFocusUsed]);

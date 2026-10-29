@@ -68,8 +68,10 @@ export function localTimeZone() {
 export function parsePerfSub(sub) {
   const m = String(sub || '').match(/^performance(?::(team|goal|1on1|review)(?::(.+))?)?$/);
   if (!m) return null;
-  return { view: m[1] === 'team' ? 'team' : 'me', goal: m[1] === 'goal' ? m[2] || '' : '', oneOnOne: m[1] === '1on1' ? m[2] || '' : '',
-    review: m[1] === 'review' ? m[2] || '' : '' };
+  // "performance:1on1:new" (the header's Create menu, Oct 29 2026) opens Set Up a 1:1.
+  const newOneOnOne = m[1] === '1on1' && m[2] === 'new';
+  return { view: m[1] === 'team' ? 'team' : 'me', goal: m[1] === 'goal' ? m[2] || '' : '', oneOnOne: m[1] === '1on1' && !newOneOnOne ? m[2] || '' : '',
+    review: m[1] === 'review' ? m[2] || '' : '', newOneOnOne };
 }
 
 export const card = {

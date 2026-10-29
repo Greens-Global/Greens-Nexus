@@ -91,11 +91,14 @@ const isPurchaseSub = (sub) => /^purchase(:|$)/.test(sub || '');
 // panel open; "ask-hr:letter:<id>" (HR's bells, the Approvals row) also
 // opens that letter request for review.
 const isAskSub = (sub) => /^ask-hr(:|$)/.test(sub || '');
+// "reimbursements:new" and "ask-hr:new" (the header's Create menu, Oct 29
+// 2026) open those panels on their New form.
+const isReimbSub = (sub) => sub === 'reimbursements' || sub === 'reimbursements:new';
 const askLetterOf = (sub) => (String(sub || '').match(/^ask-hr:letter:(.+)$/) || [])[1] || '';
 // "salary-advances" (a salary advance bell or inbox row stored before Oct 29
 // 2026, when the Workday card went) is the Time Sheet, where advances live
 // now - HR with advances waiting goes on to the Approvals inbox.
-const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || isPurchaseSub(sub) || isAskSub(sub) || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
+const tabFor = (sub) => (sub === 'clock' || isReimbSub(sub) || isPurchaseSub(sub) || isAskSub(sub) || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
   : sub === 'timecard' || sub === 'salary-advances' ? 'timesheet' : /^performance(:|$)/.test(sub || '') ? 'performance' : sub);
 // "performance:goal:<id>" / "performance:1on1:<id>" / "performance:team" (bells,
 // Oct 27 2026): the Performance tab with that goal, 1:1 or view open.
@@ -532,8 +535,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const clearPerfFocus = useCallback(() => setPerfFocus(null), []);
   useEffect(() => { const c = confirmOf(activeSub); if (c) setFocusConfirm(c); }, [activeSub]);
   // A reimbursement bell lands on "reimbursements": open that panel (Oct 18 2026).
-  const [openReimb, setOpenReimb] = useState(() => activeSub === 'reimbursements');
-  useEffect(() => { if (activeSub === 'reimbursements') { setOpenReimb(true); window.dispatchEvent(new CustomEvent('nexus:open-reimbursements')); } }, [activeSub]);
+  const [openReimb, setOpenReimb] = useState(() => (activeSub === 'reimbursements:new' ? 'new' : activeSub === 'reimbursements'));
+  useEffect(() => {
+    if (!isReimbSub(activeSub)) return;
+    const newForm = activeSub === 'reimbursements:new';
+    setOpenReimb(newForm ? 'new' : true);
+    window.dispatchEvent(new CustomEvent('nexus:open-reimbursements', { detail: { newForm } }));
+  }, [activeSub]);
   // An old salary advance bell (Oct 27 2026, before the Workday card went on
   // Oct 29) lands on "salary-advances": the own Time Sheet (tabFor), and HR
   // with advances waiting on them goes on to Approvals > Money, where each
@@ -561,7 +569,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const [askFocus, setAskFocus] = useState(null);
   if (activeSub !== askSeenSub) {
     setAskSeenSub(activeSub);
-    if (isAskSub(activeSub)) setAskFocus((f) => ({ n: (f?.n || 0) + 1, letter: askLetterOf(activeSub) }));
+    if (isAskSub(activeSub)) setAskFocus((f) => ({ n: (f?.n || 0) + 1, letter: askLetterOf(activeSub), compose: activeSub === 'ask-hr:new' }));
   }
   const [tab, setTab] = useState(() => {
     const t = tabFor(activeSub) || tabFor(initialTab);
@@ -571,7 +579,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     const t = tabFor(activeSub);
     if (TAB_META[t] && t !== tab) setTab(t);
     // An old 'clock' or 'shifts' address already shows Overview - rewrite it to say so.
-    else if ((activeSub === 'clock' || activeSub === 'reimbursements' || activeSub === 'salary-advances' || /^(shifts|purchase|ask-hr)(:|$)/.test(activeSub || '')) && activeSub !== tab && onSubChange) onSubChange(tab);
+    else if ((activeSub === 'clock' || isReimbSub(activeSub) || activeSub === 'salary-advances' || activeSub === 'performance:1on1:new' || /^(shifts|purchase|ask-hr)(:|$)/.test(activeSub || '')) && activeSub !== tab && onSubChange) onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSub]);
   useEffect(() => {

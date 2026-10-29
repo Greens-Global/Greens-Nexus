@@ -5,6 +5,7 @@ import HelpMenu from "../support/HelpMenu";
 import { HeaderOverflowTabs, TabGroupButton, useHeaderTabs } from "./ModuleTabs";
 import TabInk from "./TabInk";
 import MyProfileModal from "./MyProfileModal";
+import QuickCreate from "./QuickCreate";   // the "+" Create menu (Oct 29 2026)
 
 // ?emailSettings=1 - the "Email Settings" link in task emails; it opens
 // Profile on its Email Settings section (Neil, Oct 13 2026). Read when this
@@ -369,6 +370,9 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
 
       <div className="header-right">
         {searchBar}
+        {/* Create (Neil, Oct 29 2026): the "+" beside the search bar starts a
+            task, a ticket, a request... from any screen - components/QuickCreate.jsx. */}
+        <QuickCreate />
         {/* "?" Help menu: search the guide, help with this page, then Contact
             Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
         <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
