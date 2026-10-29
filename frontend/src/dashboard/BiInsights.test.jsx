@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // Render-smoke for the BI board (CLAUDE.md: high-risk views get one so a
@@ -103,6 +105,27 @@ describe('BiInsights', () => {
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Accounting' }));
     expect(screen.queryByLabelText('Accounting')).toBeNull();
     expect(JSON.parse(localStorage.getItem('nexus:bi-hidden-modules'))).toEqual(['accounting']);
+  });
+
+  // Neil, 10/28/2026: no colored bar on the left of a card, the module's own
+  // left-menu icon on every card and tile, every card the same size.
+  it('heads each card and tile with the left menu\'s icon for its module, not a colored chip', async () => {
+    const { container } = render(<BiInsights />);
+    await screen.findByText('Needs Attention');
+    const iconOf = (el) => el.querySelector('.bi-mod-icon svg')?.getAttribute('class') || '';
+    expect(iconOf(screen.getByLabelText('Tasks'))).toContain('lucide-square-check-big');      // Sidebar: CheckSquare
+    expect(iconOf(screen.getByLabelText('Time & Attendance'))).toContain('lucide-monitor-dot'); // Sidebar: Workforce Analytics
+    expect(iconOf(screen.getByLabelText('Accounting'))).toContain('lucide-calculator');        // Sidebar: Calculator, not the old Landmark
+    expect(container.querySelector('.dk-chip')).toBeNull();
+    const tile = screen.getAllByTitle('See the breakdown of Overdue')[0];
+    expect(iconOf(tile)).toContain('lucide-square-check-big');
+  });
+
+  it('draws no edge bar on a tile and gives every card one size', () => {
+    const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
+    expect(css).not.toMatch(/\.bi-alert[^{]*::before/);
+    expect(css).toMatch(/\.bi-grid \{[^}]*grid-auto-rows: \d+px/);
+    expect(css).toMatch(/\.bi-attention \{[^}]*grid-auto-rows: 1fr/);
   });
 
   it('shows a calm state when nothing is past its alert level, and an error state instead of a blank screen', async () => {
