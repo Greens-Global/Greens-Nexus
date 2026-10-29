@@ -70,6 +70,11 @@ export const APPROVAL_ACTIONS = {
     approve: (r) => api.probationApprove(r.id, {}),
     decline: (r, note) => api.probationDecline(r.id, note),
   },
+  // A goal a direct report proposed for themselves (Performance, Oct 29
+  // 2026): POST /performance/goals/{id}/approve - the Approve on the goal.
+  perf_goal: {
+    approve: (r) => api.perfGoalApprove(r.id),
+  },
   // An HR letter request: Review opens the HR Letters card; a decline needs a reason.
   hr_letter: {
     decline: (r, note) => api.hrLetterDecline(r.id, note),

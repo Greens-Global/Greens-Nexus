@@ -1,223 +1,197 @@
-// People > Performance > Review Cycles (Neil, Oct 27 2026): HR creates a cycle
-// for a company (who is in it, the deadlines, the questions), launches it,
-// and follows it on one dashboard: how many are at each stage, who is
-// overdue, a Nudge that reminds whoever it waits on. No calibration, no
-// 9-box (Neil).
+// People > Performance > Review Cycles, made simple (Neil, Oct 29 2026). A
+// new cycle is three fields - name, company, due date - and starts at once
+// with everyone at the company who is past probation (not contractors). HR
+// follows it on one table - person, manager, stage, rating - shares the
+// finished ones (one at a time or Share All Ready) and closes it. Reminders
+// go out by themselves.
 import { useCallback, useEffect, useState } from 'react';
-import { ClipboardCheck, Plus, Trash2, Bell, Rocket } from 'lucide-react';
+import { ClipboardCheck, Plus, Send } from 'lucide-react';
 import { api } from '../api';
-import { Modal, DateField, ChipMultiSelect } from '../tasks/components';
+import { Modal, DateField } from '../tasks/components';
 import { StatusLabel } from '../components/StatusLabel';
 import { SkeletonBlocks, LoadingState, ErrorBanner } from '../components/AsyncState';
-import { formatDate, formatDateTime } from '../lib/datetime';
+import { formatDate } from '../lib/datetime';
+import { useIsMobile } from '../lib/useIsMobile';
 import { ReviewModal, ReviewStage } from './Reviews';
 import { ProgressBar } from './Goals';
-import { REVIEW_STAGE, REVIEW_STAGE_KEYS, card, cardHead, HD, LBL, muted } from './lib';
+import { RATINGS, card, cardHead, HD, LBL, muted, TAP } from './lib';
 
-const TYPES = [['full_time', 'Full-Time'], ['part_time', 'Part-Time'], ['contractor', 'Contractor'], ['intern', 'Intern']];
-const CYCLE_STATUS = { draft: { label: 'Draft', color: '#64748b' }, active: { label: 'Active', color: '#2563eb' }, closed: { label: 'Closed', color: '#16a34a' } };
-const DEFAULT_QUESTIONS = [
-  { kind: 'rating', text: 'Overall, how did this period go?' },
-  { kind: 'text', text: 'What went well?' },
-  { kind: 'text', text: 'What could have gone better?' },
-  { kind: 'text', text: 'What should the focus be for the next period?' },
-];
+const CYCLE_STATUS = { draft: { label: 'Draft', color: '#64748b' }, active: { label: 'Open', color: '#2563eb' }, closed: { label: 'Closed', color: '#16a34a' } };
 const field = { display: 'grid', gap: 5, minWidth: 0 };
 
-function DateBox({ value, onChange, label, disabled }) {
+function DateBox({ value, onChange, label, placeholder = 'Pick a day' }) {
   return (
     <div style={field}>
       <span style={LBL}>{label}</span>
       <span className="form-input" style={{ display: 'flex', alignItems: 'center' }}>
-        <DateField value={value} onChange={onChange} placeholder="Pick a day" disabled={disabled} style={{ width: '100%' }} />
+        <DateField value={value} onChange={onChange} placeholder={placeholder} style={{ width: '100%' }} />
       </span>
     </div>
   );
 }
 
-function CycleFormModal({ company, cycle = null, onClose, onSaved, toastErr }) {
-  const draft = !cycle || cycle.status === 'draft';
-  const [f, setF] = useState(() => ({
-    name: cycle?.name || '', periodStart: cycle?.periodStart || '', periodEnd: cycle?.periodEnd || '',
-    selfDue: cycle?.selfDue || '', managerDue: cycle?.managerDue || '',
-    departments: cycle?.filters?.departments || [], types: cycle?.filters?.types || ['full_time', 'part_time'],
-    startedBy: cycle?.filters?.startedBy || '', includeGoals: cycle ? !!cycle.includeGoals : true,
-    questions: (cycle?.questions || DEFAULT_QUESTIONS).map((q, i) => ({ id: q.id || `q${i + 1}`, kind: q.kind, text: q.text })),
-  }));
-  const [depts, setDepts] = useState([]);
+// The six months ending today - what the server uses when no period is sent.
+function defaultPeriod() {
+  const end = new Date();
+  const start = new Date(end);
+  start.setMonth(start.getMonth() - 6);
+  start.setDate(start.getDate() + 1);
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return [iso(start), iso(end)];
+}
+
+export function CycleFormModal({ companies, company, onClose, onSaved, toastErr }) {
+  const [p0, p1] = defaultPeriod();
+  const [f, setF] = useState({ name: `${new Date().getFullYear()} Year-End Review`, company: company || companies?.[0]?.id || '', due: '',
+    periodStart: p0, periodEnd: p1 });
+  const [period, setPeriod] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  useEffect(() => { api.perfReviewDepartments(company).then(d => setDepts(d || [])).catch(() => {}); }, [company]);
   const set = (k) => (v) => setF(p => ({ ...p, [k]: v }));
-  const setQ = (i, patch) => setF(p => ({ ...p, questions: p.questions.map((q, j) => (j === i ? { ...q, ...patch } : q)) }));
   async function save() {
-    if (!f.name.trim()) { setErr('Name the cycle.'); return; }
+    if (!f.name.trim()) { setErr('Name the review.'); return; }
+    if (!f.due) { setErr('Pick the due date.'); return; }
     setBusy(true); setErr('');
-    const body = {
-      name: f.name.trim(), self_due: f.selfDue, manager_due: f.managerDue,
-      ...(draft ? { period_start: f.periodStart, period_end: f.periodEnd, filters: { departments: f.departments, types: f.types, startedBy: f.startedBy },
-        questions: f.questions.filter(q => q.text.trim()), include_goals: f.includeGoals } : {}),
-    };
     try {
-      const out = cycle ? await api.perfCycleUpdate(cycle.id, body) : await api.perfCycleCreate({ ...body, company_id: company });
+      const out = await api.perfCycleCreate({ company_id: f.company, name: f.name.trim(), due: f.due,
+        ...(period ? { period_start: f.periodStart, period_end: f.periodEnd } : {}) });
       onSaved?.(out);
-    } catch (e) { setErr(e?.message || 'Could not save the cycle.'); toastErr?.(e?.message || 'Could not save the cycle.'); }
+    } catch (e) { setErr(e?.message || 'Could not start the review.'); toastErr?.(e?.message || 'Could not start the review.'); }
     finally { setBusy(false); }
   }
   return (
-    <Modal title={cycle ? 'Edit Review Cycle' : 'New Review Cycle'} onClose={onClose} isDirty={!cycle && !!f.name}
+    <Modal title="New Review Cycle" onClose={onClose}
       footer={<>
         <button type="button" className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-        <button type="button" className="primary-btn" onClick={save} disabled={busy}>{busy ? 'Saving…' : cycle ? 'Save' : 'Create Cycle'}</button>
+        <button type="button" className="primary-btn" onClick={save} disabled={busy}>{busy ? 'Starting…' : 'Start Review'}</button>
       </>}>
       <div style={{ display: 'grid', gap: 14 }}>
         {err && <ErrorBanner message={err} />}
         <label style={field}>
           <span style={LBL}>Name</span>
-          <input className="form-input" value={f.name} onChange={e => set('name')(e.target.value)} placeholder="2026 Annual Review" autoFocus />
+          <input className="form-input" value={f.name} onChange={e => set('name')(e.target.value)} autoFocus style={{ fontSize: 16 }} />
         </label>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-          <DateBox label="Period From" value={f.periodStart} onChange={set('periodStart')} disabled={!draft} />
-          <DateBox label="Period To" value={f.periodEnd} onChange={set('periodEnd')} disabled={!draft} />
-          <DateBox label="Self Reviews Due" value={f.selfDue} onChange={set('selfDue')} />
-          <DateBox label="Manager Reviews Due" value={f.managerDue} onChange={set('managerDue')} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+          {(companies || []).length > 1 && (
+            <label style={field}>
+              <span style={LBL}>Company</span>
+              <select className="form-input" value={f.company} onChange={e => set('company')(e.target.value)} style={{ fontSize: 16 }}>
+                {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+          )}
+          <DateBox label="Due Date" value={f.due} onChange={set('due')} />
         </div>
-        {draft && (<>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, alignItems: 'start' }}>
-            <div style={field}>
-              <span style={LBL}>Departments</span>
-              <ChipMultiSelect value={f.departments} onChange={set('departments')} options={depts.map(d => ({ id: d, label: d }))} placeholder="Every department" />
-            </div>
-            <div style={field}>
-              <span style={LBL}>Who</span>
-              <span style={{ display: 'flex', gap: 10, flexWrap: 'wrap', paddingTop: 6 }}>
-                {TYPES.map(([k, l]) => (
-                  <label key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
-                    <input type="checkbox" checked={f.types.includes(k)}
-                      onChange={e => set('types')(e.target.checked ? [...f.types, k] : f.types.filter(x => x !== k))} /> {l}
-                  </label>
-                ))}
-              </span>
-            </div>
-            <DateBox label="Started On or Before" value={f.startedBy} onChange={set('startedBy')} />
+        <div style={{ ...muted, fontSize: 12.5, lineHeight: 1.55 }}>
+          Everyone at the company who is past probation is in it (not contractors). Self reviews are due a week before the due date.
+          {' '}Review period: <strong>{formatDate(f.periodStart)} to {formatDate(f.periodEnd)}</strong>
+          {!period && <> · <button type="button" onClick={() => setPeriod(true)}
+            style={{ border: 'none', background: 'none', padding: 0, color: 'var(--wk-brand)', cursor: 'pointer', font: 'inherit', fontWeight: 600 }}>Change</button></>}
+        </div>
+        {period && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+            <DateBox label="Period From" value={f.periodStart} onChange={set('periodStart')} />
+            <DateBox label="Period To" value={f.periodEnd} onChange={set('periodEnd')} />
           </div>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-            <input type="checkbox" checked={f.includeGoals} onChange={e => set('includeGoals')(e.target.checked)} /> Managers May Attach Goal Progress
-          </label>
-          <div style={{ display: 'grid', gap: 8 }}>
-            <span style={LBL}>Questions</span>
-            <div style={{ ...muted, fontSize: 12, marginTop: -4 }}>Both the employee and the manager answer each one. The rating scale and the company values come from Settings &gt; Performance.</div>
-            {f.questions.map((q, i) => (
-              <div key={q.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <select className="form-input" value={q.kind} onChange={e => setQ(i, { kind: e.target.value })} aria-label="Question type" style={{ width: 120 }}>
-                  <option value="rating">Rating</option><option value="text">Text</option>
-                </select>
-                <input className="form-input" value={q.text} onChange={e => setQ(i, { text: e.target.value })} aria-label={`Question ${i + 1}`} style={{ flex: 1 }} />
-                <button type="button" className="secondary-btn" aria-label="Remove question" title="Remove" style={{ padding: 6 }}
-                  onClick={() => setF(p => ({ ...p, questions: p.questions.filter((_, j) => j !== i) }))}><Trash2 size={14} /></button>
-              </div>
-            ))}
-            <div><button type="button" className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              onClick={() => setF(p => ({ ...p, questions: [...p.questions, { id: `q${Date.now()}`, kind: 'text', text: '' }] }))}><Plus size={14} /> Add Question</button></div>
-          </div>
-        </>)}
-        {!draft && <div style={muted}>The cycle is running: only its name and deadlines can change.</div>}
+        )}
       </div>
     </Modal>
   );
 }
 
+function RatingLine({ ratings }) {
+  if (!ratings) return null;
+  const total = RATINGS.reduce((n, r) => n + (ratings[r.key] || 0), 0);
+  if (!total) return null;
+  return <div style={{ ...muted, fontSize: 12.5 }}>{RATINGS.map(r => `${r.label} ${ratings[r.key] || 0}`).join(' - ')}</div>;
+}
+
 function CycleModal({ cycleId, onClose, onChanged, toastOk, toastErr }) {
+  const phone = useIsMobile('(max-width: 640px)');
   const [c, setC] = useState(null);
   const [err, setErr] = useState('');
-  const [people, setPeople] = useState(null);
-  const [edit, setEdit] = useState(false);
   const [open, setOpen] = useState('');
   const [busy, setBusy] = useState(false);
-  const load = useCallback(() => api.perfCycle(cycleId).then(setC).catch(e => setErr(e?.message || 'Could not load the cycle.')), [cycleId]);
+  const [confirmClose, setConfirmClose] = useState('');
+  const load = useCallback(() => api.perfCycle(cycleId).then(setC).catch(e => setErr(e?.message || 'Could not load the review.')), [cycleId]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { if (c?.status === 'draft' && people === null) api.perfCycleParticipants(c.id).then(setPeople).catch(() => setPeople([])); }, [c, people]);
   const act = async (p, ok) => {
     setBusy(true);
-    try { const out = await p(); if (ok) toastOk?.(typeof ok === 'function' ? ok(out) : ok); await load(); onChanged?.(); }
-    catch (e) { toastErr?.(e?.message || 'Could not do that.'); }
+    try { const out = await p(); if (ok) toastOk?.(typeof ok === 'function' ? ok(out) : ok); await load(); onChanged?.(); return true; }
+    catch (e) {
+      if (e?.status === 409 && /Close anyway/.test(e?.message || '')) { setConfirmClose(e.message); return false; }
+      toastErr?.(e?.message || 'Could not do that.'); return false;
+    }
     finally { setBusy(false); }
   };
   const total = c?.counts?.total || 0;
   const done = c?.counts?.complete || 0;
+  const ready = c?.counts?.ready || 0;
   return (
     <Modal title={c ? c.name : 'Review Cycle'} onClose={onClose} width="72vw"
       footer={c ? <>
-        {c.status !== 'closed' && <button type="button" className="secondary-btn" onClick={() => setEdit(true)}>Edit</button>}
-        {c.status === 'active' && <button type="button" className="secondary-btn" disabled={busy} onClick={() => act(() => api.perfCycleClose(c.id), 'Cycle closed.')}>Close Cycle</button>}
-        {c.status === 'draft' && <button type="button" className="primary-btn" disabled={busy || !people?.length} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          onClick={() => act(() => api.perfCycleLaunch(c.id), (out) => `Launched - ${out.launched} self reviews sent.`)}><Rocket size={14} /> Launch</button>}
-        <button type="button" className={c.status === 'draft' ? 'secondary-btn' : 'primary-btn'} onClick={onClose}>Done</button>
+        {c.status === 'active' && <button type="button" className="secondary-btn" disabled={busy} onClick={() => act(() => api.perfCycleClose(c.id), 'Closed.')}>Close Cycle</button>}
+        <button type="button" className="primary-btn" onClick={onClose}>Done</button>
       </> : <button type="button" className="primary-btn" onClick={onClose}>Done</button>}>
-      {err ? <ErrorBanner message={err} /> : !c ? <LoadingState size="section" label="Loading the cycle" /> : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1, minHeight: 0 }}>
+      {err ? <ErrorBanner message={err} /> : !c ? <LoadingState size="section" label="Loading the review" /> : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1, minHeight: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <StatusLabel label={CYCLE_STATUS[c.status]?.label || c.status} color={CYCLE_STATUS[c.status]?.color} size="md" />
             <span style={muted}>{[c.periodStart ? `${formatDate(c.periodStart)} to ${formatDate(c.periodEnd)}` : '',
-              c.selfDue ? `Self reviews due ${formatDate(c.selfDue)}` : '', c.managerDue ? `Manager reviews due ${formatDate(c.managerDue)}` : ''].filter(Boolean).join(' · ')}</span>
+              c.selfDue ? `Self reviews due ${formatDate(c.selfDue)}` : '', c.due ? `Due ${formatDate(c.due)}` : ''].filter(Boolean).join(' · ')}</span>
           </div>
-          {c.status === 'draft' ? (
-            <div style={{ display: 'grid', gap: 8 }}>
-              <div style={LBL}>Who Is In It {people ? `(${people.length})` : ''}</div>
-              {people === null ? <SkeletonBlocks count={2} height={36} /> : !people.length
-                ? <div style={muted}>Nobody matches the filters - edit the cycle.</div>
-                : <div style={{ display: 'grid', gap: 2 }}>{people.map(p => (
-                    <div key={p.email} style={{ fontSize: 13, display: 'flex', gap: 8 }}>
-                      <span style={{ flex: 1 }}>{p.name}</span><span style={muted}>{p.department}{p.hasManager ? '' : ' · No manager - HR writes it'}</span>
-                    </div>))}</div>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ flex: '1 1 200px' }}><ProgressBar value={total ? Math.round((done / total) * 100) : 0} label="Acknowledged" /></span>
+            <span style={muted}>{done} of {total} acknowledged{c.counts?.overdue ? ` · ${c.counts.overdue} overdue` : ''}</span>
+            {c.status === 'active' && (
+              <button type="button" className="primary-btn" disabled={busy || !ready} style={{ ...TAP, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                onClick={() => act(() => api.perfCycleShareAll(c.id), (out) => `Shared ${out.shared}.`)}>
+                <Send size={14} /> Share All Ready{ready ? ` (${ready})` : ''}
+              </button>
+            )}
+          </div>
+          <RatingLine ratings={c.counts?.ratings} />
+          {confirmClose && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: 12, borderRadius: 12, background: 'var(--mist)' }}>
+              <span style={{ flex: '1 1 240px', fontSize: 13 }}>{confirmClose} Unfinished reviews stay as they are and can no longer be changed.</span>
+              <button type="button" className="secondary-btn" onClick={() => setConfirmClose('')}>Keep It Open</button>
+              <button type="button" className="primary-btn" disabled={busy}
+                onClick={async () => { if (await act(() => api.perfCycleClose(c.id, true), 'Closed.')) setConfirmClose(''); }}>Close Anyway</button>
             </div>
-          ) : (<>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
-              {REVIEW_STAGE_KEYS.map(k => (
-                <div key={k} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px' }}>
-                  <div style={{ fontSize: 20, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{c.counts?.[k] || 0}</div>
-                  <div style={{ ...muted, fontSize: 12 }}>{REVIEW_STAGE[k].label}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <span style={{ flex: '1 1 200px' }}><ProgressBar value={total ? Math.round((done / total) * 100) : 0} label="Complete" /></span>
-              <span style={muted}>{done} of {total} complete{c.counts?.overdue ? ` · ${c.counts.overdue} overdue` : ''}</span>
-              {c.status === 'active' && (
-                <button type="button" className="secondary-btn" disabled={busy || !c.counts?.overdue} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                  onClick={() => act(() => api.perfCycleNudge(c.id, { overdue_only: true }), (out) => (out.nudged ? `Reminded ${out.nudged}.` : 'Nobody to remind - each was reminded in the last day.'))}>
-                  <Bell size={14} /> Nudge Overdue
-                </button>
-              )}
-            </div>
-            <div role="table" aria-label="Reviews" style={{ display: 'grid' }}>
-              {(c.reviews || []).map(r => (
-                <div key={r.id} role="row" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
-                  <button type="button" role="cell" onClick={() => setOpen(r.id)}
-                    style={{ flex: '1 1 200px', textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--ink)', padding: 0 }}>
-                    <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{r.employeeName}</span>
-                    <span style={{ display: 'block', ...muted, fontSize: 12 }}>Manager: {r.managerName}{r.nudgedAt ? ` · Reminded ${formatDateTime(r.nudgedAt)}` : ''}</span>
-                  </button>
+          )}
+          <div role="table" aria-label="Reviews" style={{ display: 'grid' }}>
+            {!phone && (
+              <div role="row" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1.5fr) auto minmax(90px, auto)', gap: 12, padding: '6px 4px', ...LBL }}>
+                <span role="columnheader">Person</span><span role="columnheader">Manager</span>
+                <span role="columnheader">Stage</span><span role="columnheader">Rating</span>
+              </div>
+            )}
+            {(c.reviews || []).map(r => (
+              <button key={r.id} type="button" role="row" onClick={() => setOpen(r.id)}
+                style={{ display: 'grid', gridTemplateColumns: phone ? '1fr auto' : 'minmax(0, 2fr) minmax(0, 1.5fr) auto minmax(90px, auto)', gap: 10,
+                  alignItems: 'center', padding: '10px 4px', minHeight: 44, border: 'none', borderTop: '1px solid var(--line)', background: 'transparent',
+                  textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--ink)' }}>
+                <span role="cell" style={{ minWidth: 0 }}>
+                  <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{r.employeeName}</span>
+                  {phone && <span style={{ display: 'block', ...muted, fontSize: 12 }}>{r.managerName}{r.ratingLabel ? ` · ${r.ratingLabel}` : ''}</span>}
+                </span>
+                {!phone && <span role="cell" style={{ fontSize: 13 }}>{r.managerName}</span>}
+                <span role="cell" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                   {r.overdue && <StatusLabel label="Overdue" color="#dc2626" size="sm" />}
                   <ReviewStage stage={r.stage} />
-                  {c.status === 'active' && ['self_review', 'manager_review'].includes(r.stage) && (
-                    <button type="button" className="secondary-btn" disabled={busy} title="Remind whoever it waits on" style={{ padding: '4px 8px', fontSize: 12 }}
-                      onClick={() => act(() => api.perfCycleNudge(c.id, { review_ids: [r.id], overdue_only: false }), (out) => (out.nudged ? 'Reminder sent.' : 'Already reminded in the last day.'))}>Nudge</button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </>)}
+                </span>
+                {!phone && <span role="cell" style={{ fontSize: 13 }}>{r.ratingLabel || <span style={muted}>-</span>}</span>}
+              </button>
+            ))}
+          </div>
         </div>
       )}
-      {edit && c && <CycleFormModal company={c.companyId} cycle={c} onClose={() => setEdit(false)} toastErr={toastErr}
-        onSaved={() => { setEdit(false); setPeople(null); load(); onChanged?.(); toastOk?.('Cycle saved.'); }} />}
-      {open && <ReviewModal reviewId={open} onClose={() => { setOpen(''); load(); }} toastOk={toastOk} toastErr={toastErr} />}
+      {open && <ReviewModal reviewId={open} onClose={() => { setOpen(''); load(); onChanged?.(); }} toastOk={toastOk} toastErr={toastErr} />}
     </Modal>
   );
 }
 
-export default function ReviewCycles({ company, toastOk, toastErr }) {
+export default function ReviewCycles({ company, companies, toastOk, toastErr }) {
   const [cycles, setCycles] = useState(null);
   const [err, setErr] = useState('');
   const [form, setForm] = useState(false);
@@ -233,33 +207,35 @@ export default function ReviewCycles({ company, toastOk, toastErr }) {
         <span className="wkc-chip"><ClipboardCheck size={14} /></span>
         <span style={HD}>Review Cycles</span>
         <button type="button" className="secondary-btn" onClick={() => setForm(true)} disabled={!company}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}><Plus size={14} /> New Review Cycle</button>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto', minHeight: 36 }}><Plus size={14} /> New Review Cycle</button>
       </div>
       {err ? <ErrorBanner message={err} onRetry={load} /> : cycles === null ? <SkeletonBlocks count={2} height={52} /> : !cycles.length
-        ? <div style={muted}>No review cycles yet. Create one, check who is in it, then launch it.</div> : (
+        ? <div style={muted}>No reviews yet. Start one with a name and a due date - everyone who belongs in it is added.</div> : (
           <div style={{ display: 'grid', gap: 8 }}>
             {cycles.map(c => {
               const total = c.counts?.total || 0;
               return (
                 <button key={c.id} type="button" onClick={() => setOpen(c.id)}
                   style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '6px 12px', alignItems: 'center', width: '100%', textAlign: 'left',
-                    padding: '11px 12px', border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--ink)' }}>
+                    padding: '11px 12px', minHeight: 44, border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--ink)' }}>
                   <span style={{ minWidth: 0 }}>
                     <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{c.name}</span>
                     <span style={{ display: 'block', ...muted, fontSize: 12 }}>
-                      {c.status === 'draft' ? 'Not launched yet' : `${c.counts?.complete || 0} of ${total} complete${c.counts?.overdue ? ` · ${c.counts.overdue} overdue` : ''}`}
-                      {c.managerDue ? ` · Manager reviews due ${formatDate(c.managerDue)}` : ''}
+                      {`${c.counts?.complete || 0} of ${total} acknowledged`}
+                      {c.counts?.ready ? ` · ${c.counts.ready} ready to share` : ''}
+                      {c.counts?.overdue ? ` · ${c.counts.overdue} overdue` : ''}
+                      {c.due ? ` · Due ${formatDate(c.due)}` : ''}
                     </span>
                   </span>
                   <StatusLabel label={CYCLE_STATUS[c.status]?.label || c.status} color={CYCLE_STATUS[c.status]?.color} size="sm" />
-                  {c.status !== 'draft' && <span style={{ gridColumn: '1 / -1' }}><ProgressBar value={total ? Math.round(((c.counts?.complete || 0) / total) * 100) : 0} label={`${c.name} complete`} /></span>}
+                  <span style={{ gridColumn: '1 / -1' }}><ProgressBar value={total ? Math.round(((c.counts?.complete || 0) / total) * 100) : 0} label={`${c.name} acknowledged`} /></span>
                 </button>
               );
             })}
           </div>
         )}
-      {form && <CycleFormModal company={company} onClose={() => setForm(false)} toastErr={toastErr}
-        onSaved={(c) => { setForm(false); load(); setOpen(c.id); toastOk?.('Cycle created - check who is in it, then launch it.'); }} />}
+      {form && <CycleFormModal companies={companies} company={company} onClose={() => setForm(false)} toastErr={toastErr}
+        onSaved={(c) => { setForm(false); load(); setOpen(c.id); toastOk?.(`Started - ${c.counts?.total || 0} people are in it, and they have been told.`); }} />}
       {open && <CycleModal cycleId={open} onClose={() => setOpen('')} onChanged={load} toastOk={toastOk} toastErr={toastErr} />}
     </section>
   );

@@ -177,8 +177,6 @@ const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSett
 const OpsSettingsPanel = lazy(() => import('../operations/OpsSettings'));
 // Performance (Oct 27 2026): the goal and 1:1 reminders, layered per company.
 const PerformanceReminderSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceReminderSettings })));
-const ReviewScaleSettings = lazy(() => import('../performance/ReviewSettings').then(m => ({ default: m.ReviewScaleSettings })));
-const CompanyValuesSettings = lazy(() => import('../performance/ReviewSettings').then(m => ({ default: m.CompanyValuesSettings })));
 // Workflows (Oct 28 2026): the switches, ceilings, digest and pause - layered per company.
 const WorkflowsSettingsPanel = lazy(() => import('../workflows/WorkflowsSettings').then(m => ({ default: m.WorkflowsSettings })));
 // Holiday Policies (Oct 29 2026): the org face of the company holiday calendars.
@@ -521,18 +519,13 @@ const GROUPS = [
     sub: 'Which Cubby unit types are mailboxes, and which records are not units at all, by the words in the unit type name.',
     keywords: 'unit types mailbox excluded words cubby facility operations units' },
   // Performance
-  { id: 'performance-reminders', subject: 'performance', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Goal and 1:1 Reminders', flush: true,
-    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
-    sub: 'The reminder the day before a 1:1 with an empty agenda, and how long a goal may go without a check-in - a default, and each company\'s own.',
-    keywords: 'performance goals check-in reminder one on one 1:1 agenda okr objectives' },
-  { id: 'performance-rating-scale', subject: 'performance', face: 'both', scope: 'layered', icon: Target, title: 'Review Rating Scale', flush: true,
-    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
-    sub: 'The points and their labels every review question and value is rated on - 1 to 5 by default. A new review cycle copies it.',
-    keywords: 'performance review rating scale points labels meets exceeds expectations appraisal' },
-  { id: 'performance-values', subject: 'performance', face: 'both', scope: 'layered', icon: Target, title: 'Company Values',
-    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
-    sub: 'The values people and their managers rate in each review. A new review cycle copies them.',
-    keywords: 'performance review company values culture competencies appraisal' },
+  // Performance (made simple, Oct 29 2026): one group. Reviews have one
+  // 4-word rating and no values, so the scale and values groups are gone.
+  // The save route needs HR for the company - a FULL hr grant, not Editor.
+  { id: 'performance-reminders', subject: 'performance', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Performance Reminders', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
+    sub: 'How long a goal kept by hand may go without an update before its owner is reminded, and the reminder the day before a 1:1 with an empty agenda. Review reminders go out by themselves.',
+    keywords: 'performance goals check-in reminder one on one 1:1 agenda review rating okr objectives' },
   // Workflows
   { id: 'workflows-config', subject: 'workflows', face: 'both', scope: 'layered', icon: Workflow, title: 'Workflow Settings', flush: true,
     needs: { role: 'administrator', grant: ['workflows', 'full'] },
@@ -693,8 +686,6 @@ const COMPANY_STATE = {
   'shift-settings': (cid) => api.shiftRequestSettingsGetFor(cid).then(r => ownState(!!r?.hasOverride)),
   'hr-letters': (cid) => api.hrLetterSettings(cid).then(r => ownState(!!r?.hasOverride)),
   'performance-reminders': (cid) => api.perfSettings(cid).then(m => ownState(!!m?.override)),
-  'performance-rating-scale': (cid) => api.perfReviewSettings(cid).then(m => ownState((m?.overrides || []).includes('ratingScale'))),
-  'performance-values': (cid) => api.perfReviewSettings(cid).then(m => ownState((m?.overrides || []).includes('values'))),
   'india-contractor-policy': (cid) => api.timeIndiaPolicyGet(cid).then(r => ownState(!!r?.hasOverride)),
   'workflows-config': (cid) => api.wfSettings(cid).then(m => ownState(!!m?.override)),
 };
@@ -1728,8 +1719,6 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'app-ratings':          return <LazyPanelSection key={key} id={id} Panel={AppRatingsPanel} chrome={chrome} />;
       case 'employee-custom-fields': return <LazyPanelSection key={key} id={id} Panel={EmployeeCustomFieldsSettings} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'performance-reminders': return <LazyPanelSection key={key} id={id} Panel={PerformanceReminderSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
-      case 'performance-rating-scale': return <LazyPanelSection key={key} id={id} Panel={ReviewScaleSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
-      case 'performance-values':   return <LazyPanelSection key={key} id={id} Panel={CompanyValuesSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'workflows-config':     return <LazyPanelSection key={key} id={id} Panel={WorkflowsSettingsPanel} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'holiday-policies':     return <LazyPanelSection key={key} id={id} Panel={HolidayPoliciesPanel} chrome={chrome} entities={entities} toastOk={toastOk} toastErr={toastErr} />;
       default:                     return null;

@@ -15,6 +15,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 import models
+import perf_metrics
 import performance as perf
 import scoped_settings
 from auth import get_current_user
@@ -55,6 +56,8 @@ def my_context(user: dict = Depends(get_current_user), db: Session = Depends(get
         "hrCompanies": perf.companies_out(db, reach) if reach is not False else [],
         "settings": perf.settings_for(db, me),
         "statuses": [{"key": k, "label": perf.STATUS_LABELS[k]} for k in perf.STATUSES],
+        "metrics": perf_metrics.catalog(),
+        "maxGoals": perf.MAX_OPEN_GOALS,
         "cadences": [{"key": k, "label": perf.CADENCE_LABELS[k]} for k in perf.CADENCES],
     }
 
@@ -66,22 +69,25 @@ class GoalIn(BaseModel):
     description: Optional[str] = ""
     level: Optional[str] = "personal"
     owner_email: Optional[str] = ""
+    owner_emails: Optional[list] = None   # the same goal for several direct reports - one row each
     company_id: Optional[str] = ""
     department: Optional[str] = ""
     measure: Optional[str] = "percent"
+    metric_key: Optional[str] = ""        # measured by Nexus (perf_metrics.METRICS); '' = by hand
     start_value: Optional[float] = 0
     target_value: Optional[float] = None
     unit: Optional[str] = ""
     start_on: Optional[str] = ""
     due_on: Optional[str] = ""
     parent_id: Optional[str] = ""
-    status: Optional[str] = "on_track"
+    status: Optional[str] = ""            # ignored - status is computed
 
 
 class GoalPatch(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     owner_email: Optional[str] = None
+    metric_key: Optional[str] = None
     measure: Optional[str] = None
     start_value: Optional[float] = None
     target_value: Optional[float] = None
@@ -107,6 +113,22 @@ def _day(s: Optional[str]) -> str:
     except ValueError:
         raise HTTPException(400, "Pick a valid date.")
     return v
+
+
+def _metric_key(key: Optional[str]) -> str:
+    k = (key or "").strip()
+    if k and k not in perf_metrics.METRICS:
+        raise HTTPException(400, "Pick one of the Nexus numbers, or I'll Update It.")
+    return k
+
+
+def _default_end(start: str) -> str:
+    from datetime import date as _d
+    d = _d.fromisoformat(start)
+    m = d.month - 1 + perf.DEFAULT_PERIOD_MONTHS
+    y, m = d.year + m // 12, m % 12 + 1
+    import calendar as _c
+    return d.replace(year=y, month=m, day=min(d.day, _c.monthrange(y, m)[1])).isoformat()
 
 
 def _measure_values(measure: str, start, target) -> tuple:
@@ -200,40 +222,96 @@ def get_goal(gid: str, user: dict = Depends(get_current_user), db: Session = Dep
                         "value": c.value, "status": c.status, "statusLabel": perf.STATUS_LABELS.get(c.status, c.status),
                         "note": c.note or ""} for c in hist]
     kids = (db.query(models.PerfGoal).filter(models.PerfGoal.parent_id == g.id, models.PerfGoal.archived_at == "").all())
-    out["children"] = [{"id": k.id, "title": k.title, "ownerName": perf.name_of(db, k.owner_email),
-                        "progress": perf.progress(k), "status": k.status, "statusLabel": perf.STATUS_LABELS.get(k.status, k.status)}
-                       for k in kids if perf.can_see_goal(db, user, k)]
+    today = perf.local_today()
+
+    def kid(k):
+        st = perf.computed_status(k, today, perf.refresh_metric(db, k, today))
+        return {"id": k.id, "title": k.title, "ownerName": perf.name_of(db, k.owner_email),
+                "progress": perf.progress(k), "status": st, "statusLabel": perf.STATUS_LABELS.get(st, st)}
+    out["children"] = [kid(k) for k in kids if perf.can_see_goal(db, user, k)]
     return out
+
+
+def _new_goal(db: Session, user: dict, me: str, body: GoalIn, level: str, owner_email: str) -> models.PerfGoal:
+    import notify_rollup
+    owner, cid, dept = perf.check_create(db, user, level, owner_email, body.company_id, body.department)
+    metric = _metric_key(body.metric_key)
+    if metric:
+        if body.target_value is None:
+            raise HTTPException(400, "Set the target.")
+        measure, start, target = "number", 0.0, float(body.target_value)
+    else:
+        measure = (body.measure or "percent").strip()
+        start, target = _measure_values(measure, body.start_value, body.target_value)
+    if level == "personal" and perf.open_goal_count(db, owner) >= perf.MAX_OPEN_GOALS:
+        raise HTTPException(400, f"{'You have' if owner == me else perf.name_of(db, owner) + ' has'} "
+                                 f"{perf.MAX_OPEN_GOALS} open goals - finish or archive one first.")
+    today = perf.local_today()
+    p_start = _day(body.start_on) or today
+    p_end = _day(body.due_on) or _default_end(p_start)
+    if p_end < p_start:
+        raise HTTPException(400, "The due date is before the goal starts.")
+    gid = perf.new_id()
+    now = perf.now_iso()
+    proposed = perf.needs_approval(db, me, owner, level)
+    g = models.PerfGoal(id=gid, level=level, company_id=cid, department=dept, owner_email=owner,
+                        title=(body.title or "").strip()[:300], description=(body.description or "").strip()[:4000],
+                        measure=measure, metric_key=metric, start_value=start, target_value=target, current_value=start,
+                        unit=("" if metric else (body.unit or "").strip()[:40]), status="on_track",
+                        start_on=p_start, due_on=p_end, period_start=p_start, period_end=p_end,
+                        parent_id=perf.check_parent(db, user, gid, body.parent_id), created_by=me,
+                        approved_at="" if proposed else now, approved_by="" if proposed else me,
+                        created_at=now, updated_at=now, last_checkin_at="", checkin_nudged_at="", archived_at="")
+    db.add(g)
+    if owner != me:
+        notify_rollup.upsert_rollup(
+            db, recipient=owner, key=f"perf-goal-new:{today}", title="New Goal for You",
+            line=f"{perf.name_of(db, me)} set a goal for you: {g.title}.",
+            action={"view": "myhr", "sub": "performance"}, company=cid)
+    elif proposed:
+        mgr = (perf.employee(db, owner).manager_email or "").strip().lower()
+        notify_rollup.upsert_rollup(
+            db, recipient=mgr, key=f"perf-goal-proposed:{today}", title="Goals to Approve",
+            line=f"{perf.name_of(db, owner)} proposed a goal: {g.title}.",
+            action={"view": "myhr", "sub": "performance:team"}, company=cid)
+    return g
 
 
 @router.post("/goals", status_code=201)
 def create_goal(body: GoalIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """One goal - or, with owner_emails, the same goal for several direct
+    reports at once (one row each; every owner is checked the same way)."""
     me = _me(user)
-    title = (body.title or "").strip()
-    if not title:
+    if not (body.title or "").strip():
         raise HTTPException(400, "Give the goal a title.")
     level = (body.level or "personal").strip()
-    owner, cid, dept = perf.check_create(db, user, level, body.owner_email, body.company_id, body.department)
-    measure = (body.measure or "percent").strip()
-    start, target = _measure_values(measure, body.start_value, body.target_value)
-    status = (body.status or "on_track").strip()
-    if status not in perf.STATUSES:
-        raise HTTPException(400, "Pick On Track, At Risk, Off Track or Done.")
-    gid = perf.new_id()
-    now = perf.now_iso()
-    g = models.PerfGoal(id=gid, level=level, company_id=cid, department=dept, owner_email=owner,
-                        title=title[:300], description=(body.description or "").strip()[:4000], measure=measure,
-                        start_value=start, target_value=target, current_value=start, unit=(body.unit or "").strip()[:40],
-                        status=status, start_on=_day(body.start_on), due_on=_day(body.due_on),
-                        parent_id=perf.check_parent(db, user, gid, body.parent_id), created_by=me,
-                        created_at=now, updated_at=now, last_checkin_at="", checkin_nudged_at="", archived_at="")
-    db.add(g)
-    if owner != me:
-        import notify_rollup
-        notify_rollup.upsert_rollup(
-            db, recipient=owner, key=f"perf-goal-new:{perf.now_iso()[:10]}", title="New Goal for You",
-            line=f"{perf.name_of(db, me)} set a goal for you: {g.title}.",
-            action={"view": "myhr", "sub": "performance"}, company=cid)
+    owners = [str(e).strip().lower() for e in (body.owner_emails or []) if str(e).strip()]
+    if owners:
+        if level != "personal":
+            raise HTTPException(400, "Only a personal goal is set for several people at once.")
+        rows = [_new_goal(db, user, me, body, level, o) for o in dict.fromkeys(owners)]
+        db.commit()
+        today = perf.local_today()
+        return {"created": [perf.goal_out(db, user, g, today=today) for g in rows]}
+    g = _new_goal(db, user, me, body, level, body.owner_email)
+    db.commit()
+    return perf.goal_out(db, user, g)
+
+
+@router.post("/goals/{gid}/approve")
+def approve_goal(gid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The manager (anyone above them, or HR) agrees to a goal the person
+    proposed for themselves."""
+    me = _me(user)
+    g = _goal_or_404(db, user, gid)
+    if not perf.can_approve_goal(db, user, g):
+        raise HTTPException(403, "Only their manager or HR approves this goal.")
+    g.approved_at, g.approved_by, g.updated_at = perf.now_iso(), me, perf.now_iso()
+    import notify_rollup
+    notify_rollup.upsert_rollup(
+        db, recipient=g.owner_email, key=f"perf-goal-approved:{perf.local_today()}", title="Goal Approved",
+        line=f"{perf.name_of(db, me)} approved your goal: {g.title}.",
+        action={"view": "myhr", "sub": f"performance:goal:{g.id}"}, company=g.company_id or "")
     db.commit()
     return perf.goal_out(db, user, g)
 
@@ -257,7 +335,17 @@ def update_goal(gid: str, body: GoalPatch, user: dict = Depends(get_current_user
             raise HTTPException(400, "A personal goal stays with its person - set a new one for someone else.")
         owner, cid, dept = perf.check_create(db, user, g.level, data["owner_email"], g.company_id, g.department)
         g.owner_email = owner
-    if "measure" in data or "target_value" in data or "start_value" in data:
+    if "metric_key" in data:
+        g.metric_key = _metric_key(data["metric_key"])
+        if g.metric_key:
+            g.measure, g.start_value, g.unit = "number", 0.0, ""
+            if data.get("target_value") is not None:
+                g.target_value = float(data["target_value"])
+        data.pop("measure", None)
+    if g.metric_key:
+        if data.get("target_value") is not None:
+            g.target_value = float(data["target_value"])
+    elif "measure" in data or "target_value" in data or "start_value" in data:
         measure = data.get("measure") or g.measure
         start, target = _measure_values(measure, data.get("start_value", g.start_value),
                                         data.get("target_value", g.target_value if measure == g.measure else None))
@@ -267,16 +355,28 @@ def update_goal(gid: str, body: GoalPatch, user: dict = Depends(get_current_user
     if "unit" in data:
         g.unit = (data["unit"] or "").strip()[:40]
     if "start_on" in data:
-        g.start_on = _day(data["start_on"])
+        g.start_on = g.period_start = _day(data["start_on"]) or g.period_start
     if "due_on" in data:
-        g.due_on = _day(data["due_on"])
+        g.due_on = g.period_end = _day(data["due_on"]) or g.period_end
+    if g.period_start and g.period_end and g.period_end < g.period_start:
+        raise HTTPException(400, "The due date is before the goal starts.")
     if "parent_id" in data:
         g.parent_id = perf.check_parent(db, user, g.id, data["parent_id"])
-    if "status" in data and data["status"]:
-        if data["status"] not in perf.STATUSES:
-            raise HTTPException(400, "Pick On Track, At Risk, Off Track or Done.")
-        g.status = data["status"]
+    # The status is computed - one sent is ignored.
+    g.status = perf.computed_status(g)
     g.updated_at = perf.now_iso()
+    # The person changing what was agreed sends it back for approval.
+    me = (user.get("email") or "").strip().lower()
+    agreed = {"title", "target_value", "due_on", "start_on", "metric_key", "measure"}
+    if g.approved_at and me == (g.owner_email or "") and agreed & set(data) \
+            and perf.needs_approval(db, me, g.owner_email, g.level):
+        g.approved_at, g.approved_by = "", ""
+        import notify_rollup
+        mgr = (perf.employee(db, g.owner_email).manager_email or "").strip().lower()
+        notify_rollup.upsert_rollup(
+            db, recipient=mgr, key=f"perf-goal-proposed:{perf.local_today()}", title="Goals to Approve",
+            line=f"{perf.name_of(db, g.owner_email)} changed a goal: {g.title}.",
+            action={"view": "myhr", "sub": "performance:team"}, company=g.company_id or "")
     db.commit()
     return perf.goal_out(db, user, g)
 
@@ -287,8 +387,8 @@ def check_in(gid: str, body: CheckinIn, user: dict = Depends(get_current_user), 
     g = _goal_or_404(db, user, gid)
     if not perf.can_edit_goal(db, user, g):
         raise HTTPException(403, "You can't check in on this goal.")
-    if body.value is None and not (body.status or "").strip() and not (body.note or "").strip():
-        raise HTTPException(400, "Add the progress, a status or a note.")
+    if body.value is None and not (body.note or "").strip():
+        raise HTTPException(400, "Add the new number or a note.")
     perf.apply_checkin(db, g, me, body.value, (body.status or "").strip(), body.note or "")
     db.commit()
     return get_goal(gid, user, db)
@@ -303,6 +403,8 @@ def archive_goal(gid: str, restore: bool = False, user: dict = Depends(get_curre
         g.archived_at, g.archived_by = "", ""
         if not perf.can_edit_goal(db, user, g):
             raise HTTPException(403, "You can't change this goal.")
+        if g.level == "personal" and perf.is_open(g) and perf.open_goal_count(db, g.owner_email, exclude_id=g.id) >= perf.MAX_OPEN_GOALS:
+            raise HTTPException(400, f"{perf.MAX_OPEN_GOALS} open goals already - finish or archive one first.")
     else:
         if not perf.can_edit_goal(db, user, g):
             raise HTTPException(403, "You can't change this goal.")
@@ -314,12 +416,25 @@ def archive_goal(gid: str, restore: bool = False, user: dict = Depends(get_curre
 
 # ── My team ──────────────────────────────────────────────────────────────────
 
+HIGHLIGHTS = 3
+
+
+def _highlights(db: Session, email: str) -> list:
+    """The first few of a person's numbers that apply to them, this quarter."""
+    from datetime import date as _d
+    today = _d.fromisoformat(perf.local_today())
+    start, end = perf_metrics.quarter_period(today)
+    card = perf_metrics.scorecard(db, email, start, end, today=today)
+    return [{k: m[k] for k in ("key", "label", "display", "good")} for m in card["metrics"] if m["available"]][:HIGHLIGHTS]
+
+
 @router.get("/team")
 def my_team(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """The people under me: their goals at a glance and, for my direct
-    reports, our next 1:1."""
+    """My direct reports (Neil, Oct 29 2026: the manager's own team): a few
+    of their Nexus numbers, their goals by status, the review they are in,
+    the goals waiting on my Approve, and our next 1:1."""
     me = _me(user)
-    people = perf.below(db, me)
+    people = perf.direct_reports(db, me)
     emails = sorted({(e.work_email or "").lower() for e in people})
     goals = (db.query(models.PerfGoal).filter(models.PerfGoal.owner_email.in_(emails or [""]),
                                               models.PerfGoal.archived_at == "",
@@ -340,18 +455,63 @@ def my_team(user: dict = Depends(get_current_user), db: Session = Depends(get_db
             nxt[s.report_email] = {"seriesId": s.id, "at": m.at, "label": perf.local_label(m.at, s.time_zone)}
         elif s.report_email not in nxt:
             nxt[s.report_email] = {"seriesId": s.id, "at": "", "label": ""}
+    import perf_reviews as pr
+    open_reviews: dict = {}
+    for r in (db.query(models.PerfReview).filter(models.PerfReview.employee_email.in_(emails or [""]),
+                                                 models.PerfReview.stage != "removed").all() if emails else []):
+        c = db.get(models.PerfReviewCycle, r.cycle_id)
+        if c is None or c.status != "active":
+            continue
+        open_reviews[r.employee_email] = {"id": r.id, "stage": r.stage, "stageLabel": pr.STAGE_LABELS.get(r.stage, r.stage),
+                                          "cycleName": c.name, "yours": (r.manager_email or "") == me}
+    today = perf.local_today()
     out = []
     for e in people:
         em = (e.work_email or "").lower()
-        gs = by.get(em, [])
-        out.append({**perf.person_out(db, e), "direct": (e.manager_email or "").lower() == me,
-                    "goals": {"total": len(gs), "atRisk": sum(1 for g in gs if g.status == "at_risk"),
-                              "offTrack": sum(1 for g in gs if g.status == "off_track"),
-                              "done": sum(1 for g in gs if g.status == "done"),
+        gs = [g for g in by.get(em, []) if perf.is_open(g, today) or perf.computed_status(g, today) == "done"]
+        st = {}
+        for g in gs:
+            k = perf.computed_status(g, today, perf.refresh_metric(db, g, today))
+            st[k] = st.get(k, 0) + 1
+        out.append({**perf.person_out(db, e), "direct": True,
+                    "numbers": _highlights(db, em),
+                    "goals": {"total": len(gs), "onTrack": st.get("on_track", 0), "atRisk": st.get("at_risk", 0),
+                              "behind": st.get("behind", 0), "done": st.get("done", 0),
+                              "proposed": sum(1 for g in gs if not g.approved_at),
                               "progress": round(sum(perf.progress(g) for g in gs) / len(gs)) if gs else 0},
+                    "review": open_reviews.get(em),
                     "nextOneOnOne": nxt.get(em)})
-    out.sort(key=lambda r: (not r["direct"], r["name"].lower()))
+    out.sort(key=lambda r: r["name"].lower())
     return out
+
+
+# ── My Numbers ───────────────────────────────────────────────────────────────
+
+@router.get("/scorecard")
+def scorecard(email: str = "", period: str = "quarter", start: str = "", end: str = "",
+              user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A person's Nexus numbers (perf_metrics.scorecard) for This Month, This
+    Quarter, This Review (their latest review's period) or a given range.
+    The person, their reporting chain and HR only - anyone else 404."""
+    me = _me(user)
+    who = (email or me).strip().lower()
+    if not perf.can_see_person(db, user, who):
+        raise HTTPException(404, "Person not found")
+    from datetime import date as _d
+    today = _d.fromisoformat(perf.local_today())
+    if start or end:
+        s, e = _day(start), _day(end)
+        if not (s and e) or e < s:
+            raise HTTPException(400, "Pick a start and an end.")
+    elif period == "month":
+        s, e = perf_metrics.month_period(today)
+    elif period == "review":
+        import perf_reviews as pr
+        s, e = pr.review_period_for(db, who) or perf_metrics.quarter_period(today)
+    else:
+        s, e = perf_metrics.quarter_period(today)
+    card = perf_metrics.scorecard(db, who, s, e, today=today)
+    return {**card, "email": who, "name": perf.name_of(db, who), "periodKind": "custom" if (start or end) else period}
 
 
 # ── 1:1s ─────────────────────────────────────────────────────────────────────
@@ -606,6 +766,37 @@ def end_one_on_one(sid: str, user: dict = Depends(get_current_user), db: Session
     return _series_out(db, s, side, meetings=True)
 
 
+def _graph_cancel_occurrence(s: models.PerfOneOnOne, m: models.PerfMeeting) -> str:
+    """Take ONE meeting of a 1:1 off both calendars (Cancel This One): a
+    one-off is the event itself; a meeting of a series is its occurrence,
+    found by its start. '' = ok, else why not."""
+    if not s.event_id:
+        return ""
+    from routers.hr_interviews import _graph_cancel_meeting
+    if s.cadence == "once":
+        return _graph_cancel_meeting(s.manager_email, s.event_id)
+    at = perf.parse_utc(m.at)
+    if at is None:
+        return ""
+    import httpx
+    from datetime import timedelta
+    from routers.hr import _GRAPH, _graph_token
+    try:
+        r = httpx.get(f"{_GRAPH}/users/{s.manager_email}/events/{s.event_id}/instances",
+                      params={"startDateTime": perf.utc_str(at - timedelta(minutes=1)),
+                              "endDateTime": perf.utc_str(at + timedelta(minutes=int(s.duration_min or 30) + 1)),
+                              "$select": "id,start"},
+                      headers={"Authorization": f"Bearer {_graph_token()}"}, timeout=20)
+        if r.status_code != 200:
+            return f"Teams meeting not canceled ({r.status_code})"
+        items = (r.json() or {}).get("value") or []
+    except Exception as e:   # noqa: BLE001 - the meeting is canceled in Nexus either way
+        return f"Teams meeting not canceled ({type(e).__name__})"
+    if not items:
+        return ""
+    return _graph_cancel_meeting(s.manager_email, items[0].get("id", ""))
+
+
 @router.patch("/meetings/{mid}")
 def update_meeting(mid: str, body: MeetingPatch, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = _me(user)
@@ -630,6 +821,10 @@ def update_meeting(mid: str, body: MeetingPatch, user: dict = Depends(get_curren
             raise HTTPException(400, "Unknown status")
         if (st == "canceled" or m.status == "canceled") and side != "manager":
             raise HTTPException(403, "Only the manager can cancel a meeting or bring one back.")
+        if st == "canceled" and m.status != "canceled":
+            err = _graph_cancel_occurrence(s, m)
+            if err:
+                s.graph_error = err[:400]
         m.status = st
         m.done_at = perf.now_iso() if st == "done" else ""
         db.flush()
@@ -663,6 +858,7 @@ def update_agenda(aid: str, body: AgendaPatch, user: dict = Depends(get_current_
     if a is None:
         raise HTTPException(404, "Not found")
     m, s, side = _meeting_or_404(db, user, a.meeting_id)
+    perf.require_live(db, s)
     if body.done is not None:
         a.done = bool(body.done)
     if body.text is not None:
@@ -683,6 +879,7 @@ def remove_agenda(aid: str, user: dict = Depends(get_current_user), db: Session 
     if a is None:
         raise HTTPException(404, "Not found")
     m, s, side = _meeting_or_404(db, user, a.meeting_id)
+    perf.require_live(db, s)
     if a.by_email != me:
         raise HTTPException(403, "Only whoever added a talking point can take it off.")
     if m.status != "scheduled":
@@ -741,6 +938,7 @@ def update_action(aid: str, body: ActionPatch, background_tasks: BackgroundTasks
     if a is None:
         raise HTTPException(404, "Not found")
     m, s, side = _meeting_or_404(db, user, a.meeting_id)
+    perf.require_live(db, s)
     if body.done is None:
         return _series_out(db, s, side, meetings=True)
     t = db.get(models.Task, a.task_id) if a.task_id else None
