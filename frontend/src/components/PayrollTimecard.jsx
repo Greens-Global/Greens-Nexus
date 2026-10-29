@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, Info, SlidersHorizontal, Lock, Printer, ClipboardList } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, Info, SlidersHorizontal, Lock, Printer, ClipboardList, Coffee } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { useDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
@@ -88,6 +88,22 @@ const typeOfCategory = (c) => /\bsick\b/i.test(c || '') ? 'Sick'
 // No California / India toggle (removed Oct 28 2026 - a card flipped to the
 // wrong zone kept reading wrong times): a card always shows the EMPLOYEE's
 // zone (lib/displayTz.js useEmployeeZone / useOwnZone).
+
+// A day as the grid shows it (Neil, Oct 28 2026: "the Sun/Mon/Tue/Wed line up
+// perfectly vertically"). The weekday sits in a slot of one fixed width and
+// the date uses even-width digits, so every "Sun 10/18" and "Wed 10/21" down
+// the column starts, splits and ends at the same place. The text still reads
+// "Sun 10/18" (the space is a text node the flex layout does not draw).
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function DayDate({ ds }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6, fontVariantNumeric: 'tabular-nums' }}>
+      <span style={{ display: 'inline-block', width: '2.5em', fontSize: '0.92em', opacity: 0.7 }}>{WEEKDAY[new Date(`${ds}T00:00`).getDay()]}</span>
+      {' '}
+      <span>{formatMonthDayNumeric(ds, true)}</span>
+    </span>
+  );
+}
 
 // One switch inside the Options panel: the label, what it does, and the tick.
 function OptionSwitch({ checked, label, hint, onChange }) {
@@ -1079,17 +1095,25 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // The thin line between two rows of a shift: the break, the break still
   // running, or the lunch Nexus took out of a shift with no break punched.
   const hLine = (r) => {
-    if (r.line === 'auto') return <>Auto-Deducted {breakLen(r.min)} - no break was punched</>;
-    if (r.line === 'open') return r.now ? <>On Break since {t12(r.at)}</> : <>Break started {t12(r.at)} - never ended, no clock-out</>;
+    const quiet = { color: 'var(--muted)', fontWeight: 500 };
+    const warn = { color: '#b45309', fontWeight: 600 };
+    const mark = (bad) => <Coffee size={12} aria-hidden="true" style={{ flexShrink: 0, color: bad ? '#b45309' : 'var(--muted)' }} />;
+    const row = (bad, kids) => <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{mark(bad)}<span>{kids}</span></span>;
+    if (r.line === 'auto') return row(false, <><strong>Auto-Deducted {breakLen(r.min)}</strong><span style={quiet}> · no break was punched</span></>);
+    if (r.line === 'open') {
+      return r.now
+        ? row(false, <><strong>On Break since {t12(r.at)}</strong></>)
+        : row(true, <><strong style={warn}>Break started {t12(r.at)}</strong><span style={warn}> · never ended, no clock-out</span></>);
+    }
     const b = r.brk;
     const txt = b.implicit
-      ? `Break ${breakLen(b.min)} (${t12(b.start)} - clock-out) - the break end was never punched`
-      : `Break ${breakLen(b.min)} (${t12(b.start)} - ${t12(b.end)})${b.paidMin > 0 ? ` - ${breakLen(b.paidMin)} paid` : ''}`;
+      ? row(true, <><strong>Break {breakLen(b.min)}</strong><span style={quiet}> ({t12(b.start)} - clock-out)</span><span style={warn}> · the break end was never punched</span></>)
+      : row(false, <><strong>Break {breakLen(b.min)}</strong><span style={quiet}> ({t12(b.start)} - {t12(b.end)}){b.paidMin > 0 ? ` · ${breakLen(b.paidMin)} paid` : ''}</span></>);
     if (noEdit) return txt;
     return (
-      <button type="button" onClick={() => setBreakFix({ date: r.ds, breaks: r.base?.breaks || [], shift: r.base })}
+      <button type="button" className="pr-break-btn" onClick={() => setBreakFix({ date: r.ds, breaks: r.base?.breaks || [], shift: r.base })}
         title={self ? 'Ask your approver to fix or remove this break' : 'Fix the start or end of this break, or delete it'}
-        style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
+        style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
         {txt}
       </button>
     );
@@ -1200,7 +1224,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const hReq = (r) => (
     <>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 600, color: 'var(--ink)', minWidth: 70 }}>{dow(r.ds)}</span>
+                      <span style={{ fontWeight: 600, color: 'var(--ink)', minWidth: 70 }}><DayDate ds={r.ds} /></span>
                       <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 999, background: 'rgba(180,83,9,0.16)', color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         <AlertTriangle size={10} /> Not Yet Approved
                       </span>
@@ -1304,7 +1328,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           return (
             <section key={ds} className={`pr-dcard${leave ? ' pr-dcard-leave' : ''}${worked.length ? '' : ' pr-dcard-empty'}`} aria-label={dow(ds)}>
               <div className="pr-dcard-head">
-                <span className="pr-dcard-date" style={{ color: leave ? '#b91c1c' : worked.length ? 'var(--ink)' : 'var(--muted)' }}>{dow(ds)}</span>
+                <span className="pr-dcard-date" style={{ color: leave ? '#b91c1c' : worked.length ? 'var(--ink)' : 'var(--muted)' }}><DayDate ds={ds} /></span>
                 {inline && <span className="pr-dcard-inline-note">{noteCell}</span>}
                 <span style={{ flex: 1 }} />
                 {inline && <WorkLogButton onClick={() => setWorkLogDay(ds)} title={`View the Work Log for ${dow(ds)}`} />}
@@ -1711,10 +1735,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                    an auto-deducted lunch. Deducted Time, Category and the
                    shift's columns from OT on are merged down across it. */
                 <tr key={i} className="pr-break-line">
-                  <td colSpan={2} style={{ ...gc, ...lineCell(r) }}></td>
-                  {/* Left-aligned at one indent: centered, each line started
-                      somewhere else depending on its length (Pranshu, Oct 22). */}
-                  <td colSpan={2} style={{ ...gc, ...lineCell(r), textAlign: 'left', paddingLeft: 28, color: r.line === 'open' ? '#b45309' : 'var(--muted)', fontStyle: 'italic', fontWeight: 600 }}>{hLine(r)}</td>
+                  <td style={{ ...gc, ...lineCell(r) }}></td>
+                  {/* Under the day, set in a step: every line starts at the Edit
+                      column's left edge (Neil, Oct 28 2026), whatever its length. */}
+                  <td colSpan={3} style={{ ...gc, ...lineCell(r), textAlign: 'left', color: 'var(--ink)', fontWeight: 600 }}>{hLine(r)}</td>
                   <td style={{ ...gc, ...lineCell(r) }}></td>
                   <td style={{ ...gc, ...lineCell(r) }}></td>
                 </tr>
@@ -1724,7 +1748,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <tr key={i} className={`pr-row pr-day-row${r.band ? ' pr-band' : ''}${r.seg?.payClass ? ' pr-leave' : ''}`}
                   title={r.seg?.payClass ? `${{ sick: 'Sick', vacation: 'Vacation', personal: 'Personal' }[r.seg.payClass] || 'Leave'} day` : undefined}>
                   <td style={{ ...gc, textAlign: 'left', fontWeight: 600, color: r.seg?.payClass ? '#b91c1c' : r.seg ? 'var(--wk-brand)' : 'var(--muted)' }}>
-                    {r.first !== false && dow(r.ds)}
+                    {r.first !== false && <DayDate ds={r.ds} />}
                   </td>
                   <td style={gc}>{hEdit(r)}</td>
                   {r.seg ? (
@@ -2252,7 +2276,7 @@ function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameF
               // The Date is merged down the day; the Day column carries the status
               // pill on the first row and the "Break" label on a Break row.
               const dayCells = (
-                <td rowSpan={dayRows || 1} style={{ ...gc, textAlign: 'left', fontWeight: 600, color: onLeave ? '#b91c1c' : segs.length ? 'var(--wk-brand)' : 'var(--muted)' }}>{dow(fd.date)}</td>
+                <td rowSpan={dayRows || 1} style={{ ...gc, textAlign: 'left', fontWeight: 600, color: onLeave ? '#b91c1c' : segs.length ? 'var(--wk-brand)' : 'var(--muted)' }}><DayDate ds={fd.date} /></td>
               );
               const dayPill = (
                 <span title={onLeave ? 'Leave - the day is deducted unless hours were also worked' : timeOffDay ? `Approved time off (${fd.timeOff}) - the missed time is deducted` : (fd.holidayName || undefined)}

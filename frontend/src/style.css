@@ -6260,7 +6260,7 @@ body:has(.docs-root) { overflow-x: clip; }
 .pr-dcard-total { display: inline-flex; align-items: baseline; gap: 10px; font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .pr-dcard-seg { padding: 8px 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
 /* The break between two punch pairs of a shift (Oct 20): a thin dashed line. */
-.pr-dcard-break { padding: 2px 12px; border-top: 1px dashed var(--line); font-size: 11.5px; font-style: italic; font-weight: 600; color: var(--muted); }
+.pr-dcard-break { padding: 3px 12px; border-top: 1px dashed var(--line); font-size: 11.5px; font-weight: 600; color: var(--ink); }
 .pr-dcard-times { display: flex; align-items: center; gap: 10px; min-height: 32px; font-size: 14px; font-variant-numeric: tabular-nums; }
 .pr-dcard-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); min-width: 0; }
 .pr-dcard-icon { background: none; border: none; color: var(--muted); display: inline-flex; align-items: center; justify-content: center;
