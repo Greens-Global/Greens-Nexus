@@ -253,7 +253,9 @@ def _workflow_asks(db, user: dict, ctx: dict) -> list:
                         title=f"{ap.workflow_name}: {ap.question}"[:200],
                         detail=f"About {ap.subject_label}" if ap.subject_label else "",
                         created_at=ap.asked_at, actions=actions,
-                        link=subject_link(db, ap) or run_link, for_name=for_name)
+                        link=subject_link(db, ap) or run_link, for_name=for_name,
+                        facts=(("Workflow", ap.workflow_name or ""), ("Question", ap.question or ""),
+                               ("About", ap.subject_label or ""), ("Options", ", ".join(ap.options or []))))
         row["runLink"] = run_link
         out.append(row)
     return out

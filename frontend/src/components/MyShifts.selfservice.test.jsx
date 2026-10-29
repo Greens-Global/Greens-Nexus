@@ -124,6 +124,16 @@ describe('MyShifts weather calls', () => {
     fireEvent.click(sw);
     await waitFor(() => expect(weatherCallMyPrefsSave).toHaveBeenCalledWith({ weatherSms: false }));
   });
+
+  // Weather by department (10/29/2026): someone outside a weather department
+  // never gets a weather text, so they get no switch for it either.
+  it('hides the texts switch for someone outside a weather department', async () => {
+    weatherCallMyPrefs.mockResolvedValue({ weatherSms: true, phone: true, weatherOn: false });
+    render(<MyShifts />);
+    await waitFor(() => expect(weatherCallMyPrefs).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByLabelText('Text me when a weather call changes my shift')).toBeNull();
+  });
 });
 
 describe('MyShifts week and group grid', () => {

@@ -286,7 +286,7 @@ const GROUPS = [
   { id: 'company-profile', subject: 'companies', face: 'company', scope: 'company', icon: Building2, title: 'Company',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Profile and logo, managers and HR contact, contractor invoice recipients, email domains, departments and their heads, and the holiday calendar.',
-    keywords: 'company profile legal name country tax id ein gstin signatory manager hr contact invoice recipients address phone logo social links email domains notes departments department head holiday calendar holidays' },
+    keywords: 'company profile legal name country tax id ein gstin signatory manager hr contact invoice recipients address phone logo social links email domains notes departments department head holiday calendar holidays weather calls rain' },
   // Holiday policies (Neil, Oct 29 2026): named holiday sets applied to one or
   // more companies; each company's Holiday Calendar can skip or change one.
   { id: 'holiday-policies', subject: 'companies', face: 'org', scope: 'org', icon: CalendarDays, title: 'Holiday Policies',

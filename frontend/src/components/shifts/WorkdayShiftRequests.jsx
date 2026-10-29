@@ -58,10 +58,22 @@ export default function WorkdayShiftRequests({ toast }) {
     try { await fn(); toast?.(true, msg); retry(); } catch (e) { toast?.(false, e.message || 'Something went wrong.'); }
     setBusyId('');
   }
+  // Every kind is OFF unless the company turned it on in Settings > Shifts &
+  // Scheduling (Neil, 10/28/2026: off by default everywhere) - a missing key
+  // is off, never on.
   const cfg = reqs?.settings || {};
-  const anyKind = cfg.swaps !== false || cfg.offers !== false || cfg.openShifts !== false || cfg.releaseShifts === true;
+  const anyKind = cfg.swaps === true || cfg.offers === true || cfg.openShifts === true || cfg.releaseShifts === true;
   const incoming = reqs?.incoming || [];
   const list = reqs?.mine || [];
+  // Off = no card at all, not a disabled shell. It still shows while a request
+  // made before the switch went off waits on me or on my cancel, so nothing
+  // is stranded; it then has no New Request. A load error keeps the card for
+  // its Retry.
+  const pendingLeft = incoming.length > 0 || list.some((r) => PENDING.includes(r.status));
+  if (!reqsError && (!reqs || (!anyKind && !pendingLeft))) return null;
+  const kinds = [cfg.swaps === true && 'swap a shift with a teammate', cfg.offers === true && 'offer one away',
+    cfg.releaseShifts === true && 'release one to the open pool', cfg.openShifts === true && 'ask for an open shift'].filter(Boolean);
+  const kindsText = kinds.length > 1 ? `${kinds.slice(0, -1).join(', ')} or ${kinds[kinds.length - 1]}` : kinds[0] || '';
   const shownList = showAll ? list : list.slice(0, 10);
   const who = (p) => (p ? nameOf(p.email, p.name) : 'a teammate');
   const mySummary = (r) => {
@@ -76,13 +88,17 @@ export default function WorkdayShiftRequests({ toast }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10, flexWrap: 'wrap' }}>
         <span className="wkc-chip"><CalendarClock size={14} /></span>
         <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>Shift Requests</span>
-        <button type="button" className="primary-btn" onClick={() => setAsking(true)} disabled={!reqs || mine === null || !anyKind}
-          title={anyKind ? undefined : 'Shift requests are turned off by your company'}
-          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> New Request</button>
+        {anyKind && (
+          <button type="button" className="primary-btn" onClick={() => setAsking(true)} disabled={!reqs || mine === null}
+            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> New Request</button>
+        )}
       </div>
-      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-        Swap a shift with a teammate, offer one away, {cfg.releaseShifts === true ? 'release one to the open pool, ' : ''}or ask for an open shift. A swap or an offer goes to your teammate first, then to a manager.
-      </div>
+      {kindsText && (
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+          {kindsText.charAt(0).toUpperCase() + kindsText.slice(1)}.
+          {(cfg.swaps === true || cfg.offers === true) && ' A swap or an offer goes to your teammate first, then to a manager.'}
+        </div>
+      )}
       <AsyncSection loading={!reqs && !reqsError} error={!!reqsError} onRetry={retry} errorMessage="Your shift requests could not be loaded right now." skeleton={<SkeletonBlocks count={2} height={48} borderRadius={10} />}
         isEmpty={!incoming.length && !list.length} emptyContent={<div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 0' }}>No shift requests yet.</div>}>
         {mineError && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))', marginBottom: 8 }}>Your shared shifts could not be loaded, so a swap or an offer may not be possible right now.</div>}

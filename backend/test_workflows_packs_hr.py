@@ -335,15 +335,16 @@ class HrPackCase(unittest.TestCase):
         self.assertEqual(dec.payload["extra"]["decision"], "declined")
 
     def test_salary_advance_request_and_decision_each_emit_once(self):
+        # Asked by Erin's direct manager, from her Time Sheet (Oct 29 2026).
         self._as(MGR)
-        res = self.client.post("/salary-advances", json={"amount": 500, "currency": "USD", "reason": "Moving costs",
-                                                         "installments": 2})
+        res = self.client.post(f"/salary-advances/for/{EMP}", json={"amount": 500, "currency": "USD",
+                                                                     "reason": "Moving costs", "installments": 2})
         self.assertEqual(res.status_code, 201, res.text)
         aid = res.json()["id"]
         req = self._one("salary_advance.requested")
         self.assertEqual(req.subject_id, aid)
         self.assertNotIn("amount", req.payload["subject"])     # pay never reaches the outbox (review H1)
-        self.assertEqual(req.payload["subject"]["employee"], MGR)
+        self.assertEqual(req.payload["subject"]["employee"], EMP)
         self._as(GA)
         res = self.client.post(f"/salary-advances/{aid}/decide", json={"action": "approve", "note": "Approved"})
         self.assertEqual(res.status_code, 200, res.text)

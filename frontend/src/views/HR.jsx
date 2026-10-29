@@ -34,6 +34,7 @@ import { qk } from '../lib/queryClient';
 import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
+import { Switch } from '../components/settings/SettingsUI';
 import { setPendingOpen } from '../lib/pendingOpen';
 import TimeAdmin from '../components/TimeAdmin';
 import ModuleTabs from '../components/ModuleTabs';
@@ -120,6 +121,16 @@ const DELETED_F = '__deleted__';
 // "Probation Ending" (Oct 27 2026): people whose probation ends inside the
 // company's reminder window, or has passed undecided - a lens, not a status.
 const PROBATION_F = '__probation__';
+// Probation lenses by status (Neil, Oct 29 2026): On Probation is the open
+// ones only; Passed / Past (never tracked, past the window, derived) /
+// Removed From Probation. Sentinels like the ones above.
+const PROBATION_LENSES = [
+  ['__probation:open__', 'On Probation', (p) => ['in_probation', 'extended'].includes(p?.status)],
+  ['__probation:passed__', 'Passed Probation', (p) => p?.status === 'passed'],
+  ['__probation:past__', 'Past Probation', (p) => p?.status === 'past'],
+  ['__probation:removed__', 'Removed From Probation', (p) => p?.status === 'removed'],
+];
+const PROBATION_LENS = Object.fromEntries(PROBATION_LENSES.map(([v, , test]) => [v, test]));
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
@@ -3282,7 +3293,7 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, toas
 // ── Companies / legal entities manager (HR Section A) ────────────────────────
 // Manage one company's department list (Neil: departments live within a company,
 // custom per company - not a Nexus-wide hardcoded list).
-function CompanyDepartments({ entity, toastOk, toastErr }) {
+export function CompanyDepartments({ entity, toastOk, toastErr }) {
   const [depts, setDepts] = useState(null);
   const [name, setName] = useState('');
   const [head, setHead] = useState('');          // department head for the one being added
@@ -3319,6 +3330,18 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
       toastOk?.(email ? `${nameOf(email)} is now the ${what} of ${d.name}.` : `${d.name} has no ${what} now.`);
     } catch (e) { toastErr(e?.message || `Could not set the ${what}.`); }
   }
+  // Weather Calls (Neil, 10/29/2026): rain advisories and weather calls apply
+  // only to the people of departments with this on - Construction by default.
+  async function setWeather(d, on) {
+    setDepts((list) => list.map((x) => (x.id === d.id ? { ...x, weather: on } : x)));
+    try {
+      setDepts(await api.updateCompanyDepartment(entity.id, d.id, { weather: on }));
+      toastOk?.(on ? `Weather calls now apply to ${d.name}.` : `Weather calls no longer apply to ${d.name}.`);
+    } catch (e) {
+      setDepts((list) => list.map((x) => (x.id === d.id ? { ...x, weather: !on } : x)));
+      toastErr(e?.message || 'Could not change Weather Calls.');
+    }
+  }
   const headPicker = (value, onPick, onClear, label) => value ? (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, fontSize: 12.5 }}>
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>{nameOf(value)}</span>
@@ -3352,6 +3375,7 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
         Departments for <strong>{entity.name}</strong>. These are the only choices when picking a department for someone in this company.
         The department head is the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Contact Directory.
         The head and the backup both get the HR, IT and Accounting steps of every checklist, so set a backup for anyone who can be out.
+        Weather Calls: rain advisories and weather calls apply only to the people of departments with it on - on for Construction by default.
       </p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <input className="form-input" style={{ flex: '1 1 180px' }} placeholder="e.g. Estimating" value={name}
@@ -3393,6 +3417,11 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
                     {headPicker(value, (email) => setDeptPerson(d, field, email), () => setDeptPerson(d, field, ''), label)}
                   </div>
                 ))}
+                <label data-dept-weather={d.id} title="Rain advisories and weather calls apply to this department's people. On for Construction by default."
+                  style={{ flex: '0 1 auto', display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>Weather Calls</span>
+                  <Switch checked={!!d.weather} onChange={(on) => setWeather(d, on)} label={`Weather Calls for ${d.name}`} />
+                </label>
                 <button onClick={() => remove(d)} title={`Remove ${d.name}`} aria-label={`Remove ${d.name}`}
                   style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: '50%', padding: 0 }}
                   onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
@@ -5536,6 +5565,7 @@ export default function HR({ activeSub, onSubChange }) {
     return source.filter(e => {
       if (!showingDeleted && statusF === 'All' && INACTIVE_STATUSES.has(e.status || 'active') !== (listTab === 'inactive')) return false;
       if (statusF === PROBATION_F && (!e.probation?.ending || INACTIVE_STATUSES.has(e.status || 'active'))) return false;
+      if (PROBATION_LENS[statusF] && (!PROBATION_LENS[statusF](e.probation) || INACTIVE_STATUSES.has(e.status || 'active'))) return false;
       if (typeF === 'employee' && (isExtRow(e) || e.employmentType === 'contractor')) return false;
       if (typeF === 'contractor' && (isExtRow(e) || e.employmentType !== 'contractor')) return false;
       if (typeF === 'external' && !isExtRow(e)) return false;
@@ -5544,7 +5574,7 @@ export default function HR({ activeSub, onSubChange }) {
       if (cfField && !matchesFieldFilter(cfField, e.customFields?.[cfField.fieldKey], cfF)) return false;
       // Skipped while showing removed people - they keep their old status, so
       // matching on it here would filter the list down to nothing.
-      if (!showingDeleted && statusF !== 'All' && statusF !== PROBATION_F && e.status !== statusF) return false;
+      if (!showingDeleted && statusF !== 'All' && statusF !== PROBATION_F && !PROBATION_LENS[statusF] && e.status !== statusF) return false;
       if (search.trim()) {
         const q = search.trim().toLowerCase();
         return [fullName(e), e.workEmail, e.employeeCode, e.jobTitle, e.department, e.externalCompany].some(v => (v || '').toLowerCase().includes(q));
@@ -5654,6 +5684,21 @@ export default function HR({ activeSub, onSubChange }) {
     // Roles & Access moved to the Admin module in full (Pranshu, Sep 9) - no
     // longer a People tab.
   ].filter(t => SUBS.includes(t.key));
+  // The heading names the open tab (Neil, Oct 29 2026: "when we click on
+  // Hiring it doesn't change the heading at the top to Hiring, it still says
+  // People") - the page title, its icon and line, and the header breadcrumb.
+  const TAB_LINES = {
+    'hr-people': 'Every person\'s profile, role and status',
+    'hr-hiring': 'Openings, candidates, offers and onboarding',
+    'hr-org': 'Who reports to whom, across every company',
+    'hr-time': 'Time sheets, time off and punch fixes to review',
+    'hr-checklists': 'Onboarding and offboarding steps for each person',
+    'hr-analytics': 'Headcount, attrition, tenure, absence and leave',
+    'hr-exits': 'People leaving and their final settlement',
+    'hr-performance': 'Review cycles and goals',
+  };
+  const headTab = TABS.find(t => t.key === sub) || TABS[0] || { label: 'People', Icon: Users };
+  const HeadIcon = headTab.Icon || Users;
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -5663,11 +5708,11 @@ export default function HR({ activeSub, onSubChange }) {
         {/* Icon-chip page title (Work OS grammar - the module's meaning color) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
           <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Users size={19} />
+            <HeadIcon size={19} />
           </span>
           <div className="view-title-group">
-            <h2 style={{ fontFamily: 'var(--wk-font)' }}>People</h2>
-            <p>People, hiring, org structure and leave - one source of truth</p>
+            <h2 style={{ fontFamily: 'var(--wk-font)' }}>{headTab.label}</h2>
+            <p>{TAB_LINES[headTab.key] || 'People, hiring, org structure and leave - one source of truth'}</p>
           </div>
         </div>
         {sub === 'hr-people' && (
@@ -5722,7 +5767,7 @@ export default function HR({ activeSub, onSubChange }) {
 
       {/* Tabs - desktop renders them centered in the top header; phones keep
           the in-page strip (ModuleTabs handles both) */}
-      <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} overflow />
+      <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} overflow syncTitle />
 
       {codesOpen && (
         <Suspense fallback={<ModalLoading />}>
@@ -5853,6 +5898,7 @@ export default function HR({ activeSub, onSubChange }) {
                   <option value="All">All statuses</option>
                   {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
                   <option value={PROBATION_F}>Probation Ending</option>
+                  {PROBATION_LENSES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
                   <option value={DELETED_F}>Deleted</option>
                 </select>
                 {cfDefs.length > 0 && (

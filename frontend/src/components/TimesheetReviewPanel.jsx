@@ -14,12 +14,18 @@
 //   edits) sends it back to the manager. HR may change it at any point
 //   without approval; the employee then signs the updated card (Sign
 //   Updated Timesheet - the 'approved' state).
+//
+// Oct 28 2026 (Neil: "less chunky and clunky ... taking up too much room"):
+// one bordered card - the title with the steps on the same line, the status
+// in a sentence, and the note box (one line until it is used) beside its
+// button; the signatures read as one line of facts, not a row of boxes.
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckCircle, Clock, FileSignature, Send, Undo2, ChevronRight, Lock, ShieldCheck } from 'lucide-react';
+import { CheckCircle, Clock, FileSignature, Send, Undo2, ChevronRight, Lock, ShieldCheck, Info } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { SignModal } from './ESign';
+import { Avatar, AvatarName } from '../tasks/components';
 
 const ACTION_LABEL = {
   submitted: 'submitted the time sheet', resubmitted: 'sent it back to the manager',
@@ -47,6 +53,9 @@ const STEPS = [
   { key: 'review', label: 'Review' }, { key: 'employee', label: 'Employee Signs' },
   { key: 'done', label: 'Finalized' },
 ];
+const HOW = 'The employee and their approver agree the hours, then the employee signs in Nexus Sign (electronically or on paper). That signature finalizes the period for payroll.';
+// A phone's note box starts at two lines so its prompt is not cut off.
+const NARROW = () => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 640px)').matches;
 const hm = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 
 function stepIndex(r) {
@@ -58,44 +67,45 @@ function stepIndex(r) {
 function Stepper({ review }) {
   const at = stepIndex(review);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+    <ol aria-label="Review steps" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', listStyle: 'none', margin: 0, padding: 0 }}>
       {STEPS.map((s, i) => {
         const done = i < at, current = i === at;
         return (
-          <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999,
-              fontSize: 11.5, fontWeight: 700,
-              background: done ? 'hsla(var(--color-green),0.12)' : current ? 'var(--mist)' : 'transparent',
-              color: done ? 'hsl(var(--color-green))' : current ? 'var(--ink)' : 'var(--muted)',
-              border: `1px solid ${current ? 'var(--line)' : 'transparent'}`,
-            }}>
-              {done ? <CheckCircle size={12} /> : <span style={{ width: 16, textAlign: 'center' }}>{i + 1}</span>}{s.label}
-            </span>
-            {i < STEPS.length - 1 && <ChevronRight size={13} style={{ color: 'var(--muted)' }} />}
-          </div>
+          <li key={s.key} aria-current={current ? 'step' : undefined}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: current ? 700 : 600,
+              color: done ? 'hsl(var(--color-green))' : current ? 'var(--ink)' : 'var(--muted)' }}>
+            {done ? <CheckCircle size={14} /> : (
+              <span style={{ width: 16, height: 16, borderRadius: '50%', border: `1.5px solid ${current ? 'var(--ink)' : 'var(--line)'}`,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700 }}>{i + 1}</span>
+            )}
+            {s.label}
+            {i < STEPS.length - 1 && <span aria-hidden="true" style={{ width: 18, height: 1, background: 'var(--line)', marginLeft: 2 }} />}
+          </li>
         );
       })}
-    </div>
+    </ol>
   );
 }
+
+// A label over its value - the signing facts read as one line, not boxes.
+const FACT_LABEL = { fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)' };
 
 function SigCard({ label, party, waiting }) {
   const done = party?.status === 'signed';
   return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)' }}>{label} Signature</div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+      <div style={FACT_LABEL}>{label} Signature</div>
       {done ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, color: 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <CheckCircle size={14} /> {party.name}
+            <CheckCircle size={14} /> <Avatar email={party.email} name={party.name} size={20} /> {party.name}
           </span>
           <span style={{ fontSize: 11, color: 'var(--muted)' }}>{formatDate(party.signedAt)}</span>
-          {party.signatureKind === 'paper' && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', background: 'var(--mist)', padding: '2px 8px', borderRadius: 999 }}>On Paper</span>}
+          {party.signatureKind === 'paper' && <><span aria-hidden="true" style={{ color: 'var(--muted)' }}>·</span><span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>On Paper</span></>}
         </div>
       ) : (
         <span style={{ fontSize: 12.5, fontWeight: 700, color: waiting ? '#b45309' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          {waiting ? <><Clock size={13} /> Waiting for {party?.name || label}</> : party?.name ? `${party.name} - not yet` : 'Not yet'}
+          {waiting ? <><Clock size={13} /> Waiting for {party?.name ? <AvatarName email={party.email} name={party.name} size={18} /> : label}</> : party?.name ? <><AvatarName email={party.email} name={party.name} size={18} /> - not yet</> : 'Not yet'}
         </span>
       )}
     </div>
@@ -107,8 +117,8 @@ function SigCard({ label, party, waiting }) {
 function ApprovalLog({ lines }) {
   if (!lines?.length) return null;
   return (
-    <div data-approval-log style={{ margin: '10px 0 0', padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)' }}>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>Approval Log</div>
+    <div data-approval-log style={{ margin: '12px 0 0', paddingTop: 10, borderTop: '1px solid var(--line)' }}>
+      <div style={{ ...FACT_LABEL, marginBottom: 4 }}>Approval Log</div>
       {lines.map((l, i) => (
         <div key={i} style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: i ? 3 : 0 }}>
           <ShieldCheck size={13} style={{ color: 'hsl(var(--color-green))', flexShrink: 0, marginTop: 2 }} /><span>{l}</span>
@@ -132,7 +142,7 @@ function History({ rounds, nameFor }) {
         <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
           {[...rounds].reverse().map((e, i) => (
             <div key={`${e.at}-${i}`} style={{ fontSize: 12.5, borderLeft: '2px solid var(--line)', paddingLeft: 10 }}>
-              <div><strong>{nameFor(e.by)}</strong> {ACTION_LABEL[e.action] || e.action}
+              <div><AvatarName email={e.by} name={nameFor(e.by)} size={18}><strong>{nameFor(e.by)}</strong></AvatarName> {ACTION_LABEL[e.action] || e.action}
                 <span style={{ color: 'var(--muted)' }}> · {formatDateTime(e.at)}</span></div>
               {e.note && <div style={{ color: 'var(--ink)', marginTop: 2 }}>"{e.note}"</div>}
               {e.changes?.length > 0 && (
@@ -151,6 +161,7 @@ function History({ rounds, nameFor }) {
 // `below`: a card the time card hangs under the panel (a contractor's Invoice card, Oct 21).
 export default function TimesheetReviewPanel({ review, self, anchor, periodLabel, nameFor, onChanged, toastOk, toastErr, below = null }) {
   const [note, setNote] = useState('');
+  const [noteOpen, setNoteOpen] = useState(false);   // the note box is one line until it is used
   const [busy, setBusy] = useState(false);
   const [signing, setSigning] = useState(null);   // Nexus Sign party id
   // CA-rule staff: no question before signing (Oct 18) - the signing screen
@@ -166,7 +177,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
   async function run(call, done) {
     setBusy(true);
     try {
-      const out = await call(); setNote(''); toastOk?.(done); onChanged?.();
+      const out = await call(); setNote(''); setNoteOpen(false); toastOk?.(done); onChanged?.();
       window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));   // Timesheets to Review list
       return out;
     }
@@ -184,20 +195,26 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
   // fixed before it reaches the manager (Oct 1) - the server refuses Submit
   // with the same words.
   const submitNote = r.submitBlocker && (
-    <p role="note" style={{ fontSize: 12.5, margin: '0 0 8px', color: '#b45309' }}>{r.submitBlocker}</p>
+    <p role="note" style={{ fontSize: 12, margin: '6px 0 0', color: '#b45309' }}>{r.submitBlocker}</p>
   );
   const blockerNote = r.agreeBlocker && (
-    <p role="note" style={{ fontSize: 12.5, margin: '0 0 8px', color: '#b45309' }}>{r.agreeBlocker}</p>
+    <p role="note" style={{ fontSize: 12, margin: '6px 0 0', color: '#b45309' }}>{r.agreeBlocker}</p>
   );
 
+  // The note sits beside its button(s): one line until it is focused or
+  // filled, then three. It never shrinks back while it holds text.
   const noteBox = (placeholder) => (
-    <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={1000}
-      placeholder={placeholder} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13, marginBottom: 8 }} />
+    <textarea value={note} onChange={(e) => setNote(e.target.value)} onFocus={() => setNoteOpen(true)}
+      rows={noteOpen || note ? 3 : NARROW() ? 2 : 1} maxLength={1000} placeholder={placeholder} aria-label={placeholder}
+      className="form-input" style={{ flex: '1 1 300px', minWidth: 0, resize: 'vertical', fontSize: 13, minHeight: 36 }} />
+  );
+  const actions = (...kids) => (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>{kids}</div>
   );
   const approveBtn = (call) => (
     <button className="primary-btn" disabled={busy || !!r.agreeBlocker} title={r.agreeBlocker || 'These hours are accurate - the employee then approves and signs'}
       onClick={() => run(call, `Approved - ${name(r.employeeEmail) || 'the employee'} is asked to sign.`)}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><CheckCircle size={13} /> Review &amp; Approve</button>
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}><CheckCircle size={13} /> Review &amp; Approve</button>
   );
 
   let body = null;
@@ -207,21 +224,25 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     if (self) {
       body = (
         <>
-          <p style={{ fontSize: 13, margin: '0 0 8px' }}>Your manager reviews and approves your hours after the period ends. Then you approve and sign them. Want them to look now? Send it to them.</p>
-          {noteBox('Anything your manager should know? (optional)')}
+          <p style={{ fontSize: 13, margin: '0 0 8px' }}>Your manager reviews your hours after the period ends, then you sign them. Want them to look sooner? Send it now.</p>
+          {actions(
+            <span key="n" style={{ display: 'contents' }}>{noteBox('Anything your manager should know? (optional)')}</span>,
+            <button key="b" className="primary-btn" disabled={busy || !!r.submitBlocker} title={r.submitBlocker || undefined}
+              onClick={() => run(() => api.timesheetReviewSubmit(anchor, note.trim()), 'Sent to your manager.')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}><Send size={13} /> Send to Manager</button>,
+          )}
           {submitNote}
-          <button className="primary-btn" disabled={busy || !!r.submitBlocker} title={r.submitBlocker || undefined}
-            onClick={() => run(() => api.timesheetReviewSubmit(anchor, note.trim()), 'Sent to your manager.')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Send size={13} /> Send to Manager</button>
         </>
       );
     } else if (r.canApprove) {
       body = (
         <>
           <p style={{ fontSize: 13, margin: '0 0 8px' }}>Review the hours above - you can correct them now. When they are accurate, approve them and the employee is asked to sign. They don't need to submit first.</p>
-          {noteBox('Anything the employee should know? (optional)')}
+          {actions(
+            <span key="n" style={{ display: 'contents' }}>{noteBox('Anything the employee should know? (optional)')}</span>,
+            <span key="b" style={{ display: 'contents' }}>{approveBtn(() => api.timesheetReviewApprovePeriod(r.employeeEmail, anchor, note.trim()))}</span>,
+          )}
           {blockerNote}
-          {approveBtn(() => api.timesheetReviewApprovePeriod(r.employeeEmail, anchor, note.trim()))}
         </>
       );
     } else {
@@ -234,13 +255,13 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
           Review the hours above - you can correct them now. Approve them when they are accurate, or send it back with what the employee needs to change.
           {lastNote && <span style={{ color: 'var(--muted)' }}> Latest note: "{lastNote}"</span>}
         </p>
-        {noteBox('What needs changing? (required to send back)')}
+        {actions(
+          <span key="n" style={{ display: 'contents' }}>{noteBox('What needs changing? (required to send back)')}</span>,
+          <button key="s" className="secondary-btn" disabled={busy || !note.trim()} onClick={() => run(() => api.timesheetReviewSendBack(r.id, note.trim()), 'Sent back to the employee.')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}><Undo2 size={13} /> Send Back</button>,
+          <span key="a" style={{ display: 'contents' }}>{approveBtn(() => api.timesheetReviewApprove(r.id, note.trim()))}</span>,
+        )}
         {blockerNote}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="secondary-btn" disabled={busy || !note.trim()} onClick={() => run(() => api.timesheetReviewSendBack(r.id, note.trim()), 'Sent back to the employee.')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Undo2 size={13} /> Send Back</button>
-          {approveBtn(() => api.timesheetReviewApprove(r.id, note.trim()))}
-        </div>
       </>
     ) : <p style={{ fontSize: 13, margin: 0 }}><Lock size={12} style={{ verticalAlign: '-1px' }} /> With {mgr} for review. {self ? 'You can still ask for punch fixes above - they go to them.' : ''}</p>;
   } else if (r.status === 'with_employee') {
@@ -249,11 +270,13 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
         <p style={{ fontSize: 13, margin: '0 0 8px' }}>
           {mgr} sent it back{lastNote ? <>: <strong>"{lastNote}"</strong></> : '.'} Make the changes above, then resubmit.
         </p>
-        {noteBox('What did you change? (optional)')}
+        {actions(
+          <span key="n" style={{ display: 'contents' }}>{noteBox('What did you change? (optional)')}</span>,
+          <button key="b" className="primary-btn" disabled={busy || !!r.submitBlocker} title={r.submitBlocker || undefined}
+            onClick={() => run(() => api.timesheetReviewSubmit(anchor, note.trim()), 'Resubmitted to your manager.')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}><Send size={13} /> Resubmit</button>,
+        )}
         {submitNote}
-        <button className="primary-btn" disabled={busy || !!r.submitBlocker} title={r.submitBlocker || undefined}
-          onClick={() => run(() => api.timesheetReviewSubmit(anchor, note.trim()), 'Resubmitted to your manager.')}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Send size={13} /> Resubmit</button>
       </>
     ) : <p style={{ fontSize: 13, margin: 0 }}><Lock size={12} style={{ verticalAlign: '-1px' }} /> Back with {name(r.employeeEmail) || 'the employee'} for changes.</p>;
   } else if (r.status === 'correcting') {
@@ -263,7 +286,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     body = r.isHr && !self ? (
       <>
         <p style={{ fontSize: 13, margin: '0 0 8px' }}>
-          Unlocked by {name(corr.by) || 'HR'}{corr.at ? ` on ${formatDate(corr.at)}` : ''}{why}. Only HR can change these hours now. When they are right, send the time sheet to {emp} to sign. If nothing needed changing, lock it again - no new signature is needed.
+          Unlocked by {corr.by ? <AvatarName email={corr.by} name={name(corr.by)} /> : 'HR'}{corr.at ? ` on ${formatDate(corr.at)}` : ''}{why}. Only HR can change these hours now. When they are right, send the time sheet to {emp} to sign. If nothing needed changing, lock it again - no new signature is needed.
         </p>
         {r.correctionBlocker && <p role="note" style={{ fontSize: 12.5, margin: '0 0 8px', color: '#b45309' }}>{r.correctionBlocker}</p>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -281,28 +304,28 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     ) : (
       <p style={{ fontSize: 13, margin: 0 }}>
         {self
-          ? `HR (${name(corr.by) || 'HR'}) unlocked your time sheet to correct it${why}. You will be asked to review and sign it again when they are done.`
-          : `${name(corr.by) || 'HR'} unlocked this time sheet${corr.at ? ` on ${formatDate(corr.at)}` : ''} to correct it${why}. Only HR can change it; ${emp} signs it again.`}
+          ? <>HR ({corr.by ? <AvatarName email={corr.by} name={name(corr.by)} /> : 'HR'}) unlocked your time sheet to correct it{why}. You will be asked to review and sign it again when they are done.</>
+          : <>{corr.by ? <AvatarName email={corr.by} name={name(corr.by)} /> : 'HR'} unlocked this time sheet{corr.at ? ` on ${formatDate(corr.at)}` : ''} to correct it{why}. Only HR can change it; {emp} signs it again.</>}
       </p>
     );
   } else if (r.status === 'approved') {
     body = r.canEmployeeApprove ? (
       <>
         <p style={{ fontSize: 13, margin: '0 0 8px' }}>
-          HR changed your hours after {name(r.agreedBy) || mgr} approved them{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. Check them above, then sign the updated time sheet. If something is wrong, ask for a punch fix or tell {mgr} what - it goes back to them.
+          HR changed your hours after {r.agreedBy ? <AvatarName email={r.agreedBy} name={name(r.agreedBy)} /> : mgr} approved them{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. Check them above, then sign the updated time sheet. If something is wrong, ask for a punch fix or tell {mgr} what - it goes back to them.
         </p>
-        {noteBox('What is wrong? (required to send it back)')}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="secondary-btn" disabled={busy || !note.trim()}
+        {actions(
+          <span key="n" style={{ display: 'contents' }}>{noteBox('What is wrong? (required to send it back)')}</span>,
+          <button key="s" className="secondary-btn" disabled={busy || !note.trim()}
             onClick={() => run(() => api.timesheetReviewSubmit(anchor, note.trim()), 'Sent back to your manager.')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Undo2 size={13} /> Not Right - Send Back</button>
-          <button className="primary-btn" disabled={busy} onClick={approveAndSign}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><FileSignature size={13} /> Sign Updated Time Sheet</button>
-        </div>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}><Undo2 size={13} /> Not Right - Send Back</button>,
+          <button key="a" className="primary-btn" disabled={busy} onClick={approveAndSign}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}><FileSignature size={13} /> Sign Updated Time Sheet</button>,
+        )}
       </>
     ) : (
       <p style={{ fontSize: 13, margin: 0 }}>
-        Approved by {name(r.agreedBy) || mgr}{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. HR changed the time sheet since, so it is waiting for {name(r.employeeEmail) || 'the employee'} to sign the updated time sheet.
+        Approved by {r.agreedBy ? <AvatarName email={r.agreedBy} name={name(r.agreedBy)} /> : mgr}{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. HR changed the time sheet since, so it is waiting for {name(r.employeeEmail) || 'the employee'} to sign the updated time sheet.
       </p>
     );
   }
@@ -351,17 +374,23 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
 
   const sentBack = self && r.status === 'with_employee' && r.canSubmit;   // waiting on me - the Time Sheet tab's count
   return (
-    <div className={sentBack ? 'nx-needs-you' : undefined} style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
-      <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 8 }}>Time Sheet Review &amp; Signature</div>
-      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>
-        The employee and their approver agree the hours, then the employee signs in Nexus Sign (electronically or on paper). That signature finalizes the period for payroll. Period: {periodLabel}.
-      </p>
+    <section data-review-panel className={sentBack ? 'nx-needs-you nx-needs-you--card' : undefined} aria-label="Time Sheet Review and Signature"
+      style={{ margin: self ? '0 0 12px' : '18px 0 0', padding: '12px 14px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)' }}>
+      {/* The title and the steps share one line; how it works is behind the info mark. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px 16px', flexWrap: 'wrap', marginBottom: 8 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          Time Sheet Review &amp; Signature
+          <span role="img" aria-label={HOW} title={`${HOW} Period: ${periodLabel}.`} style={{ display: 'inline-flex', color: 'var(--muted)', cursor: 'help' }}>
+            <Info size={14} />
+          </span>
+        </div>
+        <div style={{ marginLeft: 'auto' }}><Stepper review={r} /></div>
+      </div>
       {r.isHr && (
-        <p data-hr-override style={{ fontSize: 12, margin: '0 0 10px', color: 'var(--ink)', background: 'var(--mist)', borderRadius: 8, padding: '6px 10px' }}>
+        <p data-hr-override style={{ fontSize: 12, margin: '0 0 8px', color: 'var(--muted)' }}>
           As HR you can change these hours at any point without approval. If the manager already approved them, the employee is asked to sign the changed card.
         </p>
       )}
-      <Stepper review={r} />
       {body}
       {signingView && (
         <>
@@ -374,25 +403,25 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
               </p>
             : r.inCorrection
             ? <p style={{ fontSize: 13, margin: '0 0 10px' }}>HR corrected this time sheet after it was signed. {self ? 'Sign it, or decline it with what is wrong' : `${emp} signs it, or declines it with what is wrong`} - a decline goes back to HR.{corr.acceptBy ? ` If it is not signed or declined by ${formatDate(corr.acceptBy)}, it is accepted as sent.` : ''}</p>
-            : <p style={{ fontSize: 13, margin: '0 0 10px' }}>{r.agreedBy ? `Agreed by ${name(r.agreedBy)}${r.agreedAt ? ` on ${formatDate(r.agreedAt)}` : ''}. ` : ''}To change the hours, ask for a punch fix or decline in Nexus Sign with a reason - either way it goes back to the manager.</p>}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
-            <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)' }}>Approval</div>
+            : <p style={{ fontSize: 13, margin: '0 0 10px' }}>{r.agreedBy ? <>Agreed by <AvatarName email={r.agreedBy} name={name(r.agreedBy)} />{r.agreedAt ? ` on ${formatDate(r.agreedAt)}` : ''}. </> : ''}To change the hours, ask for a punch fix or decline in Nexus Sign with a reason - either way it goes back to the manager.</p>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px 32px', flexWrap: 'wrap', paddingTop: 10, borderTop: '1px solid var(--line)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+              <div style={FACT_LABEL}>Approval</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 13.5, fontWeight: 700, color: 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <CheckCircle size={14} /> {name(r.agreedBy) || 'Approver'}
+                  <CheckCircle size={14} /> {r.agreedBy && <Avatar email={r.agreedBy} name={name(r.agreedBy)} size={20} />} {name(r.agreedBy) || 'Approver'}
                 </span>
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>agreed {formatDate(r.agreedAt)}</span>
               </div>
             </div>
             <SigCard label="Employee" party={parties.employee} waiting={r.turn === 'employee'} />
+            {r.myPartyId && (
+              <button className="primary-btn" onClick={() => startSign(r.myPartyId)}
+                style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+                <FileSignature size={13} /> {r.turn === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
+              </button>
+            )}
           </div>
-          {r.myPartyId && (
-            <button className="primary-btn" onClick={() => startSign(r.myPartyId)}
-              style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-              <FileSignature size={13} /> {r.turn === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
-            </button>
-          )}
         </>
       )}
       {unsignedBox}
@@ -404,6 +433,6 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
             onDone={() => { setSigning(null); onChanged?.(); }} toastOk={toastOk || (() => {})} toastErr={toastErr || (() => {})} />
         </div>, document.body)}
       {below}
-    </div>
+    </section>
   );
 }

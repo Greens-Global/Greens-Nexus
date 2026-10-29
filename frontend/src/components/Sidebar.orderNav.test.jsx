@@ -18,4 +18,14 @@ describe('orderNav', () => {
     expect(groups[0]).toEqual(first);
     expect(orderNav(NAV).length).toBe(NAV.length);
   });
+
+  it('reads the Work group as Tasks, Tickets, Files, Documents, Credential Vault, Workflows (Neil, 10/28/2026)', () => {
+    const groups = [[]];
+    for (const item of orderNav(NAV)) {
+      if (item.divider) groups.push([]); else groups[groups.length - 1].push(item.label);
+    }
+    expect(groups[1]).toEqual(['Tasks', 'Tickets', 'Files', 'Documents', 'Credential Vault', 'Workflows']);
+    expect(groups[2]).not.toContain('Workflows');
+    expect(groups[2]).not.toContain('Credential Vault');
+  });
 });

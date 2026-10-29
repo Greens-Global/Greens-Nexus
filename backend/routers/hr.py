@@ -3268,7 +3268,9 @@ def _ensure_departments(db: Session, entity: HrEntity) -> None:
 
 def _serialize_dept(d: HrDepartment) -> dict:
     return {"id": d.id, "name": d.name, "sortOrder": d.sort_order,
-            "leadEmail": d.lead_email or "", "backupEmail": d.backup_email or ""}
+            "leadEmail": d.lead_email or "", "backupEmail": d.backup_email or "",
+            # Weather Calls (Neil, 10/29/2026, weather_scope.py).
+            "weather": bool(int(d.weather or 0))}
 
 
 @router.get("/entities/{entity_id}/departments")
@@ -3321,6 +3323,9 @@ class DepartmentUpdate(BaseModel):
     name:         Optional[str] = None
     lead_email:   Optional[str] = None
     backup_email: Optional[str] = None
+    # Rain advisories and weather calls apply to this department's people
+    # (Neil, 10/29/2026, weather_scope.py). None = leave as is.
+    weather:      Optional[bool] = None
 
 
 @router.patch("/entities/{entity_id}/departments/{dept_id}")
@@ -3369,6 +3374,8 @@ def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
         setattr(row, field, val)
     if row.backup_email and row.backup_email == row.lead_email:
         raise HTTPException(400, "The backup has to be someone other than the department head")
+    if body.weather is not None:
+        row.weather = 1 if body.weather else 0
     if (row.lead_email or "", row.backup_email or "", row.name or "") != people_before:
         # Checklist steps owned by this department follow the new head / backup,
         # or the new name: HR, IT and Accounting steps go by it (Neil, Oct 22: one

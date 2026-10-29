@@ -26,9 +26,9 @@ export default function ShiftRequestDialog({ reqs, myShifts = [], shift = null, 
   const teamShifts = reqs?.swapShifts || {};
   const openShifts = cfg.openShifts ? (reqs?.openShifts || []).filter((s) => s.date >= todayIso()) : [];
   const kinds = [
-    ['swap', 'Swap', ArrowLeftRight, cfg.swaps !== false, 'Trade one of your shifts for a teammate’s'],
-    ['offer', 'Offer', Send, cfg.offers !== false, 'Give one of your shifts to a teammate'],
-    ['open', 'Open Shift', Hand, cfg.openShifts !== false, 'Ask for a shift nobody has yet'],
+    ['swap', 'Swap', ArrowLeftRight, cfg.swaps === true, 'Trade one of your shifts for a teammate’s'],
+    ['offer', 'Offer', Send, cfg.offers === true, 'Give one of your shifts to a teammate'],
+    ['open', 'Open Shift', Hand, cfg.openShifts === true, 'Ask for a shift nobody has yet'],
     ...(cfg.releaseShifts === true ? [['release', 'Release', Undo2, true, 'Put one of your shifts in the open pool for a teammate to pick up']] : []),
   ];
   const instantRelease = cfg.releaseNeedsApproval === false;

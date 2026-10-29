@@ -6125,10 +6125,13 @@ body:has(.docs-root) { overflow-x: clip; }
 .hw-pad { padding: 14px 14px 18px; }
 .hw-hero {
   padding: 18px 20px 58px;
-  background: linear-gradient(165deg, #0b1224 0%, #172554 55%, var(--wk-brand, #2b45e1) 130%);
+  /* Nexus green (Neil, 10/28/2026), the New in Nexus bar's hue: deep at the
+     top, lifting toward the cards; white text stays 5:1 and up. */
+  background: linear-gradient(165deg, hsl(152, 58%, 11%) 0%, hsl(144, 60%, 20%) 55%, hsl(142, 58%, 32%) 130%);
   color: #fff;
 }
 .hw-mark { width: 32px; height: 32px; font-size: 16px; box-shadow: 0 0 0 2px rgba(255,255,255,.18); }
+.hw-hero .hw-mark { background: #fff; color: hsl(142, 62%, 25%); }
 .hw-mark-sm { width: 26px; height: 26px; font-size: 13px; border-radius: 7px; }
 .hw-hello { margin-top: 30px; font-size: 22px; font-weight: 600; opacity: .72; letter-spacing: -0.01em; }
 .hw-title { margin: 2px 0 0; font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; color: #fff; }
@@ -6294,7 +6297,7 @@ body:has(.docs-root) { overflow-x: clip; }
 .pr-dcard-total { display: inline-flex; align-items: baseline; gap: 10px; font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .pr-dcard-seg { padding: 8px 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
 /* The break between two punch pairs of a shift (Oct 20): a thin dashed line. */
-.pr-dcard-break { padding: 2px 12px; border-top: 1px dashed var(--line); font-size: 11.5px; font-style: italic; font-weight: 600; color: var(--muted); }
+.pr-dcard-break { padding: 3px 12px; border-top: 1px dashed var(--line); font-size: 11.5px; font-weight: 600; color: var(--ink); }
 .pr-dcard-times { display: flex; align-items: center; gap: 10px; min-height: 32px; font-size: 14px; font-variant-numeric: tabular-nums; }
 .pr-dcard-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); min-width: 0; }
 .pr-dcard-icon { background: none; border: none; color: var(--muted); display: inline-flex; align-items: center; justify-content: center;
@@ -6640,37 +6643,40 @@ body:has(.docs-root) { overflow-x: clip; }
 .bi-root { display: flex; flex-direction: column; gap: 22px; animation: fadeIn var(--transition-normal) ease-in-out; }
 .bi-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .bi-title { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.02em; color: var(--ink); }
-.bi-sub { margin: 4px 0 0; font-size: 13px; color: var(--muted); max-width: 640px; line-height: 1.45; }
+.bi-sub { margin: 4px 0 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
 .bi-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .bi-section { display: flex; flex-direction: column; gap: 12px; }
 .bi-section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
 .bi-section-title { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--ink); }
 .bi-section-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
 
-/* Needs Attention tiles - the .dk-stat anatomy, one per signal */
-.bi-attention { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 12px; }
+/* Needs Attention tiles - the .dk-stat anatomy, one per signal. Every tile
+   is the same size (Neil, 10/28/2026): equal columns, equal rows, a label
+   that always holds two lines. No colored edge bar - the module's own icon
+   heads the tile, the count's color and the dotted level word carry tone. */
+.bi-attention { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); grid-auto-rows: 1fr; gap: 12px; }
 .bi-alert {
-  background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px 12px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
   text-align: left; cursor: pointer; font-family: inherit; color: var(--ink); min-width: 0;
   display: flex; flex-direction: column; align-items: flex-start; position: relative; overflow: hidden;
   box-shadow: var(--shadow-md); transition: transform .15s ease, box-shadow .15s ease;
 }
-.bi-alert::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
-.bi-alert--critical::before { background: hsl(var(--color-red)); }
-.bi-alert--warning::before { background: hsl(var(--color-orange)); }
 .bi-alert:hover { transform: translateY(-1px); box-shadow: 0 8px 28px rgba(0,0,0,.09), 0 2px 8px rgba(0,0,0,.05); }
 .bi-alert:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
-.bi-alert-top { display: flex; align-items: center; justify-content: space-between; width: 100%; }
-.bi-alert-tone { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
-.bi-alert--critical .bi-alert-tone { color: hsl(var(--color-red)); }
-.bi-alert--warning .bi-alert-tone { color: hsl(var(--color-orange)); }
-.bi-alert-arrow { opacity: 0; transform: translateX(-3px); transition: opacity .15s ease, transform .15s ease; color: var(--muted); }
-.bi-alert:hover .bi-alert-arrow { opacity: 1; transform: none; }
+.bi-alert-top { display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; color: var(--muted); }
+/* The level on the left, the way to act on the right - always shown, not on hover. */
+.bi-alert-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; margin-top: auto; padding-top: 10px; }
+.bi-alert-tone { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.bi-alert-act { display: inline-flex; align-items: center; gap: 1px; font-size: 12px; font-weight: 700; color: var(--wk-brand); transition: gap .15s ease; }
+.bi-alert:hover .bi-alert-act { gap: 4px; }
 .bi-alert-num { font-size: 26px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; margin-top: 8px; font-variant-numeric: tabular-nums; }
 .bi-alert--critical .bi-alert-num { color: hsl(var(--color-red)); }
 .bi-alert--warning .bi-alert-num { color: hsl(var(--color-orange)); }
-.bi-alert-label { font-size: 13px; font-weight: 600; color: var(--ink); margin-top: 3px; line-height: 1.3; }
-.bi-alert-mod { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.bi-alert-label {
+  font-size: 13px; font-weight: 600; color: var(--ink); margin-top: 3px; line-height: 1.3; min-height: 2.6em;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.bi-alert-mod { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bi-calm {
   display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 12px; font-size: 13.5px; color: var(--ink);
   background: hsla(var(--color-green), .08); border: 1px solid hsla(var(--color-green), .25);
@@ -6679,11 +6685,24 @@ body:has(.docs-root) { overflow-x: clip; }
 .bi-calm--error { background: hsla(var(--color-red), .07); border-color: hsla(var(--color-red), .25); }
 .bi-calm--error > svg { color: hsl(var(--color-red)); }
 
-/* Module cards - sized by what they hold, never by a grid cell */
-.bi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; align-items: start; }
-.bi-card { padding: 18px 18px 16px; display: flex; flex-direction: column; }
-.bi-card .dk-chip { width: 32px; height: 32px; }
-.bi-card .dk-chip svg { width: 16px; height: 16px; }
+/* Module cards - every card the same size (Neil, 10/28/2026: "make all
+   the card sizes the same"): equal columns and one fixed row height, which
+   holds the largest card a module sends (five counts and a chart). A card
+   with more than that - a long device table - scrolls inside its own body
+   rather than stretching its row. */
+.bi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); grid-auto-rows: 384px; gap: 14px; }
+.bi-card { padding: 18px 18px 16px; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; box-sizing: border-box; }
+/* Never sideways (Neil, 10/28/2026: a scrollbar under every card): the rows
+   reach 8px into the card's padding for their hover, so the body makes the
+   same 8px of room on each side and clips anything wider. */
+.bi-card-body { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; margin: 0 -8px; padding: 0 8px; }
+.bi-card-head { margin-bottom: 12px; align-items: flex-start; }
+.bi-card-id { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+/* The module's left-menu icon on its own - no tile (Neil, 10/28/2026: the
+   rectangle "makes it look worse") - in ink, the height of the title's line
+   so the two sit as one; the subline hangs under the title, not the icon. */
+.bi-mod-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--ink); height: 22px; }
+.bi-alert .bi-mod-icon { height: 18px; color: var(--muted); }
 .bi-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 .bi-icon-btn {
   background: none; border: none; cursor: pointer; color: var(--muted); display: inline-flex; align-items: center; justify-content: center;
@@ -6693,7 +6712,7 @@ body:has(.docs-root) { overflow-x: clip; }
 [data-theme="dark"] .bi-icon-btn:hover { background: rgba(255,255,255,0.08); }
 .bi-stats { display: flex; flex-direction: column; }
 .bi-stat {
-  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 8px; margin: 0 -8px; box-sizing: content-box;
+  display: flex; align-items: center; gap: 10px; width: calc(100% + 16px); padding: 8px 8px; margin: 0 -8px; box-sizing: border-box;
   border: none; border-radius: 8px; background: none; font-family: inherit; font-size: 13px; color: var(--ink); text-align: left;
 }
 .bi-stat + .bi-stat { border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; }
@@ -6750,13 +6769,20 @@ body:has(.docs-root) { overflow-x: clip; }
 
 /* Drill-down */
 .bi-scrim { position: fixed; inset: 0; background: rgba(15,23,42,0.45); z-index: 1400; display: flex; align-items: center; justify-content: center; padding: 16px; }
-.bi-modal { background: var(--card); border-radius: 16px; box-shadow: 0 24px 64px rgba(0,0,0,.25); width: min(640px, 100%); max-height: min(80vh, 720px); display: flex; flex-direction: column; overflow: hidden; }
+/* The popup rule: 60% of the screen, the list taking the height (nx-fill). */
+.bi-modal { background: var(--card); border-radius: 16px; box-shadow: 0 24px 64px rgba(0,0,0,.25); width: max(420px, 60vw); max-width: 100%; min-height: 60vh; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; }
 .bi-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
 .bi-modal-body { padding: 16px 18px 18px; overflow: auto; flex: 1; min-height: 0; }
+.bi-modal-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.bi-modal-foot-note { flex: 1; min-width: 160px; font-size: 12.5px; color: var(--muted); }
 
 @media (max-width: 640px) {
   .bi-card { padding: 14px; }
   .bi-grid { grid-template-columns: 1fr; }
+  /* Two tiles a row, still all one size - eight full-width tiles stacked
+     pushed the module cards a whole screen down. */
+  .bi-attention { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .bi-alert { padding: 11px 12px; }
   .bi-search { min-width: 0; flex: 1; height: 40px; }
   .bi-filters { width: 100%; }
   /* Finger-size targets, and 16px so iOS doesn't zoom on focus (Oct 14). */
@@ -7645,4 +7671,35 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .wf-catalog-grid > nav { flex-direction: row !important; flex-wrap: wrap; gap: 4px; }
   .wf-webhook-row { grid-template-columns: minmax(0, 1fr) auto !important; }
   .wf-webhook-row > input { grid-column: 1 / -1; min-width: 0; }
+}
+
+/* What's New on a phone: an update opens as a pushed screen (Oct 28 2026). */
+@keyframes nx-push-in { from { opacity: 0; transform: translateX(28px); } }
+.nx-wn-push { animation: nx-push-in var(--dur-md) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .nx-wn-push { animation: none; } }
+
+/* Help Center on a phone (Neil, 10/28/2026: "this ticket section sucks on
+   mobile"). views/Support.jsx renders the ticket list as cards when the card
+   is phone-narrow (.hc-ticket-cards); the option tiles shrink to a 2 x 2 grid
+   of icon + title so My Tickets is on the first screen or two. */
+.hc-ticket-cards { display: flex; flex-direction: column; gap: 10px; }
+.hc-ticket-card {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px; border-radius: 12px;
+  background: var(--card); border: 1px solid var(--line);
+  cursor: pointer; text-align: left; min-width: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.hc-ticket-card:active { background: var(--nx-hover, var(--mist)); }
+.hc-ticket-card-comment { min-width: 0; padding: 8px 10px; border-radius: 9px; background: var(--nx-surface2, var(--mist)); }
+@media (max-width: 600px) {
+  .hc-page--phone .support-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .hc-page--phone .support-card { padding: 12px; border-radius: 14px; min-height: 92px; display: flex; flex-direction: column; justify-content: flex-start; }
+  .hc-page--phone .support-card:hover { transform: none; }
+  .hc-page--phone .support-icon { width: 34px; height: 34px; border-radius: 9px; margin-bottom: 8px; }
+  .hc-page--phone .support-card-title { font-size: 13.5px; line-height: 1.3; margin-bottom: 0; }
+  .hc-page--phone .support-card-desc,
+  .hc-page--phone .support-card-arrow { display: none; }
+  .hc-page--phone .hc-tickets-phone { padding: 14px; }
+  .hc-page--phone .view-header { margin-bottom: 0; }
 }

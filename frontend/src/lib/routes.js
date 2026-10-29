@@ -24,3 +24,13 @@ export function purchaseRedirect(view, sub) {
   if (view === 'inventory' && sub === 'purchasereqs') return { view: 'myhr', sub: 'purchase' };
   return null;
 }
+
+// The address the app writes for its state. On the FIRST write - the app
+// rewriting the address it was opened at (/support -> /help-center, a default
+// tab added) - the query and hash ride along: an email's /support?ticket=<id>
+// or a doc link's ?doc=&section= is read by the screen after it loads, and
+// dropping it there left the person on the list with nothing open (Oct 28
+// 2026). Every later move is a real navigation and starts clean.
+export function addressFor(path, { first = false, search = '', hash = '' } = {}) {
+  return first ? `${path}${search || ''}${hash || ''}` : path;
+}

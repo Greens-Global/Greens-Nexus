@@ -379,7 +379,17 @@ def _with_latest_comment(db: Session, t: models.TaskTicket, user: dict, d: dict)
     which replaces the row in the list (it would otherwise blank the column)."""
     internal_ok = _sees_internal(db, t, user, _has_desk_grant(user, db))
     d["latestComment"] = _latest_comments(db, internal_ok, ticket_id=t.id).get(t.id)
+    if not internal_ok:
+        _public_last_comment(d)
     return _for_viewer(db, t, user, d)
+
+
+def _public_last_comment(d: dict) -> None:
+    """An internal note stamps last_comment_at (the desk's "nobody has said
+    anything" clock), so for someone who may not read internal notes the
+    field is the time of the newest reply they CAN see - the dict's own
+    latestComment, already the public one for them - never a note's time."""
+    d["lastCommentAt"] = (d.get("latestComment") or {}).get("createdAt") or ""
 
 
 def _for_viewer(db: Session, t: models.TaskTicket, user: dict, d: dict) -> dict:
@@ -1008,7 +1018,10 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     out = []
     for t in rows:
         d = ticket_to_dict(t)
-        d["latestComment"] = (any_latest if _sees_internal(db, t, user, desk) else public_latest).get(t.id)
+        sees = _sees_internal(db, t, user, desk)
+        d["latestComment"] = (any_latest if sees else public_latest).get(t.id)
+        if not sees:
+            _public_last_comment(d)
         out.append(_for_viewer(db, t, user, d))
     return out
 
@@ -2239,7 +2252,7 @@ def restore_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: S
                  detail="restored this ticket")
     db.commit()
     db.refresh(t)
-    return ticket_to_dict(t)
+    return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
 # ── Ticket conversation / attachments / activity (reuse the task tables, keyed
@@ -3084,7 +3097,7 @@ def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks
     db.commit()
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "approval_required", user["email"])
-    return ticket_to_dict(t)
+    return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
 class ApprovalBody(BaseModel):
@@ -3168,7 +3181,7 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
         _send_auto_assignment(background_tasks, t, actor, auto_dms)
     elif decision == "approve":
         background_tasks.add_task(notify_ticket_event, t.id, "created", actor, only_roles=("it_admin",))
-    return ticket_to_dict(t)
+    return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
 # ── Ticket ↔ ticket links (adds the inverse link on the other ticket too) ─────
@@ -3199,7 +3212,7 @@ def add_ticket_link(ticket_id: str, body: TicketLinkBody, user: dict = Depends(g
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=f"linked {other.code} ({typ.replace('_', ' ')})")
     db.commit()
     db.refresh(t)
-    return ticket_to_dict(t)
+    return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
 @router.delete("/task-tickets/{ticket_id}/links/{target_id}", dependencies=[Depends(require_ticket_desk)])
@@ -3228,7 +3241,7 @@ def remove_ticket_link(ticket_id: str, target_id: str, user: dict = Depends(get_
                      detail=f"unlinked {other.code if other else target_id}")
     db.commit()
     db.refresh(t)
-    return ticket_to_dict(t)
+    return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
 ESCALATE_COOLDOWN_MIN = 30
@@ -3309,7 +3322,7 @@ def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
     db.commit()
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "escalated", user["email"])
-    return ticket_to_dict(t)
+    return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
 @router.get("/task-tickets/my-access")
