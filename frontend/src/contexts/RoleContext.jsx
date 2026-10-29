@@ -44,7 +44,7 @@ export const MODULES = [
   { id: 'admin-console',       label: 'Settings' },
   { id: 'support',             label: 'Help Center' },
   { id: 'testing',             label: 'Testing' },
-  { id: 'credvault',           label: 'Credential Vault' },
+  { id: 'credvault',           label: 'Credentials' },
   { id: 'egnyte',              label: 'Files' },
   // Workforce Analytics > Scorecard + the weekly manager email (Neil, 10/10):
   // viewer = their own reporting line, full = the whole company.

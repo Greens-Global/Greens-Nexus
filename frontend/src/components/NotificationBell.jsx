@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight, Sparkles, Flag, Award, PenLine, Users, BookOpen, Unlock } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight, Sparkles, ArrowRight, Flag, Award, PenLine, Users, BookOpen, Unlock } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
 import { useRequisitions }   from '../contexts/RequisitionContext';
@@ -668,10 +668,7 @@ export default function NotificationBell({ onNavigate }) {
         {/* Header */}
         {/* flexWrap + flex:1 on the title block: on narrow drawers the action
             buttons drop to their own line instead of overlapping the title */}
-        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', padding: '20px 24px', borderBottom: '1px solid var(--line)', gap: 14, flexShrink: 0 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 11, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Bell size={19} style={{ color: 'hsl(var(--color-blue))' }} />
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', padding: '18px 16px 16px 22px', borderBottom: '1px solid var(--line)', gap: 14, flexShrink: 0 }}>
           <div style={{ minWidth: 0, flex: '1 1 120px' }}>
             <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--ink)' }}>Notifications</div>
             <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 1 }}>
@@ -681,7 +678,7 @@ export default function NotificationBell({ onNavigate }) {
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
             {myUnread > 0 && (
               <button onClick={markAllRead}
-                style={{ fontSize: 12.5, color: 'hsl(var(--color-blue))', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600, whiteSpace: 'nowrap' }}
+                style={{ fontSize: 12.5, color: 'var(--wk-brand)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600, whiteSpace: 'nowrap' }}
                 onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
                 onMouseLeave={e => e.currentTarget.style.background='none'}>
                 Mark All Read
@@ -723,9 +720,7 @@ export default function NotificationBell({ onNavigate }) {
           {/* Needs Action */}
           {actionable.length > 0 && (
             <>
-              <div style={{ padding: '16px 24px 8px', fontSize: 11.5, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase' }}>
-                Needs Action - {actionable.length}
-              </div>
+              <div className="nx-ntf-sec">Needs Action <span className="nx-ntf-sec-n">{actionable.length}</span></div>
               {actionable.slice(0, 300).map(n => {
                 const meta = TYPE_META[n.type];
                 const isRejecting = rejectingId === n.id;
@@ -744,7 +739,8 @@ export default function NotificationBell({ onNavigate }) {
                     transform: resolution?.collapsing ? 'translateX(28px) scale(0.97)' : 'translateX(0) scale(1)',
                   }}>
                   <div
-                    style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', background: resolution ? `hsla(${resolvedColor},0.07)` : (n.read ? 'transparent' : 'hsla(var(--color-blue),0.04)'), transition: 'background 0.3s ease' }}
+                    className={`nx-ntf-act${n.read ? '' : ' is-unread'}`}
+                    style={{ background: resolution ? `hsla(${resolvedColor},0.07)` : undefined }}
                     onClick={() => !resolution && markRead(n.id)}>
                     {resolution ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0' }}>
@@ -758,33 +754,21 @@ export default function NotificationBell({ onNavigate }) {
                         </span>
                       </div>
                     ) : (
-                    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                      <div style={{ width: 40, height: 40, borderRadius: 11, background: `hsla(${meta.color},0.12)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <meta.icon size={19} color={`hsl(${meta.color})`} />
-                      </div>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                      <meta.icon size={16} color={`hsl(${meta.color})`} className="nx-ntf-icon" aria-hidden="true" />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                          <span style={{ fontWeight: 700, fontSize: 15.5, color: 'var(--ink)', lineHeight: 1.3 }}>{n.title}</span>
-                          <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{timeAgo(n.timestamp)}</span>
+                        <div className="nx-ntf-head">
+                          <span className="nx-ntf-title">{n.title}</span>
+                          <span className="nx-ntf-time">{timeAgo(n.timestamp)}</span>
                         </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, margin: '7px 0 4px' }}>
-                          {n.requestedBy && (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--muted)' }}>
-                              <User size={13} /> Requested by <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{n.requestedBy}</strong>
-                            </span>
-                          )}
-                          {days != null && (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 700, color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.10)', borderRadius: 999, padding: '3px 10px' }}>
-                              <Clock size={12} /> {days} day{days !== 1 ? 's' : ''}
-                            </span>
-                          )}
-                          {stage && (
-                            <span style={{ fontSize: 12, fontWeight: 700, color: `hsl(${stage.color})`, background: `hsla(${stage.color},0.12)`, borderRadius: 999, padding: '3px 10px', letterSpacing: '.02em' }}>
-                              {stage.label}
-                            </span>
-                          )}
-                        </div>
-                        <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 14px', lineHeight: 1.45, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
+                        {(n.requestedBy || days != null || stage) && (
+                          <div className="nx-ntf-facts">
+                            {stage && <span style={{ color: `hsl(${stage.color})`, fontWeight: 600 }}>{stage.label}</span>}
+                            {n.requestedBy && <span>Requested by <strong>{n.requestedBy}</strong></span>}
+                            {days != null && <span>{days} day{days !== 1 ? 's' : ''}</span>}
+                          </div>
+                        )}
+                        <p className="nx-ntf-body" style={{ marginBottom: 12 }}>{renderNotifBody(n.body)}</p>
 
                         {!isRejecting && !isApproving ? (
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -870,7 +854,6 @@ export default function NotificationBell({ onNavigate }) {
                           </div>
                         )}
                       </div>
-                      {!n.read && <div style={{ width: 9, height: 9, borderRadius: '50%', background: 'hsl(var(--color-blue))', flexShrink: 0, marginTop: 6 }} />}
                     </div>
                     )}
                   </div>
@@ -880,110 +863,110 @@ export default function NotificationBell({ onNavigate }) {
             </>
           )}
 
-          {/* Updates - lifecycle notifications for the same request are grouped into one evolving card */}
-          {updates.length > 0 && (
-            <>
-              <div style={{ padding: '16px 24px 8px', fontSize: 11.5, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase' }}>
-                Updates - {updates.length}
-              </div>
-              {groupByRequest(updates).slice(0, 300).map(({ key, primary: n, trail }) => {
-                const meta = TYPE_META[n.type] ?? TYPE_META['approved'];
-                // Manager alerts must not read like routine lifecycle updates -
-                // orange card + ALERT chip, subject bold, body in full ink
-                const isAlert = n.type === 'custom_alert';
-                return (
-                  <div key={key}
-                    style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 14, alignItems: 'flex-start', background: isAlert ? 'hsla(var(--color-orange),0.07)' : n.read ? 'transparent' : 'hsla(var(--color-blue),0.04)', boxShadow: isAlert ? 'inset 3px 0 0 hsl(var(--color-orange))' : 'none', cursor: 'pointer', opacity: n.read ? 0.7 : 1 }}
-                    onClick={() => handleUpdateClick(n)}>
-                    <div style={{ width: 38, height: 38, borderRadius: 10, background: `hsla(${meta.color},${isAlert ? 0.18 : 0.12})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <meta.icon size={17} color={`hsl(${meta.color})`} />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      {isAlert && (
-                        <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 800, letterSpacing: '.08em', color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.15)', borderRadius: 999, padding: '2px 8px', marginBottom: 4 }}>
-                          ⚠ ALERT
-                        </span>
-                      )}
-                      {n.priority === 1 && (
-                        <span title="Also on the yellow bar at the top of your screen until you click it off" style={{ display: 'inline-block', fontSize: 10, fontWeight: 800, letterSpacing: '.08em', color: '#7a5d00', background: '#FFF3C4', borderRadius: 999, padding: '2px 8px', marginBottom: 4, marginLeft: isAlert ? 6 : 0 }}>
-                          NEEDS ACTION
-                        </span>
-                      )}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                        <span style={{ fontWeight: 700, fontSize: isAlert ? 15 : 14.5, color: 'var(--ink)' }}>{n.title}</span>
-                        <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{timeAgo(n.timestamp)}</span>
-                      </div>
-                      {trail.length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, margin: '6px 0' }}>
-                          {trail.map(t => {
-                            const tMeta = STAGE_META[t.type];
-                            if (!tMeta) return null;
-                            return (
-                              <span key={t.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5 }}>
-                                <span style={{ fontWeight: 600, color: `hsl(${tMeta.color})`, background: `hsla(${tMeta.color},0.10)`, borderRadius: 999, padding: '2px 9px' }}>
-                                  {tMeta.label}
-                                </span>
-                                <span style={{ color: 'var(--muted)' }}>→</span>
-                              </span>
-                            );
-                          })}
-                          {STAGE_META[n.type] && (
-                            <span style={{ fontWeight: 700, fontSize: 11.5, color: `hsl(${STAGE_META[n.type].color})`, background: `hsla(${STAGE_META[n.type].color},0.14)`, borderRadius: 999, padding: '2px 9px' }}>
-                              {STAGE_META[n.type].label}
-                            </span>
-                          )}
+          {/* Updates - lifecycle notifications for the same request are grouped
+              into one evolving row, under Today and Earlier (Oct 28 2026: flat
+              rows - an unread dot, a bare icon, the kind as a small word, no
+              tinted cards or pill chips; Neil: "gimmicky and not professional"). */}
+          {updates.length > 0 && (() => {
+            const groups = groupByRequest(updates).slice(0, 300);
+            const today = new Date().toDateString();
+            const sections = [
+              ['Today', groups.filter(g => new Date(g.primary.timestamp).toDateString() === today)],
+              ['Earlier', groups.filter(g => new Date(g.primary.timestamp).toDateString() !== today)],
+            ].filter(([, rows]) => rows.length);
+            return sections.map(([label, rows]) => (
+              <section key={label} aria-label={label}>
+                <div className="nx-ntf-sec">{label} <span className="nx-ntf-sec-n">{rows.length}</span></div>
+                {rows.map(({ key, primary: n, trail }) => {
+                  const meta = TYPE_META[n.type] ?? TYPE_META['approved'];
+                  // Manager alerts must not read like routine lifecycle updates -
+                  // their kind word in orange and the body in full ink.
+                  const isAlert = n.type === 'custom_alert';
+                  const Icon = isAlert ? AlertTriangle : meta.icon;
+                  const kinds = [isAlert && ['Alert', 'hsl(var(--color-orange))'],
+                    n.priority === 1 && ['Needs Action', 'hsl(var(--color-gold))']].filter(Boolean);
+                  return (
+                    <div key={key} className={`nx-ntf-row ${n.read ? 'is-read' : 'is-unread'}`} onClick={() => handleUpdateClick(n)}>
+                      <Icon size={16} color={`hsl(${isAlert ? 'var(--color-orange)' : meta.color})`} className="nx-ntf-icon" aria-hidden="true" />
+                      <div style={{ minWidth: 0 }}>
+                        {kinds.length > 0 && (
+                          <div className="nx-ntf-kind"
+                            title={n.priority === 1 ? 'Also on the yellow bar at the top of your screen until you click it off' : undefined}>
+                            {kinds.map(([word, color], i) => (
+                              <span key={word} style={{ color }}>{i > 0 && <span className="nx-ntf-kind-sep" aria-hidden="true">·</span>}{word}</span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="nx-ntf-head">
+                          <span className="nx-ntf-title">{n.title}</span>
+                          <span className="nx-ntf-time">{timeAgo(n.timestamp)}</span>
                         </div>
-                      )}
-                      <p style={{ fontSize: 13.5, color: isAlert ? 'var(--ink)' : 'var(--muted)', margin: '4px 0 0', lineHeight: 1.45, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
-                      {n.action && n.action.kind === 'allocate' && (
-                        <button
-                          onClick={e => { e.stopPropagation(); handleInlineAllocate(n); }}
-                          disabled={allocatingId === n.id}
-                          style={{ marginTop: 8, background: 'none', border: 'none', padding: 0, fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-orange))', cursor: allocatingId === n.id ? 'default' : 'pointer', opacity: allocatingId === n.id ? 0.6 : 1, fontFamily: 'Inter, sans-serif', letterSpacing: '.01em' }}>
-                          {allocatingId === n.id ? 'Allocating…' : n.action.label}
-                        </button>
-                      )}
-                      {n.action && n.action.kind !== 'allocate' && onNavigate && (
-                        <button
-                          onClick={e => {
-                            e.stopPropagation(); markRead(n.id); setOpen(false);
-                            // This button bypasses handleUpdateClick entirely
-                            // (stopPropagation) - ticketAwareView is shared with it
-                            // so the Tickets->Support redirect can't drift between them.
-                            onNavigate(ticketAwareView(n.action.view), n.action.sub);
-                            // The card's own click (handleUpdateClick) opens the task
-                            // the card is about; this button stops propagation, so it
-                            // never reached that and "View task" landed on My Tasks
-                            // with the task left to find. Same deferred dispatch, for
-                            // the same reason: the Task module may not be mounted yet
-                            // and it owns the drawer.
-                            const { taskId, ticketId } = n.action;
-                            if (taskId) {
-                              setPendingOpen('task', taskId);
-                              setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId } })), 0);
-                            }
-                            if (ticketId) {
-                              setPendingOpen('ticket', ticketId);
-                              setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } })), 0);
-                            }
-                            openTimecardFor(n);
-                          }}
-                          style={{ marginTop: 8, background: 'none', border: 'none', padding: 0, fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-blue))', cursor: 'pointer', fontFamily: 'Inter, sans-serif', letterSpacing: '.01em' }}>
-                          {n.action.label}
-                        </button>
-                      )}
+                        {trail.length > 0 && (
+                          <div className="nx-ntf-trail">
+                            {[...trail, n].map((t, i, all) => {
+                              const tMeta = STAGE_META[t.type];
+                              if (!tMeta) return null;
+                              const last = i === all.length - 1;
+                              return (
+                                <span key={t.id}>
+                                  <span style={last ? { color: `hsl(${tMeta.color})`, fontWeight: 600 } : undefined}>{tMeta.label}</span>
+                                  {!last && <span aria-hidden="true"> → </span>}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <p className={`nx-ntf-body${isAlert ? ' is-ink' : ''}`}>{renderNotifBody(n.body)}</p>
+                        {n.action && n.action.kind === 'allocate' && (
+                          <button
+                            className="nx-ntf-link"
+                            onClick={e => { e.stopPropagation(); handleInlineAllocate(n); }}
+                            disabled={allocatingId === n.id}
+                            style={{ opacity: allocatingId === n.id ? 0.6 : 1 }}>
+                            {allocatingId === n.id ? 'Allocating…' : n.action.label}
+                            <ArrowRight size={13} aria-hidden="true" />
+                          </button>
+                        )}
+                        {n.action && n.action.kind !== 'allocate' && n.action.label && onNavigate && (
+                          <button
+                            className="nx-ntf-link"
+                            onClick={e => {
+                              e.stopPropagation(); markRead(n.id); setOpen(false);
+                              // This button bypasses handleUpdateClick entirely
+                              // (stopPropagation) - ticketAwareView is shared with it
+                              // so the Tickets->Support redirect can't drift between them.
+                              onNavigate(ticketAwareView(n.action.view), n.action.sub);
+                              // The card's own click (handleUpdateClick) opens the task
+                              // the card is about; this button stops propagation, so it
+                              // never reached that and "View task" landed on My Tasks
+                              // with the task left to find. Same deferred dispatch, for
+                              // the same reason: the Task module may not be mounted yet
+                              // and it owns the drawer.
+                              const { taskId, ticketId } = n.action;
+                              if (taskId) {
+                                setPendingOpen('task', taskId);
+                                setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId } })), 0);
+                              }
+                              if (ticketId) {
+                                setPendingOpen('ticket', ticketId);
+                                setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } })), 0);
+                              }
+                              openTimecardFor(n);
+                            }}>
+                            {n.action.label}
+                            <ArrowRight size={13} aria-hidden="true" />
+                          </button>
+                        )}
+                      </div>
+                      <button className="nx-ntf-x" onClick={e => { e.stopPropagation(); dismiss(n.id); }} aria-label="Close" title="Close (kept under Closed for 30 days)">
+                        <X size={15} />
+                      </button>
                     </div>
-                    <button onClick={e => { e.stopPropagation(); dismiss(n.id); }} title="Close (kept under Closed for 30 days)"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink)', opacity: 0.35, padding: 6, borderRadius: 6, flexShrink: 0, transition: 'opacity 0.15s' }}
-                      onMouseEnter={e => e.currentTarget.style.opacity='0.8'}
-                      onMouseLeave={e => e.currentTarget.style.opacity='0.35'}>
-                      <X size={15} />
-                    </button>
-                  </div>
-                );
-              })}
-            </>
-          )}
+                  );
+                })}
+              </section>
+            ));
+          })()}
 
           {/* Closed (Neil, 10/01): everything cleared in the last 30 days, so
               an accidental Clear All is not the end of it. Restore puts one
@@ -991,19 +974,18 @@ export default function NotificationBell({ onNavigate }) {
           {closedRows.length > 0 && (
             <>
               <button type="button" onClick={() => setShowClosed(s => !s)} aria-expanded={showClosed}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '16px 24px 8px', fontSize: 11.5, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif', textAlign: 'left' }}>
+                className="nx-ntf-sec"
+                style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
                 {showClosed ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                Closed - {closedRows.length}
+                Closed <span className="nx-ntf-sec-n">{closedRows.length}</span>
                 <span style={{ marginLeft: 'auto', fontWeight: 500, letterSpacing: 0, textTransform: 'none', fontSize: 11.5 }}>Kept 30 days</span>
               </button>
               {showClosed && closedRows.slice(0, 300).map(n => {
                 const meta = TYPE_META[n.type] ?? TYPE_META['approved'];
                 const Icon = n.priority === 1 ? AlertTriangle : meta.icon;
                 return (
-                  <div key={n.id} style={{ padding: '12px 24px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 12, alignItems: 'flex-start', opacity: 0.75 }}>
-                    <div style={{ width: 32, height: 32, borderRadius: 9, background: `hsla(${n.priority === 1 ? 'var(--color-gold)' : meta.color},0.12)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <Icon size={15} color={`hsl(${n.priority === 1 ? 'var(--color-gold)' : meta.color})`} />
-                    </div>
+                  <div key={n.id} style={{ padding: '11px 16px 11px 22px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 12, alignItems: 'flex-start', opacity: 0.75 }}>
+                    <Icon size={15} color={`hsl(${n.priority === 1 ? 'var(--color-gold)' : meta.color})`} className="nx-ntf-icon" aria-hidden="true" />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                         <span style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title}</span>
@@ -1012,7 +994,7 @@ export default function NotificationBell({ onNavigate }) {
                       {n.body && <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{renderNotifBody(n.body)}</p>}
                     </div>
                     <button onClick={() => restore(n.id)} title="Put it back in the list"
-                      style={{ background: 'none', border: '1px solid var(--line)', cursor: 'pointer', color: 'hsl(var(--color-blue))', padding: '5px 10px', borderRadius: 8, flexShrink: 0, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+                      style={{ background: 'none', border: '1px solid var(--line)', cursor: 'pointer', color: 'var(--wk-brand)', padding: '5px 10px', borderRadius: 8, flexShrink: 0, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
                       Restore
                     </button>
                   </div>

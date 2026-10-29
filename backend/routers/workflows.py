@@ -685,6 +685,15 @@ def set_workflow_status(wid: str, body: StatusBody, user: dict = Depends(E), db:
     return store.serialize(db, wf, full=True)
 
 
+@router.delete("/{wid}")
+def delete_workflow(wid: str, user: dict = Depends(E), db: Session = Depends(get_db)):
+    """Delete for good - store.delete says what goes and what stays."""
+    wf = _editable(db, user, _wf_or_404(db, user, wid))
+    out = store.delete(db, wf, _me(user))
+    db.commit()
+    return {"ok": True, **out}
+
+
 @router.post("/{wid}/reown")
 def reown_workflow(wid: str, body: OwnerBody, user: dict = Depends(F), db: Session = Depends(get_db)):
     wf = _editable(db, user, _wf_or_404(db, user, wid))

@@ -43,7 +43,7 @@ beforeEach(() => {
   calls.cvPersonal.mockResolvedValue([]);
 });
 
-describe('Credential Vault', () => {
+describe('Credentials', () => {
   it('lists what the API allows and opens the drawer with the verified window shown', async () => {
     render(<CredentialVaultApp />);
     await waitFor(() => expect(document.getElementById('cred-row-c1')).toBeTruthy());

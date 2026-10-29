@@ -1575,6 +1575,14 @@ def request_page(body: RequestIn, user: dict = Depends(get_current_user), db: Se
 
 # ----------------------------------------------------------------- manage: health, activity, migration
 
+# What the Health screen lists as searches with no good answer: the
+# Knowledge Base's own search only. What people type into the Help search
+# and Ask Nexus, and ticket titles from the ticket form, reach administrators
+# only, in Help Signals - collection owners at any company read this list,
+# and free text typed for help is not theirs to read.
+_HEALTH_MISS_SOURCES = ("kb",)
+
+
 @router.get("/health")
 def health(user: dict = Depends(require_author), db: Session = Depends(get_db)):
     me_ = user["email"].lower()
@@ -1610,7 +1618,7 @@ def health(user: dict = Depends(require_author), db: Session = Depends(get_db)):
                   "requests": len(reqs), "unmigrated": unmigrated,
                   "signatures_outstanding": sum(1 for d in pub if d.require_ack for e in kb_core.policy_audience_emails(db, d) if not kb_core.signature_for(db, d, e)) if manage else 0},
         "review_queue": _review_queue(db, user), "stale": stale[:60], "flags": flags[:60], "requests": reqs[:60],
-        "misses": kb_search.misses(db, scope=kb_access.scope(user, db)) if manage or owned else [],
+        "misses": kb_search.misses(db, sources=_HEALTH_MISS_SOURCES, scope=kb_access.scope(user, db)) if manage or owned else [],
         "synonyms": kb_search.custom_groups(db) if manage else [], "drafts": drafts[:60], "in_review": in_review[:60],
         "activity": activity(limit=40, user=user, db=db),
     }

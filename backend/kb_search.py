@@ -307,38 +307,51 @@ def pg_candidates(db: Session, q: str, limit: int = 200) -> list[str] | None:
         return None
 
 
-def log_miss(db: Session, q: str, results: int, user_email: str) -> None:
-    """Remember a search that found nothing good (Health screen)."""
+def log_miss(db: Session, q: str, results: int, user_email: str, source: str = "kb", floor: int = 3) -> None:
+    """Remember a search that found nothing good (Health screen). `floor`:
+    a search with at least this many results is not a miss (the Knowledge
+    Base counts under three; the Help panel counts only none at all, and
+    passes 10**6 for "always", e.g. searched and then filed a ticket)."""
     q = (q or "").strip()[:200]
-    if not q or results >= 3:
+    if not q or results >= floor:
         return
+    source = source or "kb"
     day = datetime.now(timezone.utc).date().isoformat()
     import auth
-    company = auth.company_of(user_email, db)
-    row = db.query(models.KbSearchLog).filter(models.KbSearchLog.query == q.lower(), models.KbSearchLog.day == day,
-                                              models.KbSearchLog.company == company).first()
+    company = auth.company_of(user_email, db)   # misses are walled by the searcher's company (WP 4.4)
+    same_box = models.KbSearchLog.source == source
+    if source == "kb":   # rows from before the column read as the Knowledge Base's
+        same_box = same_box | (models.KbSearchLog.source == None)  # noqa: E711
+    row = (db.query(models.KbSearchLog)
+           .filter(models.KbSearchLog.query == q.lower(), models.KbSearchLog.day == day, same_box,
+                   models.KbSearchLog.company == company)
+           .first())
     if row:
         row.count = (row.count or 0) + 1
         row.results = max(row.results or 0, results)
         row.last_user = user_email
     else:
         import uuid
-        db.add(models.KbSearchLog(id=uuid.uuid4().hex, query=q.lower(), day=day, count=1, results=results, last_user=user_email,
-                                  company=company))
+        db.add(models.KbSearchLog(id=uuid.uuid4().hex, query=q.lower(), day=day, count=1, results=results,
+                                  last_user=user_email, source=source, company=company))
 
 
-def misses(db: Session, days: int = 30, limit: int = 20, scope=None) -> list[dict]:
-    """The searches that found nothing good. `scope` = a company scope
-    (kb_access.scope / scope_of_email): only those companies' searches, older
-    rows with no company count as shared; None = every company."""
+def misses(db: Session, days: int = 30, limit: int = 20, sources: tuple[str, ...] | None = None, scope=None) -> list[dict]:
+    """Top missed searches, one row per (query, search box). `sources` narrows
+    it (the Help Signals list reads the Help Center's boxes only). `scope` = a
+    company scope (kb_access.scope / scope_of_email): only those companies'
+    searches, older rows with no company count as shared; None = every company."""
     import auth
     since = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
     rows = db.query(models.KbSearchLog).filter(models.KbSearchLog.day >= since).all()
     if scope is not None:
         rows = [r for r in rows if auth.company_ok(r.company or "", scope, shared_when_blank=True)]
-    agg: dict[str, dict] = {}
+    agg: dict[tuple, dict] = {}
     for r in rows:
-        a = agg.setdefault(r.query, {"query": r.query, "count": 0, "last_day": "", "results": 0})
+        src = r.source or "kb"
+        if sources and src not in sources:
+            continue
+        a = agg.setdefault((r.query, src), {"query": r.query, "source": src, "count": 0, "last_day": "", "results": 0})
         a["count"] += r.count or 0
         a["last_day"] = max(a["last_day"], r.day or "")
         a["results"] = max(a["results"], r.results or 0)

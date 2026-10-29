@@ -188,9 +188,11 @@ def _ticket_url(base_url: str, ticket_id: str, *, for_requester: bool = False) -
     # own ticket. Support is the requester's own entry point: it mounts the
     # same TicketDrawer directly (Support.jsx), unaffected by that gate, and
     # reads the identical ?ticket= param. Every requester-facing email must
-    # route through it instead (Pranshu, Sept 8 2026).
+    # route through it instead (Pranshu, Sept 8 2026). Its address is
+    # /help-center (Oct 2026); /support still resolves for mail already sent,
+    # and the app keeps the ?ticket= through that rewrite (lib/routes.js).
     base = (base_url or "").rstrip("/")
-    path = "support" if for_requester else "tickets"
+    path = "help-center" if for_requester else "tickets"
     return f"{base}/{path}?ticket={ticket_id}" if base else "#"
 
 

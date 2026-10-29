@@ -159,6 +159,11 @@ export const TYPE_FIELDS = {
     // so every incident already raised still reads back its answer.
     { key: 'impact', label: 'Who is affected?', type: 'select',
       options: ['One User', 'Multiple Users', 'Department', 'Entire Organization'], req: true, default: 'One User' },
+    // How hard it bites (Neil, Oct 28 2026: give the assignee more to go on).
+    // With "Who is affected?" it is the impact x urgency pair a service desk
+    // sets priority by - suggestPriority reads both. Never required.
+    { key: 'blocking', label: 'Can you keep working?', type: 'select',
+      options: ['No, I am stopped', 'Yes, but slowed down', 'Yes, it is minor'] },
     // Defaults to the moment the form opened; still changeable, never required.
     { key: 'occurredAt', label: 'When did it start?', type: 'datetime', default: () => localDateTimeNow() },
     { key: 'workedBefore', label: 'Was it working before?', type: 'select',
@@ -384,6 +389,18 @@ export const FIRST_RESPONSE_HOURS = { urgent: 4, high: 8, medium: 24, low: 48 };
 // The clock stops while the ticket waits on the requester or for approval
 // (and once it is resolved / closed) - ticket_sla.held. "waiting" is the legacy key.
 export const SLA_PAUSED_STATES = ['waiting_user', 'waiting'];
+// The priority an incident's answers point to: who is affected (one person
+// up to the whole organization) plus whether they can keep working. Null for
+// any other type, or before "Who is affected?" has an answer. The form uses
+// it until the person picks a priority themselves; the desk may change it.
+const IMPACT_SCORE = { 'One User': 0, 'Multiple Users': 1, Department: 2, 'Entire Organization': 3 };
+const BLOCKING_SCORE = { 'No, I am stopped': 2, 'Yes, but slowed down': 1, 'Yes, it is minor': 0 };
+export function suggestPriority(type, answers = {}) {
+  if (type !== 'incident' || !(answers.impact in IMPACT_SCORE)) return null;
+  const score = IMPACT_SCORE[answers.impact] + (BLOCKING_SCORE[answers.blocking] ?? 1);
+  return score <= 0 ? 'low' : score === 1 ? 'medium' : score <= 3 ? 'high' : 'urgent';
+}
+
 export const slaDueFromPriority = (priority) => new Date(Date.now() + (SLA_TARGET_HOURS[priority] ?? 72) * 3600 * 1000).toISOString();
 const asUtc = (iso) => (/Z$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : `${iso}Z`);
 const msOf = (iso) => {

@@ -42,7 +42,7 @@ from routers import tickets as T
 REQUESTER = {"email": "requester@greensglobal.com", "level": 1}
 AGENT = {"email": "ankush.narkhede@greensglobal.com", "level": 3}
 OTHER = "olive.agent@greensglobal.com"
-LINK = "https://nexus.test/support?ticket=t1"
+LINK = "https://nexus.test/help-center?ticket=t1"
 
 
 class _Base(unittest.TestCase):

@@ -18,7 +18,7 @@ export function decodeDocTarget(value) {
   return docId ? { docId, anchor } : null;
 }
 
-/** Go to Support > Documentation, on `docId`, scrolled to `anchor`. */
+/** Go to Help Center > Documentation, on `docId`, scrolled to `anchor`. */
 export function openDoc(docId, anchor = null) {
   if (!docId) return;
   setPendingOpen(KIND, encode(docId, anchor));
@@ -30,7 +30,7 @@ export function openDoc(docId, anchor = null) {
 export function docUrl(docId, anchor = null) {
   const q = new URLSearchParams({ doc: docId });
   if (anchor) q.set('section', anchor);
-  return `/support/documentation?${q.toString()}`;
+  return `/help-center/documentation?${q.toString()}`;
 }
 
 export const PENDING_DOCS_KIND = KIND;

@@ -391,6 +391,8 @@ class KbPagesCase(unittest.TestCase):
         self.client.get("/kb/search", params={"q": "snow plow schedule"})
         db = database.SessionLocal()
         try:
+            import kb_search
+            kb_search.log_miss(db, "my payslip is wrong", 0, EMP, source="help")   # typed into Help: never an owner's
             db.query(models.KbReminderLog).delete()
             db.commit()
             with mock.patch.object(kb_daily, "datetime", FirstMonday), mock.patch.object(graph_mail, "DEFAULT_FROM_EMAIL", ""):
@@ -399,6 +401,7 @@ class KbPagesCase(unittest.TestCase):
                                                              models.NexusNotification.type == "kb_owner_digest").first()
             self.assertIsNotNone(bell)
             self.assertIn('no good answer: "snow plow schedule"', bell.body)
+            self.assertNotIn("payslip", bell.body)
         finally:
             db.close()
 

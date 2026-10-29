@@ -6,7 +6,7 @@
 // numbers are homeRules.js.
 import { useState } from 'react';
 import {
-  AlertCircle, ArrowRight, CalendarClock, CalendarDays, CheckCircle2, Circle, Flag, Loader, Repeat,
+  AlertCircle, ArrowRight, CalendarClock, CalendarDays, CheckCircle2, ChevronsUp, Circle, Loader, Repeat,
   Sun, Users, Bell,
 } from 'lucide-react';
 import { NX, FONT, btn, card, PRIORITY_META, PRIORITY_ORDER } from './theme';
@@ -16,6 +16,7 @@ import { projectLook } from './projectLook';
 import { myTasksFootnote, MY_TASKS_RULE } from '../dashboard/myTasksCount';
 import { ago } from './updatesText';
 import { dayTitle, twoLetterDay, versusLastWeek, needsYouNow } from './homeRules';
+import { PriorityMark } from '../components/StatusLabel';
 
 const tint = (hex, a = '1f') => `${hex}${a}`;
 
@@ -122,7 +123,7 @@ export function TaskLine({ t, due, dueTone, projectName, project, parentTitle, r
         {parentTitle && <span style={{ fontSize: 11.5, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>in {parentTitle}</span>}
       </span>
       {recurring && <Repeat size={13} aria-label="Repeats" style={{ color: NX.faint, flexShrink: 0 }} />}
-      {prio && <Flag size={13} aria-label={`${prio.label} priority`} style={{ color: prio.color, flexShrink: 0 }} />}
+      {prio && <span role="img" aria-label={`${prio.label} priority`} title={`${prio.label} priority`} style={{ display: 'inline-flex', flexShrink: 0 }}><PriorityMark priority={t.priority} size={13} color={prio.color} /></span>}
       {project && (
         <span title={projectName} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, maxWidth: compact ? 'none' : 140, minWidth: 0, flexShrink: 1, fontSize: 12, color: NX.faint }}>
           <ProjectIcon project={project} size={12} fallbackColor={NX.purple} />
@@ -220,7 +221,7 @@ export function ByPriorityWidget({ counts, open, onPick, isMobile }) {
   const max = Math.max(1, ...PRIORITY_ORDER.map((p) => counts[p] || 0));
   return (
     <WidgetCard isMobile={isMobile}>
-      <WidgetHeader Icon={Flag} tone={NX.amber} title="By Priority" count={`${open} open`} />
+      <WidgetHeader Icon={ChevronsUp} tone={NX.amber} title="By Priority" count={`${open} open`} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {PRIORITY_ORDER.map((p) => {
           const n = counts[p] || 0;

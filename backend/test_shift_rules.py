@@ -207,7 +207,7 @@ class _Case(unittest.TestCase):
             if role:
                 self.db.add(models.NexusRole(email=em, role=role, assigned_by="test"))
         self.db.add(models.HrEntity(id=ENT, name="Greens"))
-        self.db.add(models.ShiftGroup(id=GROUP, name="Crew", company_id=ENT, created_by=MGR))
+        self.db.add(models.ShiftGroup(open_shifts=1, id=GROUP, name="Crew", company_id=ENT, created_by=MGR))
         for em in (AMY, BOB):
             self.db.add(models.ShiftGroupMember(id=f"m-{em}", group_id=GROUP, employee_email=em))
         self.db.add(models.PayrollRate(employee_email=BOB, hourly_rate=20, overtime_rule="federal"))

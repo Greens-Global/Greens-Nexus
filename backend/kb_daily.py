@@ -321,7 +321,8 @@ def run_owner_digests(db) -> int:
         import kb_search
         heads = {(c.owner_email or "").lower() for c in db.query(models.KbCollection).filter(models.KbCollection.active.is_(True)).all()} - {""}
         for m in sorted(heads or set(kb_access.kb_managers(db))):
-            for x in kb_search.misses(db, days=30, limit=5, scope=kb_access.scope_of_email(db, m)):
+            # Knowledge Base searches only: what people typed into Help is not theirs to read.
+            for x in kb_search.misses(db, days=30, limit=5, sources=("kb",), scope=kb_access.scope_of_email(db, m)):
                 owners.setdefault(m, []).append(f"Searched {x['count']} time{'s' if x['count'] != 1 else ''} with no good answer: \"{x['query']}\"")
     for who, lines in owners.items():
         if _sent(db, "owner_digest", "", who):

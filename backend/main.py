@@ -9,6 +9,10 @@ from dotenv import load_dotenv
 # already locked in SKIP_AUTH=False, so NEXUS_SKIP_AUTH in backend/.env was
 # silently ignored and every request 401'd even with the dev bypass configured.
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+# AI is OFF unless Neil or Visesh turned it on (NEXUS_AI_ENABLED=true) - before
+# any other import, so no module ever sees the Anthropic key (ai_switch.py).
+import ai_switch  # noqa: E402
+ai_switch.apply()
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +21,7 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
+from routers import tasks, purchases, reviews, marketing, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
@@ -1361,6 +1365,12 @@ def _run_migrations():
             "ON hr_holiday_policy_assignments (policy_id, company_id)",
             # Weather by department (Oct 29) - see the Postgres list. models.HrDepartment.
             "ALTER TABLE hr_departments ADD COLUMN weather INTEGER DEFAULT 0",
+            # Help Center (Oct 2026) - see the Postgres list. models.KbSearchLog.
+            "ALTER TABLE kb_search_log ADD COLUMN source VARCHAR DEFAULT 'kb'",
+            # Shift groups (Oct 28) - see the Postgres list.
+            "ALTER TABLE shift_groups ADD COLUMN open_shifts INTEGER DEFAULT 0",
+            "ALTER TABLE shift_groups ADD COLUMN department VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_group_members ADD COLUMN source VARCHAR DEFAULT ''",
             # Training emails opt-out (Oct 29) - see the Postgres list. models.NexusPersonPref.
             "ALTER TABLE nexus_person_prefs ADD COLUMN kb_due_soon_email INTEGER DEFAULT 1",
             # Page request assign / close note (Oct 29) - see the Postgres list. models.KbPageRequest.
@@ -3229,6 +3239,18 @@ def _run_migrations():
         # Construction ones once (weather_scope.seed_weather_departments).
         # models.HrDepartment.
         "ALTER TABLE hr_departments ADD COLUMN IF NOT EXISTS weather INTEGER DEFAULT 0",
+        # Help Center (Oct 2026): which search box a failed search came from
+        # ('kb' | 'help' | 'ask' | 'ticket-form') - models.KbSearchLog.source;
+        # Was This Helpful? votes are a new table - explicit RLS.
+        # models.HelpFeedback.
+        "ALTER TABLE kb_search_log ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'kb'",
+        "ALTER TABLE help_feedback ENABLE ROW LEVEL SECURITY",
+        # Shift groups (Neil, Oct 28 2026): open shifts per team (off by
+        # default), the department a team follows, and which members that
+        # department added. models.ShiftGroup / ShiftGroupMember.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS open_shifts INTEGER DEFAULT 0",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_group_members ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT ''",
         # Knowledge Base training emails (WP 2.4, 10/29/2026): a person may
         # turn off due-soon emails only. models.NexusPersonPref.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS kb_due_soon_email INTEGER DEFAULT 1",
@@ -4759,7 +4781,6 @@ app.include_router(hr.router)
 app.include_router(hr_life_events_router.router)
 app.include_router(kb_router.router)
 app.include_router(kb_training_router.router)
-app.include_router(help_router.router)
 app.include_router(esign.router)
 app.include_router(documents_router.router)
 app.include_router(timeclock.router)
@@ -4981,5 +5002,7 @@ from routers import extra_time as extra_time_router  # noqa: E402
 app.include_router(extra_time_router.router)  # India Contractor Extra Time claims: file, approve, decline (Neil, Oct 27 2026, docs/India-Contractor-Pay.md)
 from routers import workflows as workflows_router  # noqa: E402 - eight new tables: create_all + explicit RLS lines above
 app.include_router(workflows_router.router)  # Workflows: when X happens, do Y across modules - catalog, builder, runs, approvals, settings (Neil, Oct 28 2026)
+from routers import help_center as help_center_router  # noqa: E402 - new table help_feedback: create_all + explicit RLS line
+app.include_router(help_center_router.router)  # Help Center: Ask Nexus (docs only), failed searches, Was This Helpful?, Known Issues (Oct 2026)
 from routers import kb_reminder_settings  # noqa: E402
 app.include_router(kb_reminder_settings.router)  # Training Reminders switches - Settings > Emails & Reminders (Sagar, Oct 28 2026)

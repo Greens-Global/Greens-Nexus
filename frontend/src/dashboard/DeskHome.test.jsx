@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 
-const apiMock = vi.hoisted(() => ({ mySignatures: vi.fn(), dashKpis: vi.fn() }));
+const apiMock = vi.hoisted(() => ({ mySignatures: vi.fn(), dashKpis: vi.fn(), getLinkLayout: vi.fn(async () => ({ favorites: [] })), getExternalLinks: vi.fn(async () => []), getPersonalLinks: vi.fn(async () => []) }));
 const openPanel = vi.hoisted(() => vi.fn());
 vi.mock('../api', () => ({ api: apiMock }));
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil Kadakia', username: 'neil@greensglobal.com' }] }) }));
@@ -44,5 +44,32 @@ describe('DeskHome attention queue', () => {
     expect(screen.getByText('2 items')).toBeTruthy();
     for (const t of ['Needs Your Attention', 'Quick Actions', 'Open Tasks', 'Signatures Needed']) expect(screen.getByText(t)).toBeTruthy();
     expect(screen.getByRole('button', { name: /Request an Item/ })).toBeTruthy();
+  });
+});
+
+describe('DeskHome Favorites (Oct 28 2026)', () => {
+  it('shows every favorite from Links, Company and Personal, in bookmark order', async () => {
+    apiMock.mySignatures.mockResolvedValue([]);
+    apiMock.dashKpis.mockResolvedValue({ kpis: {} });
+    const company = Array.from({ length: 9 }, (_, i) => ({ id: i + 1, name: `App ${i + 1}`, url: `https://app${i + 1}.example.com`, category: 'Productivity' }));
+    apiMock.getExternalLinks.mockResolvedValueOnce(company);
+    apiMock.getPersonalLinks.mockResolvedValueOnce([{ id: 1, name: 'My Bank', url: 'https://bank.example.com' }]);
+    apiMock.getLinkLayout.mockResolvedValueOnce({ favorites: [
+      { item_type: 'personal', item_id: 1 },
+      ...company.map((l) => ({ item_type: 'external', item_id: l.id })),
+      { item_type: 'external', item_id: 404 },                     // a link since deleted is skipped
+    ] });
+    render(<DeskHome notifications={[]} />);
+    const grid = await screen.findByRole('list', { name: 'Favorite links' });
+    const names = [...grid.querySelectorAll('.nx-fav-name')].map((n) => n.textContent);
+    expect(names).toEqual(['My Bank', ...company.map((l) => l.name)]);   // all ten - no preview, no "All" tile
+    expect(screen.getByRole('button', { name: '10 in Links' })).toBeTruthy();
+  });
+
+  it('says how to add one when there are none', async () => {
+    apiMock.mySignatures.mockResolvedValue([]);
+    apiMock.dashKpis.mockResolvedValue({ kpis: {} });
+    render(<DeskHome notifications={[]} />);
+    expect(await screen.findByText('Bookmark an app in Links and it shows up here.')).toBeTruthy();
   });
 });

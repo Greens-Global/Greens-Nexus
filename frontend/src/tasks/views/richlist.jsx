@@ -35,7 +35,7 @@ import { repeatOption } from '../RecurrenceMenu';
 import { useFlip } from '../../lib/motion';
 import ChangeFlash from '../../components/ChangeFlash';
 import { changedRecently } from '../recentChanges';
-import { StatusLabel, PrioritySignal } from '../../components/StatusLabel';
+import { StatusLabel, PrioritySignal, PriorityMark } from '../../components/StatusLabel';
 import { useRowColor, rowColorAttrs, boldTitleStyle, srOnly, onTint } from '../rowColorState';
 
 const BASE_COLS = [
@@ -233,7 +233,9 @@ export function PillSelect({ label, color, tint, icon, options, currentKey, onSe
                 display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 8px', borderRadius: 6, border: 'none',
                 background: o.key === currentKey ? NX.hover : 'transparent', cursor: 'pointer', fontSize: 13, color: NX.ink, textAlign: 'left', fontFamily: FONT,
               }}>
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: o.color || NX.faint, flexShrink: 0, border: '1px solid rgba(0,0,0,0.05)' }} />
+                {variant === 'priority'
+                  ? <PriorityMark priority={o.key} color={o.color} />
+                  : <span style={{ width: 10, height: 10, borderRadius: '50%', background: o.color || NX.faint, flexShrink: 0, border: '1px solid rgba(0,0,0,0.05)' }} />}
                 <span style={{ flex: 1 }}>{o.label}</span>
                 {o.key === currentKey && <Check size={13} style={{ color: NX.blue }} />}
               </button>

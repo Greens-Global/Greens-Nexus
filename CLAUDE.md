@@ -50,6 +50,11 @@ Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
 the build-notes skill refuses commits by it) - change both together.
 
 **Do not modify the other developer's files** — ask them instead.
+**Neil has the final say** (Oct 28 2026): he is head of the company and
+Visesh's lead. A change Neil made or a decision he gave (the "(Neil, <date>)"
+notes in this file and in code comments) is never changed or undone without
+discussing it with him first - the same guardrail as another developer's
+files. Neil may green-light work on anyone's files himself.
 Shared files (`backend/models.py`, `backend/main.py` migrations list,
 `frontend/src/api.js`, `App.jsx`/`Sidebar`): **append only, never reorder**,
 keep the diff minimal.
@@ -88,6 +93,17 @@ keep the diff minimal.
   privileged `DATABASE_URL`; RLS only locks out the public anon key, so a new
   table without it is fully exposed to anyone holding that key. Run
   `get_advisors` after every release — this gap recurs.
+- **AI is OFF - Nexus never spends the Anthropic key unless Neil or Visesh
+  explicitly turns it on (Neil, Oct 29 2026: "we cannot afford it").**
+  `ai_switch.apply()` runs first thing in `main.py` and blanks
+  `ANTHROPIC_API_KEY` for the whole process unless the server carries
+  `NEXUS_AI_ENABLED=true` - an Azure app setting only Neil or Visesh sets.
+  Every AI feature then reads as "not set up". Never add another way to turn
+  it on (a code default, a database row, a Settings switch), never read the
+  key under another name or call the API around the switch, never add a
+  standalone script that calls Anthropic, and never add credits, auto-reload
+  or billing anywhere or suggest doing so - ask Neil. `test_ai_switch.py`
+  pins it.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 - **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
   `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,

@@ -60,7 +60,7 @@ _DOMAINS = [
     ("kb", "Knowledge Base", "BookOpen",
      "SOPs, courses, and the help content shown inline across the app.",
      lambda t: t.startswith("kb_") or t == "page_help"),
-    ("vault", "Credential Vault", "KeyRound",
+    ("vault", "Credentials", "KeyRound",
      "Shared and personal credentials, one-time access grants, and step-up auth sessions.",
      lambda t: t.startswith("vault_") or t == "stepup_sessions"),
     ("tickets", "Tickets / Service Desk", "Ticket",

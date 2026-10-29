@@ -2,7 +2,11 @@
 //
 // One entry per left-nav module (plus Getting Started), in the same order and
 // grouping as Sidebar.jsx's NAV, so a new person reads it in the order they
-// see it. SupportDocs.jsx renders this; nothing here is fetched.
+// see it. Pages that are not in the menu sit beside the one that opens them:
+// My Briefing (the Daily Briefing email) by the Dashboard, Reimbursements by
+// Workday, the Knowledge Base, What's New and Legal by Help Center.
+// SupportDocs.jsx renders this; nothing here is fetched. `alsoViews` lists
+// other view ids that open the same page (docsSearch.docForView).
 //
 // KEEP THIS CURRENT as modules change - it is written by hand from what each
 // screen actually does, so a renamed tab or a moved button belongs here too.
@@ -102,12 +106,14 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Left Menu', desc: 'Grouped into My Desk, Work, Modules and System. You only see what your role or Access Groups allow.' },
+      { name: 'Left Menu', desc: 'Grouped into My Desk (Dashboard, Workday, Team, Approvals...), Work (Tasks, Tickets, Files, Documents, Credentials, Workflows), Modules and System (Help Center, Settings). You only see what your role or Access Groups allow.' },
+      { name: 'Approvals', desc: 'Left menu > Approvals: everything waiting on your decision, from every module, in one list. See the Approvals page of this guide.' },
       { name: 'Top Tabs', desc: 'Each module shows its own tabs in the header (in the page itself on a phone).' },
-      { name: 'Search (Ctrl+K)', desc: 'One Search Nexus bar in the same place on every screen: tasks, projects, people, portfolios, teams, items, checkouts, purchase requests and pages. Press / to jump to it (on Contact and the Knowledge Base, / goes to that page\'s own search), and Esc clears it.' },
+      { name: 'Search (Ctrl+K)', desc: 'One Search Nexus bar in the same place on every screen: tasks, projects, people, portfolios, teams, items, checkouts, purchase requests and pages. Press / to jump to it (on the Company Directory and the Knowledge Base, / goes to that page\'s own search), and Esc clears it.' },
       { name: 'Notification Bell', desc: 'Every alert meant for you: approvals, handovers, assignments, mentions, reminders and updates on tickets you raised. Repeats are grouped into one notice that updates in place, other task and ticket activity stays inside those modules, and anything you clear stays under Closed for 30 days.' },
       { name: 'Page Help (?)', desc: 'The ? in the header (or the ? key) opens the Help panel. Home has Search for Help, Ask a Question, What\'s New in Nexus, Help with This Page and Take the Tour; Messages lists your tickets; Help searches the guide, documents and courses.' },
-      { name: 'Profile Menu', desc: 'Profile (your photo, signature, appearance, Date Format, world clock and Email Settings - everything that is only about you; Date Format sets how every date in Nexus reads for you, MM/DD/YYYY until you pick another), What\'s New, Legal and Sign Out.' },
+      { name: 'Profile Menu', desc: 'Profile (your photo, signature, appearance, Date Format, world clock and Email Settings - everything that is only about you; Date Format sets how every date in Nexus reads for you, MM/DD/YYYY until you pick another), What\'s New, Legal and Sign Out. Tools appears only for people who can use it: Act As (administrators), Build Mode and Testing.' },
+      { name: 'Build Mode', desc: 'Profile menu > Tools > Build Mode, for Global Admins and anyone whose Access Group grants Build Mode. Pin a comment or markup onto any part of the screen, edit text in place, or record your screen and voice. The Pins of a Build Session are sent to the developer\'s Claude Code, which fixes them, opens a pull request and writes its progress back onto each Pin. Once the fix reaches the dev site the Pin reads Fixed - Verify: accept it, or reopen it where the problem was.' },
       { name: 'Tour', desc: 'Every screen has a guided tour: open the ? Help panel and click Take the Tour, or Other Tours to pick another screen. Tasks, Tickets and Help Center also run theirs once on your first visit.' },
       { name: 'Time Clock in the Left Menu', desc: 'The foot of the left menu shows your shift and hours with Punch In, Start Break / End Break and Punch Out, even when the menu is folded to icons. On a phone it is a pill that opens the same clock.' },
       { name: 'Priority Bar', desc: 'A yellow bar at the top of the screen for things that need you, like a time sheet to sign or a punch fix to approve. Tap the text for the full message; Open goes to the item and clears it, and with several waiting, Show All lists them and Clear All closes them all (each stays in the bell under Closed).' },
@@ -127,7 +133,7 @@ export const DOCS = [
     },
     tips: [
       'Cannot see a module a colleague uses? It is not broken. You just have not been granted it yet. Ask your manager or raise a ticket.',
-      'Dates show as MM/DD/YYYY and times as 12-hour AM/PM everywhere in Nexus.',
+      'Dates show as MM/DD/YYYY and times as 12-hour AM/PM everywhere in Nexus, unless you pick another Date Format in Profile - then every date reads your way.',
       'Stuck? Help Center > Submit a Ticket reaches a real person.',
       'Managers can raise a priority notice for one person from the megaphone in the bell. It stays as a yellow bar on their screen until they act on it.',
       'People with Tasks or Tickets access can add a What\'s New update (Add New Update) and comment. A manager publishes it and runs Manage. Work merged into Nexus is published there on its own.',
@@ -200,7 +206,34 @@ export const DOCS = [
     ],
   },
   {
-    id: 'workday', name: 'Workday', group: 'My Desk', icon: 'Contact', view: 'myhr',
+    id: 'briefing', name: 'My Briefing', group: 'My Desk', icon: 'Newspaper', view: 'briefing',
+    tagline: 'The Daily Briefing email as a page you can act on.',
+    where: 'The link in your Daily Briefing email (or the address /briefing)',
+    access: 'Everyone who gets the Daily Briefing email',
+    purpose: 'The Daily Briefing email is a read-only summary. My Briefing is the same three sections - Action Required, Updates for You and Completed Since Your Last Briefing - with each module\'s rows, where you can act in place instead of opening each item.',
+    gains: [
+      'Act on the morning\'s list without opening each module.',
+      'The same content as the email, always current.',
+    ],
+    walkthroughs: [
+      {
+        title: 'Work Through Your Briefing',
+        steps: [
+          'Click the button in your Daily Briefing email. My Briefing opens in Nexus.',
+          'Open or close each section: Action Required (red) needs you, Updates for You (amber) is what changed on your work, Completed (green) is what got done.',
+          'Act on a row: Approve or Reject, Comment, React, or Toggle Completion on a task. Open goes to the item itself.',
+        ],
+      },
+    ],
+    features: [
+      { name: 'Sections', desc: 'Action Required, Updates for You and Completed Since Your Last Briefing, with the same module tables as the email, each one opening and closing.' },
+      { name: 'Actions', desc: 'Approve, Reject (asks Confirm Reject), Comment, React and Toggle Completion run right on the row; Open opens the item.' },
+    ],
+    manager: { title: 'Note', points: ['Which emails you get is up to you in Profile > Email Settings. Administrators shape the Daily Briefing in Settings > Emails & Reminders > Daily Briefing.'] },
+    tips: ['The Dashboard\'s Action Required card shows the same decisions from the briefing.'],
+  },
+  {
+    id: 'workday', name: 'Workday', group: 'My Desk', icon: 'Contact', view: 'myhr', alsoViews: ['timeclock'],
     tagline: 'Clock in and out, check your hours and request time off.',
     where: 'Left menu > Workday',
     access: 'Everyone (employees)',
@@ -264,12 +297,16 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Overview', desc: 'Opens with one row of tiles: Hours This Week, Time Off This Year (approved working days, Monday to Friday, a partial day counted as its share of 8 hours), Time With Us (from the start date on your HR record - ask HR if it is wrong) and Ask HR at the right end - it opens New Request and every request you have sent with the answer from HR, and a red dot on it means HR has updated one you have not looked at yet (the request is marked Updated by HR). Then the Time Clock, then your profile, contact and emergency details, assigned equipment and checkouts, My Schedule and My Documents (signed documents, the files HR keeps for you and your paystubs, by folder). Only you see this page.' },
+      { name: 'Overview', desc: 'Opens with one row of tiles: Hours This Week, Time Off This Year (approved working days, Monday to Friday, a partial day counted as its share of 8 hours), Time With Us (from the start date on your HR record - ask HR if it is wrong) and Ask HR at the right end - the confidential HR desk: New Request offers Request a Letter (employment verification, salary, visa and more, when your company offers HR letters), Update a Document, Profile Change, Question for HR and Something Else. A request is a confidential HR ticket that only you, the people you add and HR can see. My Requests lists them with the answers from HR and your letters, and a red dot on Ask HR means HR has updated one you have not looked at yet (the request is marked Updated by HR). Then the Time Clock, then your profile, contact and emergency details, assigned equipment and checkouts, My Schedule and My Documents (signed documents, the files HR keeps for you and your paystubs, by folder). Only you see this page.' },
       { name: 'Documents to Sign', desc: 'At the top of Overview whenever a Nexus Sign document is waiting on your signature (an offer letter, a policy, an HR form). Click Review & Sign to sign it right here - the bell and the email open it for you. Time Sheets to sign stay on the Time Sheet tab.' },
       { name: 'Time Clock', desc: 'On Overview: Punch In, Start Break, End Break and Punch Out with a live dial for the shift you are on and where the punch was recorded. Beside it, your hours with a Today / This Week / Pay Period switch (it opens on Today and remembers your pick on this browser) - the total, days worked, daily average and breaks, then the punches of the day on a timeline or daily bars against an 8-hour line. Time Sheet opens every punch, day by day.' },
       { name: 'My Schedule', desc: 'On the Overview (your own shifts moved here from the Shifts module on 10/13/2026): a line that sums the week up - shifts, paid hours, time off and your next shift - then your days one by one; Request under a shift asks to swap, offer or release it (when your company allows it), Confirm shows when a manager asks you to confirm a newly shared schedule, past shifts show On Time, Late, Left Early or No-Show (tap to read), In your Outlook calendar (when your company has it on) and Subscribe in another calendar put your shifts in your calendar, weather calls on your days wait here for you to acknowledge (Text me when a weather call changes my shift turns your texts off), and My Availability opens under the week. The My Week | Team switch shows your group\'s week in the same card (it is also Team > Shifts).' },
       { name: 'Time Sheet', desc: 'Your hours this pay period, day by day. Sick, vacation and personal hours show on their own lines. A shift with a break shows as punch pairs: clock-in to the break, then the break end to clock-out, each with its hours, and the break between them. To ask for missing time, click Add on the day, pick its Type - Regular, Break, Sick, Vacation or Personal - set the start and end, and give a reason. Tick Clock In, Clock Out or both: still at work, ask for just the missing clock-in (today starts with Clock Out unticked) - once it is approved you are clocked in and punch out as usual. A time still to come cannot be asked for. Times are in your own timezone. The request shows on its day as Not Yet Approved until your approver decides. Add Note leaves a note on a day for your manager. Time Sheet Review & Signature sits at the top, then Change Requests This Period. Send to Manager asks your manager to look before the period ends (optional). A contractor\'s Time Sheet reads Rate, Amount and Monthly Fee instead of pay, and an Invoice card under Time Sheet Review & Signature shows the invoice drafted when the period is finalized, then when HR sent it, with its PDF. On a phone each day is its own card.' },
-      { name: 'Time Off', desc: 'Request time off: a Reason (Personal, Sick, Vacation or Medical Appointment), the dates, and an optional Note. Keep this confidential shows your team only that you are out and the reason, never the note. Every request you have made is listed under My Requests as Pending, Approved, Rejected or Cancelled, and you can cancel one that is pending or approved. Past dates are grayed out - click Request for a Past Date to ask for one you missed. Your manager\'s manager is told about every request too.' },
+      { name: 'Time Off', desc: 'Request time off: a Reason (Personal, Sick, Vacation or Medical Appointment), the dates, and an optional Note. Keep this confidential shows your team only that you are out and the reason, never the note. Every request you have made is listed under My Requests as Pending, Approved, Rejected or Canceled, and you can cancel one that is pending or approved. When your company has Second Approval By HR on, a request your manager approved reads Awaiting HR Approval until HR decides. Past dates are grayed out - click Request for a Past Date to ask for one you missed. Your manager\'s manager is told about every request too.' },
+      { name: 'My Paid Time Off', desc: 'On the Time Off tab: your vacation and sick balances, when your company has set up leave policies (Settings > Time & Pay > Leave Policies). Sick and Personal draw from one balance. The request form shows what a request would leave you with. At the end of the leave year the company\'s Leave Year-End rule decides what carries over - Use It Or Lose It unless your company says otherwise.' },
+      { name: 'Team Leave Calendar', desc: 'On the Time Off tab: one month of who is out on your team, with company holidays marked. A confidential request shows only as Out. On a phone it lists just the days that have something.' },
+      { name: 'Your Salary Advances', desc: 'On your Time Sheet, read-only, when you have one: what was advanced, how it is repaid and each repayment line on your card. You do not ask for an advance yourself - your manager or HR asks on your behalf from your Time Sheet in People > Time.' },
+      { name: 'Performance', desc: 'The Performance tab: your goals (Add Goal, then Check In to update progress) and your 1:1s with your manager - the agenda you both add to, shared notes and action items that become tasks. Company and Department Goals shows what your goals support. When people report to you, My Team shows their goals and their next 1:1. Review cycles HR launches show here too: write your Self Review, then read the manager\'s review once HR shares it and sign it in Nexus Sign.' },
       { name: 'Location Tag', desc: 'Each punch shows the location you were at when you punched, judged by where the punch was made, even if you move between several locations in a day. A punch inside any of your company locations shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote and Hybrid staff can punch from anywhere (away from a site it shows Remote), and their location is still recorded. Click a location on the time sheet to see the punches of that shift on the map; a manager can also change the location of the punch from there.' },
       { name: 'Location Off at Clock-In', desc: 'A punch never waits for your location. If you clock in with location turned off, a red Needs Attention bar asks you to turn it on, with Turn On and Skip. Turn On asks your browser for your location (or shows the steps to allow it when it is blocked) and adds it to that clock-in. Skip keeps the clock-in as Location Off on your Time Sheet and lets your manager know. Works the same on a phone and a computer. People exempt from screen monitoring are never asked.' },
       { name: 'Clock in the Left Menu', desc: 'The time clock also sits in the left menu: Play punches in (or ends a break), Pause starts a break, Stop punches out. The dial fills toward 8 hours - green on the clock, amber on a break, red off - and clicking it opens the full clock.' },
@@ -283,16 +320,63 @@ export const DOCS = [
         'Time Sheets to Review is only in People > Time - your own Workday > Time Sheet tab lists just the time sheets waiting on your signature. A "For <name>" chip means you are covering that person\'s approvals.',
         'Time-off requests route to your approver. Managers review them from the Dashboard (Time Off to Review) and the bell.',
         'Team hours, punch fixes and payroll time sheets live in People > Time. The schedule itself is built in Team > Schedule.',
-        'HR sets locations (the geofence used for on-site checks) and holiday calendars in People.',
+        'Administrators set locations (the geofence used for on-site checks) and holidays in Settings: Settings > Locations, and Settings > Companies > Holiday Policies and each company\'s Holiday Calendar.',
       ],
     },
     tips: [
       'A red dot on a module in the left menu means something there is waiting on you - a request to approve, a document to sign, a schedule to confirm. Open the module and the tab with the red number is where it is; inside it, each item waiting on you sits in a red-tinted box with a red bar on its left. The dot and the box go away once you have acted.',
       'If you see "Your Punch Did Not Record", try again from a phone or a stable connection. Nothing was saved.',
       'If Nexus asks you to sign in again right after you press a punch button, your punch and your message are kept on the device and record by themselves once you are signed back in, at the time you pressed the button.',
-      'Approved time off is not punched in for you automatically.',
-      'If Workday shows no clock and no Time Sheet tab, you are on a salaried, time-tracking-exempt setup - Nexus does not record punches or hours for you. Raise a ticket if that is wrong.',
+      'Approved time off is not punched in for you automatically - to be paid for it, add it on your Time Sheet (Add on the day, Type Sick or Vacation). The one exception is India contractors on the India Contractor Policy: an approved Vacation or Sick request is paid leave with no punch, drawn only from its own balance.',
+      'If Workday shows no clock and no Time Sheet tab, you are on a salaried, time-tracking-exempt setup - Nexus does not record punches or hours for you. (The Time Sheet tab still appears when there is something to sign or a salary advance to show you.) Raise a ticket if that is wrong.',
     ],
+  },
+  {
+    id: 'reimbursements', name: 'Reimbursements', group: 'My Desk', icon: 'Receipt', view: 'myhr',
+    tagline: 'Get paid back for company purchases you paid for yourself.',
+    where: 'Workday > Reimbursements (the tile beside Ask HR). People > a person > Reimbursements for their history.',
+    access: 'Everyone files. Whoever is picked approves (your manager unless you pick someone else). HR approves and pays, the same people who handle time sheets: your company\'s HR contact, an administrator or a Full HR grant.',
+    purpose: 'When you pay for something on behalf of the company, file it with the receipt. The person you pick approves it, HR approves it and pays you back, and every step is recorded on the claim.',
+    gains: [
+      'One place for receipts - no more emailing photos around.',
+      'You always know where your claim is and who has it.',
+      'Managers and HR can open any past claim, with its receipts and history.',
+    ],
+    walkthroughs: [
+      {
+        title: 'File a Reimbursement',
+        steps: [
+          'Open Workday and click Reimbursements, beside Ask HR.',
+          'Click + New. Say what you bought, the category (pick Other and say what it was if none fit), the amount and its currency, when and where, and what it was for.',
+          'Pick who approves it, or leave My Manager.',
+          'Attach the receipts. You can paste a screenshot with Ctrl+V. No receipt yet? Send it anyway and add the receipt once you have bought it.',
+          'Click Send for Approval. Your approver gets a notification.',
+        ],
+      },
+      {
+        title: 'Approve One',
+        steps: [
+          'Open Workday > Reimbursements and pick To Approve.',
+          'Open the receipts and check the details.',
+          'Approve it, or add a note and Send Back (the employee fixes it and resubmits) or Reject it.',
+        ],
+      },
+      {
+        title: 'Approve and Pay (HR)',
+        steps: [
+          'Open Workday > Reimbursements and click Manage. To Approve holds the claims their approver approved.',
+          'Check the receipts and Approve it - it moves to To Pay. Send Back and Reject work as above.',
+          'Once the money has gone out, click Mark Paid and enter the date, the method and a reference.',
+        ],
+      },
+    ],
+    features: [
+      { name: 'Reimbursements (Workday)', desc: 'File one and follow it; fix and resubmit one that was sent back; add receipts later.' },
+      { name: 'To Approve', desc: 'The claims waiting on you as their approver.' },
+      { name: 'Manage (HR)', desc: 'To Approve, To Pay and Paid, for the companies you are HR for.' },
+      { name: 'Reimbursements on a Profile', desc: 'People > a person > Reimbursements: every claim one person has filed, with receipts and the history.' },
+    ],
+    tips: ['A claim is never deleted. Rejected and canceled claims stay on the record.', 'Receipts open through a short private link, only for the employee, the approver, their manager and HR.'],
   },
   {
     id: 'workforce-analytics', name: 'Workforce Analytics', group: 'My Desk', icon: 'MonitorDot', view: 'employee-tracking',
@@ -320,7 +404,7 @@ export const DOCS = [
           'Click the Scorecard tab. It opens on the last full week; use the arrows to move between weeks.',
           'Each hourly person shows their expected hours (published shift, else shift preset, else the standard day - US 8h, India 9h), the hours they punched, Sick / PTO leave, and a score with Absent, Short and Late day counts.',
           'Click a row for the day-by-day breakdown: holidays, approved time off and missing punches are written on the day.',
-          'Click Email Me This Report to get the same scorecard in your inbox. Managers holding the grant also receive it automatically every week once Settings > Workforce Scorecard is live.',
+          'Click Email Me This Report to get the same scorecard in your inbox. Managers holding the grant also receive it automatically every week once Settings > Emails & Reminders > Workforce Scorecard is turned on.',
         ],
       },
       {
@@ -346,7 +430,7 @@ export const DOCS = [
       points: [
         'A viewer grant lets you watch coverage, activity and locations.',
         'A full grant also allows remote control and managing devices and policies.',
-        'The Workforce Scorecard grant is separate: Viewer scores your direct reports, Editor your whole reporting line, Full the whole company. Its weekly email, standard day and thresholds live in Settings > Workforce Scorecard.',
+        'The Workforce Scorecard grant is separate: Viewer scores your direct reports, Editor your whole reporting line, Full the whole company. Its weekly email, standard day and thresholds live in Settings > Emails & Reminders > Workforce Scorecard.',
         'The monitoring policy itself (whether work on company computers is captured, how often and what is tracked) is set per company in Settings > Workforce Analytics with the company picked. The app and website ratings behind the productive / neutral / unproductive split are Settings > Workforce Analytics > App & Website Ratings - the same list the Activity tab\'s Rate button opens.',
       ],
     },
@@ -360,8 +444,8 @@ export const DOCS = [
     id: 'shifts', name: 'Team', group: 'My Desk', icon: 'Handshake', view: 'shifts',
     tagline: 'Reach anyone in the company and see your group\'s shifts; managers build and share the schedule.',
     where: 'Left menu > Team (managers: Schedule and Requests tabs)',
-    access: 'Everyone sees Contact and Shifts. Managers and above also get Schedule (the grid) and Requests (the inbox). Your own shifts are in Workday > My Schedule. Shift types and groups are in Settings > Shifts & Scheduling; staff ask for swaps, offers, releases and open shifts in Workday > Time Off once their company turns those on (they are off by default).',
-    purpose: 'Team is everything about the people you work with. Contact is the company directory: find anyone, see who is on shift or off today, and reach them on Teams, by phone or by email. Shifts is your group\'s week, with you pinned at the top. Managers open Schedule to place shifts on a weekly grid, fill a whole group from a shift type in one go, post open shifts and Share when it is ready. Share lists every change and any rule warnings first, and once a day has started the grid shows who was on time, late, left early or did not show. Nothing reaches the team until it is shared.',
+    access: 'Everyone sees Shifts and the Company Directory. Managers and above also get Schedule (the grid) and Requests (the inbox); department heads (and their backups) get Role Checklists, and managers and HR get Headcount. Your own shifts are in Workday > My Schedule. Shift types and groups are in Settings > Shifts & Scheduling; staff ask for swaps, offers, releases and open shifts in Workday > Time Off once their company turns those on (they are off by default).',
+    purpose: 'Team is everything about the people you work with. The Company Directory: find anyone, see who is on shift or off today, and reach them on Teams, by phone or by email. Shifts is your group\'s week, with you pinned at the top. Managers open Schedule to place shifts on a weekly grid, fill a whole group from a shift type in one go, post open shifts and Share when it is ready. Share lists every change and any rule warnings first, and once a day has started the grid shows who was on time, late, left early or did not show. Nothing reaches the team until it is shared.',
     gains: [
       'Find and reach anyone in the company, with who is in and who is off today.',
       'See who else is on this week without messaging your manager.',
@@ -404,8 +488,10 @@ export const DOCS = [
         title: 'Set Up a Shift Type and a Group',
         steps: [
           'Administrators: open Settings > Shifts & Scheduling. If you look after more than one company, pick it in the Scope box at the top first - a shift type or group is either Shared With Every Company or belongs to one.',
-          'Under Shift Types, click New Shift Type: name, a short code for the grid, color, start and end time, unpaid break, grace minutes, time zone and days. Click Save.',
+          'Under Shift Types, click New Shift Type: name, a short code for the grid, color, start and end time, unpaid break, grace minutes, time zone and days. The paid hours a shift puts on the schedule (start to end, less the unpaid break) show under the times. Click Save.',
           'Under Groups, click New Group: name it, pick its members from the People list and any Schedulers, then click Save. For an outdoor crew, also pick its Work Site and Weather Deciders.',
+          'To keep a group in step with a department, pick it under Department: everyone in that department joins the group by themselves and leaves it when they leave the department. People you add by hand stay.',
+          'Open shifts are off for a new group. Tick Open Shifts on a group that posts unfilled shifts (Ops, retail); office teams leave it off. Open shifts already posted stay on the schedule.',
           'To send the group\'s BOD, EOD and break messages to Microsoft Teams, choose Group Chat or Channel under Microsoft Teams. Click Bind A Chat (or Bind A Channel, then pick the team\'s channel) and Save. Members must be in that chat, or in that team and channel, for their messages to post; in a channel each message is a new post. Every message Nexus posts to Teams (BOD, EOD, break and ticket updates) goes out as the person and ends with a small gray "Sent by Nexus" line, so it is easy to tell apart from something typed by hand.',
         ],
       },
@@ -442,6 +528,14 @@ export const DOCS = [
         ],
       },
       {
+        title: 'Ask to Hire Someone',
+        steps: [
+          'Open Team and click Headcount (managers, and anyone with a headcount request to decide).',
+          'Click New Headcount Request. Pick the company, the department and the role (Other for a role that does not exist yet), how many openings, the employment type, the target start date, the work site and why you need them.',
+          'Click Send For Approval. The department\'s line approves it, then HR. Once HR approves, it becomes a Draft job opening in People > Hiring > Openings and you are told.',
+        ],
+      },
+      {
         title: 'Make a Weather Call',
         steps: [
           'Weather calls are for the people of departments with Weather Calls on - Construction by default, every other department off. Turn a department on or off in Settings > Companies > Departments (10/29/2026). People of other departments on the same group are not on the call and keep their shifts and pay.',
@@ -458,13 +552,14 @@ export const DOCS = [
       { name: 'My Availability', desc: 'Workday > My Schedule > My Availability: when you can work each weekday, one-off Dates you cannot work (or only part of), and your Preferred and Most Hours Per Week. Managers see it on the grid as a guide; it never blocks a shift.' },
       { name: 'Add', desc: 'Managers and above: one button on the Schedule for a shift, an open shift, time off or a day note. Editing opens a panel on the right so the grid stays in view.' },
       { name: 'Schedule', desc: 'The grid: one row per person, grouped by shift group, with Day, Week and Month views, Today and the arrows to move around.' },
-      { name: 'Open Shifts', desc: 'A row of shifts nobody holds yet, with how many spots each needs. Staff can ask to take one.' },
+      { name: 'Open Shifts', desc: 'A row of shifts nobody holds yet, with how many spots each needs. Staff can ask to take one. Off for a group until it is turned on under Settings > Shifts & Scheduling > Groups (10/28/2026).' },
       { name: 'Fill From Usual Hours', desc: 'Under the ... menu: apply one shift type to a whole group, or everyone in view, across a date range. It can skip days a person has time off.' },
       { name: 'Copy Week', desc: 'Under the ... menu: copy a range of shifts to later dates, as many times as you need, with or without notes. It can skip days a person has time off.' },
       { name: 'Clear Week', desc: 'Under the ... menu: remove every shift in a date range. Drafts are deleted; shared shifts are marked for removal until you share.' },
       { name: 'Import', desc: 'Add shifts from a spreadsheet. They come in as drafts.' },
       { name: 'Requests', desc: 'The manager\'s inbox: Time Off, Swaps, Offers and Open Shifts tabs (and Releases when releasing is on), with what still waits on a teammate. A time-off request shows the shared shifts inside it, with Approve And Remove Shifts.' },
       { name: 'Role Checklists', desc: 'Only for the head (or backup) of a department, and HR. Pick one of your department\'s roles, then Onboarding, Promotion, Offboarding or Leave or Suspension, and add the extra steps that role needs - its training, its tools (for example Intacct Training for an accounting role). They are added after the company\'s own steps whenever someone in that role starts one of those checklists. Above the role\'s steps, Baseline (folded) lists the steps every hire at the company gets first - read-only, with where they are edited - so a role only adds what it needs on top; a role step with the same title as a baseline step is flagged in orange. Copy From… copies another role\'s steps in while you build: pick the role, which checklists, and Add (a step with the same title is skipped) or Replace. Remove All Steps takes them off again. Changes reach checklists already open too, and their tasks: a new step is added (with its subtask), a changed step that is still open takes the new title, owner, timing and conditions (an owner or date someone set by hand stays), and a step taken out is marked N/A with the note Removed from the template on its date - never deleted. Steps already done stay as they were. The save says how many open checklists it updated.' },
+      { name: 'Headcount', desc: 'Ask to hire before there is a candidate: New Headcount Request (company, department, role - or Other for a new role - number of openings, employment type, target start date, work site and a justification; a salary range is optional and only Pay & Benefits holders see it). Save Draft or Send For Approval. The head of the department\'s line approves it, then HR; approved, it becomes a Draft job opening in People > Hiring > Openings. Requests waiting on you are listed here too, with Approve and Decline Request.' },
       { name: 'Share', desc: 'Share drafts, edits and removals in a date range with the team, and choose who is told. Review lists every change and warning per person first, and Recent Shares shows earlier shares made over warnings, with their reason. Until then the team keeps seeing the last shared version.' },
       { name: 'Actuals', desc: 'Past and running shifts show what the clock recorded: a colored bar and a letter (check for On Time, L Late, E Left Early, N No-Show), or Excused for time off and holidays. Hover, or tap on a phone, for the times; View Options > Actuals hides it. A line above the grid sums the week: scheduled against worked hours, with the Late, No-Show and Left Early counts.' },
       { name: 'No-Show Alerts', desc: 'When a shared shift has started, the grace has passed and nobody has clocked in after the No-Show Alert minutes (10 by default), the manager, backup manager and the group\'s schedulers get one bell per team and day, and one email. Set it, or 0 to turn it off, in Settings > Shifts & Scheduling > Attendance.' },
@@ -474,7 +569,7 @@ export const DOCS = [
       { name: 'Confirm Schedule', desc: 'On by default: a share asks each person to Confirm in Workday > My Schedule. The grid shows a check beside everyone who has, and the 5 Of 8 Confirmed chip lists the rest, with Nudge and Nudge Everyone.' },
       { name: 'Outlook and Other Calendars', desc: 'Off by default, per company: Add shared shifts to people\'s Outlook calendars (Settings > Shifts & Scheduling > Sharing), shown as Free or Busy. Each person can keep shifts out with In your Outlook calendar on My Schedule; turning it off takes the events back off. Subscribe in another calendar gives a private link for Google or Apple Calendar; New Link stops the old one.' },
       { name: 'Open Shifts Across Teams', desc: 'Off by default, per company: open shifts from every team in the company are offered to everyone, marked Other Team.' },
-      { name: 'Weather Call', desc: 'For outdoor crews. The weather watch reads the forecast over each group\'s scheduled hours at its work site: a heads-up icon on the day, and for major rain or a National Weather Service warning a bell to the group\'s Weather Deciders and the company\'s managers. A person makes the call - Nexus never cancels work on its own. A canceled day stays on the grid, struck through, and is unpaid. Turned on per company in Settings > Shifts & Scheduling > Weather Alerts.' },
+      { name: 'Weather Call', desc: 'For outdoor crews. The weather watch reads the forecast over each group\'s scheduled hours at its work site: a heads-up icon on the day, and for major rain or a National Weather Service warning a bell to the group\'s Weather Deciders and the company\'s managers. A person makes the call - Nexus never cancels work on its own. A canceled day stays on the grid, struck through, and is unpaid. The watch runs for the companies picked in Settings > Shifts & Scheduling > Weather Alerts, and only for the people of departments with Weather Calls on (Settings > Companies > the company > Departments) - Construction by default, every other department off.' },
       { name: 'Discard Changes', desc: 'Under the ... menu: undo edits and removals that are not shared yet, going back to what the team sees.' },
       { name: 'Export and Print', desc: 'Download the schedule as a spreadsheet or print it.' },
       { name: 'Day Note', desc: 'A note on a day for everyone, e.g. "Inventory day - all hands".' },
@@ -494,11 +589,58 @@ export const DOCS = [
     tips: [
       'A dashed border means a draft the team cannot see yet, a small corner mark an edit not shared yet, and struck through a shift removed at the next share.',
       'When someone is offboarded in People, their future shifts come off the schedule (shared ones at the next share); past shifts stay as the record.',
-      'No Teams status on Contact means the Teams status permission is not granted yet - it is not an error.',
+      'No Teams status in the Company Directory means the Teams status permission is not granted yet - it is not an error.',
       'Scheduled hours leave out the unpaid break, so a 9:00 AM to 5:00 PM shift with a 30-minute lunch counts as 7.5 hours.',
       'Ctrl+C over a shift and Ctrl+V over a day copies it, like in Teams.',
       'Shifts became its own module on 09/29/2026 and part of Team on 10/13/2026, when your own shifts moved to Workday > My Schedule. Old Shifts and Contact Directory links still land in the right place.',
     ],
+  },
+  {
+    id: 'approvals', name: 'Approvals', group: 'My Desk', icon: 'Inbox', view: 'approvals',
+    tagline: 'Everything waiting on your decision, from every module, in one list.',
+    where: 'Left menu > Approvals',
+    access: 'Everyone. You only see what is waiting on you - an employee has shift swaps and signatures too.',
+    purpose: 'Approvals gathers every decision that is yours to make: time off, punch fixes, time sheets to review or sign, reimbursements, purchase requests, shift requests, hiring votes, Nexus Sign documents and workflow approvals. Each row uses the module\'s own approval, so deciding here is the same as deciding in the module. The number beside Approvals in the left menu is the same count.',
+    gains: [
+      'Clear your approvals in one sitting instead of visiting each module.',
+      'The request that has waited longest is at the top, so nothing is forgotten.',
+      'Approve several simple requests at once, with one Undo.',
+    ],
+    walkthroughs: [
+      {
+        title: 'Clear Your Approvals',
+        steps: [
+          'Click Approvals in the left menu. The oldest request is at the top.',
+          'Click a chip (Time Off, Time Sheets, Shifts, Money, Hiring, Signatures, People) to see one kind, or search by name, request or detail.',
+          'Click Review on a row to read the full request, then decide there, or click Open In <module> to see it where it lives.',
+          'Or decide straight from the row: Approve, Reject, Decline or Send Back. A Reject or Send Back asks for a note, which the person sees.',
+          'Changed your mind? Click Undo within a few seconds - the decision is only sent once the Undo has gone.',
+        ],
+      },
+      {
+        title: 'Approve Several at Once',
+        steps: [
+          'Tick the rows whose yes is one click (rows that need more open with Review instead).',
+          'Click Approve Selected. One Undo covers them all.',
+        ],
+      },
+    ],
+    features: [
+      { name: 'Chips', desc: 'Filter by kind: Time Off, Time Sheets, Shifts, Money, Hiring, Signatures and People. Only kinds with something waiting show.' },
+      { name: 'Sort and Priority', desc: 'Sort by Oldest First (the default), Newest First, Priority, Name (A-Z) or Kind, and narrow to Urgent, High And Up, Medium or Low. A request rises in priority as its date gets close or it waits a long time. Your choice is remembered.' },
+      { name: 'Review', desc: 'Every row has a Review button: the person, the full request, the decision buttons and Open In <module>.' },
+      { name: 'For <Name>', desc: 'A row marked For <name> is one you are covering while that person is away (Delegate My Approvals in Workday > Time Off).' },
+      { name: 'Undo', desc: 'A decision leaves the list at once and is sent after a few seconds. Leaving the screen sends whatever is still waiting. If the module refuses it, the row comes back with the reason.' },
+      { name: 'Refresh', desc: 'The list refreshes itself every minute while you are on it; Refresh reloads it now.' },
+    ],
+    manager: {
+      title: 'Good To Know',
+      points: [
+        'Some requests need more than a click (a time sheet with pending punch fixes, a candidate decision with a comment): Review opens them, or Open In <module> takes you there.',
+        'A workflow\'s Ask For Approval step lands here and in the bell, with its own options as buttons.',
+      ],
+    },
+    tips: ['The bell still tells you about each new request; Approvals is where you decide them.'],
   },
 
   // ───────────────────────────── Work ─────────────────────────────
@@ -583,57 +725,6 @@ export const DOCS = [
     ],
   },
   {
-    id: 'files', name: 'Files', group: 'Work', icon: 'HardDrive', view: 'egnyte',
-    tagline: 'Browse, upload and search the company Egnyte drive without leaving Nexus.',
-    where: 'Left menu > Files',
-    access: 'Supervisors and above with the Files grant',
-    purpose: 'Files is a window onto Egnyte, the company file store. Egnyte stays the one true copy. Nexus lists, previews, uploads and links files in place, using your own Egnyte permissions, so you see exactly what you would see in Egnyte itself.',
-    gains: [
-      'Find and open company files without switching apps.',
-      'Upload straight into the right folder.',
-      'Nothing is duplicated. Every change lands in Egnyte.',
-    ],
-    walkthroughs: [
-      {
-        title: 'Connect Once',
-        steps: [
-          'Open Files from the left menu.',
-          'If you see "Connect Your Egnyte Account", click it and sign in to Egnyte.',
-          'You land back in Nexus on your usual work folder.',
-        ],
-      },
-      {
-        title: 'Upload a File',
-        steps: [
-          'Open the folder you want.',
-          'Click Upload to This Folder (or drag files onto the list).',
-          'Wait for the upload to finish. The file appears in the list.',
-        ],
-      },
-      {
-        title: 'Preview and Share',
-        steps: [
-          'Click a file to preview it. Use the left and right arrow keys to move between files.',
-          'Click More Actions to Download, Rename, Move, Copy or Copy Egnyte Link.',
-        ],
-      },
-    ],
-    features: [
-      { name: 'Browse Files', desc: 'The folder browser, opening on your normal work folder. Search, sort by name, size or date, and resize columns.' },
-      { name: 'Preview', desc: 'View files in Nexus. Files locked for editing in Egnyte are marked.' },
-      { name: 'File Actions', desc: 'Open in Egnyte, Download, Rename, Move To, Copy To, Copy Egnyte Link, Edit Description and Delete.' },
-      { name: 'Property Documents', desc: 'Folders tied to each property, used by Asset Management and Construction.' },
-    ],
-    manager: {
-      title: 'Admins',
-      points: [
-        'Folder Groups map teams to their Egnyte folders, so each person opens in the right place.',
-        'Admins set where new property folders and signed documents are filed.',
-      ],
-    },
-    tips: ['If a folder is missing, you probably do not have access to it in Egnyte. Ask the folder owner.'],
-  },
-  {
     id: 'tickets', name: 'Tickets', group: 'Work', icon: 'Ticket', view: 'tickets',
     tagline: 'The service desk queue: route, work and resolve requests from across the company.',
     where: 'Left menu > Tickets (agents). Everyone raises tickets from Help Center.',
@@ -691,7 +782,8 @@ export const DOCS = [
       { name: 'Default Assignee', desc: 'A new ticket nobody assigned can go straight to a set person, chosen first by its help topic, then by its department. The ticket history says "Assigned to ... automatically". If that person can no longer take tickets, it waits unassigned and the history flags it in amber.' },
       { name: 'Saved Replies', desc: 'Answers the desk gives again and again. Insert one into your reply, filled in with the requester\'s name, the ticket number and your name, then edit it before you click Done. Personal replies are yours; shared ones are for the whole desk.' },
       { name: 'Collaborators', desc: 'Other people pulled in to help, on the create form and in the ticket. They can open it, reply and get its updates, and each one added gets a bell. Pick a Team to add a whole group at once, or save the people you picked as a team.' },
-      { name: 'Screen Recordings', desc: "Raising a ticket, the Show Us the Problem card under the description records your screen (with your voice if you like) or attaches a file. If the problem happens again later, open the ticket's Conversation and use Record Screen or Upload Attachment under the reply: the file is saved to the ticket's Attachments and a link to it goes in your reply when you click Done. Feature, service, access and change requests take files only." },
+      { name: 'Screen Recordings', desc: "Raising a ticket, Record Screen and Attach File sit right under the description: record your screen (with your voice if you like), attach a file or press Ctrl+V to paste a screenshot. If the problem happens again later, open the ticket's Conversation and use Record Screen or Upload Attachment under the reply: the file is saved to the ticket's Attachments and a link to it goes in your reply when you click Done. Feature, service, access and change requests take files only." },
+      { name: 'After You Submit', desc: 'The form turns into a confirmation: the ticket number, which team has it, when to expect a first reply and what happens next. Open Ticket goes straight to it, Copy Link copies a link you can share, and Create Another starts a fresh form.' },
       { name: 'List, Board, Reports', desc: 'A sortable table, drag-between-columns board, or charts of volume, SLA and time spent.' },
       { name: 'Ticket Types', desc: 'Incident, Bug Report, Feature Request, Access Request and Other, each with a one-line definition in the dropdown. Each asks only its own questions.' },
       { name: 'Help With', desc: 'What the ticket is about. The choices depend on the department: IT topics for IT, maintenance topics for Construction. Some topics have a Which One? list (Microsoft - Outlook, Teams, OneDrive; Nexus - its modules) to narrow it down. Other takes a short typed answer.' },
@@ -725,76 +817,55 @@ export const DOCS = [
     ],
   },
   {
-    id: 'knowledge-base', name: 'Knowledge Base', group: 'Work', icon: 'BookOpen', view: 'sop',
-    tagline: 'Every SOP, policy and guide, plus your training courses.',
-    where: 'Help Center > Knowledge Base & Training',
-    access: 'Everyone',
-    purpose: 'The Knowledge Base is how the company does things, written down. The Playbook holds every approved SOP, manual and guide. Learn holds training courses with quizzes and certificates. Policies that need your acknowledgement ask you to read and e-sign them.',
+    id: 'files', name: 'Files', group: 'Work', icon: 'HardDrive', view: 'egnyte',
+    tagline: 'Browse, upload and search the company Egnyte drive without leaving Nexus.',
+    where: 'Left menu > Files',
+    access: 'Supervisors and above with the Files grant',
+    purpose: 'Files is a window onto Egnyte, the company file store. Egnyte stays the one true copy. Nexus lists, previews, uploads and links files in place, using your own Egnyte permissions, so you see exactly what you would see in Egnyte itself.',
     gains: [
-      'Find the right procedure in seconds, or ask a question in plain English and get an answer with its sources.',
-      'Know a document is current. Green Verified or amber Needs Verification chips show it.',
-      'Run an SOP as a live checklist so no step is skipped.',
-      'Complete required training and get a certificate.',
+      'Find and open company files without switching apps.',
+      'Upload straight into the right folder.',
+      'Nothing is duplicated. Every change lands in Egnyte.',
     ],
-    shot: 'kb',
     walkthroughs: [
       {
-        title: 'Find an Answer',
+        title: 'Connect Once',
         steps: [
-          'Open Help Center and click Knowledge Base & Training. You land on the Playbook.',
-          'Type in the big search box (or press "/") to filter the library live.',
-          'Press Enter (or click Ask AI) to ask it as a question. The answer cites the SOPs it came from.',
+          'Open Files from the left menu.',
+          'If you see "Connect Your Egnyte Account", click it and sign in to Egnyte.',
+          'You land back in Nexus on your usual work folder.',
         ],
       },
       {
-        title: 'Sign Off a Policy',
+        title: 'Upload a File',
         steps: [
-          'Open the document from For You in the right panel (anything waiting on you shows there).',
-          'Read it to the end.',
-          'Click Review & Sign, then type your full name to sign.',
+          'Open the folder you want.',
+          'Click Upload to This Folder (or drag files onto the list).',
+          'Wait for the upload to finish. The file appears in the list.',
         ],
       },
       {
-        title: 'Take a Course',
+        title: 'Preview and Share',
         steps: [
-          'Click the Learn tab. Required Training is at the top with due dates.',
-          'Open the course and work through each lesson. Progress saves as you go.',
-          'Take the quiz and click Submit Quiz. Pass to get your Certificate of Completion.',
-        ],
-      },
-      {
-        title: 'Write a New SOP',
-        steps: [
-          'Click New SOP.',
-          'Capture: paste screenshots with Ctrl+V and jot rough notes, then click Format with Nexus.',
-          'Content: check the title and each section. Settings: pick the type, departments and Reviewing Manager.',
-          'Publish: click Submit for Review. Your manager approves it or sends it back with notes.',
+          'Click a file to preview it. Use the left and right arrow keys to move between files.',
+          'Click More Actions to Download, Rename, Move, Copy or Copy Egnyte Link.',
         ],
       },
     ],
     features: [
-      { name: 'Playbook', desc: 'The whole library in List, Tiles or Department view. Filter by department, type and status. Star a document to pin it.' },
-      { name: 'Ask AI', desc: 'Answers come only from approved SOPs and cite their sources.' },
-      { name: 'Run This SOP', desc: 'Turns a procedure into a live checklist. Open runs wait under Runs in Progress.' },
-      { name: 'Share', desc: 'Copy link, copy as text, download, or Print / Save PDF.' },
-      { name: 'Language', desc: 'Switch to a translated version where one exists.' },
-      { name: 'Revision History', desc: 'Every version, with Compare Versions to highlight what changed.' },
-      { name: 'Freshness', desc: 'When it was last verified. Owners click Still Accurate - Verify to reset the review clock.' },
-      { name: 'Learn', desc: 'Courses, lessons, quizzes with explanations, and printable certificates.' },
+      { name: 'Browse Files', desc: 'The folder browser, opening on your normal work folder. Search, sort by name, size or date, and resize columns.' },
+      { name: 'Preview', desc: 'View files in Nexus. Files locked for editing in Egnyte are marked.' },
+      { name: 'File Actions', desc: 'Open in Egnyte, Download, Rename, Move To, Copy To, Copy Egnyte Link, Edit Description and Delete.' },
+      { name: 'Property Documents', desc: 'Folders tied to each property, used by Asset Management and Construction.' },
     ],
     manager: {
-      title: 'Managers and Above',
+      title: 'Admins',
       points: [
-        'Review and approve drafts, or click Request Changes with a note. Archive old documents.',
-        'Manage hub: Action Needed, Needs Review, Sign-offs and Drafts tiles, plus Assignment Matrix, Sign-off Tracking, Insights and Activity Log.',
-        'Build a course (Manage > Training Courses > New Course): paste your material and click Generate Course, then edit and Publish.',
-        'Assign a course to people with a due date, and see every attempt and missed question in Report.',
+        'Folder Groups map teams to their Egnyte folders, so each person opens in the right place.',
+        'Admins set where new property folders and signed documents are filed.',
       ],
     },
-    tips: [
-      'Anyone can start a draft. It only goes live after a manager approves it.',
-      'Click the "?" on any Knowledge Base page for its own step-by-step help.',
-    ],
+    tips: ['If a folder is missing, you probably do not have access to it in Egnyte. Ask the folder owner.'],
   },
   {
     id: 'documents', name: 'Documents', group: 'Work', icon: 'FileText', view: 'documents',
@@ -889,6 +960,137 @@ export const DOCS = [
       ],
     },
     tips: ['Signers outside the company do not need a Nexus account. The emailed link is enough.'],
+  },
+  {
+    id: 'credential-vault', name: 'Credentials', group: 'Work', icon: 'KeyRound', view: 'credvault',
+    tagline: 'Shared company passwords, kept by their owners, opened by the people who need them.',
+    where: 'Left menu > Credentials',
+    access: 'Anyone with the Credentials grant. The grant is given on purpose per role; it is never part of a default bundle.',
+    purpose: 'Credentials stores company logins so they are never shared in chat or spreadsheets. Every credential has an owner and a department. People in that department can open it; everyone else can see that it exists and ask the owner for timed access. Critical credentials are opened only by their owners and admins. Your Personal Vault is private, locked with your own password, and nobody else - admins included - can read it.',
+    gains: [
+      'No more passwords in email, chat or sticky notes.',
+      'Every reveal, copy, share and change is logged, with who and when.',
+      'Owners decide who gets in and for how long; access ends by itself.',
+    ],
+    walkthroughs: [
+      {
+        title: 'Open a Shared Password',
+        steps: [
+          'Open Credentials and find the credential - search, pick a collection tab above the list (Owned by Me, Shared With Me, Favorites), or choose a department in the Department filter.',
+          'Click the row. The drawer shows the username, the masked password, the link and the notes.',
+          'Click Reveal. The first time in a while you confirm it is you with a code by text or email; after that the header says "Verified until" and reveals are instant.',
+          'Click Copy. Copies are logged, like reveals.',
+        ],
+      },
+      {
+        title: 'Ask for a Password You Cannot Open',
+        steps: [
+          'Rows marked Request Access belong to another department or are Critical.',
+          'Open the row, click Request Access and choose how long you need it.',
+          'The owner (or an admin) approves it on the Approvals tab. You get a bell notification, and the password shows in your drawer until the time runs out.',
+        ],
+      },
+      {
+        title: 'Share a Password You Own',
+        steps: [
+          'Open the credential and click Share in the Access section.',
+          'Pick the person and a duration. They see it in their own Credentials screen for that long.',
+          'The Access section lists who has it and until when; End Access cuts it short.',
+        ],
+      },
+      {
+        title: 'Save Your Own Password',
+        steps: [
+          'Open the Personal tab. The first time, choose a Personal Vault password.',
+          'Click Add, fill in the name, username and password, then save. No one else can see it.',
+          'The vault locks itself when the unlock window ends (Settings > Security), or when you click Lock Now.',
+        ],
+      },
+    ],
+    features: [
+      { name: 'Collections', desc: 'All Credentials, Owned by Me, Shared With Me, Favorites, Needs Attention and Trash, as tabs above the list. The Department, Type and Tier filters narrow it further.' },
+      { name: 'Drawer', desc: 'Everything about one credential: sign-in, link, notes, rotation, expiry, who has access, and its history.' },
+      { name: 'Access by Department', desc: 'Your department opens its own credentials; everyone else asks. Critical credentials are owner and admin only.' },
+      { name: 'Timed Sharing and Requests', desc: 'Owners share for 1 hour to 7 days; others request the same way. Access ends by itself.' },
+      { name: 'Rotation and Expiry Reminders', desc: 'Owners and backup owners get a bell when a rotation is due or a key is about to expire. The previous password is kept for one rotation.' },
+      { name: 'Personal Vault', desc: 'Private, encrypted, locked with your own password. Reset it with a code if you forget it.' },
+      { name: 'Import and Trash', desc: 'Load credentials from a CSV with Add Credential > Import From CSV; removed ones sit in the Trash until recovered or deleted for good.' },
+      { name: 'Activity', desc: 'Every action, searchable by person, credential, action and date.' },
+    ],
+    manager: {
+      title: 'Owners and Admins',
+      points: [
+        'The owner, the backup owner and admins edit, share, recover and hand a credential to a new owner. Set a backup owner so nothing is stranded.',
+        'When someone leaves, their credentials pass to the person who inherits their tasks, their backup role is cleared and their shared access ends.',
+        'Critical requests and requests for other departments are decided on the Approvals tab by the owner or an admin - either.',
+      ],
+    },
+    tips: [
+      'Star the credentials you use most; Favorites keeps them one click away.',
+      'Forgot your Personal Vault password? Click Unlock, then Forgot Password. You will verify with a code first.',
+    ],
+  },
+  {
+    id: 'workflows', name: 'Workflows', group: 'Work', icon: 'Workflow', view: 'workflows',
+    tagline: 'When something happens in Nexus, do something about it - without a developer.',
+    where: 'Left menu > Workflows',
+    access: 'Anyone with the Workflows grant. Viewer sees workflows and their runs; Editor builds and publishes their own; Full manages every workflow in their scope.',
+    purpose: 'Workflows are automations that cross modules: a trigger (an event such as "time off is approved", a schedule, a date such as "14 days before probation ends", or a button), optional "only if" conditions, and ordered steps - send an email or a notification, create a task or a ticket, assign a checklist, ask someone for approval, wait, or run a step for each person in a list. Every run is recorded step by step, and everything automatic - workflows, Tasks automation rules and the built-in background jobs - is listed and switched off from one place.',
+    gains: [
+      'Reminders, hand-offs and follow-ups happen the same way every time, with nobody remembering to do them.',
+      'Every workflow reads as plain English, so anyone can check what it does before it goes live.',
+      'What ran, for whom and what it changed is on the Runs tab with a link to the record.',
+    ],
+    walkthroughs: [
+      {
+        title: 'Build a Workflow',
+        steps: [
+          'Open Workflows and click New Workflow, or pick a template on the Templates tab (Use Template copies it as a draft with the blanks to fill marked).',
+          'In the When card pick the trigger: an event (grouped by module, searchable), a schedule, a date on a record, or Manual.',
+          'Add Only If conditions when the workflow should run for some records only, then add steps from the Add Step menu. Each card shows a sentence of what it does.',
+          'Click Test to run it against a recent event without sending anything; the trace shows which conditions passed and what each step would do.',
+          'Click Publish. Every publish is a new version; Versions in the right rail compares and restores them.',
+        ],
+      },
+      {
+        title: 'Turn Things Off',
+        steps: [
+          'One workflow: Pause on its row or page; Resume brings it back.',
+          'Every Tasks automation rule and every workflow in the company: the Automations tab, one switch per rule. Built-In Automations (the background jobs) are listed there too, each with what it does and the setting that controls it; a Global Admin can switch any one off.',
+          'Everything at once: Settings > Workflows > Pause All (Global Admins). Every screen in the module shows who paused it and when; events still queue for 7 days so nothing recent is lost.',
+        ],
+      },
+      {
+        title: 'See What a Workflow Did',
+        steps: [
+          'Open the Runs tab. Runs lists one row per run; Actions lists every step that changed or sent something, newest first, with the record it touched.',
+          'Filter by workflow, status or date, and click a row for the step timeline with each step\'s input and output.',
+          'A failed run can be replayed from the drawer; a run waiting on an approval can be canceled.',
+        ],
+      },
+    ],
+    features: [
+      { name: 'Overview', desc: 'What needs attention (paused by the system, failing, owner gone), the last 24 hours, recent runs, and the quick starts.' },
+      { name: 'Workflows', desc: 'Mine, My Company or Every Company; name, trigger, scope, owner, status, runs in 7 days, last run; Pause, Resume, Duplicate and Archive on each row.' },
+      { name: 'Builder', desc: 'When, Only If and Do cards that read as sentences; Settings, Test and Versions in the right rail; Describe It drafts a workflow from a sentence when AI is set up.' },
+      { name: 'Automations', desc: 'Every workflow, every Tasks automation rule with its own switch, and the built-in background jobs with what they do and the setting that controls them.' },
+      { name: 'Runs', desc: 'Runs and Actions views, filters, and a drawer with the step timeline, the event, Replay and Cancel.' },
+      { name: 'Approvals', desc: 'An Ask For Approval step lands in the Approvals screen and the bell with its options as buttons.' },
+      { name: 'Catalog', desc: 'Every trigger, field and action the app offers today, by module, with New markers.' },
+    ],
+    manager: {
+      title: 'Owners and Global Admins',
+      points: [
+        'A workflow runs as its owner: it can only do what the owner could do by hand, and a failed run always notifies the owner.',
+        'Scope is one company or every company; Full-level users and Global Admins may pause or re-own any workflow in their scope.',
+        'Settings > Workflows holds the per-company switch, the run and recipient ceilings, the weekly owner digest and the webhook allow-list.',
+      ],
+    },
+    tips: [
+      'Test before Publish is required the first time a definition changes - the trace is the fastest way to see why a condition did not match.',
+      'A step can be skipped without deleting it (the Skip toggle on its card); the run shows it as Skipped.',
+      'Hours and dates in templates come out US style (MM/DD/YYYY, 12-hour) by themselves.',
+    ],
   },
 
   // ───────────────────────────── Modules ─────────────────────────────
@@ -987,22 +1189,23 @@ export const DOCS = [
   },
   {
     id: 'operations', name: 'Operations', group: 'Modules', icon: 'Store', view: 'operations',
-    tagline: 'Storage facility figures from Cubby: occupancy, collections, units, the day\'s work and market rates.',
+    tagline: 'Storage facility figures from Cubby: occupancy, collections, pricing, rent changes and reports.',
     where: 'Left menu > Operations',
-    access: 'Supervisors and above with the Operations grant',
-    purpose: 'Operations shows how every storage facility is doing, read from Cubby. Nexus copies Cubby every 15 minutes and only reads it: payments, leases and tenant changes stay in Cubby, and every tenant name opens their record there. Pick All Facilities or one facility at the top, and a Period for the activity figures.',
+    access: 'Supervisors and above with the Operations grant. Customer Map and ECRI Management are for managers and above, or an Operations Full grant.',
+    purpose: 'Operations shows how every storage facility is doing, read from Cubby. Nexus copies Cubby every 15 minutes: payments, leases and tenant changes stay in Cubby, and every tenant name opens their record there. The bar across the top is five menus - Dashboard, Facilities, Pricing, ECRI Management and Reports - and each screen follows the one Facility box (All Facilities or one) and, where it matters, a Period.',
     gains: [
       'Occupancy, rent roll, past due and move-ins across every facility in one place.',
       'Every number and chart bar opens the list behind it.',
-      'Street rates compared with nearby competitors, with a suggested rate.',
-      'A spreadsheet of every list, plus Cubby\'s rent roll and aged receivables.',
+      'Our rates against the comp set, with a suggested rate and ranked pricing insights.',
+      'Rent changes for existing tenants, planned and tracked from draft to applied.',
+      'Reports to download, schedule by email or build yourself.',
     ],
     walkthroughs: [
       {
         title: 'Check a Facility',
         steps: [
-          'Open Operations. You land on Overview.',
-          'Click a facility at the top, or keep All Facilities.',
+          'Open Operations. You land on Dashboard > Overview.',
+          'Pick a facility in the Facility box, or keep All Facilities.',
           'Pick the Period (This Month by default) for move-ins, collections and failed payments.',
           'Click a number or a chart bar to open the list behind it.',
         ],
@@ -1010,7 +1213,7 @@ export const DOCS = [
       {
         title: 'Chase Past-Due Tenants',
         steps: [
-          'Click the Collections tab.',
+          'Open Facilities > Collections.',
           'Click a bar on Past Due by Age to list the tenants in it.',
           'Click a name to open the tenant in Cubby.',
         ],
@@ -1018,20 +1221,35 @@ export const DOCS = [
       {
         title: 'Compare Rates With the Market',
         steps: [
-          'Click Market Rates and pick one facility.',
-          'Add the competitors you track from Nearby Storage Facilities, or click Add Competitor.',
-          'Click Set Rates Page so a competitor is read every day, or use Record Rate for a rate you got by phone or drive-by.',
-          'Read the Suggested rate for each unit size, and click Write Analysis for a written summary.',
+          'Open Pricing > CMA Overview and pick one facility.',
+          'Read our street rate by unit size against the comp set - market low, median and high - and the suggested rate.',
+          'Add or change the competitors you track, or record a rate you got by phone or a drive-by, in Pricing > Comp Set & Manual Entry.',
+          'See how rates moved in Pricing > Rate History, and decide the new rates in Pricing > Review & Push.',
+        ],
+      },
+      {
+        title: 'Plan a Rent Change for Existing Tenants',
+        steps: [
+          'Open ECRI Management > Tenants: each tenant\'s rent against today\'s street rate, how long they have stayed, their last rent change and their balance.',
+          'Save a strategy in ECRI Management > Strategies and apply it to a unit type or to chosen tenants.',
+          'Follow each batch in ECRI Management > Rent Changes, from Draft to Approved, Notified and Applied. Nexus never emails a tenant: print the notice letters or use the mail-merge export.',
+        ],
+      },
+      {
+        title: 'Get a Report by Email',
+        steps: [
+          'Open Reports > Reports and find the report (search, or your favorites).',
+          'Open it to read it as a table, or download it as XLSX, PDF or CSV.',
+          'Click Schedule on its row to email it on a schedule to people you pick (once scheduled reports are switched on); Reports > Scheduled lists every schedule, with Send Now.',
         ],
       },
     ],
     features: [
-      { name: 'Overview', desc: 'Units by facility, Needs Attention, rented units over time, move-ins and move-outs, and the Facility Scorecard.' },
-      { name: 'Collections', desc: 'Past Due by Age, Tenants Past Due, Failed Payments (the last 31 days) and the past-due balance over time.' },
-      { name: 'Units & Pricing', desc: 'Unit types by empty rent, Tenants Under Street Rate (rent-increase candidates) and Off-Market Units with the reason.' },
-      { name: 'Facility Tasks', desc: 'Overlocks to place, locks to remove, open tasks and leads from Cubby, scheduled move-outs and upcoming move-ins.' },
-      { name: 'Market Rates', desc: 'Our street rate by unit size against nearby competitors: market low, median and high, where we sit, and a suggested rate (the market median moved by how full we are, held to a 10% step). Competitor rates pages are read once a day.' },
-      { name: 'Reports', desc: 'Download any list as a CSV, plus Cubby\'s Rent Roll and Aged Receivables. Follows the facility picker.' },
+      { name: 'Dashboard', desc: 'Overview (units by facility, Needs Attention, rented units over time, move-ins and move-outs, and the Facility Scorecard), Ops Budget (each site against plan and last year), Portfolio (the Daily Flash for any set of properties you pick), Site Map (the facility\'s 3D site model with Occupancy, Days Vacant, Market and Maintenance layers) and Customer Map (where each facility\'s customers live, with the trade area figures - nothing personal behind a dot).' },
+      { name: 'Facilities', desc: 'Collections (Past Due by Age, Tenants Past Due, Failed Payments in the last 31 days, the past-due balance over time), Units & Pricing (unit types by empty rent, Tenants Under Street Rate, Off-Market Units with the reason) and Facility Tasks (overlocks to place, locks to remove, open tasks and leads from Cubby, scheduled move-outs and upcoming move-ins).' },
+      { name: 'Pricing', desc: 'The CMA in four screens - CMA Overview, Comp Set & Manual Entry, Rate History, Review & Push - then Pricing Insights (ranked insights from Cubby\'s pricing, the rent roll and the market) with Competitive Pricing, Trends, Standard Rates, ECRI, Revenue at Risk and Discounts. Competitor rates come from the StorTrack feed, each competitor\'s own pricing page (read once a day) and rates people record by hand. The suggested rate is the market median moved by how full we are, held to a 10% step.' },
+      { name: 'ECRI Management', desc: 'Rent changes for existing tenants: Tenants, Strategies and Rent Changes (batches from Draft to Applied). Managers and above, or an Operations Full grant.' },
+      { name: 'Reports', desc: 'Reports (the library: open any report as a table, download XLSX, PDF or CSV), Scheduled (reports emailed on a schedule), Report Builder (your own metrics from a dataset, saved, shared and scheduled) and Quick Exports (every list on the other screens, plus Cubby\'s Rent Roll and Aged Receivables).' },
       { name: 'Find a Unit or Tenant', desc: 'The search box at the top looks across every facility.' },
       { name: 'Refresh', desc: 'Asks Cubby for a fresh copy now. The header shows when the last sync ran.' },
       { name: 'Settings', desc: 'Push to Cubby (off by default) and the Unit Rules - which unit types are mailboxes, and which records are not units at all - are Settings > Operations.' },
@@ -1039,11 +1257,14 @@ export const DOCS = [
     manager: {
       title: 'Note',
       points: [
-        'Nexus never changes Cubby. Payments, leases and tenant edits are made in Cubby.',
+        'Nexus reads Cubby; payments, leases and tenant edits are made in Cubby. Rates and rent changes go back to Cubby only when an administrator turns on Push to Cubby in Settings > Operations (off by default) - until then they are planned in Nexus and entered in Cubby by hand.',
         'If Cubby is not connected the screen says so. The Nexus team adds the Cubby API key on the server.',
       ],
     },
-    tips: ['Occupancy, rent and balances are always as of today. The Period changes only move-ins, collections and failed payments.'],
+    tips: [
+      'Occupancy, rent and balances are always as of today. The Period changes only move-ins, collections and failed payments.',
+      'Market Rates is now Pricing > CMA Overview; old links still land there.',
+    ],
   },
   {
     id: 'item-management', name: 'Item Management', group: 'Modules', icon: 'Package', view: 'inventory',
@@ -1115,37 +1336,40 @@ export const DOCS = [
   },
   {
     id: 'asset-management', name: 'Asset Management', group: 'Modules', icon: 'Home', view: 'property-asset',
-    tagline: 'The property portfolio: every property with its documents and deadlines.',
+    tagline: 'Every property, vehicle and piece of heavy equipment, with its records and deadlines.',
     where: 'Left menu > Asset Management',
-    access: 'Supervisors and above with the Asset Management grant',
-    purpose: 'Asset Management holds the company property portfolio. Each property card opens a full record: parcel and zoning details, financials, insurance, loans, equipment warranties, inspections, utilities, vendors, permits and documents. Dates that matter (policy expirations, inspections, warranty ends) are tracked so nothing lapses.',
+    access: 'Supervisors and above with the Asset Management grant. Private assets are seen only by the company officers.',
+    purpose: 'Asset Management holds the company\'s assets: properties and real estate, vehicles and heavy equipment. Each asset opens a full record - its details, its records (warranties, inspections, documents, utilities, vendors, permits, or service and odometer for a vehicle), maintenance and a timeline. Dates that matter (policy expirations, inspections, warranty ends) are tracked so nothing lapses, and every change is kept in the Activity Log.',
     gains: [
-      'Everything about a property in one record, not ten spreadsheets.',
+      'Everything about an asset in one record, not ten spreadsheets.',
       'Warning before an insurance policy, warranty or inspection lapses.',
-      'A Data Completeness score shows what is still missing.',
+      'Data Gaps shows what is still missing on each asset.',
+      'Nothing is lost: deleted assets wait in Trash, and the Activity Log keeps every change.',
     ],
     walkthroughs: [
       {
-        title: 'Open a Property',
+        title: 'Add an Asset',
         steps: [
-          'Open Asset Management. You land on Property Portfolio.',
-          'Click a property card (or switch to Map to find it by location).',
-          'Use the tabs and the "On This Page" list to jump between sections.',
+          'Open Asset Management. You land on the portfolio.',
+          'Click Add Asset. Pick the Asset Class: Property / Real Estate, Vehicle or Heavy Equipment.',
+          'Give it a name and one address line (a vehicle or a piece of equipment has a home base instead), pick its type and stage, and click Create Asset. Nexus splits the city, state and ZIP out of the address for you.',
+          'Fill in the rest on the asset itself - the Data Gaps card on its Overview lists what is still empty. Many at once? Use Import From a Spreadsheet in the portfolio\'s more menu.',
         ],
       },
       {
-        title: 'Update a Section',
+        title: 'Open and Update an Asset',
         steps: [
-          'Click Edit on the section (for example Insurance).',
-          'Change the fields and upload the document if there is one.',
-          'Click Save Changes. Leaving with unsaved changes asks first.',
+          'Click an asset in the portfolio (Tiles, List or the Map), or search for it.',
+          'Use the strip across the top: Overview, Maintenance, Records and Timeline for a property; Overview and Records for a vehicle or equipment. Under Records, pick the collection (for example Warranties or Inspections).',
+          'On the Overview, the Details card holds the asset\'s fields: change them and click Save Changes (Cancel drops them). Rows in Records are added and changed in place.',
+          'Only what you changed is saved. If someone else changed the same row first, Nexus keeps theirs, reloads and says so - your version is kept on this device for the session.',
         ],
       },
       {
         title: 'Raise Tickets for a Property',
         steps: [
           'Open the property and go to Maintenance.',
-          'Click Create New Ticket for one issue, or Start Walkthrough to log several line by line. The property is filled in and cannot be changed, and only building and site teams are offered.',
+          'Click Create New Ticket for one issue, or Batch Create (in the more menu) to log several line by line. The property is filled in and cannot be changed, and only building and site teams are offered.',
           'Open Tickets lists everything still being worked at the property, including tickets raised from Help Center or Tickets for it. Closed Tickets is its maintenance history.',
           'The property stays fixed on those tickets - in Help Center and Tickets too.',
         ],
@@ -1160,30 +1384,40 @@ export const DOCS = [
           'Recurring Services shows each service: the original ticket and every ticket it opened underneath, with date and cost and a total. Edit the schedule, Stop it, or Open Ticket Now to start early.',
         ],
       },
+      {
+        title: 'Delete or Restore an Asset',
+        steps: [
+          'Deleting a live asset moves it to Trash - nothing is erased.',
+          'Open Trash from the portfolio\'s more menu to restore it.',
+          'Delete Forever works only from Trash. The Activity Log keeps its history either way.',
+        ],
+      },
     ],
     features: [
-      { name: 'Portfolio', desc: 'Property cards with type, status and key numbers. Filter by category and view on a map.' },
-      { name: 'Property Record', desc: 'Parcel and zoning, units, financials (NOI, cap rate, IRR), loans, insurance and title.' },
-      { name: 'Warranties', desc: 'Equipment warranties with Current, Due Soon, Expired and Lapsed status.' },
-      { name: 'Inspections', desc: 'Inspection types, last completed and next due dates.' },
-      { name: 'Utilities & Vendors', desc: 'Providers, account numbers, autopay, contacts and service records.' },
-      { name: 'Documents', desc: 'As-built plans and other documents, linked to their Egnyte location.' },
+      { name: 'Portfolio', desc: 'Every asset you may see, as Tiles, a List or a Map, filtered by category, type, stage and region. The Needs Attention band on top counts Need Data and Flagged, and its chips open those lists in place.' },
+      { name: 'Overview', desc: 'The asset\'s health in three cards - Needs Attention, Data Gaps and Recent Activity - then Details, its full spec sheet (parcel and zoning, units, financials, loans, insurance and title for a property; make, model and home base for a vehicle or equipment).' },
+      { name: 'Records', desc: 'A property\'s Warranties, Inspections, Documents, Utilities, AHJ (Authority Having Jurisdiction), Vendors and Permits; a vehicle\'s or equipment\'s Service, Odometer and Documents - one segment each. Warranties show Current, Due Soon, Expired or Lapsed.' },
+      { name: 'Maintenance', desc: 'Properties: Needs Action (resolved tickets waiting for the asset manager), Open Tickets, Closed Tickets and Recurring Services for every ticket raised for the property and its parcels, the Maintenance Log with Total Spend, and Recommended Maintenance. With units set up (Set Up Units), the log can be scoped to one unit or Common Areas. A ticket closed as Duplicate or Won\'t Fix is listed under Closed Without Work.' },
+      { name: 'Timeline', desc: 'A property\'s milestones and their status, searchable on their own.' },
+      { name: 'Private', desc: 'Mark Private (company officers only) hides an asset from everyone but the officers; Make Public shows it again.' },
+      { name: 'Files', desc: 'Photos and documents are uploaded straight to private storage and open through a signed link; paste an image with Ctrl+V.' },
       { name: 'Site Model', desc: 'Storage properties with a model show a to-scale 3D plan with every unit, marked Leased, Vacant or Out of Service from Cubby. Find a unit, switch between Satellite and Illustrated, use See Inside and the level buttons; editors click Add Pin to mark maintenance, inspections or notes. Customer Unit Finder opens the public page customers use to find their unit.' },
-      { name: 'Flag for Review', desc: 'Mark a record for a colleague to check.' },
-      { name: 'Export & Trash', desc: 'Export data, and restore anything deleted from Trash.' },
-      { name: 'Maintenance Tickets', desc: 'Maintenance has Needs Action (resolved tickets waiting for the asset manager), Open Tickets, Closed Tickets and Recurring Services for every ticket raised for the property and its parcels. A ticket the asset manager adds to the maintenance record joins the Maintenance Log with its vendor and cost counted in Total Spend; one closed as Duplicate or Won\'t Fix is listed under Closed Without Work. Export History CSV and the asset\'s Export CSV include them.' },
+      { name: 'Flag for Review', desc: 'Mark a field for a colleague to check; flagged fields gather under Flagged on the portfolio.' },
+      { name: 'Activity Log and Trash', desc: 'The portfolio\'s more menu: the Activity Log (every change, with Go to to jump straight to it) and Trash (restore, or Delete Forever). Export as CSV or PDF on an asset, Duplicate to copy one.' },
       { name: 'Follow a Ticket', desc: 'Asset Management editors and the property\'s asset manager can Follow a ticket to open it, reply and hear about updates. Viewers see a summary only.' },
     ],
     manager: {
       title: 'Asset Managers',
       points: [
         'Each property has a PM / Asset Manager who gets its reminders, and one bell (and email) for every new ticket or batch at the property.',
-        'Link a property to another (for example, a parcel to its project).',
+        'Link a property to another (for example, a parcel to its project) under Advanced when you add it, or on the asset.',
+        'Equipment and vehicles pair with Item Management for serials and warranties - there is one record, not two.',
       ],
     },
     tips: [
       'The Warranties Expiring widget on the Dashboard counts warranties ending within 60 days.',
       'The Customer Unit Finder link needs no sign-in, so it can be shared with customers.',
+      'Every open asset has its own address, so a copied link opens the same asset and tab.',
     ],
   },
   {
@@ -1310,53 +1544,6 @@ export const DOCS = [
     ],
   },
   {
-    id: 'reimbursements', name: 'Reimbursements', group: 'Modules', icon: 'Receipt', view: 'myhr',
-    tagline: 'Get paid back for company purchases you paid for yourself.',
-    where: 'Workday > Reimbursements (the tile beside Ask HR). People > a person > Reimbursements for their history.',
-    access: 'Everyone files. Whoever is picked approves (your manager unless you pick someone else). HR approves and pays, the same people who handle time sheets: your company\'s HR contact, an administrator or a Full HR grant.',
-    purpose: 'When you pay for something on behalf of the company, file it with the receipt. The person you pick approves it, HR approves it and pays you back, and every step is recorded on the claim.',
-    gains: [
-      'One place for receipts - no more emailing photos around.',
-      'You always know where your claim is and who has it.',
-      'Managers and HR can open any past claim, with its receipts and history.',
-    ],
-    walkthroughs: [
-      {
-        title: 'File a Reimbursement',
-        steps: [
-          'Open Workday and click Reimbursements, beside Ask HR.',
-          'Click + New. Say what you bought, the category (pick Other and say what it was if none fit), the amount and its currency, when and where, and what it was for.',
-          'Pick who approves it, or leave My Manager.',
-          'Attach the receipts. You can paste a screenshot with Ctrl+V. No receipt yet? Send it anyway and add the receipt once you have bought it.',
-          'Click Send for Approval. Your approver gets a notification.',
-        ],
-      },
-      {
-        title: 'Approve One',
-        steps: [
-          'Open Workday > Reimbursements and pick To Approve.',
-          'Open the receipts and check the details.',
-          'Approve it, or add a note and Send Back (the employee fixes it and resubmits) or Reject it.',
-        ],
-      },
-      {
-        title: 'Approve and Pay (HR)',
-        steps: [
-          'Open Workday > Reimbursements and click Manage. To Approve holds the claims their approver approved.',
-          'Check the receipts and Approve it - it moves to To Pay. Send Back and Reject work as above.',
-          'Once the money has gone out, click Mark Paid and enter the date, the method and a reference.',
-        ],
-      },
-    ],
-    features: [
-      { name: 'Reimbursements (Workday)', desc: 'File one and follow it; fix and resubmit one that was sent back; add receipts later.' },
-      { name: 'To Approve', desc: 'The claims waiting on you as their approver.' },
-      { name: 'Manage (HR)', desc: 'To Approve, To Pay and Paid, for the companies you are HR for.' },
-      { name: 'Reimbursements (People profile)', desc: 'Every claim one person has filed, with receipts and the history.' },
-    ],
-    tips: ['A claim is never deleted. Rejected and canceled claims stay on the record.', 'Receipts open through a short private link, only for the employee, the approver, their manager and HR.'],
-  },
-  {
     id: 'investor-relations', name: 'Investor Relations', group: 'Modules', icon: 'Landmark', view: 'investor-relations',
     tagline: 'Deals, investors, capital calls, distributions and investor documents.',
     where: 'Left menu > Investor Relations',
@@ -1400,14 +1587,14 @@ export const DOCS = [
   },
   {
     id: 'people', name: 'People', group: 'Modules', icon: 'Users', view: 'hr',
-    tagline: 'HR for the company: employee records, hiring, org chart, leave and time.',
+    tagline: 'HR for the company: employee records, hiring, org chart, time and time off, checklists, analytics, exits and performance.',
     where: 'Left menu > People',
     access: 'HR and managers with the People grant. Pay and bank details need a separate grant.',
-    purpose: 'People is the HR side of Nexus. It holds every employee\'s record (job, manager, contact, documents), runs hiring from candidate to onboarding, draws the org chart, approves leave, and manages team time. This is also where people are added to Nexus and given a job role.',
+    purpose: 'People is the HR side of Nexus. It holds every employee\'s record (job, manager, contact, documents), runs hiring from candidate to onboarding, draws the org chart, approves time off and time sheets, runs onboarding and offboarding checklists, tracks probation, and holds People Analytics, Exits and Performance. This is also where people are added to Nexus and given a job role. Companies, departments, locations and holidays are set up in Settings.',
     gains: [
       'Every employee record in one place, always up to date.',
       'Hiring pipeline from screening to hired, with offer letters sent through Nexus Sign.',
-      'Leave and time approvals in one screen.',
+      'Time off, punch fixes and time sheet approvals in People > Time.',
       'An onboarding and offboarding checklist for every person, with an owner and a due date on each step.',
     ],
     shot: 'people',
@@ -1432,7 +1619,7 @@ export const DOCS = [
           "After the interview the candidate moves to Decision by themselves (End Interview, or Nexus notices the Teams meeting has ended and finds its transcript) - or click Move To Decision. Everyone who interviewed them and the head of the role's department get ONE task, Decide on <name>, and a bell. Each answers with a comment that starts with Yes or No and says why (for example \"Yes - strong on Intacct\"). Their answers show on the candidate's Overview under Interview Feedback, with who has not answered yet; every comment also goes onto the notes. The department head's Yes or No is the final call: it closes the task and tells HR.",
           "Then click Make Offer (green): Make An Offer opens (see Make an Offer below). Making an offer before the department head has said Yes asks first. The offer letter goes first; when the company and the candidate have both signed it, they are hired and their hiring packet goes out to them by itself. Reject is the red button.",
           'Only for an offer signed on paper: Mark Hired By Hand, which asks why. Nothing is sent or filed that way.',
-          "Screening: when a candidate is added, the head of the role's department (the department head set under People > Companies > Departments, else the role's default manager) and everyone above them in the reporting line get a bell and ONE task, Screen <name>, assigned to all of them. It is due the business day before the interview - the expected date at first, then the interview once it is booked or moved. The resume is attached to the task, and every comment they write on the task goes straight onto the candidate's notes - so a manager needs no Hiring access. Marking the task complete means they have screened them; rejecting or hiring the candidate closes it. The company's HR contact is on the task too, so HR and the department head screen together.",
+          "Screening: when a candidate is added, the head of the role's department (the department head set under Settings > Companies > the company > Departments, else the role's default manager) and everyone above them in the reporting line get a bell and ONE task, Screen <name>, assigned to all of them. It is due the business day before the interview - the expected date at first, then the interview once it is booked or moved. The resume is attached to the task, and every comment they write on the task goes straight onto the candidate's notes - so a manager needs no Hiring access. Marking the task complete means they have screened them; rejecting or hiring the candidate closes it. The company's HR contact is on the task too, so HR and the department head screen together.",
           "Notes And History on the candidate is one list, newest first: every note, every move with its note, and every interview that finished with its score - each with who and when. Anyone who can see the candidate can add a note; a note still in the box goes along with the next move you make from the card. The Interview Room shows the same notes at the top, so the interviewer reads everyone's screening notes first.",
         ],
       },
@@ -1441,7 +1628,7 @@ export const DOCS = [
         steps: [
           'From Screening, click Schedule Interview: pick the date, time, who interviews, and the questionnaire (the role\'s own, or General). The interviewer list shows the role\'s department first, its lead at the top, each person with their job title. The candidate and the interviewers get a Teams invite.',
           'Interview already happened, or not needed? Skip Interview sits at the bottom left of Schedule Interview. It asks first, takes an optional note for why, and moves the candidate straight to Decision. The notes show "Interview skipped", who skipped it and the note, and Make Offer does not warn about a missing interview.',
-          "Questionnaires (Settings > Hiring > Interview Questionnaires) are written under the three things an interview checks: Character, Competence and Availability. The Interview Room shows the questions grouped the same way, with everyone's notes so far at the top. The transcript and scoring tools stay folded under Transcript And Scoring until the interview is over.",
+          "Questionnaires (Settings > Hiring & Onboarding > Interview Questionnaires) are written under the three things an interview checks: Character, Competence and Availability. The Interview Room shows the questions grouped the same way, with everyone's notes so far at the top. The transcript and scoring tools stay folded under Transcript And Scoring until the interview is over.",
           'The Teams meeting is set to record and transcribe itself from the moment it starts - nobody needs to press Record. The round shows "Auto-recording on"; if Teams refused (a permission is missing), it says so and the interviewer records by hand.',
           'When they join, open the Interview Room: the questions are on screen, Start Interview marks it live, and you type what you want. End Interview hands the rest to Nexus and moves them to Decision. If nobody clicks End Interview, Nexus looks for the Teams transcript 15 minutes after the meeting was due to end; finding one completes the round. With no transcript (a no-show), the round stays as it was and says so.',
           'If Teams refuses Nexus (a permission or the Teams access policy is missing), the round says exactly which one instead of waiting.',
@@ -1452,10 +1639,10 @@ export const DOCS = [
       {
         title: 'Make an Offer',
         steps: [
-          "Open the candidate at the Decision stage and click Make Offer. Make An Offer opens. If no offer letter is set up for that company yet, Nexus says so and links to Settings > Hiring > Hiring Documents > Offer Letter - the offer comes first.",
+          "Open the candidate at the Decision stage and click Make Offer. Make An Offer opens. If no offer letter is set up for that company yet, Nexus says so and links to Settings > Hiring & Onboarding > Hiring Documents > Offer Letter - the offer comes first.",
           "Follow it on the Offer & Documents tab: Offer Progress shows each step with its time - prepared, checked by HR, signed by the candidate, hiring packet sent. Send Hiring Packet stays greyed out until the candidate has signed; the packet then goes out by itself.",
           "1. Who you are hiring: pick Employee (then Full-Time, Part-Time or Intern) or Contractor, and where they work. Nexus never guesses this - the same role can be either - and it decides which offer letter goes. A contractor's letter never says employment.",
-          "Nexus shows the offer letter it picked for that kind of hire (for example US Employee Offer, or India Contractor Offer) and the hiring packet that will follow it. If none is set up, it says so - add one under Settings > Hiring > Hiring Documents > Offer Letter.",
+          "Nexus shows the offer letter it picked for that kind of hire (for example US Employee Offer, or India Contractor Offer) and the hiring packet that will follow it. If none is set up, it says so - add one under Settings > Hiring & Onboarding > Hiring Documents > Offer Letter.",
           "2. The offer: their legal name, the start date, when the offer expires, the supervisor and the pay (Pay & Benefits access needed; a contractor's pay is their fee). The form asks only what the letter and the packet print - their address, the work location, the work hours - and every question the documents mark HR At The Offer (a probation period, a bonus). Answer once: the hiring packet reuses all of it.",
           "Supervisor is who the hire reports to day to day (hover the i for Reports To); they become the manager on the profile and the letter prints them. Offer Comes From is the Head of HR (the company's HR department head, else its HR contact) unless you pick the Department Head - the head of the role's department, greyed out when that department has none. The letter closes with that person's name and title, and the offer email comes from them.",
           "Click Create Offer Letter. The candidate moves to Offer and the filled-in letter opens for review. The verifier checks it and clicks Verify And Send - the candidate gets an email and signs with no Nexus login. Nobody signs an offer for the company: the candidate is its only signer (Neil, Oct 22 2026).",
@@ -1468,7 +1655,7 @@ export const DOCS = [
         steps: [
           "Write the offer letter once in Documents > Templates with the category Offer Letter - From Word File is the quickest. One letter per kind of hire: a US employee, a US contractor, an India contractor...",
           "Mark each blank: Nexus Fills It (name, company, role, start date, pay, work location, hired as), HR At The Offer (only HR knows it, it changes per hire), or Same For Everyone. The letter needs a signature spot for the Employee only - an offer is never signed for the company, so a Company signature spot in it prints nothing.",
-          "In Settings > Hiring > Hiring Documents open the Offer Letter tab, click Add Packet, set Works In (the country, and for the US the state) and Hired As (employees or contractors), then pick the letter. Nexus picks the letter from where the hire works and how they are hired, as HR answers on Make An Offer: the state's letter before the country's, employees or contractors before both, the company's own before the one for every company. A letter for another country or state is never sent.",
+          "In Settings > Hiring & Onboarding > Hiring Documents open the Offer Letter tab, click Add Packet, set Works In (the country, and for the US the state) and Hired As (employees or contractors), then pick the letter. Nexus picks the letter from where the hire works and how they are hired, as HR answers on Make An Offer: the state's letter before the country's, employees or contractors before both, the company's own before the one for every company. A letter for another country or state is never sent.",
           "The Person is the only signer of an offer letter. HR still checks it (Verify And Send) before it goes - that is a review, not a signature.",
         ],
       },
@@ -1476,14 +1663,14 @@ export const DOCS = [
         title: 'Set Up a Hiring Packet',
         steps: [
           'First write each document once in Documents > Templates - the offer letter, the NDA, each addendum, a Job Description per role - each its own template. Use variables for whatever changes per person ({{first_name}}, {{job_title}}, {{salary}}, {{start_date}}, {{work_schedule}}...), insert a Signature Block wherever someone signs (Company, Employee...), and click Publish.',
-          'Open Settings > Hiring > Hiring Documents (or Hiring Setup on the Hiring board). Pick the company, or leave All Companies to add one that every company shares. Under Hiring Packet click Add Packet.',
+          'Open Settings > Hiring & Onboarding > Hiring Documents (or Hiring Setup on the Hiring board). Pick the company, or leave All Companies to add one that every company shares. Under Hiring Packet click Add Packet.',
           'Set Works In (country, and for the US the state) and Hired As first - one packet per place and kind of hire, for example California Employee, California Contractor, India Contractor; add Texas when you start hiring there. A hiring packet must say where it applies, and two packets for the same place and kind of hire are refused. The name fills itself from the place until you type one. The same packet goes to every role hired there: each person\'s role, job description and role documents are filled in for them. Only For One Role is for the rare role that truly needs different paperwork - and it still applies only to its place.',
           'To start from a packet you already have, pick it in Copy From at the top of a new packet (the list shows each packet\'s company, type, role, who it is for and country), or click Duplicate on its row in the list. The new packet starts with the same documents, signing order, verifier, Details Form, team and role documents and Egnyte subfolder; change the Company, Role, Hired As or Works In, then save. Sign Once signatures are not copied - the company signs the new packet once.',
           'Add the documents from the template list, in order. Preview shows each one filled with a sample person; Open In Documents takes you to the wording. A template must be published to be used, and the packet always prints its published version - edit and Publish Changes in Documents, and every packet that has not been sent yet updates.',
           'Check the Signing Order. Each signer named by the signature blocks in the documents gets a step, set by ROLE: HR, Manager, Authorized Signatory, IT, Accounting... - the same roles the checklists use - with who holds it today shown beside it. The new hire signs first; the company countersigns after them - the company never signs before the person (Neil, Oct 22 2026). A step can also Approve or just Get A Copy.',
           'Pick who verifies the packet (normally HR), the letterhead for templates that need one, write the welcome note and set the Egnyte subfolder (blank uses Hiring Documents). Click Save Packet - the editor stays open on Ready To Send.',
           'Ready To Send is the packet\'s checklist, at the top of the editor and as a chip in the Packets list (Ready To Send, 2 To Fix, 1 Warning): every template published, the company has an HR contact (and a signatory if one signs), the verifier can see pay, the company has signed once, the pay prints in a document, every variable has something that fills it, and no fill-in blank is left (a ____ line, an empty [   ] or a "Label:" line with nothing after it would print empty - the warning names the document). Each line that is not done has its fix right there - pick the HR contact, Sign Once, Add To Details Form, Open Template. Start Hiring Packet shows the same problems before you generate anything.',
-          'A letter that prints {{signatory}} must be signed by the Authorized Signatory (set the person in People > Companies); a letter HR signs should print {{signer.company}} instead, which always names whoever actually signs.',
+          'A letter that prints {{signatory}} must be signed by the Authorized Signatory (set the person in Settings > Companies > the company); a letter HR signs should print {{signer.company}} instead, which always names whoever actually signs.',
           'Signs Once: tick it on a company step (HR, Authorized Signatory...) and the company signs the packet only once. Save the packet; whoever holds that role clicks Sign Once (in the packet, or on the first packet\'s review), adopts their signature and enters the one-time code emailed to them. From then on that signature goes on every packet by itself, the moment the person has signed - never before, and never at send. If someone else becomes the company\'s HR contact (or signatory), the old signature stops counting and the new person signs once before the next packet can go.',
           'Details Form (hiring packets): name, phone, address and emergency contact are always asked. Add any other field the documents need - any country: an ID number, date of birth, bank details. Each field has a label, a type (text, number, date, email, phone, yes / no, dropdown), and can be Required, Sensitive (only people with Pay & Benefits access see it, and the documents that print it) or Last 4 Only (only the last 4 characters are kept and printed, e.g. XXXX 1234). Section headings group them. When the person is hired, only their Personal Details reach their People profile: name, phone, address, emergency contact, and date of birth, gender and a national ID (Aadhaar, SSN). A bank account number with its holder, IFSC / routing number, bank name and account type becomes a bank account on Pay & Benefits. Fields are matched by their variable name or label. A Sensitive ID stays off Personal Details. A PAN (India) answer goes to the Compliance tab, where it prints on a contractor\'s invoices. Every other answer (nationality...) stays on the packet and in the signed documents, never on the profile.',
           'Each field is a variable: "PAN Number" fills {{pan_number}} - the editor shows it beside the field. Put the same variable in the template. When a document prints a variable nothing fills yet, the editor lists it with a button to add it to the form. Something the same for every hire (a client\'s name) does not belong on the form: give the variable a Default Value in the template instead.',
@@ -1504,7 +1691,7 @@ export const DOCS = [
           'It also lists every signature line with who signs it - The Person or The Company. The Date and Name lines under a signature are drawn by the signature spot itself, so they go.',
           "HR At The Offer is a fifth choice: something only HR knows that changes per hire (a probation period, a bonus) - it is asked on Make An Offer. The New Hire (Intake Form) blanks have a Private tick (ID and account numbers are ticked for you): only Pay & Benefits sees the answer. HR At The Offer blanks have a This Is Pay tick.",
           'Click Create And Publish. The template is published (v1) with every variable and signature spot in place. Preview With Sample Person shows it filled in; Open In Editor if you want to change any wording.',
-          'Add it to a packet in Settings > Hiring > Hiring Documents. The packet\'s Ready To Send checklist offers to put every The New Hire (Intake Form) field on its Details Form in one click, and warns if anything is still missing.',
+          'Add it to a packet in Settings > Hiring & Onboarding > Hiring Documents. The packet\'s Ready To Send checklist offers to put every The New Hire (Intake Form) field on its Details Form in one click, and warns if anything is still missing.',
           'Splitting a big Word file: if parts of it are shared by many roles (an agreement, an NDA) and one part is per role (a scope of work), save them as separate Word files first and make a template from each - each role\'s packet then reuses the shared ones.',
           'Text written with Markdown bold - **Term** - prints in bold, never with the asterisks: in a .txt or .md import, when a document opens in the editor, and in every PDF and Word file Nexus makes (hiring packets included). A single or spaced-out asterisk (5 * 3) stays as written.',
         ],
@@ -1549,14 +1736,14 @@ export const DOCS = [
       {
         title: "Promote or Change Someone's Role",
         steps: [
-          'Set up the letter once in Settings > Hiring > Hiring Documents under Promotion Letter: Add Packet, upload the letter PDF (or type it), place the signature boxes for the employee and the manager (employee first), and save. A promotion letter is always countersigned: the employee signs, then their manager (or HR) - a letter with only the employee\'s signature box is not accepted. A packet can be for every role or for particular roles.',
+          'Set up the letter once in Settings > Hiring & Onboarding > Hiring Documents under Promotion Letter: Add Packet, upload the letter PDF (or type it), place the signature boxes for the employee and the manager (employee first), and save. A promotion letter is always countersigned: the employee signs, then their manager (or HR) - a letter with only the employee\'s signature box is not accepted. A packet can be for every role or for particular roles.',
           'Only HR (People editors who are not limited to their own team), IT Admins and Global Admins can change a role or promote someone - managers do not see Change Role or Promote; a manager asks HR. There is no approval step.',
           'In People: open the person, click Change Role and choose Role Change Without Promotion. Pick the new role, write the reason (required), and click Change Role. It takes effect right away. Their manager and the employee get a bell, and the manager sees the reason. Your own role is changed by someone else in HR or a Global Admin.',
-          'In Settings > Access: pick the person and click Change Role. There is no promotion here. Pick the new role, write the reason (required), and click Change Role. It takes effect right away, the same as in People.',
-          'In Settings > Roles (or a company\'s Roles), clicking Assign on a role and picking someone who already holds another role is a role change too: write the Reason For The Change (one reason for everyone picked; it is shown on their Role History) and click Assign. Someone with no role yet is assigned at once.',
+          'In Settings > People & Access: pick the person and click Change Role. There is no promotion here. Pick the new role, write the reason (required), and click Change Role. It takes effect right away, the same as in People.',
+          'In Settings > People & Access (with a company picked, its Roles), clicking Assign on a role and picking someone who already holds another role is a role change too: write the Reason For The Change (one reason for everyone picked; it is shown on their Role History) and click Assign. Someone with no role yet is assigned at once.',
           'Removing someone from a role there (the X next to their name) asks for the reason too, and logs it on their Role History as a change to No role. A role is never changed by adding or removing people as group members - Access Groups refuse job roles.',
           "A role change request sent for approval before 10/22/2026 and still waiting shows on the person's Role tab (and as an orange hourglass next to their name in the People list). HR, an IT Admin or a Global Admin approves, declines or cancels it there; a change made meanwhile cancels it. No new requests can be sent.",
-          "Every change is logged under Role History on the person's Role tab in People (and their Access tab in Settings > Access): when, from what to what, the reason, who raised it and who approved it - or, for a promotion, who signed.",
+          "Every change is logged under Role History on the person's Role tab in People (and their Access tab in Settings > People & Access): when, from what to what, the reason, who raised it and who approved it - or, for a promotion, who signed.",
           'For a promotion, choose Promotion there, or click Promote on the profile.',
           "Pick the new role, the title in the letter, the effective date (it can be in the past), their new responsibilities, their new pay (in any currency) and the reason (required - it is kept on their Role History), then click Review Letter.",
           'Check the change, the signing order and the Egnyte folder. Any time sheet already signed from that date is listed - it is flagged for review, not repriced.',
@@ -1568,7 +1755,7 @@ export const DOCS = [
       {
         title: 'Offboard Someone',
         steps: [
-          "Set up the separation package once in Settings > Hiring > Hiring Documents under Separation Package: Add Packet, upload the documents, place the signature boxes (the company first, the employee last), and save.",
+          "Set up the separation package once in Settings > Hiring & Onboarding > Hiring Documents under Separation Package: Add Packet, upload the documents, place the signature boxes (the company first, the employee last), and save.",
           'Open the person in People and click Offboard.',
           'Enter their last day and why they are leaving: Voluntary Resignation, Job Abandonment (they quit without notice and stopped showing up), Termination, End Of Contract, Retirement or Death. Choose what happens to their mailbox, who gets their tasks (blank = their supervisor), and whether to export their mailbox and start the offboarding checklist. The mailbox export is only started here; once it is ready, Download .zip is on their Documents tab.',
           'Click Review. If the last day is today, their access ends as soon as you confirm and the paperwork goes to their personal email. If it is later, the paperwork goes to their work email; they keep their access through their last day and Nexus marks them Left the morning after by itself.',
@@ -1578,10 +1765,11 @@ export const DOCS = [
         ],
       },
       {
-        title: 'Approve Leave',
+        title: 'Approve Time Off',
         steps: [
-          'Click the Leave tab (or the bell alert).',
-          'Open the request and click Approve or Reject.',
+          'Open People > Time and click Time Off (or the bell alert, or Approvals in the left menu).',
+          'Open the request and click Approve or Reject. The Team Leave Calendar above the list shows who else is out that month.',
+          'If the company has Second Approval By HR on (Settings > Time & Pay > Time-Off Approval), your approval sends it to HR, and the employee sees Awaiting HR Approval until HR decides.',
         ],
       },
       {
@@ -1600,7 +1788,7 @@ export const DOCS = [
         steps: [
           'Administrators: give the person the Manager tier and the People grant (through their job role or a group). Nothing else to switch on.',
           'They see only the people below them in the reporting line - their direct reports and everyone who reports to those people - set by Reports To on each profile.',
-          "In People they get the team's list and five read-only profile tabs: Overview, Role, Assets, Work Mode and Work Logs. Hiring, Org Chart, Leave, Checklists, Add Person, documents and compliance are hidden.",
+          "In People they get the team's list and five read-only profile tabs: Overview, Role, Assets, Work Mode and Work Logs. Hiring, Org Chart, Checklists, Analytics, Exits, Performance, Add Person, documents and compliance are hidden.",
           "For their DIRECT reports (Reports To is the manager) there are also a read-only Pay & Benefits tab (base pay, pay history, benefits and deductions, and paystubs to open - no Edit, no uploads, and no bank accounts) and a Reimbursements tab with the claims they filed. People further down the chain do not show them.",
           "In Time they see the team's hours, time sheets (Payroll), the Action Log (punch requests and missing punches) and time off - never pay or wage figures, and no payroll files. They can fix their team's time (add a missing punch, correct a time, decide punch requests) except while a time sheet is back with the employee or finalized. Adding a missing punch, they tick Clock In, Clock Out or both - an open shift today starts with Clock Out unticked, and a punch can never be in the future. Changing hours they already approved sends the time sheet back to them to approve again.",
           'HR staff who need everyone should be Global Admins (administrator and up), which is never limited.',
@@ -1648,16 +1836,61 @@ export const DOCS = [
           'Write the Reason, click Preview to see what will be written, then add it. Undo takes the whole batch back.',
         ],
       },
+      {
+        title: 'Decide a Probation',
+        steps: [
+          'New hires are tracked from their start date for the probation length (Settings > Hiring & Onboarding > Probation, or the person\'s own). People already past their window when tracking began are not tracked, and contractors, externals and guests never are.',
+          'A Probation Ending or Probation Overdue chip shows on the person in People. Open them; the Probation card is on their Overview.',
+          'A manager clicks Recommend and picks Confirm, Extend or End Employment with a reason - it is a recommendation, sent to HR. HR (the company\'s HR contact, an administrator or a Full People grant) clicks Review Recommendation or Decide.',
+          'Confirm Employment and Extend Probation (with a New End Date) send a letter through Nexus Sign; the employee is its only signer. End Employment opens the normal Offboard flow.',
+          'A probation past its end with no decision and no recommendation waiting becomes Passed Probation by itself (HR can still Send Letter). HR can also Remove From Probation - nothing restarts it - or Start A New Probation for a new role.',
+        ],
+      },
+      {
+        title: 'Ask for a Salary Advance for Someone',
+        steps: [
+          'Nobody asks for their own advance, and it is not in Workday. Open the person\'s Time Sheet in People > Time - you must be their direct manager, or HR for them.',
+          'In Salary Advance, click Ask For A Salary Advance (or Grant A Salary Advance if you are HR with the Pay & Benefits grant). Enter the amount, Repay Over (Pay Periods) and What It Is For.',
+          'A manager\'s or HR\'s request goes to HR with the pay grant (Send To HR), who approves or declines it. A grant is approved at once.',
+          'HR clicks Mark Paid Out with the date and method once the money has gone out. Each repayment is a Salary Advance Repayment line on the person\'s Time Sheet; HR can move an installment or Change Schedule. Whoever asked can Cancel Request while it waits.',
+        ],
+      },
+      {
+        title: 'Decide Extra Time (India Contractors)',
+        steps: [
+          'An India contractor on the India Contractor Policy claims Extra Time on a day of their Time Sheet (Claim Extra Time, with What Was the Work).',
+          'HR - the company\'s HR contact, else the Global Admins - opens People > Time > Extra Time. The claims waiting are listed oldest first.',
+          'Approve all or fewer of the hours, or Decline with a reason. Nobody decides their own claim, and the month\'s Time Sheet cannot be approved while a claim of that month is pending.',
+        ],
+      },
+      {
+        title: 'Run a Review Cycle',
+        steps: [
+          'Open People > Performance > Review Cycles and click New Review Cycle: the company, who is in it (departments, employment types), the deadlines and the questions. Click Create Cycle.',
+          'Click Launch. Everyone in it gets their Self Review in Workday > Performance.',
+          'Each review moves Self Review, then Manager Review, then HR Finalize, then Shared With Employee - the employee signs it in Nexus Sign as its only signer - then Complete.',
+          'The cycle\'s dashboard counts each stage and who is overdue; Nudge reminds whoever it waits on. Close Cycle when it is done.',
+        ],
+      },
+      {
+        title: 'Close an Exit',
+        steps: [
+          'Open People > Exits. Exits In Progress lists everyone leaving.',
+          'Open one for their final settlement statement: last day, the Final Time Sheet, Leave Balances, Approved Reimbursements Not Yet Paid, the Salary Advance To Recover, Company Items and the Offboarding Checklist. Amounts need the Pay & Benefits grant.',
+          'Click Mark Reviewed, then Generate PDF - it is kept in their documents and filed to Egnyte. Then Close Exit.',
+          'The statement is information for payroll - Nexus does not run the final pay. Leave is use it or lose it and shows Not Paid Out (Company Policy), except where the law requires a payout (California vacation).',
+        ],
+      },
     ],
     features: [
       { name: 'People', desc: 'The directory of every employee and contractor, with filters by company, department and status. Two tabs: Active, and Inactive for anyone marked Left or Inactive - a status change moves them there with their full record; Remove from Nexus is only for records that should not exist. The Overview shows the whole personal record, current and permanent address included.' },
       { name: 'Employee Record', desc: 'Job, reporting line, contact, emergency contact, documents with expiry dates, and history. The Compliance tab (HR only) holds right-to-work details and, for India, the PAN - shown masked, printed on a contractor\'s invoices. A contractor\'s Next Invoice Number is set once under Contractor Engagement; each invoice Nexus sends then counts up from it, and Invoice Description is the service line it prints. Reports To can be a Nexus person or an External User (listed in their own group) - a contractor or client-side lead someone answers to. Backup Manager covers the person when their manager is out and has the same rights over them as the manager: time sheets, punches, time off and approvals. It covers that person only - the people who report to them have backups of their own. Leave it on Default and it is the manager of their manager, or the HR contact of their company when there is none.' },
       { name: 'Office & Contact', desc: 'Office, mobile phone, office phone, street address, city, state, ZIP and country or region - the contact info Microsoft 365 shows in Outlook and Teams. It is kept in step both ways: edit it here (Edit on the profile) and Microsoft 365 updates when you save; a change made in the Microsoft 365 admin center comes into Nexus within 15 minutes, or straight away with Sync Now. If both sides changed the same field, the Nexus value wins. Job title and department sync the same way. Only production writes to Microsoft 365.' },
-      { name: 'Hiring', desc: 'Candidates through Screening, Interview, Offer, Hired and Onboarding, with interview scores.' },
+      { name: 'Hiring', desc: 'Three views. Pipeline: candidates through Applied, Screening, Interview, Decision, Offer and Hired (Rejected has its own lane), with interview scores. Openings: job openings - an approved headcount request becomes a Draft opening; write the public job description and Open it to put it on the company\'s careers page; the last seat hired marks it Filled. Post On LinkedIn copies a ready posting and opens LinkedIn. Headcount: requests to hire, as in Team > Headcount, for HR.' },
       { name: 'Org Chart', desc: 'Reporting lines as a tree of cards you pan and zoom, colored by division. Drag a card onto a manager to move someone; drop it in open space to clear their reporting line. Every card reads Name, Role, Department and Company. External Users in the toolbar (off by default, remembered on this device) adds active guests and contractors under whoever they report to, each card marked External. Everyone can see the same chart, read-only, under Team > Company Directory > Org Chart.' },
-      { name: 'Leave', desc: 'Time-off requests, approvals and the holiday calendar. The vacation and sick policies people are assigned, the date balances count from (a default, and a company\'s own) and the time-off reasons are Settings > Time & Pay (Leave Policies, Time-Off Reasons).' },
-      { name: 'Time', desc: 'Team punches, time sheets and payroll hours. The hourly time sheet reads like SwipeClock\'s, line by line: Date, Edit, In, Out, Deducted Time, Category, Total Hours, OT, Location, Pay Rate, Wage. A shift with a break reads as punch pairs, like SwipeClock - one row from the clock-in to the break, the next from the break end to the clock-out, each with its own hours - and a thin line between them gives the length and times of the break. Edit and Add sit in the same two places on every row. A punch someone entered or changed reads bold, and the In and Out times are color-banded as on SwipeClock (the key sits above the grid): green is a punch exactly as the clock took it, blue is one HR entered or changed, and a manager\'s change stays in the normal color. Hover any time for its punch history - the exact time and what it was rounded to, where it came from (mobile app, web browser or phone, with its IP address, a manager\'s entry), and who entered or changed it and when. Add Note in the toolbar leaves a note on a day (pick the day, write it; the employee does not see it). The line under the day then reads Note by employee, Note by HR and On the punches (the reasons on edited punches), one line each; the Log column at the right opens the day\'s Work Log. Edit on a row opens that shift - change the in or out time, the location or the Type, or delete the in-punch, the out-punch or both (a deleted punch comes out of the hours; the audit record keeps it with who deleted it); on the row after a break (or by clicking the break line), Edit fixes the break instead - adds its missing end, or deletes it (give a reason; its punches come off the card and the audit record keeps them). Add on a day adds time for someone, on any pay type: pick the Type - Regular, Break, Sick, Vacation or Personal - and set its start and end. A Break has to fall inside a clock-in and clock-out that day - one outside a shift is refused, never silently dropped. Sick can be part of a day, for example one hour. On an hourly card leave pays the base rate; on a fixed-salary card a leave day is deducted like an absence unless hours were also worked. Every change shows on the card at once - no reload needed, and a reload reopens the card that was open. The employee list filters by company and by department (the selects above it show when there is more than one to choose from); the person picker follows the same filter. The Pay Period box at the top of the employee list picks the period first (the arrows, or click the dates for the list of periods); picking someone else keeps that period, so you can go through everyone for one period without picking it again. Someone who went inactive or left before the period is not on the list for it; someone who left during it stays for their last pay. A fixed-salary card is the same grid with the salaried columns - Day (Present, Absent, Half Day, Weekend, leave...), Total Hours, the day\'s Break against the 60 minute allowance, and Effect on Pay - with each break punched on its own Break row. On a fixed-salary card the Missed days line also says why each day was missed - for example Sick ×2 · Personal ×8 · Absent ×1 - from the leave entered on the day or the approved time off that covers it, and each day covered by approved time off is named on its own row (Personal, or Personal · Half Day when part of it was worked) instead of Absent. A month\'s absences never take more than the month\'s pay - a month with no work pays nothing, never less. A punch the employee asked for shows on its day as Not Yet Approved, with their reason, and Approve and Reject right there. Four tabs: Payroll, Action Log, Time Off and Invoices. Invoices lists each contractor\'s invoice, drafted when their Time Sheet is finalized - Preview the PDF, then Approve & Send emails it to the company\'s Contractor Invoice Recipients (set in Settings > Companies) with the contractor in cc. On the Time Off tab the Year and Month selects narrow the requests to the ones that fall in that period (the status counts follow), and on the Payroll tab the Only People With Missing Punches box narrows the employee list to who still has a punch to fix this period. The Action Log is one list per person of everything that stands between a time sheet and payroll - punch requests to approve or reject (tick several to decide them together) and missing punches to fix on the time sheet (Fix on Time Sheet opens the right pay period). Filter it by department, by name, or to just requests or just missing punches; you only see the people you manage. Someone still on the clock is not listed as missing a clock-out. Who is on or off today is in Team > Schedule, and screenshots and hours by location are in Workforce Analytics. Time Sheets to Review sits at the top, with its own count. In the Time Sheet, type in the person picker to filter the list to matching names, then press Enter or click one.' },
-      { name: 'Company Editor', desc: 'Open a company to manage its Overview (including HR Contact and Contractor Invoice Recipients - the emails that receive a contractor\'s approved invoice, no Nexus login needed), Departments (each with an optional Department Head - the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Contact Directory; pick it when adding the department or on its row), Locations (the clock geofences), Holiday Calendar and Workforce Analytics Policy. A location is placed one way: its Google Maps link. In Google Maps click the building so a red pin shows, click Share - Copy link, and paste it into the Google Maps Link box (coordinates copied from a right-click work too). Nexus reads the exact point of the place from the link - a link that only shows a map view is flagged - and fills in the address from the same link, written the US way (25260 N Centre City Pkwy, Escondido, CA 92026), plus the name when the link is a business and the Name is empty. If the link has no address, or you need to change it, click Enter Manually and type it. The map on the right jumps to the location; drag the pin (or click the map) onto the exact building, and a pin moved far from the link point is flagged. Set the radius in feet with the slider (330-1,000 ft suits most locations; under 330 ft, phone GPS drift flags people who are on-site). Distances everywhere read in miles and feet. In the Location Library, the Companies dropdown sets who punches in there: tick All, or tick the companies that use it. The radius slider sits under the map. Show Punches Here (off unless you turn it on) shows the last 30 days of punches as green (inside) and red (outside) dots, and warns if a change would turn punches that were on-site into Out of Location. A location marked Verify Location was placed with the old map pin: edit it and paste its Google Maps link once.' },
+      { name: 'Time Off', desc: 'People > Time > Time Off (it was the Leave tab until 10/27/2026): time-off requests to approve or reject, narrowed by Year and Month, and the Team Leave Calendar of who is out. With Second Approval By HR on, a request the manager approved waits for HR. HR also gets the leave balances - the start date they count from, a one-time import of the opening balances from QuickBooks, everyone\'s balance with corrections, each person\'s policy - the Leave Year End preview with Apply Year End, and Approval Delegations. The policies, the year-end rule and the time-off reasons are Settings > Time & Pay (Leave Policies, Leave Year-End, Time-Off Approval, Time-Off Reasons); holidays are Settings > Companies.' },
+      { name: 'Time', desc: 'Team punches, time sheets and payroll hours. The hourly time sheet reads like SwipeClock\'s, line by line: Date, Edit, In, Out, Deducted Time, Category, Total Hours, OT, Location, Pay Rate, Wage. A shift with a break reads as punch pairs, like SwipeClock - one row from the clock-in to the break, the next from the break end to the clock-out, each with its own hours - and a thin line between them gives the length and times of the break. Edit and Add sit in the same two places on every row. A punch someone entered or changed reads bold, and the In and Out times are color-banded as on SwipeClock (the key sits above the grid): green is a punch exactly as the clock took it, blue is one HR entered or changed, and a manager\'s change stays in the normal color. Hover any time for its punch history - the exact time and what it was rounded to, where it came from (mobile app, web browser or phone, with its IP address, a manager\'s entry), and who entered or changed it and when. Add Note in the toolbar leaves a note on a day (pick the day, write it; the employee does not see it). The line under the day then reads Note by employee, Note by HR and On the punches (the reasons on edited punches), one line each; the Log column at the right opens the day\'s Work Log. Edit on a row opens that shift - change the in or out time, the location or the Type, or delete the in-punch, the out-punch or both (a deleted punch comes out of the hours; the audit record keeps it with who deleted it); on the row after a break (or by clicking the break line), Edit fixes the break instead - adds its missing end, or deletes it (give a reason; its punches come off the card and the audit record keeps them). Add on a day adds time for someone, on any pay type: pick the Type - Regular, Break, Sick, Vacation or Personal - and set its start and end. A Break has to fall inside a clock-in and clock-out that day - one outside a shift is refused, never silently dropped. Sick can be part of a day, for example one hour. On an hourly card leave pays the base rate; on a fixed-salary card a leave day is deducted like an absence unless hours were also worked. Every change shows on the card at once - no reload needed, and a reload reopens the card that was open. The employee list filters by company and by department (the selects above it show when there is more than one to choose from); the person picker follows the same filter. The Pay Period box at the top of the employee list picks the period first (the arrows, or click the dates for the list of periods); picking someone else keeps that period, so you can go through everyone for one period without picking it again. Someone who went inactive or left before the period is not on the list for it; someone who left during it stays for their last pay. A fixed-salary card is the same grid with the salaried columns - Day (Present, Absent, Half Day, Weekend, leave...), Total Hours, the day\'s Break against the 60 minute allowance, and Effect on Pay - with each break punched on its own Break row. On a fixed-salary card the Missed days line also says why each day was missed - for example Sick ×2 · Personal ×8 · Absent ×1 - from the leave entered on the day or the approved time off that covers it, and each day covered by approved time off is named on its own row (Personal, or Personal · Half Day when part of it was worked) instead of Absent. A month\'s absences never take more than the month\'s pay - a month with no work pays nothing, never less. A punch the employee asked for shows on its day as Not Yet Approved, with their reason, and Approve and Reject right there. Five tabs for HR: Payroll, Action Log, Time Off, Invoices and Extra Time (a manager sees the first three). Invoices lists each contractor\'s invoice, drafted when their Time Sheet is finalized - Preview the PDF, then Approve & Send emails it to the company\'s Contractor Invoice Recipients (set in Settings > Companies) with the contractor in cc. On the Time Off tab the Year and Month selects narrow the requests to the ones that fall in that period (the status counts follow), and on the Payroll tab the Only People With Missing Punches box narrows the employee list to who still has a punch to fix this period. The Action Log is one list per person of everything that stands between a time sheet and payroll - punch requests to approve or reject (tick several to decide them together) and missing punches to fix on the time sheet (Fix on Time Sheet opens the right pay period). Filter it by department, by name, or to just requests or just missing punches; you only see the people you manage. Someone still on the clock is not listed as missing a clock-out. Who is on or off today is in Team > Schedule, and screenshots and hours by location are in Workforce Analytics. Time Sheets to Review sits at the top, with its own count. In the Time Sheet, type in the person picker to filter the list to matching names, then press Enter or click one.' },
+      { name: 'Companies, Departments and Locations', desc: 'Set up in Settings, not People: Settings > Companies, then pick the company in the Scope box. Its Company group holds the profile (including HR Contact and Contractor Invoice Recipients - the emails that receive a contractor\'s approved invoice, no Nexus login needed), Departments (each with an optional Department Head - the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Company Directory - and a Weather Calls switch, on for Construction by default) and the Holiday Calendar (the holiday policies applied to it, plus its own days). Settings > Locations holds the clock geofences, and Settings > Workforce Analytics the company\'s monitoring policy. A location is placed one way: its Google Maps link. In Google Maps click the building so a red pin shows, click Share - Copy link, and paste it into the Google Maps Link box (coordinates copied from a right-click work too). Nexus reads the exact point of the place from the link - a link that only shows a map view is flagged - and fills in the address from the same link, written the US way (25260 N Centre City Pkwy, Escondido, CA 92026), plus the name when the link is a business and the Name is empty. If the link has no address, or you need to change it, click Enter Manually and type it. The map on the right jumps to the location; drag the pin (or click the map) onto the exact building, and a pin moved far from the link point is flagged. Set the radius in feet with the slider (330-1,000 ft suits most locations; under 330 ft, phone GPS drift flags people who are on-site). Distances everywhere read in miles and feet. In the Location Library, the Companies dropdown sets who punches in there: tick All, or tick the companies that use it. The radius slider sits under the map. Show Punches Here (off unless you turn it on) shows the last 30 days of punches as green (inside) and red (outside) dots, and warns if a change would turn punches that were on-site into Out of Location. A location marked Verify Location was placed with the old map pin: edit it and paste its Google Maps link once.' },
       { name: 'Records Audit', desc: 'Every morning Nexus checks each active person\'s record for what HR must have on file - picture ID, manager, start date, worker type, personal email, emergency contact and (in the US) verified work authorization - and for documents, work authorization and contracts past their date. A banner at the top of People lists who needs attention (click Review). The company\'s HR department head and backup get one notification per company, updated until everything is fixed (else the HR contact, else the Global Admins). Turn it off under Settings > Emails & Reminders > HR & Compliance Reminders.' },
       { name: 'Checklists', desc: 'Onboarding, promotion, offboarding and leave checklists per person, on the Checklist tab of their profile. A checklist is the company\'s steps plus the extra steps of the person\'s role (Team > Role Checklists). Steps are grouped by phase, each with an owner and a due date counted from the start date, the exit date or the leave start. Business-day steps skip weekends and the company\'s holidays; a date that lands on a weekend moves to the Friday before; a step whose date has already passed when the checklist starts is due that day. When the start date on the profile changes, open dates move with it. Which steps a person gets depends on their worker type and country (an I-9 for US employees, PF for India, a W-9 for contractors; everyone, contractors and India included, gets Picture ID On File, ticked by itself once an ID document is on the Documents tab) and, for offboarding, the exit type. Owners get one bell reminder per checklist when steps are due tomorrow or overdue, and see their steps as subtasks on My Tasks, where they can tick them without People access. Workday shows no checklist. Click a step to comment on it; a step with comments stays open so the thread is in view. Change Owner lists the step\'s department head and backup first, then everyone in Nexus People. Starting an offboarding checklist changes nothing in Microsoft 365 - Left still happens from Change Status.' },
       { name: 'Checklists Overview', desc: 'People > Checklists > Overview: everyone with an open onboarding, promotion, offboarding or leave checklist in one list, most urgent first. It is only for running them - the steps are set up in Settings. Tiles count Onboarding, Promotion, Offboarding, On Leave, Steps Overdue and Waiting On You; click one to filter. Each row shows the person, the checklist and its date (for example Starts 11/02/2026 - in 12 days), progress, and the next step with its owner and due date. Click a row to open that person on their Checklist tab. People with an open checklist also show a small progress chip in the directory and next to their status on the profile - it names the checklist, not the person (Offboarding Checklist 5/26 in amber, red once steps are late), so someone who has Left reads Left with their checklist beside it; when every step is done it turns green, Offboarding Complete. Click the chip to open their Checklist tab.' },
@@ -1669,6 +1902,12 @@ export const DOCS = [
       { name: 'Meal and Rest Premiums', desc: 'California-rule hourly staff only: Meal Premium and Rest Premium lines on the time sheet, one hour of pay at the day\'s rate. They come from the employee\'s missed-break report, or the manager clicks Add Premium; Remove asks why.' },
       { name: 'Meal Waiver', desc: 'On Pay & Benefits under Time Clock, California-rule hourly staff only: Send Waiver to Sign sends the meal period waiver in Nexus Sign; Revoke Waiver records the employee\'s written request.' },
       { name: 'Approval Delegations', desc: 'People > Time > Time Off, for HR: who covers whose approvals and when. Set one (Whose Approvals, Covered By, dates) for someone who is out and could not set it, or revoke one. Show ended and revoked lists past ones.' },
+      { name: 'Probation', desc: 'On the person\'s Overview: status, dates, length, the manager\'s recommendation, the letter and the history. Statuses include Probation Ending, Probation Overdue, Confirmed, Extended, Passed Probation, Past Probation (never tracked, window over) and Removed From Probation. Probation length, the reminder, the two letter templates and the letterhead are Settings > Hiring & Onboarding > Probation - a default, and each company\'s own.' },
+      { name: 'Salary Advances', desc: 'On a person\'s Time Sheet in People > Time, for their direct manager and HR. HR with the Pay & Benefits grant sees the amounts and decides; HR without it sees only that an advance exists and its status; the manager who asked sees the amount, the status and the decision. Repayments come off the Time Sheet over the chosen pay periods.' },
+      { name: 'Extra Time', desc: 'People > Time > Extra Time, HR only: India contractors\' Extra Time claims waiting on a decision, oldest first, and the last 60 days of decisions. Approved Extra Time pays 1.35 times the daily rate divided by 9 per hour.' },
+      { name: 'Analytics', desc: 'People Analytics: headcount over time, joiners and leavers (voluntary and involuntary), attrition, tenure, absence and leave liability, by company and for employees, contractors or everyone. Every count opens the people behind it.' },
+      { name: 'Exits', desc: 'Everyone leaving, and each leaver\'s final settlement statement: Mark Reviewed, Generate PDF (filed to Egnyte), Close Exit.' },
+      { name: 'Performance', desc: 'HR\'s Review Cycles and the company\'s goals: Company and Department Goals (Add Department Goal) and Everyone\'s Goals, with Off Track and At Risk first. 1:1s are not here - they belong to the manager and the report, in Workday > Performance. The rating scale, the company values and the goal and 1:1 reminders are Settings > Performance.' },
       { name: 'Work Mode', desc: 'On an employee profile: On-Site, Remote (punch from anywhere) or Hybrid (their usual locations some days, remote on others - a punch at a company location counts at that site, anywhere else counts as Remote, never Out of Location). For On-Site and Hybrid, optionally click their usual locations - any number of them. A punch inside any company location counts as at that site; their usual sites only win where two sites overlap.' },
     ],
     manager: {
@@ -1748,9 +1987,9 @@ export const DOCS = [
         title: 'Find Out Who Is Behind a Number',
         steps: [
           'Open Insights.',
-          'Under Needs Attention, click a tile, or click any count on a module card.',
+          'Under Needs Attention, click Review on a tile (Open when it goes straight to the module), or click any count on a module card.',
           'The breakdown opens: a bar per person, or the records themselves when there is no "who".',
-          'Click Open (the module\'s name) to go there and act on it.',
+          'Click Take Action to fix it in that module, or, when nothing is wrong, the button that opens the full list there.',
         ],
       },
       {
@@ -1771,105 +2010,53 @@ export const DOCS = [
     manager: { title: 'Note', points: ['You only see numbers from modules you have access to.'] },
     tips: [],
   },
-  {
-    id: 'credential-vault', name: 'Credential Vault', group: 'Modules', icon: 'KeyRound', view: 'credvault',
-    tagline: 'Shared company passwords, kept by their owners, opened by the people who need them.',
-    where: 'Left menu > Credential Vault',
-    access: 'Anyone with the Credential Vault grant. The grant is given on purpose per role; it is never part of a default bundle.',
-    purpose: 'Credential Vault stores company logins so they are never shared in chat or spreadsheets. Every credential has an owner and a department. People in that department can open it; everyone else can see that it exists and ask the owner for timed access. Critical credentials are opened only by their owners and admins. Your Personal Vault is private, locked with your own password, and nobody else - admins included - can read it.',
-    gains: [
-      'No more passwords in email, chat or sticky notes.',
-      'Every reveal, copy, share and change is logged, with who and when.',
-      'Owners decide who gets in and for how long; access ends by itself.',
-    ],
-    walkthroughs: [
-      {
-        title: 'Open a Shared Password',
-        steps: [
-          'Open Credential Vault and find the credential - search, pick a collection tab above the list (Owned by Me, Shared With Me, Favorites), or choose a department in the Department filter.',
-          'Click the row. The drawer shows the username, the masked password, the link and the notes.',
-          'Click Reveal. The first time in a while you confirm it is you with a code by text or email; after that the header says "Verified until" and reveals are instant.',
-          'Click Copy. Copies are logged, like reveals.',
-        ],
-      },
-      {
-        title: 'Ask for a Password You Cannot Open',
-        steps: [
-          'Rows marked Request Access belong to another department or are Critical.',
-          'Open the row, click Request Access and choose how long you need it.',
-          'The owner (or an admin) approves it on the Approvals tab. You get a bell notification, and the password shows in your drawer until the time runs out.',
-        ],
-      },
-      {
-        title: 'Share a Password You Own',
-        steps: [
-          'Open the credential and click Share in the Access section.',
-          'Pick the person and a duration. They see it in their own Credential Vault for that long.',
-          'The Access section lists who has it and until when; End Access cuts it short.',
-        ],
-      },
-      {
-        title: 'Save Your Own Password',
-        steps: [
-          'Open the Personal tab. The first time, choose a Personal Vault password.',
-          'Click Add, fill in the name, username and password, then save. No one else can see it.',
-          'The vault locks itself when the unlock window ends (Settings > Security), or when you click Lock Now.',
-        ],
-      },
-    ],
-    features: [
-      { name: 'Collections', desc: 'All Credentials, Owned by Me, Shared With Me, Favorites, Needs Attention and Trash, as tabs above the list. The Department, Type and Tier filters narrow it further.' },
-      { name: 'Drawer', desc: 'Everything about one credential: sign-in, link, notes, rotation, expiry, who has access, and its history.' },
-      { name: 'Access by Department', desc: 'Your department opens its own credentials; everyone else asks. Critical credentials are owner and admin only.' },
-      { name: 'Timed Sharing and Requests', desc: 'Owners share for 1 hour to 7 days; others request the same way. Access ends by itself.' },
-      { name: 'Rotation and Expiry Reminders', desc: 'Owners and backup owners get a bell when a rotation is due or a key is about to expire. The previous password is kept for one rotation.' },
-      { name: 'Personal Vault', desc: 'Private, encrypted, locked with your own password. Reset it with a code if you forget it.' },
-      { name: 'Import and Trash', desc: 'Load credentials from a CSV with Add Credential > Import From CSV; removed ones sit in the Trash until recovered or deleted for good.' },
-      { name: 'Activity', desc: 'Every action, searchable by person, credential, action and date.' },
-    ],
-    manager: {
-      title: 'Owners and Admins',
-      points: [
-        'The owner, the backup owner and admins edit, share, recover and hand a credential to a new owner. Set a backup owner so nothing is stranded.',
-        'When someone leaves, their credentials pass to the person who inherits their tasks, their backup role is cleared and their shared access ends.',
-        'Critical requests and requests for other departments are decided on the Approvals tab by the owner or an admin - either.',
-      ],
-    },
-    tips: [
-      'Star the credentials you use most; Favorites keeps them one click away.',
-      'Forgot your Personal Vault password? Click Unlock, then Forgot Password. You will verify with a code first.',
-    ],
-  },
 
   // ───────────────────────────── System ─────────────────────────────
   {
     id: 'support', name: 'Help Center', group: 'System', icon: 'HelpCircle', view: 'support',
-    tagline: 'Get help and learn: raise a ticket, read this guide, take your training.',
+    tagline: 'Get help and learn: ask a question, raise a ticket, read this guide, take your training.',
     where: 'Left menu > Help Center',
     access: 'Everyone',
-    purpose: 'Help Center (Support until 10/13/2026) is where anyone goes for help or to learn. Submit a ticket to IT, HR, facilities or any other team - one ticket or a whole batch - report something broken in Nexus, and track everything you have raised. Documentation and the Knowledge Base & Training are here too. You do not need access to the Tickets module to use it.',
+    purpose: 'Help Center (Support until 10/13/2026) is where anyone goes for help or to learn. Search or ask Nexus first - it answers from this guide and the Knowledge Base. Still stuck? Submit a ticket to IT, HR, facilities or any other team - one ticket or a whole batch - and follow everything you have raised. Documentation and the Knowledge Base & Training are here too. You do not need access to the Tickets module to use it.',
     gains: [
+      'An answer in seconds for the common questions, with the guide pages it came from.',
       'Help from the right team, with the right questions asked up front.',
-      'Live status of everything you have raised.',
-      'This Documentation (the Documentation card on Help Center), for learning any module.',
-      'SOPs and your training courses, one click away.',
+      'Live status of everything you have raised, and when to expect a reply.',
+      'This Documentation, and your SOPs and training courses, one click away.',
     ],
     shot: 'support',
     walkthroughs: [
+      {
+        title: 'Ask Nexus a Question',
+        steps: [
+          'Type your question in the search bar at the top of Help Center, or in the ? Help panel on any screen.',
+          'Matching guide pages, Knowledge Base pages and courses list as you type. Ask Nexus answers the question in a few lines and cites the sources it used - click one to read it.',
+          'Was This Helpful? Click Yes or No so the team knows which answers work.',
+          'Did not help? Click File a Ticket - the ticket form opens with your question already filled in.',
+        ],
+      },
       {
         title: 'Submit a Ticket',
         steps: [
           'Open Help Center and click Submit a Ticket.',
           'Give it a title. Requester is you - pick a colleague instead if you are raising it on their behalf.',
-          'Describe the problem. Format it with the toolbar, and record your screen, upload a file or paste a screenshot with Ctrl+V right under it.',
+          'Describe the problem. Format it with the toolbar, and record your screen, upload a file or paste a screenshot with Ctrl+V right under it. Suggested Articles appear under the fields as you type - if one solves it, click This Solved My Problem and no ticket is filed.',
           'Pick the department - the team that needs to help you - then what you need help with. If it is not listed, pick Other and name it in a few words. If a Which One? list appears (for example Outlook or Teams), pick the one it is about - it is optional.',
           'The type starts as Incident, which fits most problems. Change it if this is a request, a bug or something else, answer its questions, and click Create Ticket.',
         ],
       },
       {
+        title: 'Use a Shortcut From I Need To...',
+        steps: [
+          'Open Help Center and look at the I Need To... list.',
+          'Click what you need - Request Time Off, a Reimbursement, a Purchase Request, a Time Sheet fix, Ask HR or Request Access.',
+          'Nexus takes you straight to the screen that does it, so you do not need a ticket for it.',
+        ],
+      },
+      {
         title: 'Batch Create Tickets',
         steps: [
-          'Found several issues at once - walking a property, setting up a new office? Click Submit a Ticket, then the Batch Create tab at the top (the service desk, the Asset Management team and administrators see it; it was Property Walkthrough until 10/13/2026). From Asset Management, open the property and use Start Walkthrough instead - the property is then filled in and fixed.',
+          'Found several issues at once - walking a property, setting up a new office? Click Submit a Ticket, then the Batch Create tab at the top (the service desk, the Asset Management team and administrators see it; it was Property Walkthrough until 10/13/2026). From Asset Management, open the property and use Batch Create on its Maintenance tab instead - the property is then filled in and fixed.',
           'Pick the team. For a building or site team, a Property field appears - pick one to link every ticket to it, or leave it empty.',
           'Type the first issue and press Enter to start the next line. For each line pick what it is, the priority and a location, and take a photo or paste one with Ctrl+V.',
           'Click Create Tickets. Every line becomes its own ticket, all at once - if one line needs fixing, nothing is filed until it is. Each person involved gets one notification for the whole batch.',
@@ -1887,36 +2074,193 @@ export const DOCS = [
       {
         title: 'Follow Up on Your Ticket',
         steps: [
-          'Find it in Open Tickets (search by ticket number or title). A blue dot to the left of the row means something changed since you last opened it. Each row shows the date and time it was created and last updated, and Latest Comment shows who replied last (their picture) and what they said. Drag a column edge to resize it.',
+          'Find it in Open Tickets (search by ticket number or title). A blue dot to the left of the row means something changed since you last opened it. Each row shows the date and time it was created and last updated, and Latest Comment shows who replied last (their picture) and what they said. While nobody has replied, the row says Expect a reply by - the date and time the team aims to answer by, from its business hours. Drag a column edge to resize it.',
           'Click the row to open the full thread and reply. While it is still Open, click the pencil to edit it.',
           'Sorted out already, maybe with a colleague\'s help? Click Mark Resolved, optionally say what fixed it, and the team is told.',
-          'When it is resolved, click Confirm Resolution and then Done - a short survey asks how satisfied you are (1 to 5 stars, a comment is optional) and closes the ticket. Your rating then shows at the top of the Overview tab. Or click Reopen and say why.',
+          'When it is resolved, click Confirm Resolution and then Done - a short survey asks how satisfied you are (1 to 5 stars, a comment is optional) and closes the ticket. Or click Reopen and say why.',
         ],
       },
     ],
     features: [
-      { name: 'Submit a Ticket', desc: 'The same form the Tickets module uses, with routing and due dates set automatically.' },
+      { name: 'Search Bar', desc: 'At the top of Help Center: one search across this guide, the Knowledge Base and your courses, with Ask Nexus for a written answer.' },
+      { name: 'Ask Nexus', desc: 'The Ask Nexus card (it takes you to the search bar), and the answers in the search bar and the ? Help panel. Nexus answers only from this guide and the Knowledge Base pages you can read, cites its sources, and offers File a Ticket with your question filled in when it cannot help. It never reads tickets or anyone\'s records.' },
+      { name: 'Was This Helpful?', desc: 'Yes or No under every guide article and every Ask Nexus answer. The team sees what did not help and fixes the guide.' },
+      { name: 'I Need To...', desc: 'Shortcuts straight to the screens that do the common things: Request Time Off, Reimbursement, Purchase Request, a Time Sheet fix, Ask HR and Request Access.' },
+      { name: 'Known Issues', desc: 'When something in Nexus is broken or slow, administrators post a Known Issues banner. It shows on Help Center, in the ? Help panel and on the ticket form, so you know before you file a ticket about it.' },
+      { name: 'Submit a Ticket', desc: 'The same form the Tickets module uses, with routing and due dates set automatically, and Suggested Articles that may answer it first.' },
       { name: 'Bug Report', desc: 'A ticket type in Submit a Ticket, for anything broken in Nexus itself.' },
-      { name: 'On Behalf Of', desc: 'Raise a ticket for a colleague by picking them as the Requester. They get the updates; you can still see it.' },
+      { name: 'On Behalf Of', desc: 'Raise a ticket for a colleague by picking them as the Requester. They get the updates; you can still see it under Tickets I\'m Following.' },
       { name: 'Collaborators', desc: 'Add anyone else who should follow your ticket. They can open it, reply and get its updates.' },
       { name: 'Batch Create', desc: 'The second tab of Submit a Ticket: many tickets at once, one per line, for any team - with a property when a building or site team takes them.' },
-      { name: 'Assistant', desc: 'The card with the question mark: opens the same help panel as the ? at the top of every page - Search for Help, Ask a Question, What\'s New in Nexus, Help with This Page and Take the Tour, plus Messages (your tickets).' },
-      { name: 'Knowledge Base & Training', desc: 'Opens the Knowledge Base: every SOP and guide, and your training courses.' },
-      { name: 'Legal', desc: 'The Privacy Policy and Terms & Conditions, one page with a tab each. Open it from Legal in the menu under your name (top right), or Legal in the phone menu.' },
-      { name: 'Implementation Guide', desc: 'For administrators: how to set Nexus up for an organization, in 15 phases - Microsoft 365, branding, companies, job roles, people, time and pay, shifts, checklists, the modules, notifications, verification, go-live and running it after. Each phase has the decisions to make, steps with an Open button to each screen, checks that every administrator ticks off together, and pitfalls. Open it from the Implementation Guide tab at the top of Documentation.' },
-      { name: 'Open Tickets', desc: 'Everything you raised that is not closed yet, with when it was last updated and the latest comment. Sort, search and page through it, or mark one Resolved yourself.' },
-      { name: 'Closed Tickets', desc: 'Your finished tickets, for reference. If the same problem comes back, submit a new ticket.' },
-      { name: 'Documentation', desc: 'This guide. Administrators also get an Implementation Guide tab at the top.' },
+      { name: 'Open Tickets', desc: 'The tickets raised for you that are not closed yet, with when each was last updated, the latest comment and, until someone replies, Expect a reply by. Sort, search and page through it, or mark one Resolved yourself.' },
+      { name: 'Tickets I\'m Following', desc: 'Tickets you raised for someone else, or were added to as a collaborator. Confirming, rating and reopening stay with the person the ticket is for.' },
+      { name: 'Closed Tickets', desc: 'Your finished tickets, and the ones you follow, for reference. If the same problem comes back, submit a new ticket.' },
+      { name: 'Documentation', desc: 'This guide, from the Documentation card. Administrators also get the Implementation Guide: how to set Nexus up for an organization, phase by phase, with the decisions to make, steps with an Open button to each screen, shared checks and pitfalls - the switch at the top of Documentation.' },
+      { name: 'Knowledge Base & Training', desc: 'Opens the Knowledge Base: every SOP and guide, and your training courses. A number on the card means sign-offs or training are waiting on you.' },
+      { name: 'Help Panel', desc: 'The ? at the top of every screen (or the ? key): Home (Search for Help, Ask a Question, What\'s New in Nexus, Help with This Page, Take the Tour), Messages (your tickets) and Help (search).' },
     ],
-    manager: { title: 'Note', points: ['Ticket agents work the queue from the Tickets module. Help Center is the requester\'s side.'] },
-    tips: ['Email and bell updates about your ticket open it right here.'],
+    manager: {
+      title: 'Note',
+      points: [
+        'Ticket agents work the queue from the Tickets module. Help Center is the requester\'s side.',
+        'Administrators post and clear the Known Issues banner from Help Center.',
+      ],
+    },
+    tips: [
+      'Email and bell updates about your ticket open it right here.',
+      'Questions for HR go to Workday > Ask HR: they are confidential, seen only by you, the people you add and HR.',
+    ],
+  },
+  {
+    id: 'knowledge-base', name: 'Knowledge Base', group: 'System', icon: 'BookOpen', view: 'sop',
+    tagline: 'Every SOP, policy and guide, plus your training courses.',
+    where: 'Help Center > Knowledge Base & Training',
+    access: 'Everyone reads and takes training. Managers and above, and anyone with the Knowledge Base grant at Editor, also write pages and build courses (the Manage tab).',
+    purpose: 'The Knowledge Base is how the company does things, written down. Library holds every published page - SOPs, policies, guides - in collections, each with an owner who keeps it current. Training holds your assigned courses with quizzes and certificates, and the policies you must read and sign. Ask Nexus answers a question from the published pages and shows which ones it used.',
+    gains: [
+      'Find the right procedure in seconds, or ask a question in plain words and get an answer with its sources.',
+      'Know a page is current: each one has an owner and a review date.',
+      'Turn an SOP into a task checklist so no step is skipped.',
+      'Complete required training and get a certificate.',
+    ],
+    shot: 'kb',
+    walkthroughs: [
+      {
+        title: 'Find an Answer',
+        steps: [
+          'Open Help Center and click Knowledge Base & Training. You land on the Library.',
+          'Type in "What do you need to know?" and press Enter to search the pages.',
+          'Click Ask (or press Shift+Enter) to ask Nexus instead. Nexus reads the pages that match and answers with its Sources; Not what you needed? lets you Request a Page.',
+        ],
+      },
+      {
+        title: 'Read and Sign a Policy',
+        steps: [
+          'Open the page from Needs your signature on the Library, from My Training, or from the bell.',
+          'Read it to the end.',
+          'Under Read, Then Sign Below, type your full name and sign. Some pages are signed in Nexus Sign instead.',
+        ],
+      },
+      {
+        title: 'Take a Course',
+        steps: [
+          'Click the Training tab. My Training lists what is assigned to you, with due dates.',
+          'Open the course and work through each lesson, clicking Mark Lesson Complete. Checkpoints along the way check you understood.',
+          'Click Start the Quiz, answer every question and click Submit Answers. Pass to get your certificate (Download Certificate); otherwise Reread these shows what to go over before you Try Again.',
+        ],
+      },
+      {
+        title: 'Write a New Page',
+        steps: [
+          'Click New Page on the Library (writers only), or Import to bring in a Word file, a PDF, pasted text or screenshots.',
+          'Give it a title, pick What kind of page and the collection, and write with Add Block (steps, checklists, callouts, tables, images, videos). Edit with Nexus suggests changes one at a time.',
+          'Click Send for Review. The collection owner or the named reviewer publishes it or asks for changes. A published page edits as a revision: readers keep the live version until the revision is approved.',
+        ],
+      },
+      {
+        title: 'Run an SOP as a Task',
+        steps: [
+          'Open the page and click Start as Task.',
+          'Pick who it is assigned to, the due date, the priority and the project, and whether it repeats (Once, Every Day, Every Week or Every Month).',
+          'Click Create Task. The page\'s steps become the task\'s checklist.',
+        ],
+      },
+    ],
+    features: [
+      { name: 'Library', desc: 'Search first, then what waits on you (Needs your signature, You are the named reviewer, Continue), then the collections. Pin a page to keep it at the top.' },
+      { name: 'Ask Nexus', desc: 'Answers only from published pages you can read, and lists its Sources. When nothing fits, Request a Page tells the collection owner.' },
+      { name: 'Page', desc: 'A clean column with On This Page, the owner, the version and its review date. Share (Copy Link, Copy as Text), Print, Version History, Start as Task, Report a Problem (goes to the owner), and Was this page helpful? Yes or No.' },
+      { name: 'Translations', desc: 'Switch a page to Español or हिन्दी where it has been translated. A translation is machine-made and the English page is the one that counts; an out-of-date translation says so.' },
+      { name: 'Training', desc: 'My Training: assigned courses, training plans, policies to sign and completed courses with their certificates. Certificate Check confirms whether a certificate is valid.' },
+      { name: 'Manage', desc: 'For writers. Health: reviews waiting on you, pages past their review date (Still Accurate keeps one current), reader flags, page requests, searches with no good answer, drafts and activity. Compliance: who is behind on required training and signatures, by direct reports, whole team, company or department. Collections: the shelves, their owners and review cycles. Plans and Rules: training plans for a role and the rules that assign courses automatically.' },
+      { name: 'Course Builder', desc: 'New Course: lessons from Library pages or written here, checkpoints, the question pool (Generate with Nexus drafts questions), quiz settings, Who Takes It, versions and a Report of the hardest questions. Publish the course before assigning it.' },
+    ],
+    manager: {
+      title: 'Writers and Owners',
+      points: [
+        'Writers are managers and above, and anyone with the Knowledge Base grant at Editor. Full grant holders also manage collections.',
+        'Every page has an owner and a review cycle (from its collection unless it sets its own). Pages past review show in Manage > Health until the owner clicks Still Accurate or revises them.',
+        'A Small fix (typos, clearer wording, a photo) keeps signatures valid; a Real change asks people to sign again.',
+        'Who signed a page, and who has not: Who Has Signed on the page, with Nudge and Nudge Everyone Unsigned.',
+      ],
+    },
+    tips: [
+      'Cannot find a page? Request a Page sends the ask to the collection owner.',
+      'The ? Help panel searches Knowledge Base pages and courses together with this guide.',
+    ],
+  },
+  {
+    id: 'whats-new', name: 'What\'s New', group: 'System', icon: 'Sparkles', view: 'whats-new',
+    tagline: 'Every change to Nexus, and where to ask for the next one.',
+    where: 'Profile menu (top right) > What\'s New, or the Help panel > What\'s New in Nexus',
+    access: 'Everyone',
+    purpose: 'What\'s New lists every update to Nexus: new features, improvements, fixes, known issues and features going away. Follow the modules you use to be told about changes there, and send a Feature Request when something would make your work easier.',
+    gains: [
+      'Know what changed before it surprises you.',
+      'See known issues and their workarounds in one place.',
+      'Ask for a change and follow it from New to Shipped.',
+    ],
+    walkthroughs: [
+      {
+        title: 'Follow the Modules You Use',
+        steps: [
+          'Open What\'s New and click For You to see only updates about the modules you use.',
+          'Click Follow, pick modules and categories, and tick the Monday digest if you want an email. Matching updates land in your bell.',
+        ],
+      },
+      {
+        title: 'Ask for a Feature',
+        steps: [
+          'Click Feature Request and describe what you would like.',
+          'Click Send Request. It becomes a Feature Request ticket and is posted to the Nexus team on Teams.',
+          'Its status (New, Under Review, Planned, In Progress, Shipped or Declined) and the replies on its ticket show on its card, and your bell rings when it changes.',
+        ],
+      },
+    ],
+    features: [
+      { name: 'Latest', desc: 'The newest updates, with Pinned, For You and Needs Your Attention (known issues and features going away).' },
+      { name: 'Timeline', desc: 'Every update by day, with filters.' },
+      { name: 'Feature Requests', desc: 'Your requests and their status. The comments on a request are its ticket thread.' },
+      { name: 'New on This Screen', desc: 'A small card on a screen that changed, with See What\'s Changed (and Take the Tour when the update has one).' },
+    ],
+    manager: {
+      title: 'Writers',
+      points: [
+        'People with Tasks or Tickets access can add an update (Add New Update) and comment. A manager publishes it and runs Manage.',
+        'Work merged into Nexus is published there on its own.',
+      ],
+    },
+    tips: ['A green New in Nexus bar at the top means a new feature came out this week - See What\'s New opens it.'],
+  },
+  {
+    id: 'legal', name: 'Legal', group: 'System', icon: 'Scale', view: 'legal',
+    tagline: 'The Privacy Policy and the Terms & Conditions.',
+    where: 'Profile menu (top right) > Legal, or Legal in the phone menu',
+    access: 'Everyone',
+    purpose: 'Legal holds the Privacy Policy and the Terms & Conditions for Nexus, one page with a tab each.',
+    gains: ['The policies you accepted, always one click away.'],
+    walkthroughs: [
+      {
+        title: 'Read the Policies',
+        steps: [
+          'Click your photo (top right), then Legal.',
+          'Click Privacy Policy or Terms & Conditions.',
+        ],
+      },
+    ],
+    features: [
+      { name: 'Privacy Policy', desc: 'What Nexus records and why, including the monitoring disclosure.' },
+      { name: 'Terms & Conditions', desc: 'The terms for using Nexus.' },
+    ],
+    manager: { title: 'Note', points: ['The sign-in policy everyone accepts is published in Settings > Security > Sign-In Policy.'] },
+    tips: [],
   },
   {
     id: 'settings', name: 'Settings', group: 'System', icon: 'Settings', view: 'admin-console',
     tagline: 'Every setting for the organization or for one company, by subject, who can access what, and the audit trail.',
     where: 'Left menu > Settings',
     access: 'IT Admin and Global Admin, or anyone given the Settings grant. Each person sees only the subjects and groups they may change: a manager the ticket desk, task emails, item types, app ratings and unit rules; someone whose People access covers some companies, those companies with one picked in the Scope box.',
-    purpose: 'Settings is where admins shape Nexus. One Settings tab, a list of subjects on the left (Companies, Locations, People & Access, Security, Branding & Email, Emails & Reminders, Tickets, Time & Pay, Workforce Analytics, Shifts & Scheduling, Hiring & Onboarding, Items & Equipment, Operations) and a Scope box at the top: Every company shows what applies to all, picking a company shows that company\'s own profile, departments, holiday calendar, locations, job roles, checklists and workforce analytics policy. Every setting is on the page, open - nothing to expand. Tools holds actions rather than settings, such as the Microsoft 365 sync, and Logs record every change. Act As lives in your profile menu (top right), under Tools.',
+    purpose: 'Settings is where admins shape Nexus. One Settings tab, a list of subjects on the left (Companies, Locations, People & Access, Security, Branding & Email, Emails & Reminders, Tickets, Time & Pay, Workforce Analytics, Shifts & Scheduling, Hiring & Onboarding, Items & Equipment, Operations, Performance, Workflows) and a Scope box at the top: Every company shows what applies to all, picking a company shows that company\'s own profile, departments, holiday calendar, locations, job roles, checklists and workforce analytics policy. Every setting is on the page, open - nothing to expand. Tools holds actions rather than settings, such as the Microsoft 365 sync, and Logs record every change. Act As lives in your profile menu (top right), under Tools.',
     gains: [
       'Change a setting once for the whole organization, or for just one company.',
       'Give someone exactly the access they need, in one place.',
@@ -1936,7 +2280,8 @@ export const DOCS = [
         title: 'Set Up a Company',
         steps: [
           'Open Settings > Companies and click Edit on the company (or Add Company), or pick it in the Scope box at the top.',
-          'Companies now shows its profile, departments and holiday calendar; Locations its sites; People & Access its roles; Hiring & Onboarding its checklists; Workforce Analytics its policy.',
+          'Companies now shows its profile, departments (with each one\'s Weather Calls switch) and holiday calendar; Locations its sites; People & Access its roles; Hiring & Onboarding its checklists; Workforce Analytics its policy.',
+          'Holidays: build the shared sets once under Companies > Holiday Policies with the scope on Every company, and apply each to its companies. A company\'s Holiday Calendar can Skip For This Company, Change Date or Change Type on any policy holiday, and add its own.',
           'Switch the Scope box back to Every company for the settings shared by all.',
         ],
       },
@@ -1959,7 +2304,8 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Subjects', desc: 'Companies. Locations (the Location Library, and each company\'s sites). People & Access. Security: Sign-In & Sessions and the Sign-In Policy. Branding & Email: Brand Color, Email Appearance, Letterheads and the Email Signature templates. Emails & Reminders: Task Notifications, the Daily Briefing, the Weekly Digest, the Workforce Scorecard, HR & Compliance Reminders and Equipment Reminders. Tickets: the Ticket Manager (routing, escalation and default assignees, ticket email and alerts, SLA & Ticket Types, Help Topics, Desk Access, Saved Replies and AI Features) and the Property Rules. Time & Pay: Pay Rules (punch rounding, auto-lunch and California paid rest breaks - a default, and each company\'s own), Payroll Export Codes, Shift Differentials and Call-Back Pay, Payroll Readiness, the California Minimum Wage, Leave Policies, Time-Off Reasons and the Intacct Nightly Sync. Workforce Analytics: the App & Website Ratings, the Location Trail, and each company\'s policy. Shifts & Scheduling: Schedule Basics, Requests & Visibility, Attendance, Overtime Alerts, Rules and Sharing (each one a company can override), Shift Types, Groups and Weather Alerts. Hiring & Onboarding: Hiring Documents, Interview Questionnaires, the Checklist Library and each company\'s Checklists. Items & Equipment: Item Types & Custom Fields. Operations: Push to Cubby and the Unit Rules. The rail lists the groups of the subject on screen, a per-company setting at Every company lists the companies and where each stands, and with a company picked each subject says what is different for it.' },
+      { name: 'Subjects', desc: 'Companies: the list of companies, each company\'s profile, departments and holiday calendar, and Holiday Policies. Locations (the Location Library, and each company\'s sites). People & Access: people, Access Groups, each company\'s Roles and the More Details Fields. Security: Sign-In & Sessions and the Sign-In Policy. Branding & Email: Brand Color, Email Appearance, Letterheads and the Email Signature templates. Emails & Reminders: Task Notifications, the Daily Briefing, the Weekly Digest, the Workforce Scorecard, HR & Compliance Reminders and Equipment Reminders. Tickets: the Ticket Manager (routing, escalation and default assignees, ticket email and alerts, SLA & Ticket Types, Help Topics, Desk Access, Saved Replies and AI Features) and the Property Rules. Time & Pay: Pay Rules (punch rounding, auto-lunch and California paid rest breaks - a default, and each company\'s own), Payroll Export Codes, Shift Differentials & Call-Back Pay, the India Contractor Policy, Payroll Readiness, the California Minimum Wage, Leave Policies, Time-Off Reasons, Leave Year-End, Time-Off Approval (Second Approval By HR) and the Intacct Nightly Sync. Workforce Analytics: the App & Website Ratings, the Location Trail, and each company\'s policy. Shifts & Scheduling: Schedule Basics, Requests & Visibility, Attendance, Overtime Alerts, Rules and Sharing (each one a company can override), Shift Types, Groups and Weather Alerts. Hiring & Onboarding: Hiring Documents, Interview Questionnaires, the Checklist Library, Probation, each company\'s Checklists and HR Letters. Items & Equipment: Item Types & Custom Fields. Operations: Push to Cubby and the Unit Rules. Performance: Goal and 1:1 Reminders, the Review Rating Scale and Company Values. Workflows: Workflow Settings. The rail lists the groups of the subject on screen, a per-company setting at Every company lists the companies and where each stands, and with a company picked each subject says what is different for it.' },
+      { name: 'Holiday Policies', desc: 'Settings > Companies with the scope on Every company: named sets of holidays, each applied to one or more companies (Applies To). New Holiday Policy: a name, who it is for, the country, then Add Holidays From - for the US, Federal Holidays (Presidents\' Day included), Common Company Holidays and Some States Only; for India, National Holidays, Gazetted Holidays and Restricted Holidays (Optional) - plus any day added by hand, each Mandatory, Optional or Half Day. When A Holiday Falls On A Weekend: Keep The Date (the default - nothing moves unless you choose), Friday Before Or Monday After (Federal Rule), Always The Friday Before, Always The Monday After, or No Day Off. Editing a policy updates every company it applies to. A company\'s own Holiday Calendar (pick it in the Scope box) can Skip For This Company, Change Date or Change Type on any policy holiday, Reset To Policy, or add its own days - its own change always wins.' },
       { name: 'Companies', desc: 'Every legal entity and the group manager above them all. Pick a company in the Scope box for its profile and logo, managers (Nexus People or external users) and HR contact, contractor invoice recipients, email domains, departments and holiday calendar.' },
       { name: 'Scope', desc: 'The box at the top of Settings. Every company shows what applies to all of Nexus; a company shows what is set for it alone - its profile, locations, roles, checklists and workforce analytics policy. Subjects with nothing to set for one company sit under For Every Company in the list and switch the scope back.' },
       { name: 'Company Roles', desc: 'Each company\'s job roles, grouped by its departments: the baseline set of modules, seniority tier and default approver. Roles shared across companies are listed there too, and can be moved into a company when everyone holding them works there. A role\'s Checklists tab holds the extra onboarding, promotion, offboarding and leave steps for people in that role (a shared role has a Checklists button).' },
@@ -1981,71 +2327,8 @@ export const DOCS = [
       'Who is off today: the first BOD posted to a chat or channel each day is followed by one "Out today" post listing everyone who posts there and is on approved time off that day - the type of leave (or just "Time off" when the request is confidential), the hours of a partial day, or the date it runs through. Nothing posts on a day nobody is off.',
       'Every BOD and EOD shows where it was sent from in brackets beside the time: (Remote) for anyone set to Remote under People > Work Mode, the site name when they are at one of their allowed sites, or (Off-Site Punch) anywhere else. Someone set to Hybrid shows the site name when they are at a company location and (Remote) anywhere else. When the browser shares no location, or only a rough one, nothing is shown.',
       'Not sure which category a setting is in? Type a word like "email" or "SLA" in Filter Settings.',
-      'Shift Differentials and Call-Back Pay (Time Clock > Pay Rules) is off for every company until turned on. It adds extra pay per hour at night, on weekends or at certain sites, and a minimum paid time for a call-back. Hourly staff only; a finalized time sheet keeps the rules it was finalized with.',
-      'Payroll Export Codes (Time Clock > Pay Rules): the payroll item name each pay class carries in the QuickBooks IIF and the Intacct memo, per company. Leave a box blank for the default; names must match the QuickBooks payroll items, and two classes cannot share one name.',
-    ],
-  },
-  // Workflows (Oct 28 2026).
-  {
-    id: 'workflows', name: 'Workflows', group: 'Modules', icon: 'Workflow', view: 'workflows',
-    tagline: 'When something happens in Nexus, do something about it - without a developer.',
-    where: 'Left menu > Workflows',
-    access: 'Anyone with the Workflows grant. Viewer sees workflows and their runs; Editor builds and publishes their own; Full manages every workflow in their scope.',
-    purpose: 'Workflows are automations that cross modules: a trigger (an event such as "time off is approved", a schedule, a date such as "14 days before probation ends", or a button), optional "only if" conditions, and ordered steps - send an email or a notification, create a task or a ticket, assign a checklist, ask someone for approval, wait, or run a step for each person in a list. Every run is recorded step by step, and everything automatic - workflows, Tasks automation rules and the built-in background jobs - is listed and switched off from one place.',
-    gains: [
-      'Reminders, hand-offs and follow-ups happen the same way every time, with nobody remembering to do them.',
-      'Every workflow reads as plain English, so anyone can check what it does before it goes live.',
-      'What ran, for whom and what it changed is on the Runs tab with a link to the record.',
-    ],
-    walkthroughs: [
-      {
-        title: 'Build a Workflow',
-        steps: [
-          'Open Workflows and click New Workflow, or pick a template on the Templates tab (Use Template copies it as a draft with the blanks to fill marked).',
-          'In the When card pick the trigger: an event (grouped by module, searchable), a schedule, a date on a record, or Manual.',
-          'Add Only If conditions when the workflow should run for some records only, then add steps from the Add Step menu. Each card shows a sentence of what it does.',
-          'Click Test to run it against a recent event without sending anything; the trace shows which conditions passed and what each step would do.',
-          'Click Publish. Every publish is a new version; Versions in the right rail compares and restores them.',
-        ],
-      },
-      {
-        title: 'Turn Things Off',
-        steps: [
-          'One workflow: Pause on its row or page; Resume brings it back.',
-          'Every Tasks automation rule and every workflow in the company: the Automations tab, one switch per rule.',
-          'Everything at once: Settings > Workflows > Pause All (Global Admins). Every screen in the module shows who paused it and when; events still queue for 7 days so nothing recent is lost.',
-        ],
-      },
-      {
-        title: 'See What a Workflow Did',
-        steps: [
-          'Open the Runs tab. Runs lists one row per run; Actions lists every step that changed or sent something, newest first, with the record it touched.',
-          'Filter by workflow, status or date, and click a row for the step timeline with each step\'s input and output.',
-          'A failed run can be replayed from the drawer; a run waiting on an approval can be cancelled.',
-        ],
-      },
-    ],
-    features: [
-      { name: 'Overview', desc: 'What needs attention (paused by the system, failing, owner gone), the last 24 hours, recent runs, and the quick starts.' },
-      { name: 'Workflows', desc: 'Mine, My Company or Every Company; name, trigger, scope, owner, status, runs in 7 days, last run; Pause, Resume, Duplicate and Archive on each row.' },
-      { name: 'Builder', desc: 'When, Only If and Do cards that read as sentences; Settings, Test and Versions in the right rail; Describe It drafts a workflow from a sentence when AI is set up.' },
-      { name: 'Automations', desc: 'Every workflow, every Tasks automation rule with its own switch, and the built-in background jobs with what they do and the setting that controls them.' },
-      { name: 'Runs', desc: 'Runs and Actions views, filters, and a drawer with the step timeline, the event, Replay and Cancel.' },
-      { name: 'Approvals', desc: 'An Ask For Approval step lands in the Approvals screen and the bell with its options as buttons.' },
-      { name: 'Catalog', desc: 'Every trigger, field and action the app offers today, by module, with New markers.' },
-    ],
-    manager: {
-      title: 'Owners and Global Admins',
-      points: [
-        'A workflow runs as its owner: it can only do what the owner could do by hand, and a failed run always notifies the owner.',
-        'Scope is one company or every company; Full-level users and Global Admins may pause or re-own any workflow in their scope.',
-        'Settings > Workflows holds the per-company switch, the run and recipient ceilings, the weekly owner digest and the webhook allow-list.',
-      ],
-    },
-    tips: [
-      'Test before Publish is required the first time a definition changes - the trace is the fastest way to see why a condition did not match.',
-      'A step can be skipped without deleting it (the Skip toggle on its card); the run shows it as Skipped.',
-      'Hours and dates in templates come out US style (MM/DD/YYYY, 12-hour) by themselves.',
+      'Shift Differentials and Call-Back Pay (Settings > Time & Pay > Shift Differentials & Call-Back Pay) is off for every company until turned on. It adds extra pay per hour at night, on weekends or at certain sites, and a minimum paid time for a call-back. Hourly staff only; a finalized time sheet keeps the rules it was finalized with.',
+      'Payroll Export Codes (Settings > Time & Pay > Payroll Export Codes): the payroll item name each pay class carries in the QuickBooks IIF and the Intacct memo, per company. Leave a box blank for the default; names must match the QuickBooks payroll items, and two classes cannot share one name.',
     ],
   },
 ];

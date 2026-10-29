@@ -2686,6 +2686,14 @@ class ShiftGroup(Base):
     # Shifts Phase 0 (Oct 14 2026): the HrEntity company this group belongs
     # to; '' = shared across companies (managed company-wide only).
     company_id      = Column(String, default="")
+    # Neil, Oct 28 2026: open shifts are a per-team choice, OFF by default -
+    # useful for Ops or retail, noise for IT, Accounting or Admin. 1 = this
+    # team can post new open shifts; ones already posted always stay visible.
+    open_shifts     = Column(Integer, default=0)
+    # The department this team follows ('' = none): its active people are
+    # added automatically (shift_group_departments.py). A department NAME, as
+    # nexus_employees.department holds it, within company_id when set.
+    department      = Column(String, default="")
 
 
 class ShiftGroupMember(Base):
@@ -2693,6 +2701,9 @@ class ShiftGroupMember(Base):
     id             = Column(String, primary_key=True)   # uuid
     group_id       = Column(String, index=True, nullable=False)
     employee_email = Column(String, index=True, nullable=False)
+    # '' = added by hand; 'department' = added because they are in the
+    # group's department, and taken off again when they leave it.
+    source         = Column(String, default="")
 
 
 class ShiftAssignment(Base):
@@ -8100,8 +8111,14 @@ class KbSearchLog(Base):
     count      = Column(Integer, default=1)
     results    = Column(Integer, default=0)          # best result count seen that day
     last_user  = Column(String, default="")
-    # The searcher's company (WP 4.4, Oct 29 2026): one row per query, day and
-    # company, so Health shows a company only its own people's misses. ALTER lines in main.py.
+    # Which search box (Help Center, Oct 2026): 'kb' (the Knowledge Base),
+    # 'help' (the Help panel and the Help Center search bar), 'ask' (an Ask
+    # Nexus answer the sources did not cover) or 'ticket-form' (searched in
+    # the ticket form, then filed the ticket anyway).
+    source     = Column(String, default="kb")
+    # The searcher's company (WP 4.4, Oct 29 2026): one row per query, day,
+    # box and company, so Health shows a company only its own people's misses.
+    # ALTER lines in main.py.
     company    = Column(String, default="", index=True)
 
 
@@ -9217,3 +9234,22 @@ class HrHolidayPolicyAssignment(Base):
     skipped     = Column(JSON, default=list)
     assigned_by = Column(String, default="")
     assigned_at = Column(String, default="")
+
+
+class HelpFeedback(Base):
+    """Was This Helpful? (Help Center, Oct 2026) - one vote per person per
+    guide article or Ask Nexus answer, changed in place. Administrators read
+    the No votes in Knowledge Base > Manage > Help Signals. New table - RLS
+    line in main.py."""
+    __tablename__ = "help_feedback"
+    id          = Column(String, primary_key=True)
+    user_email  = Column(String, nullable=False, index=True)
+    target_kind = Column(String, default="guide")    # 'guide' | 'answer'
+    target_id   = Column(String, default="", index=True)  # guide: "<docId>#<anchor>"; answer: a hash of the question
+    helpful     = Column(Boolean, default=True)
+    note        = Column(String, default="")         # "What was missing?" (No votes)
+    question    = Column(String, default="")         # the question an answer was for
+    title       = Column(String, default="")         # what the person was reading
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+    __table_args__ = (UniqueConstraint("user_email", "target_kind", "target_id", name="ux_help_feedback_vote"),)
