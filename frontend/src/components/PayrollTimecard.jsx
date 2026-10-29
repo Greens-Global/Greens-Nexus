@@ -1562,18 +1562,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           below={data.contractor ? <InvoiceCard invoice={data.invoice} toastOk={toastOk} toastErr={toastErr} onSent={load} /> : null} />
       )}
       {self && data && selfTop?.(perStart, perEnd)}
-      {self && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', borderRadius: 9, padding: '8px 12px', marginBottom: 10, fontWeight: 500 }}>
-          <Pencil size={13} style={{ flexShrink: 0 }} /> Tap any clock-in or clock-out time to request a change. It goes to your approver, and your pay stays the same until they approve it.
-        </div>
-      )}
       {ownCard && <OwnCardHint />}
       {!stepLocked && data && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
           {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
           {/* The OT rule is for managers and HR, never on the employee's own
               time sheet (Neil, Oct 18 2026). */}
-          {self ? (showPay && <span><strong style={{ color: 'var(--ink)' }}>{data.contractor ? 'Rate' : 'Pay rate'}:</strong> {fmtM(rate)}/hr</span>) : (
+          {self ? (showPay && data.rateSet && <span><strong style={{ color: 'var(--ink)' }}>{data.contractor ? 'Rate' : 'Pay rate'}:</strong> {fmtM(rate)}/hr</span>) : (
           <span title="Set on the Pay & Benefits tab of this person's profile">
             {showPay && <><strong style={{ color: 'var(--ink)' }}>{data.contractor ? 'Rate' : 'Pay rate'}:</strong> {fmtM(rate)}/hr · </>}<strong style={{ color: 'var(--ink)' }}>OT rule:</strong> {RULE_LABEL[rule] || 'None'}
           </span>
@@ -1588,11 +1583,18 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           {fin && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontWeight: 700 }}>
             <CheckCircle size={12} /> Finalized · <AvatarName email={fin.by} name={nameFor(fin.by)} size={16} /> - period locked</span>}
           {data.review?.inCorrection && <CorrectionChip review={data.review} nameFor={nameFor} />}
-        </div>
-      )}
-      {!stepLocked && showPay && !data?.rateSet && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#b45309', marginBottom: 10 }}>
-          <AlertTriangle size={13} /> No pay rate set for this employee - wages show {fmtM(0)} until you set one.
+          {/* One line of facts (Neil, Oct 28 2026: less chunky): the missing
+              rate and the how-to-change hint sit here, not in boxes of their own. */}
+          {showPay && !data.rateSet && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#b45309' }}>
+              <AlertTriangle size={12} /> No pay rate set - wages show {fmtM(0)} until {self ? 'HR sets one' : 'you set one'}
+            </span>
+          )}
+          {self && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginLeft: 'auto' }}>
+              <Pencil size={12} style={{ flexShrink: 0 }} /> Tap a clock-in or clock-out time to request a change. Your pay stays the same until your approver approves it.
+            </span>
+          )}
         </div>
       )}
 
