@@ -1280,7 +1280,12 @@ def compliance(scope: str = "direct", company: str = "", department: str = "", m
     manage = kb_access.is_manage(user, db)
     if scope == "company" and not manage:
         scope = "team"
-    if scope == "direct":
+    if scope == "me":
+        # Training > Compliance (Oct 30 2026): the caller's own requirements,
+        # by the same rule as the team report - Manage > Compliance is the team.
+        people = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == me).limit(1).all()
+        company = department = ""
+    elif scope == "direct":
         people = kb_access.direct_reports(db, manager or me) if (manage or not manager or manager == me) else kb_access.direct_reports(db, me)
     elif scope == "team":
         people = kb_access.reporting_line(db, manager if (manage and manager) else me)
@@ -1294,7 +1299,7 @@ def compliance(scope: str = "direct", company: str = "", department: str = "", m
     if department:
         people = [p for p in people if (p.department or "").lower() == department.lower()]
     sc = kb_access.scope(user, db)
-    if sc is not None:
+    if sc is not None and scope != "me":   # your own record is never walled off
         people = [p for p in people if (p.company or "") in sc or not p.company]
     courses = [c for c in db.query(models.KbCourse).filter(models.KbCourse.status == "published").all()]
     policies = [d for d in db.query(models.KbDocument).filter(models.KbDocument.status == "approved", models.KbDocument.require_ack.is_(True)).all()]

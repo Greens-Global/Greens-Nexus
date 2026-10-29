@@ -12,8 +12,7 @@ import TrainingReport from './TrainingReport';
 // Byte order mark: makes Excel read the file as UTF-8 (names with accents).
 const BOM = String.fromCharCode(0xFEFF);
 
-// inTraining: shown as Training > Compliance (no Manage tab strip, no page frame).
-export default function Compliance({ me, inTraining = false }) {
+export default function Compliance({ me }) {
   const toast = useToast();
   const [scope, setScope] = useState('direct');
   const [company, setCompany] = useState('');
@@ -31,16 +30,10 @@ export default function Compliance({ me, inTraining = false }) {
     saveBlob(new Blob([BOM, toCsv(head, lines)], { type: 'text/csv;charset=utf-8' }), `compliance-${scope}.csv`);
   };
   const behind = data ? data.people.filter((p) => p.counts.red > 0).map((p) => p.email) : [];
-  const actions = (
-    <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-      <button type="button" className="kb-btn" disabled={!data} onClick={exportCsv}><Download />CSV</button>
-      <button type="button" className="kb-btn pri" disabled={!picked.length && !behind.length} onClick={() => nudge(picked.length ? picked : behind)}><Bell />Nudge {picked.length ? `${picked.length} Picked` : 'Everyone Behind'}</button>
-    </span>
-  );
 
   return (
-    <div className={inTraining ? '' : 'kb-page'} style={inTraining ? { display: 'flex', flexDirection: 'column', gap: 'inherit' } : undefined}>
-      {!inTraining && <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+    <div className="kb-page">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <h1 className="kb-h1" style={{ margin: 0, fontSize: 24 }}>Compliance</h1>
         <div className="kb-seg">
           <button type="button" onClick={() => goKb('health')}>Health</button>
@@ -48,8 +41,11 @@ export default function Compliance({ me, inTraining = false }) {
           <button type="button" onClick={() => goKb('collections')}>Collections</button>
           <button type="button" onClick={() => goKb('plans')}>Plans and Rules</button>
         </div>
-        {actions}
-      </div>}
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <button type="button" className="kb-btn" disabled={!data} onClick={exportCsv}><Download />CSV</button>
+          <button type="button" className="kb-btn pri" disabled={!picked.length && !behind.length} onClick={() => nudge(picked.length ? picked : behind)}><Bell />Nudge {picked.length ? `${picked.length} Picked` : 'Everyone Behind'}</button>
+        </span>
+      </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <div className="kb-seg">
           <button type="button" className={scope === 'direct' ? 'on' : ''} onClick={() => setScope('direct')}>My Direct Reports</button>
@@ -58,7 +54,6 @@ export default function Compliance({ me, inTraining = false }) {
         </div>
         {data?.filters?.companies?.length > 1 && <select className="kb-select" style={{ width: 'auto' }} value={company} onChange={(e) => setCompany(e.target.value)}><option value="">All companies</option>{data.filters.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>}
         {data?.filters?.departments?.length > 1 && <select className="kb-select" style={{ width: 'auto' }} value={department} onChange={(e) => setDepartment(e.target.value)}><option value="">All departments</option>{data.filters.departments.map((d) => <option key={d} value={d}>{d}</option>)}</select>}
-        {inTraining && actions}
       </div>
       <AsyncSection loading={!data && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
         {data && (

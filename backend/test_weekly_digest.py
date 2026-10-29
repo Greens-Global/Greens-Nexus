@@ -285,6 +285,28 @@ class HolidayTests(_Case):
         self.assertIn("the holidays coming up", html)
 
 
+class ExemptTimeSheetTests(_Case):
+    """Oct 30 2026: a time-tracking exempt person (a group flagged in Settings
+    > Access - salaried leadership) has no time sheet, so the briefing and the
+    digest never ask them to confirm one."""
+
+    def test_no_confirm_your_time_sheet_for_the_exempt(self):
+        self._emp(AMY)
+        self.db.query(models.NexusGroupMember).delete()
+        self.db.query(models.NexusGroup).delete()
+        self.db.commit()
+        two_days_before_close = "2026-10-29"
+        with mock.patch("routers.timeclock._employee_today", lambda db, email: two_days_before_close):
+            self.assertEqual([r["title"] for r in daily_briefing._timecard_rows(self.db, AMY)], ["Confirm Your Time Sheet"])
+            self.db.add(models.NexusGroup(id="g-exempt", name="Leadership", time_tracking_exempt=1))
+            self.db.add(models.NexusGroupMember(group_id="g-exempt", email=AMY))
+            self.db.commit()
+            self.assertEqual(daily_briefing._timecard_rows(self.db, AMY), [])
+        self.db.query(models.NexusGroupMember).delete()
+        self.db.query(models.NexusGroup).delete()
+        self.db.commit()
+
+
 class DueThisWeekTests(_Case):
     """Oct 2: what is coming due, beside Overdue - today through six days on.
     A recurring series keeps one open occurrence now, so its next date shows
