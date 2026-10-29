@@ -118,11 +118,16 @@ def matches(emp: models.NexusEmployee, a: dict) -> bool:
     return True
 
 
-def members(db: Session, a: dict) -> list[models.NexusEmployee]:
+def members(db: Session, a: dict, scope=None) -> list[models.NexusEmployee]:
     """Every active employee the audience covers (named people included even
-    if they match no rule)."""
+    if they match no rule). `scope` = a company scope (kb_access.scope /
+    scope_of_email): only people inside it, untagged people count as shared;
+    None = every company."""
     a = loads(a)
     people = _active_people(db)
+    if scope is not None:
+        import auth
+        people = [e for e in people if auth.company_ok(e.company or "", scope, shared_when_blank=True)]
     out = [e for e in people if matches(e, a)]
     have = {(e.work_email or "").lower() for e in out}
     by_email = {(e.work_email or "").lower(): e for e in people}
@@ -162,8 +167,8 @@ def options(db: Session) -> dict:
     }
 
 
-def preview(db: Session, a: dict, limit: int = 12) -> dict:
-    ms = members(db, a)
+def preview(db: Session, a: dict, limit: int = 12, scope=None) -> dict:
+    ms = members(db, a, scope)
     ms.sort(key=lambda e: ((e.last_name or ""), (e.first_name or "")))
     return {
         "count": len(ms),

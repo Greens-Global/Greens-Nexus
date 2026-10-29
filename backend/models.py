@@ -6621,6 +6621,10 @@ class NexusPersonPref(Base):
     # at the card, so it can mark what arrived since - on the server so a
     # phone and a desktop agree. ALTER lines in main.py.
     updates_seen_at = Column(String, default="")
+    # Knowledge Base training emails (WP 2.4, Oct 29 2026, kb_daily.py): 0 =
+    # no email when training is only DUE SOON. Overdue training and policies
+    # to sign always email; the bell always rings. ALTER lines in main.py.
+    kb_due_soon_email = Column(Integer, default=1)
 
 
 class TaskAutomationRun(Base):
@@ -8112,6 +8116,10 @@ class KbSearchLog(Base):
     # Nexus answer the sources did not cover) or 'ticket-form' (searched in
     # the ticket form, then filed the ticket anyway).
     source     = Column(String, default="kb")
+    # The searcher's company (WP 4.4, Oct 29 2026): one row per query, day,
+    # box and company, so Health shows a company only its own people's misses.
+    # ALTER lines in main.py.
+    company    = Column(String, default="", index=True)
 
 
 class KbPageRequest(Base):
@@ -8129,6 +8137,10 @@ class KbPageRequest(Base):
     created_at    = Column(String, default="")
     closed_at     = Column(String, default="")
     closed_by     = Column(String, default="")
+    # Manage > Health (WP 4.3, Oct 29 2026): who is writing it, and the word
+    # back to the asker when it is closed. ALTER lines in main.py.
+    assigned_to   = Column(String, default="")
+    close_note    = Column(String, default="")
 
 
 class KbJob(Base):

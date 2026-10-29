@@ -130,7 +130,7 @@ def _training(db: Session, me: str) -> int:
         c = db.query(models.KbCourse).filter(models.KbCourse.id == a.course_id).first()
         if not c or c.status != "published":
             continue
-        st = kb_core.training_status(db, c, kb_core.progress_of(db, c, me), a.due_date)
+        st = kb_core.training_status(db, c, kb_core.progress_of(db, c, me), a.due_date, me)
         if st["status"] != "Completed":
             n += 1
     return n
