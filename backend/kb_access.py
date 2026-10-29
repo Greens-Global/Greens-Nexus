@@ -111,10 +111,59 @@ def assert_wall(row, user: dict, db: Session, owner_attr: str = "owner_email") -
 
 # ----------------------------------------------------------------- pages
 
+def readers_of(d: models.KbDocument):
+    """The page's reader audience, or None when everyone in its company reads it."""
+    import kb_audience
+    raw = getattr(d, "readers", "") or ""
+    if not raw.strip():
+        return None
+    a = kb_audience.loads(raw)
+    return None if kb_audience.is_everyone(a) else a
+
+
+class _Reader:
+    """Who the caller is, worked out once for a list of pages."""
+    def __init__(self, user: dict, db: Session):
+        self.email = _email(user)
+        self.manage = is_manage(user, db)
+        self.owned = {c.id for c in db.query(models.KbCollection).filter(models.KbCollection.owner_email == self.email).all()} if self.email else set()
+        self.emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == self.email).first() if self.email else None
+
+
+def may_read(d: models.KbDocument, user: dict, db: Session, who: "_Reader | None" = None) -> bool:
+    """WP 5.3: a page with readers is read by them, its owner, reviewer and
+    collection owner, Knowledge Base Manage, and - a policy - everyone who
+    must sign it. A page with no readers is read by its whole company."""
+    import kb_core
+    a = readers_of(d)
+    if a is None and kb_core.is_live(d):
+        return True
+    import kb_audience
+    who = who or _Reader(user, db)
+    if who.manage or (d.owner_email or "").lower() == who.email or (d.reviewer_email or "").lower() == who.email:
+        return True
+    if d.collection_id and d.collection_id in who.owned:
+        return True
+    if not kb_core.is_live(d):   # scheduled (WP 5.8): its editors only, until the day
+        return False
+    if who.emp is None:
+        return False
+    if kb_audience.matches(who.emp, a):
+        return True
+    return bool(d.require_ack and d.audience and kb_audience.matches(who.emp, kb_audience.loads(d.audience)))
+
+
+def readable(rows: Iterable[models.KbDocument], user: dict, db: Session) -> list[models.KbDocument]:
+    """The pages the caller may read: the company wall, then each page's readers."""
+    rows = wall_rows(rows, user, db)
+    who = _Reader(user, db)
+    return [d for d in rows if may_read(d, user, db, who)]
+
+
 def can_see_page(d: models.KbDocument, user: dict, db: Session) -> bool:
     me = _email(user)
     if d.status == "approved":
-        return True
+        return may_read(d, user, db)
     if is_manage(user, db):
         return True
     if (d.owner_email or "").lower() == me or (d.reviewer_email or "").lower() == me:
@@ -133,10 +182,12 @@ def visible_pages(rows: Iterable[models.KbDocument], user: dict, db: Session) ->
     me = _email(user)
     author = is_author(user, db)
     owned = {c.id for c in db.query(models.KbCollection).filter(models.KbCollection.owner_email == me).all()} if me else set()
+    who = _Reader(user, db)
     out = []
     for d in rows:
         if d.status == "approved":
-            out.append(d)
+            if may_read(d, user, db, who):   # WP 5.3
+                out.append(d)
         elif (d.owner_email or "").lower() == me or (d.reviewer_email or "").lower() == me:
             out.append(d)
         elif d.collection_id in owned:

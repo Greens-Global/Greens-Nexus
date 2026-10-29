@@ -63,13 +63,14 @@ export default function KnowledgeBase({ activeSub, onSubChange }) {
     case 'collection': screen = <CollectionView id={route.id} me={me} />; break;
     case 'signatures': screen = <SignaturesView id={route.id} />; break;
     case 'tasks': screen = <PageTasksView id={route.id} />; break;
-    case 'editor': screen = <Editor id={route.id || 'new'} me={me} />; break;
+    case 'editor': screen = <Editor key={route.id || 'new'} id={route.id || 'new'} me={me} />; break;   // keyed: a new draft's id remounts it
     case 'revision': screen = <ReviewView kind="revision" id={route.id} me={me} />; break;
     case 'review': screen = <ReviewView kind="page" id={route.id} me={me} />; break;
     case 'training': screen = <MyTraining me={me} />; break;
     case 'courses': screen = <MyTraining me={me} seg="courses" />; break;
+    case 'training-compliance': screen = <MyTraining me={me} seg="compliance" />; break;
     case 'course': screen = <CoursePlayer id={route.id} me={me} />; break;
-    case 'builder': screen = <CourseBuilder id={route.id || 'new'} me={me} />; break;
+    case 'builder': screen = <CourseBuilder key={route.id || 'new'} id={route.id || 'new'} me={me} />; break;
     case 'health': screen = <Health me={me} />; break;
     case 'compliance': screen = <Compliance me={me} />; break;
     case 'collections': screen = <CollectionsAdmin me={me} />; break;

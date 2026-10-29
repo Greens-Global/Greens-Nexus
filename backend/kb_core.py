@@ -389,10 +389,15 @@ def signature_due(db: Session, d: models.KbDocument, emp: models.NexusEmployee |
     return add_days(base, due_days)
 
 
+def is_live(d: models.KbDocument) -> bool:
+    """Approved AND past its Goes Live On date (WP 5.8; '' = live at once)."""
+    return d.status == "approved" and (not (getattr(d, "live_from", "") or "") or d.live_from <= today())
+
+
 def signoff_state(db: Session, d: models.KbDocument, email: str) -> dict:
     """{required, signed, signed_at, due, overdue_days, version_signed}"""
     email = (email or "").lower()
-    if d.status != "approved" or not d.require_ack:
+    if d.status != "approved" or not d.require_ack or not is_live(d):
         return {"required": False, "signed": False, "signed_at": "", "due": "", "overdue_days": 0, "version_signed": ""}
     required = (kb_audience.is_everyone(kb_audience.loads(d.audience)) and bool(email)) or email in policy_audience_emails(db, d)
     sig = signature_for(db, d, email) if email else None

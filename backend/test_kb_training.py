@@ -236,6 +236,19 @@ class KbTrainingCase(unittest.TestCase):
         self.assertEqual(rep["stats"]["completed"], 1)
         self.assertEqual(rep["stats"]["overdue"], 1)
 
+    def test_my_compliance_is_only_my_own_requirements(self):
+        # Training > Compliance (Oct 30 2026): the caller alone, by the same rule
+        cid = self._course(title="Forklift Refresher")
+        self._as(MGR)
+        self.client.post(f"/kb/courses/{cid}/assign", json={"emails": [LRN, LRN2], "due_date": "2020-01-01"})
+        self._as(LRN2)
+        mine = self.client.get("/kb/compliance", params={"scope": "me", "company": "x", "department": "y"}).json()
+        self.assertEqual([p["email"] for p in mine["people"]], [LRN2])          # never the team, filters ignored
+        self.assertEqual(mine["people"][0]["cells"][f"course:{cid}"]["status"], "Overdue")
+        self.assertEqual(mine["stats"]["overdue"], mine["people"][0]["counts"]["red"])   # the totals are theirs alone
+        self._as(MGR)                                                       # a manager's "me" is the manager alone
+        self.assertEqual([p["email"] for p in self.client.get("/kb/compliance", params={"scope": "me"}).json()["people"]], [MGR])
+
     def test_training_plan_tracks_courses_and_policies_as_one_checklist(self):
         cid = self._course(title="Plan course")
         self._as(MGR)
@@ -280,6 +293,98 @@ class KbTrainingCase(unittest.TestCase):
         finally:
             db.close()
 
+
+    # ── more question types (WP 5.5, Oct 29 2026) ───────────────────────────
+    def test_short_answer_and_put_in_order_are_graded_on_the_server(self):
+        quiz = {"passPct": 100, "maxTries": 3, "questions": [
+            {"_id": "s1", "type": "short", "q": "What goes on before you climb?", "keywords": ["harness|safety belt", "helmet"], "lessonId": "l1"},
+            {"_id": "o1", "type": "order", "q": "Put the lift steps in order.", "options": ["Inspect", "Lift", "Lower"], "lessonId": "l1"}]}
+        cid = self._course(title="Typed Answers", quiz=quiz)
+        self._as(LRN)
+        self.client.post(f"/kb/courses/{cid}/lessons/l1/done")
+        start = self.client.post(f"/kb/courses/{cid}/quiz/start").json()
+        self.assertNotIn("keywords", str(start))                       # never sent to the learner
+        by = {q["_id"]: q for q in start["questions"]}
+        self.assertEqual(sorted(by["o1"]["options"]), ["Inspect", "Lift", "Lower"])
+        wrong = {"s1": "a helmet", "o1": [by["o1"]["options"].index(x) for x in ("Lift", "Inspect", "Lower")]}
+        r = self.client.post(f"/kb/quiz/{start['attempt_id']}/submit", json={"answers": wrong}).json()
+        self.assertEqual((r["score"], r["passed"]), (0, False))
+        start = self.client.post(f"/kb/courses/{cid}/quiz/start").json()
+        by = {q["_id"]: q for q in start["questions"]}
+        right = {"s1": "Safety belt on, then the helmet.", "o1": [by["o1"]["options"].index(x) for x in ("Inspect", "Lift", "Lower")]}
+        r = self.client.post(f"/kb/quiz/{start['attempt_id']}/submit", json={"answers": right}).json()
+        self.assertEqual((r["score"], r["passed"]), (100, True))
+
+    # ── course feedback (WP 5.7, Oct 29 2026) ───────────────────────────────
+    def test_a_finished_course_is_rated_once_and_the_owner_sees_no_names(self):
+        cid = self._course(title="Rated Course")
+        self._as(LRN)
+        self.assertEqual(self.client.post(f"/kb/courses/{cid}/feedback", json={"rating": 5}).status_code, 409)   # not finished
+        self.assertTrue(self._pass(cid)["passed"])
+        self._as(LRN)
+        self.assertEqual(self.client.post(f"/kb/courses/{cid}/feedback", json={"rating": 9}).status_code, 422)
+        r = self.client.post(f"/kb/courses/{cid}/feedback", json={"rating": 4, "comment": "Clear, but the video was long"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.client.post(f"/kb/courses/{cid}/feedback", json={"rating": 2}).status_code, 409)   # once per version
+        self._as(MGR)
+        fb = self.client.get(f"/kb/courses/{cid}/report").json()["feedback"]
+        self.assertEqual((fb["count"], fb["average"]), (1, 4.0))
+        self.assertEqual([c["comment"] for c in fb["comments"]], ["Clear, but the video was long"])
+        self.assertNotIn(LRN, str(fb))
+
+    # ── training reports (WP 5.6, Oct 29 2026) ──────────────────────────────
+    def test_the_training_report_counts_completions_by_course_team_and_month(self):
+        cid = self._course(title="Reported Course")
+        self._as(MGR)
+        self.client.post(f"/kb/courses/{cid}/assign", json={"emails": [LRN, LRN2]})
+        self.assertTrue(self._pass(cid)["passed"])
+        self._as(LRN)
+        self.assertEqual(self.client.get("/kb/reports/training").status_code, 403)   # Manage only
+        self._as(MGR)
+        rep = self.client.get("/kb/reports/training", params={"months": 3}).json()
+        row = next(r for r in rep["courses"] if r["id"] == cid)
+        self.assertEqual((row["assigned"], row["completed"], row["rate"]), (2, 1, 50))
+        self.assertEqual(len(rep["months"]), 3)
+        self.assertGreaterEqual(rep["months"][-1]["completed"], 1)
+        self.assertEqual({t["department"] for t in rep["teams"]} >= {"Operations", "Accounting"}, True)
+
+    # ── photo proof with a manager review (WP 5.5, Oct 29 2026) ─────────────
+    def _photo_course(self, title):
+        quiz = {"passPct": 100, "maxTries": 3, "questions": [
+            {"_id": "c1", "type": "single", "q": "Lock the gate?", "options": ["Yes", "No"], "answer": [0], "lessonId": "l1"},
+            {"_id": "p1", "type": "photo", "q": "Photo of the locked gate", "lessonId": "l1"}]}
+        cid = self._course(title=title, quiz=quiz)
+        self._as(LRN)
+        self.client.post(f"/kb/courses/{cid}/lessons/l1/done")
+        start = self.client.post(f"/kb/courses/{cid}/quiz/start").json()
+        by = {q["_id"]: q for q in start["questions"]}
+        ans = {"c1": [by["c1"]["options"].index("Yes")], "p1": "https://files.example.com/kb-media/proof/gate.jpg"}
+        r = self.client.post(f"/kb/quiz/{start['attempt_id']}/submit", json={"answers": ans}).json()
+        self.assertTrue(r["pending_review"])
+        self.assertEqual(self.client.post(f"/kb/courses/{cid}/quiz/start").status_code, 409)       # waiting
+        self._as(MGR)
+        rid = next(x["id"] for x in self.client.get("/kb/photo-reviews").json() if x["course_id"] == cid)
+        return cid, rid
+
+    def test_an_approved_photo_passes_the_quiz(self):
+        cid, rid = self._photo_course("Gate Photo")
+        self._as(LRN2)
+        self.assertEqual(self.client.post(f"/kb/photo-reviews/{rid}/decide", json={"decision": "approve"}).status_code, 403)
+        self._as(MGR)
+        r = self.client.post(f"/kb/photo-reviews/{rid}/decide", json={"decision": "approve"}).json()
+        self.assertEqual((r["graded"], r["score"], r["passed"]), (True, 100, True))
+        self._as(LRN)
+        self.assertEqual(next(c for c in self.client.get("/kb/courses").json() if c["id"] == cid)["my_status"], "Completed")
+
+    def test_a_sent_back_photo_is_a_miss_with_the_note(self):
+        cid, rid = self._photo_course("Gate Photo Two")
+        self.assertEqual(self.client.post(f"/kb/photo-reviews/{rid}/decide", json={"decision": "reject"}).status_code, 422)   # needs a note
+        r = self.client.post(f"/kb/photo-reviews/{rid}/decide", json={"decision": "reject", "note": "The padlock is not visible"}).json()
+        self.assertEqual((r["graded"], r["score"], r["passed"]), (True, 50, False))
+        self._as(LRN)
+        last = self.client.get(f"/kb/courses/{cid}").json()["quiz"]["last"]
+        self.assertIn("Photo sent back: The padlock is not visible", [m.get("explanation") for m in last["missed"]])
+        self.assertEqual(self.client.post(f"/kb/courses/{cid}/quiz/start").status_code, 201)            # a new try is open again
 
 if __name__ == "__main__":
     unittest.main()

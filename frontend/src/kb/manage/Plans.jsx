@@ -26,7 +26,7 @@ function PlanModal({ plan, courses, policies, onClose, onSaved }) {
     } catch (e) { toast(errText(e), 'err'); }
   };
   return (
-    <Modal title={plan ? plan.name : 'New Training Plan'} onClose={onClose} footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><button type="button" className="kb-btn" onClick={onClose}>Cancel</button><button type="button" className="kb-btn pri" disabled={!form.name.trim() || !form.items.length} onClick={save}>Save Plan</button></div>}>
+    <Modal title={plan ? plan.name : 'New Training Plan'} onClose={onClose} footer={<div className="kb" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><button type="button" className="kb-btn" onClick={onClose}>Cancel</button><button type="button" className="kb-btn pri" disabled={!form.name.trim() || !form.items.length} onClick={save}>Save Plan</button></div>}>
       <div className="kb" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 18 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="kb-field"><label>Name</label><input className="kb-input" autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="New Hire: Site Manager" /></div>

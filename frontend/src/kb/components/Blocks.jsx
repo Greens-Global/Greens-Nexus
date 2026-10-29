@@ -2,7 +2,8 @@
 // describes). The reader, the review compare, the course player and the
 // phone all draw through this, so a page looks the same everywhere.
 import { useState } from 'react';
-import { AlertTriangle, Lightbulb, Info, ShieldAlert, Play, BookOpen, Camera } from 'lucide-react';
+import { AlertTriangle, Lightbulb, Info, ShieldAlert, Play, BookOpen, Camera, Paperclip, Download } from 'lucide-react';
+import { fileSize } from '../editor/extensions.jsx';
 import { goKb } from '../lib';
 
 function Marks({ node }) {
@@ -38,7 +39,7 @@ export function Lightbox({ src, onClose }) {
   );
 }
 
-export default function Blocks({ doc, embeds = {}, onOpenPage, interactive = false, startNumber = 1 }) {
+export default function Blocks({ doc, embeds = {}, onOpenPage, interactive = false, startNumber = 1, onVideoEnded }) {
   const [zoom, setZoom] = useState('');
   const [ticks, setTicks] = useState({});
   const content = Array.isArray(doc?.content) ? doc.content : [];
@@ -108,12 +109,34 @@ export default function Blocks({ doc, embeds = {}, onOpenPage, interactive = fal
       }
       case 'video': {
         const url = n.attrs?.url || '';
+        if (n.attrs?.kind === 'file' && url) {
+          // An uploaded training video (WP 5.10): played here; the course player
+          // counts the lesson only once it has played to the end (onVideoEnded).
+          return (
+            <figure key={key} style={{ margin: '12px 0' }}>
+              <video src={url} controls preload="metadata" style={{ width: '100%', borderRadius: 10, background: '#000' }} onEnded={() => onVideoEnded?.(url)} />
+              {n.attrs?.title && <figcaption className="kb-meta">{n.attrs.title}</figcaption>}
+            </figure>
+          );
+        }
         let host = '';
         try { host = new URL(url).hostname.replace(/^www\./, ''); } catch { host = ''; }
         return (
           <a key={key} className="kb-video" href={url} target="_blank" rel="noopener noreferrer">
             <span className="play"><Play size={18} /></span>
             <span className="kb-grow"><span className="kb-title" style={{ display: 'block' }}>{n.attrs?.title || 'Video'}</span><span className="kb-meta">{host}</span></span>
+          </a>
+        );
+      }
+      case 'file': {
+        // An attachment (WP 5.2): opens behind the reader's login.
+        const url = n.attrs?.url || '';
+        if (!url) return null;
+        return (
+          <a key={key} className="kb-video" href={url} target="_blank" rel="noopener noreferrer" download={n.attrs?.name || true}>
+            <span className="play"><Paperclip size={18} /></span>
+            <span className="kb-grow"><span className="kb-title" style={{ display: 'block' }}>{n.attrs?.name || 'File'}</span><span className="kb-meta">{['Attachment', fileSize(n.attrs?.size)].filter(Boolean).join(' · ')}</span></span>
+            <Download size={16} style={{ color: 'var(--kb-dim)' }} />
           </a>
         );
       }
