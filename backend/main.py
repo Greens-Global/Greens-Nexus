@@ -1361,6 +1361,8 @@ def _run_migrations():
             "ON hr_holiday_policy_assignments (policy_id, company_id)",
             # Weather by department (Oct 29) - see the Postgres list. models.HrDepartment.
             "ALTER TABLE hr_departments ADD COLUMN weather INTEGER DEFAULT 0",
+            # Help Center (Oct 2026) - see the Postgres list. models.KbSearchLog.
+            "ALTER TABLE kb_search_log ADD COLUMN source VARCHAR DEFAULT 'kb'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3222,6 +3224,12 @@ def _run_migrations():
         # Construction ones once (weather_scope.seed_weather_departments).
         # models.HrDepartment.
         "ALTER TABLE hr_departments ADD COLUMN IF NOT EXISTS weather INTEGER DEFAULT 0",
+        # Help Center (Oct 2026): which search box a failed search came from
+        # ('kb' | 'help' | 'ask' | 'ticket-form') - models.KbSearchLog.source;
+        # Was This Helpful? votes are a new table - explicit RLS.
+        # models.HelpFeedback.
+        "ALTER TABLE kb_search_log ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'kb'",
+        "ALTER TABLE help_feedback ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4963,3 +4971,5 @@ from routers import extra_time as extra_time_router  # noqa: E402
 app.include_router(extra_time_router.router)  # India Contractor Extra Time claims: file, approve, decline (Neil, Oct 27 2026, docs/India-Contractor-Pay.md)
 from routers import workflows as workflows_router  # noqa: E402 - eight new tables: create_all + explicit RLS lines above
 app.include_router(workflows_router.router)  # Workflows: when X happens, do Y across modules - catalog, builder, runs, approvals, settings (Neil, Oct 28 2026)
+from routers import help_center as help_center_router  # noqa: E402 - new table help_feedback: create_all + explicit RLS line
+app.include_router(help_center_router.router)  # Help Center: Ask Nexus (docs only), failed searches, Was This Helpful?, Known Issues (Oct 2026)
