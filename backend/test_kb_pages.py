@@ -257,6 +257,45 @@ class KbPagesCase(unittest.TestCase):
         eve = next(u for u in sigs["unsigned"] if u["email"] == EMP)
         self.assertEqual(eve["signed_older"], "1.0")
 
+    # ── Neil's rebuild rules (PR #743) that had no test yet (WP 2.1/2.2, Oct 29 2026) ──
+    def test_a_policy_needs_a_second_person_and_a_reference_publishes_directly(self):
+        pol = self._create(page_type="policy", title="Visitor Policy")
+        self.assertNotEqual(self.client.post(f"/kb/pages/{pol['id']}/publish", json={}).status_code, 200)
+        self.assertEqual(self.client.post(f"/kb/pages/{pol['id']}/submit", json={}).status_code, 200)
+        self.assertEqual(self.client.post(f"/kb/pages/{pol['id']}/review", json={"decision": "approve"}).status_code, 403)
+        self._as(REV)
+        r = self.client.post(f"/kb/pages/{pol['id']}/review", json={"decision": "approve"})
+        self.assertEqual((r.status_code, r.json().get("status"), r.json().get("version")), (200, "approved", "1.0"))
+        ref = self._create(page_type="reference", title="Gate Code List")
+        r = self.client.post(f"/kb/pages/{ref['id']}/publish", json={})
+        self.assertEqual((r.status_code, r.json().get("status")), (200, "approved"), r.text)
+
+    def test_a_real_change_is_a_major_version_and_review_locks_the_revision(self):
+        page = self._published(title="Unit Turnover")
+        self._as(AUT)
+        rev = self.client.post(f"/kb/pages/{page['id']}/revisions").json()
+        r = self.client.patch(f"/kb/revisions/{rev['id']}", json={"blocks": _blocks(("Inspect", "Paint")), "change_kind": "major", "change_note": "New process"})
+        self.assertEqual(r.json()["next_version"], "2.0")
+        self.assertEqual(self.client.post(f"/kb/revisions/{rev['id']}/submit", json={}).status_code, 200)
+        self.assertEqual(self.client.patch(f"/kb/revisions/{rev['id']}", json={"summary": "late edit"}).status_code, 409)
+
+    def test_archived_pages_are_for_authors_and_drafts_for_the_collection_owner(self):
+        page = self._create(page_type="how_to", title="Old Lock Codes")
+        self.assertEqual(self.client.post(f"/kb/pages/{page['id']}/publish", json={}).status_code, 200)
+        self.assertEqual(self.client.post(f"/kb/pages/{page['id']}/archive", json={}).status_code, 403)   # the collection owner or Manage archives
+        self._as(MGR)
+        r = self.client.post(f"/kb/pages/{page['id']}/archive", json={})
+        self.assertEqual(r.status_code, 200, r.text)
+        self._as(EMP)
+        self.assertEqual(self.client.get(f"/kb/pages/{page['id']}").status_code, 404)
+        self._as(AUT)
+        self.assertEqual(self.client.get(f"/kb/pages/{page['id']}").status_code, 200)
+        draft = self._create(page_type="how_to", title="Draft In Ops")
+        self._as(OWN)                                   # owns the Operations collection
+        self.assertEqual(self.client.get(f"/kb/pages/{draft['id']}").status_code, 200)
+        self._as(EMP)
+        self.assertEqual(self.client.get(f"/kb/pages/{draft['id']}").status_code, 404)
+
     def test_archive_then_restore_lands_in_draft_not_published(self):
         page = self._published()
         self._as(AUT)   # author, not owner/manage

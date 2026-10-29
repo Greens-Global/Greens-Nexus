@@ -6610,6 +6610,10 @@ class NexusPersonPref(Base):
     # at the card, so it can mark what arrived since - on the server so a
     # phone and a desktop agree. ALTER lines in main.py.
     updates_seen_at = Column(String, default="")
+    # Knowledge Base training emails (WP 2.4, Oct 29 2026, kb_daily.py): 0 =
+    # no email when training is only DUE SOON. Overdue training and policies
+    # to sign always email; the bell always rings. ALTER lines in main.py.
+    kb_due_soon_email = Column(Integer, default=1)
 
 
 class TaskAutomationRun(Base):

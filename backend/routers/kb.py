@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import auth
 import kb_access
 import kb_ai
 import kb_audience
@@ -549,6 +550,7 @@ def update_collection(cid: str, body: CollectionIn, user: dict = Depends(get_cur
     c = _collection(db, cid)
     if not c:
         raise HTTPException(404, "Collection not found")
+    kb_access.assert_wall(c, user, db)   # owned by another company: theirs to change (no owner = shared)
     if not (kb_access.is_manage(user, db) or kb_access.owns_collection(user, db, cid)):
         raise HTTPException(403, "Only the collection owner or a Knowledge Base manager can change this")
     if body.name is not None and body.name.strip():
@@ -1447,6 +1449,7 @@ def get_job(job_id: str, user: dict = Depends(get_current_user), db: Session = D
     j = db.query(models.KbJob).filter(models.KbJob.id == job_id).first()
     if not j or (j.created_by != user["email"].lower() and not kb_access.is_manage(user, db)):
         raise HTTPException(404, "Job not found")
+    kb_access.assert_wall(j, user, db, owner_attr="created_by")
     return _job_out(j)
 
 
@@ -1555,6 +1558,7 @@ def health(user: dict = Depends(require_author), db: Session = Depends(get_db)):
     manage = kb_access.is_manage(user, db)
     owned = {c.id for c in db.query(models.KbCollection).filter(models.KbCollection.owner_email == me_).all()}
     pub = _published(db, user)
+    pub_ids = {d.id for d in pub}
 
     def mine(d: models.KbDocument) -> bool:
         return manage or (d.owner_email or "").lower() == me_ or d.collection_id in owned
@@ -1567,11 +1571,12 @@ def health(user: dict = Depends(require_author), db: Session = Depends(get_db)):
     flags = []
     for f in db.query(models.KbFlag).filter(models.KbFlag.status == "open").order_by(models.KbFlag.created_at.desc()).all():
         d = db.query(models.KbDocument).filter(models.KbDocument.id == f.doc_id).first()
-        if d and mine(d):
+        if d and d.id in pub_ids and mine(d):   # pub is walled: never another company's page
             flags.append({"id": f.id, "doc_id": d.id, "title": d.title, "code": d.doc_code or "", "text": f.text, "user_name": f.user_name or _name(db, f.user_email),
                           "created_at": f.created_at, "version": f.version})
     reqs = [{"id": r.id, "query": r.query, "note": r.note, "user_name": r.user_name, "created_at": r.created_at, "collection_id": r.collection_id}
-            for r in db.query(models.KbPageRequest).filter(models.KbPageRequest.status == "open").order_by(models.KbPageRequest.created_at.desc()).all()
+            for r in kb_access.wall_rows(db.query(models.KbPageRequest).filter(models.KbPageRequest.status == "open").order_by(models.KbPageRequest.created_at.desc()).all(),
+                                         user, db, owner_attr="user_email")
             if manage or (r.collection_id in owned)]
     drafts = [_page_card(db, d, user) for d in kb_access.visible_pages(db.query(models.KbDocument).filter(models.KbDocument.status.in_(("draft", "changes_requested"))).all(), user, db) if mine(d)]
     in_review = [_page_card(db, d, user) for d in kb_access.visible_pages(db.query(models.KbDocument).filter(models.KbDocument.status == "in_review").all(), user, db) if mine(d)]
@@ -1594,12 +1599,19 @@ def activity(limit: int = Query(60, ge=1, le=300), doc_id: str = "", user: dict 
         q = q.filter(models.KbEvent.doc_id == doc_id)
     rows = q.order_by(models.KbEvent.created_at.desc()).limit(limit * 3).all()
     visible = {d.id for d in kb_access.visible_pages(db.query(models.KbDocument).all(), user, db)}
+    sc = kb_access.scope(user, db)
     out = []
     for e in rows:
         if e.doc_id and e.doc_id not in visible:
             continue
         d = db.query(models.KbDocument).filter(models.KbDocument.id == e.doc_id).first() if e.doc_id else None
         c = db.query(models.KbCourse).filter(models.KbCourse.id == e.course_id).first() if e.course_id else None
+        # A course event follows the course's wall; one about neither a page
+        # nor a course follows the person who did it (Oct 29 2026).
+        if e.course_id and not e.doc_id and (not c or not kb_access.wall_rows([c], user, db) or not kb_access.can_see_course(c, user, db)):
+            continue
+        if not e.doc_id and not e.course_id and not kb_access.in_scope(db, e.actor_email or "", sc):
+            continue
         out.append({"id": e.id, "kind": e.kind, "version": e.version, "actor_email": e.actor_email, "actor_name": e.actor_name or _name(db, e.actor_email),
                     "note": e.note, "created_at": e.created_at, "doc_id": e.doc_id, "course_id": e.course_id,
                     "title": (d.title if d else (c.title if c else "")), "code": (d.doc_code if d else (c.course_code if c else "")) or ""})
@@ -1630,6 +1642,7 @@ def close_request(rid: str, body: ResolveIn, user: dict = Depends(require_author
     r = db.query(models.KbPageRequest).filter(models.KbPageRequest.id == rid).first()
     if not r:
         raise HTTPException(404, "Not found")
+    kb_access.assert_wall(r, user, db, owner_attr="user_email")   # the asker's company
     me_ = user["email"].lower()
     r.status, r.closed_at, r.closed_by = "done", kb_core.now(), me_
     if body.resolution and body.resolution.startswith("kb_"):
@@ -1677,10 +1690,13 @@ def people(user: dict = Depends(get_current_user), db: Session = Depends(get_db)
     """Reviewer / owner pickers: the curated People list (manager+ roles are
     flagged so a reviewer picker can prefer them)."""
     roles = {r.email.lower(): r.role for r in db.query(models.NexusRole).all()}
+    sc = kb_access.scope(user, db)   # the same company wall as the People directory (/myhr/directory)
     out = []
     for e in db.query(models.NexusEmployee).filter(models.NexusEmployee.status.in_(("onboarding", "active")), models.NexusEmployee.deleted_at == "",
                                                    models.NexusEmployee.work_email != "", models.NexusEmployee.identity_type != "guest").all():
         em = (e.work_email or "").lower()
+        if sc is not None and not auth.company_ok(e.company or "", sc, shared_when_blank=True):
+            continue
         out.append({"email": em, "name": (e.display_name or f"{e.first_name or ''} {e.last_name or ''}").strip() or em,
                     "department": e.department or "", "job_title": e.job_title or "", "role": roles.get(em, "employee")})
     out.sort(key=lambda p: p["name"].lower())

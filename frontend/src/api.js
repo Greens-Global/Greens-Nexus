@@ -3259,6 +3259,9 @@ export const api = {
   // Training Reminders switches - see backend/kb_reminder_config.py
   getKbReminderSettings:    ()     => req("/kb-reminder-settings"),
   updateKbReminderSettings: (data) => req("/kb-reminder-settings", { method: "PUT", body: JSON.stringify(data) }),
+  // The person's own training-email switch (Profile > Email Settings, WP 2.4)
+  getKbMyEmailPref:    ()     => req("/kb-reminder-settings/mine"),
+  updateKbMyEmailPref: (data) => req("/kb-reminder-settings/mine", { method: "PUT", body: JSON.stringify(data) }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with

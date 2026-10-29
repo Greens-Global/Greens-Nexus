@@ -225,6 +225,12 @@ def learner_items(db, email: str) -> list[dict]:
     return out
 
 
+def wants_due_soon_email(db, email: str) -> bool:
+    """The person's own switch (nexus_person_prefs.kb_due_soon_email); on unless they turned it off."""
+    row = db.query(models.NexusPersonPref.kb_due_soon_email).filter(models.NexusPersonPref.email == (email or "").lower()).first()
+    return not row or row[0] is None or bool(row[0])
+
+
 def run_learner_reminders(db) -> int:
     cfg = kb_reminder_config.get_config(db)["learners"]   # Settings > Emails & Reminders > Training Reminders
     if not cfg["enabled"]:
@@ -246,7 +252,10 @@ def run_learner_reminders(db) -> int:
         title = "Training Overdue" if overdue else "Training Due Soon"
         kb_core.notify(db, recipient=email, ntype="kb_training_reminder", title=title, body="; ".join(lines)[:900],
                        ref_id="training", item_name=title, sub="training", dedupe_today=True, priority=1 if overdue else 0)
-        if cfg["email"]:
+        # A person may turn off due-soon emails (Profile > Email Settings, WP 2.4);
+        # anything overdue or a policy to sign still emails. The bell always rings.
+        must = any(i["days_overdue"] or i["kind"] == "policy" for i in items)
+        if cfg["email"] and (must or wants_due_soon_email(db, email)):
             _mail(db, email, f"{title}: {len(items)} item{'s' if len(items) != 1 else ''}", lines)
         _mark(db, "learner_digest", "", email)
         sent += 1

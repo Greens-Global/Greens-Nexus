@@ -64,6 +64,8 @@ class KbReminderSettingsCase(unittest.TestCase):
         try:
             db.query(models.NexusSetting).filter(models.NexusSetting.key == "kb_reminder_config").delete()
             db.query(models.KbReminderLog).delete()
+            db.query(models.NexusPersonPref).delete()
+            db.query(models.KbCourseAssignment).filter(models.KbCourseAssignment.id == "a-1").update({"due_date": kb_core.today()})
             db.commit()
         finally:
             db.close()
@@ -143,6 +145,34 @@ class KbReminderSettingsCase(unittest.TestCase):
             db.close()
         n, sent, bells = self._run_learners()
         self.assertEqual((n, len(sent), bells), (0, 0, 0))
+
+    # ── the person's own switch (WP 2.4, decision D5) ───────────────────────
+    def test_a_person_may_turn_off_due_soon_emails_only(self):
+        self._as(LRN)
+        self.assertEqual(self.client.get("/kb-reminder-settings/mine").json(), {"dueSoonEmail": True, "orgEmailOn": True})
+        self.assertEqual(self.client.put("/kb-reminder-settings/mine", json={"dueSoonEmail": "no"}).status_code, 422)
+        r = self.client.put("/kb-reminder-settings/mine", json={"dueSoonEmail": False})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertFalse(r.json()["dueSoonEmail"])
+        db = database.SessionLocal()
+        try:
+            db.query(models.NexusNotification).delete()
+            db.commit()
+        finally:
+            db.close()
+        n, sent, bells = self._run_learners()          # due today: bell only
+        self.assertEqual((n, len(sent), bells), (1, 0, 1))
+        db = database.SessionLocal()
+        try:
+            db.query(models.KbReminderLog).delete()
+            db.query(models.KbCourseAssignment).filter(models.KbCourseAssignment.id == "a-1").update(
+                {"due_date": kb_core.add_days(kb_core.today(), -7)})
+            db.commit()
+        finally:
+            db.close()
+        n, sent, bells = self._run_learners()          # a week overdue: the email goes anyway
+        self.assertEqual((n, len(sent)), (1, 1))
+        self.assertIn("Training Overdue", sent[0]["subject"])
 
 
 if __name__ == "__main__":

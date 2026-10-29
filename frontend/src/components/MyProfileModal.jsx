@@ -6,6 +6,7 @@ import { refreshPhotoMap } from '../lib/peoplePhotos';
 import { ZONE_GROUPS, MAX_ZONES, LOCAL_TZ, currentZones, setZones, zoneOptionLabel } from '../lib/worldClockZones';
 import { Spinner } from './AsyncState';
 import EmailSettingsPanel from '../tasks/MyEmailSettings';
+import KbTrainingEmailPref from './KbTrainingEmailPref';
 import { DATE_FORMATS, getDateFormat, setDateFormat, formatDate } from '../lib/datetime';
 
 const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ead0']];
@@ -373,8 +374,10 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             </span>
           </button>
           {!emailOpen && (
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Which task emails you get, and when.</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Which task and training emails you get, and when.</div>
           )}
+          {/* Training emails (WP 2.4, Oct 29 2026) - for everyone, Tasks access or not. */}
+          {emailOpen && <KbTrainingEmailPref />}
           {!emailOpen ? null : emailUnavailable ? (
             <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
               Task email settings aren&apos;t available for your account because you don&apos;t have access to the Tasks module.

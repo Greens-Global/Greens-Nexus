@@ -1361,6 +1361,8 @@ def _run_migrations():
             "ON hr_holiday_policy_assignments (policy_id, company_id)",
             # Weather by department (Oct 29) - see the Postgres list. models.HrDepartment.
             "ALTER TABLE hr_departments ADD COLUMN weather INTEGER DEFAULT 0",
+            # Training emails opt-out (Oct 29) - see the Postgres list. models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN kb_due_soon_email INTEGER DEFAULT 1",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3222,6 +3224,9 @@ def _run_migrations():
         # Construction ones once (weather_scope.seed_weather_departments).
         # models.HrDepartment.
         "ALTER TABLE hr_departments ADD COLUMN IF NOT EXISTS weather INTEGER DEFAULT 0",
+        # Knowledge Base training emails (WP 2.4, 10/29/2026): a person may
+        # turn off due-soon emails only. models.NexusPersonPref.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS kb_due_soon_email INTEGER DEFAULT 1",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

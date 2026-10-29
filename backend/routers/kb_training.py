@@ -166,7 +166,20 @@ def _norm_quiz(q: dict) -> dict:
             "maxTries": max(1, min(10, int(q.get("maxTries") or 3))), "shuffle": q.get("shuffle", True) is not False, "questions": qs[:200]}
 
 
-def _norm_lessons(db: Session, lessons: list) -> list[dict]:
+def _page_for_lesson(db: Session, did: str, user: Optional[dict]):
+    """A page an author may build training from: one they can open (company
+    wall, drafts only for their own people - kb_access.get_page), else None."""
+    if not did:
+        return None
+    if user is None:
+        return db.query(models.KbDocument).filter(models.KbDocument.id == did).first()
+    try:
+        return kb_access.get_page(db, did, user)
+    except HTTPException:
+        return None
+
+
+def _norm_lessons(db: Session, lessons: list, user: Optional[dict] = None) -> list[dict]:
     out = []
     for L in lessons or []:
         if not isinstance(L, dict):
@@ -176,7 +189,7 @@ def _norm_lessons(db: Session, lessons: list) -> list[dict]:
         item = {"_id": lid, "type": t, "title": str(L.get("title") or "Lesson")[:200], "summary": str(L.get("summary") or "")[:600]}
         if t == "page":
             did = str(L.get("docId") or "")
-            d = db.query(models.KbDocument).filter(models.KbDocument.id == did).first() if did else None
+            d = _page_for_lesson(db, did, user)
             if not d:
                 continue
             item.update({"docId": d.id, "docVersion": str(L.get("docVersion") or d.version or ""), "blocks": None})
@@ -403,7 +416,7 @@ def create_course(body: CourseIn, user: dict = Depends(require_author), db: Sess
     kb_core.assign_course_code(db, c)
     draft = _draft_of(c)
     if body.lessons is not None:
-        draft["lessons"] = _norm_lessons(db, body.lessons)
+        draft["lessons"] = _norm_lessons(db, body.lessons, user)
     if body.quiz is not None:
         draft["quiz"] = _norm_quiz(body.quiz)
     c.draft = json.dumps(draft)
@@ -457,7 +470,7 @@ def update_course(cid: str, body: CourseIn, user: dict = Depends(require_author)
     if body.departments is not None:
         draft["departments"] = body.departments[:200]
     if body.lessons is not None:
-        draft["lessons"] = _norm_lessons(db, body.lessons)
+        draft["lessons"] = _norm_lessons(db, body.lessons, user)
     if body.quiz is not None:
         draft["quiz"] = _norm_quiz(body.quiz)
     c.draft = json.dumps(draft)
@@ -474,7 +487,7 @@ def publish_course(cid: str, body: PublishIn, user: dict = Depends(require_autho
     c = kb_access.get_course(db, cid, user)
     kb_access.assert_edit_course(c, user, db)
     draft = _draft_of(c)
-    lessons = _norm_lessons(db, draft.get("lessons") or [])
+    lessons = _norm_lessons(db, draft.get("lessons") or [], user)
     if not lessons:
         raise HTTPException(422, "Add at least one lesson")
     for L in lessons:
@@ -1055,7 +1068,8 @@ def generate(cid: str, body: GenerateIn, background_tasks: BackgroundTasks, user
     kb_access.assert_edit_course(c, user, db)
     if not kb_ai.available():
         raise HTTPException(503, "Nexus is not available on this server")
-    ids = [str(x) for x in body.doc_ids][:8]
+    # Only pages the author may open (Oct 29 2026: the ids came straight from the body).
+    ids = [str(x) for x in body.doc_ids if _page_for_lesson(db, str(x), user)][:8]
     if not ids:
         raise HTTPException(422, "Pick at least one page")
     j = models.KbJob(id=kb_core.new_id("job"), kind="course", status="queued", course_id=c.id, input=json.dumps({"doc_ids": ids, "title_hint": body.title_hint, "questions": body.questions}),
@@ -1090,6 +1104,8 @@ def get_certificate(cert_id: str, user: dict = Depends(get_current_user), db: Se
     me = user["email"].lower()
     if x.user_email != me and not kb_access.is_author(user, db) and kb_access.manager_of(db, x.user_email) != me:
         raise HTTPException(404, "Certificate not found")
+    if x.user_email != me:
+        kb_access.assert_wall(x, user, db, owner_attr="user_email")   # an author never opens another company's
     return _cert_out(db, x)
 
 
@@ -1230,7 +1246,10 @@ def compliance_nudge(body: NudgeIn, user: dict = Depends(get_current_user), db: 
     me = user["email"].lower()
     import kb_daily
     n = 0
+    sc = kb_access.scope(user, db)
     for e in {str(x).lower() for x in body.emails}:
+        if not kb_access.in_scope(db, e, sc):
+            continue   # another company's person: never nudged across the wall
         if not (kb_access.is_manage(user, db) or kb_access.manager_of(db, e) == me or e in {(x.work_email or "").lower() for x in kb_access.reporting_line(db, me)}):
             continue
         items = [i for i in kb_daily.learner_items(db, e) if i["status"] in ("Overdue", "To Sign", "Not Started", "In Progress", "Expired")]
