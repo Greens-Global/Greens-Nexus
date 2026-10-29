@@ -123,8 +123,9 @@ const pointerDrag = (from, to, keys = {}) => {
 const more = (label) => { fireEvent.click(screen.getByRole('button', { name: 'More' })); fireEvent.click(within(screen.getByRole('menu', { name: 'More' })).getByText(label)); };
 const add = (label) => { fireEvent.click(screen.getByRole('button', { name: 'Add' })); fireEvent.click(within(screen.getByRole('menu', { name: 'Add' })).getByText(label)); };
 // Customize (Oct 28 2026) is its own toolbar button; Export is a dropdown; Import a button.
-const viewOptions = () => { fireEvent.click(screen.getByRole('button', { name: /^Customize/ })); return screen.getByRole('dialog', { name: 'Customize' }); };
-const exportMenu = (label) => { fireEvent.click(screen.getByRole('button', { name: 'Export' })); fireEvent.click(within(screen.getByRole('menu', { name: 'Export' })).getByText(label)); };
+const viewOptions = () => { more('Customize'); return screen.getByRole('dialog', { name: 'Customize' }); };
+// Print is a toolbar button; Export to Excel sits under More (Oct 29 2026).
+const exportMenu = (label) => (label === 'Print' ? fireEvent.click(screen.getByRole('button', { name: 'Print' })) : more(label));
 const toastOk = vi.fn();
 const toastErr = vi.fn();
 // The stacked view of every team (10/02: the schedule shows one team at a
@@ -137,6 +138,9 @@ const asPhone = () => vi.spyOn(window, 'matchMedia').mockImplementation((q) => (
 
 beforeEach(() => {
   try { localStorage.clear(); } catch { /* none */ }
+  // All Teams starts with every team folded (Oct 29 2026); most tests look
+  // inside the teams, so they start open. The folding test clears this.
+  try { localStorage.setItem('nexus.shifts.fold.anon', JSON.stringify({ g1: false, g2: false, g3: false })); } catch { /* none */ }
   toastOk.mockReset(); toastErr.mockReset();
   timeSchedule.mockReset();
   timeShiftGroupMembers.mockReset().mockResolvedValue({});
@@ -169,7 +173,7 @@ beforeEach(() => {
 });
 
 describe('Toolbar: one row, seven controls', () => {
-  it('shows the date bar first, then Fill Automatically, Add, Customize, Export, Import, More, Discard and Save & Share (Oct 28 2026)', async () => {
+  it('shows the date bar first, then Fill Automatically, Add, Print, More, Discard and Save & Share (Oct 29 2026)', async () => {
     timeSchedule.mockResolvedValue(data([shift({ published: false })]));
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
     await screen.findByText('Amy Adams');
@@ -178,12 +182,12 @@ describe('Toolbar: one row, seven controls', () => {
     // No groups: no team switcher. Today is hidden while this week is on screen.
     expect(names[0]).toBe('Previous week');
     expect(names[1]).toMatch(/· This Week\. Pick a date$/);
-    expect(names.slice(2)).toEqual(['Next week', 'Day', 'Week', 'Month', 'Fill Automatically', 'Add', 'Customize', 'Export', 'Import', 'More', 'Discard', 'Save & Share, 1 unsaved']);
+    expect(names.slice(2)).toEqual(['Next week', 'Day', 'Week', 'Month', 'Fill Automatically', 'Add', 'Print', 'More', 'Discard', 'Save & Share, 1 unsaved']);
     expect(screen.queryByText('Fill Schedule')).toBeNull();
     expect(screen.queryByText('Publish 1')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'More' }));
     const items = within(screen.getByRole('menu', { name: 'More' })).getAllByRole('menuitem').map((b) => b.textContent.trim());
-    expect(items).toEqual(['Copy Week', 'Clear Week', 'Requests', 'Keyboard Shortcuts']);
+    expect(items).toEqual(['Customize', 'Export to Excel', 'Import', 'Copy Week', 'Clear Week', 'Requests', 'Keyboard Shortcuts']);
     fireEvent.keyDown(document, { key: 'Escape' });
     const d = viewOptions();
     expect(within(d).getByRole('checkbox', { name: 'Show coverage' }).checked).toBe(true);
@@ -375,15 +379,19 @@ describe('The week grid engine (WeekGrid, 10/02)', () => {
     expect(within(v2).getByLabelText('Continues next week')).toBeTruthy();
   });
 
-  it('folds groups with nothing this week, says so in one row, and remembers what the user opens', async () => {
+  it('folds every team in All Teams, says so in one row, and remembers what the user opens (Oct 29 2026)', async () => {
+    try { localStorage.removeItem('nexus.shifts.fold.anon'); } catch { /* none */ }
     allTeams();
     timeSchedule.mockResolvedValue(groups2([shift()]));
     const { unmount } = render(<ShiftSchedule toastOk={toastOk} />);
-    await screen.findByText('Amy Adams');
+    await screen.findByRole('button', { name: 'Expand Front' });            // even a team with shifts starts folded
+    expect(screen.queryByText('Amy Adams')).toBeNull();
     expect(screen.queryByText('Bob Brown')).toBeNull();
     expect(screen.getByText('1 person · no shifts this week')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Expand Back' }).getAttribute('aria-expanded')).toBe('false');
-    expect(document.querySelector('[data-open-row="g2"]')).toBeNull();    // a folded group shows nothing under it
+    expect(document.querySelector('[data-open-row]')).toBeNull();           // a folded team shows nothing under it
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Front' }));
+    expect(screen.getByText('Amy Adams')).toBeTruthy();
     expect(document.querySelector('[data-open-row="g1"]')).toBeTruthy();  // a manager gets the slim Open Shifts row where open shifts are on
     fireEvent.click(screen.getByRole('button', { name: 'Expand Back' }));
     expect(screen.getByText('Bob Brown')).toBeTruthy();
@@ -394,7 +402,7 @@ describe('The week grid engine (WeekGrid, 10/02)', () => {
     expect(screen.queryByText('Amy Adams')).toBeNull();
   });
 
-  it('keeps a group open when someone in it is off, and never shows a viewer an empty Open Shifts row', async () => {
+  it('never shows a viewer an empty Open Shifts row', async () => {
     allTeams();
     timeSchedule.mockResolvedValue({ ...groups2([shift()]), canManage: false,
       timeoff: [{ id: 'v1', email: 'bob@greensglobal.com', startDate: monday, endDate: plusDays(monday, 1), type: 'vacation', status: 'approved' }] });
@@ -866,7 +874,7 @@ describe('Views, options, export, drag', () => {
     timeSchedule.mockResolvedValue(data([]));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
-    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    more('Import');
     const file = new File(['x'], 'week.xlsx');
     file.arrayBuffer = async () => new ArrayBuffer(1);
     fireEvent.change(screen.getByLabelText('Schedule file'), { target: { files: [file] } });
