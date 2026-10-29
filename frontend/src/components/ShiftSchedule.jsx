@@ -294,6 +294,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     scrollMem.current[team] = { top: grid?.scrollTop || 0, left: grid?.scrollLeft || 0 };
     setTeamPick(id);
     try { localStorage.setItem(teamKey, id); } catch { /* private mode */ }
+    // Picking All Teams starts with every team folded again.
+    if (id === ALL_TEAMS && id !== team) setFold({});
   };
   const setGroupFilter = (id) => pickTeam(id || ALL_TEAMS);
   // Land on the day and group a weather advisory points at (Weather Call).
@@ -895,21 +897,18 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   const showToday = !(isoDate(new Date()) >= start && isoDate(new Date()) <= end);
   const openDay = (ds) => { const [y, m, d] = ds.split('-').map(Number); setCursor(new Date(y, m - 1, d)); setView('day'); };
   const pickView = (k) => setView(k === 'week' && prefs.twoWeeks ? 'twoweeks' : k);
-  // Folded groups: what the user chose, else a group (when there are
-  // several sections) is folded when nothing is in view - no shifts, no open
-  // shifts, nobody off. "Everyone" and a lone group never fold by themselves.
+  // Folded groups: what the user chose, else - when there are several
+  // sections (All Teams) - every team starts folded and opens on a click
+  // (Pranshu, Oct 29 2026). "Everyone" and a lone group never fold by themselves.
   const collapsed = useMemo(() => {
     const set = new Set();
     sections.forEach((g) => {
       const key = sectionKey(g);
-      // Everyone Else starts folded when there are teams above it (Neil, Oct 28 2026).
-      if (!g.isGroup && g.name === 'Everyone Else') { if (fold[key] ?? true) set.add(key); return; }
-      if (!g.isGroup || sections.length < 2) { if (fold[key]) set.add(key); return; }
-      const busyGroup = days.some((d) => { const ds = isoDate(d); return (openCells[`${g.id || ''}|${ds}`] || []).length || g.members.some((m) => (byCell[`${m.email}|${ds}`] || []).length || offOn(m.email, ds).length); });
-      if (fold[key] ?? !busyGroup) set.add(key);
+      if (sections.length < 2 || (!g.isGroup && g.name !== 'Everyone Else')) { if (fold[key]) set.add(key); return; }
+      if (fold[key] ?? true) set.add(key);
     });
     return set;
-  }, [sections, days, openCells, byCell, offOn, fold]);
+  }, [sections, fold]);
   const toggleCollapse = (key) => setFold({ ...fold, [key]: !collapsed.has(key) });
 
   const gridOn = {
