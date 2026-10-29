@@ -485,10 +485,31 @@ export const DOCS = [
         ],
       },
       {
+        // Neil, Oct 28 2026: the guide said what Shifts is, not how to set a
+        // team up - this is the whole path, start to finish.
+        title: 'Set Up Your Team\'s Schedule (Start Here)',
+        steps: [
+          'Why it matters: Nexus can only tell a manager that someone is late, or has not shown up, when that person has a shift on the schedule. Every team needs its schedule set.',
+          'Settings > Shifts & Scheduling > Shift Types: add one shift type for each set of hours your team works, with its unpaid break - for example Accounting - 8:30 AM to 5:30 PM, 60 minutes. Someone whose hours differ from the rest gets their own, for example Accounting - Urmi, 4:00 AM to 2:00 PM. Pick the time zone as a place (Pacific Time - Los Angeles); daylight saving then moves by itself.',
+          'Settings > Shifts & Scheduling > Groups: make the team\'s group and add its people (or let it follow a department, where your Nexus has that).',
+          'Team > Schedule: pick the team above the grid. Click the ... beside each person\'s name and choose their shift type under Usual Hours - "Usual" then shows under their name.',
+          'Switch to Month and click Fill Automatically, then Fill Schedule: everyone gets their own usual hours for the whole month, except on approved days off.',
+          'Click Save & Share. The team is told, and from then on late and no-show alerts work for them. Next month, Fill Automatically again (or Copy Week to bring a week forward).',
+        ],
+      },
+      {
+        title: 'Give One Person Different Hours',
+        steps: [
+          'If it is every week (for example they start 15 minutes later than the team): add a shift type with their hours in Settings > Shifts & Scheduling, then on Team > Schedule click the ... beside their name and pick it under Usual Hours. Fill Automatically gives them those hours from then on.',
+          'If it is one day: double-click that day on their row, choose Custom, set the start and end, and click Save.',
+          'Click Save & Share when you are done, so they see it.',
+        ],
+      },
+      {
         title: 'Set Up a Shift Type and a Group',
         steps: [
           'Administrators: open Settings > Shifts & Scheduling. If you look after more than one company, pick it in the Scope box at the top first - a shift type or group is either Shared With Every Company or belongs to one.',
-          'Under Shift Types, click New Shift Type: name, a short code for the grid, color, start and end time, unpaid break, grace minutes, time zone and days. The paid hours a shift puts on the schedule (start to end, less the unpaid break) show under the times. Click Save.',
+          'Under Shift Types, click New Shift Type: a clear name (the grid shows it), a short code (used in exports and imports), color, start and end time, unpaid break, grace minutes, time zone and days. The paid hours a shift puts on the schedule (start to end, less the unpaid break) show under the times. Click Save.',
           'Under Groups, click New Group: name it, pick its members from the People list and any Schedulers, then click Save. For an outdoor crew, also pick its Work Site and Weather Deciders.',
           'To keep a group in step with a department, pick it under Department: everyone in that department joins the group by themselves and leaves it when they leave the department. People you add by hand stay.',
           'Open shifts are off for a new group. Tick Open Shifts on a group that posts unfilled shifts (Ops, retail); office teams leave it off. Open shifts already posted stay on the schedule.',
