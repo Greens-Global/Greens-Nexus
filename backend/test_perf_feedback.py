@@ -34,7 +34,6 @@ import auth  # noqa: E402
 import database  # noqa: E402
 import main  # noqa: E402,F401
 import models  # noqa: E402
-import perf_reviews as pr  # noqa: E402
 from routers import perf_feedback as api  # noqa: E402
 from routers import perf_reviews as rapi  # noqa: E402
 

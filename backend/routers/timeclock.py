@@ -3898,6 +3898,9 @@ def list_punch_requests(status: str = "pending", from_: str = Query("", alias="f
     rejected request - what the employee asked, who decided, the note -
     without the copies closed as duplicates; `from` / `to` (YYYY-MM-DD)
     bound it by the day the punch is for."""
+    # Called directly too (approvals_inbox, tests): an unset `from` is the
+    # Query default object there, not a string.
+    from_ = from_ if isinstance(from_, str) else ""
     visible = _visible_emails(db, user)
     q = db.query(PunchRequest)
     if status == "decided":
