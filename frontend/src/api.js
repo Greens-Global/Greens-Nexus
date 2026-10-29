@@ -1735,7 +1735,7 @@ export const api = {
   // Punch-fix requests: employee asks, approver (HR/manager) approves/rejects
   timePunchRequestCreate: (data) => req('/timeclock/punch-requests', { method: 'POST', body: JSON.stringify(data) }),
   timeMyPunchRequests:    () => req('/timeclock/punch-requests/mine'),
-  timePunchRequests:      (status) => req(`/timeclock/punch-requests?status=${status || 'pending'}`),
+  timePunchRequests:      (status, from = '', to = '') => req(`/timeclock/punch-requests?status=${status || 'pending'}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`),
   // Employee self-edit of a punch time (applies to display now, to pay only on approval)
   timePunchEditCreate:    (data)     => req('/timeclock/punch-edits', { method: 'POST', body: JSON.stringify(data) }),
   timePunchEditDecide:    (id, data) => req(`/timeclock/punch-edits/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

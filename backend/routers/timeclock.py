@@ -3809,11 +3809,25 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
     return _pr_dict(req)
 
 
+def _with_deciders(db: Session, rows: list) -> list:
+    """Adds `decidedByName` - who approved or rejected each request, by name,
+    so the history reads "Approved by Miranda Lee" (Neil, Oct 29 2026)."""
+    names: dict = {}
+    for r in rows:
+        em = (r.get("decidedBy") or "").strip().lower()
+        if em and em not in names:
+            names[em] = _display_name(db, em)
+        r["decidedByName"] = names.get(em, "")
+    return rows
+
+
 @router.get("/punch-requests/mine")
 def my_punch_requests(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # 100, not 50: the employee's Past Requests reads back further than the
+    # current period (Neil, Oct 29 2026 - what was asked stays visible).
     rows = (db.query(PunchRequest).filter(PunchRequest.employee_email == user["email"])
-            .order_by(PunchRequest.created_at.desc()).limit(50).all())
-    return [_pr_dict(r) for r in rows]
+            .order_by(PunchRequest.created_at.desc()).limit(100).all())
+    return _with_deciders(db, [_pr_dict(r) for r in rows])
 
 
 def _my_request(db: Session, req_id: str, email: str) -> PunchRequest:
@@ -3877,13 +3891,24 @@ def dismiss_decided_punch_requests(user: dict = Depends(get_current_user), db: S
 
 
 @router.get("/punch-requests")
-def list_punch_requests(status: str = "pending", user: dict = Depends(require_approval_read),
-                        db: Session = Depends(get_db)):
-    """Approver review queue - team-scoped, so a manager sees only their reports'."""
+def list_punch_requests(status: str = "pending", from_: str = Query("", alias="from"), to: str = "",
+                        user: dict = Depends(require_approval_read), db: Session = Depends(get_db)):
+    """Approver review queue - team-scoped, so a manager sees only their reports'.
+    `status=decided` is the history (Neil, Oct 29 2026): every approved or
+    rejected request - what the employee asked, who decided, the note -
+    without the copies closed as duplicates; `from` / `to` (YYYY-MM-DD)
+    bound it by the day the punch is for."""
     visible = _visible_emails(db, user)
     q = db.query(PunchRequest)
-    if status:
+    if status == "decided":
+        q = q.filter(PunchRequest.status.in_(("approved", "rejected")),
+                     ~func.coalesce(PunchRequest.decision_note, "").like("Duplicate of%"))
+    elif status:
         q = q.filter(PunchRequest.status == status)
+    if from_:
+        q = q.filter(PunchRequest.local_date >= from_)
+    if to:
+        q = q.filter(PunchRequest.local_date <= to)
     if visible is not None:
         if not visible:
             return []
@@ -3892,7 +3917,8 @@ def list_punch_requests(status: str = "pending", user: dict = Depends(require_ap
     # on your manager / HR, so they leave your approver queue. History stays.
     if status == "pending":
         q = q.filter(PunchRequest.employee_email != (user.get("email") or "").lower())
-    rows = [_pr_dict(r) for r in q.order_by(PunchRequest.created_at.desc()).limit(200).all()]
+    order = PunchRequest.decided_at.desc() if status == "decided" else PunchRequest.created_at.desc()
+    rows = _with_deciders(db, [_pr_dict(r) for r in q.order_by(order).limit(500 if status == "decided" else 200).all()])
     meta = _people_meta(db, [r["employeeEmail"] for r in rows])
     zones: dict = {}
     for r in rows:
