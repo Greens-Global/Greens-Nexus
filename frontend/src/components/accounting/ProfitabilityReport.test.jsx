@@ -75,6 +75,21 @@ describe('ProfitabilityReport', () => {
     expect(api.getProfitability).toHaveBeenLastCalledWith(expect.any(String), expect.any(String), { locations: [], book: 'accrual', expand: true });
   });
 
+  // Charmi 10/28, round 4: the date boxes read MM/DD/YYYY whatever the PC's region, and send the same ISO dates.
+  it('shows the dates as MM/DD/YYYY and sends a picked day as the same ISO date', async () => {
+    const y = new Date().getFullYear();
+    const { container } = render(<ProfitabilityReport />);
+    await screen.findByText('Sunset Plaza');
+    expect(container.querySelector('input[type="date"]')).toBeNull();
+    expect(screen.getByTitle('From').textContent).toBe(`01/01/${y}`);
+    expect(screen.getByTitle('To').textContent).toBe(`12/31/${y}`);
+    fireEvent.click(screen.getByTitle('From'));
+    fireEvent.click(screen.getByRole('button', { name: '15' }));
+    expect(screen.getByTitle('From').textContent).toBe(`01/15/${y}`);
+    expect(screen.getByLabelText('Period').value).toBe('custom');
+    expect(api.getProfitability).toHaveBeenLastCalledWith(`${y}-01-15`, `${y}-12-31`, { locations: [], book: 'accrual', expand: false });
+  });
+
   it('says what went wrong', async () => {
     api.getProfitability.mockRejectedValueOnce(new Error('Accounting service: down'));
     render(<ProfitabilityReport />);
