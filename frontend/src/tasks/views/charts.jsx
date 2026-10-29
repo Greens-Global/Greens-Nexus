@@ -404,7 +404,7 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
     <div onMouseDown={(e) => e.target === e.currentTarget && guard.requestClose()} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: isMobile ? 'stretch' : 'center', justifyContent: 'center', background: 'rgba(17,24,39,0.45)', padding: isMobile ? 0 : 16, fontFamily: FONT }}>
       {/* 60vw x 60-85vh from .nx-popup (no inline height to fight it); the
           body between header and footer is the part that grows (.nx-fill). */}
-      <div className="nx-popup" role="dialog" aria-modal="true" aria-label={initial ? 'Edit Chart' : 'Add Chart'}
+      <div className={`nx-popup${isMobile ? ' nx-sheet' : ''}`} role="dialog" aria-modal="true" aria-label={initial ? 'Edit Chart' : 'Add Chart'}
         style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: isMobile ? 0 : 16, border: `1px solid ${NX.border}`, background: NX.surface, boxShadow: '0 24px 60px rgba(0,0,0,0.28)', ...(isMobile ? { height: '100%', maxHeight: '100%' } : null) }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 20px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{initial ? 'Edit Chart' : 'Add Chart'}</h2>

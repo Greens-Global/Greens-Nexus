@@ -195,6 +195,7 @@ export default function AlertsBell({ alerts, onNavigate, onClearAlert }) {
                         e.currentTarget.style.color = C.gray400
                         e.currentTarget.style.background = 'transparent'
                       }}
+                      className="nx-touch-reveal"
                       style={{
                         position: 'absolute',
                         top: 6,

@@ -1348,7 +1348,8 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 12, width: '60vw', minWidth: 340, maxWidth: '96vw', maxHeight: '90vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+      <div role="dialog" aria-modal="true" aria-label={grp ? 'Edit Override' : 'Add Override'}
+        style={{ background: 'var(--card)', borderRadius: 12, width: '60vw', minWidth: 'min(340px, 100%)', maxWidth: '96vw', maxHeight: '90vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{grp ? 'Edit Override' : 'Add Override'}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>

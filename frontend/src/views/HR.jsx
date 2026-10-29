@@ -5675,7 +5675,7 @@ export default function HR({ activeSub, onSubChange }) {
           </div>
         </div>
         {sub === 'hr-people' && (
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', alignItems: 'center', maxWidth: '100%' }}>
             {hrTeam && (
               <span title="As a manager you see the people who report to you, directly or through your managers - hours and profiles, never pay."
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 20, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontSize: 12, fontWeight: 700 }}>

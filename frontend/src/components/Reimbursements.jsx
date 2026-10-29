@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppWindow, ArrowRight, Check, ChevronDown, FileText, Laptop, Package, Plane, Plus, Receipt, Settings2, Tag, Upload, Utensils, X } from 'lucide-react';
 import { api } from '../api';
 import { usePopupNudge } from '../lib/usePopupNudge';
+import { useIsMobile } from '../lib/useIsMobile';
 import { Spinner } from './AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { currencyOptions } from '../asset/lib/currency';
@@ -374,6 +375,7 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
   const [open, setOpen] = useState(!!autoOpen);
   // A click outside nudges instead of closing (lib/usePopupNudge.js).
   const { nudge, reset: resetNudge, popupClass, closeClass } = usePopupNudge();
+  const phone = useIsMobile('(max-width: 640px)');
   useEffect(() => { if (!open) resetNudge(); }, [open, resetNudge]);
   const [tab, setTab] = useState('mine');
   const [hrTab, setHrTab] = useState('approver_approved');
@@ -438,10 +440,13 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
       <ArrowRight className="wd-askhr-go" size={15} aria-hidden="true" />
     </button>
     {open && (
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: phone ? 0 : 16 }}
         onClick={nudge}>
-        <div role="dialog" aria-label="Reimbursements" className={popupClass} onClick={(e) => e.stopPropagation()}
-          style={{ background: 'var(--card)', borderRadius: 14, width: '85vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '85vh', maxHeight: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+        {/* A phone gets the whole screen, like Purchase Requests (phone pass, Oct 29 2026). */}
+        <div role="dialog" aria-label="Reimbursements" className={`${popupClass}${phone ? ' nx-sheet' : ''}`} onClick={(e) => e.stopPropagation()}
+          style={phone
+            ? { background: 'var(--card)', width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }
+            : { background: 'var(--card)', borderRadius: 14, width: '85vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', height: '85vh', maxHeight: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
           <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--line)' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Reimbursements</div>

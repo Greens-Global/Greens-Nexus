@@ -124,7 +124,7 @@ export default function CreatePostModal({ facilities, defaultFacility, platform,
   return (
     <Modal title={isEdit ? 'Edit Post' : 'Create Post'} onClose={onClose} width="max-w-3xl"
       isDirty={dirty} onSave={(text.trim() && expiresDate) ? submit : undefined}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 24 }}>
+      <div className="mktg-cols-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 24 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
             <label style={labelStyle}>Property</label>

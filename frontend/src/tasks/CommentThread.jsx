@@ -171,7 +171,9 @@ function CommentRow({ c, isReply, nameOf, myEmail, people, attachments = [], onP
               {resolved ? 'Resolved' : assignedToMe ? 'Assigned to you' : nameOf(c.assigneeId)}
             </span>
           )}
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, opacity: hover ? 1 : 0, transition: 'opacity 0.12s' }}>
+          {/* Shown on hover; a touch screen has no hover, so .nx-touch-reveal
+              keeps them in view there with finger-sized targets (style.css). */}
+          <div className="nx-touch-reveal" style={{ marginLeft: 'auto', display: 'flex', gap: 2, opacity: hover ? 1 : 0, transition: 'opacity 0.12s' }}>
             {!isReply && !resolved && onReply && act('Reply', CornerDownRight, onReply)}
             {!isReply && onAssign && (
               <span title={c.assigneeId ? 'Assigned - change' : 'Assign this comment to someone'} style={{ display: 'inline-flex', alignItems: 'center', padding: '0 3px' }}>

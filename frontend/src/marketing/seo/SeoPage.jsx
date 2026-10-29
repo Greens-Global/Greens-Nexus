@@ -108,7 +108,7 @@ export default function SeoPage({ onNavigate, alerts, insights, onClearAlert }) 
       )}
 
       {tab === 'rankings' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 16, alignItems: 'start' }}>
+        <div className="mktg-cols-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 16, alignItems: 'start' }}>
           <KeywordExplorerCard
             database={scopedDatabase}
             trackedKeywordNames={trackedNames}
@@ -126,7 +126,7 @@ export default function SeoPage({ onNavigate, alerts, insights, onClearAlert }) 
       {tab === 'performance' && (
         <>
           <WebsitePerformanceStatCards vitals={coreWebVitals} totalOrganicSessions={totalOrganicSessions} />
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, alignItems: 'stretch' }}>
+          <div className="mktg-stack" style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, alignItems: 'stretch' }}>
             <div style={{ gridColumn: 'span 6' }}>
               <OrganicTrafficChart data={organicTrafficTrend} />
             </div>

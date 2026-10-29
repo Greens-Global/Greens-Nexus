@@ -41,7 +41,7 @@ function StatCard({ icon: Icon, color, label, value, caption }) {
 export default function CompetitorsCard({ own, competitors }) {
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
+      <div className="mktg-cols-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
         <StatCard
           icon={Shield}
           color={{ color: C.emerald600, background: C.emerald50 }}

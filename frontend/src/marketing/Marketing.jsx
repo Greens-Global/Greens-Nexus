@@ -202,6 +202,24 @@ const MKTG_STYLES = `
 
 .mktg-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 
+/* Phones (Oct 29). The sample pages hold their desktop layout in inline
+   styles; these classes only act at phone width, so desktop is untouched.
+   mktg-actions: toolbar rows wrap instead of running off the edge.
+   mktg-stack: a 12-column grid's cells each take the full row.
+   mktg-cols-2 / mktg-cols-1: fixed 4-7 column grids drop to 2 / 1 columns.
+   mktg-swipe: the lead board keeps its five columns and swipes sideways.
+   mktg-stat-head: a KPI card's value and its delta share a row only if they fit. */
+@media (max-width: 640px) {
+  .mktg-actions { flex-wrap: wrap !important; flex-shrink: 1 !important; min-width: 0; max-width: 100%; }
+  .mktg-stack > * { grid-column: 1 / -1 !important; }
+  .mktg-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .mktg-cols-1 { grid-template-columns: minmax(0, 1fr) !important; }
+  .mktg-swipe { grid-template-columns: repeat(5, 82%) !important; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; padding-bottom: 4px; }
+  .mktg-swipe::-webkit-scrollbar { display: none; }
+  .mktg-swipe > * { scroll-snap-align: start; min-width: 0; }
+  .mktg-stat-head { flex-wrap: wrap; gap: 4px 8px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .mktg-root, .mktg-root *, .mktg-root .mktg-card { animation: none !important; transition: none !important; }
 }
