@@ -28,14 +28,15 @@ export function GoalStatus({ status, size = 'sm' }) {
   return <StatusLabel label={m.label} color={m.color} size={size} />;
 }
 
+// One goal on one line (Oct 29 2026): what and whose on the left, the
+// progress in a column of its own so the bars line up down the list, the
+// status on the right. Rows sit in one hairline list (GoalList), not a box
+// each; phones put the bar on a line of its own (style.css .nx-perf-goal).
 export function GoalRow({ goal: g, onOpen, onApprove, showOwner = false }) {
   const meta = GOAL_STATUS[g.status] || GOAL_STATUS.on_track;
   return (
-    <div className="nx-perf-row" style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', minWidth: 0 }}>
-      <button type="button" onClick={() => onOpen?.(g)}
-        style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '6px 12px', alignItems: 'center', width: '100%',
-          textAlign: 'left', padding: '11px 12px', border: 'none', background: 'transparent', borderRadius: 12,
-          cursor: 'pointer', fontFamily: 'inherit', color: 'var(--ink)', minHeight: 44 }}>
+    <div className="nx-perf-row" role="listitem" style={{ minWidth: 0 }}>
+      <button type="button" className="nx-perf-goal" onClick={() => onOpen?.(g)}>
         <span style={{ minWidth: 0 }}>
           <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.title}</span>
           <span style={{ display: 'block', ...muted, fontSize: 12, marginTop: 2 }}>
@@ -43,23 +44,24 @@ export function GoalRow({ goal: g, onOpen, onApprove, showOwner = false }) {
               showOwner || g.level !== 'personal' ? g.ownerName : '',
               g.dueOn ? `Due ${formatDate(g.dueOn)}` : ''].filter(Boolean).join(' · ')}
           </span>
+          {g.measuredByNexus && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
+              <Sparkles size={12} /> Measured by Nexus: {g.metricLabel}
+            </span>
+          )}
+        </span>
+        <span className="nx-perf-prog">
+          <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+            overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 5 }}>{measureText(g)}</span>
+          <ProgressBar value={g.progress} color={meta.color} label={`${g.title} progress`} />
         </span>
         <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {g.proposed && <StatusLabel label="Proposed" color="#64748b" size="sm" />}
           <GoalStatus status={g.status} />
         </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 10, gridColumn: '1 / -1', minWidth: 0 }}>
-          <span style={{ flex: 1, minWidth: 60 }}><ProgressBar value={g.progress} color={meta.color} label={`${g.title} progress`} /></span>
-          <span style={{ fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{measureText(g)}</span>
-        </span>
-        {g.measuredByNexus && (
-          <span style={{ gridColumn: '1 / -1', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)' }}>
-            <Sparkles size={12} /> Measured by Nexus: {g.metricLabel}
-          </span>
-        )}
       </button>
       {g.canApprove && onApprove && (
-        <div style={{ padding: '0 12px 10px' }}>
+        <div style={{ padding: '0 14px 12px' }}>
           <button type="button" className="primary-btn" onClick={() => onApprove(g)} style={{ ...TAP, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Check size={14} /> Approve
           </button>
@@ -72,7 +74,7 @@ export function GoalRow({ goal: g, onOpen, onApprove, showOwner = false }) {
 export function GoalList({ goals, onOpen, onApprove, showOwner = false, empty = 'No goals yet.' }) {
   if (!goals?.length) return <div style={{ ...muted, padding: '6px 2px' }}>{empty}</div>;
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
+    <div className="nx-perf-list" role="list">
       {goals.map(g => <GoalRow key={g.id} goal={g} onOpen={onOpen} onApprove={onApprove} showOwner={showOwner} />)}
     </div>
   );
