@@ -71,7 +71,7 @@ class WidgetBoundary extends Component {
         Help could not load right now. Refresh the page, or{' '}
         <button type="button" onClick={this.props.onContact}
           style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'var(--wk-brand, #2b45e1)', fontWeight: 600, cursor: 'pointer' }}>
-          go to Support
+          go to the Help Center
         </button>.
       </div>
     );
@@ -89,13 +89,30 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
   // anything that navigates away, or a click elsewhere, does not.
   const close = useCallback((restoreFocus = true) => {
     setOpen(false);
-    if (restoreFocus) btnRef.current?.focus();
+    // Phones hide the "?" button (the panel opens from the menu there), and
+    // focusing a hidden button drops focus nowhere.
+    const btn = btnRef.current;
+    if (restoreFocus && btn && window.getComputedStyle(btn).display !== 'none') btn.focus();
   }, []);
 
-  // "?" anywhere (Shift+/ on US keyboards), Esc while open, and the phone menu's event.
+  // Esc while open closes the panel and ONLY the panel: caught on the way
+  // down (capture) and stopped there, so a drawer or modal under it - whose
+  // own Esc listener was added first - never hears it and keeps its draft.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onEsc = (e) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      close(true);
+    };
+    window.addEventListener('keydown', onEsc, true);
+    return () => window.removeEventListener('keydown', onEsc, true);
+  }, [open, close]);
+
+  // "?" anywhere (Shift+/ on US keyboards) and the phone menu's event.
   useEffect(() => {
     const onKey = (e) => {
-      if (open && e.key === 'Escape') { e.preventDefault(); close(true); return; }
       if (e.key !== '?' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
       if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
       e.preventDefault();

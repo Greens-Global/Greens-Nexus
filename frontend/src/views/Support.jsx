@@ -404,6 +404,10 @@ export default function Support({ activeSub, onSubChange }) {
   // a Support page that's already mounted.
   useEffect(() => {
     const openTicket = async (e) => {
+      // The sender also left a note for a page still loading; this page is
+      // here and heard it, so the note goes - left behind it reopened the
+      // ticket on the next visit, even after Cancel at the prompt below.
+      takePendingOpen('ticket');
       const id = e.detail?.ticketId;
       if (!id || id === viewingIdRef.current) return;
       if (drawerDirtyRef.current && !(await confirmSwitchTicket())) return;
@@ -446,13 +450,24 @@ export default function Support({ activeSub, onSubChange }) {
     return () => { window.removeEventListener('nexus:support-tour', openTour); unTour(); };
   }, []);
 
+  // Only the newest request lands: a reload from closing the drawer and one
+  // from a dialog's submit can come back out of order. A failed load keeps
+  // whatever was last shown (or none) - never an empty list that reads as
+  // "nothing open" - and says so, with Retry.
+  const loadSeq = useRef(0);
   const load = useCallback(() => {
+    const seq = ++loadSeq.current;
     api.getMyTickets()
-      .then((rows) => setTickets(rows || []))
-      .catch((e) => { setTickets([]); setError(e.message || 'Could not load your tickets.'); });
+      .then((rows) => { if (seq === loadSeq.current) { setTickets(rows || []); setError(''); } })
+      .catch((e) => { if (seq === loadSeq.current) setError(e.message || 'Could not load your tickets.'); });
   }, []);
 
   useEffect(load, [load]);
+  // A ticket created anywhere (the Help panel, Batch Create, the Tickets module).
+  useEffect(() => {
+    window.addEventListener('nexus:tickets-changed', load);
+    return () => window.removeEventListener('nexus:tickets-changed', load);
+  }, [load]);
   useEffect(() => setPage(1), [search]);
 
   // Neil, Oct 13 2026: "anything to do with support or learning is right
@@ -609,9 +624,16 @@ export default function Support({ activeSub, onSubChange }) {
           )}
         </div>
 
-        {error && <div style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginBottom: 10 }}>{error}</div>}
+        {error && (
+          <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: 'hsl(var(--color-red))', fontSize: 13, marginBottom: 10 }}>
+            {error}
+            <button type="button" className="secondary-btn" onClick={load} style={{ fontSize: 12, padding: '4px 10px' }}>
+              <RotateCcw size={13} /> Retry
+            </button>
+          </div>
+        )}
 
-        {tickets === null ? (
+        {tickets === null && error ? null : tickets === null ? (
           <LoadingState compact label="Loading your tickets…" />
         ) : listed.length === 0 ? (
           // An empty state, not an empty table: a header row with nothing under
@@ -803,7 +825,7 @@ export default function Support({ activeSub, onSubChange }) {
             {sorted.length > SUPPORT_PAGE_SIZE && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 10, fontFamily: FONT }}>
                 <span style={{ fontSize: 12, color: NX.dim }}>
-                  {(pageSafe - 1) * SUPPORT_PAGE_SIZE + 1}–{Math.min(pageSafe * SUPPORT_PAGE_SIZE, sorted.length)} of {sorted.length}
+                  {(pageSafe - 1) * SUPPORT_PAGE_SIZE + 1}-{Math.min(pageSafe * SUPPORT_PAGE_SIZE, sorted.length)} of {sorted.length}
                 </span>
                 <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={pageSafe <= 1}
                   style={{ display: 'flex', alignItems: 'center', border: `1px solid ${NX.border}`, borderRadius: 7, background: NX.surface, padding: '5px 8px', cursor: pageSafe <= 1 ? 'default' : 'pointer', opacity: pageSafe <= 1 ? 0.4 : 1 }}>

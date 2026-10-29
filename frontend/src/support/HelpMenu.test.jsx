@@ -154,6 +154,29 @@ describe('Help widget', () => {
     expect(names.some((n) => /Roles & Access/.test(n))).toBe(ROLE_CAN_ADMIN);
   });
 
+  it('Messages shows a ticket filed while the panel is open', async () => {
+    apiState.tickets = [];
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    fireEvent.click(screen.getByRole('tab', { name: /Messages/ }));
+    expect(await screen.findByText('No Messages Yet')).toBeTruthy();
+    apiState.tickets = TICKETS;
+    await act(async () => { window.dispatchEvent(new CustomEvent('nexus:tickets-changed', { detail: { propertyId: '' } })); });
+    expect(await screen.findByRole('button', { name: /VPN keeps dropping/ })).toBeTruthy();
+  });
+
+  it('lists one tour per screen: Reimbursements (on Workday) is not a second Workday tour', async () => {
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    fireEvent.click(screen.getByRole('button', { name: /Other Tours/ }));
+    const picks = [...document.querySelectorAll('[data-tour-pick]')];
+    const keys = picks.map((b) => b.getAttribute('data-tour-pick'));
+    expect(new Set(keys).size).toBe(keys.length);
+    const names = picks.map((b) => b.textContent);
+    expect(names.some((n) => /^Workday Tour/.test(n))).toBe(true);
+    expect(names.some((n) => /^Reimbursements Tour/.test(n))).toBe(false);
+  });
+
   it('opens on Home with the greeting and the three cards', async () => {
     render(<HelpMenu activeView="dashboard" onWhatsNew={() => {}} />);
     await openWidget();
@@ -314,6 +337,18 @@ describe('Help widget', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Help' })).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Help' }));
+  });
+
+  it('Esc closes only the widget, never the drawer or modal under it', async () => {
+    // A drawer's own Esc listener, added before the widget opened.
+    const under = vi.fn();
+    window.addEventListener('keydown', under);
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    window.removeEventListener('keydown', under);
+    expect(screen.queryByRole('dialog', { name: 'Help' })).toBeNull();
+    expect(under).not.toHaveBeenCalled();
   });
 
   it('closes on a click outside', async () => {
