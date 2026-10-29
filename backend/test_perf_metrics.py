@@ -140,6 +140,47 @@ class MetricsCase(unittest.TestCase):
         self.db.commit()
         self.assertEqual(self.card()["timesheets"]["detail"], "0 of 1 signed on time")
 
+    def test_a_card_hr_is_correcting_is_with_hr_and_a_correction_counts_from_its_send(self):
+        now = datetime.now(timezone.utc)
+        old = (now - timedelta(days=20)).isoformat()
+        # Unlocked by HR and still being corrected: with HR, never "unsigned past the wait".
+        self.sheet("c1", "2026-10-11", status="correcting", agreed=old,
+                   rounds=[{"at": old, "action": "agreed"}, {"at": (now - timedelta(days=15)).isoformat(), "action": "unlocked"}])
+        self.db.commit()
+        self.assertFalse(self.card()["timesheets"]["available"])
+        pm.clear_cache()
+        # Sent back to sign 10/20, signed 10/22: on time from the send, not the first approval.
+        rounds = [{"at": _iso("2026-10-01"), "action": "agreed"}, {"at": _iso("2026-10-05"), "action": "completed"},
+                  {"at": _iso("2026-10-18"), "action": "unlocked"}, {"at": _iso("2026-10-20"), "action": "correction_sent"},
+                  {"at": _iso("2026-10-22"), "action": "completed"}]
+        self.sheet("c2", "2026-10-25", agreed=_iso("2026-10-01"), signed=_iso("2026-10-22"), rounds=rounds)
+        self.db.commit()
+        self.assertEqual(self.card()["timesheets"]["detail"], "1 of 1 signed on time")
+
+    def test_a_task_with_no_completed_value_is_open(self):
+        self.db.add(models.Task(id="n1", title="n1", assignee_email=EMP, assignee_emails=[EMP], completed=None,
+                                completed_at="", due_on="2026-10-20", deleted_at="", type="task"))
+        self.db.commit()
+        self.assertEqual(self.card()["tasks_overdue"]["value"], 1)
+
+    def test_hours_never_take_someone_else_s_rows(self):
+        for p in self._p:
+            p.stop()
+        week = {"people": [{"email": OTHER, "days": [{"date": "2026-10-05", "scored": True, "expectedMin": 480,
+                                                     "workedMin": 480, "leaveMin": 0}]}]}
+        with mock.patch("workforce_scorecard.build_report", return_value=week), \
+                mock.patch("shift_attendance.actuals", return_value={"cells": {}}):
+            alone = self.card()
+            pm.clear_cache()
+            both = pm.scorecards(self.db, [EMP, OTHER], START, END, today=TODAY)
+        self.assertFalse(alone["hours"]["available"])
+        self.assertFalse({m["key"]: m for m in both[EMP]["metrics"]}["hours"]["available"])
+        self.assertTrue({m["key"]: m for m in both[OTHER]["metrics"]}["hours"]["available"])
+        self._p = [mock.patch("shift_attendance.actuals", return_value={"people": {}}),
+                   mock.patch("workforce_scorecard.build_report", return_value={"people": []})]
+        for p in self._p:
+            p.start()
+
     def test_a_re_sign_after_an_hr_edit_is_measured_from_the_re_send(self):
         # Approved 10/01, HR changed it 10/20 and it went out again; signed 10/21.
         rounds = [{"at": _iso("2026-10-01"), "action": "agreed"}, {"at": _iso("2026-10-20"), "action": "hr_edited"}]
@@ -174,7 +215,7 @@ class MetricsCase(unittest.TestCase):
         cells[f"{EMP}|2026-10-23"] = {"status": "in_progress", "over": "", "lateMin": 20}
         cells[f"{EMP}|2026-10-24"] = {"status": "excused", "over": ""}
         acts = {"cells": cells, "people": {EMP: {"judged": 99, "late": 99, "noShow": 99}}}
-        week = {"people": [{"days": [
+        week = {"people": [{"email": EMP, "days": [
             {"date": "2026-10-05", "scored": True, "expectedMin": 480, "workedMin": 420, "leaveMin": 0},
             {"date": "2026-10-06", "scored": True, "expectedMin": 480, "workedMin": 0, "leaveMin": 480},
             {"date": "2026-09-30", "scored": True, "expectedMin": 480, "workedMin": 0, "leaveMin": 0},   # outside

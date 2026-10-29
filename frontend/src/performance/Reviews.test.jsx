@@ -24,7 +24,7 @@ const BASE = {
     targetValue: 40, measure: 'number', unit: '', measuredByNexus: false }],
   role: { employee: false, manager: true, hr: false, chain: false },
   can: { editSelf: false, editManager: true, waitForSelf: false, share: false, returnToManager: false, recall: false, remove: false,
-    reassign: false, acknowledge: false },
+    reassign: false, acknowledge: false, addGoal: true },
   managerAnswers: {}, goalScores: {}, rating: '', ratingLabel: '', promotionReady: false, privateNote: '',
 };
 
@@ -87,6 +87,13 @@ describe('the review form', () => {
     expect(screen.getByRole('button', { name: 'Add Goal' })).toBeTruthy();
     expect(m.perfGoalCreate).not.toHaveBeenCalled();
     expect(m.perfReviewManager).not.toHaveBeenCalled();
+  });
+
+  it('Make This a Goal is hidden from a reviewer who may not set them a goal', async () => {
+    m.perfReview.mockResolvedValue({ ...BASE, managerAnswers: { next: { text: 'Lead the Q1 launch' } }, can: { ...BASE.can, addGoal: false } });
+    render(<ReviewModal reviewId="r1" />);
+    expect(await screen.findByDisplayValue('Lead the Q1 launch')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Make This a Goal/ })).toBeNull();
   });
 
   it('the manager waits for the self review until its due day', async () => {

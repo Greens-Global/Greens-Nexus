@@ -122,6 +122,27 @@ def _metric_key(key: Optional[str]) -> str:
     return k
 
 
+GOAL_OLDEST_START_DAYS = 3 * 366
+
+
+def _check_period(start: str, end: str, today: str) -> None:
+    from datetime import date as _d
+    if end and start and end < start:
+        raise HTTPException(400, "The due date is before the goal starts.")
+    if start and start < (_d.fromisoformat(today) - timedelta(days=GOAL_OLDEST_START_DAYS)).isoformat():
+        raise HTTPException(400, "A goal starts within the last three years.")
+
+
+def _lock_owners(db: Session, owners: list) -> None:
+    """The 5-goal cap, serialized per owner: lock each owner's People row (in
+    one order, so two requests never wait on each other) before counting -
+    a second create or restore at the same time counts the first."""
+    from sqlalchemy import func as _f
+    for em in sorted({(o or "").strip().lower() for o in owners if o}):
+        (db.query(models.NexusEmployee.id).filter(_f.lower(models.NexusEmployee.work_email) == em)
+         .with_for_update().first())
+
+
 def _default_end(start: str) -> str:
     from datetime import date as _d
     d = _d.fromisoformat(start)
@@ -258,10 +279,7 @@ def _new_goal(db: Session, user: dict, me: str, body: GoalIn, level: str, owner_
     if metric and level != "personal":
         raise HTTPException(400, "Only a personal goal is measured by a Nexus number.")
     if level == "personal":
-        # The 5-goal cap, serialized per owner: two creates at once wait on
-        # the owner's row, so the second counts the first.
-        (db.query(models.NexusEmployee.id).filter(models.NexusEmployee.work_email == owner)
-         .with_for_update().first())
+        _lock_owners(db, [owner])
     if metric:
         if body.target_value is None:
             raise HTTPException(400, "Set the target.")
@@ -275,8 +293,7 @@ def _new_goal(db: Session, user: dict, me: str, body: GoalIn, level: str, owner_
     today = perf.local_today()
     p_start = _day(body.start_on) or today
     p_end = _day(body.due_on) or _default_end(p_start)
-    if p_end < p_start:
-        raise HTTPException(400, "The due date is before the goal starts.")
+    _check_period(p_start, p_end, today)
     gid = perf.new_id()
     now = perf.now_iso()
     proposed = perf.needs_approval(db, me, owner, level)
@@ -315,6 +332,7 @@ def create_goal(body: GoalIn, user: dict = Depends(get_current_user), db: Sessio
     if owners:
         if level != "personal":
             raise HTTPException(400, "Only a personal goal is set for several people at once.")
+        _lock_owners(db, owners)
         rows = [_new_goal(db, user, me, body, level, o) for o in dict.fromkeys(owners)]
         db.commit()
         today = perf.local_today()
@@ -387,8 +405,8 @@ def update_goal(gid: str, body: GoalPatch, user: dict = Depends(get_current_user
         g.start_on = g.period_start = _day(data["start_on"]) or g.period_start
     if "due_on" in data:
         g.due_on = g.period_end = _day(data["due_on"]) or g.period_end
-    if g.period_start and g.period_end and g.period_end < g.period_start:
-        raise HTTPException(400, "The due date is before the goal starts.")
+    if "start_on" in data or "due_on" in data:
+        _check_period(g.period_start or g.start_on, g.period_end or g.due_on, perf.local_today())
     if "parent_id" in data:
         g.parent_id = perf.check_parent(db, user, g.id, data["parent_id"])
     # The status is computed - one sent is ignored.
@@ -429,6 +447,8 @@ def archive_goal(gid: str, restore: bool = False, user: dict = Depends(get_curre
     me = _me(user)
     g = _goal_or_404(db, user, gid)
     if restore:
+        if g.level == "personal":
+            _lock_owners(db, [g.owner_email])
         g.archived_at, g.archived_by = "", ""
         if not perf.can_edit_goal(db, user, g):
             raise HTTPException(403, "You can't change this goal.")

@@ -164,6 +164,18 @@ describe('the goal form and the profile', () => {
     expect(screen.getByRole('option', { name: 'On-Time Arrival' })).toBeTruthy();
   });
 
+  it('Restore shows only to someone who may change the goal', async () => {
+    const { GoalDetailModal } = await import('./Goals');
+    m.perfGoal.mockResolvedValue({ ...GOAL, archived: true, canEdit: false, canRestore: false, checkins: [] });
+    const { unmount } = render(<GoalDetailModal goalId="g1" ctx={CTX} onClose={() => {}} />);
+    expect(await screen.findByText('Close 40 tickets', { selector: '*' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Restore/ })).toBeNull();
+    unmount();
+    m.perfGoal.mockResolvedValue({ ...GOAL, archived: true, canEdit: false, canRestore: true, checkins: [] });
+    render(<GoalDetailModal goalId="g1" ctx={CTX} onClose={() => {}} />);
+    expect(await screen.findByRole('button', { name: /Restore/ })).toBeTruthy();
+  });
+
   it('my own profile shows my own reviews, never a team list', async () => {
     const Section = (await import('./PersonPerformanceSection')).default;
     m.perfMe.mockResolvedValue({ ...CTX, isHr: true });

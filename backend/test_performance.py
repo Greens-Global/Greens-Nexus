@@ -336,6 +336,40 @@ class GoalTests(PerfCase):
         out = api.update_goal(g["id"], api.GoalPatch(title="Learn the new POS"), U(EMP), self.db)
         self.assertTrue(out["proposed"])
 
+    def test_restore_is_for_who_may_change_it(self):
+        g = self.goal(U(MGR), owner_email=EMP, title="To archive")
+        api.archive_goal(g["id"], False, U(MGR), self.db)
+        self.assertTrue(api.get_goal(g["id"], U(EMP), self.db)["canRestore"])
+        self.assertFalse(api.get_goal(g["id"], U(BOSS), self.db)["canRestore"])       # reads only
+        with self.assertRaises(HTTPException):
+            api.archive_goal(g["id"], True, U(BOSS), self.db)
+
+    def test_goal_dates_and_the_measured_window_are_bounded(self):
+        import perf_metrics
+        from datetime import date
+        today = date.fromisoformat(perf.local_today())
+        with self.assertRaises(HTTPException):
+            self.goal(U(EMP), start_on=(today - timedelta(days=4 * 366)).isoformat())
+        with self.assertRaises(HTTPException):
+            self.goal(U(EMP), start_on=today.isoformat(), due_on=(today - timedelta(days=1)).isoformat())
+        g = self.goal(U(MGR), owner_email=EMP, title="Long run", metric_key="tasks_done", target_value=50,
+                      start_on=(today - timedelta(days=2 * 366)).isoformat(), due_on=today.isoformat())
+        seen = {}
+
+        def fake(db, email, key, start, end, today=None):
+            seen.update(start=start, end=end)
+            return {"available": True, "value": 10.0}
+        with mock.patch.object(perf_metrics, "metric", side_effect=fake):
+            api.get_goal(g["id"], U(EMP), self.db)
+        span = (date.fromisoformat(seen["end"]) - date.fromisoformat(seen["start"])).days
+        self.assertLessEqual(span, perf.MEASURED_MAX_DAYS)
+
+    def test_the_cap_counts_an_owner_whatever_the_case(self):
+        for i in range(perf.MAX_OPEN_GOALS):
+            self.goal(U(MGR), owner_email=EMP.upper() if i % 2 else EMP, title=f"G{i}")
+        with self.assertRaises(HTTPException):
+            self.goal(U(MGR), owner_email=EMP.upper(), title="Sixth")
+
     def test_a_custom_numbers_range_is_bounded(self):
         from datetime import date
         today = date.fromisoformat(perf.local_today())

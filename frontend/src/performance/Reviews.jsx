@@ -154,7 +154,9 @@ function ManagerPart({ r, scores, onSaved, toastOk, toastErr }) {
     try { setGoalFor({ ctx: await api.perfMe(), title: text.trim().slice(0, 300) }); }
     catch (e) { toastErr?.(e?.message || 'Could not open the goal form.'); }
   };
-  const after = edit ? { next: (text) => (text.trim() ? (
+  // Only for someone who may set them a goal (their direct manager or HR -
+  // the server's goal rule, can.addGoal).
+  const after = edit && r.can.addGoal ? { next: (text) => (text.trim() ? (
     <button type="button" className="secondary-btn" onClick={(e) => { e.preventDefault(); makeGoal(text); }}
       style={{ justifySelf: 'start', display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 36, fontSize: 12.5 }}>
       <Target size={13} /> Make This a Goal

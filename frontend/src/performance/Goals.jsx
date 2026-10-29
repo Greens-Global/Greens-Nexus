@@ -331,8 +331,8 @@ export function GoalDetailModal({ goalId, ctx, parents = [], onClose, onChanged,
   const meta = GOAL_STATUS[g?.status] || GOAL_STATUS.on_track;
   return (
     <Modal title={g ? g.title : 'Goal'} onClose={onClose}
-      footer={g?.canEdit || g?.archived || g?.canApprove ? <>
-        {(g.canEdit || g.archived) && (
+      footer={g?.canEdit || g?.canRestore || g?.canApprove ? <>
+        {(g.canEdit || g.canRestore) && (
           <button type="button" className="secondary-btn" onClick={archive} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Archive size={14} /> {g.archived ? 'Restore' : 'Archive'}
           </button>

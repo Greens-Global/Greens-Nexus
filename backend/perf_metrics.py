@@ -141,10 +141,8 @@ def _hours(db: Session, emails: list, start: str, end: str, today: str) -> dict:
         rep = ws.build_report(db, set(emails), cfg, wk)
         for row in rep.get("people") or []:
             t = tot.get((row.get("email") or "").lower())
-            if t is None and len(emails) == 1:
-                t = tot[emails[0]]
             if t is None:
-                continue
+                continue      # never someone else's row - batched or alone
             for d in row.get("days") or []:
                 if d.get("scored") and start <= d["date"] <= end:
                     t[0] += int(d.get("expectedMin") or 0)
@@ -181,9 +179,9 @@ def _timesheets(db: Session, emails: list, start: str, end: str, today: str) -> 
     tally = {e: [0, 0] for e in emails}
     for r in rows:
         em = (r.employee_email or "").lower()
-        out_at = _parse(tr._waiting_since(r))
+        out_at = _sent_to_sign(r, tr)
         if out_at is None or em not in tally:
-            continue
+            continue      # with HR (an unlocked card being corrected), or never sent
         if r.status == "completed":
             at = signed.get((em, r.period_start, r.period_end))
             tally[em][1] += 1
@@ -194,13 +192,29 @@ def _timesheets(db: Session, emails: list, start: str, end: str, today: str) -> 
             for em, (ok, n) in tally.items()}
 
 
+def _sent_to_sign(r, tr) -> Optional[datetime]:
+    """When the card last went to the employee to sign, or None while it is
+    with HR. HR's Unlock (status correcting) takes it back to HR - not the
+    employee's to sign until the correction is sent (correction_sent), which
+    then starts the clock. Otherwise timesheet_review._waiting_since."""
+    for e in reversed(list(r.rounds or [])):
+        a = e.get("action")
+        if a == "unlocked":
+            return None
+        if a == "correction_sent":
+            return _parse(e.get("at") or "")
+        if a in ("agreed", "approved", "hr_edited", "employee_approved"):
+            break
+    return _parse(tr._waiting_since(r))
+
+
 def _tasks(db: Session, emails: list, start: str, end: str, today: str) -> dict:
     from routers.task_util import task_assignees
     from task_due import _completed_day
     T = models.Task
     want = set(emails)
     q = db.query(T).filter(T.type != "section", or_(T.deleted_at == "", T.deleted_at.is_(None)),
-                           or_(T.completed == False, T.completed_at >= start))   # noqa: E712
+                           or_(T.completed == False, T.completed.is_(None), T.completed_at >= start))   # noqa: E712
     if len(emails) == 1:
         q = q.filter(or_(func.lower(T.assignee_email) == emails[0], cast(T.assignee_emails, String).ilike(f'%"{emails[0]}"%')))
     by: dict = {e: [] for e in emails}

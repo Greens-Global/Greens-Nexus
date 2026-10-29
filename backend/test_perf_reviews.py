@@ -373,12 +373,33 @@ class ReviewFixTests(ReviewCase):
         # The employee still acknowledges, and it still waits on them.
         import approvals_inbox as ai
         self.assertEqual([x["id"] for x in ai._perf_reviews(self.db, U(EMP), {})], [f"{rid}:acknowledge"])
+        hr = self.get(rid, HR)["can"]
+        self.assertEqual([k for k in ("share", "returnToManager", "recall", "remove", "reassign", "addGoal") if hr[k]], [])
+        self.assertTrue(self.get(rid, EMP)["can"]["acknowledge"])
         self.assertTrue(api.acknowledge_review(rid, api.AckIn(), _Req(), U(EMP), self.db)["signPartyId"])
+
+    def test_make_this_a_goal_is_for_who_may_set_them_a_goal(self):
+        c, rid = self.launched()
+        api.save_self(rid, api.SelfIn(answers=self.answers(), submit=True), U(EMP), self.db)
+        self.assertTrue(self.get(rid, MGR)["can"]["addGoal"])           # their direct manager
+        api.set_reviewer(rid, api.ReviewerIn(email=OMGR), U(HR), self.db)
+        self.assertFalse(self.get(rid, OMGR)["can"]["addGoal"])         # a reviewer HR picked: no
+        self.assertTrue(self.get(rid, HR)["can"]["addGoal"])            # HR: yes
+
+    def test_someone_on_leave_keeps_their_review(self):
+        c, rid = self.launched()
+        emp = self.db.query(models.NexusEmployee).filter_by(work_email=EMP).one()
+        emp.status = "inactive"          # Leave or Suspension - not gone
+        self.db.commit()
+        out = pr.loop_pass(self.db)
+        self.db.commit()
+        self.assertEqual(out["left"], 0)
+        self.assertEqual(self.db.get(models.PerfReview, rid).stage, "self_review")
 
     def test_someone_who_left_is_taken_out_and_not_reminded(self):
         c, rid = self.launched()
         emp = self.db.query(models.NexusEmployee).filter_by(work_email=EMP).one()
-        emp.status = "inactive"
+        emp.status = "offboarded"
         self.db.commit()
         self.db.query(models.NexusNotification).delete()
         self.db.commit()

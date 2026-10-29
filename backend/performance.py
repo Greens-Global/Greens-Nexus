@@ -316,6 +316,20 @@ def goal_period(g: models.PerfGoal) -> tuple:
     return start, end
 
 
+MEASURED_MAX_DAYS = 396     # a measured goal reads at most 13 months (every week is a scorecard pass)
+
+
+def measured_window(g: models.PerfGoal, today: Optional[str] = None) -> tuple:
+    """The span a Nexus-measured goal's number is read over: its period, up
+    to today, never more than the last 13 months of it."""
+    from datetime import date as _d
+    today = today or local_today()
+    start, end = goal_period(g)
+    end = min(end or today, today) if end else today
+    floor = (_d.fromisoformat(end) - timedelta(days=MEASURED_MAX_DAYS)).isoformat()
+    return max(start, floor) if start else floor, end
+
+
 def _elapsed(start: str, end: str, today: str) -> Optional[float]:
     """Share of the period gone, 0..1 (None when it has no end)."""
     if not end:
@@ -338,9 +352,9 @@ def refresh_metric(db: Session, g: models.PerfGoal, today: Optional[str] = None)
     import perf_metrics
     from datetime import date as _d
     today = today or local_today()
-    start, end = goal_period(g)
+    start, end = measured_window(g, today)
     try:
-        m = perf_metrics.metric(db, g.owner_email, g.metric_key, start, end or today, today=_d.fromisoformat(today))
+        m = perf_metrics.metric(db, g.owner_email, g.metric_key, start, end, today=_d.fromisoformat(today))
     except (KeyError, ValueError):
         return False
     if not m.get("available"):
@@ -446,8 +460,13 @@ def is_direct_manager(db: Session, viewer: str, email: str) -> bool:
 def can_edit_goal(db: Session, user: dict, g: models.PerfGoal) -> bool:
     """The owner, their DIRECT manager and HR change a goal; anyone higher
     up the chain reads it (Oct 29 2026 spec: the manager's manager reads)."""
+    return not g.archived_at and may_change_goal(db, user, g)
+
+
+def may_change_goal(db: Session, user: dict, g: models.PerfGoal) -> bool:
+    """can_edit_goal's who, archived or not (Restore asks this)."""
     me = _low(user.get("email"))
-    if user.get("external") or g.archived_at:
+    if user.get("external"):
         return False
     if hr_for(db, user, g.company_id or ""):
         return True
@@ -550,6 +569,7 @@ def goal_out(db: Session, user: dict, g: models.PerfGoal, *, names: Optional[dic
         "approvedAt": g.approved_at or "", "approvedBy": g.approved_by or "",
         "createdBy": g.created_by or "", "createdAt": g.created_at or "", "updatedAt": g.updated_at or "",
         "canEdit": can_edit, "canCheckIn": can_edit and md is None, "canApprove": can_approve_goal(db, user, g),
+        "canRestore": bool(g.archived_at) and may_change_goal(db, user, g),
     }
 
 

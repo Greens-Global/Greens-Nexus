@@ -780,6 +780,13 @@ def _remind_review(db: Session, r: models.PerfReview, cycle: models.PerfReviewCy
     return sent
 
 
+def has_left(emp) -> bool:
+    """Gone from the company: Offboarded, or the person record deleted. A
+    person on Leave or Suspension ("inactive", hr_checklists) has NOT left
+    and keeps their review."""
+    return emp is None or (emp.status or "active") == "offboarded" or bool(getattr(emp, "deleted_at", "") or "")
+
+
 def loop_pass(db: Session) -> dict:
     """performance_loop's review part: late joiners in, leavers out (their
     unfinished review is removed - the row is kept), reminders out."""
@@ -791,13 +798,13 @@ def loop_pass(db: Session) -> dict:
         for r in (db.query(models.PerfReview).filter(models.PerfReview.cycle_id == cycle.id,
                                                      models.PerfReview.stage.in_(OPEN_STAGES)).all()):
             emp = perf.employee(db, r.employee_email)
-            if emp is None or (emp.status or "active") != "active":
+            if has_left(emp):
                 r.stage, r.removed_at = "removed", _now()
                 _round(r, "", "removed", "Left the company")
                 left += 1
                 continue
-            if r.stage in ("self_review", "manager_review"):
-                sent += _remind_review(db, r, cycle, on)
+            if r.stage in ("self_review", "manager_review") and (emp.status or "active") == "active":
+                sent += _remind_review(db, r, cycle, on)   # someone on leave keeps it, unreminded
     return {"added": added, "reminders": sent, "left": left}
 
 
@@ -834,7 +841,8 @@ def review_out(db: Session, user: dict, r: models.PerfReview, cycle: models.Perf
     show_mgr = (not a.employee) or shared
     if a.chain and r.stage in ("self_review", "manager_review"):
         show_mgr = False
-    writing = a.writer and cycle.status != "closed" and (
+    live = cycle.status != "closed"
+    writing = a.writer and live and (
         (r.stage in ("self_review", "manager_review") and manager_may_write(r, cycle)) or (a.hr and r.stage == "ready"))
     out = {
         "id": r.id, "cycle": cycle_out(db, cycle), "employeeEmail": r.employee_email,
@@ -851,12 +859,17 @@ def review_out(db: Session, user: dict, r: models.PerfReview, cycle: models.Perf
             "editSelf": a.employee and r.stage == "self_review" and cycle.status != "closed",
             "editManager": writing,
             "waitForSelf": a.writer and r.stage == "self_review" and not manager_may_write(r, cycle),
-            "share": a.hr and r.stage == "ready",
-            "returnToManager": a.hr and r.stage == "ready",
-            "recall": a.hr and r.stage == "shared",
-            "remove": a.hr and r.stage in OPEN_STAGES,
-            "reassign": a.hr and r.stage in OPEN_STAGES,
+            # A closed cycle is read-only: only the employee's Acknowledge stays.
+            "share": live and a.hr and r.stage == "ready",
+            "returnToManager": live and a.hr and r.stage == "ready",
+            "recall": live and a.hr and r.stage == "shared",
+            "remove": live and a.hr and r.stage in OPEN_STAGES,
+            "reassign": live and a.hr and r.stage in OPEN_STAGES,
             "acknowledge": a.employee and r.stage == "shared",
+            # Make This a Goal: the goal-create rule (performance.check_create) -
+            # their direct manager or HR, never a reviewer HR picked otherwise.
+            "addGoal": live and a.writer and (perf.is_direct_manager(db, a.me, r.employee_email)
+                                              or perf.hr_for_person(db, user, r.employee_email)),
         },
     }
     if show_mgr:
