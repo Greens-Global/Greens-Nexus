@@ -7638,3 +7638,8 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .wf-webhook-row { grid-template-columns: minmax(0, 1fr) auto !important; }
   .wf-webhook-row > input { grid-column: 1 / -1; min-width: 0; }
 }
+
+/* What's New on a phone: an update opens as a pushed screen (Oct 28 2026). */
+@keyframes nx-push-in { from { opacity: 0; transform: translateX(28px); } }
+.nx-wn-push { animation: nx-push-in var(--dur-md) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .nx-wn-push { animation: none; } }
