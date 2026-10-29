@@ -291,6 +291,71 @@ class GoalTests(PerfCase):
         row = self.db.get(models.PerfGoal, g["id"])
         self.assertEqual((row.current_value, row.status), (70.0, "behind"))
 
+    def test_only_a_personal_goal_is_measured_by_nexus(self):
+        import perf_metrics
+        with self.assertRaises(HTTPException) as e:
+            self.goal(U(HR), level="company", company_id=CO, title="On time", metric_key="on_time", target_value=95)
+        self.assertEqual(e.exception.status_code, 400)
+        d = self.goal(U(MGR), level="department", department="Ops", title="Dept")
+        with self.assertRaises(HTTPException):
+            api.update_goal(d["id"], api.GoalPatch(metric_key="on_time", target_value=95), U(MGR), self.db)
+        # A stray key on an old company row is ignored: its owner's numbers never show.
+        row = models.PerfGoal(id="old-co", level="company", company_id=CO, owner_email=HR, title="Legacy", measure="number",
+                              metric_key="on_time", target_value=95, current_value=0, start_value=0, archived_at="",
+                              created_at=perf.now_iso(), period_start="2026-01-01", period_end="2026-12-31")
+        self.db.add(row)
+        self.db.commit()
+        with mock.patch.object(perf_metrics, "metric") as called:
+            out = api.get_goal("old-co", U(OTHER), self.db)
+            perf.refresh_measured_goals(self.db, datetime.now(timezone.utc) + timedelta(days=1))
+        called.assert_not_called()
+        self.assertEqual((out["measuredByNexus"], out["metricKey"]), (False, ""))
+
+    def test_the_manager_s_manager_reads_but_does_not_change(self):
+        g = self.goal(U(EMP), title="Proposed by Erin")
+        self.assertTrue(self.see(U(BOSS), g["id"]))
+        out = api.get_goal(g["id"], U(BOSS), self.db)
+        self.assertEqual((out["canEdit"], out["canApprove"]), (False, False))
+        for call in (lambda: api.approve_goal(g["id"], U(BOSS), self.db),
+                     lambda: api.update_goal(g["id"], api.GoalPatch(title="x"), U(BOSS), self.db),
+                     lambda: api.archive_goal(g["id"], False, U(BOSS), self.db),
+                     lambda: api.check_in(g["id"], api.CheckinIn(value=5), U(BOSS), self.db)):
+            with self.assertRaises(HTTPException) as e:
+                call()
+            self.assertEqual(e.exception.status_code, 403)
+        self.assertTrue(api.get_goal(g["id"], U(MGR), self.db)["canApprove"])      # the direct manager does
+        self.assertTrue(api.get_goal(g["id"], U(HR), self.db)["canApprove"])       # and HR
+
+    def test_a_note_only_edit_keeps_it_approved(self):
+        g = self.goal(U(EMP), title="Learn the POS")
+        api.approve_goal(g["id"], U(MGR), self.db)
+        out = api.update_goal(g["id"], api.GoalPatch(description="Started the course"), U(EMP), self.db)
+        self.assertFalse(out["proposed"])
+        out = api.update_goal(g["id"], api.GoalPatch(title="Learn the POS"), U(EMP), self.db)    # same title
+        self.assertFalse(out["proposed"])
+        out = api.update_goal(g["id"], api.GoalPatch(title="Learn the new POS"), U(EMP), self.db)
+        self.assertTrue(out["proposed"])
+
+    def test_a_custom_numbers_range_is_bounded(self):
+        from datetime import date
+        today = date.fromisoformat(perf.local_today())
+        ok = api.scorecard(EMP, "", (today - timedelta(days=360)).isoformat(), today.isoformat(), U(EMP), self.db)
+        self.assertTrue(ok["metrics"])
+        for start, end in (((today - timedelta(days=430)).isoformat(), today.isoformat()),        # 14 months
+                           ((today - timedelta(days=4 * 366)).isoformat(),
+                            (today - timedelta(days=4 * 366 - 30)).isoformat())):                  # four years back
+            with self.assertRaises(HTTPException) as e:
+                api.scorecard(EMP, "", start, end, U(EMP), self.db)
+            self.assertEqual(e.exception.status_code, 400)
+
+    def test_the_team_reads_its_numbers_in_one_pass(self):
+        import perf_metrics
+        calls = []
+        real = perf_metrics.scorecards
+        with mock.patch.object(perf_metrics, "scorecards", side_effect=lambda db, ems, *a, **k: calls.append(sorted(ems)) or real(db, ems, *a, **k)):
+            api.my_team(U(MGR), self.db)
+        self.assertEqual(calls, [sorted([EMP, PEER])])
+
     def test_the_team_is_direct_reports_with_their_numbers(self):
         self.goal(U(EMP), title="Proposed one")
         team = api.my_team(U(MGR), self.db)

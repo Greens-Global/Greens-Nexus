@@ -114,18 +114,38 @@ class MetricsCase(unittest.TestCase):
         self.assertEqual(c["tickets_resolved"]["value"], 2)
         self.assertEqual((c["ticket_sla"]["value"], c["ticket_sla"]["detail"]), (66.7, "2 of 3 on target"))
 
-    def test_time_sheets_signed_on_time(self):
-        for pid, end, agreed, signed in (("p1", "2026-10-11", "2026-10-12", "2026-10-13"),   # within 3 days
-                                         ("p2", "2026-10-25", "2026-10-26", "2026-10-30"),   # 4 days: late
-                                         ("p3", "2026-09-27", "2026-09-28", "2026-09-28")):  # before the period
-            start = (date.fromisoformat(end) - timedelta(days=13)).isoformat()
-            self.db.add(models.TimesheetReview(id=pid, employee_email=EMP, period_start=start, period_end=end,
-                                               status="completed", agreed_at=_iso(agreed)))
+    def sheet(self, pid, end, *, status="completed", agreed="", signed="", rounds=None):
+        start = (date.fromisoformat(end) - timedelta(days=13)).isoformat()
+        self.db.add(models.TimesheetReview(id=pid, employee_email=EMP, period_start=start, period_end=end,
+                                           status=status, agreed_at=agreed, rounds=rounds or []))
+        if signed:
             self.db.add(models.TimeApproval(id=f"a-{pid}", employee_email=EMP, period_start=start, period_end=end,
-                                            kind="employee_sign", approved_at=_iso(signed), revoked=0))
+                                            kind="employee_sign", approved_at=signed, revoked=0))
+
+    def test_time_sheets_signed_on_time(self):
+        self.sheet("p1", "2026-10-11", agreed=_iso("2026-10-12"), signed=_iso("2026-10-13"))   # within 3 days
+        self.sheet("p2", "2026-10-25", agreed=_iso("2026-10-26"), signed=_iso("2026-10-30"))   # 4 days: late
+        self.sheet("p3", "2026-09-27", agreed=_iso("2026-09-28"), signed=_iso("2026-09-28"))   # before the period
         self.db.commit()
         c = self.card()
         self.assertEqual((c["timesheets"]["value"], c["timesheets"]["detail"]), (50.0, "1 of 2 signed on time"))
+
+    def test_a_card_out_since_yesterday_is_not_counted_one_past_the_wait_is_late(self):
+        now = datetime.now(timezone.utc)
+        self.sheet("y1", "2026-10-11", status="signing", agreed=(now - timedelta(days=1)).isoformat())
+        self.db.commit()
+        self.assertFalse(self.card()["timesheets"]["available"])
+        pm.clear_cache()
+        self.sheet("y2", "2026-10-25", status="approved", agreed=(now - timedelta(days=10)).isoformat())
+        self.db.commit()
+        self.assertEqual(self.card()["timesheets"]["detail"], "0 of 1 signed on time")
+
+    def test_a_re_sign_after_an_hr_edit_is_measured_from_the_re_send(self):
+        # Approved 10/01, HR changed it 10/20 and it went out again; signed 10/21.
+        rounds = [{"at": _iso("2026-10-01"), "action": "agreed"}, {"at": _iso("2026-10-20"), "action": "hr_edited"}]
+        self.sheet("h1", "2026-10-11", agreed=_iso("2026-10-01"), signed=_iso("2026-10-21"), rounds=rounds)
+        self.db.commit()
+        self.assertEqual(self.card()["timesheets"]["detail"], "1 of 1 signed on time")
 
     def test_required_training(self):
         for cid in ("c1", "c2"):
@@ -141,7 +161,19 @@ class MetricsCase(unittest.TestCase):
     def test_attendance_and_hours_come_from_their_engines(self):
         for p in self._p:
             p.stop()
-        acts = {"people": {EMP: {"judged": 20, "late": 2, "noShow": 1}}}
+        cells = {}
+        for i in range(17):
+            cells[f"{EMP}|2026-10-{i + 1:02d}"] = {"status": "on_time" if i % 2 else "left_early", "over": ""}
+        cells[f"{EMP}|2026-10-18"] = {"status": "late", "over": ""}
+        cells[f"{EMP}|2026-10-19"] = {"status": "late", "over": ""}
+        cells[f"{EMP}|2026-10-20"] = {"status": "no_show", "over": ""}
+        # Over approved time off: never a no-show, never judged (time off is never a metric).
+        cells[f"{EMP}|2026-10-21"] = {"status": "no_show", "over": "time_off"}
+        cells[f"{EMP}|2026-10-22"] = {"status": "late", "over": "time_off"}
+        # Still running, upcoming, excused: not judged.
+        cells[f"{EMP}|2026-10-23"] = {"status": "in_progress", "over": "", "lateMin": 20}
+        cells[f"{EMP}|2026-10-24"] = {"status": "excused", "over": ""}
+        acts = {"cells": cells, "people": {EMP: {"judged": 99, "late": 99, "noShow": 99}}}
         week = {"people": [{"days": [
             {"date": "2026-10-05", "scored": True, "expectedMin": 480, "workedMin": 420, "leaveMin": 0},
             {"date": "2026-10-06", "scored": True, "expectedMin": 480, "workedMin": 0, "leaveMin": 480},
@@ -153,9 +185,33 @@ class MetricsCase(unittest.TestCase):
             c = self.card()
         self.assertEqual(a.call_args[0][1:4], ([EMP], START, END))
         self.assertEqual((c["on_time"]["value"], c["on_time"]["detail"]), (85.0, "17 of 20 shifts on time"))
-        self.assertEqual((c["no_shows"]["value"], c["no_shows"]["good"]), (1, "low"))
+        self.assertEqual((c["no_shows"]["value"], c["no_shows"]["detail"], c["no_shows"]["good"]), (1, "1 of 20 shifts", "low"))
         self.assertEqual((c["hours"]["value"], c["hours"]["detail"]), (93.8, "15 of 16 hours"))
         self.assertEqual(calls[0], date(2026, 9, 28))     # the scorecard's own week starts, through the period
+
+    def test_a_team_in_one_pass_equals_each_person_alone(self):
+        self.db.add(models.NexusEmployee(id="e2", work_email=OTHER, first_name="Oz", last_name="T", status="active"))
+        self.task("t1", done_on="2026-10-05", due="2026-10-06")
+        self.task("t2", done_on="2026-10-10", due="2026-10-08", who=OTHER)
+        self.task("t3", due="2026-10-20", who=OTHER)
+        self.db.add(models.TaskTicket(id="k1", subject="k1", assignee_email=OTHER, requester_email="r@x.com",
+                                      created_at=_iso("2026-10-02", 9), status="resolved", resolved_at=_iso("2026-10-03")))
+        self.db.add(models.KbCourse(id="c1", title="c1", status="published", lessons="[]"))
+        for em in (EMP, OTHER):
+            self.db.add(models.KbCourseAssignment(id=f"as-{em}", course_id="c1", user_email=em))
+        self.db.add(models.KbCourseProgress(id="pr1", course_id="c1", user_email=OTHER, completed_at="2026-10-02", passed=True))
+        self.db.commit()
+        together = pm.scorecards(self.db, [EMP, OTHER], START, END, today=TODAY)
+        for em in (EMP, OTHER):
+            pm.clear_cache()
+            self.assertEqual(together[em], pm.scorecard(self.db, em, START, END, today=TODAY))
+        pm.clear_cache()
+        calls = []
+        real = pm._training
+        with mock.patch.object(pm, "_training", side_effect=lambda *a: calls.append(a[1]) or real(*a)):
+            pm.scorecards(self.db, [EMP, OTHER], START, END, today=TODAY)
+            pm.scorecards(self.db, [EMP, OTHER], START, END, today=TODAY)   # remembered
+        self.assertEqual(calls, [[EMP, OTHER]])                              # ONE pass for both
         self._p = [mock.patch("shift_attendance.actuals", return_value={"people": {}}),
                    mock.patch("workforce_scorecard.build_report", return_value={"people": []})]
         for p in self._p:

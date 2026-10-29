@@ -241,6 +241,7 @@ def my_reviews(user: dict = Depends(get_current_user), db: Session = Depends(get
     caller may read each one."""
     me = _me(user)
     who = (person or "").strip().lower()
+    only_mine = who == me
     if who and who != me:
         if not perf.can_see_person(db, user, who):
             raise HTTPException(404, "Person not found")
@@ -264,7 +265,7 @@ def my_reviews(user: dict = Depends(get_current_user), db: Session = Depends(get
     writes = db.query(models.PerfReview).filter(models.PerfReview.manager_email == me).all()
     seen, out = set(), {"mine": [], "team": []}
     cycles: dict = {}
-    for bucket, rows in (("mine", own), ("team", writes + team)):
+    for bucket, rows in (("mine", own), ("team", [] if only_mine else writes + team)):
         for r in rows:
             if r.id in seen or r.stage == "removed":
                 continue
@@ -339,7 +340,7 @@ def set_reviewer(rid: str, body: ReviewerIn, user: dict = Depends(get_current_us
 def remove_review(rid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     _me(user)
     r, cycle, _a = _locked(db, user, rid)
-    pr.remove(db, user, r)
+    pr.remove(db, user, r, cycle)
     db.commit()
     return {"ok": True, "id": rid}
 
@@ -357,7 +358,7 @@ def share_review(rid: str, user: dict = Depends(get_current_user), db: Session =
 def recall_review(rid: str, body: NoteIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     _me(user)
     r, cycle, _a = _locked(db, user, rid)
-    pr.recall(db, user, r, body.note or "")
+    pr.recall(db, user, r, body.note or "", cycle)
     db.commit()
     return _review_out(db, user, rid)
 

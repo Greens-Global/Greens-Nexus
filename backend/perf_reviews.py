@@ -68,6 +68,7 @@ STAGE_LABELS = {"self_review": "Self Review", "manager_review": "Manager Review"
                 "shared": "Shared", "complete": "Acknowledged", "removed": "Removed",
                 "hr_review": "Ready to Share"}
 OPEN_STAGES = ("self_review", "manager_review", "ready")
+UNFINISHED = OPEN_STAGES + ("shared",)   # what a Close asks about
 QUESTIONS = [
     {"id": "well", "kind": "text", "text": "What went well?"},
     {"id": "better", "kind": "text", "text": "What could be better?"},
@@ -391,6 +392,7 @@ def save_manager(db: Session, user: dict, r: models.PerfReview, cycle: models.Pe
     a = access_or_404(db, user, r)
     if not a.writer:
         raise HTTPException(403, "The manager review is written by the employee's manager.")
+    _open_cycle(cycle)
     if r.stage == "ready" and not a.hr:
         raise HTTPException(409, "It is with HR now.")
     if r.stage in ("shared", "complete", "removed"):
@@ -436,6 +438,7 @@ def return_review(db: Session, user: dict, r: models.PerfReview, cycle: models.P
     a = access_or_404(db, user, r)
     if not a.hr:
         raise HTTPException(403, "Only HR can send a review back.")
+    _open_cycle(cycle)
     if r.stage != "ready":
         raise HTTPException(409, "Only a review that is ready to share can be sent back.")
     note = (note or "").strip()
@@ -449,11 +452,13 @@ def return_review(db: Session, user: dict, r: models.PerfReview, cycle: models.P
               f"performance:review:{r.id}", cycle.company_id)
 
 
-def remove(db: Session, user: dict, r: models.PerfReview) -> None:
+def remove(db: Session, user: dict, r: models.PerfReview, cycle: Optional[models.PerfReviewCycle] = None) -> None:
     """HR takes someone out of a cycle. The row is kept (stage removed)."""
     a = access_or_404(db, user, r)
     if not a.hr:
         raise HTTPException(403, "Only HR can take someone out of a review.")
+    if cycle is not None:
+        _open_cycle(cycle)
     if r.stage in ("shared", "complete"):
         raise HTTPException(409, "This review was already shared - it stays.")
     r.stage, r.removed_at = "removed", _now()
@@ -464,6 +469,7 @@ def set_reviewer(db: Session, user: dict, r: models.PerfReview, cycle: models.Pe
     a = access_or_404(db, user, r)
     if not a.hr:
         raise HTTPException(403, "Only HR can change who writes the manager review.")
+    _open_cycle(cycle)
     if r.stage in ("shared", "complete", "removed"):
         raise HTTPException(409, "This review was already shared.")
     em = _low(email)
@@ -485,6 +491,7 @@ def share(db: Session, user: dict, r: models.PerfReview, cycle: models.PerfRevie
     a = access_or_404(db, user, r)
     if not a.hr:
         raise HTTPException(403, "HR shares reviews.")
+    _open_cycle(cycle)
     if r.stage != "ready":
         raise HTTPException(409, "Only a review that is ready to share can be shared.")
     r.finalized_by, r.finalized_at = a.me, _now()
@@ -498,6 +505,7 @@ def share(db: Session, user: dict, r: models.PerfReview, cycle: models.PerfRevie
 
 def share_all(db: Session, user: dict, cycle: models.PerfReviewCycle) -> int:
     require_hr(db, user, cycle.company_id)
+    _open_cycle(cycle)
     rows = (db.query(models.PerfReview).filter(models.PerfReview.cycle_id == cycle.id,
                                                models.PerfReview.stage == "ready").with_for_update().all())
     for r in rows:
@@ -505,11 +513,14 @@ def share_all(db: Session, user: dict, cycle: models.PerfReviewCycle) -> int:
     return len(rows)
 
 
-def recall(db: Session, user: dict, r: models.PerfReview, note: str) -> None:
+def recall(db: Session, user: dict, r: models.PerfReview, note: str,
+           cycle: Optional[models.PerfReviewCycle] = None) -> None:
     """HR pulls a shared review back (to change it): an open envelope is voided."""
     a = access_or_404(db, user, r)
     if not a.hr:
         raise HTTPException(403, "Only HR can recall a review.")
+    if cycle is not None:
+        _open_cycle(cycle)
     if r.stage != "shared":
         raise HTTPException(409, "Only a shared review can be recalled.")
     from routers.esign import _log
@@ -628,6 +639,16 @@ def acknowledge(db: Session, user: dict, r: models.PerfReview, cycle: models.Per
         raise HTTPException(409, "This review is not waiting on you.")
     if r.sign_request_id:
         return _party_id(db, r)
+    # esign._create_request commits partway through, which lets a second
+    # click past the row lock before sign_request_id is written - so look for
+    # an envelope already out for this review first, and reuse it.
+    out_already = (db.query(models.HrSignRequest)
+                   .filter(models.HrSignRequest.link_kind == LINK_KIND, models.HrSignRequest.link_id == r.id,
+                           models.HrSignRequest.status == "pending")
+                   .order_by(models.HrSignRequest.created_at.desc()).first())
+    if out_already is not None:
+        r.sign_request_id = out_already.id
+        return _party_id(db, r)
     r.employee_comment = (comment or "").strip()[:4000]
     from routers import esign
     pdf, spot = build_pdf(db, r, cycle)
@@ -660,13 +681,16 @@ def acknowledge(db: Session, user: dict, r: models.PerfReview, cycle: models.Per
 
 
 def close(db: Session, user: dict, cycle: models.PerfReviewCycle, force: bool = False) -> int:
-    """Close a cycle. With reviews still mid-way it refuses (409, with how
-    many) unless `force` - then those stay as they are, read-only."""
+    """Close a cycle. With reviews still mid-way (a shared one not yet
+    acknowledged included) it refuses (409, with how many) unless `force` -
+    then they stay as they are, read-only for everyone: no one edits, shares,
+    returns or removes in a closed cycle. The one thing left is the employee
+    acknowledging a review already shared with them."""
     require_hr(db, user, cycle.company_id)
     if cycle.status == "closed":
         return 0
     left = (db.query(models.PerfReview).filter(models.PerfReview.cycle_id == cycle.id,
-                                               models.PerfReview.stage.in_(OPEN_STAGES)).count())
+                                               models.PerfReview.stage.in_(UNFINISHED)).count())
     if left and not force:
         raise HTTPException(409, f"{left} {'review is' if left == 1 else 'reviews are'} not finished. Close anyway?")
     cycle.status, cycle.closed_at, cycle.closed_by, cycle.updated_at = "closed", _now(), _low(user.get("email")), _now()
@@ -757,16 +781,24 @@ def _remind_review(db: Session, r: models.PerfReview, cycle: models.PerfReviewCy
 
 
 def loop_pass(db: Session) -> dict:
-    """performance_loop's review part: late joiners in, reminders out."""
+    """performance_loop's review part: late joiners in, leavers out (their
+    unfinished review is removed - the row is kept), reminders out."""
     on = today()
-    added = sent = 0
+    added = sent = left = 0
     for cycle in db.query(models.PerfReviewCycle).filter(models.PerfReviewCycle.status == "active").all():
         added += sync_members(db, cycle)
         db.flush()
         for r in (db.query(models.PerfReview).filter(models.PerfReview.cycle_id == cycle.id,
-                                                     models.PerfReview.stage.in_(("self_review", "manager_review"))).all()):
-            sent += _remind_review(db, r, cycle, on)
-    return {"added": added, "reminders": sent}
+                                                     models.PerfReview.stage.in_(OPEN_STAGES)).all()):
+            emp = perf.employee(db, r.employee_email)
+            if emp is None or (emp.status or "active") != "active":
+                r.stage, r.removed_at = "removed", _now()
+                _round(r, "", "removed", "Left the company")
+                left += 1
+                continue
+            if r.stage in ("self_review", "manager_review"):
+                sent += _remind_review(db, r, cycle, on)
+    return {"added": added, "reminders": sent, "left": left}
 
 
 # ── What a viewer gets ───────────────────────────────────────────────────────
@@ -798,7 +830,7 @@ def cycle_out(db: Session, cycle: models.PerfReviewCycle, counts: Optional[dict]
 def review_out(db: Session, user: dict, r: models.PerfReview, cycle: models.PerfReviewCycle, a: Access) -> dict:
     """The review as THIS viewer may see it."""
     shared = r.stage in ("shared", "complete")
-    show_self = a.employee or a.hr or (a.manager and bool(r.self_submitted_at)) or (a.chain and shared)
+    show_self = a.employee or ((a.hr or a.manager) and bool(r.self_submitted_at)) or (a.chain and shared)
     show_mgr = (not a.employee) or shared
     if a.chain and r.stage in ("self_review", "manager_review"):
         show_mgr = False
@@ -811,7 +843,8 @@ def review_out(db: Session, user: dict, r: models.PerfReview, cycle: models.Perf
         "stage": r.stage, "stageLabel": STAGE_LABELS.get(r.stage, r.stage), "overdue": overdue(r, cycle),
         "selfSubmittedAt": r.self_submitted_at or "", "sharedAt": r.shared_at or "", "completedAt": r.completed_at or "",
         "selfAnswers": (r.self_answers or {}) if show_self else {},
-        "goals": (r.goals_snapshot if r.goals_snapshot else goals_for(db, r.employee_email, cycle)),
+        "goals": [g if show_mgr else {k: v for k, v in g.items() if k != "score"}
+                  for g in (r.goals_snapshot if r.goals_snapshot else goals_for(db, r.employee_email, cycle))],
         "employeeComment": r.employee_comment or "",
         "role": {"employee": a.employee, "manager": a.manager, "hr": a.hr, "chain": a.chain},
         "can": {
@@ -887,12 +920,12 @@ def waiting_on(db: Session, user: dict) -> list:
     for r in db.query(models.PerfReview).filter(models.PerfReview.employee_email == me,
                                                 models.PerfReview.stage.in_(("self_review", "shared"))).all():
         c = cyc(r.cycle_id)
-        if c is None or c.status != "active":
+        if c is None:
             continue
-        if r.stage == "self_review":
+        if r.stage == "self_review" and c.status == "active":
             out.append(("self", r, c))
-        elif not r.sign_request_id:
-            out.append(("acknowledge", r, c))
+        elif r.stage == "shared" and not r.sign_request_id:
+            out.append(("acknowledge", r, c))   # also once the cycle is closed
     for r in db.query(models.PerfReview).filter(models.PerfReview.manager_email == me,
                                                 models.PerfReview.stage.in_(("self_review", "manager_review"))).all():
         c = cyc(r.cycle_id)

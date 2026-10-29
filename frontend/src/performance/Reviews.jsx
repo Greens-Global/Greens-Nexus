@@ -7,14 +7,14 @@
 // their comments and clicks Acknowledge (Nexus Sign, they are its only
 // signer). The server decides what this viewer may see (perf_reviews.py).
 import { useEffect, useState } from 'react';
-import { ClipboardCheck, Lock, Send, Undo2, PenLine, UserMinus, Sparkles } from 'lucide-react';
+import { ClipboardCheck, Lock, Send, Undo2, PenLine, UserMinus, Sparkles, Target } from 'lucide-react';
 import { api } from '../api';
 import { Modal, PersonSelect, usePeople } from '../tasks/components';
 import { StatusLabel } from '../components/StatusLabel';
 import { LoadingState, ErrorBanner } from '../components/AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
-import { ProgressBar, GoalStatus } from './Goals';
+import { ProgressBar, GoalStatus, GoalFormModal } from './Goals';
 import MyNumbers, { Segmented } from './MyNumbers';
 import { REVIEW_STAGE, RATINGS, GOAL_SCORES, QUESTIONS, LBL, muted, TAP, measureText } from './lib';
 
@@ -58,8 +58,9 @@ function Section({ title, children, aside }) {
   );
 }
 
-// The three questions - editable or read only.
-function Questions({ answers, onChange, readOnly, emptyText = '-' }) {
+// The three questions - editable or read only. `after` - something to draw
+// under one question's answer (Make This a Goal under "next").
+function Questions({ answers, onChange, readOnly, emptyText = '-', after = {} }) {
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       {QUESTIONS.map(q => {
@@ -71,6 +72,7 @@ function Questions({ answers, onChange, readOnly, emptyText = '-' }) {
               ? <span style={{ fontSize: 13, whiteSpace: 'pre-wrap', lineHeight: 1.5, color: text ? 'var(--ink)' : 'var(--muted)' }}>{text || emptyText}</span>
               : <textarea className="form-input" rows={3} value={text} onChange={e => onChange({ ...answers, [q.id]: { text: e.target.value } })}
                   style={{ fontFamily: 'inherit', resize: 'vertical', fontSize: 16 }} />}
+            {after[q.id] ? after[q.id](text) : null}
           </label>
         );
       })}
@@ -143,8 +145,20 @@ function ManagerPart({ r, scores, onSaved, toastOk, toastErr }) {
   const [promo, setPromo] = useState(!!r.promotionReady);
   const [note, setNote] = useState(r.privateNote || '');
   const [busy, setBusy] = useState(false);
+  const [goalFor, setGoalFor] = useState(null);   // { ctx, title } - Make This a Goal
   const edit = r.can.editManager;
   const ready = r.stage === 'ready';
+  // Make This a Goal (spec): the answer to "What should the focus be next?"
+  // opens Add Goal for them, prefilled - nothing is saved until Add Goal.
+  const makeGoal = async (text) => {
+    try { setGoalFor({ ctx: await api.perfMe(), title: text.trim().slice(0, 300) }); }
+    catch (e) { toastErr?.(e?.message || 'Could not open the goal form.'); }
+  };
+  const after = edit ? { next: (text) => (text.trim() ? (
+    <button type="button" className="secondary-btn" onClick={(e) => { e.preventDefault(); makeGoal(text); }}
+      style={{ justifySelf: 'start', display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 36, fontSize: 12.5 }}>
+      <Target size={13} /> Make This a Goal
+    </button>) : null) } : {};
   if (!edit && r.managerAnswers === undefined) return null;
   if (!edit && !r.managerSubmittedAt && !r.rating) return null;
   async function save(submit) {
@@ -158,7 +172,12 @@ function ManagerPart({ r, scores, onSaved, toastOk, toastErr }) {
   return (
     <Section title={r.role.employee ? 'Your Manager\'s Review' : 'Manager Review'}
       aside={<span style={muted}>{r.managerName}{r.managerSubmittedAt ? ` · ${formatDateTime(r.managerSubmittedAt)}` : ''}</span>}>
-      <Questions answers={answers} onChange={setAnswers} readOnly={!edit} />
+      <Questions answers={answers} onChange={setAnswers} readOnly={!edit} after={after} />
+      {goalFor && (
+        <GoalFormModal ctx={goalFor.ctx} defaults={{ title: goalFor.title, owners: [r.employeeEmail], ownerEmail: r.employeeEmail }}
+          onClose={() => setGoalFor(null)} toastErr={toastErr}
+          onSaved={() => { setGoalFor(null); toastOk?.(`Goal added for ${r.employeeName.split(' ')[0]}.`); }} />
+      )}
       <div style={{ display: 'grid', gap: 6 }}>
         <span style={{ fontSize: 13.5, fontWeight: 600 }}>Overall Rating</span>
         {edit ? <Segmented label="Overall Rating" value={rating} onChange={setRating} options={RATINGS} />

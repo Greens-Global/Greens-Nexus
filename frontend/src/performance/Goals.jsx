@@ -96,7 +96,7 @@ export function GoalFormModal({ ctx, goal = null, defaults = {}, parents = [], o
   const people = usePeople();
   const metrics = ctx?.metrics || [];
   const [f, setF] = useState(() => ({
-    title: goal?.title || '', description: goal?.description || '',
+    title: goal?.title || defaults.title || '', description: goal?.description || '',
     level: goal?.level || defaults.level || 'personal',
     owners: goal ? [goal.ownerEmail] : (defaults.owners || [defaults.ownerEmail || ctx?.email].filter(Boolean)),
     ownerEmail: goal?.ownerEmail || defaults.ownerEmail || ctx?.email || '',
@@ -111,8 +111,10 @@ export function GoalFormModal({ ctx, goal = null, defaults = {}, parents = [], o
   const [err, setErr] = useState('');
   const set = (k) => (v) => setF(p => ({ ...p, [k]: v }));
   const levels = levelsFor(ctx);
-  const metric = metrics.find(m => m.key === f.metricKey);
   const personal = f.level === 'personal';
+  // A Nexus number measures a PERSONAL goal only - a company or department
+  // goal is read by everyone in it and would publish its owner's numbers.
+  const metric = personal ? metrics.find(m => m.key === f.metricKey) : undefined;
   // Who it is for: yourself, or - for a manager - one or several direct reports.
   const forChoices = useMemo(() => {
     const me = { email: ctx?.email, name: `${ctx?.name || ctx?.email} (Me)` };
@@ -130,7 +132,7 @@ export function GoalFormModal({ ctx, goal = null, defaults = {}, parents = [], o
     setBusy(true); setErr('');
     const body = {
       title: f.title.trim(), description: f.description, due_on: f.dueOn || '', parent_id: f.parentId || '',
-      metric_key: f.metricKey || '',
+      metric_key: personal ? (f.metricKey || '') : '',
       ...(metric ? { target_value: Number(f.targetValue) } : {
         measure: f.measure, unit: f.unit, target_value: f.measure === 'number' ? Number(f.targetValue) : undefined, start_value: 0,
       }),
@@ -165,11 +167,13 @@ export function GoalFormModal({ ctx, goal = null, defaults = {}, parents = [], o
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
           <label style={field}>
             <span style={LBL}>Measured By</span>
-            <select className="form-input" value={f.metricKey} onChange={e => set('metricKey')(e.target.value)} style={{ fontSize: 16 }}>
+            <select className="form-input" value={personal ? f.metricKey : BY_HAND} onChange={e => set('metricKey')(e.target.value)} style={{ fontSize: 16 }}>
               <option value={BY_HAND}>I&apos;ll Update It</option>
-              <optgroup label="Nexus Numbers (Update By Themselves)">
-                {metrics.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
-              </optgroup>
+              {personal && (
+                <optgroup label="Nexus Numbers (Update By Themselves)">
+                  {metrics.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+                </optgroup>
+              )}
             </select>
           </label>
           {!metric && (

@@ -271,8 +271,14 @@ def settings_for(db: Session, email: str) -> dict:
 # ── Goals ────────────────────────────────────────────────────────────────────
 
 def _metric_def(g):
+    """The Nexus number a goal is measured by - PERSONAL goals only: a
+    company or department goal is read by the whole company or department,
+    and would publish its owner's own numbers to them (a stray key on one is
+    ignored here, so no read can ever show it)."""
     import perf_metrics
-    return perf_metrics.METRICS.get(g.metric_key or "") if getattr(g, "metric_key", "") else None
+    if not getattr(g, "metric_key", "") or (g.level or "personal") != "personal":
+        return None
+    return perf_metrics.METRICS.get(g.metric_key or "")
 
 
 def progress(g: models.PerfGoal) -> int:
@@ -327,7 +333,7 @@ def refresh_metric(db: Session, g: models.PerfGoal, today: Optional[str] = None)
     """A Nexus-measured goal's number for its period, read from the person's
     scorecard (perf_metrics.metric - the one calculation). Sets
     current_value; returns whether the number applies to them at all."""
-    if not getattr(g, "metric_key", ""):
+    if _metric_def(g) is None:
         return True
     import perf_metrics
     from datetime import date as _d
@@ -409,7 +415,7 @@ def can_approve_goal(db: Session, user: dict, g: models.PerfGoal) -> bool:
         return False
     if me == _low(g.owner_email):
         return False
-    return is_above(db, me, g.owner_email) or hr_for(db, user, g.company_id or "")
+    return is_direct_manager(db, me, g.owner_email) or hr_for(db, user, g.company_id or "")
 
 
 def can_see_goal(db: Session, user: dict, g: models.PerfGoal, me_emp=None) -> bool:
@@ -431,7 +437,15 @@ def can_see_goal(db: Session, user: dict, g: models.PerfGoal, me_emp=None) -> bo
     return is_above(db, me, g.owner_email)
 
 
+def is_direct_manager(db: Session, viewer: str, email: str) -> bool:
+    emp = employee(db, email)
+    v = _low(viewer)
+    return bool(v) and emp is not None and _low(emp.manager_email) == v and v != _low(email)
+
+
 def can_edit_goal(db: Session, user: dict, g: models.PerfGoal) -> bool:
+    """The owner, their DIRECT manager and HR change a goal; anyone higher
+    up the chain reads it (Oct 29 2026 spec: the manager's manager reads)."""
     me = _low(user.get("email"))
     if user.get("external") or g.archived_at:
         return False
@@ -439,7 +453,7 @@ def can_edit_goal(db: Session, user: dict, g: models.PerfGoal) -> bool:
         return True
     if g.level == "company":
         return _low(g.owner_email) == me
-    return _low(g.owner_email) == me or is_above(db, me, g.owner_email)
+    return _low(g.owner_email) == me or is_direct_manager(db, me, g.owner_email)
 
 
 def _would_cycle(db: Session, goal_id: str, parent_id: str) -> bool:
@@ -528,7 +542,7 @@ def goal_out(db: Session, user: dict, g: models.PerfGoal, *, names: Optional[dic
         "measure": g.measure, "startValue": g.start_value or 0, "targetValue": g.target_value or 0,
         "currentValue": g.current_value or 0, "unit": (md[1] if md else g.unit) or "", "status": status,
         "statusLabel": STATUS_LABELS.get(status, status), "progress": progress(g),
-        "metricKey": g.metric_key or "", "metricLabel": md[0] if md else "", "metricGood": md[2] if md else "high",
+        "metricKey": (g.metric_key or "") if md else "", "metricLabel": md[0] if md else "", "metricGood": md[2] if md else "high",
         "measuredByNexus": md is not None, "periodStart": start, "periodEnd": end,
         "startOn": g.start_on or "", "dueOn": g.due_on or end, "parentId": g.parent_id or "",
         "parentTitle": parent_title, "lastCheckinAt": g.last_checkin_at or "", "archived": bool(g.archived_at),
@@ -808,7 +822,8 @@ def refresh_measured_goals(db: Session, now: Optional[datetime] = None) -> int:
     today = local_today()
     now = now or datetime.now(timezone.utc)
     rows = (db.query(models.PerfGoal)
-            .filter(models.PerfGoal.archived_at == "", models.PerfGoal.metric_key != "").all())
+            .filter(models.PerfGoal.archived_at == "", models.PerfGoal.metric_key != "",
+                    models.PerfGoal.level == "personal").all())
     n = 0
     for g in rows:
         last = _parse_any(g.updated_at)

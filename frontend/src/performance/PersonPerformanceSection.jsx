@@ -16,7 +16,12 @@ export default function PersonPerformanceSection({ email, name, toastOk, toastEr
     let live = true;
     if (!email) return undefined;
     Promise.all([api.perfMe(), api.perfReviews(email)])
-      .then(([c, r]) => { if (live) { setCtx(c); setReviews(r?.team || []); setAllowed(true); } })
+      // On your own profile: your own reviews only - never the team list.
+      .then(([c, r]) => {
+        if (!live) return;
+        const own = (c?.email || '') === (email || '').toLowerCase();
+        setCtx(c); setReviews((own ? r?.mine : r?.team) || []); setAllowed(true);
+      })
       .catch(() => { if (live) setAllowed(false); });
     return () => { live = false; };
   }, [email]);

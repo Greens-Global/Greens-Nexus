@@ -153,6 +153,29 @@ describe('Workday > Performance', () => {
   });
 });
 
+describe('the goal form and the profile', () => {
+  it('offers Nexus numbers for a personal goal only', async () => {
+    const { GoalFormModal } = await import('./Goals');
+    const ctx = { ...CTX, isHr: true, hrCompanies: [{ id: 'co', name: 'Co' }] };
+    const { unmount } = render(<GoalFormModal ctx={ctx} defaults={{ level: 'company', companyId: 'co' }} onClose={() => {}} />);
+    expect(screen.queryByRole('option', { name: 'On-Time Arrival' })).toBeNull();
+    unmount();
+    render(<GoalFormModal ctx={ctx} defaults={{}} onClose={() => {}} />);
+    expect(screen.getByRole('option', { name: 'On-Time Arrival' })).toBeTruthy();
+  });
+
+  it('my own profile shows my own reviews, never a team list', async () => {
+    const Section = (await import('./PersonPerformanceSection')).default;
+    m.perfMe.mockResolvedValue({ ...CTX, isHr: true });
+    m.perfGoals.mockResolvedValue([]);
+    m.perfReviews.mockResolvedValue({ mine: [{ id: 'own', cycleName: 'My Own Review', stage: 'complete', employeeName: 'Erin Test' }],
+      team: [{ id: 'other', cycleName: 'Someone Else', stage: 'complete', employeeName: 'Pat Test' }] });
+    render(<Section email="erin@greensglobal.com" name="Erin Test" />);
+    expect(await screen.findByText('My Own Review')).toBeTruthy();
+    expect(screen.queryByText('Someone Else')).toBeNull();
+  });
+});
+
 describe('People > Performance', () => {
   it('tells a non-HR person where their own goals are', async () => {
     m.perfMe.mockResolvedValue(CTX);

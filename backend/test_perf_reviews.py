@@ -323,6 +323,80 @@ class FlowTests(ReviewCase):
         self.assertIn(rid, {x["id"] for x in api.my_reviews(U(OMGR), self.db)["team"]})
 
 
+class ReviewFixTests(ReviewCase):
+    def test_a_double_acknowledge_makes_one_envelope(self):
+        c, rid, r, first = self.acknowledged()
+        # The race: the second click gets past the lock before the first one's
+        # sign_request_id is written (esign._create_request commits partway).
+        r.sign_request_id = ""
+        self.db.commit()
+        again = api.acknowledge_review(rid, api.AckIn(comment="again"), _Req(), U(EMP), self.db)
+        self.assertEqual(again["signPartyId"], first["signPartyId"])
+        self.assertEqual(self.db.query(models.HrSignRequest).filter_by(link_kind="perf_review", link_id=rid).count(), 1)
+
+    def test_goal_scores_stay_with_the_manager_part(self):
+        from routers import performance as papi
+        g = papi.create_goal(papi.GoalIn(title="Close 40 tickets", measure="number", target_value=40,
+                                         owner_email=EMP, start_on=pr.today()), U(MGR), self.db)
+        c, rid = self.launched()
+        api.save_self(rid, api.SelfIn(answers=self.answers(), submit=True), U(EMP), self.db)
+        api.save_manager(rid, api.ManagerIn(answers=self.answers(), rating="meets", goal_scores={g["id"]: "not"},
+                                            submit=True), U(MGR), self.db)
+        for stage_step in ("ready", "returned"):
+            if stage_step == "returned":
+                api.return_review(rid, api.NoteIn(note="Add an example"), U(HR), self.db)
+            mine = self.get(rid, EMP)
+            self.assertTrue(mine["goals"])
+            self.assertNotIn("score", repr(mine["goals"]))
+            self.assertNotIn("goalScores", mine)
+        self.assertEqual(self.get(rid, HR)["goals"][0]["score"], "not")
+
+    def test_hr_never_reads_a_self_review_draft(self):
+        c, rid = self.launched()
+        api.save_self(rid, api.SelfIn(answers=self.answers("My private draft")), U(EMP), self.db)
+        self.assertEqual(self.get(rid, HR)["selfAnswers"], {})
+        self.assertNotIn("My private draft", repr(self.get(rid, HR)))
+        api.save_self(rid, api.SelfIn(answers=self.answers("Submitted now"), submit=True), U(EMP), self.db)
+        self.assertIn("Submitted now", repr(self.get(rid, HR)["selfAnswers"]))
+
+    def test_a_shared_review_keeps_a_cycle_open_and_a_closed_cycle_is_read_only(self):
+        c, rid = self.to_ready()
+        api.share_review(rid, U(HR), self.db)
+        for r in self.db.query(models.PerfReview).filter(models.PerfReview.cycle_id == c["id"],
+                                                         models.PerfReview.id != rid).all():
+            api.remove_review(r.id, U(BOSS, 4) if r.employee_email == HR else U(HR), self.db)
+        # Only a shared, unacknowledged review left: a Close still asks.
+        self.refused(lambda: api.close_cycle(c["id"], api.CloseIn(), U(HR), self.db), 409)
+        api.close_cycle(c["id"], api.CloseIn(force=True), U(HR), self.db)
+        self.refused(lambda: api.recall_review(rid, api.NoteIn(note="x"), U(HR), self.db), 409)
+        self.refused(lambda: api.save_manager(rid, api.ManagerIn(rating="below"), U(HR), self.db), 409)
+        # The employee still acknowledges, and it still waits on them.
+        import approvals_inbox as ai
+        self.assertEqual([x["id"] for x in ai._perf_reviews(self.db, U(EMP), {})], [f"{rid}:acknowledge"])
+        self.assertTrue(api.acknowledge_review(rid, api.AckIn(), _Req(), U(EMP), self.db)["signPartyId"])
+
+    def test_someone_who_left_is_taken_out_and_not_reminded(self):
+        c, rid = self.launched()
+        emp = self.db.query(models.NexusEmployee).filter_by(work_email=EMP).one()
+        emp.status = "inactive"
+        self.db.commit()
+        self.db.query(models.NexusNotification).delete()
+        self.db.commit()
+        soon = (date.fromisoformat(c["selfDue"]) - timedelta(days=pr.SOON_DAYS)).isoformat()
+        with mock.patch.object(pr, "today", return_value=soon):
+            out = pr.loop_pass(self.db)
+        self.db.commit()
+        self.assertEqual(out["left"], 1)
+        self.assertEqual(self.db.get(models.PerfReview, rid).stage, "removed")
+        self.assertEqual(self.bells(EMP, "Self Review Due Soon"), [])
+
+    def test_my_own_profile_shows_only_my_reviews(self):
+        c, rid = self.to_ready()
+        mine = api.my_reviews(U(MGR), self.db, person=MGR)
+        self.assertEqual(mine["team"], [])
+        self.assertNotIn(rid, {x["id"] for x in mine["mine"]})
+
+
 class PrivacyTests(ReviewCase):
     def test_outsiders_get_404(self):
         c, rid = self.to_ready()

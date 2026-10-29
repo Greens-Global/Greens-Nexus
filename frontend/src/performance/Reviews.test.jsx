@@ -7,6 +7,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 // Acknowledge; HR's cycle table has Share All Ready and a safe Close.
 
 const m = { perfReview: vi.fn(), perfScorecard: vi.fn(), perfReviewManager: vi.fn(), perfReviewAcknowledge: vi.fn(),
+  perfMe: vi.fn(), perfGoalCreate: vi.fn(),
   perfCycles: vi.fn(), perfCycle: vi.fn(), perfCycleShareAll: vi.fn(), perfCycleClose: vi.fn(), getPeopleDirectory: vi.fn() };
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_t, k) => m[k] || (() => Promise.resolve({})) }) }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => false, myGrantedModules: new Set(), canAccessModule: () => false }) }));
@@ -73,6 +74,19 @@ describe('the review form', () => {
     await waitFor(() => expect(nav).toHaveBeenCalled());
     expect(nav.mock.calls[0][0].detail).toEqual({ view: 'myhr', sub: 'sign:p1' });
     window.removeEventListener('nexus:navigate', nav);
+  });
+
+  it('Make This a Goal opens Add Goal for them with the answer, saving nothing', async () => {
+    m.perfReview.mockResolvedValue({ ...BASE, managerAnswers: { next: { text: 'Lead the Q1 launch' } } });
+    m.perfMe.mockResolvedValue({ email: 'max@x.com', name: 'Max Test', reports: [{ email: 'erin@x.com', name: 'Erin Test' }],
+      hasTeam: true, isHr: false, metrics: [], maxGoals: 5 });
+    render(<ReviewModal reviewId="r1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Make This a Goal/ }));
+    const title = await screen.findByDisplayValue('Lead the Q1 launch');
+    expect(title).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add Goal' })).toBeTruthy();
+    expect(m.perfGoalCreate).not.toHaveBeenCalled();
+    expect(m.perfReviewManager).not.toHaveBeenCalled();
   });
 
   it('the manager waits for the self review until its due day', async () => {

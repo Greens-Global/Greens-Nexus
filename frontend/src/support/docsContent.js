@@ -343,6 +343,7 @@ export const DOCS = [
           'Reviews to Write lists the reviews waiting on you (Team Reviews shows them all). Open one.',
           'Their numbers for the review period and their goals with results are on the page. Score each goal Met, Partly Met or Not Met, answer the same three questions, and pick one Overall Rating: Exceeds, Meets, Partly Meets or Below.',
           'Tick Ready for Promotion if it fits, and add a private note for HR if you need to. Neither is ever shown to the employee or printed on their copy.',
+          'Under What should the focus be next?, Make This a Goal opens Add Goal for them with your answer as the title - nothing is saved until you click Add Goal.',
           'Click Submit. HR shares it with the employee.',
         ],
       },

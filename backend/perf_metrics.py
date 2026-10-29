@@ -93,184 +93,243 @@ def _pct(num: int, den: int):
 
 
 # ── The sources ──────────────────────────────────────────────────────────────
+# Every source takes the WHOLE set of people at once (a manager's team, the
+# owners on a goal list) and answers {email: {metric key: metric}} - the
+# engines underneath already take email sets, so a team of 20 is one pass,
+# not 20. One person is the same call with one email: the numbers are
+# identical by construction.
 
-def _attendance(db: Session, email: str, start: str, end: str) -> dict:
+_JUDGED = ("on_time", "left_early", "late", "no_show")
+
+
+def _attendance(db: Session, emails: list, start: str, end: str, today: str) -> dict:
+    """From the Shifts engine's own per-day cells (shift_attendance.actuals).
+    Arrived on time = On Time or Left Early (both started on time); judged =
+    those plus Late and No-Show. A day still running, upcoming, exempt or
+    excused is not judged, and neither is a shift sitting over approved time
+    off - time off is never a metric (Neil, spec)."""
     import shift_attendance
-    out = shift_attendance.actuals(db, [email], start, end)
-    t = (out.get("people") or {}).get(email) or {}
-    judged = int(t.get("judged") or 0)
-    if not judged:
-        return {"on_time": _out("on_time"), "no_shows": _out("no_shows")}
-    late, missed = int(t.get("late") or 0), int(t.get("noShow") or 0)
-    on = max(0, judged - late - missed)
-    return {
-        "on_time": _out("on_time", _pct(on, judged), detail=f"{on} of {judged} shifts on time"),
-        "no_shows": _out("no_shows", missed, detail=f"{missed} of {judged} shifts"),
-    }
+    out = shift_attendance.actuals(db, emails, start, end)
+    tally = {e: {"on": 0, "judged": 0, "missed": 0} for e in emails}
+    for key, cell in (out.get("cells") or {}).items():
+        em = key.split("|")[0]
+        t = tally.get(em)
+        if t is None or cell.get("over") == "time_off" or cell.get("status") not in _JUDGED:
+            continue
+        t["judged"] += 1
+        t["on"] += cell["status"] in ("on_time", "left_early")
+        t["missed"] += cell["status"] == "no_show"
+    res = {}
+    for em, t in tally.items():
+        if not t["judged"]:
+            res[em] = {"on_time": _out("on_time"), "no_shows": _out("no_shows")}
+            continue
+        res[em] = {
+            "on_time": _out("on_time", _pct(t["on"], t["judged"]), detail=f"{t['on']} of {t['judged']} shifts on time"),
+            "no_shows": _out("no_shows", t["missed"], detail=f"{t['missed']} of {t['judged']} shifts"),
+        }
+    return res
 
 
-def _hours(db: Session, email: str, start: str, end: str) -> dict:
+def _hours(db: Session, emails: list, start: str, end: str, today: str) -> dict:
     import workforce_scorecard as ws
     cfg = ws.get_settings(db)
     d0, d1 = date.fromisoformat(start), date.fromisoformat(end)
-    expected = covered = 0
+    tot = {e: [0, 0] for e in emails}
     wk = ws.week_start_for(d0, cfg)
     while wk <= d1:
-        rep = ws.build_report(db, {email}, cfg, wk)
+        rep = ws.build_report(db, set(emails), cfg, wk)
         for row in rep.get("people") or []:
+            t = tot.get((row.get("email") or "").lower())
+            if t is None and len(emails) == 1:
+                t = tot[emails[0]]
+            if t is None:
+                continue
             for d in row.get("days") or []:
                 if d.get("scored") and start <= d["date"] <= end:
-                    expected += int(d.get("expectedMin") or 0)
-                    covered += int(d.get("workedMin") or 0) + int(d.get("leaveMin") or 0)
+                    t[0] += int(d.get("expectedMin") or 0)
+                    t[1] += int(d.get("workedMin") or 0) + int(d.get("leaveMin") or 0)
         wk += timedelta(days=7)
-    if not expected:
-        return {"hours": _out("hours")}
-    return {"hours": _out("hours", _pct(covered, expected),
-                          detail=f"{covered / 60:.0f} of {expected / 60:.0f} hours")}
+    res = {}
+    for em, (expected, covered) in tot.items():
+        res[em] = {"hours": _out("hours", _pct(covered, expected), detail=f"{covered / 60:.0f} of {expected / 60:.0f} hours")
+                   if expected else _out("hours")}
+    return res
 
 
-def _timesheets(db: Session, email: str, start: str, end: str) -> dict:
+def _timesheets(db: Session, emails: list, start: str, end: str, today: str) -> dict:
+    """Signed within UNSIGNED_WAIT_DAYS of when the card last went out to
+    sign (timesheet_review._waiting_since - the newest approval, HR change or
+    re-sign round), for periods ending in the range. Counted: every signed
+    (completed) period, plus a card still unsigned past the wait - that one
+    is late. A card that went out yesterday is not counted yet."""
     import timesheet_review as tr
+    wait = timedelta(days=tr.UNSIGNED_WAIT_DAYS)
+    now = datetime.now(timezone.utc)
     rows = (db.query(models.TimesheetReview)
-            .filter(func.lower(models.TimesheetReview.employee_email) == email,
-                    models.TimesheetReview.period_end >= start, models.TimesheetReview.period_end <= end,
-                    models.TimesheetReview.agreed_at != "").all())
-    if not rows:
-        return {"timesheets": _out("timesheets")}
+            .filter(func.lower(models.TimesheetReview.employee_email).in_(emails),
+                    models.TimesheetReview.period_end >= start, models.TimesheetReview.period_end <= end).all())
     signs = (db.query(models.TimeApproval)
-             .filter(func.lower(models.TimeApproval.employee_email) == email,
+             .filter(func.lower(models.TimeApproval.employee_email).in_(emails),
                      models.TimeApproval.kind == "employee_sign", models.TimeApproval.revoked == 0).all())
-    by_period: dict = {}
+    signed: dict = {}
     for s in signs:
-        by_period.setdefault((s.period_start, s.period_end), []).append(s)
-    ok = 0
+        k = ((s.employee_email or "").lower(), s.period_start, s.period_end)
+        at = _parse(s.approved_at)
+        if at is not None and (k not in signed or at > signed[k]):
+            signed[k] = at
+    tally = {e: [0, 0] for e in emails}
     for r in rows:
-        agreed = _parse(r.agreed_at)
-        signed = [_parse(s.approved_at) for s in by_period.get((r.period_start, r.period_end), [])]
-        signed = [s for s in signed if s is not None]
-        if agreed is not None and signed and min(signed) - agreed <= timedelta(days=tr.UNSIGNED_WAIT_DAYS):
-            ok += 1
-    return {"timesheets": _out("timesheets", _pct(ok, len(rows)), detail=f"{ok} of {len(rows)} signed on time")}
+        em = (r.employee_email or "").lower()
+        out_at = _parse(tr._waiting_since(r))
+        if out_at is None or em not in tally:
+            continue
+        if r.status == "completed":
+            at = signed.get((em, r.period_start, r.period_end))
+            tally[em][1] += 1
+            tally[em][0] += bool(at is not None and at >= out_at - timedelta(minutes=1) and at - out_at <= wait)
+        elif r.status in ("approved", "signing", "correcting") and now - out_at > wait:
+            tally[em][1] += 1      # still unsigned past the wait: late
+    return {em: {"timesheets": _out("timesheets", _pct(ok, n), detail=f"{ok} of {n} signed on time") if n else _out("timesheets")}
+            for em, (ok, n) in tally.items()}
 
 
-def _tasks(db: Session, email: str, start: str, end: str, today: str) -> dict:
+def _tasks(db: Session, emails: list, start: str, end: str, today: str) -> dict:
     from routers.task_util import task_assignees
     from task_due import _completed_day
     T = models.Task
-    like = f'%"{email}"%'
-    rows = (db.query(T)
-            .filter(or_(func.lower(T.assignee_email) == email, cast(T.assignee_emails, String).ilike(like)),
-                    T.type != "section", or_(T.deleted_at == "", T.deleted_at.is_(None))).all())
-    mine = [t for t in rows if email in task_assignees(t)]
-    done = [t for t in mine if t.completed and start <= _completed_day(t) <= end]
-    open_ = [t for t in mine if not t.completed]
-    if not done and not open_:
-        return {"tasks_done": _out("tasks_done"), "tasks_on_time": _out("tasks_on_time"),
-                "tasks_overdue": _out("tasks_overdue")}
-    dated = [t for t in done if (t.due_on or "")[:10]]
-    on_time = [t for t in dated if _completed_day(t) <= t.due_on[:10]]
-    overdue = [t for t in open_ if (t.due_on or "")[:10] and t.due_on[:10] < today]
-    return {
-        "tasks_done": _out("tasks_done", len(done), detail=f"{len(done)} finished"),
-        "tasks_on_time": (_out("tasks_on_time", _pct(len(on_time), len(dated)),
-                               detail=f"{len(on_time)} of {len(dated)} with a due date")
-                          if dated else _out("tasks_on_time")),
-        "tasks_overdue": _out("tasks_overdue", len(overdue), detail=f"{len(overdue)} of {len(open_)} open"),
-    }
+    want = set(emails)
+    q = db.query(T).filter(T.type != "section", or_(T.deleted_at == "", T.deleted_at.is_(None)),
+                           or_(T.completed == False, T.completed_at >= start))   # noqa: E712
+    if len(emails) == 1:
+        q = q.filter(or_(func.lower(T.assignee_email) == emails[0], cast(T.assignee_emails, String).ilike(f'%"{emails[0]}"%')))
+    by: dict = {e: [] for e in emails}
+    for t in q.all():
+        for em in set(task_assignees(t)) & want:
+            by[em].append(t)
+    res = {}
+    for em, mine in by.items():
+        done = [t for t in mine if t.completed and start <= _completed_day(t) <= end]
+        open_ = [t for t in mine if not t.completed]
+        if not done and not open_:
+            res[em] = {"tasks_done": _out("tasks_done"), "tasks_on_time": _out("tasks_on_time"),
+                       "tasks_overdue": _out("tasks_overdue")}
+            continue
+        dated = [t for t in done if (t.due_on or "")[:10]]
+        on_time = [t for t in dated if _completed_day(t) <= t.due_on[:10]]
+        overdue = [t for t in open_ if (t.due_on or "")[:10] and t.due_on[:10] < today]
+        res[em] = {
+            "tasks_done": _out("tasks_done", len(done), detail=f"{len(done)} finished"),
+            "tasks_on_time": (_out("tasks_on_time", _pct(len(on_time), len(dated)),
+                                   detail=f"{len(on_time)} of {len(dated)} with a due date")
+                              if dated else _out("tasks_on_time")),
+            "tasks_overdue": _out("tasks_overdue", len(overdue), detail=f"{len(overdue)} of {len(open_)} open"),
+        }
+    return res
 
 
-def _tickets(db: Session, email: str, start: str, end: str) -> dict:
+def _tickets(db: Session, emails: list, start: str, end: str, today: str) -> dict:
     from ticket_reports import _Fact
     T = models.TaskTicket
-    rows = (db.query(T).filter(func.lower(T.assignee_email) == email,
+    rows = (db.query(T).filter(func.lower(T.assignee_email).in_(emails),
                                or_(T.deleted_at == "", T.deleted_at.is_(None))).all())
     now = datetime.now(timezone.utc)
-    facts = [_Fact(r, now) for r in rows]
+    by: dict = {e: [] for e in emails}
+    for r in rows:
+        em = (r.assignee_email or "").lower()
+        if em in by:
+            by[em].append(_Fact(r, now))
 
     def day(dt) -> str:
         return dt.date().isoformat() if dt is not None else ""
 
-    resolved = [f for f in facts if f.resolved is not None and start <= day(f.resolved) <= end]
-    created = [f for f in facts if start <= day(f.created) <= end]
-    if not resolved and not created:
-        return {"tickets_resolved": _out("tickets_resolved"), "ticket_sla": _out("ticket_sla")}
-    judged = [m for m in (f.fr_met(now) for f in created) if m is not None]
-    met = sum(1 for m in judged if m)
-    return {
-        "tickets_resolved": _out("tickets_resolved", len(resolved), detail=f"{len(resolved)} resolved"),
-        "ticket_sla": (_out("ticket_sla", _pct(met, len(judged)), detail=f"{met} of {len(judged)} on target")
-                       if judged else _out("ticket_sla")),
-    }
-
-
-def _training(db: Session, email: str) -> dict:
-    import kb_core
-    done = total = 0
-    courses = {c.id: c for c in db.query(models.KbCourse).filter(models.KbCourse.status == "published").all()}
-    for a in (db.query(models.KbCourseAssignment)
-              .filter(func.lower(models.KbCourseAssignment.user_email) == email).all()):
-        c = courses.get(a.course_id)
-        if c is None:
+    res = {}
+    for em, facts in by.items():
+        resolved = [f for f in facts if f.resolved is not None and start <= day(f.resolved) <= end]
+        created = [f for f in facts if start <= day(f.created) <= end]
+        if not resolved and not created:
+            res[em] = {"tickets_resolved": _out("tickets_resolved"), "ticket_sla": _out("ticket_sla")}
             continue
-        total += 1
-        st = kb_core.training_status(db, c, kb_core.progress_of(db, c, email), a.due_date or "")
-        done += st.get("status") == "Completed"
+        judged = [m for m in (f.fr_met(now) for f in created) if m is not None]
+        met = sum(1 for m in judged if m)
+        res[em] = {
+            "tickets_resolved": _out("tickets_resolved", len(resolved), detail=f"{len(resolved)} resolved"),
+            "ticket_sla": (_out("ticket_sla", _pct(met, len(judged)), detail=f"{met} of {len(judged)} on target")
+                           if judged else _out("ticket_sla")),
+        }
+    return res
+
+
+def _training(db: Session, emails: list, start: str, end: str, today: str) -> dict:
+    """Assigned published courses complete, and required policies signed -
+    the courses, the policies and their audiences read ONCE for everyone."""
+    import kb_core
+    tally = {e: [0, 0] for e in emails}
+    courses = {c.id: c for c in db.query(models.KbCourse).filter(models.KbCourse.status == "published").all()}
+    assigns = (db.query(models.KbCourseAssignment)
+               .filter(func.lower(models.KbCourseAssignment.user_email).in_(emails)).all())
+    progress = {((p.user_email or "").lower(), p.course_id): p for p in db.query(models.KbCourseProgress)
+                .filter(func.lower(models.KbCourseProgress.user_email).in_(emails)).all()}
+    for a in assigns:
+        em, c = (a.user_email or "").lower(), courses.get(a.course_id)
+        if c is None or em not in tally:
+            continue
+        tally[em][1] += 1
+        tally[em][0] += kb_core.training_status(db, c, progress.get((em, c.id)), a.due_date or "").get("status") == "Completed"
     for d in (db.query(models.KbDocument)
               .filter(models.KbDocument.status == "approved", models.KbDocument.require_ack.is_(True)).all()):
-        if email not in kb_core.policy_audience_emails(db, d):
-            continue
-        total += 1
-        done += bool(kb_core.signoff_state(db, d, email).get("signed"))
-    if not total:
-        return {"training": _out("training")}
-    return {"training": _out("training", _pct(done, total), detail=f"{done} of {total} complete")}
+        audience = kb_core.policy_audience_emails(db, d)
+        for em in emails:
+            if em in audience:
+                tally[em][1] += 1
+                tally[em][0] += bool(kb_core.signoff_state(db, d, em).get("signed"))
+    return {em: {"training": _out("training", _pct(ok, n), detail=f"{ok} of {n} complete") if n else _out("training")}
+            for em, (ok, n) in tally.items()}
 
 
 # Which source computes which keys.
+# (By name, read at call time - so a test can stand one in.)
 _SOURCES = (
-    (("on_time", "no_shows"), "attendance"),
-    (("hours",), "hours"),
-    (("timesheets",), "timesheets"),
-    (("tasks_done", "tasks_on_time", "tasks_overdue"), "tasks"),
-    (("tickets_resolved", "ticket_sla"), "tickets"),
-    (("training",), "training"),
+    (("on_time", "no_shows"), "_attendance"),
+    (("hours",), "_hours"),
+    (("timesheets",), "_timesheets"),
+    (("tasks_done", "tasks_on_time", "tasks_overdue"), "_tasks"),
+    (("tickets_resolved", "ticket_sla"), "_tickets"),
+    (("training",), "_training"),
 )
-_KEY_SOURCE = {k: s for keys, s in _SOURCES for k in keys}
+_KEY_SOURCE = {k: name for keys, name in _SOURCES for k in keys}
+_SOURCE_KEYS = {name: keys for keys, name in _SOURCES}
 
 
-def _compute(db: Session, source: str, email: str, start: str, end: str, today: str) -> dict:
-    if source == "attendance":
-        return _attendance(db, email, start, end)
-    if source == "hours":
-        return _hours(db, email, start, end)
-    if source == "timesheets":
-        return _timesheets(db, email, start, end)
-    if source == "tasks":
-        return _tasks(db, email, start, end, today)
-    if source == "tickets":
-        return _tickets(db, email, start, end)
-    return _training(db, email)
-
-
-def _source(db: Session, source: str, email: str, start: str, end: str, today: str) -> dict:
-    key = (source, email, start, end, today)
+def _many(db: Session, name: str, emails: list, start: str, end: str, today: str) -> dict:
+    """{email: values} for one source, from the 10-minute memory where it
+    has them and ONE batched call for everyone else."""
+    fn = globals()[name]
     now = time.monotonic()
+    out, missing = {}, []
     with _lock:
-        hit = _cache.get(key)
-        if hit and now - hit[0] < CACHE_SEC:
-            return hit[1]
+        for em in emails:
+            hit = _cache.get((name, em, start, end, today))
+            if hit and now - hit[0] < CACHE_SEC:
+                out[em] = hit[1]
+            else:
+                missing.append(em)
+    if not missing:
+        return out
     try:
-        val = _compute(db, source, email, start, end, today)
+        got = fn(db, missing, start, end, today)
     except Exception as e:   # noqa: BLE001 - one source failing never blanks the card
-        print(f"[perf_metrics] {source} failed for {email}: {type(e).__name__}: {e}")
-        keys = [k for k, s in _KEY_SOURCE.items() if s == source]
-        return {k: _out(k) for k in keys}
+        print(f"[perf_metrics] {name} failed for {len(missing)}: {type(e).__name__}: {e}")
+        blank = {k: _out(k) for k in _SOURCE_KEYS[name]}
+        return {**out, **{em: blank for em in missing}}
     with _lock:
-        _cache[key] = (now, val)
+        for em in missing:
+            _cache[(name, em, start, end, today)] = (now, got[em])
         if len(_cache) > 5000:
             for k in sorted(_cache, key=lambda k: _cache[k][0])[:1000]:
                 _cache.pop(k, None)
-    return val
+    out.update({em: got[em] for em in missing})
+    return out
 
 
 def clear_cache() -> None:
@@ -287,6 +346,10 @@ def _clamp(start: str, end: str, today: date) -> tuple:
     return d0.isoformat(), d1.isoformat()
 
 
+def _emails(emails) -> list:
+    return sorted({_low(e) for e in emails if _low(e)})
+
+
 def metric(db: Session, email: str, key: str, start: str, end: str, today: Optional[date] = None) -> dict:
     """One metric (a Nexus-measured goal reads only its own)."""
     if key not in METRICS:
@@ -294,20 +357,40 @@ def metric(db: Session, email: str, key: str, start: str, end: str, today: Optio
     today = today or local_today()
     email = _low(email)
     s, e = _clamp(start, end, today)
-    return _source(db, _KEY_SOURCE[key], email, s, e, today.isoformat())[key]
+    return _many(db, _KEY_SOURCE[key], [email], s, e, today.isoformat())[email][key]
+
+
+def prefetch(db: Session, emails, keys, start: str, end: str, today: Optional[date] = None) -> None:
+    """Warm the memory for several people's `keys` over one period in one
+    pass per source (a goal list, before each goal reads its own number)."""
+    today = today or local_today()
+    ems = _emails(emails)
+    if not ems:
+        return
+    s, e = _clamp(start, end, today)
+    for name in {_KEY_SOURCE[k] for k in keys if k in _KEY_SOURCE}:
+        _many(db, name, ems, s, e, today.isoformat())
+
+
+def scorecards(db: Session, emails, start: str, end: str, today: Optional[date] = None) -> dict:
+    """{email: scorecard} for several people over one period - one batched
+    pass per source."""
+    today = today or local_today()
+    ems = _emails(emails)
+    s, e = _clamp(start, end, today)
+    vals = {em: {} for em in ems}
+    if ems:
+        for _keys, name in _SOURCES:
+            for em, v in _many(db, name, ems, s, e, today.isoformat()).items():
+                vals[em].update(v)
+    return {em: {"period": {"start": start, "end": end, "readTo": e},
+                 "metrics": [vals[em][k] for k in ORDER if k in vals[em]]} for em in ems}
 
 
 def scorecard(db: Session, email: str, start: str, end: str, today: Optional[date] = None) -> dict:
     """The person's numbers for [start, end] (inclusive, ISO dates; a period
     running past today is read up to today)."""
-    today = today or local_today()
-    email = _low(email)
-    s, e = _clamp(start, end, today)
-    vals: dict = {}
-    for _keys, source in _SOURCES:
-        vals.update(_source(db, source, email, s, e, today.isoformat()))
-    return {"period": {"start": start, "end": end, "readTo": e},
-            "metrics": [vals[k] for k in ORDER if k in vals]}
+    return scorecards(db, [email], start, end, today)[_low(email)]
 
 
 # ── Periods ──────────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ Everyone signed in (employees, not externals) reaches it: their own goals and
 1:1s, their team's when they manage people, the company's when they are HR.
 Every handler checks the row it touches; a goal or 1:1 the caller may not see
 answers 404, so existence does not leak."""
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -156,7 +156,26 @@ def _list_out(db: Session, user: dict, rows: list) -> list:
                .filter(models.PerfGoal.id.in_([g.parent_id for g in rows if g.parent_id] or [""])).all()}
     order = {"company": 0, "department": 1, "personal": 2}
     rows = sorted(rows, key=lambda g: (order.get(g.level, 3), g.due_on or "9999", g.title.lower()))
-    return [perf.goal_out(db, user, g, names=names, parents=parents) for g in rows]
+    today = perf.local_today()
+    _prefetch(db, rows, today)
+    return [perf.goal_out(db, user, g, names=names, parents=parents, today=today) for g in rows]
+
+
+def _prefetch(db: Session, rows: list, today: str) -> None:
+    """Warm the scorecard memory for every Nexus-measured goal on a list -
+    one batched pass per period and source, not one per goal."""
+    from datetime import date as _d
+    groups: dict = {}
+    for g in rows:
+        if perf._metric_def(g) is None:
+            continue
+        start, end = perf.goal_period(g)
+        k = (start, end or today)
+        groups.setdefault(k, (set(), set()))
+        groups[k][0].add(g.owner_email)
+        groups[k][1].add(g.metric_key)
+    for (start, end), (owners, keys) in groups.items():
+        perf_metrics.prefetch(db, owners, keys, start, end, today=_d.fromisoformat(today))
 
 
 @router.get("/goals")
@@ -236,6 +255,13 @@ def _new_goal(db: Session, user: dict, me: str, body: GoalIn, level: str, owner_
     import notify_rollup
     owner, cid, dept = perf.check_create(db, user, level, owner_email, body.company_id, body.department)
     metric = _metric_key(body.metric_key)
+    if metric and level != "personal":
+        raise HTTPException(400, "Only a personal goal is measured by a Nexus number.")
+    if level == "personal":
+        # The 5-goal cap, serialized per owner: two creates at once wait on
+        # the owner's row, so the second counts the first.
+        (db.query(models.NexusEmployee.id).filter(models.NexusEmployee.work_email == owner)
+         .with_for_update().first())
     if metric:
         if body.target_value is None:
             raise HTTPException(400, "Set the target.")
@@ -323,6 +349,7 @@ def update_goal(gid: str, body: GoalPatch, user: dict = Depends(get_current_user
     if not perf.can_edit_goal(db, user, g):
         raise HTTPException(403, "You can't change this goal.")
     data = body.model_dump(exclude_unset=True)
+    before = (g.title, g.target_value, g.due_on, g.start_on, g.metric_key, g.measure)
     if "title" in data:
         t = (data["title"] or "").strip()
         if not t:
@@ -336,6 +363,8 @@ def update_goal(gid: str, body: GoalPatch, user: dict = Depends(get_current_user
         owner, cid, dept = perf.check_create(db, user, g.level, data["owner_email"], g.company_id, g.department)
         g.owner_email = owner
     if "metric_key" in data:
+        if data["metric_key"] and g.level != "personal":
+            raise HTTPException(400, "Only a personal goal is measured by a Nexus number.")
         g.metric_key = _metric_key(data["metric_key"])
         if g.metric_key:
             g.measure, g.start_value, g.unit = "number", 0.0, ""
@@ -367,8 +396,8 @@ def update_goal(gid: str, body: GoalPatch, user: dict = Depends(get_current_user
     g.updated_at = perf.now_iso()
     # The person changing what was agreed sends it back for approval.
     me = (user.get("email") or "").strip().lower()
-    agreed = {"title", "target_value", "due_on", "start_on", "metric_key", "measure"}
-    if g.approved_at and me == (g.owner_email or "") and agreed & set(data) \
+    changed = before != (g.title, g.target_value, g.due_on, g.start_on, g.metric_key, g.measure)
+    if g.approved_at and me == (g.owner_email or "") and changed \
             and perf.needs_approval(db, me, g.owner_email, g.level):
         g.approved_at, g.approved_by = "", ""
         import notify_rollup
@@ -417,15 +446,19 @@ def archive_goal(gid: str, restore: bool = False, user: dict = Depends(get_curre
 # ── My team ──────────────────────────────────────────────────────────────────
 
 HIGHLIGHTS = 3
+SCORECARD_MAX_DAYS = 396      # a custom My Numbers range: 13 months at most
+SCORECARD_OLDEST_DAYS = 3 * 366
 
 
-def _highlights(db: Session, email: str) -> list:
-    """The first few of a person's numbers that apply to them, this quarter."""
+def _highlights(db: Session, emails: list) -> dict:
+    """{email: the first few of their numbers that apply to them} this
+    quarter - the whole team in one batched pass."""
     from datetime import date as _d
     today = _d.fromisoformat(perf.local_today())
     start, end = perf_metrics.quarter_period(today)
-    card = perf_metrics.scorecard(db, email, start, end, today=today)
-    return [{k: m[k] for k in ("key", "label", "display", "good")} for m in card["metrics"] if m["available"]][:HIGHLIGHTS]
+    cards = perf_metrics.scorecards(db, emails, start, end, today=today)
+    return {em: [{k: m[k] for k in ("key", "label", "display", "good")} for m in card["metrics"] if m["available"]][:HIGHLIGHTS]
+            for em, card in cards.items()}
 
 
 @router.get("/team")
@@ -465,6 +498,8 @@ def my_team(user: dict = Depends(get_current_user), db: Session = Depends(get_db
         open_reviews[r.employee_email] = {"id": r.id, "stage": r.stage, "stageLabel": pr.STAGE_LABELS.get(r.stage, r.stage),
                                           "cycleName": c.name, "yours": (r.manager_email or "") == me}
     today = perf.local_today()
+    numbers = _highlights(db, emails)
+    _prefetch(db, goals, today)
     out = []
     for e in people:
         em = (e.work_email or "").lower()
@@ -474,7 +509,7 @@ def my_team(user: dict = Depends(get_current_user), db: Session = Depends(get_db
             k = perf.computed_status(g, today, perf.refresh_metric(db, g, today))
             st[k] = st.get(k, 0) + 1
         out.append({**perf.person_out(db, e), "direct": True,
-                    "numbers": _highlights(db, em),
+                    "numbers": numbers.get(em, []),
                     "goals": {"total": len(gs), "onTrack": st.get("on_track", 0), "atRisk": st.get("at_risk", 0),
                               "behind": st.get("behind", 0), "done": st.get("done", 0),
                               "proposed": sum(1 for g in gs if not g.approved_at),
@@ -503,6 +538,12 @@ def scorecard(email: str = "", period: str = "quarter", start: str = "", end: st
         s, e = _day(start), _day(end)
         if not (s and e) or e < s:
             raise HTTPException(400, "Pick a start and an end.")
+        # Bounded work: 13 months at most, and nothing older than three years
+        # (every week of the span is a Workforce Scorecard pass).
+        if (_d.fromisoformat(e) - _d.fromisoformat(s)).days > SCORECARD_MAX_DAYS:
+            raise HTTPException(400, "Pick 13 months or less.")
+        if s < (today - timedelta(days=SCORECARD_OLDEST_DAYS)).isoformat():
+            raise HTTPException(400, "Pick a start within the last three years.")
     elif period == "month":
         s, e = perf_metrics.month_period(today)
     elif period == "review":
