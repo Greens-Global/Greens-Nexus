@@ -537,7 +537,7 @@ class FollowUpReviewTests(_Base):
                     if n.recipient == APPROVER and n.type == "task_ticket_needs_approval")
         self.assertEqual(json.loads(bell.action)["view"], "support")
         mail = next(kw for kw in sent if kw["to"] == [APPROVER])
-        self.assertIn(f"/support?ticket={t['id']}", mail["html"])
+        self.assertIn(f"/help-center?ticket={t['id']}", mail["html"])
 
     def test_a_desk_approver_keeps_the_tickets_link(self):
         t = self.file(type="access_request")
