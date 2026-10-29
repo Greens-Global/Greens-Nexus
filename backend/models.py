@@ -8916,7 +8916,9 @@ class PerfReviewCycle(Base):
     """A review cycle HR runs for one company: who is in it, the deadlines,
     the questions, and the rating scale and company values it was launched
     with (copied from Settings > Performance, so a later settings change
-    never rewrites a running cycle). No calibration, no 9-box (Neil)."""
+    never rewrites a running cycle). No 9-box (Neil); calibration added
+    Oct 29 2026 (Neil: "add all the bigger features") - HR moves a rating
+    with a reason before it is shared (perf_reviews.calibrate)."""
     __tablename__ = "hr_perf_review_cycles"
     id            = Column(String, primary_key=True)                   # uuid
     company_id    = Column(String, default="", index=True)             # HrEntity.id
@@ -8985,6 +8987,11 @@ class PerfReview(Base):
     employee_comment     = Column(Text, default="")
     reminded             = Column(JSON, default=dict)                  # {launch, soonSelf, dueSelf, soonMgr, dueMgr: ISO}
     removed_at           = Column(String, default="")
+    # Calibration (Oct 29 2026): the manager's own rating when HR moved it
+    # ('' = never moved), who moved it and when; the reason is in history.
+    calibrated_from      = Column(String, default="")
+    calibrated_by        = Column(String, default="")
+    calibrated_at        = Column(String, default="")
 
 
 class ExtraTimeClaim(Base):
@@ -9383,3 +9390,80 @@ class KbPhotoReview(Base):
     decided_at   = Column(String, default="")
     note         = Column(String, default="")
     created_at   = Column(String, default="")
+
+
+# ── Performance: feedback, kudos, improvement plans (Neil, Oct 29 2026) ──────
+# "add all the bigger features": peer feedback, kudos, improvement plans and
+# calibration. perf_feedback.py / perf_plans.py are the rules,
+# routers/perf_feedback.py the API. New tables - explicit RLS lines in
+# main.py's Postgres list, on top of the _enable_rls_everywhere sweep.
+
+class PerfFeedback(Base):
+    """One ask for feedback about one person from one colleague. Asked about
+    yourself = yours (you and the giver read it). Asked by a manager or HR
+    about someone = for their reporting chain and HR - never the person."""
+    __tablename__ = "hr_perf_feedback"
+    id            = Column(String, primary_key=True)                    # uuid
+    company_id    = Column(String, default="", index=True)              # the subject's company
+    subject_email = Column(String, nullable=False, index=True)          # who the feedback is about
+    giver_email   = Column(String, nullable=False, index=True)          # who is asked
+    requested_by  = Column(String, default="", index=True)
+    review_id     = Column(String, default="")                          # hr_perf_reviews.id when asked for a review
+    private       = Column(Boolean, default=False)                      # True = chain + HR only
+    note          = Column(Text, default="")                            # the ask
+    answers       = Column(JSON, default=dict)                          # {well, better}
+    status        = Column(String, default="requested", index=True)     # requested | submitted | declined | canceled
+    decline_note  = Column(Text, default="")
+    requested_at  = Column(String, default="")
+    submitted_at  = Column(String, default="")
+    closed_at     = Column(String, default="")                          # declined / canceled
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class PerfKudos(Base):
+    """A thank-you from one colleague to another, seen by everyone in the
+    recipient's company. Never deleted - the sender or HR hides it."""
+    __tablename__ = "hr_perf_kudos"
+    id          = Column(String, primary_key=True)                      # uuid
+    company_id  = Column(String, default="", index=True)                # the recipient's company
+    from_email  = Column(String, nullable=False, index=True)
+    to_email    = Column(String, nullable=False, index=True)
+    message     = Column(Text, default="")
+    created_at  = Column(String, default="", index=True)
+    hidden_at   = Column(String, default="")
+    hidden_by   = Column(String, default="")
+
+
+class PerfPlan(Base):
+    """An improvement plan: what has to change, how it is measured, the
+    support given, and the dates. The manager drafts it, HR starts it (the
+    probation rule: a manager recommends, HR++ finalizes), the employee
+    reads and acknowledges it, check-ins are added, HR closes it with an
+    outcome. Seen by the employee once started, their manager, whoever
+    drafted it and HR for the company - not the rest of the chain."""
+    __tablename__ = "hr_perf_plans"
+    id               = Column(String, primary_key=True)                 # uuid
+    company_id       = Column(String, default="", index=True)
+    employee_email   = Column(String, nullable=False, index=True)
+    manager_email    = Column(String, default="", index=True)           # Reports To when it was drafted
+    created_by       = Column(String, default="")
+    title            = Column(String, default="")
+    reason           = Column(Text, default="")                         # why the plan
+    expectations     = Column(JSON, default=list)                       # [{id, text, measure, result: '' | met | not}]
+    support          = Column(Text, default="")                         # what the company will do to help
+    start_on         = Column(String, default="")                       # YYYY-MM-DD
+    end_on           = Column(String, default="")                       # YYYY-MM-DD
+    status           = Column(String, default="draft", index=True)      # draft | proposed | active | closed
+    outcome          = Column(String, default="")                       # met | not_met | canceled
+    outcome_note     = Column(Text, default="")
+    checkins         = Column(JSON, default=list)                       # [{id, at, by, note}]
+    history          = Column(JSON, default=list)                       # [{at, by, action, note}]
+    started_at       = Column(String, default="")
+    started_by       = Column(String, default="")
+    acknowledged_at  = Column(String, default="")
+    employee_comment = Column(Text, default="")
+    closed_at        = Column(String, default="")
+    closed_by        = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")

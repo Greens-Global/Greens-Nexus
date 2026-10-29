@@ -3334,6 +3334,25 @@ export const api = {
   // The person's own training-email switch (Profile > Email Settings, WP 2.4)
   getKbMyEmailPref:    ()     => req("/kb-reminder-settings/mine"),
   updateKbMyEmailPref: (data) => req("/kb-reminder-settings/mine", { method: "PUT", body: JSON.stringify(data) }),
+  // Performance: peer feedback, kudos, improvement plans, calibration (Neil,
+  // Oct 29 2026) - routers/perf_feedback.py and routers/perf_reviews.py.
+  perfFeedbackList: (person = "") => req(`/performance/feedback${person ? `?person=${encodeURIComponent(person)}` : ""}`),
+  perfFeedback: (id) => req(`/performance/feedback/${encodeURIComponent(id)}`),
+  perfFeedbackAsk: (data) => req("/performance/feedback", { method: "POST", body: JSON.stringify(data) }),
+  perfFeedbackAnswer: (id, data) => req(`/performance/feedback/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }),
+  perfFeedbackDecline: (id, note = "") => req(`/performance/feedback/${encodeURIComponent(id)}/decline`, { method: "POST", body: JSON.stringify({ note }) }),
+  perfFeedbackCancel: (id) => req(`/performance/feedback/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  perfKudos: ({ scope = "company", person = "", company = "" } = {}) =>
+    req(`/performance/kudos?${new URLSearchParams({ scope, person, company }).toString()}`),
+  perfKudosGive: (data) => req("/performance/kudos", { method: "POST", body: JSON.stringify(data) }),
+  perfKudosHide: (id) => req(`/performance/kudos/${encodeURIComponent(id)}/hide`, { method: "POST" }),
+  perfPlans: ({ person = "", company = "" } = {}) => req(`/performance/plans?${new URLSearchParams({ person, company }).toString()}`),
+  perfPlan: (id) => req(`/performance/plans/${encodeURIComponent(id)}`),
+  perfPlanCreate: (data) => req("/performance/plans", { method: "POST", body: JSON.stringify(data) }),
+  perfPlanUpdate: (id, data) => req(`/performance/plans/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  perfPlanAct: (id, action, data = {}) => req(`/performance/plans/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(data) }),
+  perfCalibration: (cycleId) => req(`/performance/cycles/${encodeURIComponent(cycleId)}/calibration`),
+  perfCalibrate: (reviewId, rating, note) => req(`/performance/reviews/${encodeURIComponent(reviewId)}/calibrate`, { method: "POST", body: JSON.stringify({ rating, note }) }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with

@@ -64,12 +64,14 @@ export function localTimeZone() {
 }
 
 // Workday sub keys: 'performance', 'performance:team',
-// 'performance:goal:<id>', 'performance:1on1:<id>', 'performance:review:<id>'.
+// 'performance:goal:<id>', 'performance:1on1:<id>', 'performance:review:<id>',
+// 'performance:feedback:<id>', 'performance:kudos:<id>', 'performance:plan:<id>'.
 export function parsePerfSub(sub) {
-  const m = String(sub || '').match(/^performance(?::(team|goal|1on1|review)(?::(.+))?)?$/);
+  const m = String(sub || '').match(/^performance(?::(team|goal|1on1|review|feedback|kudos|plan)(?::(.+))?)?$/);
   if (!m) return null;
-  return { view: m[1] === 'team' ? 'team' : 'me', goal: m[1] === 'goal' ? m[2] || '' : '', oneOnOne: m[1] === '1on1' ? m[2] || '' : '',
-    review: m[1] === 'review' ? m[2] || '' : '' };
+  const id = (k) => (m[1] === k ? m[2] || '' : '');
+  return { view: m[1] === 'team' ? 'team' : 'me', goal: id('goal'), oneOnOne: id('1on1'), review: id('review'),
+    feedback: id('feedback'), kudos: id('kudos'), plan: id('plan') };
 }
 
 export const card = {

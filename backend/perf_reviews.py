@@ -878,6 +878,10 @@ def review_out(db: Session, user: dict, r: models.PerfReview, cycle: models.Perf
                     "managerSubmittedAt": r.manager_submitted_at or ""})
         if not a.employee:
             out["promotionReady"] = bool(r.promotion_ready)
+            # Calibration (Oct 29 2026): what the manager rated before HR
+            # moved it - never the employee's to see.
+            out["calibratedFrom"] = r.calibrated_from or ""
+            out["calibratedFromLabel"] = RATING_LABELS.get(r.calibrated_from or "", "")
     # The private note: HR, and the writer while it is theirs. Never the
     # employee, never the chain above the writer.
     if a.hr or a.manager:
@@ -886,6 +890,12 @@ def review_out(db: Session, user: dict, r: models.PerfReview, cycle: models.Perf
         out["history"] = [{**h, "byName": perf.name_of(db, h.get("by")) if h.get("by") else "Nexus"} for h in (r.history or [])]
     if a.employee and r.stage == "shared" and r.sign_request_id:
         out["signPartyId"] = _party_id(db, r)
+    # Peer feedback beside the form (Oct 29 2026): what colleagues said about
+    # the person, for the writer, HR and the chain - never the employee.
+    if not a.employee:
+        import perf_feedback
+        out["peerFeedback"] = perf_feedback.for_review(db, user, r, cycle)
+        out["can"]["askFeedback"] = live and r.stage in OPEN_STAGES and perf_feedback.may_ask_about(db, user, r.employee_email)
     return out
 
 
@@ -960,3 +970,73 @@ def waiting_on(db: Session, user: dict) -> list:
                     and r.employee_email != me and manager_may_write(r, c):
                 out.append(("write", r, c))
     return out
+
+
+# ── Calibration (Neil, Oct 29 2026: "add all the bigger features") ──────────
+# HR lines the ratings up before they are shared: every finished review of a
+# cycle by its Overall Rating, side by side, and moves one with a reason. The
+# manager's own rating is kept (calibrated_from), the move is in the history
+# and the manager hears about it; the employee only ever sees the rating
+# that was shared. Only a review Ready to Share moves - once shared it is
+# the employee's, and Recall is the way back.
+
+CALIBRATE_STAGES = ("ready", "shared", "complete")
+
+
+def calibration_board(db: Session, user: dict, cycle: models.PerfReviewCycle) -> dict:
+    require_hr(db, user, cycle.company_id)
+    rows = (db.query(models.PerfReview).filter(models.PerfReview.cycle_id == cycle.id,
+                                               models.PerfReview.stage.in_(CALIBRATE_STAGES)).all())
+    waiting = (db.query(models.PerfReview).filter(models.PerfReview.cycle_id == cycle.id,
+                                                  models.PerfReview.stage.in_(("self_review", "manager_review"))).count())
+    people = []
+    for r in rows:
+        emp = perf.employee(db, r.employee_email)
+        scores = list((r.goal_scores or {}).values())
+        people.append({
+            "id": r.id, "employeeEmail": r.employee_email, "employeeName": perf.name_of(db, r.employee_email),
+            "title": (emp.job_title if emp else "") or "", "department": (emp.department if emp else "") or "",
+            "managerEmail": r.manager_email or "", "managerName": perf.name_of(db, r.manager_email) if r.manager_email else "HR",
+            "stage": r.stage, "stageLabel": STAGE_LABELS.get(r.stage, r.stage),
+            "rating": r.rating or "", "ratingLabel": RATING_LABELS.get(r.rating or "", ""),
+            "calibratedFrom": r.calibrated_from or "", "calibratedFromLabel": RATING_LABELS.get(r.calibrated_from or "", ""),
+            "promotionReady": bool(r.promotion_ready),
+            "goals": {k: scores.count(k) for k, _ in GOAL_SCORES},
+            "canMove": cycle.status == "active" and r.stage == "ready",
+        })
+    people.sort(key=lambda p: p["employeeName"].lower())
+    return {"cycle": cycle_out(db, cycle), "people": people, "stillWriting": waiting,
+            "ratings": [{"key": k, "label": v} for k, v in RATINGS],
+            "departments": sorted({p["department"] for p in people if p["department"]}),
+            "managers": sorted({(p["managerEmail"], p["managerName"]) for p in people}, key=lambda m: m[1].lower())}
+
+
+def calibrate(db: Session, user: dict, r: models.PerfReview, cycle: models.PerfReviewCycle, rating: str, note: str) -> None:
+    a = access_or_404(db, user, r)
+    if not a.hr:
+        raise HTTPException(403, "HR calibrates ratings.")
+    _open_cycle(cycle)
+    if r.stage != "ready":
+        raise HTTPException(409, "Only a review Ready to Share can be moved - recall a shared one first.")
+    if rating not in RATING_LABELS:
+        raise HTTPException(400, "Pick Exceeds, Meets, Partly Meets or Below.")
+    if rating == (r.rating or ""):
+        return
+    note = (note or "").strip()
+    if len(note) < 3:
+        raise HTTPException(400, "Say why the rating moves - the manager sees it.")
+    before = r.rating or ""
+    if not r.calibrated_from:
+        r.calibrated_from = before
+    r.rating = rating
+    if rating == r.calibrated_from:
+        r.calibrated_from, r.calibrated_by, r.calibrated_at = "", "", ""
+    else:
+        r.calibrated_by, r.calibrated_at = a.me, _now()
+    _round(r, a.me, "calibrated", f"{RATING_LABELS.get(before, 'None')} to {RATING_LABELS[rating]}: {note}")
+    for m in writer_of(db, r, cycle):
+        if m != a.me:
+            _tell(db, m, f"perf-review-cal:{cycle.id}", "Ratings Calibrated",
+                  f"HR moved the rating of {perf.name_of(db, r.employee_email)} from {RATING_LABELS.get(before, 'None')} "
+                  f"to {RATING_LABELS[rating]} ({cycle.name}): \"{note[:200]}\".",
+                  f"performance:review:{r.id}", cycle.company_id)
