@@ -17,7 +17,7 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
+from routers import tasks, purchases, reviews, marketing, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
@@ -4741,7 +4741,6 @@ app.include_router(hr.router)
 app.include_router(hr_life_events_router.router)
 app.include_router(kb_router.router)
 app.include_router(kb_training_router.router)
-app.include_router(help_router.router)
 app.include_router(esign.router)
 app.include_router(documents_router.router)
 app.include_router(timeclock.router)
