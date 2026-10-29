@@ -10,7 +10,6 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { Plus } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
-import { api } from '../api';
 import { ModalLoading } from './AsyncState';
 import { visibleCreates, groupCreates, goTo } from '../lib/quickCreate';
 
@@ -18,24 +17,13 @@ const QuickActionModal = lazy(() => import('../dashboard/QuickActionModals.jsx')
 
 export default function QuickCreate() {
   const role = useRole() || {};
-  const myEmail = role.myEmail || '';
   const [open, setOpen] = useState(false);
   const [composing, setComposing] = useState(null);   // a QuickActionModal kind
-  // Performance's hasTeam, asked once per person when the menu first opens.
-  const [team, setTeam] = useState({ email: '', has: false });
-  const askedRef = useRef(null);
   const wrapRef = useRef(null);
   const btnRef = useRef(null);
   const menuRef = useRef(null);
 
-  const mayOneOnOne = visibleCreates(role, { hasTeam: true }).some((i) => i.team);
-  useEffect(() => {
-    if (!open || !mayOneOnOne || askedRef.current === myEmail) return;
-    askedRef.current = myEmail;
-    api.perfMe().then((ctx) => setTeam({ email: myEmail, has: !!ctx?.hasTeam })).catch(() => {});
-  }, [open, mayOneOnOne, myEmail]);
-
-  const items = visibleCreates(role, { hasTeam: team.email === myEmail && team.has });
+  const items = visibleCreates(role);
   const groups = groupCreates(items);
 
   const close = useCallback((refocus) => {
