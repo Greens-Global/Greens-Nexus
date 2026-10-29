@@ -9293,3 +9293,20 @@ class HelpFeedback(Base):
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
     __table_args__ = (UniqueConstraint("user_email", "target_kind", "target_id", name="ux_help_feedback_vote"),)
+
+
+class VaultCredentialAudience(Base):
+    """Who may open a company credential besides its owners (Credentials,
+    Oct 29 2026 - vault_access.py). kind 'company' (value = HrEntity id, '' =
+    every company), 'department' (name), 'group' (NexusGroup id) or 'person'
+    (work email); level 'open' reveals the password, 'view' sees the row,
+    username and link only. A credential with no rows keeps the Oct 14 rule:
+    its own department opens it unless the tier is Critical."""
+    __tablename__ = "vault_credential_audiences"
+    id         = Column(String, primary_key=True)
+    cred_id    = Column(String, default="", index=True)
+    kind       = Column(String, default="department")
+    value      = Column(String, default="")
+    level      = Column(String, default="open")
+    created_at = Column(String, default="")
+    created_by = Column(String, default="")

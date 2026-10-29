@@ -1049,7 +1049,7 @@ export const DOCS = [
     tagline: 'Shared company passwords, kept by their owners, opened by the people who need them.',
     where: 'Left menu > Credentials',
     access: 'Anyone with the Credentials grant. The grant is given on purpose per role; it is never part of a default bundle.',
-    purpose: 'Credentials stores company logins so they are never shared in chat or spreadsheets. Every credential has an owner and a department. People in that department can open it; everyone else can see that it exists and ask the owner for timed access. Critical credentials are opened only by their owners and admins. Your Personal Vault is private, locked with your own password, and nobody else - admins included - can read it.',
+    purpose: 'Credentials stores company logins so they are never shared in chat or spreadsheets. Every credential has an owner and says who can open it: its department, a whole company, an Access Group or named people - or view only, for people who need to know a login exists. Everyone else with Credentials can see it exists and ask for timed access. Critical credentials are opened only by their owners, the department head, admins and the people named on them. Your Personal Vault is private, locked with your own password, and nobody else - admins included - can read it.',
     gains: [
       'No more passwords in email, chat or sticky notes.',
       'Every reveal, copy, share and change is logged, with who and when.',
@@ -1068,9 +1068,9 @@ export const DOCS = [
       {
         title: 'Ask for a Password You Cannot Open',
         steps: [
-          'Rows marked Request Access belong to another department or are Critical.',
+          'Rows marked Request Access are not shared with you (or are Critical); View Only rows show the login but not its password.',
           'Open the row, click Request Access and choose how long you need it.',
-          'The owner (or an admin) approves it on the Approvals tab. You get a bell notification, and the password shows in your drawer until the time runs out.',
+          'The owner, the department head or an admin approves it on the Approvals tab. You get a bell notification, and the password shows in your drawer until the time runs out.',
         ],
       },
       {
@@ -1093,19 +1093,19 @@ export const DOCS = [
     features: [
       { name: 'Collections', desc: 'All Credentials, Owned by Me, Shared With Me, Favorites, Needs Attention and Trash, as tabs above the list. The Department, Type and Tier filters narrow it further.' },
       { name: 'Drawer', desc: 'Everything about one credential: sign-in, link, notes, rotation, expiry, who has access, and its history.' },
-      { name: 'Access by Department', desc: 'Your department opens its own credentials; everyone else asks. Critical credentials are owner and admin only.' },
+      { name: 'Who Can Open It', desc: 'Set on each credential: its department, everyone at a company, an Access Group, or named people - each able to open the password or view only. Nothing set = its own department. Critical credentials ignore everything but named people.' },
       { name: 'Timed Sharing and Requests', desc: 'Owners share for 1 hour to 7 days; others request the same way. Access ends by itself.' },
       { name: 'Rotation and Expiry Reminders', desc: 'Owners and backup owners get a bell when a rotation is due or a key is about to expire. The previous password is kept for one rotation.' },
       { name: 'Personal Vault', desc: 'Private, encrypted, locked with your own password. Reset it with a code if you forget it.' },
       { name: 'Import and Trash', desc: 'Load credentials from a CSV with Add Credential > Import From CSV; removed ones sit in the Trash until recovered or deleted for good.' },
-      { name: 'Activity', desc: 'Every action, searchable by person, credential, action and date.' },
+      { name: 'Activity', desc: 'Your own actions and every action on the credentials you own or manage, searchable by person, credential, action and date. Admins see everything.' },
     ],
     manager: {
       title: 'Owners and Admins',
       points: [
-        'The owner, the backup owner and admins edit, share, recover and hand a credential to a new owner. Set a backup owner so nothing is stranded.',
+        'The owner, the backup owner, the department head and backup head (Settings > Companies > Departments) and admins edit, share, recover and hand a credential to a new owner. Set a backup owner so nothing is stranded.',
         'When someone leaves, their credentials pass to the person who inherits their tasks, their backup role is cleared and their shared access ends.',
-        'Critical requests and requests for other departments are decided on the Approvals tab by the owner or an admin - either.',
+        'Requests are decided on the Approvals tab by the owner, the department head or an admin - any of them. When a password changes, everyone who can open the credential gets a bell saying so.',
       ],
     },
     tips: [

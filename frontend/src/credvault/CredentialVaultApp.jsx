@@ -490,7 +490,7 @@ export default function CredentialVaultApp({ activeSub }) {
       )}
 
       {selected && isMobile && <CredentialSheet key={selected.id} {...detailProps} />}
-      {form && <CredentialForm cred={form.cred} depts={depts} people={people} myEmail={myEmail} onClose={() => setForm(null)} onSave={saveCredential} />}
+      {form && <CredentialForm cred={form.cred} depts={depts} people={people} myEmail={myEmail} nameOf={nameOf} onClose={() => setForm(null)} onSave={saveCredential} />}
       {importOpen && <ImportModal depts={depts} onClose={() => setImportOpen(false)} onImport={importRows} />}
       {shareFor && <ShareModal cred={shareFor} people={people.filter((p) => p.email !== myEmail)} nameOf={nameOf} onClose={() => setShareFor(null)} onSubmit={(email, ms, label) => share(shareFor, email, ms, label)} />}
       {requestFor && <RequestModal cred={requestFor} nameOf={nameOf} onClose={() => setRequestFor(null)} onSubmit={(ms, label) => request(requestFor, ms, label)} />}

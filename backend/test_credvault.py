@@ -489,7 +489,10 @@ class VaultHardeningTests(unittest.TestCase):
 
     def test_a_department_named_personal_is_not_mistaken_for_the_personal_vault(self):
         self._create(name="Shared Thing", dept="Personal")
-        self.assertIn("Shared Thing", [e["cred"] for e in self._logs(PEER)])
+        # Oct 29 2026: the log is scoped (own actions + what you manage), so an
+        # admin is the seat that sees every company row - the point here is only
+        # that a department called Personal is not treated as the Personal Vault.
+        self.assertIn("Shared Thing", [e["cred"] for e in self._logs(ADMIN)])
 
     def test_an_admin_behind_a_company_wall_cannot_decide_another_companys_request(self):
         far = self._create(name="Far", who=FAR, backupOwner="", tier="Critical")

@@ -2,23 +2,84 @@
 // credential, CSV import, share with someone, request access. Built on the
 // Tasks module's Modal (phone sheet, focus, unsaved-changes prompt) and its
 // PersonSelect (the curated Nexus People list).
-import { useMemo, useRef, useState } from "react";
-import { Upload, Download, CheckCircle2, AlertCircle, Share2, Send } from "lucide-react";
-import { Modal, PersonSelect } from "../tasks/components";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Upload, Download, CheckCircle2, AlertCircle, Share2, Send, Users, Building2, X, Eye, EyeOff } from "lucide-react";
+import { api } from "../api";
+import { Modal, PersonSelect, DateField } from "../tasks/components";
 import { Field, PasswordField, TYPES, TIERS, parseCSV } from "./vaultShared";
-import { DURATIONS, ROTATION_CHOICES } from "./vaultModel";
+import { DURATIONS, ROTATION_CHOICES, audienceKey } from "./vaultModel";
 
 const EMPTY = { name: "", dept: "", type: "Password", tier: "Standard", username: "", secret: "", url: "", note: "", owner: "", backupOwner: "", rotationMax: 90, expiresAt: "" };
+const deptAudience = (dept) => (dept ? [{ kind: "department", value: dept, level: "open", label: `Everyone in ${dept}` }] : []);
 
-export function CredentialForm({ cred, depts, people, myEmail, onClose, onSave }) {
+// Who may open the credential (Oct 29 2026, vault_access.py): rows of
+// company / department / Access Group / person, each openable or view-only.
+// A new credential starts with its own department and follows the Department
+// box until the owner touches the list.
+export function AudiencePicker({ value, onChange, people, tier, nameOf = (e) => e }) {
+  const [opts, setOpts] = useState({ companies: [], departments: [], groups: [] });
+  const [pick, setPick] = useState("");
+  const [person, setPerson] = useState("");
+  useEffect(() => { api.cvAudienceOptions().then((o) => setOpts({ companies: o?.companies || [], departments: o?.departments || [], groups: o?.groups || [] })).catch(() => {}); }, []);
+  const has = (a) => value.some((x) => audienceKey(x) === audienceKey(a));
+  const add = (a) => { if (!has(a)) onChange([...value, { level: "open", ...a }]); };
+  const deptNames = [...new Set(opts.departments.map((d) => d.name))];
+  function addPicked(v) {
+    setPick("");
+    if (!v) return;
+    const [kind, ...rest] = v.split(":"); const val = rest.join(":");
+    if (kind === "company") add({ kind, value: val, label: val ? `Everyone at ${opts.companies.find((c) => c.id === val)?.name || ""}` : "Everyone, every company" });
+    if (kind === "department") add({ kind, value: val, label: `Everyone in ${val}` });
+    if (kind === "group") add({ kind, value: val, label: opts.groups.find((g) => g.id === val)?.name || "Access Group" });
+  }
+  return (
+    <div className="cv-audience" data-audience-picker="">
+      {value.length === 0 && <p className="cv-hint">Only the owners and admins. Add who else may open it.</p>}
+      {value.map((a) => (
+        <div className="cv-person" key={audienceKey(a)} data-audience={audienceKey(a)}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+            {a.kind === "person" ? <Users size={13} /> : <Building2 size={13} />}
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.kind === "person" ? nameOf(a.value) : a.label}</span>
+            {tier === "Critical" && a.kind !== "person" && <span className="cv-chip cv-chip-xs tone-warn" title="Critical: only named people open it">Ignored for Critical</span>}
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <button type="button" className={`cv-chip cv-chip-xs${a.level === "view" ? "" : " tone-ok"}`} style={{ cursor: "pointer", border: "none" }}
+              title={a.level === "view" ? "Sees the login, never the password - click to let them open it" : "Can open the password - click to make it view only"}
+              aria-label={`${a.level === "view" ? "View only" : "Can open"}: ${a.label || a.value}`}
+              onClick={() => onChange(value.map((x) => (audienceKey(x) === audienceKey(a) ? { ...x, level: x.level === "view" ? "open" : "view" } : x)))}>
+              {a.level === "view" ? <><EyeOff size={11} /> View Only</> : <><Eye size={11} /> Can Open</>}
+            </button>
+            <button type="button" className="cv-iconbtn is-danger" aria-label={`Remove ${a.label || a.value}`} onClick={() => onChange(value.filter((x) => audienceKey(x) !== audienceKey(a)))}><X size={13} /></button>
+          </span>
+        </div>
+      ))}
+      <div className="cv-form-grid" style={{ marginTop: 8 }}>
+        <select value={pick} onChange={(e) => addPicked(e.target.value)} className="cv-ipt" aria-label="Add a company, department or group">
+          <option value="">Add a company, department or group…</option>
+          {opts.companies.length > 0 && <optgroup label="Everyone at">{opts.companies.map((c) => <option key={c.id} value={`company:${c.id}`}>{c.name}</option>)}</optgroup>}
+          {deptNames.length > 0 && <optgroup label="Departments">{deptNames.map((d) => <option key={d} value={`department:${d}`}>{d}</option>)}</optgroup>}
+          {opts.groups.length > 0 && <optgroup label="Access Groups">{opts.groups.map((g) => <option key={g.id} value={`group:${g.id}`}>{g.name}</option>)}</optgroup>}
+        </select>
+        <PersonSelect value={person} onChange={(v) => { setPerson(""); if (v) add({ kind: "person", value: v, label: v }); }} people={people} placeholder="Add a person" />
+      </div>
+    </div>
+  );
+}
+
+export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, onSave }) {
   const editing = !!cred;
   const [form, setForm] = useState(() => editing
-    ? { ...EMPTY, name: cred.name, dept: cred.dept || "", type: cred.type, tier: cred.tier, username: cred.username === "-" ? "" : cred.username, url: cred.url || "", note: cred.note || "", owner: cred.owner || "", backupOwner: cred.backupOwner || "", rotationMax: cred.rotationMax || 90, expiresAt: cred.expiresAt || "" }
-    : { ...EMPTY, dept: depts[0] || "", owner: myEmail });
+    ? { ...EMPTY, name: cred.name, dept: cred.dept || "", type: cred.type, tier: cred.tier, username: cred.username === "-" ? "" : cred.username, url: cred.url || "", note: cred.note || "", owner: cred.owner || "", backupOwner: cred.backupOwner || "", rotationMax: cred.rotationMax || 90, expiresAt: cred.expiresAt || "",
+      // A credential from before audiences (no rows) is still opened by its own
+      // department unless Critical - show that, so saving writes it out as a row.
+      audiences: cred.audiences?.length ? cred.audiences : (cred.tier === "Critical" ? [] : deptAudience(cred.dept || "")) }
+    : { ...EMPTY, dept: depts[0] || "", owner: myEmail, audiences: deptAudience(depts[0] || "") });
   const [initial] = useState(form);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  // The department box leads the audience until the owner edits the list.
+  const setDept = (d) => setForm((f) => ({ ...f, dept: d, audiences: JSON.stringify(f.audiences) === JSON.stringify(deptAudience(f.dept)) ? deptAudience(d) : f.audiences }));
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
   const valid = form.name.trim() && (editing || form.secret) && form.dept;
   const deptChoices = useMemo(() => (form.dept && !depts.includes(form.dept) ? [form.dept, ...depts] : depts), [depts, form.dept]);
@@ -27,7 +88,7 @@ export function CredentialForm({ cred, depts, people, myEmail, onClose, onSave }
     if (!valid) { setError(editing ? "A name and a department are needed." : "A name, a department and a password are needed."); return; }
     setSaving(true); setError("");
     try {
-      await onSave({ ...form, customExpiry: form.rotationMax !== 90 });
+      await onSave({ ...form, customExpiry: form.rotationMax !== 90, audiences: form.audiences.map(({ kind, value, level }) => ({ kind, value, level })) });
     } catch (e) { setError(e?.message || "Could not save."); setSaving(false); return; }
     setSaving(false);
   }
@@ -45,7 +106,7 @@ export function CredentialForm({ cred, depts, people, myEmail, onClose, onSave }
           <Field label="Name" required><input value={form.name} onChange={(e) => set("name", e.target.value)} className="cv-ipt" placeholder="e.g. Stripe Dashboard" autoFocus /></Field>
           <div className="cv-form-grid">
             <Field label="Department" required>
-              <select value={form.dept} onChange={(e) => set("dept", e.target.value)} className="cv-ipt">
+              <select value={form.dept} onChange={(e) => setDept(e.target.value)} className="cv-ipt">
                 {!form.dept && <option value="">- Choose -</option>}
                 {deptChoices.map((d) => <option key={d} value={d}>{d}</option>)}
               </select>
@@ -70,7 +131,7 @@ export function CredentialForm({ cred, depts, people, myEmail, onClose, onSave }
               </div>
             </Field>
             <Field label="Expires On">
-              <input type="date" value={form.expiresAt} onChange={(e) => set("expiresAt", e.target.value)} className="cv-ipt" />
+              <DateField value={form.expiresAt} onChange={(v) => set("expiresAt", v || "")} placeholder="MM/DD/YYYY" title="Hard expiry (API keys, certificates)" />
             </Field>
           </div>
           <div className="cv-form-grid">
@@ -81,10 +142,13 @@ export function CredentialForm({ cred, depts, people, myEmail, onClose, onSave }
               <PersonSelect value={form.backupOwner} onChange={(v) => set("backupOwner", v || "")} people={people.filter((p) => p.email !== form.owner)} placeholder="Nobody" />
             </Field>
           </div>
+          <Field label="Who Can Open It">
+            <AudiencePicker value={form.audiences} onChange={(v) => set("audiences", v)} people={people} tier={form.tier} nameOf={nameOf} />
+          </Field>
           <p className="cv-hint">
             {form.tier === "Critical"
-              ? "Critical: only the owners and admins open it; everyone else asks and the owner (or an admin) approves timed access."
-              : `Everyone in ${form.dept || "the department"} can open this credential. People in other departments can see it exists and ask for access.`}
+              ? "Critical: only the owners, the department head, admins and the people named above open it. Everyone else asks, and the owner (or the head, or an admin) approves timed access."
+              : "Everyone else with Credentials can see that this login exists and ask for timed access. The department's head and backup head manage it along with the owners."}
           </p>
         </div>
       </div>
