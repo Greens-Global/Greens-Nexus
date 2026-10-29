@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Scale } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
+import QuickNoteButton from "../notes/QuickNoteButton";
 import { HeaderOverflowTabs, TabGroupButton, useHeaderTabs } from "./ModuleTabs";
 import TabInk from "./TabInk";
 import MyProfileModal from "./MyProfileModal";
@@ -376,6 +377,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         {/* "?" Help menu: search the guide, help with this page, then Contact
             Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
         <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
+        <QuickNoteButton />{/* Quick Note: today's scratchpad from any screen, Ctrl+Alt+N (notes/, Oct 29 2026) */}
         {buildMode.enabled && buildMode.on && <BuildModeChip onClick={buildMode.toggle} />}
         <NotificationBell onNavigate={onNavigate} />
 

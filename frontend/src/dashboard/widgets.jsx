@@ -996,63 +996,10 @@ function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, cl
   );
 }
 
-// Notes save straight to the view (Oct 14). They used to go through the
-// layout's unsaved-changes flag - but a note can only be typed outside
-// Customize, where there is no Save button, so the text was lost on the next
-// reload (or the next view switch asked to "discard layout changes"). Now a
-// note saves itself shortly after you stop typing and on blur; a view you
-// can't change (a department view someone else published) says so instead
-// of pretending to keep it.
-const NOTE_SAVE_MS = 1200;
-function NotesWidget({ config, saveConfig, canSaveConfig, phone }) {
-  const saved = config?.text || '';
-  const [text, setText] = useState(saved);
-  const [status, setStatus] = useState('');   // '' | 'saving' | 'saved' | 'unsaved' | 'error'
-  const timer = useRef(null);
-  const lastSaved = useRef(saved);
-  const textRef = useRef(saved);
-  useEffect(() => { setText(saved); lastSaved.current = saved; textRef.current = saved; }, [saved]);
-  const flush = useCallback((value) => {
-    clearTimeout(timer.current);
-    if (!canSaveConfig || !saveConfig || value === lastSaved.current) return;
-    setStatus('saving');
-    lastSaved.current = value;
-    Promise.resolve(saveConfig({ text: value }))
-      .then((r) => setStatus(r?.deferred ? 'unsaved' : 'saved'))
-      .catch(() => { lastSaved.current = null; setStatus('error'); });
-  }, [canSaveConfig, saveConfig]);
-  // Leaving within the debounce (a reload, closing the tab, switching view)
-  // must not drop the last few words.
-  const flushRef = useRef(flush);
-  useEffect(() => { flushRef.current = flush; }, [flush]);
-  useEffect(() => {
-    const onHide = () => flushRef.current(textRef.current);
-    window.addEventListener('pagehide', onHide);
-    return () => { window.removeEventListener('pagehide', onHide); clearTimeout(timer.current); flushRef.current(textRef.current); };
-  }, []);
-  const onChange = (e) => {
-    const v = e.target.value;
-    setText(v);
-    textRef.current = v;
-    setStatus('');
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => flush(v), NOTE_SAVE_MS);
-  };
-  const statusText = !canSaveConfig ? 'Shared view - save a copy as your own to keep notes'
-    : status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : status === 'unsaved' ? 'Saved with the layout when you press Save'
-    : status === 'error' ? "Couldn't save - try again" : '';
-  return (
-    <DashCard title="Notes" sub={statusText || undefined} action={<StickyNote size={15} style={{ color: C('orange') }} />}>
-      <textarea className="nx-inline-edit" value={text} onChange={onChange} onBlur={() => flush(text)}
-        readOnly={!canSaveConfig} aria-label="Notes"
-        placeholder={canSaveConfig ? 'Jot something down…' : ''}
-        // display:block - an inline textarea leaves a descender gap under
-        // it, which alone made an empty Notes tile scroll. 16px on a phone
-        // so iOS doesn't zoom the page on focus.
-        style={{ display: 'block', width: '100%', height: '100%', minHeight: 40, boxSizing: 'border-box', resize: 'none', border: 'none', background: 'transparent', fontFamily: 'var(--wk-font)', fontSize: phone ? 16 : 13.5, color: 'var(--ink)', lineHeight: 1.6 }} />
-    </DashCard>
-  );
-}
+// The Notes tile is the Notes module's (notes/NotesWidget.jsx, Oct 29 2026):
+// a capture line into today's scratchpad and the pinned notes. It used to
+// keep its own text in the view's config; that text moves into a note.
+const NotesWidget = lazy(() => import('../notes/NotesWidget.jsx'));
 
 function ClockWidget() {
   const { accounts } = useMsal();

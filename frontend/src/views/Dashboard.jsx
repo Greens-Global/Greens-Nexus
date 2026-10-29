@@ -10,6 +10,9 @@ import ModuleTabs from '../components/ModuleTabs';
 // filters, Manage modal, etc.) - lazy so its chunk only loads when that tab
 // is actually opened, same as every other top-level view used to load.
 const ExternalLinks = lazy(() => import('./ExternalLinks'));
+// Notes (Neil, Oct 29 2026) - the scratchpad page, after Links. Its sub is
+// `notes`, or `notes:<id>` for one open note (a share bell, a copied link).
+const NotesPage = lazy(() => import('../notes/NotesPage'));
 
 // The dashboard IS the customizable widget grid now. The old "Portfolio at a
 // glance" overview (Occupancy trend, Facilities, Tasks overview) ran on sample
@@ -34,7 +37,8 @@ export default function Dashboard({ activeSub, onSubChange }) {
   const { activeOverdueAlerts, dismissOverdueAlert } = useNotifications();
   const fullName = accounts[0]?.name ?? 'there';
 
-  const tab = activeSub === 'links' ? 'links' : 'dashboard';
+  const tab = activeSub === 'links' ? 'links'
+    : (activeSub === 'notes' || String(activeSub || '').startsWith('notes:')) ? 'notes' : 'dashboard';
 
   // Overdue alerts relevant to this user
   const myOverdueAlerts = activeOverdueAlerts.filter(a =>
@@ -44,6 +48,7 @@ export default function Dashboard({ activeSub, onSubChange }) {
   const tabs = [
     { key: 'dashboard', label: 'Dashboard' },
     { key: 'links', label: 'Links' },
+    { key: 'notes', label: 'Notes' },
   ];
 
   return (
@@ -80,6 +85,10 @@ export default function Dashboard({ activeSub, onSubChange }) {
       {tab === 'links' ? (
         <Suspense fallback={<ViewLoading minHeight="40vh" />}>
           <ExternalLinks />
+        </Suspense>
+      ) : tab === 'notes' ? (
+        <Suspense fallback={<ViewLoading minHeight="40vh" />}>
+          <NotesPage activeSub={activeSub} onSubChange={onSubChange} />
         </Suspense>
       ) : (
         <CustomDashboard />

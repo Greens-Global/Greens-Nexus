@@ -3353,6 +3353,22 @@ export const api = {
   perfPlanAct: (id, action, data = {}) => req(`/performance/plans/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(data) }),
   perfCalibration: (cycleId) => req(`/performance/cycles/${encodeURIComponent(cycleId)}/calibration`),
   perfCalibrate: (reviewId, rating, note) => req(`/performance/reviews/${encodeURIComponent(reviewId)}/calibrate`, { method: "POST", body: JSON.stringify({ rating, note }) }),
+  // Notes - Dashboard > Notes, Quick Note, the Notes widget (Neil, Oct 29
+  // 2026; routers/notes.py). A PATCH carries the rev it was read with; a 409
+  // brings the server copy back in err.detail.note.
+  notesList: (params = {}) => req(`/notes?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")).toString()}`),
+  noteGet: (id) => req(`/notes/${encodeURIComponent(id)}`),
+  noteCreate: (data) => req("/notes", { method: "POST", body: JSON.stringify(data) }),
+  noteUpdate: (id, data) => req(`/notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  noteDaily: (day) => req(`/notes/daily?day=${encodeURIComponent(day)}`),
+  noteDailyAppend: (day, text) => req("/notes/daily/append", { method: "POST", body: JSON.stringify({ day, text }) }),
+  noteTrash: (id) => req(`/notes/${encodeURIComponent(id)}/trash`, { method: "POST" }),
+  noteRestore: (id) => req(`/notes/${encodeURIComponent(id)}/restore`, { method: "POST" }),
+  noteDeleteForever: (id) => req(`/notes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  noteShare: (id, email, can = "read") => req(`/notes/${encodeURIComponent(id)}/share`, { method: "PUT", body: JSON.stringify({ email, can }) }),
+  noteUnshare: (id, email) => req(`/notes/${encodeURIComponent(id)}/share/${encodeURIComponent(email)}`, { method: "DELETE" }),
+  noteVersions: (id) => req(`/notes/${encodeURIComponent(id)}/versions`),
+  noteRestoreVersion: (id, versionId) => req(`/notes/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore`, { method: "POST" }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with
