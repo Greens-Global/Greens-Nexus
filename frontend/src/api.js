@@ -3256,6 +3256,9 @@ export const api = {
   // Salary advance from the person's Time Sheet (Neil, Oct 29 2026): their
   // direct manager or HR asks - the server grants or requests by who asks.
   askSalaryAdvanceFor: (email, body) => req(`/salary-advances/for/${encodeURIComponent(email)}`, { method: "POST", body: JSON.stringify(body) }),
+  // Training Reminders switches - see backend/kb_reminder_config.py
+  getKbReminderSettings:    ()     => req("/kb-reminder-settings"),
+  updateKbReminderSettings: (data) => req("/kb-reminder-settings", { method: "PUT", body: JSON.stringify(data) }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with

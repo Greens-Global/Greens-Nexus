@@ -1669,7 +1669,7 @@ class AudienceIn(BaseModel):
 
 @router.post("/audience/preview")
 def audience_preview(body: AudienceIn, user: dict = Depends(require_author), db: Session = Depends(get_db)):
-    return kb_audience.preview(db, body.audience or {})
+    return kb_audience.preview(db, body.audience or {}, scope=kb_access.scope(user, db))
 
 
 @router.get("/people")

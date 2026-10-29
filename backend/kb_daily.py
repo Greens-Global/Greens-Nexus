@@ -24,8 +24,9 @@ import graph_mail
 import kb_access
 import kb_audience
 import kb_core
+import kb_reminder_config
 import models
-from app_url import public_base
+from app_url import app_url
 from database import SessionLocal
 import job_switch
 
@@ -35,11 +36,11 @@ RENEW_BEFORE_DAYS = 30
 
 def _sent(db, kind: str, ref: str, recipient: str) -> bool:
     return db.query(models.KbReminderLog).filter(models.KbReminderLog.kind == kind, models.KbReminderLog.ref_id == ref,
-                                                 models.KbReminderLog.recipient == recipient, models.KbReminderLog.day == kb_core.today()).first() is not None
+                                                 models.KbReminderLog.recipient == recipient, models.KbReminderLog.day == kb_core.utc_day()).first() is not None
 
 
 def _mark(db, kind: str, ref: str, recipient: str) -> None:
-    db.add(models.KbReminderLog(id=kb_core.new_id("rl"), kind=kind, ref_id=ref, recipient=recipient, day=kb_core.today(), created_at=kb_core.now()))
+    db.add(models.KbReminderLog(id=kb_core.new_id("rl"), kind=kind, ref_id=ref, recipient=recipient, day=kb_core.utc_day(), created_at=kb_core.now()))   # a dedupe key: the UTC day
 
 
 def _us(iso: str) -> str:
@@ -54,7 +55,9 @@ def _mail(db, to: str, subject: str, lines: list[str], link_sub: str = "training
     frm = (graph_mail.DEFAULT_FROM_EMAIL or "").strip()
     if not frm or not to:
         return
-    base = public_base()
+    # The website, not the API host: public_base() is the API's own address,
+    # where /sop/... is a 404 page (Oct 28 2026).
+    base = app_url()
     items = "".join(f"<li style='margin:4px 0'>{ln}</li>" for ln in lines)
     html = (f"<div style='font-family:Inter,Segoe UI,Arial,sans-serif;font-size:14px;color:#0f172a'>"
             f"<p>{subject}</p><ul>{items}</ul>"
@@ -86,22 +89,24 @@ def _assign_course(db, course: models.KbCourse, emp: models.NexusEmployee, *, du
     return True
 
 
-def _due_for(emp: models.NexusEmployee, due_days: int) -> str:
+def _due_for(db, emp: models.NexusEmployee, due_days: int) -> str:
     start = (emp.start_date or "")[:10]
-    base = start if start and start > kb_core.today() else kb_core.today()
+    day = kb_core.today_for(db, emp.work_email or "")
+    base = start if start and start > day else day
     return kb_core.add_days(base, int(due_days or 0)) if due_days else ""
 
 
 def run_rules(db) -> int:
     made = 0
     for rule in db.query(models.KbAssignmentRule).filter(models.KbAssignmentRule.active.is_(True)).all():
-        members = kb_audience.members(db, kb_audience.loads(rule.audience))
+        # Only people the rule's maker could reach: a rule never crosses the company wall.
+        members = kb_audience.members(db, kb_audience.loads(rule.audience), kb_access.scope_of_email(db, rule.created_by))
         if rule.kind == "course":
             c = db.query(models.KbCourse).filter(models.KbCourse.id == rule.target_id, models.KbCourse.status == "published").first()
             if not c:
                 continue
             for emp in members:
-                if _assign_course(db, c, emp, due=_due_for(emp, rule.due_days), source="rule", rule_id=rule.id):
+                if _assign_course(db, c, emp, due=_due_for(db, emp, rule.due_days), source="rule", rule_id=rule.id):
                     made += 1
         elif rule.kind == "plan":
             plan = db.query(models.KbTrainingPlan).filter(models.KbTrainingPlan.id == rule.target_id, models.KbTrainingPlan.active.is_(True)).first()
@@ -115,7 +120,7 @@ def run_rules(db) -> int:
     for plan in db.query(models.KbTrainingPlan).filter(models.KbTrainingPlan.active.is_(True)).all():
         if not plan.audience or kb_audience.is_everyone(kb_audience.loads(plan.audience)) and not plan.audience.strip("{} "):
             continue
-        for emp in kb_audience.members(db, kb_audience.loads(plan.audience)):
+        for emp in kb_audience.members(db, kb_audience.loads(plan.audience), kb_access.scope_of_email(db, plan.created_by)):
             if assign_plan(db, plan, emp, due_days=plan.due_days, source="rule", by="rule"):
                 made += 1
     db.commit()
@@ -126,7 +131,7 @@ def assign_plan(db, plan: models.KbTrainingPlan, emp: models.NexusEmployee, *, d
     email = (emp.work_email or "").lower()
     if db.query(models.KbPlanAssignment).filter(models.KbPlanAssignment.plan_id == plan.id, models.KbPlanAssignment.user_email == email).first():
         return False
-    due = _due_for(emp, due_days)
+    due = _due_for(db, emp, due_days)
     db.add(models.KbPlanAssignment(id=kb_core.new_id("pa"), plan_id=plan.id, user_email=email,
                                    user_name=(emp.display_name or f"{emp.first_name} {emp.last_name}").strip(), due_date=due,
                                    source=source, assigned_by=by, created_at=kb_core.now()))
@@ -187,11 +192,11 @@ def run_renewals(db) -> int:
 
 # ----------------------------------------------------------------- reminders
 
-def _cadence_hit(due: str) -> bool:
-    """7 days before, the due day, then every 7 days after."""
+def _cadence_hit(due: str, day: str) -> bool:
+    """7 days before, the due day, then every 7 days after - on the person's own `day`."""
     if not due:
         return False
-    delta = kb_core.days_between(kb_core.today(), due)   # positive = still ahead
+    delta = kb_core.days_between(day, due)   # positive = still ahead
     if delta == REMIND_BEFORE_DAYS or delta == 0:
         return True
     return delta < 0 and (-delta) % 7 == 0
@@ -204,22 +209,26 @@ def learner_items(db, email: str) -> list[dict]:
         c = db.query(models.KbCourse).filter(models.KbCourse.id == a.course_id, models.KbCourse.status == "published").first()
         if not c:
             continue
-        st = kb_core.training_status(db, c, kb_core.progress_of(db, c, email), a.due_date)
+        st = kb_core.training_status(db, c, kb_core.progress_of(db, c, email), a.due_date, email)
         if st["status"] in ("Completed",):
             continue
         out.append({"kind": "course", "id": c.id, "title": c.title, "due": a.due_date or "", "days_overdue": st["days_overdue"], "status": st["status"]})
     emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == email).first()
+    day = kb_core.today_for(db, email)
     for d in db.query(models.KbDocument).filter(models.KbDocument.status == "approved", models.KbDocument.require_ack.is_(True)).all():
         if email not in kb_core.policy_audience_emails(db, d):
             continue
         if kb_core.signature_for(db, d, email):
             continue
         due = kb_core.signature_due(db, d, emp)
-        out.append({"kind": "policy", "id": d.id, "title": d.title, "due": due, "days_overdue": max(0, kb_core.days_between(due, kb_core.today())), "status": "Overdue" if due < kb_core.today() else "To Sign"})
+        out.append({"kind": "policy", "id": d.id, "title": d.title, "due": due, "days_overdue": max(0, kb_core.days_between(due, day)), "status": "Overdue" if due < day else "To Sign"})
     return out
 
 
 def run_learner_reminders(db) -> int:
+    cfg = kb_reminder_config.get_config(db)["learners"]   # Settings > Emails & Reminders > Training Reminders
+    if not cfg["enabled"]:
+        return 0
     sent = 0
     emails = {a.user_email.lower() for a in db.query(models.KbCourseAssignment).all()}
     for d in db.query(models.KbDocument).filter(models.KbDocument.status == "approved", models.KbDocument.require_ack.is_(True)).all():
@@ -228,7 +237,8 @@ def run_learner_reminders(db) -> int:
     for email in sorted(emails & active):
         if _sent(db, "learner_digest", "", email):
             continue
-        items = [i for i in learner_items(db, email) if _cadence_hit(i["due"])]
+        day = kb_core.today_for(db, email)
+        items = [i for i in learner_items(db, email) if _cadence_hit(i["due"], day)]
         if not items:
             continue
         lines = [f"{i['title']} - " + (f"{i['days_overdue']} days overdue" if i["days_overdue"] else f"due {_us(i['due'])}") for i in items]
@@ -236,7 +246,8 @@ def run_learner_reminders(db) -> int:
         title = "Training Overdue" if overdue else "Training Due Soon"
         kb_core.notify(db, recipient=email, ntype="kb_training_reminder", title=title, body="; ".join(lines)[:900],
                        ref_id="training", item_name=title, sub="training", dedupe_today=True, priority=1 if overdue else 0)
-        _mail(db, email, f"{title}: {len(items)} item{'s' if len(items) != 1 else ''}", lines)
+        if cfg["email"]:
+            _mail(db, email, f"{title}: {len(items)} item{'s' if len(items) != 1 else ''}", lines)
         _mark(db, "learner_digest", "", email)
         sent += 1
     db.commit()
@@ -245,6 +256,9 @@ def run_learner_reminders(db) -> int:
 
 def run_manager_digests(db) -> int:
     if datetime.now(timezone.utc).weekday() != 0:   # Monday
+        return 0
+    cfg = kb_reminder_config.get_config(db)["managers"]
+    if not cfg["enabled"]:
         return 0
     sent = 0
     managers = {(e.manager_email or "").lower() for e in db.query(models.NexusEmployee).filter(models.NexusEmployee.manager_email != "").all()}
@@ -261,7 +275,8 @@ def run_manager_digests(db) -> int:
             continue
         kb_core.notify(db, recipient=m, ntype="kb_team_training", title="Team Training Behind", body="; ".join(behind)[:900],
                        ref_id="compliance", item_name="Compliance", sub="compliance", dedupe_today=True)
-        _mail(db, m, f"Team training: {len(behind)} of your direct reports are behind", behind, link_sub="compliance")
+        if cfg["email"]:
+            _mail(db, m, f"Team training: {len(behind)} of your direct reports are behind", behind, link_sub="compliance")
         _mark(db, "manager_digest", "", m)
         sent += 1
     db.commit()
@@ -270,6 +285,9 @@ def run_manager_digests(db) -> int:
 
 def run_owner_digests(db) -> int:
     if datetime.now(timezone.utc).weekday() != 0:
+        return 0
+    cfg = kb_reminder_config.get_config(db)["owners"]
+    if not cfg["enabled"]:
         return 0
     sent = 0
     owners: dict[str, list[str]] = {}
@@ -292,7 +310,8 @@ def run_owner_digests(db) -> int:
             continue
         kb_core.notify(db, recipient=who, ntype="kb_owner_digest", title="Pages That Need You", body="; ".join(lines)[:900],
                        ref_id="health", item_name="Health", sub="health", dedupe_today=True)
-        _mail(db, who, f"Knowledge Base: {len(lines)} thing{'s' if len(lines) != 1 else ''} need you", lines, link_sub="health")
+        if cfg["email"]:
+            _mail(db, who, f"Knowledge Base: {len(lines)} thing{'s' if len(lines) != 1 else ''} need you", lines, link_sub="health")
         _mark(db, "owner_digest", "", who)
         sent += 1
     db.commit()

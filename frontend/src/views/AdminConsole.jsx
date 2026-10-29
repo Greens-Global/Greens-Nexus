@@ -139,6 +139,7 @@ const RolesAccess = lazy(() => import('./RolesAccess'));
 const SettingsTools = lazy(() => import('./SettingsTools'));
 const HrReminderSettings = lazy(() => import('../components/HrReminderSettings'));
 const EquipmentReminderSettings = lazy(() => import('../components/EquipmentReminderSettings'));
+const KbReminderSettings = lazy(() => import('../components/KbReminderSettings'));
 // Security > Sign-In & Sessions (Sep 26) - lazy like the other admin panels.
 const SecuritySettings = lazy(() => import('./SecuritySettings'));
 // Branding & Policies (Sep 26) - brand color, email appearance, sign-in policy.
@@ -369,6 +370,10 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['inventory', 'full'] },
     sub: 'Chase items that are checked out past their due date, and choose how early asset managers are warned about warranties, inspections, registration, insurance and service.',
     keywords: 'items inventory checkout overdue return late borrower asset property vehicle equipment warranty inspection registration insurance service manager reminder days before alerts timing bell' },
+  { id: 'kb-reminders', subject: 'emails', face: 'org', scope: 'org', icon: CalendarClock, title: 'Training Reminders',
+    needs: { role: 'administrator', grant: ['sop', 'full'] },
+    sub: 'Turn the Knowledge Base training reminders, policy-signing reminders and Monday digests on or off, or keep them in the notification bell without an email.',
+    keywords: 'knowledge base kb sop training course policy sign acknowledge overdue due reminder digest manager owner email bell off' },
   // Tickets - one group, seven tabs (Pranshu, Sep 26: routing, ticket email
   // and SLAs are one subject to an admin).
   { id: 'service-desk', subject: 'tickets', face: 'both', scope: 'org', icon: Headset, title: 'Ticket Manager',
@@ -1687,6 +1692,7 @@ function SettingsBody({ subject, group, company, home = false, onHome, onNavigat
       case 'workforce-scorecard':  return <WorkforceScorecardSection key={key} chrome={chrome} />;
       case 'hr-reminders':         return <HrRemindersSection key={key} chrome={chrome} />;
       case 'equipment-reminders':  return <LazyPanelSection key={key} id={id} Panel={EquipmentReminderSettings} chrome={chrome} />;
+      case 'kb-reminders':         return <LazyPanelSection key={key} id={id} Panel={KbReminderSettings} chrome={chrome} />;
       case 'item-types':           return <ItemSettingsSection key={key} chrome={chrome} toast={toast} />;
       case 'sign-in-sessions':     return <LazyPanelSection key={key} id={id} Panel={SecuritySettings} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'brand-color':          return <LazyPanelSection key={key} id={id} Panel={BrandColorPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;

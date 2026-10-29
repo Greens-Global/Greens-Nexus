@@ -199,7 +199,7 @@ def _quiz_public(q: dict) -> dict:
 def _course_card(db: Session, c: models.KbCourse, email: str) -> dict:
     prog = kb_core.progress_of(db, c, email)
     asn = _assignment(db, c, email)
-    st = kb_core.training_status(db, c, prog, asn.due_date if asn else "")
+    st = kb_core.training_status(db, c, prog, asn.due_date if asn else "", email)
     cert = db.query(models.KbCertificate).filter(models.KbCertificate.id == prog.certificate_id).first() if prog and prog.certificate_id else None
     return {"id": c.id, "code": c.course_code or "", "title": c.title, "description": c.description or "", "status": c.status,
             "major": c.major or 0, "est_minutes": c.est_minutes or 15, "lesson_count": len(kb_core.lessons_of(c)),
@@ -291,7 +291,7 @@ def _plan_items(db: Session, plan: models.KbTrainingPlan, email: str) -> list[di
             c = db.query(models.KbCourse).filter(models.KbCourse.id == it.get("id")).first()
             if not c:
                 continue
-            st = kb_core.training_status(db, c, kb_core.progress_of(db, c, email), "")
+            st = kb_core.training_status(db, c, kb_core.progress_of(db, c, email), "", email)
             out.append({"kind": "course", "id": c.id, "title": c.title, "code": c.course_code or "", "done": st["status"] == "Completed", "status": st["status"], "est_minutes": c.est_minutes or 15})
         elif it.get("kind") == "policy":
             d = db.query(models.KbDocument).filter(models.KbDocument.id == it.get("id")).first()
@@ -340,9 +340,9 @@ def my_training_summary(db: Session, email: str) -> dict:
         items = _plan_items(db, plan, email)
         plans.append({"id": plan.id, "name": plan.name, "description": plan.description or "", "due_date": pa.due_date, "items": items,
                       "done": sum(1 for i in items if i["done"]), "total": len(items), "completed_at": pa.completed_at,
-                      "days_overdue": max(0, kb_core.days_between(pa.due_date, kb_core.today())) if pa.due_date and not pa.completed_at else 0})
+                      "days_overdue": max(0, kb_core.days_between(pa.due_date, kb_core.today_for(db, email))) if pa.due_date and not pa.completed_at else 0})
     certs = [{"id": x.id, "serial": x.serial, "course_title": x.course_title, "course_code": x.course_code, "score": x.score, "issued_at": x.issued_at,
-              "expires_at": x.expires_at, "course_major": x.course_major, "expired": bool(x.expires_at and x.expires_at < kb_core.today())}
+              "expires_at": x.expires_at, "course_major": x.course_major, "expired": bool(x.expires_at and x.expires_at < kb_core.today_for(db, email))}
              for x in db.query(models.KbCertificate).filter(models.KbCertificate.user_email == email, models.KbCertificate.revoked_at == "").order_by(models.KbCertificate.issued_at.desc()).all()]
     return {"due": due, "completed": completed, "plans": plans, "certificates": certs}
 
@@ -762,7 +762,7 @@ def course_report(cid: str, user: dict = Depends(require_author), db: Session = 
     settings = kb_core.course_settings(c)
     for email, row in people.items():
         prog = kb_core.progress_of(db, c, email)
-        st = kb_core.training_status(db, c, prog, row["due_date"])
+        st = kb_core.training_status(db, c, prog, row["due_date"], email)
         attempts = db.query(models.KbQuizAttempt).filter(models.KbQuizAttempt.course_id == c.id, models.KbQuizAttempt.user_email == email,
                                                         models.KbQuizAttempt.status == "graded", models.KbQuizAttempt.course_major == (c.major or 0)).order_by(models.KbQuizAttempt.created_at).all()
         rows.append({**row, **st, "score": prog.quiz_score if prog else None, "tries_used": len(attempts), "tries_allowed": kb_core.tries_allowed(c, prog),
@@ -791,7 +791,10 @@ def assign_course(cid: str, body: AssignIn, user: dict = Depends(require_author)
         raise HTTPException(409, "Publish the course first")
     me = user["email"].lower()
     made = 0
+    sc = kb_access.scope(user, db)
     for e in {str(x).lower().strip() for x in body.emails if str(x).strip()}:
+        if not kb_access.in_scope(db, e, sc):
+            continue   # another company's person: never assigned across the wall
         have = _assignment(db, c, e)
         if have:
             if body.due_date and have.due_date != body.due_date[:10]:
@@ -811,7 +814,7 @@ def course_assignments(cid: str, user: dict = Depends(require_author), db: Sessi
     c = kb_access.get_course(db, cid, user)
     out = []
     for a in db.query(models.KbCourseAssignment).filter(models.KbCourseAssignment.course_id == c.id).all():
-        st = kb_core.training_status(db, c, kb_core.progress_of(db, c, a.user_email), a.due_date)
+        st = kb_core.training_status(db, c, kb_core.progress_of(db, c, a.user_email), a.due_date, a.user_email)
         out.append({"id": a.id, "email": a.user_email, "name": a.user_name or _name(db, a.user_email), "due_date": a.due_date, "source": a.source,
                     "assigned_by": a.assigned_by, "created_at": a.created_at, **st})
     out.sort(key=lambda r: r["name"].lower())
@@ -842,18 +845,23 @@ def _rule_out(db: Session, r: models.KbAssignmentRule) -> dict:
     a = kb_audience.loads(r.audience)
     return {"id": r.id, "kind": r.kind, "target_id": r.target_id, "target": target, "audience": a, "audience_text": kb_audience.describe(a, db),
             "due_days": r.due_days, "renew_months": r.renew_months, "active": bool(r.active), "created_by": r.created_by, "last_run_at": r.last_run_at,
-            "matches": len(kb_audience.members(db, a))}
+            "matches": len(kb_audience.members(db, a, kb_access.scope_of_email(db, r.created_by)))}
 
 
 @router.get("/rules")
 def list_rules(user: dict = Depends(require_author), db: Session = Depends(get_db)):
-    return [_rule_out(db, r) for r in db.query(models.KbAssignmentRule).order_by(models.KbAssignmentRule.created_at.desc()).all()]
+    rows = db.query(models.KbAssignmentRule).order_by(models.KbAssignmentRule.created_at.desc()).all()
+    return [_rule_out(db, r) for r in kb_access.wall_rows(rows, user, db, owner_attr="created_by")]
 
 
 @router.post("/rules", status_code=201)
 def create_rule(body: RuleIn, user: dict = Depends(require_author), db: Session = Depends(get_db)):
     if body.kind not in ("course", "plan") or not body.target_id:
         raise HTTPException(422, "A rule needs a course or plan")
+    if body.kind == "course":
+        kb_access.get_course(db, body.target_id, user)
+    else:
+        _get_plan(db, body.target_id, user)
     r = models.KbAssignmentRule(id=kb_core.new_id("rule"), kind=body.kind, target_id=body.target_id, audience=kb_audience.dumps(body.audience or {}),
                                 due_days=int(body.due_days if body.due_days is not None else 14), renew_months=int(body.renew_months or 0), active=True,
                                 created_by=user["email"].lower(), created_at=kb_core.now(), updated_at=kb_core.now())
@@ -869,6 +877,7 @@ def update_rule(rid: str, body: RuleIn, user: dict = Depends(require_author), db
     r = db.query(models.KbAssignmentRule).filter(models.KbAssignmentRule.id == rid).first()
     if not r:
         raise HTTPException(404, "Not found")
+    kb_access.assert_wall(r, user, db, owner_attr="created_by")
     if body.audience is not None:
         r.audience = kb_audience.dumps(body.audience)
     if body.due_days is not None:
@@ -889,6 +898,7 @@ def update_rule(rid: str, body: RuleIn, user: dict = Depends(require_author), db
 def delete_rule(rid: str, user: dict = Depends(require_author), db: Session = Depends(get_db)):
     r = db.query(models.KbAssignmentRule).filter(models.KbAssignmentRule.id == rid).first()
     if r:
+        kb_access.assert_wall(r, user, db, owner_attr="created_by")
         r.active = False
         r.updated_at = kb_core.now()
         db.commit()
@@ -917,9 +927,19 @@ def _plan_out(db: Session, p: models.KbTrainingPlan, email: str = "") -> dict:
             "assigned": len(assigned), "completed": sum(1 for x in assigned if x.completed_at), "created_by": p.created_by}
 
 
+def _get_plan(db: Session, pid: str, user: dict) -> models.KbTrainingPlan:
+    """A plan the caller's company may see (its maker's company, or shared), else 404."""
+    p = db.query(models.KbTrainingPlan).filter(models.KbTrainingPlan.id == pid).first()
+    if not p:
+        raise HTTPException(404, "Not found")
+    kb_access.assert_wall(p, user, db, owner_attr="created_by")
+    return p
+
+
 @router.get("/plans")
 def list_plans(user: dict = Depends(require_author), db: Session = Depends(get_db)):
-    return [_plan_out(db, p) for p in db.query(models.KbTrainingPlan).order_by(models.KbTrainingPlan.name).all()]
+    rows = db.query(models.KbTrainingPlan).order_by(models.KbTrainingPlan.name).all()
+    return [_plan_out(db, p) for p in kb_access.wall_rows(rows, user, db, owner_attr="created_by")]
 
 
 @router.post("/plans", status_code=201)
@@ -937,9 +957,7 @@ def create_plan(body: PlanIn, user: dict = Depends(require_author), db: Session 
 
 @router.patch("/plans/{pid}")
 def update_plan(pid: str, body: PlanIn, user: dict = Depends(require_author), db: Session = Depends(get_db)):
-    p = db.query(models.KbTrainingPlan).filter(models.KbTrainingPlan.id == pid).first()
-    if not p:
-        raise HTTPException(404, "Not found")
+    p = _get_plan(db, pid, user)
     if body.name is not None and body.name.strip():
         p.name = body.name.strip()[:200]
     if body.description is not None:
@@ -959,14 +977,13 @@ def update_plan(pid: str, body: PlanIn, user: dict = Depends(require_author), db
 
 @router.post("/plans/{pid}/assign")
 def assign_plan(pid: str, body: PlanAssignIn, user: dict = Depends(require_author), db: Session = Depends(get_db)):
-    p = db.query(models.KbTrainingPlan).filter(models.KbTrainingPlan.id == pid).first()
-    if not p:
-        raise HTTPException(404, "Not found")
+    p = _get_plan(db, pid, user)
     import kb_daily
     made = 0
+    sc = kb_access.scope(user, db)
     for e in {str(x).lower().strip() for x in body.emails if str(x).strip()}:
         emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == e).first()
-        if not emp:
+        if not emp or not kb_access.in_scope(db, e, sc):
             continue
         if kb_daily.assign_plan(db, p, emp, due_days=p.due_days, source="manual", by=user["email"].lower()):
             made += 1
@@ -1054,7 +1071,7 @@ def generate(cid: str, body: GenerateIn, background_tasks: BackgroundTasks, user
 def _cert_out(db: Session, x: models.KbCertificate) -> dict:
     return {"id": x.id, "serial": x.serial, "course_id": x.course_id, "course_code": x.course_code, "course_title": x.course_title, "course_major": x.course_major,
             "user_email": x.user_email, "user_name": x.user_name or _name(db, x.user_email), "score": x.score, "issued_at": x.issued_at, "expires_at": x.expires_at,
-            "expired": bool(x.expires_at and x.expires_at < kb_core.today()), "revoked": bool(x.revoked_at), "legacy": bool(x.legacy)}
+            "expired": bool(x.expires_at and x.expires_at < kb_core.today_for(db, x.user_email)), "revoked": bool(x.revoked_at), "legacy": bool(x.legacy)}
 
 
 @router.get("/certificates/lookup")
@@ -1173,8 +1190,9 @@ def compliance(scope: str = "direct", company: str = "", department: str = "", m
             if not a and not prog:
                 continue
             used_course.add(c.id)
-            st = kb_core.training_status(db, c, prog, a.due_date if a else "")
-            due_soon = bool(a and a.due_date and 0 <= kb_core.days_between(kb_core.today(), a.due_date) <= 14) or bool(st["expires"] and 0 <= kb_core.days_between(kb_core.today(), st["expires"]) <= 30)
+            st = kb_core.training_status(db, c, prog, a.due_date if a else "", email)
+            day = kb_core.today_for(db, email)
+            due_soon = bool(a and a.due_date and 0 <= kb_core.days_between(day, a.due_date) <= 14) or bool(st["expires"] and 0 <= kb_core.days_between(day, st["expires"]) <= 30)
             color = "green" if st["status"] == "Completed" and not due_soon else "red" if st["status"] in ("Overdue", "Expired") else "amber"
             counts[color] += 1
             cells[f"course:{c.id}"] = {"status": st["status"], "color": color, "pct": st["pct"], "due": a.due_date if a else "", "expires": st["expires"], "days_overdue": st["days_overdue"]}
