@@ -25,7 +25,7 @@ const firstName = (r) => (r.isMe ? 'you' : (r.name || '').trim().split(/\s+/)[0]
 // `live` (Miranda, Oct 21): { email: { state, label, since } } from today's
 // punches, this week only. A person in it gets a status chip under the name
 // and a dot that follows the clock; anyone else keeps the scheduled dot.
-export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onNow = [], openShifts = [], onRequestOpen, busyOpenId = '', thisWeek, timeZoneLabel = '', teamZone = '', live = null }) {
+export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam, days, rows, onNow = [], openShifts = [], onRequestOpen, busyOpenId = '', thisWeek, timeZoneLabel = '', teamZone = '', live = null }) {
   const phone = useIsMobile();
   const [day, setDay] = useState(() => firstDay(days.map((d) => d.date)));
   useEffect(() => { setDay((k) => (days.some((d) => d.key === k) ? k : firstDay(days.map((d) => d.date)))); }, [days]);
@@ -100,7 +100,7 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
       <span className="wkc-chip"><Users size={14} /></span>
       <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>Group Shifts</span>
       {teams.length > 1 ? (
-        <TeamPicker ariaLabel="Group" compact={phone} value={team.id} onChange={onPickTeam}
+        <TeamPicker ariaLabel="Group" compact={phone} value={team.id} onChange={onPickTeam} all={allTeam ? { people: allTeam.members.length, ...(team.id === allTeam.id ? { min: weekMin } : {}) } : null}
           teams={teams.map((t, i) => ({ id: t.id, name: t.name, color: teamColor(t.id, i), people: t.members.length, hint: t.isMember === false ? 'You manage' : '',
             ...(t.id === team.id ? { min: weekMin, open: openShifts.reduce((a, s) => a + (s.openSlots || 1), 0) } : {}) }))} />
       ) : (

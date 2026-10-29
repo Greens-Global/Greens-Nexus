@@ -7385,6 +7385,7 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     employees = [{"email": em, "name": names.get(em, em),
                   "photoUrl": getattr(people.get(em), "photo_url", "") or "",
                   "location": (getattr(people.get(em), "location", "") or "").strip(),
+                  "contractor": (getattr(people.get(em), "employment_type", "") or "") == "contractor",
                   "canEdit": can_write and (write_scope is None or em in write_scope)} for em in emails]
 
     presets = {s.id: s for s in db.query(Shift).all()}
@@ -8053,7 +8054,7 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
     if body.skip_timeoff:
         for t in (db.query(TimeOffRequest)
                   .filter(TimeOffRequest.employee_email.in_(emails),
-                          TimeOffRequest.status.in_(["approved", "pending"]),
+                          TimeOffRequest.status == "approved",
                           TimeOffRequest.start_date <= dates[-1], TimeOffRequest.end_date >= dates[0]).all()):
             off.setdefault(t.employee_email, []).append((t.start_date, t.end_date))
 
@@ -8255,7 +8256,7 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
     if body.skip_timeoff and people:
         for t in (db.query(TimeOffRequest)
                   .filter(TimeOffRequest.employee_email.in_(list(people)),
-                          TimeOffRequest.status.in_(["approved", "pending"]),
+                          TimeOffRequest.status == "approved",
                           TimeOffRequest.start_date <= hi, TimeOffRequest.end_date >= lo).all()):
             off.setdefault((t.employee_email or "").lower(), []).append((t.start_date, t.end_date))
 
