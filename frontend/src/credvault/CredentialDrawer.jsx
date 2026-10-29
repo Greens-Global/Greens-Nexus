@@ -12,7 +12,7 @@ import {
 import { api } from "../api";
 import { useDialogFocus, trapTab } from "../lib/useDialogFocus";
 import { formatDate, formatDateTime } from "../lib/datetime";
-import { TeamsIcon, agoLabel, actionStyle } from "./vaultShared";
+import { TeamsIcon, agoLabel, actionStyle, Pager } from "./vaultShared";
 import { ACCESS_LABEL, ACCESS_TONE, healthFlags, rotationDaysLeft, rotationDueDate, timeLeft } from "./vaultModel";
 import { Monogram } from "./vaultCards";
 
@@ -80,7 +80,11 @@ export function CredentialDetail({
   }
 
   const left = rotationDaysLeft(cred);
-  const history = logs.filter((e) => e.credId === cred.id).slice(0, 25);
+  // History, 10 a page (Pranshu, Oct 29 2026).
+  const allHistory = logs.filter((e) => e.credId === cred.id);
+  const [histPage, setHistPage] = useState(1);
+  const histPages = Math.max(1, Math.ceil(allHistory.length / 10));
+  const history = allHistory.slice((histPage - 1) * 10, histPage * 10);
 
   return (
     <div className={`cv-detail${sheet ? " is-sheet" : ""}`} role={sheet ? undefined : "region"} aria-label={sheet ? undefined : cred.name}>
@@ -207,13 +211,14 @@ export function CredentialDetail({
           {/* History */}
           <section className="cv-section">
             <div className="cv-section-title">History</div>
-            {history.length === 0 ? <p className="cv-hint">Nothing logged yet.</p> : (
+            {allHistory.length === 0 ? <p className="cv-hint">Nothing logged yet.</p> : (
               <div className="cv-history">
                 {history.map((e) => (
                   <div key={e.id}>
                     <div className="cv-history-row">
                       <b>{e.actor}</b>
                       <span style={{ ...actionStyle(e.action), borderRadius: 6, padding: "0 6px", fontSize: 11.5, fontWeight: 500 }}>{e.action}</span>
+                      {e.ip ? <span className="cv-muted" title={e.userAgent || ""} style={{ fontSize: 11 }}>from {e.ip}</span> : null}
                       <time title={formatDateTime(e.ts)}>{agoLabel(e.ts)}</time>
                     </div>
                     {Array.isArray(e.detail) && e.detail.length > 0 && (
@@ -225,6 +230,7 @@ export function CredentialDetail({
                 ))}
               </div>
             )}
+            <Pager page={histPage} pages={histPages} total={allHistory.length} size={10} onPage={setHistPage} compact />
           </section>
         </div>
 

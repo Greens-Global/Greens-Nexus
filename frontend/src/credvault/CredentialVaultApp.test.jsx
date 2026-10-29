@@ -120,10 +120,12 @@ describe('Credentials', () => {
     const table = document.querySelector('.cv-health');
     expect(within(table).getByText('Accounting')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Export to Excel/ })).toBeTruthy();
-    expect(document.getElementById('cred-row-c2')).toBeTruthy();                        // the directory below
-    fireEvent.click(screen.getByRole('tab', { name: /Owned by Me/ }));
-    await waitFor(() => expect(document.getElementById('cred-row-c2')).toBeNull());
+    // Not an admin: the Overview covers what they manage - Ben's Jira is not in it, and there is no All Credentials.
+    expect(document.getElementById('cred-row-c2')).toBeNull();
+    expect(screen.queryByRole('tab', { name: /All Credentials/ })).toBeNull();
+    expect(screen.getByRole('tab', { name: /Owned by Me/ }).getAttribute('aria-selected')).toBe('true');
     expect(document.getElementById('cred-row-c1')).toBeTruthy();
+    expect(screen.getByText('Logins You Manage', { selector: '.cv-kpi-label' })).toBeTruthy();
   });
 
   it('on a phone the detail opens as a full-screen sheet', async () => {

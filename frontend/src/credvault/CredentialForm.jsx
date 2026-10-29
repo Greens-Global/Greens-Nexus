@@ -3,11 +3,12 @@
 // Tasks module's Modal (phone sheet, focus, unsaved-changes prompt) and its
 // PersonSelect (the curated Nexus People list).
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Upload, CheckCircle2, AlertCircle, Share2, Send, Users, Building2, X, Eye, EyeOff } from "lucide-react";
+import { Upload, CheckCircle2, AlertCircle, Share2, Send, Users, Building2, X, Eye, EyeOff, Check } from "lucide-react";
 import { api } from "../api";
-import { Modal, PersonSelect, DateField } from "../tasks/components";
+import { Modal, PersonSelect, PersonMultiSelect, DateField } from "../tasks/components";
 import { Field, PasswordField, TYPES, TIERS } from "./vaultShared";
-import { DURATIONS, ROTATION_CHOICES, audienceKey, siteOf } from "./vaultModel";
+import { DURATIONS, ROTATION_CHOICES, audienceKey, siteOf, localDay } from "./vaultModel";
+import { formatDate, formatTime } from "../lib/datetime";
 import { FIELDS, guessMap, applyMap, validateRows, findDuplicates, toPayload } from "./importModel";
 
 const EMPTY = { name: "", dept: "", type: "Password", tier: "Standard", username: "", secret: "", url: "", note: "", owner: "", backupOwner: "", rotationMax: 90, expiresAt: "", totpSecret: "", clearTotp: false };
@@ -17,64 +18,86 @@ const deptAudience = (dept) => (dept ? [{ kind: "department", value: dept, level
 // company / department / Access Group / person, each openable or view-only.
 // A new credential starts with its own department and follows the Department
 // box until the owner touches the list.
-export function AudiencePicker({ value, onChange, people, tier, nameOf = (e) => e }) {
+export function AudiencePicker({ value, onChange, people, tier, nameOf = (e) => e, companyId = "" }) {
   const [opts, setOpts] = useState({ companies: [], departments: [], groups: [] });
-  const [pick, setPick] = useState("");
   const [person, setPerson] = useState("");
   useEffect(() => { api.cvAudienceOptions().then((o) => setOpts({ companies: o?.companies || [], departments: o?.departments || [], groups: o?.groups || [] })).catch(() => {}); }, []);
-  const has = (a) => value.some((x) => audienceKey(x) === audienceKey(a));
-  const add = (a) => { if (!has(a)) onChange([...value, { level: "open", ...a }]); };
-  const deptNames = [...new Set(opts.departments.map((d) => d.name))];
-  function addPicked(v) {
-    setPick("");
-    if (!v) return;
-    const [kind, ...rest] = v.split(":"); const val = rest.join(":");
-    if (kind === "company") add({ kind, value: val, label: val ? `Everyone at ${opts.companies.find((c) => c.id === val)?.name || ""}` : "Everyone, every company" });
-    if (kind === "department") add({ kind, value: val, label: `Everyone in ${val}` });
-    if (kind === "group") add({ kind, value: val, label: opts.groups.find((g) => g.id === val)?.name || "Access Group" });
-  }
+  const keyOf = audienceKey;
+  const has = (a) => value.some((x) => keyOf(x) === keyOf(a));
+  const toggle = (a) => onChange(has(a) ? value.filter((x) => keyOf(x) !== keyOf(a)) : [...value, { level: "open", ...a }]);
+  const companyName = (id) => opts.companies.find((c) => c.id === id)?.name || "";
+  const pickedCompanies = value.filter((a) => a.kind === "company" && a.value).map((a) => a.value);
+  const everyCompany = value.some((a) => a.kind === "company" && !a.value);
+  // Departments offered: those of the companies picked above, else of the
+  // credential's own company, else every company's. One company in Nexus =
+  // plain names; several = "IT · Greens Nexus", stored as "companyId:IT".
+  const scopeIds = pickedCompanies.length ? pickedCompanies : companyId ? [companyId] : opts.companies.map((c) => c.id);
+  const multi = opts.companies.length > 1;
+  const deptRows = opts.departments.filter((d) => !multi || scopeIds.includes(d.companyId));
+  const deptAud = (d) => ({ kind: "department", value: multi && d.companyId ? `${d.companyId}:${d.name}` : d.name, label: `Everyone in ${d.name}${multi && d.companyId ? ` at ${companyName(d.companyId)}` : ""}` });
+  const Chip = ({ on, children, onClick, title }) => (
+    <button type="button" className={`cv-pick${on ? " is-on" : ""}`} aria-pressed={on} onClick={onClick} title={title}>{on && <Check size={11} />}{children}</button>
+  );
   return (
     <div className="cv-audience" data-audience-picker="">
-      {value.length === 0 && <p className="cv-hint">Only the owners and admins. Add who else may open it.</p>}
-      {value.map((a) => (
-        <div className="cv-person" key={audienceKey(a)} data-audience={audienceKey(a)}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-            {a.kind === "person" ? <Users size={13} /> : <Building2 size={13} />}
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.kind === "person" ? nameOf(a.value) : a.label}</span>
-            {tier === "Critical" && a.kind !== "person" && <span className="cv-chip cv-chip-xs tone-warn" title="Critical: only named people open it">Ignored for Critical</span>}
-          </span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-            <button type="button" className={`cv-chip cv-chip-xs${a.level === "view" ? "" : " tone-ok"}`} style={{ cursor: "pointer", border: "none" }}
-              title={a.level === "view" ? "Sees the login, never the password - click to let them open it" : "Can open the password - click to make it view only"}
-              aria-label={`${a.level === "view" ? "View only" : "Can open"}: ${a.label || a.value}`}
-              onClick={() => onChange(value.map((x) => (audienceKey(x) === audienceKey(a) ? { ...x, level: x.level === "view" ? "open" : "view" } : x)))}>
-              {a.level === "view" ? <><EyeOff size={11} /> View Only</> : <><Eye size={11} /> Can Open</>}
-            </button>
-            <button type="button" className="cv-iconbtn is-danger" aria-label={`Remove ${a.label || a.value}`} onClick={() => onChange(value.filter((x) => audienceKey(x) !== audienceKey(a)))}><X size={13} /></button>
-          </span>
+      <div className="cv-pick-group">
+        <span className="cv-pick-label">Companies</span>
+        <div className="cv-pick-row">
+          <Chip on={everyCompany} onClick={() => toggle({ kind: "company", value: "", label: "Everyone, every company" })}>All companies</Chip>
+          {opts.companies.map((c) => <Chip key={c.id} on={pickedCompanies.includes(c.id)} onClick={() => toggle({ kind: "company", value: c.id, label: `Everyone at ${c.name}` })}>{c.name}</Chip>)}
         </div>
-      ))}
-      <div className="cv-form-grid" style={{ marginTop: 8 }}>
-        <select value={pick} onChange={(e) => addPicked(e.target.value)} className="cv-ipt" aria-label="Add a company, department or group">
-          <option value="">Add a company, department or group…</option>
-          {opts.companies.length > 0 && <optgroup label="Everyone at">{opts.companies.map((c) => <option key={c.id} value={`company:${c.id}`}>{c.name}</option>)}</optgroup>}
-          {deptNames.length > 0 && <optgroup label="Departments">{deptNames.map((d) => <option key={d} value={`department:${d}`}>{d}</option>)}</optgroup>}
-          {opts.groups.length > 0 && <optgroup label="Access Groups">{opts.groups.map((g) => <option key={g.id} value={`group:${g.id}`}>{g.name}</option>)}</optgroup>}
-        </select>
-        <PersonSelect value={person} onChange={(v) => { setPerson(""); if (v) add({ kind: "person", value: v, label: v }); }} people={people} placeholder="Add a person" />
       </div>
+      <div className="cv-pick-group">
+        <span className="cv-pick-label">Departments{multi && pickedCompanies.length ? ` at ${pickedCompanies.map(companyName).join(", ")}` : ""}</span>
+        <div className="cv-pick-row">
+          {deptRows.length === 0 && <span className="cv-hint">No departments set up under Settings &gt; Companies.</span>}
+          {deptRows.map((d) => { const a = deptAud(d); return <Chip key={`${d.companyId}:${d.name}`} on={has(a)} onClick={() => toggle(a)}>{d.name}{multi && pickedCompanies.length !== 1 && d.companyId ? <span className="cv-pick-sub"> · {companyName(d.companyId)}</span> : null}</Chip>; })}
+        </div>
+      </div>
+      {opts.groups.length > 0 && (
+        <div className="cv-pick-group">
+          <span className="cv-pick-label">Access Groups</span>
+          <div className="cv-pick-row">{opts.groups.map((g) => <Chip key={g.id} on={has({ kind: "group", value: g.id })} onClick={() => toggle({ kind: "group", value: g.id, label: g.name })}>{g.name}</Chip>)}</div>
+        </div>
+      )}
+      <div className="cv-pick-group">
+        <span className="cv-pick-label">People</span>
+        <PersonSelect value={person} onChange={(v) => { setPerson(""); if (v && !has({ kind: "person", value: v })) onChange([...value, { kind: "person", value: v, level: "open", label: v }]); }} people={people} placeholder="Add a person" />
+      </div>
+      {value.length === 0 ? <p className="cv-hint">Only the owners, the department head and admins. Pick who else may open it above.</p> : (
+        <div className="cv-audience-rows">
+          {value.map((a) => (
+            <div className="cv-person" key={keyOf(a)} data-audience={keyOf(a)}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                {a.kind === "person" ? <Users size={13} /> : <Building2 size={13} />}
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.kind === "person" ? nameOf(a.value) : a.label}</span>
+                {tier === "Critical" && a.kind !== "person" && <span className="cv-chip cv-chip-xs tone-warn" title="Critical: only named people open it">Ignored for Critical</span>}
+              </span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <button type="button" className={`cv-chip cv-chip-xs${a.level === "view" ? "" : " tone-ok"}`} style={{ cursor: "pointer", border: "none" }}
+                  title={a.level === "view" ? "Sees the login, never the password - click to let them open it" : "Can open the password - click to make it view only"}
+                  aria-label={`${a.level === "view" ? "View only" : "Can open"}: ${a.label || a.value}`}
+                  onClick={() => onChange(value.map((x) => (keyOf(x) === keyOf(a) ? { ...x, level: x.level === "view" ? "open" : "view" } : x)))}>
+                  {a.level === "view" ? <><EyeOff size={11} /> View Only</> : <><Eye size={11} /> Can Open</>}
+                </button>
+                <button type="button" className="cv-iconbtn is-danger" aria-label={`Remove ${a.label || a.value}`} onClick={() => onChange(value.filter((x) => keyOf(x) !== keyOf(a)))}><X size={13} /></button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, onSave }) {
+export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, onSave, companies = [], deptRows = [], myCompanyId = "" }) {
   const editing = !!cred;
   const [form, setForm] = useState(() => editing
-    ? { ...EMPTY, name: cred.name, dept: cred.dept || "", type: cred.type, tier: cred.tier, username: cred.username === "-" ? "" : cred.username, url: cred.url || "", note: cred.note || "", owner: cred.owner || "", backupOwner: cred.backupOwner || "", rotationMax: cred.rotationMax || 90, expiresAt: cred.expiresAt || "",
+    ? { ...EMPTY, name: cred.name, dept: cred.dept || "", type: cred.type, tier: cred.tier, username: cred.username === "-" ? "" : cred.username, url: cred.url || "", note: cred.note || "", owner: cred.owner || "", backupOwner: cred.backupOwner || "", rotationMax: cred.rotationMax || 90, expiresAt: cred.expiresAt || "", companyId: cred.companyId || myCompanyId || "",
       // A credential from before audiences (no rows) is still opened by its own
       // department unless Critical - show that, so saving writes it out as a row.
       audiences: cred.audiences?.length ? cred.audiences : (cred.tier === "Critical" ? [] : deptAudience(cred.dept || "")) }
-    : { ...EMPTY, dept: depts[0] || "", owner: myEmail, audiences: deptAudience(depts[0] || "") });
+    : { ...EMPTY, dept: depts[0] || "", owner: myEmail, audiences: deptAudience(depts[0] || ""), companyId: myCompanyId || companies[0]?.id || "" });
   const [initial] = useState(form);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -83,7 +106,12 @@ export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, 
   const setDept = (d) => setForm((f) => ({ ...f, dept: d, audiences: JSON.stringify(f.audiences) === JSON.stringify(deptAudience(f.dept)) ? deptAudience(d) : f.audiences }));
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
   const valid = form.name.trim() && (editing || form.secret) && form.dept;
-  const deptChoices = useMemo(() => (form.dept && !depts.includes(form.dept) ? [form.dept, ...depts] : depts), [depts, form.dept]);
+  // Departments follow the Company box when Nexus knows them per company.
+  const deptChoices = useMemo(() => {
+    const own = deptRows.filter((d) => !form.companyId || d.companyId === form.companyId).map((d) => d.name);
+    const base = own.length ? [...new Set(own)] : depts;
+    return form.dept && !base.includes(form.dept) ? [form.dept, ...base] : base;
+  }, [depts, deptRows, form.companyId, form.dept]);
 
   async function save() {
     if (!valid) { setError(editing ? "A name and a department are needed." : "A name, a department and a password are needed."); return; }
@@ -106,6 +134,13 @@ export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, 
         <div className="cv-form-stack">
           <Field label="Name" required><input value={form.name} onChange={(e) => set("name", e.target.value)} className="cv-ipt" placeholder="e.g. Stripe Dashboard" autoFocus /></Field>
           <div className="cv-form-grid">
+            {companies.length > 0 && (
+              <Field label="Company" required>
+                <select value={form.companyId} onChange={(e) => set("companyId", e.target.value)} className="cv-ipt" aria-label="Company">
+                  {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </Field>
+            )}
             <Field label="Department" required>
               <select value={form.dept} onChange={(e) => setDept(e.target.value)} className="cv-ipt">
                 {!form.dept && <option value="">- Choose -</option>}
@@ -155,7 +190,7 @@ export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, 
             </Field>
           </div>
           <Field label="Who Can Open It">
-            <AudiencePicker value={form.audiences} onChange={(v) => set("audiences", v)} people={people} tier={form.tier} nameOf={nameOf} />
+            <AudiencePicker value={form.audiences} onChange={(v) => set("audiences", v)} people={people} tier={form.tier} nameOf={nameOf} companyId={form.companyId} />
           </Field>
           <p className="cv-hint">
             {form.tier === "Critical"
@@ -324,26 +359,73 @@ export function ImportWizard({ depts, people, myEmail, existing = [], nameOf = (
   );
 }
 
-export function ShareModal({ cred, people, nameOf, onClose, onSubmit }) {
-  const [email, setEmail] = useState("");
-  const [duration, setDuration] = useState("4h");
-  const [busy, setBusy] = useState(false);
-  const d = DURATIONS.find((x) => x.key === duration);
-  async function go() { if (!email) return; setBusy(true); try { await onSubmit(email, d.ms, d.label); } finally { setBusy(false); } }
+// How long (Oct 29 2026): the presets, or a custom end date and hour -
+// shares often run "from now until the project ends".
+export function DurationPicker({ value, onChange }) {
+  const [mode, setMode] = useState(value?.custom ? "custom" : "preset");
+  const [day, setDay] = useState(value?.day || "");
+  const [hour, setHour] = useState(value?.hour ?? 17);
+  const pick = (x) => { setMode("preset"); onChange({ key: x.key, ms: x.ms, label: x.label }); };
+  function custom(d = day, h = hour) {
+    setDay(d); setHour(h); setMode("custom");
+    const end = localDay(d);
+    if (!end) { onChange(null); return; }
+    const at = end + h * 3600000;
+    const ms = at - Date.now();
+    onChange(ms > 60000 ? { key: "custom", custom: true, day: d, hour: h, ms, label: `Until ${formatDate(new Date(at))} ${formatTime(new Date(at))}` } : null);
+  }
   return (
-    <Modal title="Share Access" onClose={onClose} isDirty={!!email} onSave={email ? go : undefined} width="clamp(420px, 40vw, 560px)"
+    <div>
+      <div className="cv-segment">
+        {DURATIONS.map((x) => <button key={x.key} type="button" className={`cv-btn${mode === "preset" && value?.key === x.key ? " is-on" : ""}`} onClick={() => pick(x)}>{x.label}</button>)}
+        <button type="button" className={`cv-btn${mode === "custom" ? " is-on" : ""}`} onClick={() => custom()}>Until a Date</button>
+      </div>
+      {mode === "custom" && (
+        <div className="cv-form-grid" style={{ marginTop: 8 }}>
+          <DateField value={day} onChange={(v) => custom(v || "", hour)} placeholder="MM/DD/YYYY" noPast title="Last day of access" />
+          <select className="cv-ipt" value={hour} onChange={(e) => custom(day, Number(e.target.value))} aria-label="Ends at">
+            {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{h === 0 ? "12:00 AM" : h < 12 ? `${h}:00 AM` : h === 12 ? "12:00 PM" : `${h - 12}:00 PM`}</option>)}
+          </select>
+        </div>
+      )}
+      {mode === "custom" && !value && day && <p className="cv-hint" style={{ marginTop: 6 }}>Pick a day and hour in the future.</p>}
+    </div>
+  );
+}
+
+// Share (Oct 29 2026): several people and whole departments in one go, for
+// the same time; the screen passes the departments it knows (per company).
+export function ShareModal({ cred, people, nameOf, deptRows = [], companies = [], onClose, onSubmit }) {
+  const [emails, setEmails] = useState([]);
+  const [depts, setDepts] = useState([]);                 // "companyId:Name" or "Name"
+  const [dur, setDur] = useState({ key: "4h", ms: 14400000, label: "4 Hours" });
+  const [busy, setBusy] = useState(false);
+  const multi = companies.length > 1;
+  const mine = deptRows.filter((d) => !multi || !cred.companyId || d.companyId === cred.companyId);
+  const keyOf = (d) => (multi && d.companyId ? `${d.companyId}:${d.name}` : d.name);
+  const ready = (emails.length || depts.length) && dur;
+  async function go() { if (!ready) return; setBusy(true); try { await onSubmit({ recipients: emails, departments: depts, durationMs: dur.ms, durationLabel: dur.label }); } finally { setBusy(false); } }
+  return (
+    <Modal title="Share Access" onClose={onClose} isDirty={emails.length > 0 || depts.length > 0} onSave={ready ? go : undefined} width="clamp(480px, 48vw, 640px)"
       footer={<>
         <button type="button" className="cv-btn" onClick={onClose}>Cancel</button>
-        <button type="button" className="cv-btn-dark" onClick={go} disabled={!email || busy}><Share2 size={14} /> {busy ? "Sharing…" : "Share"}</button>
+        <button type="button" className="cv-btn-dark" onClick={go} disabled={!ready || busy}><Share2 size={14} /> {busy ? "Sharing…" : "Share"}</button>
       </>}>
       <div className="cv-root" style={{ gap: 14, animation: "none" }}>
         <p className="cv-hint" style={{ marginTop: -4 }}>{cred.name} · {cred.dept}</p>
-        <Field label="Share With" required><PersonSelect value={email} onChange={(v) => setEmail(v || "")} people={people} placeholder="Choose a person" /></Field>
-        <Field label="For">
-          <div className="cv-segment">{DURATIONS.map((x) => <button key={x.key} type="button" className={`cv-btn${duration === x.key ? " is-on" : ""}`} onClick={() => setDuration(x.key)}>{x.label}</button>)}</div>
-        </Field>
+        <Field label="People"><PersonMultiSelect value={emails} onChange={(v) => setEmails(v || [])} people={people} placeholder="Add people" /></Field>
+        {mine.length > 0 && (
+          <Field label="Whole Departments">
+            <div className="cv-pick-row">
+              {mine.map((d) => { const k = keyOf(d); const on = depts.includes(k); return (
+                <button key={k} type="button" className={`cv-pick${on ? " is-on" : ""}`} aria-pressed={on} onClick={() => setDepts(on ? depts.filter((x) => x !== k) : [...depts, k])}>{on && <Check size={11} />}{d.name}{multi && !cred.companyId && d.companyId ? <span className="cv-pick-sub"> · {companies.find((c) => c.id === d.companyId)?.name || ""}</span> : null}</button>
+              ); })}
+            </div>
+          </Field>
+        )}
+        <Field label="For"><DurationPicker value={dur} onChange={setDur} /></Field>
         <div className="cv-callout">
-          <span>{email ? nameOf(email) : "They"} will see the password in their own Credentials screen for {d.label.toLowerCase()}, then it disappears. They need the Credentials grant to open the screen. You can end the access early from the drawer.</span>
+          <span>{emails.length + depts.length ? "They" : "The people you pick"} will see the password on their own My Logins {dur ? (dur.custom ? dur.label.toLowerCase() : `for ${dur.label.toLowerCase()}`) : ""}, then it leaves their list. They need the Credentials grant to open the screen. Every recipient gets a bell.</span>
         </div>
       </div>
     </Modal>
@@ -351,10 +433,9 @@ export function ShareModal({ cred, people, nameOf, onClose, onSubmit }) {
 }
 
 export function RequestModal({ cred, nameOf, onClose, onSubmit }) {
-  const [duration, setDuration] = useState("4h");
+  const [d, setD] = useState({ key: "4h", ms: 14400000, label: "4 Hours" });
   const [busy, setBusy] = useState(false);
-  const d = DURATIONS.find((x) => x.key === duration);
-  async function go() { setBusy(true); try { await onSubmit(d.ms, d.label); } finally { setBusy(false); } }
+  async function go() { if (!d) return; setBusy(true); try { await onSubmit(d.ms, d.label); } finally { setBusy(false); } }
   return (
     <Modal title="Request Access" onClose={onClose} width="clamp(420px, 40vw, 560px)"
       footer={<>
@@ -363,9 +444,7 @@ export function RequestModal({ cred, nameOf, onClose, onSubmit }) {
       </>}>
       <div className="cv-root" style={{ gap: 14, animation: "none" }}>
         <p className="cv-hint" style={{ marginTop: -4 }}>{cred.name} · {cred.dept} · owned by {nameOf(cred.owner)}</p>
-        <Field label="For">
-          <div className="cv-segment">{DURATIONS.map((x) => <button key={x.key} type="button" className={`cv-btn${duration === x.key ? " is-on" : ""}`} onClick={() => setDuration(x.key)}>{x.label}</button>)}</div>
-        </Field>
+        <Field label="For"><DurationPicker value={d} onChange={setD} /></Field>
         <div className="cv-callout"><span>{nameOf(cred.owner)} or an admin approves this. You get a bell notification when they decide, and the password shows here for {d.label.toLowerCase()} from then.</span></div>
       </div>
     </Modal>
