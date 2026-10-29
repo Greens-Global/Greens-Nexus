@@ -491,15 +491,16 @@ export const IMPL_PHASES = [
         'HR Letters: which letters each company offers in Workday > Ask HR (employment verification, salary certificate, experience letter, address proof, visa NOC), the Documents template each prints from and its letterhead. The company signatory signs them; the employee never signs a letter.',
       ]},
       { title: 'Performance', where: 'Settings > Performance', view: 'admin-console', sub: 'performance', items: [
-        'Review Rating Scale (1 to 5 by default) and Company Values - a new review cycle copies them.',
-        'Goal and 1:1 Reminders: the reminder before a 1:1 with an empty agenda, and how long a goal may go without a check-in.',
+        'Performance Reminders, the one setting: how many days a goal someone updates by hand may go without an update (14 by default), and the reminder before a 1:1 with an empty agenda. A company can keep its own.',
+        'Nothing else to set up. My Numbers come from what Nexus already records (arrival, hours, Time Sheets, tasks, tickets, training), reviews use one fixed form with three questions and a four-word rating (Exceeds, Meets, Partly Meets, Below), and review reminders are automatic.',
+        'The first review: People > Performance > New Review Cycle - a name, the company and a due date. Everyone at that company who is past probation is in it.',
       ]},
     ],
     checks: [
       { id: 'checklists.templates', text: 'Onboarding, offboarding and leave templates reviewed and owners set.' },
       { id: 'checklists.probation', text: 'Probation length, reminders and letter templates set for every company that tracks probation.' },
       { id: 'checklists.letters', text: 'Letterheads uploaded and the HR letters each company offers set up.' },
-      { id: 'checklists.performance', text: 'Review rating scale, company values and reminders agreed (or Performance confirmed not used).' },
+      { id: 'checklists.performance', text: 'Performance reminders agreed and the first review cycle planned (or Performance confirmed not used).' },
     ],
     pitfalls: [
       'Offboarding is a checklist plus the Left status. Marking Left signs the person out everywhere - start the checklist first.',
