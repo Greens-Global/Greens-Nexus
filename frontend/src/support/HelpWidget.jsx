@@ -73,7 +73,7 @@ function HomeTab({ firstName, pageDoc, liveTour, otherTours, onSearch, onAsk, on
           <div className="dk-mark hw-mark" aria-hidden="true">N</div>
           <button type="button" className="hw-close hw-close-light" onClick={onClose} aria-label="Close help"><X size={18} /></button>
         </div>
-        <div className="hw-hello">Hi {firstName || 'there'}</div>
+        <div className="hw-hello">Hi {firstName || 'there'}!</div>
         <h2 className="hw-title">How can we help?</h2>
       </div>
       <div className="hw-cards">
@@ -222,7 +222,7 @@ function ResultRow({ r, onPick }) {
   );
 }
 
-function HelpTab({ autoFocus, allowed, allow, query, setQuery, onPick, onOpenArticle }) {
+function HelpTab({ autoFocus, allowed, allow, query, setQuery, onPick, onOpenArticle, onOpenDocs }) {
   const inputRef = useRef(null);
   const kb = useKbCorpus(true);
   useEffect(() => { if (autoFocus) inputRef.current?.focus(); }, [autoFocus]);
@@ -235,66 +235,75 @@ function HelpTab({ autoFocus, allowed, allow, query, setQuery, onPick, onOpenArt
 
   const gettingStarted = allowed.find((d) => d.id === 'getting-started');
   return (
-    <div className="hw-scroll hw-pad">
-      <div className="hw-search">
-        <Search size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-        <input ref={inputRef} type="search" value={query} onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search guides, documents and courses" aria-label="Search for help"
-          autoComplete="off" spellCheck={false} />
-        {query && (
-          <button type="button" className="hw-close" style={{ width: 24, height: 24 }} aria-label="Clear search"
-            onClick={() => { setQuery(''); inputRef.current?.focus(); }}><X size={14} /></button>
+    <>
+      <div className="hw-scroll hw-pad">
+        <div className="hw-search">
+          <Search size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+          <input ref={inputRef} type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search guides, documents and courses" aria-label="Search for help"
+            autoComplete="off" spellCheck={false} />
+          {query && (
+            <button type="button" className="hw-close" style={{ width: 24, height: 24 }} aria-label="Clear search"
+              onClick={() => { setQuery(''); inputRef.current?.focus(); }}><X size={14} /></button>
+          )}
+        </div>
+
+        {q && kb.status === 'error' && (
+          <div className="hw-note" role="status">Knowledge Base results are unavailable right now. Guide results still work.</div>
+        )}
+        {q && kb.status === 'loading' && <div className="hw-note">Also searching the Knowledge Base...</div>}
+
+        {q ? (
+          results.length ? (
+            <ul className="hw-list" aria-label="Help results">
+              {results.map((r) => <ResultRow key={r.id} r={r} onPick={onPick} />)}
+            </ul>
+          ) : (
+            <div className="hw-empty">No results for "{q}". Try other words, or ask us from the Home tab.</div>
+          )
+        ) : (
+          <>
+            {gettingStarted && (
+              <button type="button" className="hw-card hw-card-quiet" style={{ marginBottom: 14 }}
+                onClick={() => onOpenArticle(moduleArticle(gettingStarted))}>
+                <Compass size={16} style={{ color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }} />
+                <span className="hw-card-text">
+                  <span className="hw-card-title" style={{ fontSize: 13.5 }}>Getting Started</span>
+                  <span className="hw-card-sub">{gettingStarted.tagline}</span>
+                </span>
+                <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+              </button>
+            )}
+            {DOC_GROUPS.map((g) => {
+              const items = allowed.filter((d) => d.group === g && d.id !== 'getting-started');
+              if (!items.length) return null;
+              return (
+                <div key={g} style={{ marginBottom: 12 }}>
+                  <div className="hw-group">{g}</div>
+                  <ul className="hw-list">
+                    {items.map((d) => (
+                      <li key={d.id}>
+                        <button type="button" className="hw-row hw-row-tight" onClick={() => onOpenArticle(moduleArticle(d))}>
+                          <span style={{ flex: 1, minWidth: 0 }}><span className="hw-row-title">{d.name}</span></span>
+                          <ChevronRight size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </>
         )}
       </div>
-
-      {q && kb.status === 'error' && (
-        <div className="hw-note" role="status">Knowledge Base results are unavailable right now. Guide results still work.</div>
-      )}
-      {q && kb.status === 'loading' && <div className="hw-note">Also searching the Knowledge Base...</div>}
-
-      {q ? (
-        results.length ? (
-          <ul className="hw-list" aria-label="Help results">
-            {results.map((r) => <ResultRow key={r.id} r={r} onPick={onPick} />)}
-          </ul>
-        ) : (
-          <div className="hw-empty">No results for "{q}". Try other words, or ask us from the Home tab.</div>
-        )
-      ) : (
-        <>
-          {gettingStarted && (
-            <button type="button" className="hw-card hw-card-quiet" style={{ marginBottom: 14 }}
-              onClick={() => onOpenArticle(moduleArticle(gettingStarted))}>
-              <Compass size={16} style={{ color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }} />
-              <span className="hw-card-text">
-                <span className="hw-card-title" style={{ fontSize: 13.5 }}>Getting Started</span>
-                <span className="hw-card-sub">{gettingStarted.tagline}</span>
-              </span>
-              <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-            </button>
-          )}
-          {DOC_GROUPS.map((g) => {
-            const items = allowed.filter((d) => d.group === g && d.id !== 'getting-started');
-            if (!items.length) return null;
-            return (
-              <div key={g} style={{ marginBottom: 12 }}>
-                <div className="hw-group">{g}</div>
-                <ul className="hw-list">
-                  {items.map((d) => (
-                    <li key={d.id}>
-                      <button type="button" className="hw-row hw-row-tight" onClick={() => onOpenArticle(moduleArticle(d))}>
-                        <span style={{ flex: 1, minWidth: 0 }}><span className="hw-row-title">{d.name}</span></span>
-                        <ChevronRight size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            );
-          })}
-        </>
-      )}
-    </div>
+      {/* The full guide (Support > Documentation) has every page, section and
+          walkthrough this panel only lists (Neil, 10/28/2026). */}
+      <div className="hw-foot">
+        <button type="button" className="secondary-btn hw-send" onClick={onOpenDocs}>
+          <BookOpen size={15} /> Open Full Documentation <ArrowUpRight size={14} />
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -468,7 +477,8 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
           onOpenArticle={openArticle} onOpenFull={openFull} />
       ) : (
         <HelpTab autoFocus={focusSearch} allowed={allowed} allow={allow}
-          query={query} setQuery={setQuery} onPick={pick} onOpenArticle={openArticle} />
+          query={query} setQuery={setQuery} onPick={pick} onOpenArticle={openArticle}
+          onOpenDocs={() => { onClose(false); nav('support', 'documentation'); }} />
       ))}
 
       <nav className="hw-tabs" role="tablist" aria-label="Help sections">
