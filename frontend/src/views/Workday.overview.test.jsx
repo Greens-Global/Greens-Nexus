@@ -185,11 +185,58 @@ describe('Workday Overview with the Time Clock', () => {
     expect(screen.queryByRole('dialog', { name: 'Ask HR' })).toBeNull();     // no card on the page (Oct 15)
     fireEvent.click(screen.getByRole('button', { name: 'Ask HR' }));
     expect(screen.getByRole('dialog', { name: 'Ask HR' })).toBeTruthy();
-    expect(screen.queryByText('What do you need?')).toBeNull();
+    expect(screen.queryByText('What Do You Need?')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /New Request/ }));
-    expect(screen.getByText('What do you need?')).toBeTruthy();
+    expect(screen.getByText('What Do You Need?')).toBeTruthy();
+    // No letters offered: no Request a Letter choice, and no form until a pick.
+    expect(screen.queryByRole('radio', { name: /Request a Letter/ })).toBeNull();
+    expect(screen.queryByText('Details')).toBeNull();
+    fireEvent.click(screen.getByRole('radio', { name: /Question for HR/ }));
+    expect(screen.getByText('Details')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByText('What do you need?')).toBeNull();
+    expect(screen.queryByText('What Do You Need?')).toBeNull();
+  }, SLOW);
+
+  // HR letters joined Ask HR (Neil, Oct 28 2026).
+  it('asks for a letter from Ask HR and lists letters beside the tickets', async () => {
+    try { localStorage.removeItem('nexus:askhr-seen'); } catch { /* ignore */ }
+    globalThis.__answers.hrLetterTypes = [{ key: 'employment_verification', label: 'Employment Verification', desc: 'Confirms you work here.' }];
+    globalThis.__answers.hrLettersMine = [
+      { id: 'l1', typeLabel: 'Employment Verification', status: 'issued', statusLabel: 'Issued', documentId: 'env-1',
+        purpose: 'Apartment lease', createdAt: '2026-10-20T10:00:00Z', updatedAt: '2026-10-21T10:00:00Z' },
+    ];
+    globalThis.__answers.myHrRequests = [
+      { id: 't1', source: 'ticket', type: 'question', message: 'Leave policy?', status: 'open', createdAt: '2026-10-22T10:00:00Z' },
+    ];
+    await renderWorkday('overview');
+    const btn = await screen.findByRole('button', { name: 'Ask HR, 1 update from HR' });   // the issued letter
+    expect(within(btn).getByText('1 update from HR')).toBeTruthy();
+    fireEvent.click(btn);
+    const dialog = screen.getByRole('dialog', { name: 'Ask HR' });
+    expect(within(dialog).getByText(/A letter, a document update/)).toBeTruthy();
+    const rows = within(dialog).getAllByText(/Leave policy\?|Employment Verification ·/);
+    expect(rows[0].textContent).toMatch(/Leave policy/);                       // newest first
+    expect(within(dialog).getByRole('button', { name: /Download Letter/ })).toBeTruthy();
+    expect(dialog.querySelectorAll('[data-ask-fresh]')).toHaveLength(1);
+    fireEvent.change(within(dialog).getByLabelText('Filter my requests'), { target: { value: 'open' } });
+    expect(within(dialog).queryByRole('button', { name: /Download Letter/ })).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: /New Request/ }));
+    fireEvent.click(within(dialog).getByRole('radio', { name: /Request a Letter/ }));
+    expect(within(dialog).getByRole('radio', { name: /Employment Verification/ })).toBeTruthy();
+    expect(within(dialog).getByLabelText('What Is It For?')).toBeTruthy();
+    expect(within(dialog).queryByText('Details')).toBeNull();
+  }, SLOW);
+
+  it('opens Ask HR on a letter link, with the requests waiting on HR at the top', async () => {
+    globalThis.__answers.hrLetterQueue = { canReview: true, requests: [
+      { id: 'q1', employeeName: 'Pat Peer', employeeEmail: 'pat@x.com', typeLabel: 'Salary Certificate', status: 'requested',
+        statusLabel: 'Requested', purpose: 'Car loan', createdAt: '2026-10-27T10:00:00Z' },
+    ] };
+    const onSubChange = await renderWorkday('ask-hr');
+    const dialog = await screen.findByRole('dialog', { name: 'Ask HR' });
+    expect(await within(dialog).findByText('Waiting on You as HR')).toBeTruthy();
+    expect(within(dialog).getByText('Pat Peer')).toBeTruthy();
+    await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('overview'));
   }, SLOW);
 
   it('shows an exempt person no clock, no time-tracking note and no Time Sheet tab', async () => {

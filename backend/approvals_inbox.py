@@ -785,7 +785,7 @@ def _hr_letters(db: Session, user: dict, ctx: dict) -> list:
                        person_name=r.employee_name or _name(db, ctx, r.employee_email),
                        title=f"HR Letter - {hl.type_label(r.letter_type)}", detail=" - ".join(bits),
                        created_at=r.created_at, actions=(a_open("Review"), A_DECLINE_WHY),
-                       link=dict(hl._HR_ACTION),
+                       link=hl._hr_action_for(r),
                        facts=(("Letter", hl.type_label(r.letter_type)),
                               ("Needed By", _us_day(r.needed_by) if r.needed_by else ""), ("Purpose", r.purpose or ""))))
     return out

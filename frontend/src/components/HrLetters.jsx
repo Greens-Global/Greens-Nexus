@@ -1,11 +1,15 @@
 // HR letters (Neil, Oct 27 2026). Employees request a standard HR letter
-// from My HR - Employment Verification, Salary Certificate, Experience
+// in Ask HR - Employment Verification, Salary Certificate, Experience
 // Letter, Address Proof, Visa NOC - and HR for their company issues it:
 // they review the letter generated from its Documents template with every
 // value filled, change any of them, then Issue it (a Nexus Sign envelope to
 // the company's Authorized Signatory, its only signer) or Decline it with a
 // reason. The signed letter lands in the employee's My Documents.
-//   MyLettersCard        My HR: my requests and Request a Letter
+//   useHrLetters, LetterRequestForm, MyLetterRow, HrLetterQueue
+//                        Ask HR (views/MyHR.jsx, Oct 28 2026): Request a
+//                        Letter is one of the things you ask HR for, your
+//                        letters sit in My Requests beside the tickets, and
+//                        the ones waiting on you as HR head the panel
 //   LetterRequestsPanel  People: the requests waiting on HR
 //   HrLettersSettings    Settings > Hiring & Onboarding > HR Letters
 // Server side: routers/hr_letters.py + hr_letters.py.
@@ -35,99 +39,85 @@ const whenLine = (r) => [
   r.neededBy ? `Needed by ${formatDate(r.neededBy)}` : '',
 ].filter(Boolean).join(' · ');
 
-// ── My HR ────────────────────────────────────────────────────────────────────
+// ── Ask HR ───────────────────────────────────────────────────────────────────
 
-export function MyLettersCard({ flash }) {
+// My letters, the letters my company offers and - when I am HR for someone -
+// the requests waiting on me (a company's HR contact without People access
+// prepares them in Ask HR; their bells open it).
+export function useHrLetters() {
   const [rows, setRows] = useState(null);       // null = loading, false = failed
   const [types, setTypes] = useState([]);
-  const [asking, setAsking] = useState(false);
-  const [busy, setBusy] = useState('');
-  // The requests waiting on ME as HR - here too, so a company's HR contact
-  // without People access still has a place to prepare them (their bells
-  // open this page).
   const [queue, setQueue] = useState([]);
-  const [reviewing, setReviewing] = useState('');
-  const loadQueue = useCallback(() => {
+  const reloadQueue = useCallback(() => {
     api.hrLetterQueue('open').then(q => setQueue(q?.canReview && Array.isArray(q.requests) ? q.requests : [])).catch(() => setQueue([]));
   }, []);
-  const load = useCallback(() => {
+  const reload = useCallback(() => {
     api.hrLettersMine().then(r => setRows(Array.isArray(r) ? r : [])).catch(() => setRows(false));
     api.hrLetterTypes().then(t => setTypes(Array.isArray(t) ? t : [])).catch(() => setTypes([]));
-    loadQueue();
-  }, [loadQueue]);
-  useEffect(() => { load(); }, [load]);
+    reloadQueue();
+  }, [reloadQueue]);
+  useEffect(() => { reload(); }, [reload]);
+  const add = useCallback((r) => setRows(rs => [r, ...(Array.isArray(rs) ? rs : [])]), []);
+  return { rows: Array.isArray(rows) ? rows : [], failed: rows === false, types, queue, reload, reloadQueue, add };
+}
 
-  const download = async (r) => {
-    setBusy(r.id);
+// Still with HR (requested, being prepared, out for the company's signature).
+export const letterIsOpen = (r) => ['requested', 'in_review', 'awaiting_signature'].includes(r?.status);
+// What counts as news on Ask HR's dot: the letter is ready, or HR declined it.
+export const letterMark = (r) => (['issued', 'declined'].includes(r?.status) ? `${r.status}|${r.updatedAt || ''}` : '');
+
+const WHERE = {
+  requested: 'Sent to HR', in_review: 'HR is preparing it',
+  awaiting_signature: 'Prepared - waiting for the company signature',
+};
+
+// One of my letters in My Requests: which letter, when, where it stands, and
+// the signed PDF once it is issued (it is in My Documents too).
+export function MyLetterRow({ r, fresh = false, flash }) {
+  const [busy, setBusy] = useState(false);
+  const download = async () => {
+    setBusy(true);
     try { const { url } = await api.myHrDocDownload(r.documentId); window.open(url, '_blank', 'noopener'); }
     catch (e) { flash?.(e?.message || 'Could not download the letter', false); }
-    finally { setBusy(''); }
+    finally { setBusy(false); }
   };
-
+  const line = [r.purpose, r.neededBy ? `Needed by ${formatDate(r.neededBy)}` : '', WHERE[r.status] || ''].filter(Boolean).join(' · ');
   return (
-    <div className="dash-card myhr-span2" data-testid="my-letters">
-      <div className="dash-card-head">
-        <div>
-          <div className="dash-card-title">HR Letters</div>
-          <div className="dash-card-sub">Employment verification, salary certificates, visa letters and more - prepared and signed by HR</div>
-        </div>
-        {types.length > 0 && (
-          <button type="button" className="secondary-btn" onClick={() => setAsking(true)} style={small}>
-            <FileSignature size={13} /> Request a Letter
-          </button>
-        )}
+    <div data-ask-fresh={fresh || undefined} data-testid="ask-letter"
+      style={{ padding: fresh ? '8px 10px' : '8px 0', borderBottom: '1px solid var(--line)', borderRadius: fresh ? 8 : 0,
+        background: fresh ? 'hsla(var(--color-blue),0.06)' : 'transparent' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {fresh && <span title="Updated by HR" style={{ width: 8, height: 8, borderRadius: '50%', background: 'hsl(var(--color-red))', flexShrink: 0 }} />}
+        <FileSignature size={13} aria-hidden="true" style={{ color: 'var(--muted)', flexShrink: 0 }} />
+        <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+          {r.typeLabel} · {formatDate(r.createdAt, '-')}
+        </span>
+        {fresh && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-red))' }}>Updated by HR</span>}
+        <LetterStatus r={r} />
       </div>
-      {queue.length > 0 && (
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', margin: '2px 0 8px' }}>Waiting on You as HR - {queue.length}</div>
-          <QueueRows rows={queue} onOpen={setReviewing} />
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', margin: '14px 0 2px' }}>Your Own Letters</div>
+      {line && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{line}</div>}
+      {r.status === 'declined' && r.declineReason && (
+        <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 5, padding: '7px 10px', background: 'var(--mist)', borderRadius: 8 }}>
+          <strong>HR:</strong> {r.declineReason}
         </div>
       )}
-      {reviewing && (
-        <LetterReviewModal id={reviewing} onClose={() => setReviewing('')} onChanged={loadQueue}
-          toastOk={(t) => flash?.(t)} toastErr={(t) => flash?.(t, false)} />
-      )}
-      {rows === null ? <SkeletonBlocks count={2} height={44} borderRadius={10} />
-        : rows === false ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>Your letters could not be loaded right now.</div>
-          : rows.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>
-              {types.length ? 'No letters requested yet - ask for one and HR prepares it for you.' : 'HR letters are not offered for your company yet.'}
-            </div>
-          ) : rows.map(r => (
-            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-              <FileSignature size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 180 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{r.typeLabel}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{whenLine(r)}{r.purpose ? ` · ${r.purpose}` : ''}</div>
-                {r.status === 'declined' && r.declineReason && (
-                  <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 5, padding: '6px 10px', background: 'var(--mist)', borderRadius: 8 }}>
-                    <strong>HR:</strong> {r.declineReason}
-                  </div>
-                )}
-              </div>
-              <LetterStatus r={r} />
-              {r.status === 'issued' && r.documentId && (
-                <button type="button" className="secondary-btn" onClick={() => download(r)} disabled={busy === r.id} style={small}>
-                  {busy === r.id ? <Spinner size={12} /> : <Download size={12} />} PDF
-                </button>
-              )}
-            </div>
-          ))}
-      {asking && (
-        <RequestLetterModal types={types} onClose={() => setAsking(false)}
-          onCreated={(r) => { setAsking(false); setRows(rs => [r, ...(Array.isArray(rs) ? rs : [])]); flash?.('Sent to HR - you will hear here when it is ready'); }} />
+      {r.status === 'issued' && r.documentId && (
+        <button type="button" className="secondary-btn" onClick={download} disabled={busy} style={{ ...small, marginTop: 6 }}>
+          {busy ? <Spinner size={12} /> : <Download size={12} />} Download Letter
+        </button>
       )}
     </div>
   );
 }
 
-export function RequestLetterModal({ types, onClose, onCreated }) {
+// Request a Letter, inside Ask HR's New Request: which letter, what it is
+// for, who it is addressed to and when it is needed. It sends itself - a
+// letter request is not a ticket (HR prepares it from its template).
+export function LetterRequestForm({ types, onCancel, onCreated }) {
   const [form, setForm] = useState({ letter_type: types[0]?.key || '', purpose: '', addressed_to: '', needed_by: '', notes: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (k) => (v) => setForm(f => ({ ...f, [k]: v }));
-  const dirty = !!(form.purpose || form.addressed_to || form.needed_by || form.notes);
   const picked = types.find(t => t.key === form.letter_type);
   const submit = async () => {
     setBusy(true); setError('');
@@ -136,23 +126,16 @@ export function RequestLetterModal({ types, onClose, onCreated }) {
     finally { setBusy(false); }
   };
   return (
-    <Modal title="Request a Letter" onClose={onClose} isDirty={dirty}
-      footer={<>
-        <button type="button" className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-        <button type="button" className="primary-btn" onClick={submit} disabled={busy || !form.letter_type || !form.purpose.trim()}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {busy ? <Spinner size={13} /> : <Send size={13} />} Send Request
-        </button>
-      </>}>
-      <label style={{ ...lbl, marginTop: 0 }}>Which Letter?</label>
+    <div data-testid="letter-form">
+      <span style={lbl}>Which Letter?</span>
       <div role="radiogroup" aria-label="Which letter" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 8 }}>
         {types.map(t => {
           const on = t.key === form.letter_type;
           return (
             <button key={t.key} type="button" role="radio" aria-checked={on} onClick={() => set('letter_type')(t.key)}
-              style={{ textAlign: 'left', padding: '10px 12px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit',
-                border: `1.5px solid ${on ? 'hsl(var(--color-blue))' : 'var(--line)'}`,
-                background: on ? 'hsla(var(--color-blue),0.06)' : 'var(--card)' }}>
+              style={{ textAlign: 'left', padding: '9px 12px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', background: 'var(--card)',
+                border: '1px solid var(--line)', boxShadow: on ? 'inset 0 0 0 1px hsl(var(--color-blue))' : 'none',
+                borderColor: on ? 'hsl(var(--color-blue))' : 'var(--line)' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{t.label}</div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.4 }}>{t.desc}</div>
             </button>
@@ -176,13 +159,43 @@ export function RequestLetterModal({ types, onClose, onCreated }) {
           <DateField value={form.needed_by} onChange={set('needed_by')} noPast placeholder="Pick a date" />
         </div>
       </div>
-      <div className="nx-fill">
-        <label style={lbl} htmlFor="letter-notes">Notes for HR (Optional)</label>
-        <textarea id="letter-notes" className="form-input" style={{ ...full, flex: 1, minHeight: 96, resize: 'vertical' }} value={form.notes}
-          onChange={e => set('notes')(e.target.value)} placeholder="Anything the letter must say, or who it should go to" />
+      <label style={lbl} htmlFor="letter-notes">Notes for HR (Optional)</label>
+      <textarea id="letter-notes" className="form-input" rows={2} style={{ ...full, resize: 'vertical' }} value={form.notes}
+        onChange={e => set('notes')(e.target.value)} placeholder="Anything the letter must say, or who it should go to" />
+      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+        HR prepares the letter and the company signs it. The signed copy lands in My Documents.
       </div>
       {error && <div role="alert" style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginTop: 10 }}>{error}</div>}
-    </Modal>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+        <button type="button" className="secondary-btn" onClick={onCancel} disabled={busy}>Cancel</button>
+        <button type="button" className="primary-btn" onClick={submit} disabled={busy || !form.letter_type || !form.purpose.trim()}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {busy ? <Spinner size={13} /> : <Send size={13} />} Send Request
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// The letter requests waiting on me as HR, at the head of Ask HR. `openId`
+// is the one under review (a bell or an Approvals row opens it directly).
+export function HrLetterQueue({ queue, openId = '', onOpen, onChanged, flash }) {
+  return (
+    <>
+      {queue.length > 0 && (
+        <section data-testid="letter-queue" aria-label="Waiting on You as HR">
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Waiting on You as HR</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{queue.length} letter{queue.length === 1 ? '' : 's'} to prepare</span>
+          </div>
+          <QueueRows rows={queue} onOpen={onOpen} />
+        </section>
+      )}
+      {openId && (
+        <LetterReviewModal id={openId} onClose={() => onOpen('')} onChanged={onChanged}
+          toastOk={(t) => flash?.(t)} toastErr={(t) => flash?.(t, false)} />
+      )}
+    </>
   );
 }
 
