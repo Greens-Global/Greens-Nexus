@@ -3,7 +3,8 @@ import QRCode from 'qrcode'
 import { MapPin, Pencil, History, Copy, ExternalLink, QrCode, Download, Plus, Trash2, Building2 } from 'lucide-react'
 import { api } from '../../api'
 import AsyncSection, { SkeletonBlocks } from '../../components/AsyncState'
-import { formatDate, formatDateTime } from '../../lib/datetime'
+import { formatDateTime } from '../../lib/datetime'
+import { DateField } from '../../tasks/components'
 import Modal from '../shared/Modal'
 import StarRating from '../shared/StarRating'
 import { FACILITIES } from '../shared/facilities'
@@ -221,8 +222,7 @@ function EditListingModal({ location, onClose, onSaved }) {
               {form.holidays.length === 0 && <div style={{ fontSize: 12.5, color: C.gray400 }}>No holiday hours set.</div>}
               {form.holidays.map((h, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
-                  <input type="date" value={h.date} onChange={(e) => setHoliday(i, { date: e.target.value })} style={{ ...input, width: 160 }} aria-label="Holiday date" />
-                  {h.date && <span style={{ fontSize: 12, color: C.gray500 }}>{formatDate(`${h.date}T12:00:00`)}</span>}
+                  <DateField value={h.date} onChange={(v) => setHoliday(i, { date: v || '' })} placeholder="Pick a date" title="Holiday date" style={{ ...input, width: 160 }} />
                   <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: C.gray600 }}>
                     <input type="checkbox" checked={h.closed} onChange={(e) => setHoliday(i, { closed: e.target.checked })} />Closed
                   </label>
