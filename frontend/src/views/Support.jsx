@@ -19,9 +19,8 @@ import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useS
 import {
   Ticket, ArrowUpRight, Search,
   ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, LifeBuoy, BookOpen,
-  Pencil, CheckCircle2, RotateCcw, CircleHelp, GraduationCap,
+  Pencil, CheckCircle2, RotateCcw, Sparkles, GraduationCap,
 } from 'lucide-react';
-import { HELP_OPEN_EVENT } from '../support/HelpMenu';
 import { api } from '../api';
 import { ticketNoShort, normalizeCode, TICKET_STATUS_META, TICKET_STATUS_ORDER } from '../tickets/ticketMeta';
 import { formatDate, formatTime } from '../lib/datetime';
@@ -39,6 +38,12 @@ import { StatusLabel } from '../components/StatusLabel';
 import { registerTour } from '../lib/tours';
 import { useActionCounts, tabCount } from '../lib/useActionCounts';
 import { confirmSwitchTicket } from '../tickets/drawerGuard';
+// Help Center additions (Oct 2026): the search bar with Ask Nexus, "I Need
+// To...", Known Issues and "Expect a reply by" - each its own file in support/.
+import HelpCenterSearch from '../support/HelpCenterSearch';
+import NeedTo from '../support/NeedTo';
+import KnownIssuesBanner from '../support/KnownIssues';
+import ExpectReply from '../support/ExpectReply';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
 // content and drawn screenshots only load when someone opens the tab. The
@@ -76,8 +81,8 @@ const TicketComposer = lazy(async () => {
     import('../tickets/TicketsView'),
   ]);
   return {
-    default: ({ onClose, onBatch }) => (
-      <TasksProvider><CreateTicketModal onClose={onClose} onBatch={onBatch} /></TasksProvider>
+    default: ({ onClose, onBatch, initial }) => (
+      <TasksProvider><CreateTicketModal onClose={onClose} onBatch={onBatch} initial={initial} /></TasksProvider>
     ),
   };
 });
@@ -459,11 +464,15 @@ export default function Support({ activeSub, onSubChange }) {
       ? 'Report an issue or a bug, or request help from any department - one ticket or a whole batch.'
       : 'Report an issue or a bug, or request help from any department.',
       onOpen: () => setSubmitting(true), tour: 'support-submit-ticket' },
-    // The help panel the header's "?" opens: search, ask a question, What's
-    // New, help for this page (support/HelpMenu.jsx listens for the event).
-    // Not "Help Center" any more - that is this page now (Neil, Oct 13 2026).
-    { icon: CircleHelp, title: 'Assistant', desc: 'Search for help, ask a question, or see what is new in Nexus.',
-      onOpen: () => window.dispatchEvent(new CustomEvent(HELP_OPEN_EVENT)) },
+    // Ask Nexus (Oct 2026; was "Assistant", which only opened the header's
+    // "?" panel): takes you to the search bar above, where Enter asks Nexus
+    // for a written answer from the guides and the Knowledge Base.
+    { icon: Sparkles, title: 'Ask Nexus', desc: 'Get an answer from the guides and Knowledge Base, or ask our team.',
+      onOpen: () => {
+        const box = document.querySelector('.hc-search input');
+        box?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+        box?.focus();
+      } },
     // Privacy Policy and Terms & Conditions moved to Legal in the profile menu
     // (Neil, 10/06: "this has nothing to do with Support").
     { icon: BookOpen, title: 'Documentation', desc: canImplement
@@ -544,6 +553,9 @@ export default function Support({ activeSub, onSubChange }) {
         </div>
       </div>
 
+      <KnownIssuesBanner />
+      <HelpCenterSearch onFileTicket={(seed) => setSubmitting(seed || true)} />
+
       <div className="support-grid" data-tour="support-options">
         {OPTIONS.map((o) => (
           // The whole tile is the button - anything less than a full-tile hit
@@ -562,6 +574,8 @@ export default function Support({ activeSub, onSubChange }) {
           </button>
         ))}
       </div>
+
+      <NeedTo onTicket={(seed) => setSubmitting(seed || true)} />
 
       <div className="dash-card" data-tour="support-open-tickets" data-tier={tier} ref={cardRef}>
         {/* Flush left on every tab, empty or loading too, so the tabs never
@@ -731,6 +745,7 @@ export default function Support({ activeSub, onSubChange }) {
                                 For {nameOf(t.requesterId) || t.requesterId}
                               </div>
                             )}
+                            <ExpectReply t={t} />
                             {stacked && (
                               /* Narrow: the comment and the actions live here
                                  instead of in columns of their own. */
@@ -810,7 +825,7 @@ export default function Support({ activeSub, onSubChange }) {
         <Suspense fallback={<ModalLoading />}>
           {/* CreateTicketModal calls onClose after a successful create too, so
               reloading here covers both "submitted" and "cancelled". */}
-          <TicketComposer onClose={() => { setSubmitting(false); load(); }}
+          <TicketComposer onClose={() => { setSubmitting(false); load(); }} initial={typeof submitting === 'object' ? submitting : null}
             onBatch={canWalk ? () => { setSubmitting(false); setWalking(true); } : undefined} />
         </Suspense>
       )}

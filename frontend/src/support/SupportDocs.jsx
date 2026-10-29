@@ -27,6 +27,7 @@ import {
 import InsightsChart from '../components/icons/InsightsChart';
 import { DOCS, DOC_GROUPS, ROLE_TIERS, ACCESS_LEVELS } from './docsContent';
 import DocShot, { shotLegend } from './DocShots';
+import HelpFeedback from './HelpFeedback';   // Was This Helpful? under each page (Help Center, Oct 2026)
 import { useDocAccess } from './docsAccess';
 import { searchDocs, sectionDomId, walkthroughAnchor, featureAnchor, TIPS_ANCHOR, MANAGER_ANCHOR } from './docsSearch';
 import { DOCS_OPEN_EVENT, PENDING_DOCS_KIND, decodeDocTarget } from './openDoc';
@@ -254,6 +255,8 @@ function Article({ doc, prev, next, onPrev, onNext, isOpen, onToggle, onSetAll }
           </ul>
         </section>
       )}
+
+      <HelpFeedback key={doc.id} kind="guide" targetId={doc.id} title={doc.name} style={{ margin: '8px 0 4px' }} />
 
       <nav className="docs-pager" aria-label="More modules">
         {prev ? (

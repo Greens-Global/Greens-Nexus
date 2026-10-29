@@ -34,8 +34,8 @@ const TicketComposer = lazy(async () => {
     import('../tickets/TicketsView'),
   ]);
   return {
-    default: ({ onClose }) => (
-      <TasksProvider><CreateTicketModal onClose={onClose} /></TasksProvider>
+    default: ({ onClose, initial }) => (
+      <TasksProvider><CreateTicketModal onClose={onClose} initial={initial} /></TasksProvider>
     ),
   };
 });
@@ -119,7 +119,8 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
     return () => document.removeEventListener('mousedown', onDown);
   }, [open, close]);
 
-  const ask = useCallback(() => { setOpen(false); setComposing(true); }, []);
+  // `seed`: { subject, description } from Ask Nexus's File a Ticket (Oct 2026).
+  const ask = useCallback((seed) => { setOpen(false); setComposing(seed && typeof seed === 'object' ? seed : true); }, []);
 
   // The built-for-this-page tour (lib/autoTour.js) for screens with no
   // hand-built one: built at the moment it starts, from the Help entry and
@@ -180,7 +181,7 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
       )}
       {composing && (
         <Suspense fallback={<ModalLoading />}>
-          <TicketComposer onClose={() => setComposing(false)} />
+          <TicketComposer onClose={() => setComposing(false)} initial={typeof composing === 'object' ? composing : null} />
         </Suspense>
       )}
     </div>

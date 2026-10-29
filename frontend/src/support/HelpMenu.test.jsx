@@ -160,7 +160,7 @@ describe('Help widget', () => {
     expect(screen.getByText('Hi Pranshu!')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'How can we help?' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Search for Help/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Ask a Question.*Our support team can help/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Ask a Question.*our team can help/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /What's New in Nexus/ })).toBeTruthy();
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Home', 'Messages', 'Help']);
     // No AI wording anywhere (the user asked for none).
@@ -202,7 +202,7 @@ describe('Help widget', () => {
     const input = await goToHelpSearch();
     fireEvent.change(input, { target: { value: 'banana smoothie recipe' } });
     expect(screen.queryByRole('list', { name: 'Help results' })).toBeNull();
-    expect(screen.getByText(/No results for/)).toBeTruthy();
+    expect(screen.getByText(/No guide or Knowledge Base page matches/)).toBeTruthy();
   });
 
   it('a Knowledge Base failure still shows guide results, with a quiet note', async () => {

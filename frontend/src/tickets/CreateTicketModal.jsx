@@ -30,6 +30,11 @@ import {
   TypeFieldInput, TicketTypeIcon, TicketSelect, TicketPeopleMultiSelect,
 } from './TicketAtoms';
 import TicketDeflection from '../support/TicketDeflection';
+// Help Center (Oct 2026): what is already known to be broken, and the
+// "searched, then filed a ticket" record (support/helpLog.js).
+import { KnownIssuesNotice } from '../support/KnownIssues';
+import { logHelpSearch } from '../support/helpLog';
+import { seedHtml } from '../support/ticketSeed';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { TicketPropertyIntake } from './TicketPropertyFields';
 import { useTicketPropertyRules, propertyRequiredFor, usePropertyUnits } from './ticketPropertyLink';
@@ -65,7 +70,9 @@ import { MapSpotIntake, dataUrlToFile } from './TicketMapSpot';
 // `mapSpot` (Mark an Issue on the Map, Charmi Oct 20 2026): { spot, snapshot }
 // from the site map - the spot goes with the ticket as map_spot, the map's
 // picture is attached once the ticket exists, and a photo is asked for.
-export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, forProperty = null, onBatch = null, mapSpot = null }) {
+// `initial` (Help Center, Oct 2026): { subject, description, type } handed
+// over from help - Ask Nexus's File a Ticket, "I Need To..." - plain text.
+export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, forProperty = null, onBatch = null, mapSpot = null, initial = null }) {
   // Reachable standalone from Support.jsx without TicketsView ever mounting
   // (its own ticket composer) - needs its own call so intake-field/SLA
   // overrides are loaded before the type-dependent form renders there too.
@@ -105,9 +112,11 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   const seed = seedRef.current;
   // Opens on Incident (Neil, Oct 1 2026: "nine times out of ten it is simply
   // an incident") - preselected, still changeable. See defaultIntakeType.
-  const initialType = useRef(defaultIntakeType()).current;
+  const initialType = useRef(!fromTask && initial?.type && TICKET_TYPE_ORDER.includes(initial.type)
+    ? initial.type : defaultIntakeType()).current;
   const [form, setForm] = useState(seed?.form || {
-    subject: fromTask?.title || '', description: fromTask?.description || '', type: initialType,
+    subject: fromTask?.title || initial?.subject || '', description: fromTask?.description || seedHtml(initial?.description),
+    type: initialType,
     priority: PRIORITY_ORDER.includes(fromTask?.priority) ? fromTask.priority : 'medium', status: 'open',
     // Who the ticket is FOR (Neil, Oct 1): you, unless you pick a colleague.
     // A converted task is for whoever owns it - they asked for the work.
@@ -122,6 +131,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   });
   // Close the task once the ticket exists, so the work is not tracked twice.
   const [closeSource, setCloseSource] = useState(true);
+  // How many guide answers the Suggested Articles block was showing.
+  const deflectCount = useRef(0);
   // Per-type field values (keyed by field key), pre-answered where the
   // question has a sensible default - Who is affected? = One User, When did
   // it start? = now.
@@ -137,7 +148,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // The admin's saved type order arrives after mount (useTicketConfig). If it
   // took Incident out of intake, move off it - but only while the person has
   // not picked a type themselves.
-  const typeTouched = useRef(!!seed?.form);
+  const typeTouched = useRef(!!seed?.form || (!!initial?.type && initialType === initial.type));
   const typeOrderKey = TICKET_TYPE_ORDER.join(',');
   useEffect(() => {
     if (typeTouched.current || TICKET_TYPE_ORDER.includes(form.type)) return;
@@ -380,6 +391,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           appDialog.alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's' : ''} couldn't be stored (${failed.map((f) => f.name).join(', ')}) - they won't be playable/downloadable.`);
         }
       }
+      // Searched the guide right here, then filed anyway - what the guide is missing.
+      if (!fromTask) logHelpSearch(form.subject, deflectCount.current, 'ticket-form');
       onCreated?.(created);
       if (created?.propertyAssetId) {
         // A property's ticket tabs in Asset Management refresh on this.
@@ -515,6 +528,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
             : <div style={{ color: NX.green, fontWeight: 600, marginTop: 4 }}>Everything required is filled in - check the Type, then convert.</div>}
         </div>
       )}
+      {!fromTask && <KnownIssuesNotice />}
       <div style={field}>
         <label style={label}>Title {req}</label>
         <input autoFocus value={form.subject} onChange={(e) => set('subject', e.target.value)} placeholder="What is the issue? e.g. Light out in the front office"
@@ -575,7 +589,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           match what is being typed. Advisory only - it never blocks Create
           Ticket, and shows nothing when nothing is a confident match.
           "This Solved My Problem" closes the form without creating one. */}
-      <TicketDeflection subject={form.subject} description={richToPlain(form.description)} onSolved={onClose} />
+      <TicketDeflection subject={form.subject} description={richToPlain(form.description)} onSolved={onClose}
+        onResults={(n) => { deflectCount.current = n; }} />
 
       {/* Company picker (Sep 19, Pranshu) - hidden by default; appears only
           once an admin has turned it on AND picked 2+ companies to offer

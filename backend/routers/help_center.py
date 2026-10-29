@@ -150,7 +150,8 @@ def ask(body: AskIn, user: dict = Depends(get_current_user), db: Session = Depen
         out = kb_ai.answer_help(q, sources)
     except kb_ai.AiError as e:
         return {"answer": "", "sources": public[:5], "grounded": False, "offline": True, "error": str(e)}
-    used = [public[i] for i in out["sources"]]
+    # `n` is the number the answer cites it by ([1], [2]...).
+    used = [{**public[i], "n": i + 1} for i in out["sources"]]
     if not out["grounded"]:
         kb_search.log_miss(db, q, len(used), email, source="ask", floor=10 ** 6)
         db.commit()
