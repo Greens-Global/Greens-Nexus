@@ -43,8 +43,7 @@ describe('Convert to Ticket', () => {
     const onCreated = vi.fn();
     render(<CreateTicketModal onClose={vi.fn()} fromTask={TASK} onCreated={onCreated} />);
     await screen.findByPlaceholderText(/What is the issue\?/);
-    fireEvent.click(await screen.findByText('Select department'));
-    fireEvent.click(await screen.findByText('Facilities'));
+    fireEvent.click(await screen.findByRole('radio', { name: /Facilities/ }));
     fireEvent.change(screen.getByPlaceholderText(/Front gate keypad/), { target: { value: 'Lighting' } });
     fireEvent.click(screen.getByLabelText('Close the task'));   // keep the task open this time
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Convert to Ticket' })); });

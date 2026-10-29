@@ -29,7 +29,7 @@ const GROUPS = [
         desc: 'A browser that has not used Nexus for this long is signed out. Lowering it signs out anyone already idle longer, on their next visit.' },
       { key: 'actAsMinutes', label: 'Act As Session Length',
         desc: 'How long an Act As session lasts before it ends on its own. Applies to sessions started after the change.' },
-      { key: 'vaultOtpUnlockSec', label: 'Credential Vault Unlock (Code)',
+      { key: 'vaultOtpUnlockSec', label: 'Credentials Unlock (Code)',
         desc: 'How long a verified text or email code unlocks revealing and sharing company vault credentials.' },
       { key: 'vaultPersonalUnlockSec', label: 'Personal Vault Unlock',
         desc: 'The longest a Personal Vault stays unlocked after the password is entered. The screen still locks itself sooner when idle.' },

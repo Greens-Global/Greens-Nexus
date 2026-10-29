@@ -8,16 +8,16 @@ import { render, screen, fireEvent, within, act } from '@testing-library/react';
 
 // Real NAV, so the gating under test is the same rule the left menu uses.
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ instance: {}, accounts: [] }) }));
-const role = { admin: false, external: false, grants: new Set() };
+const role = { admin: false, supervisor: false, external: false, grants: new Set() };
 vi.mock('../contexts/RoleContext', async (importOriginal) => ({
   ...(await importOriginal()),
   useRole: () => ({
     isExternal: role.external,
-    can: (r) => role.admin && r === 'administrator',
+    can: (r) => (r === 'administrator' ? role.admin : r === 'supervisor' ? role.admin || role.supervisor : false),
     myGrantedModules: role.grants,
   }),
 }));
-const as = (next) => Object.assign(role, { admin: false, external: false, grants: new Set() }, next);
+const as = (next) => Object.assign(role, { admin: false, supervisor: false, external: false, grants: new Set() }, next);
 
 const SupportDocs = (await import('./SupportDocs')).default;
 const { DOCS, DOC_GROUPS } = await import('./docsContent');
@@ -53,7 +53,7 @@ describe('Support documentation', () => {
     for (const n of ['Getting Started', 'Dashboard', 'Workday', 'Team', 'Knowledge Base', 'Item Management', 'Construction', 'Help Center']) {
       expect(names).toContain(n);
     }
-    for (const n of ['Tasks', 'Tickets', 'People', 'Accounting', 'Investor Relations', 'Credential Vault', 'Settings', 'Workforce Analytics']) {
+    for (const n of ['Tasks', 'Tickets', 'People', 'Accounting', 'Investor Relations', 'Credentials', 'Settings', 'Workforce Analytics']) {
       expect(names).not.toContain(n);
     }
     // Search cannot reach a hidden module either.
@@ -136,6 +136,20 @@ describe('Support documentation', () => {
     render(<SupportDocs />);
     expect(screen.getByRole('heading', { level: 2, name: 'Item Management' })).toBeTruthy();
     expect(window.location.search).toBe('');
+  });
+
+  it('shows the Managers & Admins callout from Supervisor up, not to every reader', () => {
+    const openWorkday = (container) => fireEvent.click(indexButtons(container).find((b) => b.textContent.includes('Workday')));
+    as({});
+    const first = render(<SupportDocs />);
+    openWorkday(first.container);
+    expect(screen.getByRole('heading', { level: 2, name: 'Workday' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Managers & Admins' })).toBeNull();
+    first.unmount();
+    as({ supervisor: true });
+    const second = render(<SupportDocs />);
+    openWorkday(second.container);
+    expect(screen.getAllByRole('heading', { name: 'Managers & Admins' }).length).toBeGreaterThan(0);
   });
 
   it('content is complete and follows the house style', () => {

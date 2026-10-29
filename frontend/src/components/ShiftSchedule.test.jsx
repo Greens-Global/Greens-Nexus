@@ -323,7 +323,7 @@ describe('Grid: blocks, time off beside shifts, open shifts per group', () => {
 
 describe('The week grid engine (WeekGrid, 10/02)', () => {
   const groups2 = (scheduled, over = {}) => ({ ...data(scheduled),
-    groups: [{ id: 'g1', name: 'Front', members: ['amy@greensglobal.com'], canEdit: true, sortOrder: 0 },
+    groups: [{ id: 'g1', name: 'Front', members: ['amy@greensglobal.com'], canEdit: true, openShifts: true, sortOrder: 0 },
       { id: 'g2', name: 'Back', members: ['bob@greensglobal.com'], canEdit: true, sortOrder: 1 }], ...over });
 
   it('puts every cell of a row in the ONE grid, on the same grid row - so they are the same height', async () => {
@@ -381,7 +381,7 @@ describe('The week grid engine (WeekGrid, 10/02)', () => {
     expect(screen.getByText('1 person · no shifts this week')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Expand Back' }).getAttribute('aria-expanded')).toBe('false');
     expect(document.querySelector('[data-open-row="g2"]')).toBeNull();    // a folded group shows nothing under it
-    expect(document.querySelector('[data-open-row="g1"]')).toBeTruthy();  // a manager gets the slim Open Shifts row
+    expect(document.querySelector('[data-open-row="g1"]')).toBeTruthy();  // a manager gets the slim Open Shifts row where open shifts are on
     fireEvent.click(screen.getByRole('button', { name: 'Expand Back' }));
     expect(screen.getByText('Bob Brown')).toBeTruthy();
     unmount();

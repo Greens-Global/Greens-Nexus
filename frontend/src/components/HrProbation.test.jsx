@@ -21,6 +21,9 @@ const base = {
 };
 let current = base;
 const decide = vi.fn();
+const removeFn = vi.fn();
+const startFn = vi.fn();
+const sendLetter = vi.fn();
 const settingsSave = vi.fn(() => Promise.resolve({ settings: { months: 6, reminderDays: 14 }, override: true }));
 vi.mock('../api', () => ({
   api: {
@@ -35,13 +38,19 @@ vi.mock('../api', () => ({
       letterheads: [],
     }),
     probationSaveSettings: (...a) => settingsSave(...a),
+    probationRemove: (...a) => removeFn(...a),
+    probationStart: (...a) => startFn(...a),
+    probationSendLetter: (...a) => sendLetter(...a),
   },
 }));
 
 const { ProbationBadge, ProbationCard, ProbationSettings } = await import('./HrProbation');
 const jane = { id: 'e1', firstName: 'Jane', lastName: 'Doe', startDate: '2029-12-31' };
 
-beforeEach(() => { current = base; decide.mockReset(); });
+beforeEach(() => { current = base; decide.mockReset(); removeFn.mockReset(); startFn.mockReset(); sendLetter.mockReset(); });
+
+// The words a reader sees, without the avatars' initials in between.
+const said = (el) => { const c = el.cloneNode(true); c.querySelectorAll('[data-avatar]').forEach((n) => n.remove()); return c.textContent.replace(/\s+/g, ' '); };
 
 describe('ProbationBadge', () => {
   it('shows only while a decision is due', () => {
@@ -107,11 +116,89 @@ describe('ProbationCard', () => {
     const { unmount } = render(<ProbationCard employee={jane} toastOk={() => {}} toastErr={() => {}} />);
     expect(await screen.findByText('Not Tracked')).toBeTruthy();
     expect(screen.getByText('Start Tracking')).toBeTruthy();
-    expect(screen.getByText(/not tracked unless HR starts it/)).toBeTruthy();
+    expect(screen.getByText(/HR can start it from their start date/)).toBeTruthy();
     unmount();
     current = { ...base, status: '', applies: false };
     const { container } = render(<ProbationCard employee={jane} toastOk={() => {}} toastErr={() => {}} />);
     await waitFor(() => expect(container.textContent).toBe(''));
+  });
+});
+
+// Past the window (Neil, Oct 29 2026): passed by itself, past (never
+// tracked), and Remove From Probation.
+describe('ProbationCard past the window', () => {
+  const passed = {
+    ...base, status: 'passed', label: 'Passed Probation', canDecide: false, canRemove: false, canSendLetter: true, ending: false, daysLeft: null,
+    endDate: '2027-01-29', startDate: '2026-10-29',
+    decision: { decision: 'passed', by: 'system', byName: 'Nexus', at: '2027-01-30T08:00:00Z', automatic: true, reason: 'Reached the end of probation with no decision - passed automatically.' },
+    history: [{ at: '2027-01-30T08:00:00Z', by: 'system', byName: 'Nexus', action: 'passed', reason: 'Reached the end of probation with no decision - passed automatically.' }],
+  };
+
+  it('Passed Probation: automatically, no decision; HR can send the confirmation letter and start a new one', async () => {
+    current = passed;
+    sendLetter.mockResolvedValue({ letter: { sent: true, title: 'Probation Confirmation Letter - Jane Doe' }, probation: { ...passed, canSendLetter: false } });
+    const toastOk = vi.fn();
+    render(<ProbationCard employee={jane} toastOk={toastOk} toastErr={() => {}} />);
+    expect(await screen.findByText('Passed Probation')).toBeTruthy();
+    expect(screen.getByText('Passed Probation on 01/29/2027 - automatically, no decision was recorded')).toBeTruthy();
+    expect(screen.getByText(/Nexus/)).toBeTruthy();
+    expect(screen.queryByText('Decide')).toBeNull();
+    expect(screen.queryByText('Remove From Probation')).toBeNull();
+    expect(screen.getByText('Start A New Probation')).toBeTruthy();
+    fireEvent.click(screen.getByText('Send Letter'));
+    await waitFor(() => expect(sendLetter).toHaveBeenCalledWith('e1'));
+    await waitFor(() => expect(toastOk).toHaveBeenCalledWith('Saved - Probation Confirmation Letter - Jane Doe sent to Jane to sign.'));
+  });
+
+  it('Past Probation: never tracked and past the window - no Start Tracking prompt, only a new probation', async () => {
+    current = { ...base, status: 'past', label: 'Past Probation', pastSince: '2026-04-15', startDate: '', endDate: '', canDecide: false, canRemove: false, history: [] };
+    startFn.mockResolvedValue({ probation: { ...base } });
+    render(<ProbationCard employee={jane} toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('Past Probation')).toBeTruthy();
+    expect(screen.getByText(/Past Probation since 04\/15\/2026/)).toBeTruthy();
+    expect(screen.queryByText('Start Tracking')).toBeNull();
+    expect(screen.queryByText('Not Tracked')).toBeNull();
+    fireEvent.click(screen.getByText('Start A New Probation'));
+    expect(screen.getByRole('dialog', { name: /Start A New Probation - Jane Doe/ })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Counts from'), { target: { value: '2030-03-01' } });
+    fireEvent.click(screen.getAllByText('Start A New Probation').find(el => el.className === 'primary-btn'));
+    await waitFor(() => expect(startFn).toHaveBeenCalledWith('e1', { months: null, reason: '', start_date: '2030-03-01' }));
+  });
+
+  it('Removed From Probation: on what day, by whom and why', async () => {
+    current = { ...base, status: 'removed', label: 'Removed From Probation', canDecide: false, canRemove: false, ending: false, daysLeft: null,
+      decision: { decision: 'removed', by: 'hana@x.com', byName: 'Hana Hr', at: '2030-03-10T17:00:00Z', reason: 'Moved from a sister company' } };
+    render(<ProbationCard employee={jane} toastOk={() => {}} toastErr={() => {}} />);
+    expect(said(await screen.findByText(/Removed From Probation on 03\/10\/2030 by/))).toBe('Removed From Probation on 03/10/2030 by Hana Hr: Moved from a sister company');
+    expect(screen.queryByText('Edit')).toBeNull();
+    expect(screen.getByText('Start A New Probation')).toBeTruthy();
+  });
+
+  it('Remove From Probation asks for the reason, then removes', async () => {
+    current = { ...base, canRemove: true };
+    removeFn.mockResolvedValue({ probation: { ...base, status: 'removed', label: 'Removed From Probation', canDecide: false, canRemove: false,
+      decision: { decision: 'removed', byName: 'Hana Hr', at: '2030-03-10T17:00:00Z', reason: 'Started by mistake' } } });
+    const toastOk = vi.fn();
+    render(<ProbationCard employee={jane} toastOk={toastOk} toastErr={() => {}} />);
+    expect(screen.queryByText('Stop Tracking')).toBeNull();
+    fireEvent.click(await screen.findByText('Remove From Probation'));
+    const dialog = screen.getByRole('dialog', { name: /Remove From Probation - Jane Doe/ });
+    expect(dialog.textContent).toMatch(/no reminder, no decision and no letter/);
+    const confirm = screen.getAllByText('Remove From Probation').find(el => el.className === 'primary-btn');
+    expect(confirm.disabled).toBe(true);                                 // the reason first
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Started by mistake' } });
+    expect(confirm.disabled).toBe(false);
+    fireEvent.click(confirm);
+    await waitFor(() => expect(removeFn).toHaveBeenCalledWith('e1', 'Started by mistake'));
+    expect(said(await screen.findByText(/Removed From Probation on 03\/10\/2030 by/))).toBe('Removed From Probation on 03/10/2030 by Hana Hr: Started by mistake');
+    expect(toastOk).toHaveBeenCalledWith('Saved.');
+  });
+
+  it('a manager cannot remove - they recommend', async () => {
+    current = { ...base, role: 'manager', canFinalize: false, canManage: false, canRemove: false };
+    render(<ProbationCard employee={jane} toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('Recommend')).toBeTruthy();
+    expect(screen.queryByText('Remove From Probation')).toBeNull();
   });
 });
 

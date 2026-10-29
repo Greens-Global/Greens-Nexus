@@ -47,11 +47,17 @@ function _screenName(slug) {
   return _SLUG_LABELS[slug] || slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
+// A rich-text editor (TipTap / ProseMirror / any contenteditable) holds what
+// the tester typed, so its text is never a label (Oct 28 2026: a click in the
+// editor matched no control and saved the paragraph's first 60 characters).
+const EDITABLE = '[contenteditable]:not([contenteditable="false"])';
+const _holdsTyping = (el) => ['input', 'textarea', 'select'].includes(el.tagName?.toLowerCase()) || !!el.closest?.(EDITABLE);
+
 function _hintsOf(el) {
   return {
     tag: el.tagName?.toLowerCase() || '',
     aria: el.getAttribute?.('aria-label') || '',
-    text: (el.innerText || '').trim().split('\n')[0].slice(0, 60),
+    text: _holdsTyping(el) ? '' : (el.innerText || '').trim().split('\n')[0].slice(0, 60),
     placeholder: el.placeholder || '',
     title: el.title || '',
     name: el.name || '',
@@ -88,12 +94,17 @@ function _onClick(e) {
   if (!_recording) return;
   if (_pill && _pill.contains(e.target)) return;   // ignore clicks on the pill itself
   // Walk up to the nearest meaningful control so we log "button 'Save'", not "svg".
-  const el = e.target.closest?.('button, a, [role="button"], [role="tab"], select, input, textarea, label, th, [onclick]') || e.target;
-  const tag = el.tagName?.toLowerCase() || 'element';
+  // Inside an editor the step is "typed into" the editor itself, named by its
+  // label or placeholder - never by its text.
+  const editor = e.target.closest?.(EDITABLE);
+  const el = editor || e.target.closest?.('button, a, [role="button"], [role="tab"], select, input, textarea, label, th, [onclick]') || e.target;
+  const tag = editor ? 'textarea' : (el.tagName?.toLowerCase() || 'element');
   // focusin exists only to catch typing/selecting - for buttons/links it just
   // echoes the click and doubled every entry.
   if (e.type === 'focusin' && !['input', 'textarea', 'select'].includes(tag)) return;
-  const label = _labelOf(el);
+  const label = editor
+    ? (editor.getAttribute('aria-label') || editor.getAttribute('data-placeholder') || editor.title || 'Text Editor').slice(0, 60)
+    : _labelOf(el);
   if (!label) return;
   const role = tag === 'input' || tag === 'textarea' ? 'typed into' : tag === 'select' ? 'picked from' : 'clicked';
   _trackScreen();

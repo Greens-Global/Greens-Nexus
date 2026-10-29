@@ -463,3 +463,35 @@ def test_describe_503_without_key(client, monkeypatch):
     as_user(EDDIE)
     r = client.post("/workflows/describe", json={"text": "When someone is offboarded, tell their manager"})
     assert r.status_code == 503
+
+
+def test_delete_removes_the_workflow_and_keeps_its_past_runs(client, db):
+    # Neil, Oct 28 2026: "an option to delete workflows not just archive them"
+    wf = _published(db, name="Delete Me")
+    wid = wf.id
+    db.add(models.WorkflowRun(id="run-done", workflow_id=wid, workflow_name="Delete Me", status="succeeded", started_at="2026-10-27"))
+    db.add(models.WorkflowRun(id="run-wait", workflow_id=wid, workflow_name="Delete Me", status="waiting", started_at="2026-10-28"))
+    db.add(models.WorkflowRunStep(id="step-wait", run_id="run-wait", workflow_id=wid, status="waiting"))
+    db.add(models.WorkflowWait(id="wait-1", run_id="run-wait", workflow_id=wid, due_at="2026-11-01"))
+    db.add(models.WorkflowApproval(id="ap-1", run_id="run-wait", workflow_id=wid, outcome="", approvers=[MAX]))
+    db.add(models.WorkflowSubjectMark(workflow_id=wid, entity="employee", subject_id="e-vera", last_run_at="2026-10-27"))
+    db.commit()
+    as_user(VERA)                                                   # a viewer may not delete
+    assert client.delete(f"/workflows/{wid}").status_code == 403
+    as_user(EDDIE)
+    r = client.delete(f"/workflows/{wid}")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": True, "cancelledRuns": 1, "cancelledApprovals": 1, "versions": 1, "runsKept": 2}
+    db.expire_all()
+    assert db.get(models.Workflow, wid) is None
+    assert client.get(f"/workflows/{wid}").status_code == 404
+    assert db.query(models.WorkflowVersion).filter_by(workflow_id=wid).count() == 0
+    assert db.query(models.WorkflowWait).filter_by(workflow_id=wid).count() == 0
+    assert db.query(models.WorkflowSubjectMark).filter_by(workflow_id=wid).count() == 0
+    assert db.get(models.WorkflowRun, "run-done").status == "succeeded"
+    assert db.get(models.WorkflowRun, "run-wait").status == "cancelled"
+    assert db.get(models.WorkflowRunStep, "step-wait").status == "skipped"
+    assert db.get(models.WorkflowApproval, "ap-1").outcome == "cancelled"
+    log = db.query(models.AuditLog).filter(models.AuditLog.action == "workflow.delete").one()
+    assert log.user_email == EDDIE and log.resource_id == wid and '"Delete Me"' in log.details
+    assert client.delete(f"/workflows/{wid}").status_code == 404

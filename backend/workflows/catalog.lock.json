@@ -1134,6 +1134,14 @@
             {
               "label": "Stopped",
               "value": "stopped"
+            },
+            {
+              "label": "Passed Probation",
+              "value": "passed"
+            },
+            {
+              "label": "Removed From Probation",
+              "value": "removed"
             }
           ],
           "type": "select",

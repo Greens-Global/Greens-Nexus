@@ -22,6 +22,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { Spinner } from './AsyncState';
 import { usePopupNudge } from '../lib/usePopupNudge';
 import PurchaseRequestForm from './PurchaseRequestForm';
+import { AvatarName } from '../tasks/components';
 
 // The inventory Add Item form and the assign flow load only when someone
 // actually receives an item - they live in Item Management's own chunk.
@@ -234,12 +235,12 @@ export default function PurchaseRequests({ toast, openNewKey = 0 }) {
                 <span style={{ fontSize:11, fontWeight:800, color:'hsl(var(--color-blue))', background:'hsla(var(--color-blue),0.10)', borderRadius:20, padding:'2px 9px' }}>×{r.quantity}</span>
               </div>
               <div style={{ fontSize:12, color:'var(--muted)', marginTop:3 }}>
-                <strong style={{ color:'var(--ink)', fontWeight:600 }}>{r.employeeName}</strong> · {r.employeeDept}
+                <AvatarName email={r.employeeEmail} name={r.employeeName} size={20}><strong style={{ color:'var(--ink)', fontWeight:600 }}>{r.employeeName}</strong></AvatarName> · {r.employeeDept}
                 {r.createdAt && <> · {fmtDate(r.createdAt)}</>}
               </div>
               {r.allocatorName && ['manager_approved','ordered','fulfilled'].includes(r.status) && (
                 <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
-                  Fulfillment: <strong style={{ color:'hsl(var(--color-purple))', fontWeight:600 }}>{r.allocatorName}</strong>
+                  Fulfillment: <AvatarName email={r.allocatorEmail} name={r.allocatorName} size={18}><strong style={{ color:'hsl(var(--color-purple))', fontWeight:600 }}>{r.allocatorName}</strong></AvatarName>
                   {r.status === 'ordered' && r.orderedAt && <> · ordered {fmtDate(r.orderedAt)}</>}
                   {r.status === 'fulfilled' && r.fulfilledAt && <> · fulfilled {fmtDate(r.fulfilledAt)}</>}
                 </div>
@@ -277,7 +278,7 @@ export default function PurchaseRequests({ toast, openNewKey = 0 }) {
               <ol style={{ listStyle:'none', margin:'8px 0 0', padding:'0 0 0 12px', borderLeft:'2px solid var(--line)', display:'flex', flexDirection:'column', gap:6 }}>
                 {history.map((h, i) => (
                   <li key={i} style={{ fontSize:12, color:'var(--ink)' }}>
-                    <strong style={{ fontWeight:600 }}>{h.action}</strong>{h.by ? ` by ${h.by}` : ''}
+                    <strong style={{ fontWeight:600 }}>{h.action}</strong>{h.by ? <> by <AvatarName name={h.by} size={16} /></> : ''}
                     {h.date && <span style={{ color:'var(--muted)' }}> · {formatDateTime(h.date)}</span>}
                     {h.comment && <div style={{ color:'var(--muted)' }}>{h.comment}</div>}
                   </li>

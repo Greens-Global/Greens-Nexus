@@ -103,6 +103,15 @@ export default function WeatherSettingsPanel({ toastOk, toastErr, company = '' }
               ))}
               {!(data.companies || []).length && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No companies set up yet.</div>}
               {!!company && !(data.companies || []).some((c) => c.id === company) && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>This company has no groups to watch yet.</div>}
+              {/* Weather by department (Neil, 10/29/2026): who the weather applies to. */}
+              <div data-weather-departments="" style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                Applies to people in departments with Weather Calls on: {(data.companies || []).filter((c) => !company || c.id === company)
+                  .map((c) => `${c.name}: ${(c.weatherDepartments || []).join(', ') || 'none'}`).join('; ') || 'none'}.{' '}
+                <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'companies' } }))}
+                  style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'var(--wk-brand)', fontWeight: 600, cursor: 'pointer' }}>
+                  Settings &gt; Companies
+                </button>
+              </div>
               {!company && data.untaggedGroups?.length > 0 && (
                 <div style={{ fontSize: 11.5, color: 'hsl(var(--color-orange))' }}>
                   Groups whose members have no company, so no switch covers them: {data.untaggedGroups.join(', ')}.

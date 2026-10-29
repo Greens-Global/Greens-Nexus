@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Pay period finder (Neil, Oct 21 2026): the period label opens a list of
@@ -83,14 +83,27 @@ describe('pay period finder', () => {
   it('narrows the sidebar to people with missing punches', async () => {
     await open();
     const box = await screen.findByLabelText('Only People With Missing Punches');
-    expect(screen.getByText('Erin Employee')).toBeTruthy();
+    // The list on the left (the card's own header also names whoever is open).
+    const list = () => within(document.querySelector('.pr-sidebar'));
+    expect(list().getByText('Erin Employee')).toBeTruthy();
     fireEvent.click(box);
-    expect(screen.queryByText('Erin Employee')).toBeNull();
-    expect(screen.getByText('Gary Gap')).toBeTruthy();
+    expect(list().queryByText('Erin Employee')).toBeNull();
+    expect(list().getByText('Gary Gap')).toBeTruthy();
   }, 20000);
 
   it('lists everyone on the period, salaried people without counts too', async () => {
     await open();
     expect(await screen.findByText('Sam Salary')).toBeTruthy();   // on the team list, not in the hourly counts
+  }, 20000);
+});
+
+describe('whose time sheet (Oct 29 2026)', () => {
+  it('names the person with their picture and pay period at the top, with the picker on the left and no Simulate', async () => {
+    await open();
+    const head = await screen.findByTestId('timesheet-person');
+    expect(head.textContent).toMatch(/Pay Period:/);
+    expect(screen.queryByText('Simulate')).toBeNull();
+    const sidebar = document.querySelector('.pr-sidebar');
+    expect(within(sidebar).getByPlaceholderText('Find someone...')).toBeTruthy();
   }, 20000);
 });

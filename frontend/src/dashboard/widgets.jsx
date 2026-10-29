@@ -23,6 +23,7 @@ import { readIds, pushRecentId } from '../links/shortcutStorage';
 import { looksLikeUrl } from '../links/personalLinkModal.jsx';
 import { ModalLoading, LoadingState } from '../components/AsyncState';
 import { MoreRow } from './listParts.jsx';
+import { colorForLinkCategory, PERSONAL_TILE_COLOR, useFavoriteLinks, openFavorite, FavoriteTileGrid } from './favoriteLinks.jsx';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
 // lazily so TimeAdmin & the approval flows stay out of the main bundle.
@@ -281,18 +282,7 @@ function LinksWidget({ config }) {
   );
 }
 
-// Same accent-color scheme External Links uses (colorFor/PERSONAL_COLOR in
-// ExternalLinks.jsx) - not shared as an import since it's three lines of
-// pure hashing, cheaper to duplicate than to couple this file to that
-// view's module. Company gets a stable per-category tone; Personal gets one
-// flat purple, matching that view's own Personal badge color exactly.
-const LINK_TILE_PALETTE = ['blue', 'green', 'orange', 'purple', 'red', 'gold'];
-function hashLinkStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
-function colorForLinkCategory(category) {
-  const tone = LINK_TILE_PALETTE[hashLinkStr(category || '') % LINK_TILE_PALETTE.length];
-  return { fg: `hsl(var(--color-${tone}))`, bg: `hsla(var(--color-${tone}),0.12)` };
-}
-const PERSONAL_TILE_COLOR = { fg: 'hsl(var(--color-purple))', bg: 'hsla(var(--color-purple),0.12)' };
+// Link tile colors: dashboard/favoriteLinks.jsx (the same scheme External Links uses).
 
 // Reuses External Links' own .app-grid/.app-tile CSS and real-favicon
 // LinkIcon (Aug 14, "i want the same folder style in dashboard as we have
@@ -516,54 +506,37 @@ const tabStyle = (on) => ({
   borderBottom: `2px solid ${on ? 'var(--wk-brand)' : 'transparent'}`,
 });
 
-// The Links tab's bookmarks, live from the saved Link View (backend-persisted,
-// so they follow the account), with a Recently Used tab reading the same
-// per-browser trail the Links tab keeps (shortcutStorage.js). The tab choice
-// is session-local on purpose: persisting it through updateConfig would mark
-// the saved layout dirty and trip the "discard layout changes?" confirm on
-// the next view switch (see confirmDiscard in CustomDashboard) for what is
-// only a way of looking, not an arrangement.
+// The Links tab's bookmarks - EVERY one (Neil, Oct 28 2026: "a widget that
+// has all the favorite links in it"), in an even grid that scrolls inside the
+// card (dashboard/favoriteLinks.jsx, shared with the home's Favorites card) -
+// with a Recently Used tab reading the same per-browser trail the Links tab
+// keeps (shortcutStorage.js). The tab choice is session-local on purpose:
+// persisting it through updateConfig would mark the saved layout dirty and
+// trip the "discard layout changes?" confirm on the next view switch (see
+// confirmDiscard in CustomDashboard) for what is only a way of looking, not
+// an arrangement.
 function FavoritesWidget() {
   const { myEmail } = useRole();
   const [mode, setMode] = useState('favorites'); // 'favorites' | 'recents'
-  const [state, setState] = useState({ loading: true, favorites: [], company: [] });
+  const state = useFavoriteLinks();
   const [recentIds, setRecentIds] = useState(() => readIds(myEmail, 'recents'));
-  const [showAll, setShowAll] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    Promise.all([api.getLinkLayout(), api.getExternalLinks(), api.getPersonalLinks().catch(() => [])])
-      .then(([layout, company, personal]) => {
-        if (!alive) return;
-        // A favorite can be a Company or a Personal Link - resolve against
-        // whichever list matches its item_type; _uid keeps render keys
-        // unique since the two tables' ids can collide.
-        const favorites = (layout?.favorites || []).map(f => {
-          const link = (f.item_type === 'personal' ? (personal || []) : (company || [])).find(l => l.id === f.item_id);
-          return link ? { ...link, _uid: `${f.item_type}-${link.id}`, _favType: f.item_type } : null;
-        }).filter(Boolean);
-        setState({ loading: false, favorites, company: company || [] });
-      })
-      .catch(() => { if (alive) setState({ loading: false, favorites: [], company: [] }); });
-    return () => { alive = false; };
-  }, []);
 
   const recents = recentIds.map(id => state.company.find(l => l.id === id)).filter(Boolean);
   const links = mode === 'recents' ? recents : state.favorites;
-  const colorFor = (l) => l._favType === 'personal' ? PERSONAL_TILE_COLOR : colorForLinkCategory(l.category);
   const open = (l) => {
-    const type = l._favType === 'personal' ? 'personal' : 'external';
-    openLinkTile(l, type, myEmail);
-    if (type === 'external') setRecentIds(readIds(myEmail, 'recents'));
+    openFavorite(l, myEmail);
+    if (l._favType !== 'personal') setRecentIds(readIds(myEmail, 'recents'));
   };
-  const title = mode === 'recents' ? 'Recently Used' : 'Favorites';
   const tabs = (
     <div style={{ display: 'inline-flex', gap: 12 }} role="tablist" aria-label="Show">
       <button type="button" role="tab" aria-selected={mode === 'favorites'} style={tabStyle(mode === 'favorites')} onClick={() => setMode('favorites')}>Favorites</button>
       <button type="button" role="tab" aria-selected={mode === 'recents'} style={tabStyle(mode === 'recents')} onClick={() => setMode('recents')}>Recent</button>
     </div>
   );
+  const sub = mode === 'recents' ? 'Company links opened in this browser'
+    : state.favorites.length ? `${state.favorites.length} from Links` : undefined;
   return (
-    <DashCard title={title} sub={mode === 'recents' ? 'Company links opened in this browser' : undefined} action={tabs}>
+    <DashCard title={mode === 'recents' ? 'Recently Used' : 'Favorites'} sub={sub} action={tabs}>
       {state.loading ? (
         <LoadingState compact />
       ) : links.length === 0 ? (
@@ -578,11 +551,7 @@ function FavoritesWidget() {
           </div>
         )
       ) : (
-        <LinkTileGrid links={links} colorFor={colorFor} onOpen={open} onShowAll={() => setShowAll(true)}
-          allLabel={mode === 'recents' ? 'All Recent' : 'All Favorites'} />
-      )}
-      {showAll && (
-        <LinksFolderAllModal title={title} links={links} colorFor={colorFor} onOpen={open} onClose={() => setShowAll(false)} />
+        <FavoriteTileGrid links={links} onOpen={open} label={mode === 'recents' ? 'Recently used links' : 'Favorite links'} />
       )}
     </DashCard>
   );
@@ -686,7 +655,7 @@ export const QUICK_ACTIONS = [
   { key: 'checkout-item', label: 'Check Out an Item', view: 'inventory', sub: 'checkouts',    color: 'orange', Icon: HandCoins },
   { key: 'my-shifts',     label: 'My Shifts',         view: 'myhr', sub: 'shifts',            color: 'green',  Icon: CalendarDays },
   { key: 'briefing',      label: 'My Briefing',       view: 'briefing',                       color: 'brand',  Icon: Sun },
-  { key: 'credvault',     label: 'Credential Vault',  view: 'credvault', module: 'credvault', color: 'purple', Icon: ShieldCheck },
+  { key: 'credvault',     label: 'Credentials',       view: 'credvault', module: 'credvault', color: 'purple', Icon: ShieldCheck },
 ];
 // Time Clock and Knowledge Base left the default set for New Ticket (Neil,
 // 10/08); both stay in the catalog for a tile that picks them.
@@ -1146,7 +1115,7 @@ export const WIDGETS = {
   shortcut:      { title: 'Shortcut Tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut', compact: true },
   links:         { title: 'Quick Links',     cat: 'Links',     icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget },
   'links-folder': { title: 'Links Folder',   cat: 'Links',     icon: FolderOpen,   size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder' },
-  favorites:     { title: 'Favorites',       cat: 'Links',     icon: Bookmark,     size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: FavoritesWidget },
+  favorites:     { title: 'Favorites',       cat: 'Links',     icon: Bookmark,     size: { w: 4, h: 5 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: FavoritesWidget },
   'personal-links': { title: 'My Personal Links', cat: 'Links', icon: Link2,       size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: PersonalLinksWidget },
   // Quick Actions (styles Oct 13): the size, the resize bounds and the phone
   // height all follow the style in the tile's config - a bare icon dock is

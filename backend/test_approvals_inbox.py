@@ -39,6 +39,7 @@ EMP, MGR, MATE = "erin.ai@greensglobal.com", "max.ai@greensglobal.com", "mia.ai@
 MGR2, EMP2 = "nora.ai@greensglobal.com", "ned.ai@greensglobal.com"   # another manager and their report
 DEE = "dee.ai@greensglobal.com"                                      # a stand-in manager of nobody
 HRC = "hana.ai@greensglobal.com"                                     # the company's HR contact
+ADM = "ada.ai@greensglobal.com"                                      # an administrator (added per test)
 ENTITY = "ent-ai"
 SOON = (date.today() + timedelta(days=3)).isoformat()
 TODAY = date.today().isoformat()
@@ -67,7 +68,13 @@ class InboxCase(unittest.TestCase):
                   models.ExpenseReimbursement, models.Requisition, models.NexusNotification, models.PunchRequest,
                   models.ApprovalDelegation, models.HrCandidate, models.HrStageEvent, models.HrInterview,
                   models.Task, models.TimesheetReview, models.HrEntity,
-                  models.SalaryAdvance, models.HrLetterRequest, models.HrHeadcountRequest, models.ExtraTimeClaim):
+                  models.SalaryAdvance, models.HrLetterRequest, models.HrHeadcountRequest, models.ExtraTimeClaim,
+                  # "All approvals go into that approval box" (Oct 28 2026)
+                  models.TaskTicket, models.ItemCheckout, models.ItemAssignment, models.TaskTeam,
+                  models.TaskMemberRequest, models.HrRoleChangeRequest, models.AccountingPartnerChange,
+                  models.NexusAccessScope, models.VaultShareRequest, models.VaultCredential, models.KbDocument,
+                  models.KbRevision, models.KbCollection, models.ConstructionProject, models.ConstructionDailyLog,
+                  models.HrLifeEvent, models.HrPacketSetting, models.NexusGroupMember, models.NexusGroup):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id=ENTITY, name="Greens Test", hr_contact_email=HRC))
         for em, first, mgr in ((EMP, "Erin", MGR), (MGR, "Max", ""), (MATE, "Mia", MGR),
@@ -78,6 +85,8 @@ class InboxCase(unittest.TestCase):
             self.db.add(models.NexusRole(email=em, role="manager", assigned_by="test"))
         self.db.commit()
         auth._role_cache.clear()
+        import cache
+        cache.module_grants.invalidate()
 
     def tearDown(self):
         if self._prev is None:
@@ -369,35 +378,44 @@ class InboxCase(unittest.TestCase):
                          [("approve", "none"), ("decline", "required")])
         self.assertEqual([a["key"] for a in rows["salary_advance_payout:a2"]["actions"]], ["open"])
         self.assertEqual(out["groups"], {"money": 2})
-        self.assertEqual(self._counts(HRC)["myhr"]["overview"], 2)
+        # Each row opens the person's Time Sheet in People > Time, and the
+        # count is on People > Time - not Workday (Oct 29 2026).
+        self.assertEqual(rows["salary_advance:a1"]["link"], {"view": "hr", "sub": "hr-time", "timecard": MGR})
+        self.assertEqual(rows["salary_advance_payout:a2"]["link"], {"view": "hr", "sub": "hr-time", "timecard": MGR})
+        counts = self._counts(HRC)
+        self.assertEqual(counts["hr"]["hr-time"], 2)
+        self.assertNotIn("overview", counts.get("myhr", {}))
         # Not HR, and never their own.
         self.assertEqual(self._inbox(MGR)["rows"], [])
         self.assertEqual(self._inbox(EMP)["rows"], [])
 
-    def test_probation_recommendations_and_overdue_decisions_wait_on_hr(self):
+    def test_probation_recommendations_wait_on_hr(self):
         past = (date.today() - timedelta(days=2)).isoformat()
         later = (date.today() + timedelta(days=20)).isoformat()
         recs = {
             "id-Erin": {"status": "in_probation", "startDate": "2026-05-01", "endDate": later,
                         "pending": {"decision": "confirm", "newEndDate": "", "reason": "Strong start", "by": MGR,
                                     "at": "2026-10-25T08:00:00+00:00"}},
+            # Past the end with nothing pending: no decision for HR - the daily
+            # pass makes it Passed Probation (Neil, Oct 29 2026).
             "id-Mia": {"status": "in_probation", "startDate": "2026-04-01", "endDate": past},
-            "id-Ned": {"status": "extended", "startDate": "2026-04-01", "endDate": later,
+            # Past the end WITH a recommendation: still HR's.
+            "id-Ned": {"status": "extended", "startDate": "2026-04-01", "endDate": past,
                        "pending": {"decision": "end", "reason": "Missed targets", "by": MGR2, "at": "2026-10-24T08:00:00+00:00"}},
-            "id-Dee": {"status": "confirmed", "startDate": "2026-01-01", "endDate": past},   # decided: nothing
+            "id-Dee": {"status": "passed", "startDate": "2026-01-01", "endDate": past},   # passed: nothing
         }
         for eid, rec in recs.items():
             self.db.query(models.NexusEmployee).filter_by(id=eid).update({"probation": rec})
         self.db.commit()
         out = self._inbox(HRC)
         rows = {r["key"]: r for r in out["rows"]}
-        self.assertEqual(set(rows), {"probation:id-Erin", "probation_due:id-Mia", "probation:id-Ned"})
+        self.assertEqual(set(rows), {"probation:id-Erin", "probation:id-Ned"})
         self.assertEqual(rows["probation:id-Erin"]["title"], "Probation - Confirm")
         self.assertEqual([a["key"] for a in rows["probation:id-Erin"]["actions"]], ["approve", "decline"])
         self.assertEqual([a["key"] for a in rows["probation:id-Ned"]["actions"]], ["open"])   # End: the Offboard flow
-        self.assertEqual(rows["probation_due:id-Mia"]["link"], {"view": "hr", "sub": "hr-probation-id-Mia"})
-        self.assertEqual(out["groups"], {"people": 3})
-        self.assertEqual(self._counts(HRC)["hr"]["hr-people"], 3)
+        self.assertEqual(rows["probation:id-Ned"]["link"], {"view": "hr", "sub": "hr-probation-id-Ned"})
+        self.assertEqual(out["groups"], {"people": 2})
+        self.assertEqual(self._counts(HRC)["hr"]["hr-people"], 2)
         # A manager recommends; only HR finalizes.
         self.assertEqual(self._inbox(MGR)["rows"], [])
 
@@ -414,6 +432,8 @@ class InboxCase(unittest.TestCase):
         row = out["rows"][0]
         self.assertEqual(row["title"], "HR Letter - Employment Verification")
         self.assertEqual([(a["key"], a["note"]) for a in row["actions"]], [("open", "none"), ("decline", "required")])
+        # Review opens that request in Ask HR, where letters live (Oct 28 2026).
+        self.assertEqual(row["link"], {"view": "myhr", "sub": "ask-hr:letter:l1"})
         self.assertEqual(self._counts(HRC)["myhr"]["overview"], 2)
         self.assertEqual(self._inbox(MGR)["rows"], [])
         self.assertEqual(self._inbox(EMP)["rows"], [])
@@ -454,6 +474,336 @@ class InboxCase(unittest.TestCase):
         self.assertEqual(self._counts(HRC)["hr"]["hr-time"], 1)
         self.assertEqual(self._inbox(MGR)["rows"], [])           # the manager is not the approver
         self.assertEqual(self._inbox(EMP)["rows"], [])           # never their own
+
+    # ── Everything else (Oct 28 2026: "all approvals go into that box") ─────
+
+    def _grant(self, gid, email, modules):
+        import cache
+        self.db.add(models.NexusGroup(id=gid, name=gid, allowed_modules=modules))
+        self.db.add(models.NexusGroupMember(group_id=gid, email=email))
+        self.db.commit()
+        cache.module_grants.invalidate()
+
+    def _admin(self):
+        self.db.add(models.NexusEmployee(id="id-Ada", work_email=ADM, first_name="Ada", last_name="Test",
+                                         status="active", company=ENTITY))
+        self.db.add(models.NexusRole(email=ADM, role="administrator", assigned_by="test"))
+        self.db.commit()
+        auth._role_cache.clear()
+
+    def _rows(self, who, kind):
+        return [r for r in self._inbox(who)["rows"] if r["kind"] == kind]
+
+    def test_task_approvals_wait_on_the_assignee(self):
+        for tid, who, deleted in (("t1", MGR, ""), ("t2", MGR2, ""), ("t3", MGR, "2026-10-20"), ("t4", MATE, "")):
+            self.db.add(models.Task(id=tid, code=tid, title="Approve the Q4 budget", type="approval",
+                                    approval_status="pending", status="not_started", assignee_email=who,
+                                    assignee_emails=[who], created_by=EMP, completed=False, deleted_at=deleted,
+                                    created_at="2026-10-20T08:00:00+00:00", modified_at="2026-10-20T08:00:00+00:00"))
+        self.db.commit()
+        self._grant("g-ai-tasks", MGR, "tasks:editor")
+        rows = self._rows(MGR, "task_approval")
+        self.assertEqual([r["key"] for r in rows], ["task_approval:t1"])   # not another's, not a deleted one
+        self.assertEqual(rows[0]["title"], "Task Approval - Approve the Q4 budget")
+        self.assertEqual([(a["key"], a["note"]) for a in rows[0]["actions"]],
+                         [("approve", "none"), ("changes", "none"), ("reject", "none")])
+        self.assertEqual(rows[0]["link"], {"view": "tasks", "sub": "mine", "taskId": "t1"})
+        self.assertEqual(rows[0]["group"], "work")
+        # Mia is assigned one but cannot open Tasks: the PATCH would refuse her.
+        self.assertEqual(self._rows(MATE, "task_approval"), [])
+        self.assertEqual(self._rows(EMP, "task_approval"), [])               # the creator decides nothing
+
+    def test_due_date_asks_wait_on_who_was_asked(self):
+        later = (date.today() + timedelta(days=40)).isoformat()
+        asks = (
+            # Erin's 3rd extension, held for Max (who asked for the work).
+            ("d1", MGR, "extension_requested",
+             {"dueOn": later, "by": EMP, "at": "2026-10-24T08:00:00+00:00", "note": "Waiting on parts",
+              "kind": "extension", "number": 3, "approvers": [MGR], "overMonth": False, "baseline": SOON}),
+            # Erin proposes a new date to Nora, who asked for this one.
+            ("d2", MGR2, "proposed", {"dueOn": later, "by": EMP, "at": "2026-10-25T08:00:00+00:00", "note": ""}),
+        )
+        for tid, creator, agreement, prop in asks:
+            self.db.add(models.Task(id=tid, code=tid, title="Install the pump", type="task", status="in_progress",
+                                    assignee_email=EMP, assignee_emails=[EMP], created_by=creator, completed=False,
+                                    due_on=SOON, due_agreement=agreement, due_proposal=prop, deleted_at="",
+                                    created_at="2026-10-01T08:00:00+00:00", modified_at="2026-10-24T08:00:00+00:00"))
+        self.db.commit()
+        for gid, who in (("g-ai-t1", MGR), ("g-ai-t2", MGR2), ("g-ai-t3", EMP), ("g-ai-t4", DEE)):
+            self._grant(gid, who, "tasks:editor")
+        out = self._inbox(MGR)
+        self.assertEqual(out["errors"], [])
+        rows = [r for r in out["rows"] if r["kind"] == "task_date_ask"]
+        self.assertEqual([r["key"] for r in rows], ["task_date_ask:d1"])
+        row = rows[0]
+        self.assertEqual(row["title"], "Due Date Extension - Install the pump")
+        self.assertEqual([(a["key"], a["note"]) for a in row["actions"]], [("approve", "none"), ("decline", "optional")])
+        self.assertEqual(row["link"], {"view": "tasks", "sub": "mine", "taskId": "d1"})
+        facts = {f["label"]: f["value"] for f in row["facts"]}
+        us = lambda iso: f"{iso[5:7]}/{iso[8:10]}/{iso[:4]}"   # noqa: E731
+        self.assertEqual(facts["Current Due Date"], us(SOON))
+        self.assertEqual(facts["Asked For"], us(later))
+        self.assertEqual(facts["Asked By"], "Erin Test")
+        self.assertEqual(facts["Reason"], "Waiting on parts")
+        self.assertEqual(facts["Why It Needs Approval"], "Extension #3")
+        self.assertEqual([r["key"] for r in self._rows(MGR2, "task_date_ask")], ["task_date_ask:d2"])
+        self.assertEqual(self._rows(MGR2, "task_date_ask")[0]["title"], "New Due Date - Install the pump")
+        self.assertEqual(self._rows(EMP, "task_date_ask"), [])               # the asker
+        self.assertEqual(self._rows(DEE, "task_date_ask"), [])               # a manager nobody asked
+
+    def test_ticket_approvals_wait_on_the_named_approver(self):
+        for tid, approver, conf in (("k1", MGR, ""), ("k2", MGR2, ""), ("k3", MGR, "hr")):
+            self.db.add(models.TaskTicket(id=tid, code="000012", subject="New laptop", type="service_request",
+                                          description="<p>Mine is <b>broken</b></p>", requester_email=EMP,
+                                          approval_status="pending", approver_email=approver, company_id=ENTITY,
+                                          confidential_desk=conf, created_at="2026-10-21T08:00:00+00:00"))
+        self.db.commit()
+        rows = self._rows(MGR, "ticket_approval")
+        self.assertEqual([r["key"] for r in rows], ["ticket_approval:k1"])   # a confidential HR ticket stays hidden
+        self.assertEqual(rows[0]["title"], "Ticket Approval - #12 New laptop")
+        self.assertEqual(rows[0]["detail"], "Mine is broken")
+        self.assertEqual([(a["key"], a["note"]) for a in rows[0]["actions"]], [("approve", "none"), ("reject", "required")])
+        self.assertEqual(rows[0]["link"]["ticketId"], "k1")
+        self.assertIn(rows[0]["link"]["view"], ("tickets", "support"))
+        self.assertEqual(self._rows(EMP, "ticket_approval"), [])             # the requester
+        self.assertEqual(self._rows(DEE, "ticket_approval"), [])             # another manager
+
+    def test_equipment_approvals(self):
+        def co(cid, who, approver="", status="pending", order="", ext="", name="Laptop"):
+            self.db.add(models.ItemCheckout(id=cid, item_id=f"i-{cid}", item_name=name, requested_by=who.split(".")[0].title(),
+                                            requested_by_email=who, raised_by=who.split(".")[0].title(), days=3,
+                                            reason="Site visit", department="Ops", status=status, order_id=order,
+                                            approver_email=approver, extension_status=ext, extension_days=2 if ext else 0,
+                                            extension_reason="Trip ran long" if ext else "",
+                                            created_at=f"2026-10-1{cid[-1]}T08:00:00+00:00"))
+        co("c1", EMP, MGR, order="o1")
+        co("c2", EMP, MGR, order="o1", name="Monitor")
+        co("c3", MATE)                         # sent to no one: every items manager
+        co("c4", EMP2, MGR2)                   # Nora's
+        co("c5", MGR)                          # Max's own
+        co("c6", EMP, status="allocated", ext="pending")
+        for aid, who, status, reason in (("a1", EMP, "pending_acceptance", ""), ("a2", MATE, "return_initiated", "dead"),
+                                         ("a3", MGR, "return_initiated", "normal")):
+            self.db.add(models.ItemAssignment(id=aid, item_id=f"i-{aid}", item_name="Phone", assignee_email=who,
+                                              assignee_name=who.split(".")[0].title(), assigned_by="Max Test",
+                                              assigned_by_email=MGR, status=status, return_reason=reason,
+                                              return_note="Screen cracked" if reason == "dead" else "",
+                                              return_initiated_at="2026-10-22T08:00:00+00:00" if reason else "",
+                                              created_at="2026-10-15T08:00:00+00:00"))
+        self.db.commit()
+        out = self._inbox(MGR)
+        self.assertEqual(out["errors"], [])
+        mine = {r["key"]: r for r in out["rows"] if r["group"] == "equipment"}
+        self.assertEqual(set(mine), {"item_checkout:o1", "item_checkout:c3", "item_extension:c6", "assignment_return:a2"})
+        order = mine["item_checkout:o1"]
+        self.assertEqual(order["count"], 2)                                   # one row per order
+        self.assertEqual(order["title"], "Checkout Request - Laptop and 1 more item")
+        self.assertEqual([a["key"] for a in order["actions"]], ["open"])     # approving picks an allocator
+        self.assertIn({"label": "Items", "value": "Laptop, Monitor"}, order["facts"])
+        self.assertEqual(order["link"], {"view": "inventory", "sub": "checkouts"})
+        self.assertEqual([a["key"] for a in mine["item_extension:c6"]["actions"]], ["approve", "reject"])
+        self.assertEqual(mine["assignment_return:a2"]["title"], "Item Return - Phone (Item Dead)")
+        self.assertEqual(mine["assignment_return:a2"]["link"], {"view": "inventory", "sub": "assignment-returns"})
+        self.assertEqual(out["groups"]["equipment"], 5)
+        # Erin accepts her own assignment; she manages no items.
+        erin = [r for r in self._inbox(EMP)["rows"] if r["group"] == "equipment"]
+        self.assertEqual([r["key"] for r in erin], ["assignment_accept:a1"])
+        self.assertEqual([a["key"] for a in erin[0]["actions"]], ["accept", "decline"])
+        self.assertEqual(erin[0]["link"], {"view": "inventory", "sub": "permanent"})
+        self.assertEqual([r for r in self._inbox(MATE)["rows"] if r["group"] == "equipment"], [])
+
+    def test_task_team_requests(self):
+        self._admin()
+        self.db.add(models.TaskTeam(id="tm1", name="Ops Crew", member_emails=[MGR], created_by=MGR,
+                                    approval_status="approved", created_at="2026-10-01T08:00:00+00:00"))
+        self.db.add(models.TaskTeam(id="tm2", name="Erin's Crew", member_emails=[EMP, MATE], created_by=EMP,
+                                    approval_status="pending", requested_at="2026-10-22T08:00:00+00:00",
+                                    created_at="2026-10-01T08:00:00+00:00"))
+        for mid, by in (("m1", MGR), ("m2", ADM)):
+            self.db.add(models.TaskMemberRequest(id=mid, department_id="tm1", user_email=MATE, kind="add",
+                                                 requested_by=by, status="pending",
+                                                 created_at="2026-10-23T08:00:00+00:00"))
+        self.db.commit()
+        adm = self._inbox(ADM)
+        self.assertEqual(adm["errors"], [])                                  # every source runs for an administrator
+        out = {r["key"]: r for r in adm["rows"] if r["group"] == "work"}
+        self.assertEqual(set(out), {"task_member_request:m1", "task_team_approval:tm2"})   # never the admin's own ask
+        self.assertEqual(out["task_member_request:m1"]["title"], "Add To Team - Mia Test (Ops Crew)")
+        self.assertEqual([(a["key"], a["note"]) for a in out["task_member_request:m1"]["actions"]],
+                         [("approve", "none"), ("deny", "none")])
+        self.assertEqual(out["task_team_approval:tm2"]["title"], "Team Approval - Erin's Crew")
+        self.assertEqual([(a["key"], a["label"], a["note"]) for a in out["task_team_approval:tm2"]["actions"]],
+                         [("approve", "Approve", "none"), ("send_back", "Send Back", "none")])
+        self.assertEqual(out["task_team_approval:tm2"]["link"], {"view": "tasks", "sub": "teams"})
+        # A manager without Tasks has nothing; with it, the team (not the member request - administrators only).
+        self.assertEqual([r for r in self._inbox(MGR)["rows"] if r["group"] == "work"], [])
+        self._grant("g-ai-tasks", MGR, "tasks:viewer")
+        self.assertEqual([r["key"] for r in self._inbox(MGR)["rows"] if r["group"] == "work"], ["task_team_approval:tm2"])
+        self._grant("g-ai-tasks-erin", EMP, "tasks:editor")
+        self.assertEqual([r for r in self._inbox(EMP)["rows"] if r["group"] == "work"], [])   # her own team
+
+    def test_role_changes_wait_on_the_role_changers(self):
+        self._admin()
+        for rid, eid, who in (("rc1", "id-Erin", EMP), ("rc2", "id-Ada", ADM)):
+            self.db.add(models.HrRoleChangeRequest(id=rid, employee_id=eid, employee_email=who, employee_name="X Test",
+                                                   company=ENTITY, from_title="Technician", to_role_id="jr-lead",
+                                                   to_role_name="Lead Technician", reason="Runs the crew", status="pending",
+                                                   requested_by=MGR, requested_by_name="Max Test",
+                                                   created_at="2026-10-21T08:00:00+00:00"))
+        self.db.commit()
+        rows = self._rows(ADM, "role_change")
+        self.assertEqual([r["key"] for r in rows], ["role_change:rc1"])     # never a change to their own role
+        self.assertEqual(rows[0]["title"], "Role Change - Lead Technician")
+        self.assertEqual(rows[0]["link"], {"view": "hr", "sub": "hr-role-change-rc1"})
+        self.assertEqual([(a["key"], a["note"]) for a in rows[0]["actions"]], [("approve", "none"), ("decline", "optional")])
+        self.assertEqual(self._counts(ADM)["hr"]["hr-people"], 1)          # the nav reads the registry
+        self.assertEqual(self._rows(MGR, "role_change"), [])                # asking is not deciding
+        self.assertEqual(self._rows(EMP, "role_change"), [])
+
+    def test_vendor_changes_wait_on_unlimited_deciders(self):
+        for pid, by in (("pc1", EMP), ("pc2", HRC)):
+            self.db.add(models.AccountingPartnerChange(
+                id=pid, kind="vendor", partner_id="V-100", partner_name="Acme Supply", requested_by=by,
+                changes={"phone": {"from": "555-0100", "to": "555-0199"}, "taxId": {"from": "1234", "to": "9876"}},
+                status="pending", requested_at="2026-10-22T08:00:00+00:00", note="New office"))
+        self.db.commit()
+        self._grant("g-ai-acct", HRC, "accounting:full")
+        rows = self._rows(HRC, "accounting_partner_change")
+        self.assertEqual([r["key"] for r in rows], ["accounting_partner_change:pc1"])   # never their own request
+        row = rows[0]
+        self.assertEqual(row["title"], "Vendor Change - Acme Supply")
+        self.assertEqual(row["link"], {"view": "accounting", "sub": "partners"})
+        facts = {f["label"]: f["value"] for f in row["facts"]}
+        self.assertEqual(facts["Fields"], "Phone, Tax ID")
+        self.assertEqual(facts["Phone"], "555-0100 to 555-0199")
+        self.assertNotIn("9876", str(row))                                  # the tax ID only by name
+        self.assertEqual(self._counts(HRC)["accounting"]["partners"], 1)
+        # Limited to certain entities: decided on the Accounting screen, not here.
+        self.db.add(models.NexusAccessScope(id="sc1", email=HRC, module_id="accounting", scope_id="15001"))
+        self.db.commit()
+        self.assertEqual(self._rows(HRC, "accounting_partner_change"), [])
+        # No Accounting grant: nothing (a manager without it cannot open the screen).
+        self.assertEqual(self._rows(MGR, "accounting_partner_change"), [])
+        self.assertEqual(self._rows(EMP, "accounting_partner_change"), [])
+
+    def test_credential_requests_wait_on_the_owner(self):
+        self.db.add(models.VaultCredential(id="v1", name="AWS Root", dept="IT", owner_email=MGR,
+                                           created_at="2026-10-01T08:00:00+00:00"))
+        self.db.add(models.VaultCredential(id="v2", name="Payroll Portal", dept="HR", owner_email=MGR2,
+                                           created_at="2026-10-01T08:00:00+00:00"))
+        for rid, cred, owner, who in (("vr1", "v1", MGR, EMP), ("vr2", "v2", MGR2, EMP), ("vr3", "v1", MGR, MGR)):
+            self.db.add(models.VaultShareRequest(id=rid, cred_id=cred, requested_by_email=who, shared_to_email=who,
+                                                 owner_email=owner, duration_label="4 Hours", duration_ms=14400000,
+                                                 status="pending", created_at="2026-10-23T08:00:00+00:00"))
+        self.db.commit()
+        self.assertEqual(self._rows(MGR, "credvault_request"), [])          # no Credential Vault grant
+        self._grant("g-ai-vault", MGR, "credvault:viewer")
+        rows = self._rows(MGR, "credvault_request")
+        self.assertEqual([r["key"] for r in rows], ["credvault_request:vr1"])
+        self.assertEqual(rows[0]["title"], "Credential Access - AWS Root (4 Hours)")
+        self.assertEqual([(a["key"], a["note"]) for a in rows[0]["actions"]], [("open", "none"), ("deny", "none")])
+        self.assertEqual(rows[0]["link"], {"view": "credvault", "sub": "approvals"})
+        self.assertEqual(rows[0]["createdAt"][:10], "2026-10-23")
+        self.assertEqual(rows[0]["group"], "access")
+
+    def test_kb_reviews_wait_on_who_they_were_sent_to(self):
+        self.db.add(models.KbDocument(id="d1", title="Lockout Procedure", status="in_review", owner_email=EMP,
+                                      reviewer_email=MGR, page_type="sop", updated_at="2026-10-20T08:00:00+00:00"))
+        self.db.add(models.KbDocument(id="d2", title="Ladder Safety", status="in_review", owner_email=EMP,
+                                      reviewer_email=MGR2, page_type="sop", updated_at="2026-10-20T08:00:00+00:00"))
+        self.db.add(models.KbDocument(id="d3", title="Expense Policy", status="approved", owner_email=MATE,
+                                      page_type="policy", collection_id="col1"))
+        self.db.add(models.KbCollection(id="col1", name="Finance", owner_email=MGR))
+        self.db.add(models.KbRevision(id="rv1", doc_id="d3", title="Expense Policy", status="in_review", author_email=EMP,
+                                      change_kind="major", change_note="New mileage rate",
+                                      submitted_at="2026-10-21T08:00:00+00:00"))
+        self.db.commit()
+        rows = {r["key"]: r for r in self._rows(MGR, "kb_review")}
+        # Max (a manager could approve Nora's too) is asked for his own and his collection's.
+        self.assertEqual(set(rows), {"kb_review:page:d1", "kb_review:revision:rv1"})
+        self.assertEqual(rows["kb_review:page:d1"]["title"], "Page Review - Lockout Procedure")
+        self.assertEqual(rows["kb_review:page:d1"]["link"], {"view": "sop", "sub": "review:d1"})
+        self.assertEqual(rows["kb_review:revision:rv1"]["link"], {"view": "sop", "sub": "revision:rv1"})
+        self.assertEqual([a["key"] for a in rows["kb_review:page:d1"]["actions"]], ["open"])
+        self.assertEqual([r["key"] for r in self._rows(MGR2, "kb_review")], ["kb_review:page:d2"])
+        self.assertEqual(self._rows(EMP, "kb_review"), [])                  # the author
+
+    def test_construction_logs_wait_on_the_named_managers(self):
+        self.db.add(models.ConstructionProject(id="p1", name="Elm St Build", manager_emails=[MGR], worker_emails=[EMP]))
+        self.db.add(models.ConstructionProject(id="p2", name="Oak Ave Build", manager_emails=[MGR2]))
+        for lid, pid, who, status in (("l1", "p1", EMP, "submitted"), ("l2", "p1", EMP, "draft"),
+                                      ("l3", "p1", MGR, "processed"), ("l4", "p2", EMP2, "processed")):
+            self.db.add(models.ConstructionDailyLog(id=lid, project_id=pid, log_date="2026-10-22", author_email=who,
+                                                    status=status, crew_size=4, hours_worked=8.0,
+                                                    submitted_at="2026-10-22T20:00:00+00:00"))
+        self.db.commit()
+        rows = self._rows(MGR, "construction_log_review")
+        self.assertEqual([r["key"] for r in rows], ["construction_log_review:l1"])   # not a draft, not his own
+        self.assertEqual(rows[0]["title"], "Daily Log - Elm St Build (10/22/2026)")
+        self.assertEqual([a["key"] for a in rows[0]["actions"]], ["open"])
+        self.assertEqual([r["key"] for r in self._rows(MGR2, "construction_log_review")], ["construction_log_review:l4"])
+        self.assertEqual(self._rows(DEE, "construction_log_review"), [])    # a manager not named on either
+        self.assertEqual(self._rows(EMP, "construction_log_review"), [])
+
+    def test_hr_packets_wait_on_their_verifier(self):
+        import hr_packet_docs as hpd
+        self.db.add(models.HrPacketSetting(id="s1", entity_id=ENTITY, event="promotion", name="Promotion Letter",
+                                           engine="documents", verify_role="hr", verify_distinct=1))
+        self.db.add(models.HrPacketSetting(id="s2", entity_id=ENTITY, event="separation", name="Separation Package",
+                                           engine="documents", verify_role="manager"))
+        for eid, kind, sid, by in (("ev1", "promotion", "s1", MGR), ("ev2", "promotion", "s1", HRC),
+                                   ("ev3", "separation", "s2", HRC)):
+            self.db.add(models.HrLifeEvent(id=eid, kind=kind, status="review", entity_id=ENTITY, employee_id="id-Erin",
+                                           subject_name="Erin Test", subject_email=EMP, setting_id=sid, created_by=by,
+                                           inputs={"job_title": "Lead Technician", "engine": "documents"},
+                                           pay={"base": 98765}, effective_date="2026-11-01",
+                                           created_at=f"2026-10-2{eid[-1]}T08:00:00+00:00"))
+        self.db.commit()
+        rows = self._rows(HRC, "hr_packet_verify")
+        # The HR contact verifies ev1; ev2 she started herself (Verified By must be someone else).
+        self.assertEqual([r["key"] for r in rows], ["hr_packet_verify:ev1"])
+        self.assertEqual(rows[0]["title"], "Verify Promotion Letter - Erin Test")
+        self.assertEqual([(a["key"], a["label"]) for a in rows[0]["actions"]], [("open", "Verify And Send")])
+        self.assertEqual(rows[0]["link"], {"view": "hr", "sub": "hr-people"})
+        self.assertNotIn("98765", str(rows))                               # never pay
+        # The separation's Verified By is the manager: Erin's, Max.
+        self.assertEqual([r["key"] for r in self._rows(MGR, "hr_packet_verify")], ["hr_packet_verify:ev3"])
+        self.assertEqual(self._rows(EMP, "hr_packet_verify"), [])
+        # The light lookup answers what the module's own event_ctx answers.
+        for ev in self.db.query(models.HrLifeEvent).all():
+            st = self.db.query(models.HrPacketSetting).filter_by(id=ev.setting_id).first()
+            vrole = (ev.inputs or {}).get("verifier_role") or st.verify_role or "hr"
+            self.assertEqual(approvals_inbox._packet_verifier(self.db, ev, st, {}),
+                             hpd.resolve_role(self.db, vrole, hpd.event_ctx(self.db, ev, st, ev.created_by)))
+
+
+class PriorityCase(unittest.TestCase):
+    """Neil, 10/28/2026: "allow a sort by priority". The module's own priority
+    leads; a close date or a long wait raises it, never lowers it."""
+
+    TODAY = date(2026, 10, 28)
+
+    def p(self, **r):
+        r.setdefault("createdAt", "2026-10-27T09:00:00+00:00")
+        return approvals_inbox._priority(r, self.TODAY)
+
+    def test_the_modules_own_priority_leads(self):
+        self.assertEqual(self.p(priority="low"), "low")
+        self.assertEqual(self.p(priority="urgent"), "urgent")
+        self.assertEqual(self.p(), "medium")                       # nothing said = medium
+        self.assertEqual(self.p(priority="whenever"), "medium")    # an unknown word = medium
+
+    def test_a_close_date_or_a_long_wait_raises_it(self):
+        self.assertEqual(self.p(priority="low", due="2026-10-29"), "urgent")   # tomorrow
+        self.assertEqual(self.p(priority="low", due="2026-10-31"), "high")     # three days out
+        self.assertEqual(self.p(priority="low", due="2026-11-20"), "low")      # far off
+        self.assertEqual(self.p(priority="urgent", due="2026-11-20"), "urgent")  # never lowered
+        self.assertEqual(self.p(priority="low", createdAt="2026-10-20T09:00:00+00:00"), "high")
+        self.assertEqual(self.p(due="not a date", createdAt="garbage"), "medium")
+
+    def test_row_carries_priority_and_due(self):
+        r = approvals_inbox.row("x", "1", title="T", priority=" High ", due="2026-11-02T00:00:00")
+        self.assertEqual((r["priority"], r["due"]), ("high", "2026-11-02"))
 
 
 if __name__ == "__main__":

@@ -185,11 +185,16 @@ describe('offRangeProblem', () => {
   });
 });
 
+// The words a reader sees, without the avatars' initials in between.
+const said = (el) => { const c = el.cloneNode(true); c.querySelectorAll('[data-avatar]').forEach((n) => n.remove()); return c.textContent.replace(/\s+/g, ' '); };
+
 describe('ApprovalDelegationsAdmin', () => {
   it('lists everyone and sets one for someone, picking from that person\'s allowed list', async () => {
     all.mockResolvedValue([deleg({ state: 'active' })]);
     render(<ApprovalDelegationsAdmin />);
-    expect(await screen.findByText('Max Test - covered by Dee Test')).toBeTruthy();
+    const row = (await screen.findByText('- covered by')).closest('[data-delegation]');
+    // Three flex pieces (face + name, the words, face + name), gap-spaced.
+    expect(said(row)).toMatch(/Max Test\s*- covered by\s*Dee Test/);
     const [whose] = await screen.findAllByRole('combobox');
     fireEvent.focus(whose);
     fireEvent.mouseDown(screen.getByRole('option', { name: /Pia Test/ }));

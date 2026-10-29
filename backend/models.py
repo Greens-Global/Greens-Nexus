@@ -1592,6 +1592,22 @@ class HrDepartment(Base):
     backup_email = Column(String, default="")
     created_by = Column(String, default="")
     created_at = Column(String, default="")
+    # Weather by department (Neil, 10/29/2026): 1 = rain advisories and
+    # weather calls apply to this department's people (weather_scope.py).
+    # A new department named like "Construction" starts on, every other one
+    # off (the before_insert hook below); main.py seeds existing rows once.
+    weather    = Column(Integer, default=0)
+
+
+def _new_department_weather(_mapper, _connection, target) -> None:
+    """A department nobody set Weather Calls on starts on only when its name
+    says construction (Neil, 10/29/2026) - whichever path created it."""
+    if target.weather is None:
+        target.weather = 1 if "construction" in (target.name or "").lower() else 0
+
+
+from sqlalchemy import event as _sa_event   # noqa: E402 - kept beside the model it serves
+_sa_event.listen(HrDepartment, "before_insert", _new_department_weather)
 
 
 class TicketDepartment(Base):
@@ -8091,6 +8107,11 @@ class KbSearchLog(Base):
     count      = Column(Integer, default=1)
     results    = Column(Integer, default=0)          # best result count seen that day
     last_user  = Column(String, default="")
+    # Which search box (Help Center, Oct 2026): 'kb' (the Knowledge Base),
+    # 'help' (the Help panel and the Help Center search bar), 'ask' (an Ask
+    # Nexus answer the sources did not cover) or 'ticket-form' (searched in
+    # the ticket form, then filed the ticket anyway).
+    source     = Column(String, default="kb")
 
 
 class KbPageRequest(Base):
@@ -9201,3 +9222,22 @@ class HrHolidayPolicyAssignment(Base):
     skipped     = Column(JSON, default=list)
     assigned_by = Column(String, default="")
     assigned_at = Column(String, default="")
+
+
+class HelpFeedback(Base):
+    """Was This Helpful? (Help Center, Oct 2026) - one vote per person per
+    guide article or Ask Nexus answer, changed in place. Administrators read
+    the No votes in Knowledge Base > Manage > Help Signals. New table - RLS
+    line in main.py."""
+    __tablename__ = "help_feedback"
+    id          = Column(String, primary_key=True)
+    user_email  = Column(String, nullable=False, index=True)
+    target_kind = Column(String, default="guide")    # 'guide' | 'answer'
+    target_id   = Column(String, default="", index=True)  # guide: "<docId>#<anchor>"; answer: a hash of the question
+    helpful     = Column(Boolean, default=True)
+    note        = Column(String, default="")         # "What was missing?" (No votes)
+    question    = Column(String, default="")         # the question an answer was for
+    title       = Column(String, default="")         # what the person was reading
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+    __table_args__ = (UniqueConstraint("user_email", "target_kind", "target_id", name="ux_help_feedback_vote"),)

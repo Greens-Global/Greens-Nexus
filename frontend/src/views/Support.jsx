@@ -19,16 +19,15 @@ import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useS
 import {
   Ticket, ArrowUpRight, Search,
   ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, LifeBuoy, BookOpen,
-  Pencil, CheckCircle2, RotateCcw, CircleHelp, GraduationCap,
+  Pencil, CheckCircle2, RotateCcw, Sparkles, GraduationCap,
 } from 'lucide-react';
-import { HELP_OPEN_EVENT } from '../support/HelpMenu';
 import { api } from '../api';
 import { ticketNoShort, normalizeCode, TICKET_STATUS_META, TICKET_STATUS_ORDER } from '../tickets/ticketMeta';
 import { formatDate, formatTime } from '../lib/datetime';
 import { NX, FONT } from '../tasks/theme';
 import { useRole } from '../contexts/RoleContext';
 import { Avatar, usePeople } from '../tasks/components';
-import { useTableColumns, ColResizer } from '../tasks/tableCols';
+import { useTableColumns, useTableValue, ColResizer } from '../tasks/tableCols';
 import { takePendingOpen } from '../lib/pendingOpen';
 import GuidedTour from '../components/GuidedTour';
 import ModuleTabs from '../components/ModuleTabs';
@@ -39,6 +38,13 @@ import { StatusLabel } from '../components/StatusLabel';
 import { registerTour } from '../lib/tours';
 import { useActionCounts, tabCount } from '../lib/useActionCounts';
 import { confirmSwitchTicket } from '../tickets/drawerGuard';
+import { useIsMobile } from '../lib/useIsMobile';
+// Help Center additions (Oct 2026): the search bar with Ask Nexus, "I Need
+// To...", Known Issues and "Expect a reply by" - each its own file in support/.
+import HelpCenterSearch from '../support/HelpCenterSearch';
+import NeedTo from '../support/NeedTo';
+import KnownIssuesBanner from '../support/KnownIssues';
+import ExpectReply from '../support/ExpectReply';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
 // content and drawn screenshots only load when someone opens the tab. The
@@ -76,8 +82,8 @@ const TicketComposer = lazy(async () => {
     import('../tickets/TicketsView'),
   ]);
   return {
-    default: ({ onClose, onBatch }) => (
-      <TasksProvider><CreateTicketModal onClose={onClose} onBatch={onBatch} /></TasksProvider>
+    default: ({ onClose, onBatch, initial }) => (
+      <TasksProvider><CreateTicketModal onClose={onClose} onBatch={onBatch} initial={initial} /></TasksProvider>
     ),
   };
 });
@@ -170,15 +176,18 @@ const SUPPORT_TABLE_COLUMNS = [
 //            title (Oct 17: four fixed columns left the title ~4px on a phone)
 // Below the full tier a saved pixel width is ignored: a column dragged wide
 // on a desktop must not bring the scrollbar back on the laptop.
-const TABLE_TIER_FULL_MIN = 1180;      // the seven columns at their floors + both gutters
-const TABLE_TIER_COMPACT_MIN = 900;
+//
+// Neil, 10/28/2026 ("a random small horizontal scrollbar"): a tier is picked
+// only when its columns' real floors - plus the left gutter and the Actions
+// column - fit the card, so there is nothing to scroll and no scroll box at
+// all. Fixed breakpoints used to let the full tier start ~90px before it fit.
 const TABLE_TIER_NARROW_MIN = 560;
-const tierFor = (w) => (!w || w >= TABLE_TIER_FULL_MIN ? 'full' : w >= TABLE_TIER_COMPACT_MIN ? 'compact' : w >= TABLE_TIER_NARROW_MIN ? 'narrow' : 'phone');
+const SUPPORT_TABLE = 'support-open-tickets';
 const pick = (keys, patch = {}) => SUPPORT_TABLE_COLUMNS.filter((c) => keys.includes(c.key)).map((c) => ({ ...c, ...(patch[c.key] || {}) }));
 const TIER_COLUMNS = {
   full: SUPPORT_TABLE_COLUMNS,
   compact: pick(['ticket', 'title', 'status', 'assignedTo', 'updated', 'latestComment'], {
-    title: { template: 'minmax(150px,1.3fr)' }, assignedTo: { template: 'minmax(96px,0.7fr)' },
+    title: { template: 'minmax(150px,1.3fr)' }, status: { width: 120 }, assignedTo: { template: 'minmax(96px,0.7fr)' },
     latestComment: { template: 'minmax(170px,1.6fr)' },
   }),
   narrow: pick(['ticket', 'title', 'status', 'updated'], {
@@ -188,6 +197,30 @@ const TIER_COLUMNS = {
     ticket: { width: 44 }, title: { template: 'minmax(0,1fr)' }, status: { width: 116 },
   }),
 };
+// The grid template a column set draws with - a saved width (never under the
+// column's own floor, as useTableColumns does) or its default.
+const templateOf = (cols, saved = {}) => cols.map((c) => {
+  const w = saved[c.key] && Math.max(saved[c.key], c.minWidth || 0);
+  return w ? `${w}px` : c.template || `${c.width}px`;
+}).join(' ');
+// The least width a template can take: each px track, each minmax's minimum.
+const floorOf = (tpl) => [...tpl.matchAll(/minmax\(([^,]+),[^)]*\)|(\d+(?:\.\d+)?)px/g)]
+  .reduce((sum, m) => sum + (parseFloat(m[1] ?? m[2]) || 0), 0);
+// { tier, saved }: `saved` false = the full tier on its default widths,
+// because the widths this person dragged no longer fit this card (a column
+// dragged past the edge snaps back instead of scrolling).
+function pickTier(w, saved, extra) {
+  if (!w) return { tier: 'full', saved: true };
+  if (floorOf(templateOf(TIER_COLUMNS.full, saved)) + extra <= w) return { tier: 'full', saved: true };
+  if (floorOf(templateOf(TIER_COLUMNS.full)) + extra <= w) return { tier: 'full', saved: false };
+  if (floorOf(templateOf(TIER_COLUMNS.compact)) + extra <= w) return { tier: 'compact', saved: false };
+  return { tier: w >= TABLE_TIER_NARROW_MIN ? 'narrow' : 'phone', saved: false };
+}
+// The Actions column (Neil, 10/28/2026: Confirm / Reopen "hang outside the
+// table") - inside the table, at the width its widest buttons need, so every
+// row's buttons line up under one header.
+const ACTIONS_W_PAIR = 196;     // Confirm + Reopen
+const ACTIONS_W_ONE = 150;      // Mark Resolved
 
 // The card's inner (content-box) width, live - the tier above follows it as
 // the window, the sidebar or the device changes. Width only: a height change
@@ -256,6 +289,23 @@ const rowBtn = {
 };
 const SUPPORT_PAGE_SIZE = 10;
 
+// Phones (Neil, 10/28/2026: "this ticket section sucks on mobile"): the list
+// is a column of cards - no table, no headers - and the sort the headers gave
+// moves into one Sort box. Each choice is a key + direction of the same
+// `sort` state the desktop headers drive.
+const PHONE_SORTS = [
+  { value: 'updated:desc', label: 'Recently Updated' },
+  { value: 'updated:asc', label: 'Least Recently Updated' },
+  { value: 'created:desc', label: 'Newest Ticket' },
+  { value: 'created:asc', label: 'Oldest Ticket' },
+  { value: 'status:asc', label: 'By Status' },
+  { value: 'title:asc', label: 'Title, A to Z' },
+  { value: 'title:desc', label: 'Title, Z to A' },
+];
+const PHONE_SORT_VALUES = new Set(PHONE_SORTS.map((o) => o.value));
+// Finger-sized (44px) buttons on a phone card.
+const phoneBtn = { ...rowBtn, minHeight: 44, padding: '0 14px', fontSize: 13.5, borderRadius: 10, gap: 6 };
+
 export default function Support({ activeSub, onSubChange }) {
   const { can = () => false, isExternal = false } = useRole() || {};
   const counts = useActionCounts();
@@ -265,6 +315,9 @@ export default function Support({ activeSub, onSubChange }) {
   const setTab = (key) => onSubChange?.(key === 'help' ? null : key);
   const [submitting, setSubmitting] = useState(false);
   const [walking, setWalking] = useState(false);
+  // A phone: the ticket list becomes cards, the tabs a full-width switch, the
+  // option tiles a compact 2 x 2 grid (style.css, .support-grid).
+  const isPhone = useIsMobile('(max-width: 600px)');
   const [canWalk, setCanWalk] = useState(false);
   useEffect(() => {
     let live = true;
@@ -296,7 +349,8 @@ export default function Support({ activeSub, onSubChange }) {
   // Ticket module list conventions, reused here: click a header to sort by it
   // (default desc so the newest work leads), ten rows per page rather than
   // one long unbroken list.
-  const [sort, setSort] = useState({ key: 'created', dir: 'desc' });
+  // A phone starts on Last Updated: its cards show that date, not Created.
+  const [sort, setSort] = useState(() => (isPhone ? { key: 'updated', dir: 'desc' } : { key: 'created', dir: 'desc' }));
   const [page, setPage] = useState(1);
   const { myEmail } = useRole();
   const people = usePeople();
@@ -308,14 +362,50 @@ export default function Support({ activeSub, onSubChange }) {
   // use (tasks/tableCols.jsx) - a person's column widths here follow them the
   // same way, saved to their profile under their own table key.
   const [cardW, cardRef] = useCardWidth();
-  const tier = tierFor(cardW);
-  const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef } =
-    useTableColumns({ table: 'support-open-tickets', cols: TIER_COLUMNS[tier] });
-  // Saved widths and the resize handles are a full-tier thing (see TIER_COLUMNS).
-  const gridTemplate = tier === 'full' ? template : cols.map((c) => c.template || `${c.width}px`).join(' ');
-  const colKeys = useMemo(() => new Set(cols.map((c) => c.key)), [cols]);
+
+  // Closed tickets are not what "Open Tickets" means, but a requester whose
+  // ticket was just resolved should still see that it was - so resolved stays
+  // (with Confirm / Reopen beside it) until it is closed out. Closed ones have
+  // their own tab.
+  // A ticket raised FOR someone else (Oct 1: the form's Requester field) is
+  // listed for whoever filed it too, but confirming, rating, reopening and
+  // editing stay with the person it is for - the server enforces the same.
+  const mineToAct = (t) => (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
+  // Three lists (Neil, Oct 12 2026). Open Tickets is only what is FOR me; a
+  // ticket I raised for someone else, or was added to as a watcher, is
+  // something I follow, not something I own - it sits under Tickets I'm
+  // Following (the server's ?mine=true sends all three kinds). Closed holds
+  // both, so the history is in one place and Following stays current work.
+  const open = (tickets || []).filter((t) => t.status !== 'closed' && mineToAct(t));
+  const following = (tickets || []).filter((t) => t.status !== 'closed' && !mineToAct(t));
+  const closed = (tickets || []).filter((t) => t.status === 'closed');
+  const listed = listTab === 'closed' ? closed : listTab === 'following' ? following : open;
+  // Every ticket the person it is FOR can see has an action: Mark Resolved
+  // while it is still in flight (Neil, Oct 1), Confirm / Reopen once resolved.
+  // A closed ticket has none: Reopen is only while it is Resolved (Oct 1).
+  // Sized from the whole tab, not the page, so paging never moves a column.
+  const actionsWidth = (rows) => {
+    const act = rows.filter((t) => mineToAct(t) && t.status !== 'closed');
+    return !act.length ? 0 : act.some((t) => t.status === 'resolved') ? ACTIONS_W_PAIR : ACTIONS_W_ONE;
+  };
+  const actionsW = actionsWidth(listed);
+  // The tier budgets for the roomiest tab, so switching tabs never swaps the
+  // column set (Closed Tickets just gives its elastic columns the room).
+  const all = tickets || [];
+  const anyGutter = all.some((t) => mineToAct(t) && (t.status === 'open' || isUnread(t)));
+  const savedWidths = useTableValue(SUPPORT_TABLE, 'widths', null);
+  const { tier, saved: useSaved } = pickTier(cardW, savedWidths || {}, (anyGutter ? GUTTER_W : 0) + actionsWidth(all));
   // Narrow and phone stack the comment and actions under the title.
   const stacked = tier === 'narrow' || tier === 'phone';
+  // Cards instead of the table: a phone, or a card too narrow for the
+  // narrow tier's four columns (the old phone tier squeezed a table in).
+  const cardMode = isPhone || tier === 'phone';
+  const actionsCol = !stacked && actionsW ? `${actionsW}px` : '';
+  const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef } =
+    useTableColumns({ table: SUPPORT_TABLE, cols: TIER_COLUMNS[tier], trailing: actionsCol });
+  // Saved widths and the resize handles are a full-tier thing (see TIER_COLUMNS).
+  const gridTemplate = useSaved ? template : [templateOf(cols), actionsCol].filter(Boolean).join(' ');
+  const colKeys = useMemo(() => new Set(cols.map((c) => c.key)), [cols]);
 
   // Deep-link support - a ticket-update email or notification points here
   // (not the gated Tickets module, which a plain requester can't open) via
@@ -339,6 +429,10 @@ export default function Support({ activeSub, onSubChange }) {
   // a Support page that's already mounted.
   useEffect(() => {
     const openTicket = async (e) => {
+      // The sender also left a note for a page still loading; this page is
+      // here and heard it, so the note goes - left behind it reopened the
+      // ticket on the next visit, even after Cancel at the prompt below.
+      takePendingOpen('ticket');
       const id = e.detail?.ticketId;
       if (!id || id === viewingIdRef.current) return;
       if (drawerDirtyRef.current && !(await confirmSwitchTicket())) return;
@@ -381,13 +475,24 @@ export default function Support({ activeSub, onSubChange }) {
     return () => { window.removeEventListener('nexus:support-tour', openTour); unTour(); };
   }, []);
 
+  // Only the newest request lands: a reload from closing the drawer and one
+  // from a dialog's submit can come back out of order. A failed load keeps
+  // whatever was last shown (or none) - never an empty list that reads as
+  // "nothing open" - and says so, with Retry.
+  const loadSeq = useRef(0);
   const load = useCallback(() => {
+    const seq = ++loadSeq.current;
     api.getMyTickets()
-      .then((rows) => setTickets(rows || []))
-      .catch((e) => { setTickets([]); setError(e.message || 'Could not load your tickets.'); });
+      .then((rows) => { if (seq === loadSeq.current) { setTickets(rows || []); setError(''); } })
+      .catch((e) => { if (seq === loadSeq.current) setError(e.message || 'Could not load your tickets.'); });
   }, []);
 
   useEffect(load, [load]);
+  // A ticket created anywhere (the Help panel, Batch Create, the Tickets module).
+  useEffect(() => {
+    window.addEventListener('nexus:tickets-changed', load);
+    return () => window.removeEventListener('nexus:tickets-changed', load);
+  }, [load]);
   useEffect(() => setPage(1), [search]);
 
   // Neil, Oct 13 2026: "anything to do with support or learning is right
@@ -399,11 +504,15 @@ export default function Support({ activeSub, onSubChange }) {
       ? 'Report an issue or a bug, or request help from any department - one ticket or a whole batch.'
       : 'Report an issue or a bug, or request help from any department.',
       onOpen: () => setSubmitting(true), tour: 'support-submit-ticket' },
-    // The help panel the header's "?" opens: search, ask a question, What's
-    // New, help for this page (support/HelpMenu.jsx listens for the event).
-    // Not "Help Center" any more - that is this page now (Neil, Oct 13 2026).
-    { icon: CircleHelp, title: 'Assistant', desc: 'Search for help, ask a question, or see what is new in Nexus.',
-      onOpen: () => window.dispatchEvent(new CustomEvent(HELP_OPEN_EVENT)) },
+    // Ask Nexus (Oct 2026; was "Assistant", which only opened the header's
+    // "?" panel): takes you to the search bar above, where Enter asks Nexus
+    // for a written answer from the guides and the Knowledge Base.
+    { icon: Sparkles, title: 'Ask Nexus', desc: 'Get an answer from the guides and Knowledge Base, or ask our team.',
+      onOpen: () => {
+        const box = document.querySelector('.hc-search input');
+        box?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+        box?.focus();
+      } },
     // Privacy Policy and Terms & Conditions moved to Legal in the profile menu
     // (Neil, 10/06: "this has nothing to do with Support").
     { icon: BookOpen, title: 'Documentation', desc: canImplement
@@ -416,27 +525,6 @@ export default function Support({ activeSub, onSubChange }) {
       onOpen: () => go('sop'), waiting: tabCount(counts, 'support', 'kb') },
   ];
 
-  // Closed tickets are not what "Open Tickets" means, but a requester whose
-  // ticket was just resolved should still see that it was - so resolved stays
-  // (with Confirm / Reopen beside it) until it is closed out. Closed ones have
-  // their own tab.
-  // A ticket raised FOR someone else (Oct 1: the form's Requester field) is
-  // listed for whoever filed it too, but confirming, rating, reopening and
-  // editing stay with the person it is for - the server enforces the same.
-  const mineToAct = (t) => (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
-  // Three lists (Neil, Oct 12 2026). Open Tickets is only what is FOR me; a
-  // ticket I raised for someone else, or was added to as a watcher, is
-  // something I follow, not something I own - it sits under Tickets I'm
-  // Following (the server's ?mine=true sends all three kinds). Closed holds
-  // both, so the history is in one place and Following stays current work.
-  const open = (tickets || []).filter((t) => t.status !== 'closed' && mineToAct(t));
-  const following = (tickets || []).filter((t) => t.status !== 'closed' && !mineToAct(t));
-  const closed = (tickets || []).filter((t) => t.status === 'closed');
-  const listed = listTab === 'closed' ? closed : listTab === 'following' ? following : open;
-  // Every ticket the person it is FOR can see has an action: Mark Resolved
-  // while it is still in flight (Neil, Oct 1), Confirm / Reopen once resolved.
-  // A closed ticket has none: Reopen is only while it is Resolved (Oct 1).
-  const hasActions = listed.some((t) => mineToAct(t) && t.status !== 'closed');
   // Mark Resolved: the requester's own optional-comment version - unless they
   // also work the ticket, who resolve it the desk's way (with a written
   // resolution). A manager's own ticket is theirs as a requester.
@@ -455,7 +543,9 @@ export default function Support({ activeSub, onSubChange }) {
   // iPad the Created column is gone, so the default "newest first" would be
   // an order no header owns; the list sorts by Last Updated instead - the
   // date column that is always there - and its header shows it.
-  const effSort = colKeys.has(sort.key) ? sort : { key: 'updated', dir: 'desc' };
+  // Cards keep a sort only when the Sort box offers that exact key AND
+  // direction, so the box always names the order on screen.
+  const effSort = (cardMode ? PHONE_SORT_VALUES.has(`${sort.key}:${sort.dir}`) : colKeys.has(sort.key)) ? sort : { key: 'updated', dir: 'desc' };
   const sortCol = SUPPORT_TABLE_COLUMNS.find((c) => c.key === effSort.key);
   const sortCtx = { nameOf };
   const sorted = sortCol ? [...visible].sort((a, b) => {
@@ -481,7 +571,8 @@ export default function Support({ activeSub, onSubChange }) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div className={isPhone ? 'hc-page hc-page--phone' : 'hc-page'}
+      style={{ display: 'flex', flexDirection: 'column', gap: isPhone ? 16 : 24, paddingBottom: isPhone ? 'calc(16px + env(safe-area-inset-bottom))' : undefined }}>
       <ModuleTabs tabs={SUPPORT_TABS} active="help" onChange={setTab} />
 
       {/* Documentation has its own back arrow in its toolbar (Oct 15 2026). */}
@@ -505,6 +596,9 @@ export default function Support({ activeSub, onSubChange }) {
         </div>
       </div>
 
+      <KnownIssuesBanner />
+      <HelpCenterSearch onFileTicket={(seed) => setSubmitting(seed || true)} />
+
       <div className="support-grid" data-tour="support-options">
         {OPTIONS.map((o) => (
           // The whole tile is the button - anything less than a full-tile hit
@@ -524,41 +618,80 @@ export default function Support({ activeSub, onSubChange }) {
         ))}
       </div>
 
-      <div className="dash-card" data-tour="support-open-tickets" data-tier={tier} ref={cardRef}>
+      {!isPhone && <NeedTo onTicket={(seed) => setSubmitting(seed || true)} />}
+
+      <div className={`dash-card${cardMode ? ' hc-tickets-phone' : ''}`} data-tour="support-open-tickets" data-tier={tier} data-layout={cardMode ? 'cards' : 'table'} ref={cardRef}>
         {/* Flush left on every tab, empty or loading too, so the tabs never
             jump sideways (Neil, Oct 14) and sit left-justified (Neil, Oct 19). */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
           {/* Open and Closed (Neil, Sep 30: "now I don't have any history of
               the ticket that I had... I should be able to go through and
               reopen if the same issue happened again"). */}
-          <div className="scroll-tabs" role="tablist" style={{ display: 'inline-flex', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, maxWidth: '100%', minWidth: 0 }}>
+          {/* On a phone the three tabs share the card's full width with short
+              labels (Open / Following / Closed) - the long ones ran off the
+              edge ("Closed Tic", Neil 10/28/2026). */}
+          <div className={cardMode ? 'hc-list-tabs' : 'scroll-tabs'} role="tablist"
+            style={cardMode
+              ? { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 2, background: NX.border2, borderRadius: 11, padding: 3, width: '100%' }
+              : { display: 'inline-flex', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, maxWidth: '100%', minWidth: 0 }}>
             {/* "Open Tickets" / "Closed Tickets" - no "My" (Neil, Oct 1): the
                 page is already only yours. */}
-            {[['open', 'Open Tickets', open.length], ['following', "Tickets I'm Following", following.length], ['closed', 'Closed Tickets', closed.length]].map(([k, lab, n]) => (
+            {[['open', 'Open Tickets', 'Open', open.length], ['following', "Tickets I'm Following", 'Following', following.length], ['closed', 'Closed Tickets', 'Closed', closed.length]].map(([k, lab, short, n]) => (
               <button key={k} type="button" role="tab" aria-selected={listTab === k} onClick={() => { setListTab(k); setPage(1); }}
                 style={{
-                  border: 'none', cursor: 'pointer', fontFamily: FONT, fontSize: 13, fontWeight: 700, padding: '6px 12px', borderRadius: 7,
+                  border: 'none', cursor: 'pointer', fontFamily: FONT, fontSize: cardMode ? 14 : 13, fontWeight: 700,
+                  padding: cardMode ? '0 6px' : '6px 12px', minHeight: cardMode ? 40 : undefined, borderRadius: cardMode ? 9 : 7,
                   background: listTab === k ? NX.surface : 'transparent', color: listTab === k ? NX.ink : NX.dim,
                   boxShadow: listTab === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none', whiteSpace: 'nowrap',
+                  ...(cardMode ? { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 0 } : {}),
                 }}>
-                {lab}{tickets !== null && <span style={{ color: NX.faint, fontWeight: 600, marginLeft: 6 }}>{n}</span>}
+                {cardMode ? short : lab}{tickets !== null && <span style={{ color: NX.faint, fontWeight: 600, marginLeft: cardMode ? 5 : 6 }}>{n}</span>}
                 {/* A ticket waiting on my answer, or a reply I have not read (Oct 18). */}
                 {k === 'open' && tabCount(counts, 'support', 'open') > 0 && <span className="nav-dot-inline" role="img" aria-label="Waiting on you" />}
               </button>
             ))}
           </div>
           {tickets !== null && listed.length > 0 && (
-            <div style={{ position: 'relative', marginLeft: 'auto', flex: '0 1 220px', minWidth: 160, maxWidth: '100%' }}>
-              <Search size={14} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
+            <div style={cardMode
+              ? { position: 'relative', flex: '1 1 100%', minWidth: 0 }
+              : { position: 'relative', marginLeft: 'auto', flex: '0 1 220px', minWidth: 160, maxWidth: '100%' }}>
+              <Search size={cardMode ? 16 : 14} style={{ position: 'absolute', left: cardMode ? 12 : 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
+              {/* 16px on a phone: iOS zooms the page into any smaller field. */}
               <input type="text" className="form-input" value={search} onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search ticket # or title…" style={{ width: '100%', paddingLeft: 28, fontSize: 13 }} />
+                aria-label="Search your tickets" placeholder="Search ticket # or title..."
+                style={cardMode
+                  ? { width: '100%', minHeight: 44, paddingLeft: 36, fontSize: 16, borderRadius: 10, boxSizing: 'border-box' }
+                  : { width: '100%', paddingLeft: 28, fontSize: 13 }} />
+            </div>
+          )}
+          {/* Phone: the column headers' sort, as one box. */}
+          {cardMode && tickets !== null && listed.length > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, width: '100%' }}>
+              <span style={{ fontSize: 12.5, color: NX.dim, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {visible.length} {visible.length === 1 ? 'Ticket' : 'Tickets'}
+              </span>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.dim, fontWeight: 600, minWidth: 0 }}>
+                Sort
+                <select className="form-input" aria-label="Sort tickets" value={`${effSort.key}:${effSort.dir}`}
+                  onChange={(e) => { const [key, dir] = e.target.value.split(':'); setSort({ key, dir }); setPage(1); }}
+                  style={{ fontSize: 16, padding: '9px 32px 9px 11px', borderRadius: 9, width: 'auto', maxWidth: 210, minWidth: 0 }}>
+                  {PHONE_SORTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </label>
             </div>
           )}
         </div>
 
-        {error && <div style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginBottom: 10 }}>{error}</div>}
+        {error && (
+          <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: 'hsl(var(--color-red))', fontSize: 13, marginBottom: 10 }}>
+            {error}
+            <button type="button" className="secondary-btn" onClick={load} style={{ fontSize: 12, padding: '4px 10px' }}>
+              <RotateCcw size={13} /> Retry
+            </button>
+          </div>
+        )}
 
-        {tickets === null ? (
+        {tickets === null && error ? null : tickets === null ? (
           <LoadingState compact label="Loading your tickets…" />
         ) : listed.length === 0 ? (
           // An empty state, not an empty table: a header row with nothing under
@@ -588,35 +721,126 @@ export default function Support({ activeSub, onSubChange }) {
             {/* Same grid-list DNA as the Ticket module's own table (TicketsView
                 TicketListHeader/TicketRow) - uppercase sortable headers, a
                 solid status fill, one border per row, drag-to-resize handles.
-                Two gutters sit OUTSIDE the table (Neil, Sep 30): on the left
-                the unread dot and the edit pencil, on the right the Confirm /
-                Reopen actions - so each is in the same place on every row and
-                never pushes a column around. */}
-            <div style={{ overflowX: tier === 'full' ? 'auto' : 'visible' }}>
-              {/* The table takes every pixel between the two gutters (Neil,
-                  10/08: "full width responsive"). Which columns it has
-                  follows the card's width (TIER_COLUMNS), so it never needs
-                  to scroll sideways; the overflow above only still matters in
-                  the full tier, where a person may have dragged a column
-                  wider than the card. In the narrow tier the actions leave
-                  the right gutter and sit under the title. */}
-              <div style={{ display: 'grid', gridTemplateColumns: `${gutterW}px minmax(0,1fr) ${hasActions && !stacked ? 'max-content' : '0px'}`, alignItems: 'stretch', fontFamily: FONT }}>
+                The unread dot and the edit pencil sit in a gutter OUTSIDE the
+                table on the left (Neil, Sep 30), so they never push a column
+                around; the row's actions are the table's own last column
+                (Neil, 10/28/2026), or sit under the title when it stacks. */}
+            {/* No scroll box (Neil, 10/28/2026): the tier only puts columns
+                on screen that fit the card (pickTier). `clip`, not `auto`,
+                so the last header's resize handle - it pokes 6px past the
+                table's edge - can never turn into a scrollbar again. */}
+            {cardMode ? (
+              /* Phone (Neil, 10/28/2026): one card per ticket - number and
+                 status on top (the status never cut short), the title over
+                 two lines, then when it moved, when to expect a reply, the
+                 latest reply and the buttons, each a full finger high. The
+                 whole card opens the ticket; its buttons do only their own
+                 thing. */
+              <div className="hc-ticket-cards" role="list" aria-label="Your tickets">
+                {paged.map((t) => {
+                  const forOther = !mineToAct(t);
+                  const unread = !forOther && isUnread(t);
+                  const editable = t.status === 'open' && !forOther;
+                  const needsYou = mineToAct(t) && !['resolved', 'closed'].includes(t.status) && (t.status === 'waiting_user' || isUnread(t));
+                  const when = effSort.key === 'created' ? t.createdAt : lastUpdated(t);
+                  const acts = !forOther && t.status !== 'closed';
+                  return (
+                    <div key={t.id} role="listitem">
+                      <div role="button" tabIndex={0} data-testid="ticket-card"
+                        aria-label={`Open ticket ${ticketNoShort(t.code) || ''} ${t.subject || ''}`.replace(/\s+/g, ' ').trim()}
+                        className={`hc-ticket-card nx-row-hover${needsYou ? ' nx-needs-you--card' : ''}`}
+                        onClick={() => setViewing({ id: t.id })}
+                        onKeyDown={(e) => {
+                          if (e.target !== e.currentTarget) return;
+                          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewing({ id: t.id }); }
+                        }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0, fontSize: 13, fontWeight: 700, color: NX.dim }}>
+                            {unread && (
+                              <span title="Updated since you last opened it" aria-label="New update"
+                                style={{ width: 8, height: 8, borderRadius: '50%', background: NX.blue, flexShrink: 0 }} />
+                            )}
+                            {ticketNoShort(t.code) || '-'}
+                          </span>
+                          <span style={{ flexShrink: 0 }}><StatusLabel label={(TICKET_STATUS_META[t.status] || {}).label || t.status} color={(TICKET_STATUS_META[t.status] || {}).color || '#64748b'} /></span>
+                        </div>
+                        <div className="nx-clamp-2" style={{ fontSize: 15, lineHeight: 1.35, fontWeight: unread ? 700 : 600, color: NX.ink, overflowWrap: 'anywhere' }}>
+                          {t.subject || 'Untitled Ticket'}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {when && (
+                            <span style={{ fontSize: 12.5, color: NX.faint, fontWeight: unread ? 700 : 500 }}>
+                              {effSort.key === 'created' ? 'Created' : 'Updated'} {formatDate(when)} {formatTime(when)}
+                            </span>
+                          )}
+                          {forOther && (
+                            <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>For {nameOf(t.requesterId) || t.requesterId}</span>
+                          )}
+                          {t.assigneeId && (
+                            <span style={{ fontSize: 12.5, color: NX.faint }}>Assigned To {nameOf(t.assigneeId) || t.assigneeId}</span>
+                          )}
+                          <ExpectReply t={t} style={{ fontSize: 12.5 }} />
+                        </div>
+                        {t.latestComment && (
+                          <div className="hc-ticket-card-comment">
+                            <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} stacked
+                              onOpen={() => setViewing({ id: t.id, tab: 'conversation' })} />
+                          </div>
+                        )}
+                        {(acts || editable) && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {acts && t.status !== 'resolved' && (
+                              <button type="button" onClick={(e) => { e.stopPropagation(); setAction({ mode: resolveMode(t), ticket: t }); }}
+                                style={{ ...phoneBtn, color: NX.green, borderColor: 'rgba(22,163,74,0.45)' }}>
+                                <CheckCircle2 size={16} /> Mark Resolved
+                              </button>
+                            )}
+                            {acts && t.status === 'resolved' && (<>
+                              <button type="button" onClick={(e) => { e.stopPropagation(); setAction({ mode: 'confirm', ticket: t }); }}
+                                style={{ ...phoneBtn, color: NX.green, borderColor: 'rgba(22,163,74,0.45)' }}>
+                                <CheckCircle2 size={16} /> Confirm
+                              </button>
+                              <button type="button" onClick={(e) => { e.stopPropagation(); setAction({ mode: 'reopen', ticket: t }); }} style={phoneBtn}>
+                                <RotateCcw size={16} /> Reopen
+                              </button>
+                            </>)}
+                            {editable && (
+                              <button type="button" onClick={(e) => { e.stopPropagation(); setViewing({ id: t.id, edit: true }); }} style={phoneBtn}
+                                aria-label={`Edit ${ticketNoShort(t.code) || 'ticket'}`}>
+                                <Pencil size={15} /> Edit
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+            <div style={{ overflowX: 'clip' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: `${gutterW}px minmax(0,1fr)`, alignItems: 'stretch', fontFamily: FONT }}>
                 <div />
                 <div ref={wrapRef} style={{ '--nx-grid': gridTemplate, display: 'grid', gridTemplateColumns: 'var(--nx-grid)', minWidth: 0, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: '10px 10px 0 0' }}>
-                  {cols.map((col) => {
+                  {cols.map((col, i) => {
                     const active = effSort.key === col.key;
                     const SortIcon = active ? (effSort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+                    const lastCol = i === cols.length - 1 && !actionsCol;
                     return (
                       <div key={col.key} onClick={() => onSort(col.key)} title={`Sort by ${col.label}`}
-                        style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4, minHeight: 34, padding: '0 10px', cursor: 'pointer', userSelect: 'none', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' }}>
+                        style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4, minHeight: 34, padding: '0 10px', cursor: 'pointer', userSelect: 'none', borderRight: lastCol ? 'none' : `1px solid ${NX.border2}`, boxSizing: 'border-box', minWidth: 0 }}>
                         <span style={{ flex: 1, minWidth: 0, fontSize: 11, fontWeight: 700, color: NX.ink, textTransform: 'uppercase', letterSpacing: '0.04em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
                         <SortIcon size={11} style={{ flexShrink: 0, opacity: active ? 1 : 0.4 }} />
                         {tier === 'full' && <ColResizer onMouseDown={startResize(col.key, widths[col.key] ?? col.width)} onReset={() => resetWidth(col.key)} onAutofit={() => autofitWidth(col.key)} />}
                       </div>
                     );
                   })}
+                  {actionsCol && (
+                    <div style={{ display: 'flex', alignItems: 'center', minHeight: 34, padding: '0 10px', boxSizing: 'border-box', fontSize: 11, fontWeight: 700, color: NX.ink, textTransform: 'uppercase', letterSpacing: '0.04em', userSelect: 'none' }}>
+                      Actions
+                    </div>
+                  )}
                 </div>
-                <div />
                 {paged.map((t, idx) => {
                   const last = idx === paged.length - 1;
                   const forOther = !mineToAct(t);
@@ -625,7 +849,7 @@ export default function Support({ activeSub, onSubChange }) {
                   const unread = !forOther && isUnread(t);
                   const editable = t.status === 'open' && !forOther;
                   const actions = !forOther && t.status !== 'closed' && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', paddingLeft: hasActions && !stacked ? 10 : 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: stacked ? 'wrap' : 'nowrap' }}>
                       {t.status !== 'resolved' && (
                         <button type="button" onClick={(e) => { e.stopPropagation(); setAction({ mode: resolveMode(t), ticket: t }); }}
                           style={{ ...rowBtn, color: NX.green, borderColor: 'rgba(22,163,74,0.45)' }}>
@@ -661,7 +885,7 @@ export default function Support({ activeSub, onSubChange }) {
                       {/* The whole row opens the ticket's real detail drawer
                           (Ticket module). role="button" + cursor:pointer since
                           a grid row isn't natively interactive. */}
-                      <div role="button" tabIndex={0} className={mineToAct(t) && !['resolved', 'closed'].includes(t.status) && (t.status === 'waiting_user' || isUnread(t)) ? 'nx-row-hover nx-needs-you--row' : 'nx-row-hover'} onClick={() => setViewing({ id: t.id })}
+                      <div role="button" tabIndex={0} aria-label={`Open ticket ${ticketNoShort(t.code) || ''} ${t.subject || ''}`.replace(/\s+/g, ' ').trim()} className={mineToAct(t) && !['resolved', 'closed'].includes(t.status) && (t.status === 'waiting_user' || isUnread(t)) ? 'nx-row-hover nx-needs-you--row' : 'nx-row-hover'} onClick={() => setViewing({ id: t.id })}
                         onKeyDown={(e) => {
                           // Only the row's OWN keys: Enter on a button inside
                           // it (Mark Resolved, Confirm, Reopen, the latest
@@ -690,6 +914,7 @@ export default function Support({ activeSub, onSubChange }) {
                                 For {nameOf(t.requesterId) || t.requesterId}
                               </div>
                             )}
+                            <ExpectReply t={t} />
                             {stacked && (
                               /* Narrow: the comment and the actions live here
                                  instead of in columns of their own. */
@@ -708,7 +933,7 @@ export default function Support({ activeSub, onSubChange }) {
                             )}
                           </div>
                         </div>
-                        <div style={{ minHeight: ROW_MIN_H, borderRight: `1px solid ${NX.border2}` }}>
+                        <div style={{ minHeight: ROW_MIN_H, minWidth: 0, borderRight: tier === 'phone' ? 'none' : `1px solid ${NX.border2}` }}>
                           <StatusCell status={t.status} />
                         </div>
                         {colKeys.has('assignedTo') && (
@@ -729,25 +954,42 @@ export default function Support({ activeSub, onSubChange }) {
                           </div>
                         )}
                         {colKeys.has('latestComment') && (
-                          <div style={{ ...cellBase, overflow: 'hidden' }}>
+                          <div style={{ ...cellBase, overflow: 'hidden', borderRight: actionsCol ? `1px solid ${NX.border2}` : 'none' }}>
                             <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} stacked
                               onOpen={() => setViewing({ id: t.id, tab: 'conversation' })} />
                           </div>
                         )}
+                        {/* The Actions column - empty on a row with nothing to
+                            do (a ticket that is someone else's). */}
+                        {actionsCol && <div style={cellBase}>{actions}</div>}
                       </div>
-                      {/* Right gutter: the actions, except in the narrow tier
-                          where they moved under the title and this cell is 0px. */}
-                      <div style={{ display: 'flex', alignItems: 'center' }}>{!stacked && actions}</div>
                     </Fragment>
                   );
                 })}
               </div>
             </div>
+            )}
 
-            {sorted.length > SUPPORT_PAGE_SIZE && (
+            {sorted.length > SUPPORT_PAGE_SIZE && cardMode && (
+              /* Phone pager: two full-size buttons and where you are. */
+              <div className="hc-pager" style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 10, marginTop: 12, fontFamily: FONT }}>
+                <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={pageSafe <= 1}
+                  style={{ ...phoneBtn, justifyContent: 'center', opacity: pageSafe <= 1 ? 0.45 : 1, cursor: pageSafe <= 1 ? 'default' : 'pointer' }}>
+                  <ChevronLeft size={16} /> Previous
+                </button>
+                <span style={{ fontSize: 12.5, color: NX.dim, fontWeight: 600, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                  {(pageSafe - 1) * SUPPORT_PAGE_SIZE + 1}-{Math.min(pageSafe * SUPPORT_PAGE_SIZE, sorted.length)} of {sorted.length}
+                </span>
+                <button type="button" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={pageSafe >= pageCount}
+                  style={{ ...phoneBtn, justifyContent: 'center', opacity: pageSafe >= pageCount ? 0.45 : 1, cursor: pageSafe >= pageCount ? 'default' : 'pointer' }}>
+                  Next <ChevronRight size={16} />
+                </button>
+              </div>
+            )}
+            {sorted.length > SUPPORT_PAGE_SIZE && !cardMode && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 10, fontFamily: FONT }}>
                 <span style={{ fontSize: 12, color: NX.dim }}>
-                  {(pageSafe - 1) * SUPPORT_PAGE_SIZE + 1}–{Math.min(pageSafe * SUPPORT_PAGE_SIZE, sorted.length)} of {sorted.length}
+                  {(pageSafe - 1) * SUPPORT_PAGE_SIZE + 1}-{Math.min(pageSafe * SUPPORT_PAGE_SIZE, sorted.length)} of {sorted.length}
                 </span>
                 <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={pageSafe <= 1}
                   style={{ display: 'flex', alignItems: 'center', border: `1px solid ${NX.border}`, borderRadius: 7, background: NX.surface, padding: '5px 8px', cursor: pageSafe <= 1 ? 'default' : 'pointer', opacity: pageSafe <= 1 ? 0.4 : 1 }}>
@@ -763,13 +1005,14 @@ export default function Support({ activeSub, onSubChange }) {
           </>
         )}
       </div>
+      {isPhone && <NeedTo onTicket={(seed) => setSubmitting(seed || true)} />}
       </>)}
 
       {submitting && (
         <Suspense fallback={<ModalLoading />}>
           {/* CreateTicketModal calls onClose after a successful create too, so
               reloading here covers both "submitted" and "cancelled". */}
-          <TicketComposer onClose={() => { setSubmitting(false); load(); }}
+          <TicketComposer onClose={() => { setSubmitting(false); load(); }} initial={typeof submitting === 'object' ? submitting : null}
             onBatch={canWalk ? () => { setSubmitting(false); setWalking(true); } : undefined} />
         </Suspense>
       )}

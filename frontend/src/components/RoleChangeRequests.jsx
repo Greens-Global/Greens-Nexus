@@ -20,6 +20,10 @@ import { X, Shield, ArrowRight, Check, Ban, Clock } from 'lucide-react';
 import { api } from '../api';
 import { Spinner } from './AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
+import { AvatarName } from '../tasks/components';
+
+// A person inside a sentence here: face, then name.
+const person = (email, name) => <AvatarName email={email} name={name || email} size={18} />;
 
 function Details({ r }) {
   return (
@@ -32,10 +36,10 @@ function Details({ r }) {
       <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' }}>Reason</div>
       <div style={{ fontSize: 13.5, marginTop: 3, whiteSpace: 'pre-line', lineHeight: 1.5 }}>{r.reason}</div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10, lineHeight: 1.5 }}>
-        Asked by {r.requestedByName || r.requestedBy} on {formatDateTime(r.createdAt)}.{' '}
+        Asked by {person(r.requestedBy, r.requestedByName)} on {formatDateTime(r.createdAt)}.{' '}
         {r.status === 'pending'
           ? <>Asked before role changes stopped needing approval - HR, an IT Admin or a Global Admin approves or declines it.</>
-          : <>{r.statusLabel}{r.decidedByName ? ` by ${r.decidedByName}` : ''}{r.decidedAt ? ` on ${formatDateTime(r.decidedAt)}` : ''}.{r.decisionNote ? ` Note: ${r.decisionNote}` : ''}</>}
+          : <>{r.statusLabel}{r.decidedByName ? <> by {person(r.decidedBy, r.decidedByName)}</> : ''}{r.decidedAt ? ` on ${formatDateTime(r.decidedAt)}` : ''}.{r.decisionNote ? ` Note: ${r.decisionNote}` : ''}</>}
       </div>
     </>
   );
@@ -183,12 +187,15 @@ const HISTORY_TONE = { approved: 'green', completed: 'green', changed: 'blue', d
 
 function outcome(h) {
   if (h.kind === 'promotion') {
-    return h.signers.length ? `Signed by ${h.signers.map(s => s.name).join(', ')}` : 'Signed through Nexus Sign';
+    return h.signers.length
+      ? <>Signed by {h.signers.map((s, i) => <span key={`${s.email || s.name}-${i}`}>{i ? ', ' : ''}{person(s.email, s.name)}</span>)}</>
+      : 'Signed through Nexus Sign';
   }
   if (h.kind === 'direct') return 'Changed directly - no approval needed';
-  if (h.status === 'approved') return `Approved by ${h.decidedByName || h.decidedBy}`;
-  if (h.status === 'declined') return `Declined by ${h.decidedByName || h.decidedBy}${h.note ? ` - ${h.note}` : ''}`;
-  return `Canceled by ${h.decidedByName || h.decidedBy}${h.note ? ` - ${h.note}` : ''}`;
+  const by = person(h.decidedBy, h.decidedByName);
+  if (h.status === 'approved') return <>Approved by {by}</>;
+  if (h.status === 'declined') return <>Declined by {by}{h.note ? ` - ${h.note}` : ''}</>;
+  return <>Canceled by {by}{h.note ? ` - ${h.note}` : ''}</>;
 }
 
 export function RoleHistory({ employeeId = '', email = '', refreshKey }) {
@@ -220,7 +227,7 @@ export function RoleHistory({ employeeId = '', email = '', refreshKey }) {
               </div>
               {h.reason && <div style={{ fontSize: 12.5, marginTop: 6, whiteSpace: 'pre-line', lineHeight: 1.5 }}><b>Reason:</b> {h.reason}</div>}
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5, lineHeight: 1.5 }}>
-                Raised by {h.raisedByName || h.raisedBy || 'unknown'}{h.raisedAt && h.raisedAt !== h.at ? ` on ${formatDateTime(h.raisedAt)}` : ''}
+                Raised by {h.raisedByName || h.raisedBy ? person(h.raisedBy, h.raisedByName) : 'unknown'}{h.raisedAt && h.raisedAt !== h.at ? ` on ${formatDateTime(h.raisedAt)}` : ''}
                 {' - '}{outcome(h)}{h.effectiveDate ? `. Effective ${formatDate(h.effectiveDate)}` : ''}.
               </div>
             </div>

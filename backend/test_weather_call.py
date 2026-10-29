@@ -67,12 +67,15 @@ class CallTests(unittest.TestCase):
         for m in (models.NexusRole, models.NexusEmployee, models.ShiftGroup, models.ShiftGroupMember, models.HrWorkSite,
                   models.HrEntity, models.ScheduledShift, models.NexusNotification, models.ScheduleDayNote,
                   models.WeatherOutlook, models.WeatherAdvisory, models.WeatherDecision, models.NexusPersonPref,
-                  models.NexusSetting, models.ShiftRequest, models.Shift, models.ShiftAssignment):
+                  models.NexusSetting, models.ShiftRequest, models.Shift, models.ShiftAssignment, models.HrDepartment):
             self.db.query(m).delete()
         for em, first, phone in ((BOSS, "Boss", ""), (MGR, "Mia", ""), (OTHER, "Otto", ""), (ANN, "Ann", "(949) 555-0101"),
                                  (BOB, "Bob", "(949) 555-0102"), (CAL, "Cal", "")):
+            # The crew is in Construction: weather calls are for weather departments only (10/29/2026).
             self.db.add(models.NexusEmployee(id=f"emp-{em}", first_name=first, last_name="X", work_email=em, phone=phone,
-                                             status="active", deleted_at="", company=ENT))
+                                             status="active", deleted_at="", company=ENT,
+                                             department="Construction" if em in (ANN, BOB, CAL) else ""))
+        self.db.add(models.HrDepartment(id="d-wc-con", company_id=ENT, name="Construction"))   # starts on
         self.db.add(models.NexusRole(email=BOSS, role="administrator", assigned_by="test"))
         for em in (MGR, OTHER):
             self.db.add(models.NexusRole(email=em, role="manager", assigned_by="test"))
@@ -504,11 +507,13 @@ class CallTests(unittest.TestCase):
 
     def test_my_prefs(self):
         self._as(ANN)
-        self.assertEqual(self.client.get("/weather-call/my-prefs").json(), {"weatherSms": True, "phone": True})
+        self.assertEqual(self.client.get("/weather-call/my-prefs").json(), {"weatherSms": True, "phone": True, "weatherOn": True})
         r = self.client.put("/weather-call/my-prefs", json={"weatherSms": False})
         self.assertEqual(r.json()["weatherSms"], False)
         self._as(CAL)
-        self.assertEqual(self.client.get("/weather-call/my-prefs").json(), {"weatherSms": True, "phone": False})
+        self.assertEqual(self.client.get("/weather-call/my-prefs").json(), {"weatherSms": True, "phone": False, "weatherOn": True})
+        self._as(OTHER)   # not in a weather department: My Schedule shows no texts switch
+        self.assertFalse(self.client.get("/weather-call/my-prefs").json()["weatherOn"])
 
 
 if __name__ == "__main__":

@@ -34,8 +34,8 @@ const TicketComposer = lazy(async () => {
     import('../tickets/TicketsView'),
   ]);
   return {
-    default: ({ onClose }) => (
-      <TasksProvider><CreateTicketModal onClose={onClose} /></TasksProvider>
+    default: ({ onClose, initial }) => (
+      <TasksProvider><CreateTicketModal onClose={onClose} initial={initial} /></TasksProvider>
     ),
   };
 });
@@ -71,7 +71,7 @@ class WidgetBoundary extends Component {
         Help could not load right now. Refresh the page, or{' '}
         <button type="button" onClick={this.props.onContact}
           style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'var(--wk-brand, #2b45e1)', fontWeight: 600, cursor: 'pointer' }}>
-          go to Support
+          go to the Help Center
         </button>.
       </div>
     );
@@ -89,13 +89,30 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
   // anything that navigates away, or a click elsewhere, does not.
   const close = useCallback((restoreFocus = true) => {
     setOpen(false);
-    if (restoreFocus) btnRef.current?.focus();
+    // Phones hide the "?" button (the panel opens from the menu there), and
+    // focusing a hidden button drops focus nowhere.
+    const btn = btnRef.current;
+    if (restoreFocus && btn && window.getComputedStyle(btn).display !== 'none') btn.focus();
   }, []);
 
-  // "?" anywhere (Shift+/ on US keyboards), Esc while open, and the phone menu's event.
+  // Esc while open closes the panel and ONLY the panel: caught on the way
+  // down (capture) and stopped there, so a drawer or modal under it - whose
+  // own Esc listener was added first - never hears it and keeps its draft.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onEsc = (e) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      close(true);
+    };
+    window.addEventListener('keydown', onEsc, true);
+    return () => window.removeEventListener('keydown', onEsc, true);
+  }, [open, close]);
+
+  // "?" anywhere (Shift+/ on US keyboards) and the phone menu's event.
   useEffect(() => {
     const onKey = (e) => {
-      if (open && e.key === 'Escape') { e.preventDefault(); close(true); return; }
       if (e.key !== '?' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
       if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
       e.preventDefault();
@@ -111,12 +128,16 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
   // is no "elsewhere").
   useEffect(() => {
     if (!open) return undefined;
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) close(false); };
+    // The panel lives at the page root (below), so a click in it is not "outside".
+    const onDown = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target) && !e.target.closest?.('.help-widget')) close(false);
+    };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [open, close]);
 
-  const ask = useCallback(() => { setOpen(false); setComposing(true); }, []);
+  // `seed`: { subject, description } from Ask Nexus's File a Ticket (Oct 2026).
+  const ask = useCallback((seed) => { setOpen(false); setComposing(seed && typeof seed === 'object' ? seed : true); }, []);
 
   // The built-for-this-page tour (lib/autoTour.js) for screens with no
   // hand-built one: built at the moment it starts, from the Help entry and
@@ -151,7 +172,9 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
         onClick={() => (open ? close() : show())}>
         <CircleHelp style={{ width: 17, height: 17 }} />
       </button>
-      {open && (
+      {/* The panel too: its "fixed" bottom-right measured from the blurred
+          header put it above the top of the screen (Oct 28 2026). */}
+      {open && createPortal(
         <WidgetBoundary onContact={() => {
           close(false);
           window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'support' } }));
@@ -161,7 +184,8 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
               onTabChange={(t) => { lastTab = t; }}
               onWhatsNew={onWhatsNew} onAsk={ask} onClose={close} />
           </Suspense>
-        </WidgetBoundary>
+        </WidgetBoundary>,
+        document.body,
       )}
       {/* At the page root: inside the header, whose backdrop blur makes it
           the box "fixed" positions measure from, the spotlight sat a
@@ -174,7 +198,7 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
       )}
       {composing && (
         <Suspense fallback={<ModalLoading />}>
-          <TicketComposer onClose={() => setComposing(false)} />
+          <TicketComposer onClose={() => setComposing(false)} initial={typeof composing === 'object' ? composing : null} />
         </Suspense>
       )}
     </div>

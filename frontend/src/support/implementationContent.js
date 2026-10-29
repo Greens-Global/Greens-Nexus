@@ -47,6 +47,7 @@ export const IMPL_CONCEPTS = [
   { term: 'Organization', text: 'One Nexus deployment, one Microsoft 365 tenant. Settings with the scope on Every company apply to everything in it.' },
   { term: 'Company', text: 'A legal entity the organization runs (Settings > Companies). Pick it in the Scope box at the top of Settings to see what is set for it alone. Each has its own departments, locations, holiday calendar, workforce analytics policy, managers, HR contact and job roles. One organization can hold many companies.' },
   { term: 'Department', text: 'A team inside one company (Operations, Accounting, IT...). Used by people, tasks, tickets and reporting. Keep the list short and aligned with how the books are organized - sub-teams belong in shifts groups or task teams, not new departments.' },
+  { term: 'Holiday Policy', text: 'A named set of holidays with its weekend rule (Settings > Companies > Holiday Policies), applied to one or more companies. Each company’s Holiday Calendar shows its policies’ holidays and can skip or change any of them, or add its own.' },
   { term: 'Location', text: 'A physical site people punch in at, placed once in the Location Library from its Google Maps link with a geofence radius, then switched on for the companies that use it.' },
   { term: 'Job Role', text: 'What a person does: a seniority tier, a department, a bundle of modules at set levels, the time-clock exemptions, the Teams chat or channel their day messages post to, and a default approver. Giving someone a role gives them all of it at once.' },
   { term: 'Tier', text: 'Employee, Supervisor, Manager, IT Admin (Administrator) or Global Admin (Owner). It decides what a person can approve and how far they see - a Manager with People sees their own team; IT Admins grant access up to Manager; only Global Admins manage other admins and see across company walls.' },
@@ -103,13 +104,13 @@ export const IMPL_PHASES = [
       'Agree where the source data comes from: Microsoft 365, an HR spreadsheet, or both - and which one wins when they disagree.',
     ],
     steps: [
-      { title: 'Run the Discovery questions', where: 'This guide > Discovery Questions', items: [
+      { title: 'Run the Discovery Questions', where: 'This guide > Discovery Questions', items: [
         'Walk the client through every Discovery question. Write the answers into a shared sheet: one tab per area (Organization, People, Time and Pay, Modules).',
         'Ask for an export of the Microsoft 365 users (name, title, department, manager, office) and an org chart. Mark which people are not in Microsoft 365 (contractors, partners).',
       ]},
-      { title: 'Agree the plan', items: [
+      { title: 'Agree the Plan', items: [
         'Share this guide’s phase list with dates against each phase and an owner per phase.',
-        'Book the go-live briefing and the training sessions now (Phase 13).',
+        'Book the go-live briefing and the training sessions now (Phase 14).',
       ]},
     ],
     checks: [
@@ -135,18 +136,18 @@ export const IMPL_PHASES = [
       'Which environment is production. Only production writes to Microsoft 365; test environments only read, so test data never overwrites the real directory.',
     ],
     steps: [
-      { title: 'Register the app and grant consent', where: 'Microsoft Entra admin center (client tenant)', items: [
+      { title: 'Register the App and Grant Consent', where: 'Microsoft Entra admin center (client tenant)', items: [
         'Create the app registration for Nexus with the web redirect address of the client’s Nexus site.',
         'Add the permissions and click Grant admin consent: sign-in (openid, profile, email, offline_access); directory (User.ReadWrite.All, plus license assignment for provisioning); Teams (Chat.ReadBasic, Chat.Create, ChatMessage.Send, Team.ReadBasic.All, Channel.ReadBasic.All, ChannelMessage.Send); email (Mail.Send, and Mail.ReadWrite for ticket replies by email).',
         'Hand the tenant ID, client ID and client secret to the Nexus team for the server settings.',
       ]},
-      { title: 'Tell Nexus which domains are the client’s', where: 'Settings > Companies > pick the company > Company > Email Domains', view: 'admin-console', sub: 'companies', items: [
+      { title: 'Tell Nexus Which Domains Are the Client’s', where: 'Settings > Companies > pick the company > Company > Email Domains', view: 'admin-console', sub: 'companies', items: [
         'List every email domain each company uses. The directory sync brings in only people on these domains and tags them to that company.',
       ]},
       { title: 'Optional: Actionable Messages', items: [
         'Follow docs/Actionable-Messages-Setup.md: register the originator and set the originator and audience server settings. Task emails then carry buttons that work inside Outlook.',
       ]},
-      { title: 'Optional: Teams status and Outlook shift calendars', where: 'Microsoft Entra admin center (client tenant)', items: [
+      { title: 'Optional: Teams Status and Outlook Shift Calendars', where: 'Microsoft Entra admin center (client tenant)', items: [
         'For Teams status on Team > Company Directory, add the Presence.Read.All application permission and grant admin consent (docs/Teams-Presence-Setup.md). Until then the Company Directory simply shows no status.',
         'To put shared shifts on Outlook calendars, add Calendars.ReadWrite (application) and grant consent (docs/Outlook-Calendar-Setup.md). Nothing is written until a company also turns it on in Settings > Shifts & Scheduling > Sharing.',
       ]},
@@ -174,18 +175,18 @@ export const IMPL_PHASES = [
       'Session idle limit, and how guest (external) sign-in codes behave.',
     ],
     steps: [
-      { title: 'Brand color and email appearance', where: 'Settings > Branding & Email', view: 'admin-console', sub: 'branding', items: [
+      { title: 'Brand Color and Email Appearance', where: 'Settings > Branding & Email', view: 'admin-console', sub: 'branding', items: [
         'Brand Color: pick the accent used across Nexus.',
         'Email Appearance: logo, title, accent, footer text and company address line. Check the Preview, then save.',
       ]},
-      { title: 'Publish the sign-in policy', where: 'Settings > Security > Sign-In Policy', view: 'admin-console', sub: 'security:signin-policy', items: [
+      { title: 'Publish the Sign-In Policy', where: 'Settings > Security > Sign-In Policy', view: 'admin-console', sub: 'security:signin-policy', items: [
         'Edit the Policy Text, Save Draft, have it approved, then click Publish and Ask Everyone.',
       ]},
-      { title: 'Sessions and guest sign-in', where: 'Settings > Security > Sign-In & Sessions', view: 'admin-console', sub: 'security:sign-in-sessions', items: [
-        'Set the Web Session Idle Limit, Act As Session Length and the Credential Vault unlock times.',
+      { title: 'Sessions and Guest Sign-In', where: 'Settings > Security > Sign-In & Sessions', view: 'admin-console', sub: 'security:sign-in-sessions', items: [
+        'Set the Web Session Idle Limit, Act As Session Length and the Credentials unlock times.',
         'Guest Sign-In: code lifetime, wrong-code attempts, lockout duration, code requests per hour and invitation link lifetime.',
       ]},
-      { title: 'Email signature', where: 'Settings > Branding & Email > Email Signature', view: 'admin-console', sub: 'branding:email-signature', items: [
+      { title: 'Email Signature', where: 'Settings > Branding & Email > Email Signature', view: 'admin-console', sub: 'branding:email-signature', items: [
         'Choose the template and sign-off. Each person’s signature fills from their profile and their company’s logo and address.',
       ]},
     ],
@@ -211,25 +212,31 @@ export const IMPL_PHASES = [
       'Its managers, its HR contact (reviews time sheets for people with no manager, and can change or finalize any of them), and the group manager over all companies.',
       'Departments per company, matched to the chart of accounts.',
       'Every work site: its Google Maps link and a geofence radius. Which companies use each.',
-      'Holidays per company and country, for this year and the next few.',
+      'Holidays: which sets of holidays the companies share (US, India...), whether a holiday that falls on a weekend moves (Keep The Date unless the client says otherwise) and, for India, which gazetted and restricted holidays count.',
+      'Which departments work outdoors and get Weather Calls (Construction by default).',
     ],
     steps: [
-      { title: 'Add each company', where: 'Settings > Companies > Add Company', view: 'admin-console', sub: 'companies', items: [
+      { title: 'Add Each Company', where: 'Settings > Companies > Add Company', view: 'admin-console', sub: 'companies', items: [
         'Overview: legal details, logo, domains, main phone and social links, the company manager(s) and the HR Contact.',
         'Set the Group Manager (the person above every company) once, at the top of the Companies list.',
       ]},
       { title: 'Departments', where: 'Settings > Companies > pick the company > Departments', view: 'admin-console', sub: 'companies', items: [
-        'Add the company’s departments. Tasks, tickets and People all use this one list.',
+        'Add the company’s departments, each with its Department Head. Tasks, tickets and People all use this one list.',
+        'Weather Calls: leave it on only for outdoor departments (on for Construction by default, off for every other). Rain advisories and weather calls reach only the people of those departments.',
       ]},
       { title: 'Locations', where: 'Settings > Locations > Location Library', view: 'admin-console', sub: 'locations', items: [
         'Add each site once: paste its Google Maps link (that places it), set the radius, and pick the companies whose people punch in there.',
         'Or pick the company in the Scope box: Locations then shows that company\'s sites.',
       ]},
-      { title: 'Holiday calendar', where: 'Settings > Companies > pick the company > Holiday Calendar', view: 'admin-console', sub: 'companies', items: [
-        'Pick the country and year to see its public holidays, and add the ones the company observes. Add company-only days by hand.',
-        'Use Copy to Year(s) to roll the set forward, and save it as a Holiday Policy to reuse in another company instead of rebuilding it.',
+      { title: 'Holiday Policies', where: 'Settings > Companies > Holiday Policies (scope: Every company)', view: 'admin-console', sub: 'companies:holiday-policies', items: [
+        'Build each shared set once: New Holiday Policy, a name (US Holidays, India Holidays), the country, then Add Holidays From - Federal Holidays, Common Company Holidays or Some States Only in the US; National, Gazetted or Restricted Holidays (Optional) in India - plus any day by hand. Each holiday is Mandatory, Optional or Half Day.',
+        'Pick When A Holiday Falls On A Weekend: Keep The Date (the default), Friday Before Or Monday After (Federal Rule), Always The Friday Before, Always The Monday After or No Day Off.',
+        'Under Applies To, pick every company the set is for, and save. One policy can serve many companies; editing it updates all of them.',
       ]},
-      { title: 'Workforce analytics policy', where: 'Settings > Workforce Analytics > pick the company', view: 'admin-console', sub: 'analytics', items: [
+      { title: 'Each Company’s Holiday Calendar', where: 'Settings > Companies > pick the company > Holiday Calendar', view: 'admin-console', sub: 'companies', items: [
+        'Check the year: the policies’ holidays are listed with their source. Skip For This Company, Change Date or Change Type where this company differs, and add its own days.',
+      ]},
+      { title: 'Workforce Analytics Policy', where: 'Settings > Workforce Analytics > pick the company', view: 'admin-console', sub: 'analytics', items: [
         'If monitoring is used: what is captured while clocked in (screenshots, activity) and the capture interval. Leave it off if the client does not monitor.',
       ]},
     ],
@@ -238,7 +245,8 @@ export const IMPL_PHASES = [
       { id: 'company.contacts', text: 'Managers and HR contact set for every company; group manager set.' },
       { id: 'company.departments', text: 'Departments added for every company, aligned with accounting.' },
       { id: 'company.locations', text: 'Every work site placed from its Google Maps link and assigned to its companies.' },
-      { id: 'company.holidays', text: 'Holiday calendar filled for this year and next, for every company.' },
+      { id: 'company.holidays', text: 'Holiday calendar filled for this year and next, for every company - from its holiday policies, with the weekend rule agreed.' },
+      { id: 'company.weather', text: 'Weather Calls on only for the outdoor departments.' },
       { id: 'company.monitoring', text: 'Workforce analytics policy decided (on with settings, or off) for every company.' },
     ],
     pitfalls: [
@@ -262,17 +270,17 @@ export const IMPL_PHASES = [
       'Who the Global Admins are - keep it to a very few.',
     ],
     steps: [
-      { title: 'Create the job roles', where: 'Settings > People & Access > pick the company > Roles', view: 'admin-console', sub: 'access', items: [
+      { title: 'Create the Job Roles', where: 'Settings > People & Access > pick the company > Roles', view: 'admin-console', sub: 'access', items: [
         'New Role: name, seniority tier, department and a plain description.',
         'Module Bundle: click a level per module (the x on the selected level removes it). Inherit from an existing role to start fast; Duplicate a role for the same job in another company.',
         'Time Clock: Exempt from screen-share monitoring, Skip day and break messages, Exempt from time tracking - as decided.',
         'Teams Messages: bind the group chat or channel this role’s beginning-of-day, end-of-day and break messages post to.',
         'Set the default approver.',
       ]},
-      { title: 'Access Groups for the extras', where: 'Settings > People & Access > Groups', view: 'admin-console', sub: 'access', items: [
+      { title: 'Access Groups for the Extras', where: 'Settings > People & Access > Groups', view: 'admin-console', sub: 'access', items: [
         'Create a group only for access a few people need beyond their role, and add those people.',
       ]},
-      { title: 'Check the matrix', where: 'Settings > People & Access > Matrix', view: 'admin-console', sub: 'access', items: [
+      { title: 'Check the Matrix', where: 'Settings > People & Access > Matrix', view: 'admin-console', sub: 'access', items: [
         'Read the access matrix role by role. Every module a role opens should have a reason.',
         'Company Walls: switch on once every person has a company (Phase 5), so people only see their own company.',
       ]},
@@ -302,24 +310,24 @@ export const IMPL_PHASES = [
       'Which partner-company people get Nexus (externals) and what they may see.',
     ],
     steps: [
-      { title: 'Import the directory', where: 'Settings > Tools > Microsoft 365 Directory Sync', view: 'admin-console', sub: 'tools', items: [
+      { title: 'Import the Directory', where: 'Settings > Tools > Microsoft 365 Directory Sync', view: 'admin-console', sub: 'tools', items: [
         'Click Sync Now. People on the company domains are created and tagged to their company, with their profile photos; shared mailboxes, rooms and inactive accounts are skipped. It runs in the background.',
       ]},
-      { title: 'Complete every record', where: 'People > a person > Edit', view: 'hr', sub: 'hr-people', items: [
+      { title: 'Complete Every Record', where: 'People > a person > Edit', view: 'hr', sub: 'hr-people', items: [
         'Company and department, employment type, start date, Reports To.',
         'Office & Contact: office, mobile and office phone, street address, city, state, ZIP and country. Saved changes update Microsoft 365; changes made there come back within 15 minutes or with Sync Now.',
         'Role tab: give the job role. Their modules, tier, exemptions and Teams destination follow.',
         'Work Mode tab: On-Site, Remote or Hybrid (both - remote allowed, plus the usual locations they punch in at).',
       ]},
-      { title: 'Add people who are not in the directory yet', where: 'People > Add Person', view: 'hr', sub: 'hr-people', items: [
+      { title: 'Add People Who Are Not in the Directory Yet', where: 'People > Add Person', view: 'hr', sub: 'hr-people', items: [
         'Add Employee or Add Independent Contractor (scope, SOW and rate live on the same record).',
         'Provision Accounts creates their Microsoft 365 account and licenses; send the welcome email.',
       ]},
-      { title: 'Invite externals', where: 'People > Add Person > Add External', view: 'hr', sub: 'hr-people', items: [
+      { title: 'Invite Externals', where: 'People > Add Person > Add External', view: 'hr', sub: 'hr-people', items: [
         'Email, name and partner company. They sign in with a code sent by email (or text once their phone is verified).',
         'Limit what they see on their Role tab (for example one company), and set an expiry if the engagement ends.',
       ]},
-      { title: 'Pay and benefits', where: 'People > a person > Pay & Benefits', view: 'hr', sub: 'hr-people', items: [
+      { title: 'Pay and Benefits', where: 'People > a person > Pay & Benefits', view: 'hr', sub: 'hr-people', items: [
         'Pay basis, base amount, frequency, currency and effective date; the overtime rule (California, Federal or None). Needs the People - Compensation grant.',
       ]},
     ],
@@ -351,23 +359,37 @@ export const IMPL_PHASES = [
       'Shift differentials and call-back pay (off by default, per company).',
       'Payroll item names for the QuickBooks IIF and Intacct memo, per company.',
       'Whether managers get a live alert before someone reaches overtime (off by default).',
+      'Leave: the vacation and sick policies, the date balances count from, what happens to unused time at year end (Use It Or Lose It by default; California vacation never expires) and whether HR approves time off after the manager.',
+      'India companies: whether contractors on fixed monthly pay follow the India Contractor Policy (on by default for an India company) and from which month.',
     ],
     steps: [
-      { title: 'Pay rules', where: 'Settings > Time & Pay > Pay Rules', view: 'admin-console', sub: 'pay', items: [
+      { title: 'Pay Rules', where: 'Settings > Time & Pay > Pay Rules', view: 'admin-console', sub: 'pay', items: [
         'Punch rounding, the auto-lunch deduction and California paid rest breaks - the rules every time sheet is computed with.',
         'Payroll Export Codes: pick each company and type its QuickBooks payroll item names (blank keeps the default).',
         'Shift Differentials and Call-Back Pay: turn it on only for companies that pay them, then add each differential.',
       ]},
-      { title: 'California staff', where: 'People > the person > Pay & Benefits', view: 'hr', sub: 'hr-people', items: [
+      { title: 'California Staff', where: 'People > the person > Pay & Benefits', view: 'hr', sub: 'hr-people', items: [
         'For hourly staff on the California rule who waive meal periods: Send Waiver to Sign. California Review on People > Time > Payroll then checks each period.',
       ]},
-      { title: 'Time off', where: 'Settings > Time & Pay > Time-Off Reasons', view: 'admin-console', sub: 'pay:time-off-reasons', items: [
-        'With the Scope box on Every company, add the time-off reasons the client uses - the default list; a company that needs its own gets it with that company picked. Requests route to the person’s manager; approved time off is not punched in automatically.',
+      { title: 'Time Off', where: 'Settings > Time & Pay > Time-Off Reasons', view: 'admin-console', sub: 'pay:time-off-reasons', items: [
+        'With the Scope box on Every company, add the time-off reasons the client uses - the default list; a company that needs its own gets it with that company picked. Requests route to the person’s manager; approved time off is not punched in automatically (India contractors on the India Contractor Policy are the exception: an approved Vacation or Sick request is paid leave).',
       ]},
-      { title: 'Monitoring computers', where: 'Workforce Analytics', view: 'employee-tracking', items: [
+      { title: 'Leave Policies and Balances', where: 'Settings > Time & Pay > Leave Policies', view: 'admin-console', sub: 'pay:leave-policies', items: [
+        'Leave Policies: the vacation and sick policies people are assigned - hours earned per hour worked, caps and carry-over.',
+        'Leave Year-End: Use It Or Lose It, Carry Everything or Carry Up To a Cap, per bucket - a default, and a company’s own. Time-Off Approval: turn on Second Approval By HR for a company that wants HR to approve after the manager.',
+        'In People > Time > Time Off, set the date balances count from and import each person’s opening balance from QuickBooks once.',
+      ]},
+      { title: 'India Contractor Policy', where: 'Settings > Time & Pay > India Contractor Policy', view: 'admin-console', sub: 'pay:india-contractor-policy', items: [
+        'For India companies: check the policy is on and its start month. Contractors are then credited by hours (8 full, 4 half), the month-end pool buys back missing half days, and approved Extra Time pays 1.35 times the daily rate divided by 9.',
+        'Extra Time claims are approved by the company’s HR contact (else the Global Admins) in People > Time > Extra Time - make sure every India company has an HR contact.',
+      ]},
+      { title: 'Payroll Readiness', where: 'Settings > Time & Pay > Payroll Readiness', view: 'admin-console', sub: 'pay:payroll-readiness', items: [
+        'Set what counts as a big change or an unusual week (25% or 8 hours off last period or the schedule by default) - a default, and each company’s own. The check itself runs from People > Time > Payroll.',
+      ]},
+      { title: 'Monitoring Computers', where: 'Workforce Analytics', view: 'employee-tracking', items: [
         'If monitoring is on: enroll each company computer (desktop agent), or have people share their screen in Chrome when clocking in.',
       ]},
-      { title: 'Run a test pay period', where: 'People > Time', view: 'hr', sub: 'hr-time', items: [
+      { title: 'Run a Test Pay Period', where: 'People > Time', view: 'hr', sub: 'hr-time', items: [
         'Have a few people punch in and out for a week, with a break, a missed punch and a punch request.',
         'Clear the Action Log (punch requests and missing punches), run Payroll Readiness, then have the manager Review & Approve one time sheet and the employee sign it.',
         'Compare totals and overtime with the client’s current payroll for the same days.',
@@ -381,6 +403,8 @@ export const IMPL_PHASES = [
       { id: 'time.test', text: 'A test time sheet was approved by the manager and signed by the employee - totals match payroll.' },
       { id: 'time.codes', text: 'Payroll export codes match the client’s QuickBooks payroll items (or the defaults are confirmed).' },
       { id: 'time.readiness', text: 'Payroll Readiness on the test period shows everyone Ready.' },
+      { id: 'time.leave', text: 'Leave policies, year-end rule, time-off approval and opening balances set (or leave balances confirmed not used).' },
+      { id: 'time.india', text: 'India Contractor Policy on with its start month, and an HR contact set for Extra Time (or no India contractors).' },
     ],
     pitfalls: [
       'Wrong Reports To sends time sheets and time off to the wrong approver.',
@@ -402,26 +426,27 @@ export const IMPL_PHASES = [
       'Schedule rules (rest between shifts, days in a row, daily and weekly overtime, most hours a week) and whether sharing over a warning needs a reason (on by default).',
       'No-show alert minutes (10 by default, 0 = off), and whether to alert for usual hours too and before overtime (both off by default).',
       'Whether shared shifts go on Outlook calendars (off by default) and whether people confirm a shared schedule (on by default).',
-      'Outdoor crews only: which companies get weather alerts, and each group’s work site and weather deciders.',
+      'Outdoor crews only: which companies get weather alerts, and each group’s work site and weather deciders. Only departments with Weather Calls on (Phase 3) are ever on a call.',
     ],
     steps: [
-      { title: 'Shift settings', where: 'Settings > Shifts & Scheduling', view: 'admin-console', sub: 'shifts:shift-settings', items: [
+      { title: 'Shift Settings', where: 'Settings > Shifts & Scheduling', view: 'admin-console', sub: 'shifts:shift-settings', items: [
         'Set the Scope box to Every company for the defaults, or pick a company; a company with none of its own follows the defaults.',
         'Schedule Basics (Team Time Zone, Week Starts On, Default Grace) and Requests & Visibility.',
         'Attendance (No-Show Alert, Left Early, the break and meal reminders, Alert for usual hours too), Overtime Alerts (daily and weekly warning minutes), Rules, and Sharing (Outlook calendars, Show In Outlook As, Ask people to confirm a shared schedule).',
       ]},
-      { title: 'Shift types and groups', where: 'Settings > Shifts & Scheduling', view: 'admin-console', sub: 'shifts', items: [
+      { title: 'Shift Types and Groups', where: 'Settings > Shifts & Scheduling', view: 'admin-console', sub: 'shifts', items: [
         'Shift Types: name, code, color, times, grace, unpaid break, time zone, days and company (Shared With Every Company or one).',
         'Groups: members and schedulers. Leave Teams binding to the job roles; a group binding is only the fallback.',
         'Outdoor crews: give the group a Work Site with coordinates (from the Location Library) and its Weather Deciders.',
       ]},
-      { title: 'Weather alerts (outdoor crews only)', where: 'Settings > Shifts & Scheduling > Weather Alerts', view: 'admin-console', sub: 'shifts:shift-weather', items: [
+      { title: 'Weather Alerts (Outdoor Crews Only)', where: 'Settings > Shifts & Scheduling > Weather Alerts', view: 'admin-console', sub: 'shifts:shift-weather', items: [
         'Switch on each company to watch (off by default), check the rain thresholds and quiet hours, and click Check Now.',
+        'Confirm Weather Calls is on for the outdoor departments only (Settings > Companies > the company > Departments). People in other departments on the same group are never on the call.',
       ]},
-      { title: 'Build and publish the first schedule', where: 'Team > Schedule', view: 'shifts', sub: 'schedule', items: [
+      { title: 'Build and Publish the First Schedule', where: 'Team > Schedule', view: 'shifts', sub: 'schedule', items: [
         'Fill a week per group (... > Fill From Usual Hours), copy it forward (Copy Week), then Share - Review shows every change and rule warning first.',
       ]},
-      { title: 'Test day messages', where: 'Workday (as a test person)', view: 'myhr', items: [
+      { title: 'Test Day Messages', where: 'Workday (as a test person)', view: 'myhr', items: [
         'Punch in as someone in each role: the beginning-of-day message posts to their role’s Teams chat or channel, ending with "Sent by Nexus".',
       ]},
     ],
@@ -432,7 +457,7 @@ export const IMPL_PHASES = [
       { id: 'shifts.rules', text: 'Rules, no-show alert and reason-to-share settings agreed for every company.' },
       { id: 'shifts.attendance', text: 'A test no-show alert reached the right manager, and the grid shows On Time / Late for a past day.' },
       { id: 'shifts.calendar', text: 'Outlook calendars and confirm requests set on or off per company (Calendars.ReadWrite consented if on).' },
-      { id: 'shifts.weather', text: 'Weather alerts on, with a work site and deciders per outdoor group - or confirmed not needed.' },
+      { id: 'shifts.weather', text: 'Weather alerts on, with a work site and deciders per outdoor group and Weather Calls on for the outdoor departments only - or confirmed not needed.' },
     ],
     pitfalls: [
       'Creating a group for every sub-team to route Teams messages. Route by job role instead; groups are for scheduling.',
@@ -443,23 +468,38 @@ export const IMPL_PHASES = [
 
   // ── 8 ────────────────────────────────────────────────────────────────────
   {
-    id: 'checklists', n: 8, title: 'Onboarding and Offboarding Checklists', icon: 'ListChecks', owner: 'Client HR', time: '1 to 2 hours',
-    summary: 'The steps HR, IT, Accounting and managers take for every new starter, promotion, leaver and leave of absence.',
+    id: 'checklists', n: 8, title: 'Checklists, Probation, HR Letters and Performance', icon: 'ListChecks', owner: 'Client HR', time: '2 to 3 hours',
+    summary: 'The steps HR, IT, Accounting and managers take for every new starter, promotion, leaver and leave of absence - plus probation, the letters HR issues and performance reviews.',
     why: 'Checklists make joining and leaving repeatable: each step has an owner and a due date counted from the start date, exit date or leave start, with reminders. Templates vary by worker type and country (an I-9 for US employees, PF for India, a W-9 for contractors).',
     steps: [
       { title: 'The Checklist Library', where: 'Settings > Hiring & Onboarding > Checklist Library', view: 'admin-console', sub: 'hiring:checklist-library', items: [
         'Review the standard onboarding, promotion, offboarding and leave steps and adjust them to the client’s process.',
         'Set the default owner for each kind of step (HR, IT, Accounting).',
       ]},
-      { title: 'Each company', where: 'Settings > Hiring & Onboarding > pick the company > Checklists', view: 'admin-console', sub: 'hiring', items: [
+      { title: 'Each Company', where: 'Settings > Hiring & Onboarding > pick the company > Checklists', view: 'admin-console', sub: 'hiring', items: [
         'Set a head and a backup for the HR, IT and Accounting departments (Settings > Companies > the company > Departments), then read the Role Checklists audit: every role should have its onboarding, promotion, offboarding and leave steps built. Click Build on any role with something Missing.',
       ]},
-      { title: 'Each role', where: 'Team > Role Checklists', view: 'shifts', sub: 'role-checklists', items: [
+      { title: 'Each Role', where: 'Team > Role Checklists', view: 'shifts', sub: 'role-checklists', items: [
         'The head of each department adds the extra steps its roles need - their training and tools. Set department heads under Companies > the company > Departments first.',
+      ]},
+      { title: 'Probation', where: 'Settings > Hiring & Onboarding > Probation', view: 'admin-console', sub: 'hiring:probation', items: [
+        'The probation length (calendar months), when the manager and the HR contact are reminded, and the confirmation and extension letter templates with their letterhead - a default, and each company’s own.',
+        'Only new hires are tracked, from their start date. A manager’s Confirm, Extend or End is a recommendation; HR finalizes, and the employee is the only signer of the letter.',
+      ]},
+      { title: 'Letterheads and HR Letters', where: 'Settings > Branding & Email > Letterheads, then Settings > Hiring & Onboarding > HR Letters', view: 'admin-console', sub: 'hiring:hr-letters', items: [
+        'Letterheads: the letterheads documents and letters print on, and the default.',
+        'HR Letters: which letters each company offers in Workday > Ask HR (employment verification, salary certificate, experience letter, address proof, visa NOC), the Documents template each prints from and its letterhead. The company signatory signs them; the employee never signs a letter.',
+      ]},
+      { title: 'Performance', where: 'Settings > Performance', view: 'admin-console', sub: 'performance', items: [
+        'Review Rating Scale (1 to 5 by default) and Company Values - a new review cycle copies them.',
+        'Goal and 1:1 Reminders: the reminder before a 1:1 with an empty agenda, and how long a goal may go without a check-in.',
       ]},
     ],
     checks: [
       { id: 'checklists.templates', text: 'Onboarding, offboarding and leave templates reviewed and owners set.' },
+      { id: 'checklists.probation', text: 'Probation length, reminders and letter templates set for every company that tracks probation.' },
+      { id: 'checklists.letters', text: 'Letterheads uploaded and the HR letters each company offers set up.' },
+      { id: 'checklists.performance', text: 'Review rating scale, company values and reminders agreed (or Performance confirmed not used).' },
     ],
     pitfalls: [
       'Offboarding is a checklist plus the Left status. Marking Left signs the person out everywhere - start the checklist first.',
@@ -483,14 +523,14 @@ export const IMPL_PHASES = [
         'Each project’s settings: Time Tracking (Automatic, On or Off) and its default view.',
         'Task Notifications (Settings > Emails & Reminders): the batching window for task emails.',
       ]},
-      { title: 'Ticket desks', where: 'Settings > Tickets', view: 'admin-console', sub: 'tickets', items: [
+      { title: 'Ticket Desks', where: 'Settings > Tickets', view: 'admin-console', sub: 'tickets', items: [
         'Routing & Escalation: departments that take tickets, their order, default agents, and each department’s head and default assignee.',
         'Notifications, SLA & Ticket Types (resolution and first response hours per priority), Help Topics per department (with an optional default assignee per topic), Desk Access (requester, agent, supervisor) and Saved Replies (shared answers for the desk).',
       ]},
       { title: 'Knowledge Base', where: 'Knowledge Base > Manage', view: 'sop', items: [
         'Load the SOPs and policies, assign sign-offs, and build required training courses.',
       ]},
-      { title: 'Documents and e-signature', where: 'Documents', view: 'documents', items: [
+      { title: 'Documents and E-Signature', where: 'Documents', view: 'documents', items: [
         'Upload the templates, set a default per type, and define merge fields.',
       ]},
       { title: 'Files (Egnyte)', where: 'Files', view: 'egnyte', items: [
@@ -518,10 +558,11 @@ export const IMPL_PHASES = [
     steps: [
       { title: 'Item Management', where: 'Settings > Items & Equipment, then Item Management > Manage', view: 'inventory', items: [
         'Item Types & Custom Fields first, then Import Items From CSV or Excel. Assign permanent equipment to people.',
-        'Equipment Reminders (Notifications & Communications): overdue returns, warranty and inspection dates.',
+        'Equipment Reminders (Settings > Emails & Reminders > Equipment Reminders): overdue returns, warranty and inspection dates.',
       ]},
       { title: 'Asset Management', where: 'Asset Management', view: 'property-asset', items: [
-        'Add each property with its PM / Asset Manager (who gets its reminders and ticket alerts).',
+        'Add each asset (Add Asset: Property / Real Estate, Vehicle or Heavy Equipment), or Import From a Spreadsheet in the portfolio’s more menu. Give each property its PM / Asset Manager, who gets its reminders and ticket alerts.',
+        'Mark Private only the assets company officers alone should see.',
       ]},
       { title: 'Accounting', where: 'Accounting > Tools > Access', view: 'accounting', items: [
         'Connected through Nexus Accounting (Sage Intacct). Give the Accounting grant (Editor for close work and AMA Settings, Full for Access, Allocations and Compensation), then limit which entities each person reads on Tools > Access, or click Bring From Intacct to copy Intacct’s own limits.',
@@ -531,13 +572,14 @@ export const IMPL_PHASES = [
       ]},
       { title: 'Operations (Cubby)', where: 'Operations', view: 'operations', items: [
         'The Nexus team sets the Cubby API key on the server; until then Operations says Cubby is not connected. Nexus copies Cubby every 15 minutes and only reads it.',
-        'Give the Operations grant to facility managers, then add each facility’s competitors on Market Rates (Add Competitor, Set Rates Page) so the suggested rates have data.',
+        'Give the Operations grant to facility managers, then add each facility’s competitors in Pricing > Comp Set & Manual Entry so the suggested rates on CMA Overview have data.',
+        'Push to Cubby (Settings > Operations) stays off until the client wants Nexus to send rates and rent changes to Cubby.',
       ]},
-      { title: 'Dashboard links', where: 'Dashboard > Links > Manage Links', view: 'dashboard', items: [
+      { title: 'Dashboard Links', where: 'Dashboard > Links > Manage Links', view: 'dashboard', items: [
         'Add company links by category, department and company, or Batch Import them.',
       ]},
-      { title: 'The rest', items: [
-        'Credential Vault: Add Credential > Import From CSV for the shared passwords, then set owners and backup owners.',
+      { title: 'The Rest', items: [
+        'Credentials: Add Credential > Import From CSV for the shared passwords, then set owners and backup owners.',
         'Marketing: connect Google Business Profile and Google Ads; set lead goals and budgets per property.',
         'Investor Relations, Construction, IT and Insights: give the grants to their owners and load their records.',
       ]},
@@ -564,30 +606,70 @@ export const IMPL_PHASES = [
         'Equipment Reminders: overdue returns, warranties, inspections, registrations, insurance.',
         'Ticket Manager > Notifications: SLA breach alerts (on by default, bell only) and due and overdue ticket reminders (off by default, sent on Teams from the assignee’s manager).',
       ]},
+      { title: 'Workforce Scorecard', where: 'Settings > Emails & Reminders > Workforce Scorecard', view: 'admin-console', sub: 'emails:workforce-scorecard', items: [
+        'The weekly email to managers scoring each hourly person’s punched hours against their expected hours: turn it on, check the standard day and thresholds.',
+        'Give the Workforce Scorecard grant to whoever should receive it: Viewer for a manager’s direct reports, Editor for the whole reporting line, Full for the company. The email goes to every grant holder with people in scope.',
+      ]},
     ],
     checks: [
       { id: 'notify.briefing', text: 'Daily Briefing and Weekly Digest decided and tested.' },
       { id: 'notify.reminders', text: 'HR and equipment reminder timing set.' },
       { id: 'notify.tickets', text: 'Ticket breach alerts and overdue reminders decided; managers told before reminders were switched on.' },
+      { id: 'notify.scorecard', text: 'Workforce Scorecard email decided, and the grant given to the managers who should get it.' },
     ],
   },
 
   // ── 12 ───────────────────────────────────────────────────────────────────
   {
-    id: 'verify', n: 12, title: 'Verify Before Go-Live', icon: 'BadgeCheck', owner: 'Nexus Team + Client Admin', time: '1 day',
+    id: 'workflows', n: 12, title: 'Workflows and Automations', icon: 'Workflow', owner: 'Client Admin + Module Owners', time: '2 to 3 hours',
+    summary: 'Decide which automatic jobs run, set the limits, and build the first workflows from templates.',
+    why: 'Workflows automate what people would otherwise remember to do: when something happens in Nexus (time off approved, a probation about to end, a ticket breaching), they send the email, create the task or ask for the approval. Everything automatic - workflows, Tasks automation rules and the built-in background jobs - is listed in one place and can be switched off there, so the client decides up front what runs.',
+    needs: ['Phase 4 (roles and grants), Phase 5 (people and managers), Phase 11 (who hears about what).'],
+    decisions: [
+      'Whether workflows run for each company, and the per-hour and recipient ceilings.',
+      'Which built-in automations the client wants off (each lists what it does and the setting that controls it).',
+      'Who builds workflows (Workflows grant: Editor builds their own, Full manages every workflow in their scope) and the first two or three to build.',
+    ],
+    steps: [
+      { title: 'Workflow Settings', where: 'Settings > Workflows', view: 'admin-console', sub: 'workflows', items: [
+        'Whether workflows run for a company, the per-hour and recipient ceilings and the weekly owner digest - a default, and each company’s own.',
+        'Global Admins only: Pause All (stops every workflow at once; events still queue for 7 days) and the webhook allow-list.',
+      ]},
+      { title: 'Review the Automations', where: 'Workflows > Automations', view: 'workflows', items: [
+        'Read Built-In Automations with the client. A Global Admin can switch any one off; everyone else sees an Off chip.',
+        'Tasks automation rules are listed here too, each with its own switch.',
+      ]},
+      { title: 'Build the First Workflows', where: 'Workflows > Templates', view: 'workflows', items: [
+        'Pick a template, click Use Template, and fill the marked blanks. Click Test to run it against a recent event without sending anything, then Publish.',
+        'Check the Runs tab after the first real event: every step, what it changed and the record it touched.',
+      ]},
+    ],
+    checks: [
+      { id: 'workflows.settings', text: 'Workflow settings and ceilings set for every company (or workflows confirmed off).' },
+      { id: 'workflows.automations', text: 'Built-in automations reviewed with the client; the unwanted ones switched off.' },
+      { id: 'workflows.first', text: 'The first workflows built from templates, tested and published, with their owners named.' },
+    ],
+    pitfalls: [
+      'A workflow runs as its owner and can only do what the owner could do by hand. When the owner leaves, re-own it before it starts failing.',
+    ],
+  },
+
+  // ── 13 ───────────────────────────────────────────────────────────────────
+  {
+    id: 'verify', n: 13, title: 'Verify Before Go-Live', icon: 'BadgeCheck', owner: 'Nexus Team + Client Admin', time: '1 day',
     summary: 'See Nexus as each kind of person, prove each flow end to end, and fix what is off.',
     why: 'Setup screens show what was configured; only acting as real people shows what they will experience. One person per role and tier, walked through their day, catches the wrong module, the missing manager and the misrouted message before anyone else sees it.',
     steps: [
-      { title: 'Act as each kind of person', where: 'Profile menu (top right) > Tools > Act As', items: [
+      { title: 'Act As Each Kind of Person', where: 'Profile menu (top right) > Tools > Act As', items: [
         'Pick one person per job role and tier (an employee, a supervisor, a manager, HR). Check their menu, their Workday, their People view and their approvals.',
       ]},
-      { title: 'Prove the flows', items: [
+      { title: 'Prove the Flows', items: [
         'A punch in and out with the day messages; a punch request approved from the Action Log.',
         'A time-off request approved by the right manager; a time sheet approved by the manager and signed by the employee.',
         'A ticket raised and routed; a task email received; a document signed and filed.',
         'A profile change in Nexus appearing in Microsoft 365, and one made there coming back.',
       ]},
-      { title: 'Review the logs', where: 'Settings > Logs', view: 'admin-console', sub: 'audit', items: [
+      { title: 'Review the Logs', where: 'Settings > Logs', view: 'admin-console', sub: 'audit', items: [
         'Every access and settings change is recorded - skim it for anything unexpected.',
       ]},
     ],
@@ -598,20 +680,20 @@ export const IMPL_PHASES = [
     ],
   },
 
-  // ── 13 ───────────────────────────────────────────────────────────────────
+  // ── 14 ───────────────────────────────────────────────────────────────────
   {
-    id: 'go-live', n: 13, title: 'Go Live and Train', icon: 'Rocket', owner: 'Nexus Team + Client', time: '1 to 2 days',
+    id: 'go-live', n: 14, title: 'Go Live and Train', icon: 'Rocket', owner: 'Nexus Team + Client', time: '1 to 2 days',
     summary: 'Announce, train each audience, and support the first pay period closely.',
     why: 'People adopt what they are shown. Short sessions per audience (everyone, managers, HR, admins) using the built-in Tours, Documentation and Help with This Page get Nexus used the way it was set up.',
     steps: [
-      { title: 'Announce and train', items: [
+      { title: 'Announce and Train', items: [
         'Send the go-live announcement with the sign-in link and the date the old tools stop.',
-        'Everyone: Workday, punching in (also from the time clock at the foot of the left menu), time off, Help Center, Help with This Page, Take the Tour and What’s New (Follow the modules they use).',
-        'Managers: People (their team), approvals, the Action Log, Shifts.',
+        'Everyone: Workday, punching in (also from the time clock at the foot of the left menu), time off, Approvals, Help Center (Ask Nexus and Submit a Ticket), Help with This Page, Take the Tour and What’s New (Follow the modules they use).',
+        'Managers: People (their team), Approvals, the Action Log, Shifts, probation recommendations and Workday > Performance.',
         'HR: People, Checklists, Pay & Benefits, time sheet approval, Payroll Readiness and the payroll exports.',
         'Admins: Settings, Access, Act As, Logs - and this guide.',
       ]},
-      { title: 'Watch the first weeks', items: [
+      { title: 'Watch the First Weeks', items: [
         'Watch the first pay period closely: the Action Log daily, missing punches, and Payroll Readiness before each payroll.',
         'Collect feedback through Help Center tickets and What’s New > My Requests (requesters see the status change); merged fixes publish to What’s New on their own.',
       ]},
@@ -623,19 +705,19 @@ export const IMPL_PHASES = [
     ],
   },
 
-  // ── 14 ───────────────────────────────────────────────────────────────────
+  // ── 15 ───────────────────────────────────────────────────────────────────
   {
-    id: 'run', n: 14, title: 'Running Nexus After Go-Live', icon: 'RefreshCw', owner: 'Client Admin + Client HR', time: 'Ongoing',
+    id: 'run', n: 15, title: 'Running Nexus After Go-Live', icon: 'RefreshCw', owner: 'Client Admin + Client HR', time: 'Ongoing',
     summary: 'The routines that keep Nexus accurate: joiners, leavers, roles, holidays and access reviews.',
     why: 'An implementation stays good only if the routines around it do. Most drift comes from people joining or leaving outside Nexus, roles edited person by person, and next year’s holidays never added.',
     steps: [
-      { title: 'Joiners and leavers', where: 'People', view: 'hr', sub: 'hr-people', items: [
+      { title: 'Joiners and Leavers', where: 'People', view: 'hr', sub: 'hr-people', items: [
         'Joiner: Add Employee, give the job role and manager, provision, start the onboarding checklist.',
         'Leaver: start the offboarding checklist the day notice is received, hand over tasks, set mailbox handling, then mark Left.',
       ]},
-      { title: 'Regular reviews', items: [
+      { title: 'Regular Reviews', items: [
         'Quarterly: read the access matrix and Access Groups; remove what is no longer needed.',
-        'Yearly: copy each company’s holiday calendar forward; review pay rules and the sign-in policy.',
+        'Yearly: check every Holiday Policy has next year’s holidays (confirm lunar dates nearer the time) and each company’s calendar is right; run Leave Year End in People > Time > Time Off; review pay rules and the sign-in policy.',
         'Change a job role rather than a person when a whole job changes - it applies to everyone with that role at once.',
         'Every payroll: run Payroll Readiness, then export. After a back-dated raise: run Retro Pay to see who is owed.',
       ]},

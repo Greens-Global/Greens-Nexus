@@ -4,6 +4,7 @@ import { ErrorBanner, SkeletonBlocks } from './AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { ExtraTimeStatus, ExtraTimeDecideModal } from './ExtraTime';
 import { hm } from '../lib/extraTime';
+import { Avatar, AvatarName } from '../tasks/components';
 
 // People > Time > Extra Time (India Contractor policy, Neil, Oct 27 2026):
 // the claims waiting on a decision, oldest first, and the last 60 days of
@@ -41,9 +42,12 @@ export default function ExtraTimeQueue({ toastOk, toastErr, onOpenTimecard, onCh
           {rows.map((c) => (
             <tr key={c.id}>
               <td style={cell}>
-                <button type="button" onClick={() => onOpenTimecard?.(c.employeeEmail, c.periodStart, 'fixed')}
-                  style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: 'var(--wk-brand)', cursor: 'pointer' }}
-                  title="Open the time sheet">{c.name}</button>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Avatar email={c.employeeEmail} name={c.name} size={26} />
+                  <button type="button" onClick={() => onOpenTimecard?.(c.employeeEmail, c.periodStart, 'fixed')}
+                    style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: 'var(--wk-brand)', cursor: 'pointer' }}
+                    title="Open the time sheet">{c.name}</button>
+                </span>
               </td>
               <td style={cell}>{formatDate(c.date)}</td>
               <td style={cell}><ExtraTimeStatus claim={c} /></td>
@@ -54,7 +58,7 @@ export default function ExtraTimeQueue({ toastOk, toastErr, onOpenTimecard, onCh
                 {c.status === 'declined' && c.decisionNote && <div style={{ color: '#b91c1c', marginTop: 4 }}>Declined: {c.decisionNote}</div>}
               </td>
               <td style={{ ...cell, whiteSpace: 'nowrap', color: 'var(--muted)' }}>
-                {pending ? formatDateTime(c.createdAt) : `${formatDateTime(c.decidedAt)}${c.decidedByName ? ` by ${c.decidedByName}` : ''}`}
+                {pending ? formatDateTime(c.createdAt) : <>{formatDateTime(c.decidedAt)}{c.decidedByName ? <> by <AvatarName email={c.decidedBy} name={c.decidedByName} size={18} /></> : ''}</>}
               </td>
               <td style={cell}>
                 {c.canDecide && <button className="secondary-btn" style={{ fontSize: 12 }} onClick={() => setDeciding(c)}>{pending ? 'Decide' : 'Change'}</button>}

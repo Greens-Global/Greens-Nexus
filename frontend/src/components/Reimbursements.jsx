@@ -12,7 +12,7 @@ import { usePopupNudge } from '../lib/usePopupNudge';
 import { Spinner } from './AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { currencyOptions } from '../asset/lib/currency';
-import { DateField, PersonSelect } from '../tasks/components';
+import { DateField, PersonSelect, AvatarName } from '../tasks/components';
 
 export const OPEN_REIMBURSEMENTS = 'nexus:open-reimbursements';
 const CATEGORIES = [
@@ -235,7 +235,9 @@ function ClaimRow({ r, as, onChanged, onEdit, flash }) {
     action === 'approve' ? 'Approved' : action === 'reject' ? 'Rejected' : 'Sent back');
   const canDecide = (as === 'approve' && r.status === 'submitted') || (as === 'hr' && r.status === 'approver_approved');
   const mineOpen = as === 'mine' && ['submitted', 'approver_approved', 'sent_back'].includes(r.status);
-  const who = as === 'mine' ? (r.approverName ? `Approver: ${r.approverName}` : '') : r.name;
+  const who = as === 'mine'
+    ? (r.approverName ? <>Approver: <AvatarName email={r.approverEmail} name={r.approverName} size={18} /></> : '')
+    : (r.name ? <AvatarName email={r.email} name={r.name} size={20} /> : '');
   return (
     <div style={{ padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -289,7 +291,7 @@ function ClaimRow({ r, as, onChanged, onEdit, flash }) {
       {showHistory && (
         <ol style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12, color: 'var(--muted)', display: 'grid', gap: 3 }}>
           {r.history.map((h, i) => (
-            <li key={i}><strong style={{ color: 'var(--ink)' }}>{h.label}</strong> · {h.byName} · {formatDateTime(h.at)}{h.note ? ` - “${h.note}”` : ''}</li>
+            <li key={i}><strong style={{ color: 'var(--ink)' }}>{h.label}</strong> · {h.byName ? <AvatarName email={h.by} name={h.byName} size={16} /> : ''} · {formatDateTime(h.at)}{h.note ? ` - “${h.note}”` : ''}</li>
           ))}
         </ol>
       )}

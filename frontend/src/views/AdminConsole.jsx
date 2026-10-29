@@ -286,7 +286,7 @@ const GROUPS = [
   { id: 'company-profile', subject: 'companies', face: 'company', scope: 'company', icon: Building2, title: 'Company',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Profile and logo, managers and HR contact, contractor invoice recipients, email domains, departments and their heads, and the holiday calendar.',
-    keywords: 'company profile legal name country tax id ein gstin signatory manager hr contact invoice recipients address phone logo social links email domains notes departments department head holiday calendar holidays' },
+    keywords: 'company profile legal name country tax id ein gstin signatory manager hr contact invoice recipients address phone logo social links email domains notes departments department head holiday calendar holidays weather calls rain' },
   // Holiday policies (Neil, Oct 29 2026): named holiday sets applied to one or
   // more companies; each company's Holiday Calendar can skip or change one.
   { id: 'holiday-policies', subject: 'companies', face: 'org', scope: 'org', icon: CalendarDays, title: 'Holiday Policies',
@@ -321,7 +321,7 @@ const GROUPS = [
   // Security
   { id: 'sign-in-sessions', subject: 'security', face: 'org', scope: 'org', icon: ShieldCheck, title: 'Sign-In & Sessions',
     needs: { role: 'administrator' },
-    sub: 'How long web, Act As and Credential Vault sessions last, and guest sign-in codes.',
+    sub: 'How long web, Act As and Credentials sessions last, and guest sign-in codes.',
     keywords: 'session timeout idle act as vault unlock guest partner code lockout invite security' },
   { id: 'signin-policy', subject: 'security', face: 'org', scope: 'org', icon: FileCheck, title: 'Sign-In Policy',
     needs: { role: 'administrator' },
