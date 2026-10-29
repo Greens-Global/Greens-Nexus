@@ -3321,6 +3321,10 @@ def _run_migrations():
         # Knowledge Base photo-proof quiz answers (WP 5.5, 10/29/2026) - a new
         # table, explicit RLS. models.KbPhotoReview.
         "ALTER TABLE kb_photo_reviews ENABLE ROW LEVEL SECURITY",
+        # Notes (Dashboard > Notes, Neil 10/29/2026) - two new tables, explicit
+        # RLS. models.NexusNote / NexusNoteVersion.
+        "ALTER TABLE nexus_notes ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE nexus_note_versions ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5067,3 +5071,5 @@ from routers import help_center as help_center_router  # noqa: E402 - new table 
 app.include_router(help_center_router.router)  # Help Center: Ask Nexus (docs only), failed searches, Was This Helpful?, Known Issues (Oct 2026)
 from routers import kb_reminder_settings  # noqa: E402
 app.include_router(kb_reminder_settings.router)  # Training Reminders switches - Settings > Emails & Reminders (Sagar, Oct 28 2026)
+from routers import notes as notes_router  # noqa: E402 - two new tables: create_all + explicit RLS lines
+app.include_router(notes_router.router)  # Notes: the scratchpad that follows you - Dashboard > Notes, Quick Note, the Notes widget (Neil, Oct 29 2026)

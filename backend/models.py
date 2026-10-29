@@ -9377,3 +9377,48 @@ class KbPhotoReview(Base):
     decided_at   = Column(String, default="")
     note         = Column(String, default="")
     created_at   = Column(String, default="")
+
+
+class NexusNote(Base):
+    """A note in Dashboard > Notes (Neil, Oct 29 2026, routers/notes.py): the
+    scratchpad that follows a person around Nexus. Private to its owner unless
+    shared with named Nexus People (shared_with, a JSON list of {email, can}
+    with can = read | edit). kind 'daily' is the one scratchpad note per owner
+    per day that Quick Note and the dashboard widget write to. `rev` goes up on
+    every save - a save made from an older rev is refused with the server copy
+    (409). body is sanitized HTML, `text` its plain words for search and list
+    previews. Trash is trashed_at; only the owner deletes forever, and only
+    from the Trash. New table - create_all builds it; RLS line in main.py's
+    Postgres list."""
+    __tablename__ = "nexus_notes"
+    id          = Column(String, primary_key=True)   # note_ + hex
+    owner_email = Column(String, nullable=False, index=True)
+    kind        = Column(String, default="note")      # note | daily
+    title       = Column(String, default="")
+    body        = Column(Text, default="")
+    text        = Column(Text, default="")
+    day         = Column(String, default="", index=True)   # YYYY-MM-DD the note belongs to
+    tags        = Column(Text, default="[]")          # JSON list of strings
+    color       = Column(String, default="")          # a label key, '' = none
+    pinned      = Column(Boolean, default=False)
+    shared_with = Column(Text, default="[]")          # JSON list of {email, can}
+    trashed_at  = Column(String, default="")
+    rev         = Column(Integer, default=1)
+    updated_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class NexusNoteVersion(Base):
+    """An earlier copy of a note (routers/notes.py): taken before a save when
+    the last copy is more than ten minutes old, and before a restore; the
+    newest 25 per note are kept. New table - create_all builds it; RLS line in
+    main.py's Postgres list."""
+    __tablename__ = "nexus_note_versions"
+    id         = Column(String, primary_key=True)   # nv_ + hex
+    note_id    = Column(String, nullable=False, index=True)
+    title      = Column(String, default="")
+    body       = Column(Text, default="")
+    rev        = Column(Integer, default=0)
+    saved_by   = Column(String, default="")
+    created_at = Column(String, default="")
