@@ -152,16 +152,16 @@ export default function ReportBuilder({ canPublish = true }) {
     if (!shown || busy) return;
     setBusy(format);
     try {
-      if (format === 'csv') downloadCsv(csvFileName(shown), csvRows(shown, entities));
+      if (format === 'csv') downloadCsv(csvFileName(shown, entities), csvRows(shown, entities));
       if (format === 'excel') {
         const { buildStatementWorkbook } = await import('./reportExcel');
         const bytes = await buildStatementWorkbook({ title, result: shown, entities });
-        downloadBlob(csvFileName(shown).replace(/\.csv$/, '.xlsx'), new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+        downloadBlob(csvFileName(shown, entities).replace(/\.csv$/, '.xlsx'), new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       }
       if (format === 'pdf') {
         const { buildPackagePdf } = await import('./reportPdf');
         const bytes = await buildPackagePdf({ name: title, statements: [{ title, result: shown, entities }], cover: false });
-        downloadBlob(csvFileName(shown).replace(/\.csv$/, '.pdf'), new Blob([bytes], { type: 'application/pdf' }));
+        downloadBlob(csvFileName(shown, entities).replace(/\.csv$/, '.pdf'), new Blob([bytes], { type: 'application/pdf' }));
       }
     } catch (e) {
       setError(e?.message || 'Could not export the report.');
@@ -271,7 +271,7 @@ export default function ReportBuilder({ canPublish = true }) {
                 <input type="text" value={g.name} maxLength={120} onChange={(e) => renameGroup(i, e.target.value)} aria-label={`Row group ${i + 1} name`}
                   placeholder="Line name, e.g. Advertising" style={{ ...control, flex: '1 1 220px', maxWidth: 360 }} />
                 <AccountsPicker accounts={chart || []} value={g.accounts} onChange={(accounts) => groupAccounts(i, accounts)} showHistorical={!!prefs.showHistoricalAccounts}
-                  allLabel="No accounts yet" ariaLabel={`Row group ${i + 1} accounts`} />
+                  allLabel="Choose Accounts" ariaLabel={`Row group ${i + 1} accounts`} />
                 <button type="button" style={iconBtn} onClick={() => moveGroup(i, -1)} disabled={i === 0} aria-label={`Move row group ${i + 1} up`} title="Move up"><ArrowUp size={14} /></button>
                 <button type="button" style={iconBtn} onClick={() => moveGroup(i, 1)} disabled={i === groups.length - 1} aria-label={`Move row group ${i + 1} down`} title="Move down"><ArrowDown size={14} /></button>
                 <button type="button" style={iconBtn} onClick={() => removeGroup(i)} aria-label={`Remove row group ${i + 1}`} title="Remove"><Trash2 size={14} /></button>

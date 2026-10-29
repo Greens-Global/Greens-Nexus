@@ -459,7 +459,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' };
   const select = { height: 30, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)' };
 
-  const heading = [term ? `"${term}"` : null, party ? partyText(party) : null, account ? `${account.code} ${account.name || ''}`.trim() : drill && !drill.account && drill.accountName ? `${drill.accountName} - every line` : null].filter(Boolean).join(' - ') || 'Ledger lines';
+  const heading = [term ? `"${term}"` : null, party ? partyText(party) : null, account ? `${account.code} ${account.name || ''}`.trim() : drill && !drill.account && drill.accountName ? `${drill.accountName} - Every Line` : null].filter(Boolean).join(' - ') || 'Ledger Lines';
   const periodText = usePeriod ? `${drill.from ? formatDate(drill.from) : 'Start'} - ${formatDate(drill.to)}` : 'All Dates';
   const labelAt = columns.findIndex((c) => !c.num);
 

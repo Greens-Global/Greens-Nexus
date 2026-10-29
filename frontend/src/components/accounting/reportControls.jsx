@@ -492,7 +492,7 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
 
 // Which accounts the statement shows: every account it could show, by
 // section, with a tick per account. Nothing ticked = all of them.
-// Oct 23 (Report Builder): `allLabel` names an empty pick ("No accounts yet"
+// Oct 23 (Report Builder): `allLabel` names an empty pick ("Choose Accounts"
 // on a row group) and `ariaLabel` tells several pickers on one screen apart.
 export function AccountsPicker({ accounts, value, onChange, showHistorical = false, align = 'left', allLabel = 'All Accounts', ariaLabel = 'Accounts' }) {
   const [open, setOpen, ref] = usePopover();

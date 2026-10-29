@@ -133,7 +133,7 @@ export default function ManualJournalEntries() {
     setBusy(format);
     try {
       const table = viewTable(rows, view.columns, {
-        title: 'Manual Journal Entries', period: `${config.from}_${config.to}`,
+        title: 'Manual Journal Entries', period: `${formatDate(config.from)} - ${formatDate(config.to)}`.replace(/\//g, '-'),
         subtitle: [`${formatDate(config.from)} - ${formatDate(config.to)}`, config.entities.length ? config.entities.join(', ') : 'All Entities', `${rows.length} entries`].join(' · '),
         totalLabel: 'Totals',
       });

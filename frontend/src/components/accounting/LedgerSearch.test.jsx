@@ -295,7 +295,7 @@ describe('LedgerSearch grid', () => {
     const sent = api.searchAccountingLedger.mock.calls.at(-1)[0];
     expect(sent).toMatchObject({ location: '15000', from: '2026-09-01', to: '2026-09-30', book: 'accrual', journals: 'APJ,ARJ' });
     expect(sent.account).toBeUndefined();
-    expect(screen.getByRole('heading', { name: 'Net Income - every line' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Net Income - Every Line' })).toBeTruthy();
     expect(screen.getByText('Journals: APJ, ARJ')).toBeTruthy();
   });
 
